@@ -9,9 +9,9 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import requests
-from servicenow_mcp.resources.changesets import ChangesetListParams, ChangesetResource
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.resources.changesets import ChangesetListParams, ChangesetResource
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
 
