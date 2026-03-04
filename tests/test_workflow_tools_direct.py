@@ -35,9 +35,10 @@ def setup_auth_and_config():
 
     if not all([instance_url, username, password]):
         logger.error(
-            "Missing required environment variables. Please set SERVICENOW_INSTANCE_URL, SERVICENOW_USERNAME, and SERVICENOW_PASSWORD."
+            "Missing required environment variables. "
+            "Please set SERVICENOW_INSTANCE_URL, SERVICENOW_USERNAME, "
+            "and SERVICENOW_PASSWORD."
         )
-        exit(1)
 
     # Create authentication configuration
     auth_config = AuthConfig(

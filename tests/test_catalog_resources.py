@@ -5,13 +5,14 @@ Tests for the ServiceNow MCP catalog resources.
 import unittest
 from unittest.mock import MagicMock, patch
 
-from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.resources.catalog import (
     CatalogCategoryListParams,
     CatalogItemVariableModel,
     CatalogListParams,
     CatalogResource,
 )
+
+from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
 

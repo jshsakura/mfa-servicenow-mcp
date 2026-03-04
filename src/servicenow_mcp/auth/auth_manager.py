@@ -3,7 +3,6 @@ Authentication manager for the ServiceNow MCP server.
 """
 
 import base64
-import importlib
 import logging
 import re
 import time
@@ -177,8 +176,7 @@ class AuthManager:
             raise ValueError("Instance URL is required for browser authentication")
 
         try:
-            playwright_module = importlib.import_module("playwright.sync_api")
-            sync_playwright = getattr(playwright_module, "sync_playwright")
+            from playwright.sync_api import sync_playwright
         except Exception as exc:
             raise ValueError(
                 "Playwright is required for browser authentication. "

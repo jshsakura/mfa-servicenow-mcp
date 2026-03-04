@@ -190,7 +190,8 @@ def create_config(args) -> ServerConfig:
         password = args.password or os.getenv("SERVICENOW_PASSWORD")  # Get password from arg or env
         if not username or not password:
             raise ValueError(
-                "Username and password are required for basic authentication (--username/SERVICENOW_USERNAME, --password/SERVICENOW_PASSWORD)"
+                "Username and password are required for basic authentication "
+                "(--username/SERVICENOW_USERNAME, --password/SERVICENOW_PASSWORD)"
             )
         # Create the specific config (without instance_url)
         basic_cfg = BasicAuthConfig(
@@ -300,7 +301,7 @@ async def arun_server(server_instance):
     import importlib
 
     stdio_module = importlib.import_module("mcp.server.stdio")
-    stdio_server = getattr(stdio_module, "stdio_server")
+    stdio_server = stdio_module.stdio_server
 
     logger.info("Starting server with stdio transport...")
     async with stdio_server() as streams:
@@ -314,7 +315,7 @@ def main():
     """Main entry point for the CLI."""
     # Load environment variables from .env file
     dotenv_module = importlib.import_module("dotenv")
-    load_dotenv = getattr(dotenv_module, "load_dotenv")
+    load_dotenv = dotenv_module.load_dotenv
     load_dotenv()
 
     try:
@@ -341,7 +342,7 @@ def main():
 
         # Run the server using anyio and the stdio transport
         anyio_module = importlib.import_module("anyio")
-        anyio_run = getattr(anyio_module, "run")
+        anyio_run = anyio_module.run
         anyio_run(arun_server, server_to_run)
 
     except ValueError as e:

@@ -266,7 +266,7 @@ class ServiceNowMCP:
             logger.error(
                 f"Unexpected error parsing arguments for tool '{name}': {e}", exc_info=True
             )
-            raise ValueError(f"Failed to parse arguments for tool '{name}': {e}")
+            raise ValueError(f"Failed to parse arguments for tool '{name}': {e}") from e
 
         # Execute the tool implementation function
         try:

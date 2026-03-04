@@ -124,22 +124,18 @@ from servicenow_mcp.tools.incident_tools import resolve_incident as resolve_inci
 from servicenow_mcp.tools.incident_tools import update_incident as update_incident_tool
 from servicenow_mcp.tools.knowledge_base import (
     CreateArticleParams,
+    CreateKnowledgeBaseParams,
+    GetArticleParams,
+    ListArticlesParams,
+    ListKnowledgeBasesParams,
+    PublishArticleParams,
+    UpdateArticleParams,
 )
 from servicenow_mcp.tools.knowledge_base import (
     CreateCategoryParams as CreateKBCategoryParams,  # Aliased
 )
 from servicenow_mcp.tools.knowledge_base import (
-    CreateKnowledgeBaseParams,
-    GetArticleParams,
-    ListArticlesParams,
-)
-from servicenow_mcp.tools.knowledge_base import (
     ListCategoriesParams as ListKBCategoriesParams,  # Aliased
-)
-from servicenow_mcp.tools.knowledge_base import (
-    ListKnowledgeBasesParams,
-    PublishArticleParams,
-    UpdateArticleParams,
 )
 from servicenow_mcp.tools.knowledge_base import create_article as create_article_tool
 from servicenow_mcp.tools.knowledge_base import (
