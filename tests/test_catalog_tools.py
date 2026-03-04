@@ -9,19 +9,19 @@ import requests
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.catalog_tools import (
+    CreateCatalogCategoryParams,
     GetCatalogItemParams,
     ListCatalogCategoriesParams,
     ListCatalogItemsParams,
-    CreateCatalogCategoryParams,
-    UpdateCatalogCategoryParams,
     MoveCatalogItemsParams,
+    UpdateCatalogCategoryParams,
+    create_catalog_category,
     get_catalog_item,
     get_catalog_item_variables,
     list_catalog_categories,
     list_catalog_items,
-    create_catalog_category,
-    update_catalog_category,
     move_catalog_items,
+    update_catalog_category,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
@@ -91,7 +91,9 @@ class TestCatalogTools(unittest.TestCase):
         self.assertIn("sysparm_query", kwargs["params"])
         self.assertIn("active=true", kwargs["params"]["sysparm_query"])
         self.assertIn("category=Hardware", kwargs["params"]["sysparm_query"])
-        self.assertIn("short_descriptionLIKElaptop^ORnameLIKElaptop", kwargs["params"]["sysparm_query"])
+        self.assertIn(
+            "short_descriptionLIKElaptop^ORnameLIKElaptop", kwargs["params"]["sysparm_query"]
+        )
 
     @patch("servicenow_mcp.tools.catalog_tools.requests.get")
     def test_list_catalog_items_error(self, mock_get):
@@ -291,7 +293,9 @@ class TestCatalogTools(unittest.TestCase):
         self.assertEqual(kwargs["params"]["sysparm_offset"], 0)
         self.assertIn("sysparm_query", kwargs["params"])
         self.assertIn("active=true", kwargs["params"]["sysparm_query"])
-        self.assertIn("titleLIKEhardware^ORdescriptionLIKEhardware", kwargs["params"]["sysparm_query"])
+        self.assertIn(
+            "titleLIKEhardware^ORdescriptionLIKEhardware", kwargs["params"]["sysparm_query"]
+        )
 
     @patch("servicenow_mcp.tools.catalog_tools.requests.get")
     def test_list_catalog_categories_error(self, mock_get):
@@ -391,7 +395,9 @@ class TestCatalogTools(unittest.TestCase):
         # Verify request
         mock_patch.assert_called_once()
         args, kwargs = mock_patch.call_args
-        self.assertEqual(args[0], "https://example.service-now.com/api/now/table/sc_category/test_sys_id")
+        self.assertEqual(
+            args[0], "https://example.service-now.com/api/now/table/sc_category/test_sys_id"
+        )
         self.assertEqual(kwargs["json"]["title"], "Updated Category")
         self.assertEqual(kwargs["json"]["description"], "Updated Description")
         self.assertEqual(kwargs["json"]["order"], "200")
@@ -401,7 +407,9 @@ class TestCatalogTools(unittest.TestCase):
         """Test moving catalog items."""
         # Mock response
         mock_response = MagicMock()
-        mock_response.json.return_value = {"result": {"sys_id": "item_id", "category": "target_category_id"}}
+        mock_response.json.return_value = {
+            "result": {"sys_id": "item_id", "category": "target_category_id"}
+        }
         mock_patch.return_value = mock_response
 
         # Create params
@@ -422,11 +430,11 @@ class TestCatalogTools(unittest.TestCase):
         for i, call in enumerate(mock_patch.call_args_list):
             args, kwargs = call
             self.assertEqual(
-                args[0], 
-                f"https://example.service-now.com/api/now/table/sc_cat_item/{params.item_ids[i]}"
+                args[0],
+                f"https://example.service-now.com/api/now/table/sc_cat_item/{params.item_ids[i]}",
             )
             self.assertEqual(kwargs["json"]["category"], "target_category_id")
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

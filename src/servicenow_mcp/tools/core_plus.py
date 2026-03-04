@@ -58,7 +58,9 @@ def _safe_json(response: requests.Response) -> Dict[str, Any]:
         return {"raw": response.text}
 
 
-def sn_health(config: ServerConfig, auth_manager: AuthManager, params: HealthCheckParams) -> Dict[str, Any]:
+def sn_health(
+    config: ServerConfig, auth_manager: AuthManager, params: HealthCheckParams
+) -> Dict[str, Any]:
     url = f"{config.instance_url}/api/now/table/sys_user"
     try:
         response = requests.get(
@@ -88,7 +90,9 @@ def sn_health(config: ServerConfig, auth_manager: AuthManager, params: HealthChe
         }
 
 
-def sn_query(config: ServerConfig, auth_manager: AuthManager, params: GenericQueryParams) -> Dict[str, Any]:
+def sn_query(
+    config: ServerConfig, auth_manager: AuthManager, params: GenericQueryParams
+) -> Dict[str, Any]:
     url = f"{config.instance_url}/api/now/table/{params.table}"
     query_params: Dict[str, Any] = {
         "sysparm_limit": params.limit,
@@ -128,7 +132,9 @@ def sn_query(config: ServerConfig, auth_manager: AuthManager, params: GenericQue
         }
 
 
-def sn_aggregate(config: ServerConfig, auth_manager: AuthManager, params: AggregateParams) -> Dict[str, Any]:
+def sn_aggregate(
+    config: ServerConfig, auth_manager: AuthManager, params: AggregateParams
+) -> Dict[str, Any]:
     agg = params.aggregate.upper()
     url = f"{config.instance_url}/api/now/stats/{params.table}"
     query_params: Dict[str, Any] = {}
@@ -170,7 +176,9 @@ def sn_aggregate(config: ServerConfig, auth_manager: AuthManager, params: Aggreg
         }
 
 
-def sn_schema(config: ServerConfig, auth_manager: AuthManager, params: SchemaParams) -> Dict[str, Any]:
+def sn_schema(
+    config: ServerConfig, auth_manager: AuthManager, params: SchemaParams
+) -> Dict[str, Any]:
     url = f"{config.instance_url}/api/now/table/sys_dictionary"
     query_params = {
         "sysparm_query": f"name={params.table}^internal_type!=collection",
@@ -213,7 +221,9 @@ def sn_schema(config: ServerConfig, auth_manager: AuthManager, params: SchemaPar
         }
 
 
-def sn_discover(config: ServerConfig, auth_manager: AuthManager, params: DiscoverParams) -> Dict[str, Any]:
+def sn_discover(
+    config: ServerConfig, auth_manager: AuthManager, params: DiscoverParams
+) -> Dict[str, Any]:
     url = f"{config.instance_url}/api/now/table/sys_db_object"
     escaped = params.keyword.replace("^", "")
     query = f"nameLIKE{escaped}^ORlabelLIKE{escaped}"
@@ -247,7 +257,9 @@ def sn_discover(config: ServerConfig, auth_manager: AuthManager, params: Discove
         }
 
 
-def sn_nl(config: ServerConfig, auth_manager: AuthManager, params: NaturalLanguageParams) -> Dict[str, Any]:
+def sn_nl(
+    config: ServerConfig, auth_manager: AuthManager, params: NaturalLanguageParams
+) -> Dict[str, Any]:
     text = params.text.strip()
     lower = text.lower()
 

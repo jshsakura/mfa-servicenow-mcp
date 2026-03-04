@@ -23,18 +23,12 @@ from servicenow_mcp.tools.catalog_tools import (
 from servicenow_mcp.tools.catalog_tools import (
     create_catalog_category as create_catalog_category_tool,
 )
-from servicenow_mcp.tools.catalog_tools import (
-    get_catalog_item as get_catalog_item_tool,
-)
+from servicenow_mcp.tools.catalog_tools import get_catalog_item as get_catalog_item_tool
 from servicenow_mcp.tools.catalog_tools import (
     list_catalog_categories as list_catalog_categories_tool,
 )
-from servicenow_mcp.tools.catalog_tools import (
-    list_catalog_items as list_catalog_items_tool,
-)
-from servicenow_mcp.tools.catalog_tools import (
-    move_catalog_items as move_catalog_items_tool,
-)
+from servicenow_mcp.tools.catalog_tools import list_catalog_items as list_catalog_items_tool
+from servicenow_mcp.tools.catalog_tools import move_catalog_items as move_catalog_items_tool
 from servicenow_mcp.tools.catalog_tools import (
     update_catalog_category as update_catalog_category_tool,
 )
@@ -62,30 +56,18 @@ from servicenow_mcp.tools.change_tools import (
     SubmitChangeForApprovalParams,
     UpdateChangeRequestParams,
 )
-from servicenow_mcp.tools.change_tools import (
-    add_change_task as add_change_task_tool,
-)
-from servicenow_mcp.tools.change_tools import (
-    approve_change as approve_change_tool,
-)
-from servicenow_mcp.tools.change_tools import (
-    create_change_request as create_change_request_tool,
-)
+from servicenow_mcp.tools.change_tools import add_change_task as add_change_task_tool
+from servicenow_mcp.tools.change_tools import approve_change as approve_change_tool
+from servicenow_mcp.tools.change_tools import create_change_request as create_change_request_tool
 from servicenow_mcp.tools.change_tools import (
     get_change_request_details as get_change_request_details_tool,
 )
-from servicenow_mcp.tools.change_tools import (
-    list_change_requests as list_change_requests_tool,
-)
-from servicenow_mcp.tools.change_tools import (
-    reject_change as reject_change_tool,
-)
+from servicenow_mcp.tools.change_tools import list_change_requests as list_change_requests_tool
+from servicenow_mcp.tools.change_tools import reject_change as reject_change_tool
 from servicenow_mcp.tools.change_tools import (
     submit_change_for_approval as submit_change_for_approval_tool,
 )
-from servicenow_mcp.tools.change_tools import (
-    update_change_request as update_change_request_tool,
-)
+from servicenow_mcp.tools.change_tools import update_change_request as update_change_request_tool
 from servicenow_mcp.tools.changeset_tools import (
     AddFileToChangesetParams,
     CommitChangesetParams,
@@ -95,91 +77,89 @@ from servicenow_mcp.tools.changeset_tools import (
     PublishChangesetParams,
     UpdateChangesetParams,
 )
-from servicenow_mcp.tools.changeset_tools import (
-    add_file_to_changeset as add_file_to_changeset_tool,
+from servicenow_mcp.tools.changeset_tools import add_file_to_changeset as add_file_to_changeset_tool
+from servicenow_mcp.tools.changeset_tools import commit_changeset as commit_changeset_tool
+from servicenow_mcp.tools.changeset_tools import create_changeset as create_changeset_tool
+from servicenow_mcp.tools.changeset_tools import get_changeset_details as get_changeset_details_tool
+from servicenow_mcp.tools.changeset_tools import list_changesets as list_changesets_tool
+from servicenow_mcp.tools.changeset_tools import publish_changeset as publish_changeset_tool
+from servicenow_mcp.tools.changeset_tools import update_changeset as update_changeset_tool
+from servicenow_mcp.tools.core_plus import (
+    AggregateParams,
+    DiscoverParams,
+    GenericQueryParams,
+    HealthCheckParams,
+    NaturalLanguageParams,
+    SchemaParams,
 )
-from servicenow_mcp.tools.changeset_tools import (
-    commit_changeset as commit_changeset_tool,
+from servicenow_mcp.tools.core_plus import sn_aggregate as sn_aggregate_tool
+from servicenow_mcp.tools.core_plus import sn_discover as sn_discover_tool
+from servicenow_mcp.tools.core_plus import sn_health as sn_health_tool
+from servicenow_mcp.tools.core_plus import sn_nl as sn_nl_tool
+from servicenow_mcp.tools.core_plus import sn_query as sn_query_tool
+from servicenow_mcp.tools.core_plus import sn_schema as sn_schema_tool
+from servicenow_mcp.tools.epic_tools import (
+    CreateEpicParams,
+    ListEpicsParams,
+    UpdateEpicParams,
 )
-from servicenow_mcp.tools.changeset_tools import (
-    create_changeset as create_changeset_tool,
-)
-from servicenow_mcp.tools.changeset_tools import (
-    get_changeset_details as get_changeset_details_tool,
-)
-from servicenow_mcp.tools.changeset_tools import (
-    list_changesets as list_changesets_tool,
-)
-from servicenow_mcp.tools.changeset_tools import (
-    publish_changeset as publish_changeset_tool,
-)
-from servicenow_mcp.tools.changeset_tools import (
-    update_changeset as update_changeset_tool,
-)
+from servicenow_mcp.tools.epic_tools import create_epic as create_epic_tool
+from servicenow_mcp.tools.epic_tools import list_epics as list_epics_tool
+from servicenow_mcp.tools.epic_tools import update_epic as update_epic_tool
 from servicenow_mcp.tools.incident_tools import (
     AddCommentParams,
     CreateIncidentParams,
+    GetIncidentByNumberParams,
     ListIncidentsParams,
     ResolveIncidentParams,
     UpdateIncidentParams,
-    GetIncidentByNumberParams,
 )
-from servicenow_mcp.tools.incident_tools import (
-    add_comment as add_comment_tool,
-)
-from servicenow_mcp.tools.incident_tools import (
-    create_incident as create_incident_tool,
-)
-from servicenow_mcp.tools.incident_tools import (
-    list_incidents as list_incidents_tool,
-)
-from servicenow_mcp.tools.incident_tools import (
-    resolve_incident as resolve_incident_tool,
-)
-from servicenow_mcp.tools.incident_tools import (
-    update_incident as update_incident_tool,
-)
+from servicenow_mcp.tools.incident_tools import add_comment as add_comment_tool
+from servicenow_mcp.tools.incident_tools import create_incident as create_incident_tool
 from servicenow_mcp.tools.incident_tools import (
     get_incident_by_number as get_incident_by_number_tool,
 )
+from servicenow_mcp.tools.incident_tools import list_incidents as list_incidents_tool
+from servicenow_mcp.tools.incident_tools import resolve_incident as resolve_incident_tool
+from servicenow_mcp.tools.incident_tools import update_incident as update_incident_tool
 from servicenow_mcp.tools.knowledge_base import (
     CreateArticleParams,
-    CreateKnowledgeBaseParams,
-    GetArticleParams,
-    ListArticlesParams,
-    ListKnowledgeBasesParams,
-    PublishArticleParams,
-    UpdateArticleParams,
 )
 from servicenow_mcp.tools.knowledge_base import (
     CreateCategoryParams as CreateKBCategoryParams,  # Aliased
 )
 from servicenow_mcp.tools.knowledge_base import (
+    CreateKnowledgeBaseParams,
+    GetArticleParams,
+    ListArticlesParams,
+)
+from servicenow_mcp.tools.knowledge_base import (
     ListCategoriesParams as ListKBCategoriesParams,  # Aliased
 )
 from servicenow_mcp.tools.knowledge_base import (
-    create_article as create_article_tool,
+    ListKnowledgeBasesParams,
+    PublishArticleParams,
+    UpdateArticleParams,
 )
+from servicenow_mcp.tools.knowledge_base import create_article as create_article_tool
 from servicenow_mcp.tools.knowledge_base import (
-    # create_category aliased in function call
-    create_knowledge_base as create_knowledge_base_tool,
+    create_knowledge_base as create_knowledge_base_tool,  # create_category aliased in function call
 )
+from servicenow_mcp.tools.knowledge_base import get_article as get_article_tool
+from servicenow_mcp.tools.knowledge_base import list_articles as list_articles_tool
 from servicenow_mcp.tools.knowledge_base import (
-    get_article as get_article_tool,
+    list_knowledge_bases as list_knowledge_bases_tool,  # list_categories aliased in function call
 )
-from servicenow_mcp.tools.knowledge_base import (
-    list_articles as list_articles_tool,
+from servicenow_mcp.tools.knowledge_base import publish_article as publish_article_tool
+from servicenow_mcp.tools.knowledge_base import update_article as update_article_tool
+from servicenow_mcp.tools.project_tools import (
+    CreateProjectParams,
+    ListProjectsParams,
+    UpdateProjectParams,
 )
-from servicenow_mcp.tools.knowledge_base import (
-    # list_categories aliased in function call
-    list_knowledge_bases as list_knowledge_bases_tool,
-)
-from servicenow_mcp.tools.knowledge_base import (
-    publish_article as publish_article_tool,
-)
-from servicenow_mcp.tools.knowledge_base import (
-    update_article as update_article_tool,
-)
+from servicenow_mcp.tools.project_tools import create_project as create_project_tool
+from servicenow_mcp.tools.project_tools import list_projects as list_projects_tool
+from servicenow_mcp.tools.project_tools import update_project as update_project_tool
 from servicenow_mcp.tools.script_include_tools import (
     CreateScriptIncludeParams,
     DeleteScriptIncludeParams,
@@ -194,15 +174,35 @@ from servicenow_mcp.tools.script_include_tools import (
 from servicenow_mcp.tools.script_include_tools import (
     delete_script_include as delete_script_include_tool,
 )
-from servicenow_mcp.tools.script_include_tools import (
-    get_script_include as get_script_include_tool,
-)
+from servicenow_mcp.tools.script_include_tools import get_script_include as get_script_include_tool
 from servicenow_mcp.tools.script_include_tools import (
     list_script_includes as list_script_includes_tool,
 )
 from servicenow_mcp.tools.script_include_tools import (
     update_script_include as update_script_include_tool,
 )
+from servicenow_mcp.tools.scrum_task_tools import (
+    CreateScrumTaskParams,
+    ListScrumTasksParams,
+    UpdateScrumTaskParams,
+)
+from servicenow_mcp.tools.scrum_task_tools import create_scrum_task as create_scrum_task_tool
+from servicenow_mcp.tools.scrum_task_tools import list_scrum_tasks as list_scrum_tasks_tool
+from servicenow_mcp.tools.scrum_task_tools import update_scrum_task as update_scrum_task_tool
+from servicenow_mcp.tools.story_tools import (
+    CreateStoryDependencyParams,
+    CreateStoryParams,
+    DeleteStoryDependencyParams,
+    ListStoriesParams,
+    ListStoryDependenciesParams,
+    UpdateStoryParams,
+)
+from servicenow_mcp.tools.story_tools import create_story as create_story_tool
+from servicenow_mcp.tools.story_tools import create_story_dependency as create_story_dependency_tool
+from servicenow_mcp.tools.story_tools import delete_story_dependency as delete_story_dependency_tool
+from servicenow_mcp.tools.story_tools import list_stories as list_stories_tool
+from servicenow_mcp.tools.story_tools import list_story_dependencies as list_story_dependencies_tool
+from servicenow_mcp.tools.story_tools import update_story as update_story_tool
 from servicenow_mcp.tools.user_tools import (
     AddGroupMembersParams,
     CreateGroupParams,
@@ -214,33 +214,15 @@ from servicenow_mcp.tools.user_tools import (
     UpdateGroupParams,
     UpdateUserParams,
 )
-from servicenow_mcp.tools.user_tools import (
-    add_group_members as add_group_members_tool,
-)
-from servicenow_mcp.tools.user_tools import (
-    create_group as create_group_tool,
-)
-from servicenow_mcp.tools.user_tools import (
-    create_user as create_user_tool,
-)
-from servicenow_mcp.tools.user_tools import (
-    get_user as get_user_tool,
-)
-from servicenow_mcp.tools.user_tools import (
-    list_groups as list_groups_tool,
-)
-from servicenow_mcp.tools.user_tools import (
-    list_users as list_users_tool,
-)
-from servicenow_mcp.tools.user_tools import (
-    remove_group_members as remove_group_members_tool,
-)
-from servicenow_mcp.tools.user_tools import (
-    update_group as update_group_tool,
-)
-from servicenow_mcp.tools.user_tools import (
-    update_user as update_user_tool,
-)
+from servicenow_mcp.tools.user_tools import add_group_members as add_group_members_tool
+from servicenow_mcp.tools.user_tools import create_group as create_group_tool
+from servicenow_mcp.tools.user_tools import create_user as create_user_tool
+from servicenow_mcp.tools.user_tools import get_user as get_user_tool
+from servicenow_mcp.tools.user_tools import list_groups as list_groups_tool
+from servicenow_mcp.tools.user_tools import list_users as list_users_tool
+from servicenow_mcp.tools.user_tools import remove_group_members as remove_group_members_tool
+from servicenow_mcp.tools.user_tools import update_group as update_group_tool
+from servicenow_mcp.tools.user_tools import update_user as update_user_tool
 from servicenow_mcp.tools.workflow_tools import (
     ActivateWorkflowParams,
     AddWorkflowActivityParams,
@@ -255,103 +237,27 @@ from servicenow_mcp.tools.workflow_tools import (
     UpdateWorkflowActivityParams,
     UpdateWorkflowParams,
 )
-from servicenow_mcp.tools.workflow_tools import (
-    activate_workflow as activate_workflow_tool,
-)
-from servicenow_mcp.tools.workflow_tools import (
-    add_workflow_activity as add_workflow_activity_tool,
-)
-from servicenow_mcp.tools.workflow_tools import (
-    create_workflow as create_workflow_tool,
-)
-from servicenow_mcp.tools.workflow_tools import (
-    deactivate_workflow as deactivate_workflow_tool,
-)
+from servicenow_mcp.tools.workflow_tools import activate_workflow as activate_workflow_tool
+from servicenow_mcp.tools.workflow_tools import add_workflow_activity as add_workflow_activity_tool
+from servicenow_mcp.tools.workflow_tools import create_workflow as create_workflow_tool
+from servicenow_mcp.tools.workflow_tools import deactivate_workflow as deactivate_workflow_tool
 from servicenow_mcp.tools.workflow_tools import (
     delete_workflow_activity as delete_workflow_activity_tool,
 )
 from servicenow_mcp.tools.workflow_tools import (
     get_workflow_activities as get_workflow_activities_tool,
 )
-from servicenow_mcp.tools.workflow_tools import (
-    get_workflow_details as get_workflow_details_tool,
-)
+from servicenow_mcp.tools.workflow_tools import get_workflow_details as get_workflow_details_tool
 from servicenow_mcp.tools.workflow_tools import (
     list_workflow_versions as list_workflow_versions_tool,
 )
-from servicenow_mcp.tools.workflow_tools import (
-    list_workflows as list_workflows_tool,
-)
+from servicenow_mcp.tools.workflow_tools import list_workflows as list_workflows_tool
 from servicenow_mcp.tools.workflow_tools import (
     reorder_workflow_activities as reorder_workflow_activities_tool,
 )
-from servicenow_mcp.tools.workflow_tools import (
-    update_workflow as update_workflow_tool,
-)
+from servicenow_mcp.tools.workflow_tools import update_workflow as update_workflow_tool
 from servicenow_mcp.tools.workflow_tools import (
     update_workflow_activity as update_workflow_activity_tool,
-)
-from servicenow_mcp.tools.story_tools import (
-    CreateStoryParams,
-    UpdateStoryParams,
-    ListStoriesParams,
-    ListStoryDependenciesParams,
-    CreateStoryDependencyParams,
-    DeleteStoryDependencyParams,
-)
-from servicenow_mcp.tools.story_tools import (
-    create_story as create_story_tool,
-    update_story as update_story_tool,
-    list_stories as list_stories_tool,
-    list_story_dependencies as list_story_dependencies_tool,
-    create_story_dependency as create_story_dependency_tool,
-    delete_story_dependency as delete_story_dependency_tool,
-)
-from servicenow_mcp.tools.epic_tools import (
-    CreateEpicParams,
-    UpdateEpicParams,
-    ListEpicsParams,
-)
-from servicenow_mcp.tools.epic_tools import (
-    create_epic as create_epic_tool,
-    update_epic as update_epic_tool,
-    list_epics as list_epics_tool,
-)
-from servicenow_mcp.tools.scrum_task_tools import (
-    CreateScrumTaskParams,
-    UpdateScrumTaskParams,
-    ListScrumTasksParams,
-)
-from servicenow_mcp.tools.scrum_task_tools import (
-    create_scrum_task as create_scrum_task_tool,
-    update_scrum_task as update_scrum_task_tool,
-    list_scrum_tasks as list_scrum_tasks_tool,
-)
-from servicenow_mcp.tools.project_tools import (
-    CreateProjectParams,
-    UpdateProjectParams,
-    ListProjectsParams,
-)
-from servicenow_mcp.tools.project_tools import (
-    create_project as create_project_tool,
-    update_project as update_project_tool,
-    list_projects as list_projects_tool,
-)
-from servicenow_mcp.tools.core_plus import (
-    AggregateParams,
-    DiscoverParams,
-    GenericQueryParams,
-    HealthCheckParams,
-    NaturalLanguageParams,
-    SchemaParams,
-)
-from servicenow_mcp.tools.core_plus import (
-    sn_aggregate as sn_aggregate_tool,
-    sn_discover as sn_discover_tool,
-    sn_health as sn_health_tool,
-    sn_nl as sn_nl_tool,
-    sn_query as sn_query_tool,
-    sn_schema as sn_schema_tool,
 )
 
 # Define a type alias for the Pydantic models or dataclasses used for params
@@ -416,12 +322,12 @@ def get_tool_definitions(
             "List incidents from ServiceNow",
             "json",  # Tool returns list/dict, needs JSON dump
         ),
-        "get_incident_by_number":(
+        "get_incident_by_number": (
             get_incident_by_number_tool,
             GetIncidentByNumberParams,
             str,
             "Incident details from ServiceNow",
-            "json_dict"
+            "json_dict",
         ),
         # Core Plus Tools (merged from legacy MCP implementations)
         "sn_health": (

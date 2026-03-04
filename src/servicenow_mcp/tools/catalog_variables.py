@@ -21,15 +21,21 @@ class CreateCatalogItemVariableParams(BaseModel):
 
     catalog_item_id: str = Field(..., description="The sys_id of the catalog item")
     name: str = Field(..., description="The name of the variable (internal name)")
-    type: str = Field(..., description="The type of variable (e.g., string, integer, boolean, reference)")
+    type: str = Field(
+        ..., description="The type of variable (e.g., string, integer, boolean, reference)"
+    )
     label: str = Field(..., description="The display label for the variable")
     mandatory: bool = Field(False, description="Whether the variable is required")
     help_text: Optional[str] = Field(None, description="Help text to display with the variable")
     default_value: Optional[str] = Field(None, description="Default value for the variable")
     description: Optional[str] = Field(None, description="Description of the variable")
     order: Optional[int] = Field(None, description="Display order of the variable")
-    reference_table: Optional[str] = Field(None, description="For reference fields, the table to reference")
-    reference_qualifier: Optional[str] = Field(None, description="For reference fields, the query to filter reference options")
+    reference_table: Optional[str] = Field(
+        None, description="For reference fields, the table to reference"
+    )
+    reference_qualifier: Optional[str] = Field(
+        None, description="For reference fields, the query to filter reference options"
+    )
     max_length: Optional[int] = Field(None, description="Maximum length for string fields")
     min: Optional[int] = Field(None, description="Minimum value for numeric fields")
     max: Optional[int] = Field(None, description="Maximum value for numeric fields")
@@ -40,15 +46,21 @@ class CatalogItemVariableResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    variable_id: Optional[str] = Field(None, description="The sys_id of the created/updated variable")
-    details: Optional[Dict[str, Any]] = Field(None, description="Additional details about the variable")
+    variable_id: Optional[str] = Field(
+        None, description="The sys_id of the created/updated variable"
+    )
+    details: Optional[Dict[str, Any]] = Field(
+        None, description="Additional details about the variable"
+    )
 
 
 class ListCatalogItemVariablesParams(BaseModel):
     """Parameters for listing catalog item variables."""
 
     catalog_item_id: str = Field(..., description="The sys_id of the catalog item")
-    include_details: bool = Field(True, description="Whether to include detailed information about each variable")
+    include_details: bool = Field(
+        True, description="Whether to include detailed information about each variable"
+    )
     limit: Optional[int] = Field(None, description="Maximum number of variables to return")
     offset: Optional[int] = Field(None, description="Offset for pagination")
 
@@ -72,7 +84,9 @@ class UpdateCatalogItemVariableParams(BaseModel):
     default_value: Optional[str] = Field(None, description="Default value for the variable")
     description: Optional[str] = Field(None, description="Description of the variable")
     order: Optional[int] = Field(None, description="Display order of the variable")
-    reference_qualifier: Optional[str] = Field(None, description="For reference fields, the query to filter reference options")
+    reference_qualifier: Optional[str] = Field(
+        None, description="For reference fields, the query to filter reference options"
+    )
     max_length: Optional[int] = Field(None, description="Maximum length for string fields")
     min: Optional[int] = Field(None, description="Minimum value for numeric fields")
     max: Optional[int] = Field(None, description="Maximum value for numeric fields")
@@ -171,12 +185,12 @@ def list_catalog_item_variables(
     query_params = {
         "sysparm_query": f"cat_item={params.catalog_item_id}^ORDERBYorder",
     }
-    
+
     if params.limit:
         query_params["sysparm_limit"] = params.limit
     if params.offset:
         query_params["sysparm_offset"] = params.offset
-    
+
     # Include all fields if detailed info is requested
     if params.include_details:
         query_params["sysparm_display_value"] = "true"
@@ -197,7 +211,7 @@ def list_catalog_item_variables(
         response.raise_for_status()
 
         result = response.json().get("result", [])
-        
+
         return ListCatalogItemVariablesResponse(
             success=True,
             message=f"Retrieved {len(result)} variables for catalog item",
@@ -233,11 +247,13 @@ def update_catalog_item_variable(
 
     # Build request data with only parameters that are provided
     data = {}
-    
+
     if params.label is not None:
         data["question_text"] = params.label
     if params.mandatory is not None:
-        data["mandatory"] = str(params.mandatory).lower()  # ServiceNow expects "true"/"false" strings
+        data["mandatory"] = str(
+            params.mandatory
+        ).lower()  # ServiceNow expects "true"/"false" strings
     if params.help_text is not None:
         data["help_text"] = params.help_text
     if params.default_value is not None:
@@ -286,4 +302,4 @@ def update_catalog_item_variable(
         return CatalogItemVariableResponse(
             success=False,
             message=f"Failed to update catalog item variable: {str(e)}",
-        ) 
+        )

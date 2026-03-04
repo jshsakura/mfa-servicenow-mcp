@@ -82,7 +82,9 @@ class TestCatalogResource(unittest.TestCase):
         self.assertIn("sysparm_query", kwargs["params"])
         self.assertIn("active=true", kwargs["params"]["sysparm_query"])
         self.assertIn("category=Hardware", kwargs["params"]["sysparm_query"])
-        self.assertIn("short_descriptionLIKElaptop^ORnameLIKElaptop", kwargs["params"]["sysparm_query"])
+        self.assertIn(
+            "short_descriptionLIKElaptop^ORnameLIKElaptop", kwargs["params"]["sysparm_query"]
+        )
 
     @patch("servicenow_mcp.resources.catalog.requests.get")
     async def test_list_catalog_items_error(self, mock_get):
@@ -276,7 +278,9 @@ class TestCatalogResource(unittest.TestCase):
         self.assertEqual(kwargs["params"]["sysparm_offset"], 0)
         self.assertIn("sysparm_query", kwargs["params"])
         self.assertIn("active=true", kwargs["params"]["sysparm_query"])
-        self.assertIn("titleLIKEhardware^ORdescriptionLIKEhardware", kwargs["params"]["sysparm_query"])
+        self.assertIn(
+            "titleLIKEhardware^ORdescriptionLIKEhardware", kwargs["params"]["sysparm_query"]
+        )
 
     @patch("servicenow_mcp.resources.catalog.requests.get")
     async def test_list_catalog_categories_error(self, mock_get):
@@ -324,4 +328,4 @@ class TestCatalogResource(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

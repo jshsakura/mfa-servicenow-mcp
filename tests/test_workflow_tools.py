@@ -11,18 +11,18 @@ import requests
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.workflow_tools import (
-    list_workflows,
+    activate_workflow,
+    add_workflow_activity,
+    create_workflow,
+    deactivate_workflow,
+    delete_workflow_activity,
+    get_workflow_activities,
     get_workflow_details,
     list_workflow_versions,
-    get_workflow_activities,
-    create_workflow,
-    update_workflow,
-    activate_workflow,
-    deactivate_workflow,
-    add_workflow_activity,
-    update_workflow_activity,
-    delete_workflow_activity,
+    list_workflows,
     reorder_workflow_activities,
+    update_workflow,
+    update_workflow_activity,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
@@ -223,7 +223,7 @@ class TestWorkflowTools(unittest.TestCase):
             ]
         }
         version_response.raise_for_status = MagicMock()
-        
+
         activities_response = MagicMock()
         activities_response.json.return_value = {
             "result": [
@@ -244,16 +244,16 @@ class TestWorkflowTools(unittest.TestCase):
             ]
         }
         activities_response.raise_for_status = MagicMock()
-        
+
         # Configure the mock to return different responses for different URLs
         def side_effect(*args, **kwargs):
-            url = args[0] if args else kwargs.get('url', '')
-            if 'wf_workflow_version' in url:
+            url = args[0] if args else kwargs.get("url", "")
+            if "wf_workflow_version" in url:
                 return version_response
-            elif 'wf_activity' in url:
+            elif "wf_activity" in url:
                 return activities_response
             return MagicMock()
-            
+
         mock_get.side_effect = side_effect
 
         # Call the function
@@ -401,7 +401,7 @@ class TestWorkflowTools(unittest.TestCase):
             ]
         }
         version_response.raise_for_status = MagicMock()
-        
+
         order_response = MagicMock()
         order_response.json.return_value = {
             "result": [
@@ -412,7 +412,7 @@ class TestWorkflowTools(unittest.TestCase):
             ]
         }
         order_response.raise_for_status = MagicMock()
-        
+
         activity_response = MagicMock()
         activity_response.json.return_value = {
             "result": {
@@ -424,16 +424,16 @@ class TestWorkflowTools(unittest.TestCase):
             }
         }
         activity_response.raise_for_status = MagicMock()
-        
+
         # Configure the mocks
         def get_side_effect(*args, **kwargs):
-            url = args[0] if args else kwargs.get('url', '')
-            if 'wf_workflow_version' in url:
+            url = args[0] if args else kwargs.get("url", "")
+            if "wf_workflow_version" in url:
                 return version_response
-            elif 'wf_activity' in url:
+            elif "wf_activity" in url:
                 return order_response
             return MagicMock()
-            
+
         mock_get.side_effect = get_side_effect
         mock_post.return_value = activity_response
 
@@ -529,4 +529,4 @@ class TestWorkflowTools(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

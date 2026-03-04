@@ -22,16 +22,13 @@ class TestCatalogOptimizationToolParameters(unittest.TestCase):
         """Test that the parameter classes for the tools are properly defined."""
         # Test OptimizationRecommendationsParams
         params = OptimizationRecommendationsParams(
-            recommendation_types=["inactive_items", "low_usage"],
-            category_id="hardware"
+            recommendation_types=["inactive_items", "low_usage"], category_id="hardware"
         )
         self.assertEqual(params.recommendation_types, ["inactive_items", "low_usage"])
         self.assertEqual(params.category_id, "hardware")
 
         # Test with default values
-        params = OptimizationRecommendationsParams(
-            recommendation_types=["inactive_items"]
-        )
+        params = OptimizationRecommendationsParams(recommendation_types=["inactive_items"])
         self.assertEqual(params.recommendation_types, ["inactive_items"])
         self.assertIsNone(params.category_id)
 
@@ -44,7 +41,7 @@ class TestCatalogOptimizationToolParameters(unittest.TestCase):
             category="hardware",
             price="1099.99",
             active=True,
-            order=100
+            order=100,
         )
         self.assertEqual(params.item_id, "item1")
         self.assertEqual(params.name, "Updated Laptop")
@@ -56,9 +53,7 @@ class TestCatalogOptimizationToolParameters(unittest.TestCase):
         self.assertEqual(params.order, 100)
 
         # Test with only required parameters
-        params = UpdateCatalogItemParams(
-            item_id="item1"
-        )
+        params = UpdateCatalogItemParams(item_id="item1")
         self.assertEqual(params.item_id, "item1")
         self.assertIsNone(params.name)
         self.assertIsNone(params.short_description)
@@ -70,4 +65,4 @@ class TestCatalogOptimizationToolParameters(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

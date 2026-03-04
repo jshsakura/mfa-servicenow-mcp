@@ -22,17 +22,17 @@ class TestServerWorkflow(unittest.TestCase):
             instance_url="https://test.service-now.com",
             auth=self.auth_config,
         )
-        
+
         # Create a mock FastMCP instance
         self.mock_mcp = MagicMock()
-        
+
         # Patch the FastMCP class
         self.patcher = patch("servicenow_mcp.server.FastMCP", return_value=self.mock_mcp)
         self.mock_fastmcp = self.patcher.start()
-        
+
         # Create the server instance
         self.server = ServiceNowMCP(self.server_config)
-        
+
     def tearDown(self):
         """Tear down test fixtures."""
         self.patcher.stop()
@@ -41,19 +41,20 @@ class TestServerWorkflow(unittest.TestCase):
         """Test that workflow tools are registered with the MCP server."""
         # Get all the tool decorator calls
         tool_decorator_calls = self.mock_mcp.tool.call_count
-        
+
         # Verify that the tool decorator was called at least 12 times (for all workflow tools)
-        self.assertGreaterEqual(tool_decorator_calls, 12, 
-                               "Expected at least 12 tool registrations for workflow tools")
-        
+        self.assertGreaterEqual(
+            tool_decorator_calls, 12, "Expected at least 12 tool registrations for workflow tools"
+        )
+
         # Check that the workflow tools are registered by examining the decorated functions
         decorated_functions = []
         for call in self.mock_mcp.tool.call_args_list:
             # Each call to tool() returns a decorator function
-            decorator = call[0][0] if call[0] else call[1].get('return_value', None)
+            decorator = call[0][0] if call[0] else call[1].get("return_value", None)
             if decorator:
                 decorated_functions.append(decorator.__name__)
-        
+
         # Check for workflow tool registrations
         workflow_tools = [
             "list_workflows",
@@ -69,15 +70,14 @@ class TestServerWorkflow(unittest.TestCase):
             "delete_workflow_activity",
             "reorder_workflow_activities",
         ]
-        
+
         # Print the decorated functions for debugging
         print(f"Decorated functions: {decorated_functions}")
-        
+
         # Check that all workflow tools are registered
         for tool in workflow_tools:
-            self.assertIn(tool, str(self.mock_mcp.mock_calls), 
-                         f"Expected {tool} to be registered")
+            self.assertIn(tool, str(self.mock_mcp.mock_calls), f"Expected {tool} to be registered")
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

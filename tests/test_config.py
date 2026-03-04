@@ -39,7 +39,7 @@ def test_oauth_config():
     assert config.username == "user"
     assert config.password == "pass"
     assert config.token_url is None
-    
+
     config = OAuthConfig(
         client_id="client_id",
         client_secret="client_secret",
@@ -55,7 +55,7 @@ def test_api_key_config():
     config = ApiKeyConfig(api_key="api_key")
     assert config.api_key == "api_key"
     assert config.header_name == "X-ServiceNow-API-Key"
-    
+
     config = ApiKeyConfig(api_key="api_key", header_name="Custom-Header")
     assert config.header_name == "Custom-Header"
 
@@ -73,7 +73,7 @@ def test_auth_config():
     assert config.basic.password == "pass"
     assert config.oauth is None
     assert config.api_key is None
-    
+
     # OAuth
     config = AuthConfig(
         type=AuthType.OAUTH,
@@ -89,7 +89,7 @@ def test_auth_config():
     assert config.oauth.client_id == "client_id"
     assert config.basic is None
     assert config.api_key is None
-    
+
     # API key
     config = AuthConfig(
         type=AuthType.API_KEY,
@@ -116,7 +116,7 @@ def test_server_config():
     assert config.debug is False
     assert config.timeout == 30
     assert config.api_url == "https://example.service-now.com/api/now"
-    
+
     config = ServerConfig(
         instance_url="https://example.service-now.com",
         auth=AuthConfig(
@@ -127,4 +127,4 @@ def test_server_config():
         timeout=60,
     )
     assert config.debug is True
-    assert config.timeout == 60 
+    assert config.timeout == 60

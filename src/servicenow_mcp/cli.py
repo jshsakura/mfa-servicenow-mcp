@@ -3,11 +3,10 @@ Command-line interface for the ServiceNow MCP server.
 """
 
 import argparse
+import importlib
 import logging
 import os
 import sys
-
-import importlib
 
 from .server import ServiceNowMCP
 from .utils.config import (
@@ -251,7 +250,9 @@ def create_config(args) -> ServerConfig:
         browser_password = args.browser_password or os.getenv("SERVICENOW_BROWSER_PASSWORD")
         browser_login_url = args.browser_login_url or os.getenv("SERVICENOW_BROWSER_LOGIN_URL")
         browser_headless = str(args.browser_headless).lower() == "true"
-        browser_timeout = args.browser_timeout or int(os.getenv("SERVICENOW_BROWSER_TIMEOUT", "120"))
+        browser_timeout = args.browser_timeout or int(
+            os.getenv("SERVICENOW_BROWSER_TIMEOUT", "120")
+        )
         browser_user_data_dir = args.browser_user_data_dir or os.getenv(
             "SERVICENOW_BROWSER_USER_DATA_DIR"
         )

@@ -1,19 +1,24 @@
-
 import unittest
 from unittest.mock import MagicMock, patch
-from servicenow_mcp.tools.incident_tools import get_incident_by_number, GetIncidentByNumberParams
-from servicenow_mcp.utils.config import ServerConfig, AuthConfig, AuthType, BasicAuthConfig
+
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.incident_tools import GetIncidentByNumberParams, get_incident_by_number
+from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
+
 
 class TestIncidentTools(unittest.TestCase):
 
     def setUp(self):
-        self.auth_config = AuthConfig(type=AuthType.BASIC, basic=BasicAuthConfig(username='test', password='test'))
+        self.auth_config = AuthConfig(
+            type=AuthType.BASIC, basic=BasicAuthConfig(username="test", password="test")
+        )
 
-    @patch('requests.get')
+    @patch("requests.get")
     def test_get_incident_by_number_success(self, mock_get):
         # Mock the server configuration
-        config = ServerConfig(instance_url="https://dev12345.service-now.com", auth=self.auth_config)
+        config = ServerConfig(
+            instance_url="https://dev12345.service-now.com", auth=self.auth_config
+        )
 
         # Mock the authentication manager
         auth_manager = MagicMock(spec=AuthManager)
@@ -35,7 +40,7 @@ class TestIncidentTools(unittest.TestCase):
                     "category": "Software",
                     "subcategory": "Email",
                     "sys_created_on": "2025-06-25 10:00:00",
-                    "sys_updated_on": "2025-06-25 10:00:00"
+                    "sys_updated_on": "2025-06-25 10:00:00",
                 }
             ]
         }
@@ -51,10 +56,12 @@ class TestIncidentTools(unittest.TestCase):
         self.assertIn("incident", result)
         self.assertEqual(result["incident"]["number"], "INC0010001")
 
-    @patch('requests.get')
+    @patch("requests.get")
     def test_get_incident_by_number_not_found(self, mock_get):
         # Mock the server configuration
-        config = ServerConfig(instance_url="https://dev12345.service-now.com", auth=self.auth_config)
+        config = ServerConfig(
+            instance_url="https://dev12345.service-now.com", auth=self.auth_config
+        )
 
         # Mock the authentication manager
         auth_manager = MagicMock(spec=AuthManager)
@@ -74,5 +81,6 @@ class TestIncidentTools(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["message"], "Incident not found: INC9999999")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

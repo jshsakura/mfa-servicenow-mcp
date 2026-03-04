@@ -186,7 +186,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         """Test the expected format of high abandonment items."""
         # This test doesn't call the actual function, but verifies the expected format
         # of the data that would be returned by the function
-        
+
         # Example data that would be returned by _get_high_abandonment_items
         high_abandonment_items = [
             {
@@ -208,7 +208,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 "orders": 8,
             },
         ]
-        
+
         # Verify the expected format
         self.assertEqual(len(high_abandonment_items), 2)
         self.assertEqual(high_abandonment_items[0]["name"], "Complex Request")
@@ -310,21 +310,23 @@ class TestCatalogOptimizationTools(unittest.TestCase):
 
         # Verify the results
         self.assertEqual(len(result), 3)
-        
+
         # Check the first item (empty description)
         self.assertEqual(result[0]["name"], "Laptop")
         self.assertEqual(result[0]["description_quality"], 0)
         self.assertEqual(result[0]["quality_issues"], ["Missing description"])
-        
+
         # Check the second item (short description)
         self.assertEqual(result[1]["name"], "Software")
         self.assertEqual(result[1]["description_quality"], 30)
         self.assertEqual(result[1]["quality_issues"], ["Description too short", "Lacks detail"])
-        
+
         # Check the third item (instructional language)
         self.assertEqual(result[2]["name"], "Service")
         self.assertEqual(result[2]["description_quality"], 50)
-        self.assertEqual(result[2]["quality_issues"], ["Uses instructional language instead of descriptive"])
+        self.assertEqual(
+            result[2]["quality_issues"], ["Uses instructional language instead of descriptive"]
+        )
 
     @patch("servicenow_mcp.tools.catalog_optimization._get_inactive_items")
     @patch("servicenow_mcp.tools.catalog_optimization._get_low_usage_items")
@@ -332,12 +334,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.catalog_optimization._get_slow_fulfillment_items")
     @patch("servicenow_mcp.tools.catalog_optimization._get_poor_description_items")
     def test_get_optimization_recommendations(
-        self, 
-        mock_poor_desc, 
-        mock_slow_fulfill, 
-        mock_high_abandon, 
-        mock_low_usage, 
-        mock_inactive
+        self, mock_poor_desc, mock_slow_fulfill, mock_high_abandon, mock_low_usage, mock_inactive
     ):
         """Test getting optimization recommendations."""
         # Mock the helper functions to return test data
@@ -349,7 +346,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 "category": "hardware",
             },
         ]
-        
+
         mock_low_usage.return_value = [
             {
                 "sys_id": "item2",
@@ -359,7 +356,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 "order_count": 2,
             },
         ]
-        
+
         mock_high_abandon.return_value = [
             {
                 "sys_id": "item3",
@@ -371,7 +368,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 "orders": 12,
             },
         ]
-        
+
         mock_slow_fulfill.return_value = [
             {
                 "sys_id": "item4",
@@ -382,7 +379,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 "avg_fulfillment_time_vs_catalog": 3.0,
             },
         ]
-        
+
         mock_poor_desc.return_value = [
             {
                 "sys_id": "item5",
@@ -397,11 +394,11 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         # Create the parameters
         params = OptimizationRecommendationsParams(
             recommendation_types=[
-                "inactive_items", 
-                "low_usage", 
-                "high_abandonment", 
-                "slow_fulfillment", 
-                "description_quality"
+                "inactive_items",
+                "low_usage",
+                "high_abandonment",
+                "slow_fulfillment",
+                "description_quality",
             ]
         )
 
@@ -411,7 +408,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         # Verify the results
         self.assertTrue(result["success"])
         self.assertEqual(len(result["recommendations"]), 5)
-        
+
         # Check each recommendation type
         recommendation_types = [rec["type"] for rec in result["recommendations"]]
         self.assertIn("inactive_items", recommendation_types)
@@ -419,7 +416,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertIn("high_abandonment", recommendation_types)
         self.assertIn("slow_fulfillment", recommendation_types)
         self.assertIn("description_quality", recommendation_types)
-        
+
         # Check that each recommendation has the expected fields
         for rec in result["recommendations"]:
             self.assertIn("title", rec)
@@ -442,7 +439,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 "category": "hardware",
             },
         ]
-        
+
         mock_low_usage.return_value = [
             {
                 "sys_id": "item2",
@@ -464,7 +461,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         # Verify the results
         self.assertTrue(result["success"])
         self.assertEqual(len(result["recommendations"]), 2)
-        
+
         # Check each recommendation type
         recommendation_types = [rec["type"] for rec in result["recommendations"]]
         self.assertIn("inactive_items", recommendation_types)
@@ -504,7 +501,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         # Verify the results
         self.assertTrue(result["success"])
         self.assertEqual(result["data"]["short_description"], "Updated laptop description")
-        
+
         # Verify the API call
         mock_patch.assert_called_once()
         args, kwargs = mock_patch.call_args
@@ -546,16 +543,19 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertEqual(result["data"]["name"], "Updated Laptop")
         self.assertEqual(result["data"]["short_description"], "Updated laptop description")
         self.assertEqual(result["data"]["price"], "1099.99")
-        
+
         # Verify the API call
         mock_patch.assert_called_once()
         args, kwargs = mock_patch.call_args
         self.assertEqual(args[0], "https://example.service-now.com/api/now/table/sc_cat_item/item1")
-        self.assertEqual(kwargs["json"], {
-            "name": "Updated Laptop",
-            "short_description": "Updated laptop description",
-            "price": "1099.99",
-        })
+        self.assertEqual(
+            kwargs["json"],
+            {
+                "name": "Updated Laptop",
+                "short_description": "Updated laptop description",
+                "price": "1099.99",
+            },
+        )
 
     @patch("requests.patch")
     def test_update_catalog_item_error(self, mock_patch):
@@ -579,4 +579,4 @@ class TestCatalogOptimizationTools(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

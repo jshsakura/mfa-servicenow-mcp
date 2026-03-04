@@ -5,7 +5,7 @@ This module provides tools for managing incidents in ServiceNow.
 """
 
 import logging
-from typing import Optional, List
+from typing import List, Optional
 
 import requests
 from pydantic import BaseModel, Field
@@ -68,7 +68,7 @@ class ResolveIncidentParams(BaseModel):
 
 class ListIncidentsParams(BaseModel):
     """Parameters for listing incidents."""
-    
+
     limit: int = Field(10, description="Maximum number of incidents to return")
     offset: int = Field(0, description="Offset for pagination")
     state: Optional[str] = Field(None, description="Filter by incident state")
@@ -481,7 +481,7 @@ def list_incidents(
         "sysparm_display_value": "true",
         "sysparm_exclude_reference_link": "true",
     }
-    
+
     # Add filters
     filters = []
     if params.state:
@@ -492,10 +492,10 @@ def list_incidents(
         filters.append(f"category={params.category}")
     if params.query:
         filters.append(f"short_descriptionLIKE{params.query}^ORdescriptionLIKE{params.query}")
-    
+
     if filters:
         query_params["sysparm_query"] = "^".join(filters)
-    
+
     # Make request
     try:
         response = requests.get(
@@ -505,16 +505,16 @@ def list_incidents(
             timeout=config.timeout,
         )
         response.raise_for_status()
-        
+
         data = response.json()
         incidents = []
-        
+
         for incident_data in data.get("result", []):
             # Handle assigned_to field which could be a string or a dictionary
             assigned_to = incident_data.get("assigned_to")
             if isinstance(assigned_to, dict):
                 assigned_to = assigned_to.get("display_value")
-            
+
             incident = {
                 "sys_id": incident_data.get("sys_id"),
                 "number": incident_data.get("number"),
@@ -529,20 +529,16 @@ def list_incidents(
                 "updated_on": incident_data.get("sys_updated_on"),
             }
             incidents.append(incident)
-        
+
         return {
             "success": True,
             "message": f"Found {len(incidents)} incidents",
-            "incidents": incidents
+            "incidents": incidents,
         }
-        
+
     except requests.RequestException as e:
         logger.error(f"Failed to list incidents: {e}")
-        return {
-            "success": False,
-            "message": f"Failed to list incidents: {str(e)}",
-            "incidents": []
-        }
+        return {"success": False, "message": f"Failed to list incidents: {str(e)}", "incidents": []}
 
 
 def get_incident_by_number(

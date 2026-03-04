@@ -23,13 +23,17 @@ class CreateKnowledgeBaseParams(BaseModel):
     description: Optional[str] = Field(None, description="Description of the knowledge base")
     owner: Optional[str] = Field(None, description="The specified admin user or group")
     managers: Optional[str] = Field(None, description="Users who can manage this knowledge base")
-    publish_workflow: Optional[str] = Field("Knowledge - Instant Publish", description="Publication workflow")
-    retire_workflow: Optional[str] = Field("Knowledge - Instant Retire", description="Retirement workflow")
+    publish_workflow: Optional[str] = Field(
+        "Knowledge - Instant Publish", description="Publication workflow"
+    )
+    retire_workflow: Optional[str] = Field(
+        "Knowledge - Instant Retire", description="Retirement workflow"
+    )
 
 
 class ListKnowledgeBasesParams(BaseModel):
     """Parameters for listing knowledge bases."""
-    
+
     limit: int = Field(10, description="Maximum number of knowledge bases to return")
     offset: int = Field(0, description="Offset for pagination")
     active: Optional[bool] = Field(None, description="Filter by active status")
@@ -42,8 +46,14 @@ class CreateCategoryParams(BaseModel):
     title: str = Field(..., description="Title of the category")
     description: Optional[str] = Field(None, description="Description of the category")
     knowledge_base: str = Field(..., description="The knowledge base to create the category in")
-    parent_category: Optional[str] = Field(None, description="Parent category (if creating a subcategory). Sys_id refering to the parent category or sys_id of the parent table.")
-    parent_table: Optional[str] = Field(None, description="Parent table (if creating a subcategory). Sys_id refering to the table where the parent category is defined.")
+    parent_category: Optional[str] = Field(
+        None,
+        description="Parent category (if creating a subcategory). Sys_id refering to the parent category or sys_id of the parent table.",
+    )
+    parent_table: Optional[str] = Field(
+        None,
+        description="Parent table (if creating a subcategory). Sys_id refering to the table where the parent category is defined.",
+    )
     active: bool = Field(True, description="Whether the category is active")
 
 
@@ -51,12 +61,18 @@ class CreateArticleParams(BaseModel):
     """Parameters for creating a knowledge article."""
 
     title: str = Field(..., description="Title of the article")
-    text: str = Field(..., description="The main body text for the article. Field supports html formatting and wiki markup based on the article_type. HTML is the default.")
+    text: str = Field(
+        ...,
+        description="The main body text for the article. Field supports html formatting and wiki markup based on the article_type. HTML is the default.",
+    )
     short_description: str = Field(..., description="Short description of the article")
     knowledge_base: str = Field(..., description="The knowledge base to create the article in")
     category: str = Field(..., description="Category for the article")
     keywords: Optional[str] = Field(None, description="Keywords for search")
-    article_type: Optional[str] = Field("html", description="The type of article. Options are 'text' or 'wiki'. text lets the text field support html formatting. wiki lets the text field support wiki markup.")
+    article_type: Optional[str] = Field(
+        "html",
+        description="The type of article. Options are 'text' or 'wiki'. text lets the text field support html formatting. wiki lets the text field support wiki markup.",
+    )
 
 
 class UpdateArticleParams(BaseModel):
@@ -64,7 +80,10 @@ class UpdateArticleParams(BaseModel):
 
     article_id: str = Field(..., description="ID of the article to update")
     title: Optional[str] = Field(None, description="Updated title of the article")
-    text: Optional[str] = Field(None, description="Updated main body text for the article. Field supports html formatting and wiki markup based on the article_type. HTML is the default.")
+    text: Optional[str] = Field(
+        None,
+        description="Updated main body text for the article. Field supports html formatting and wiki markup based on the article_type. HTML is the default.",
+    )
     short_description: Optional[str] = Field(None, description="Updated short description")
     category: Optional[str] = Field(None, description="Updated category for the article")
     keywords: Optional[str] = Field(None, description="Updated keywords for search")
@@ -80,7 +99,7 @@ class PublishArticleParams(BaseModel):
 
 class ListArticlesParams(BaseModel):
     """Parameters for listing knowledge articles."""
-    
+
     limit: int = Field(10, description="Maximum number of articles to return")
     offset: int = Field(0, description="Offset for pagination")
     knowledge_base: Optional[str] = Field(None, description="Filter by knowledge base")
@@ -125,7 +144,7 @@ class ArticleResponse(BaseModel):
 
 class ListCategoriesParams(BaseModel):
     """Parameters for listing categories in a knowledge base."""
-    
+
     knowledge_base: Optional[str] = Field(None, description="Filter by knowledge base ID")
     parent_category: Optional[str] = Field(None, description="Filter by parent category ID")
     limit: int = Field(10, description="Maximum number of categories to return")
@@ -240,9 +259,9 @@ def list_knowledge_bases(
         )
         response.raise_for_status()
 
-        # Get the JSON response 
+        # Get the JSON response
         json_response = response.json()
-        
+
         # Safely extract the result
         if isinstance(json_response, dict) and "result" in json_response:
             result = json_response.get("result", [])
@@ -259,45 +278,47 @@ def list_knowledge_bases(
 
         # Transform the results - create a simpler structure
         knowledge_bases = []
-        
+
         # Handle either string or list
         if isinstance(result, list):
             for kb_item in result:
                 if not isinstance(kb_item, dict):
                     logger.warning("Skipping non-dictionary KB item: %s", kb_item)
                     continue
-                    
+
                 # Safely extract values
                 kb_id = kb_item.get("sys_id", "")
                 title = kb_item.get("title", "")
                 description = kb_item.get("description", "")
-                
+
                 # Extract nested values safely
                 owner = ""
                 if isinstance(kb_item.get("owner"), dict):
                     owner = kb_item["owner"].get("display_value", "")
-                
+
                 managers = ""
                 if isinstance(kb_item.get("kb_managers"), dict):
                     managers = kb_item["kb_managers"].get("display_value", "")
-                
+
                 active = False
                 if kb_item.get("active") == "true":
                     active = True
-                
+
                 created = kb_item.get("sys_created_on", "")
                 updated = kb_item.get("sys_updated_on", "")
-                
-                knowledge_bases.append({
-                    "id": kb_id,
-                    "title": title,
-                    "description": description,
-                    "owner": owner,
-                    "managers": managers,
-                    "active": active,
-                    "created": created,
-                    "updated": updated,
-                })
+
+                knowledge_bases.append(
+                    {
+                        "id": kb_id,
+                        "title": title,
+                        "description": description,
+                        "owner": owner,
+                        "managers": managers,
+                        "active": active,
+                        "created": created,
+                        "updated": updated,
+                    }
+                )
         else:
             logger.warning("Result is not a list: %s", result)
 
@@ -354,7 +375,7 @@ def create_category(
         data["parent"] = params.parent_category
     if params.parent_table:
         data["parent_table"] = params.parent_table
-    
+
     # Log the request data for debugging
     logger.debug(f"Creating category with data: {data}")
 
@@ -374,11 +395,11 @@ def create_category(
         # Log the specific fields to check the knowledge base assignment
         if "kb_knowledge_base" in result:
             logger.debug(f"Knowledge base in response: {result['kb_knowledge_base']}")
-        
+
         # Log the active status
         if "active" in result:
             logger.debug(f"Active status in response: {result['active']}")
-        
+
         return CategoryResponse(
             success=True,
             message="Category created successfully",
@@ -608,7 +629,7 @@ def list_articles(
         query_string = "^".join(query_parts)
         logger.debug(f"Constructed article query string: {query_string}")
         query_params["sysparm_query"] = query_string
-    
+
     # Log the query parameters for debugging
     logger.debug(f"Listing articles with query params: {query_params}")
 
@@ -625,7 +646,7 @@ def list_articles(
         # Get the JSON response
         json_response = response.json()
         logger.debug(f"Article listing raw response: {json_response}")
-        
+
         # Safely extract the result
         if isinstance(json_response, dict) and "result" in json_response:
             result = json_response.get("result", [])
@@ -642,43 +663,45 @@ def list_articles(
 
         # Transform the results
         articles = []
-        
+
         # Handle either string or list
         if isinstance(result, list):
             for article_item in result:
                 if not isinstance(article_item, dict):
                     logger.warning("Skipping non-dictionary article item: %s", article_item)
                     continue
-                    
+
                 # Safely extract values
                 article_id = article_item.get("sys_id", "")
                 title = article_item.get("short_description", "")
-                
+
                 # Extract nested values safely
                 knowledge_base = ""
                 if isinstance(article_item.get("kb_knowledge_base"), dict):
                     knowledge_base = article_item["kb_knowledge_base"].get("display_value", "")
-                
+
                 category = ""
                 if isinstance(article_item.get("kb_category"), dict):
                     category = article_item["kb_category"].get("display_value", "")
-                
+
                 workflow_state = ""
                 if isinstance(article_item.get("workflow_state"), dict):
                     workflow_state = article_item["workflow_state"].get("display_value", "")
-                
+
                 created = article_item.get("sys_created_on", "")
                 updated = article_item.get("sys_updated_on", "")
-                
-                articles.append({
-                    "id": article_id,
-                    "title": title,
-                    "knowledge_base": knowledge_base,
-                    "category": category,
-                    "workflow_state": workflow_state,
-                    "created": created,
-                    "updated": updated,
-                })
+
+                articles.append(
+                    {
+                        "id": article_id,
+                        "title": title,
+                        "knowledge_base": knowledge_base,
+                        "category": category,
+                        "workflow_state": workflow_state,
+                        "created": created,
+                        "updated": updated,
+                    }
+                )
         else:
             logger.warning("Result is not a list: %s", result)
 
@@ -738,7 +761,7 @@ def get_article(
 
         # Get the JSON response
         json_response = response.json()
-        
+
         # Safely extract the result
         if isinstance(json_response, dict) and "result" in json_response:
             result = json_response.get("result", {})
@@ -759,24 +782,24 @@ def get_article(
         article_id = result.get("sys_id", "")
         title = result.get("short_description", "")
         text = result.get("text", "")
-        
+
         # Extract nested values safely
         knowledge_base = ""
         if isinstance(result.get("kb_knowledge_base"), dict):
             knowledge_base = result["kb_knowledge_base"].get("display_value", "")
-        
+
         category = ""
         if isinstance(result.get("kb_category"), dict):
             category = result["kb_category"].get("display_value", "")
-        
+
         workflow_state = ""
         if isinstance(result.get("workflow_state"), dict):
             workflow_state = result["workflow_state"].get("display_value", "")
-        
+
         author = ""
         if isinstance(result.get("author"), dict):
             author = result["author"].get("display_value", "")
-        
+
         keywords = result.get("keywords", "")
         article_type = result.get("article_type", "")
         views = result.get("view_count", "0")
@@ -853,7 +876,7 @@ def list_categories(
         query_string = "^".join(query_parts)
         logger.debug(f"Constructed query string: {query_string}")
         query_params["sysparm_query"] = query_string
-    
+
     # Log the query parameters for debugging
     logger.debug(f"Listing categories with query params: {query_params}")
 
@@ -869,7 +892,7 @@ def list_categories(
 
         # Get the JSON response
         json_response = response.json()
-        
+
         # Safely extract the result
         if isinstance(json_response, dict) and "result" in json_response:
             result = json_response.get("result", [])
@@ -886,19 +909,19 @@ def list_categories(
 
         # Transform the results
         categories = []
-        
+
         # Handle either string or list
         if isinstance(result, list):
             for category_item in result:
                 if not isinstance(category_item, dict):
                     logger.warning("Skipping non-dictionary category item: %s", category_item)
                     continue
-                    
+
                 # Safely extract values
                 category_id = category_item.get("sys_id", "")
                 title = category_item.get("label", "")
                 description = category_item.get("description", "")
-                
+
                 # Extract knowledge base - handle both dictionary and string cases
                 knowledge_base = ""
                 kb_field = category_item.get("kb_knowledge_base")
@@ -911,7 +934,7 @@ def list_categories(
                     knowledge_base = category_item.get("kb_knowledge_base_value", "")
                 elif "kb_knowledge_base.display_value" in category_item:
                     knowledge_base = category_item.get("kb_knowledge_base.display_value", "")
-                
+
                 # Extract parent category - handle both dictionary and string cases
                 parent = ""
                 parent_field = category_item.get("parent")
@@ -924,7 +947,7 @@ def list_categories(
                     parent = category_item.get("parent_value", "")
                 elif "parent.display_value" in category_item:
                     parent = category_item.get("parent.display_value", "")
-                
+
                 # Convert active to boolean - handle string or boolean types
                 active_field = category_item.get("active")
                 if isinstance(active_field, str):
@@ -933,21 +956,23 @@ def list_categories(
                     active = active_field
                 else:
                     active = False
-                
+
                 created = category_item.get("sys_created_on", "")
                 updated = category_item.get("sys_updated_on", "")
-                
-                categories.append({
-                    "id": category_id,
-                    "title": title,
-                    "description": description,
-                    "knowledge_base": knowledge_base,
-                    "parent_category": parent,
-                    "active": active,
-                    "created": created,
-                    "updated": updated,
-                })
-                
+
+                categories.append(
+                    {
+                        "id": category_id,
+                        "title": title,
+                        "description": description,
+                        "knowledge_base": knowledge_base,
+                        "parent_category": parent,
+                        "active": active,
+                        "created": created,
+                        "updated": updated,
+                    }
+                )
+
                 # Log for debugging purposes
                 logger.debug(f"Processed category: {title}, KB: {knowledge_base}, Parent: {parent}")
         else:
@@ -971,4 +996,4 @@ def list_categories(
             "count": 0,
             "limit": params.limit,
             "offset": params.offset,
-        } 
+        }

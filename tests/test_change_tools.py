@@ -166,13 +166,13 @@ class TestChangeTools(unittest.TestCase):
         # Verify the result
         self.assertTrue(result["success"])
         self.assertEqual(len(result["change_requests"]), 1)
-        
+
         # Verify that the correct query parameters were passed to the request
         args, kwargs = mock_get.call_args
         self.assertIn("params", kwargs)
         self.assertIn("sysparm_query", kwargs["params"])
         query = kwargs["params"]["sysparm_query"]
-        
+
         # Check that all filters are in the query
         self.assertIn("state=open", query)
         self.assertIn("type=normal", query)
@@ -200,7 +200,9 @@ class TestChangeTools(unittest.TestCase):
         # Create a server_config with a get_headers method to simulate what might happen in Claude Desktop
         server_config_with_headers = MagicMock()
         server_config_with_headers.instance_url = "https://test.service-now.com"
-        server_config_with_headers.get_headers.return_value = {"Authorization": "Basic dGVzdF91c2VyOnRlc3RfcGFzc3dvcmQ="}
+        server_config_with_headers.get_headers.return_value = {
+            "Authorization": "Basic dGVzdF91c2VyOnRlc3RfcGFzc3dvcmQ="
+        }
 
         # Call the function with swapped parameters (server_config as auth_manager)
         params = {
@@ -220,7 +222,7 @@ class TestChangeTools(unittest.TestCase):
     def test_create_change_request_with_serverconfig_no_get_headers(self, mock_post):
         """Test creating a change request with ServerConfig object that doesn't have get_headers method."""
         # This test simulates the exact error we're seeing in Claude Desktop
-        
+
         # Create params for the change request
         params = {
             "short_description": "Test Change",
@@ -228,26 +230,26 @@ class TestChangeTools(unittest.TestCase):
             "risk": "low",
             "impact": "medium",
         }
-        
+
         # Create a real ServerConfig object (which doesn't have get_headers method)
         # and a mock AuthManager object (which doesn't have instance_url)
         real_server_config = ServerConfig(
             instance_url="https://test.service-now.com",
             auth=self.auth_config,
         )
-        
+
         mock_auth_manager = MagicMock()
         # Explicitly remove get_headers method to simulate the error
-        if hasattr(mock_auth_manager, 'get_headers'):
-            delattr(mock_auth_manager, 'get_headers')
-        
+        if hasattr(mock_auth_manager, "get_headers"):
+            delattr(mock_auth_manager, "get_headers")
+
         # Call the function with parameters that will cause the error
         result = create_change_request(real_server_config, mock_auth_manager, params)
-        
+
         # The function should detect the issue and return an error message
         self.assertFalse(result["success"])
         self.assertIn("Cannot find get_headers method", result["message"])
-        
+
         # Verify that the post method was never called
         mock_post.assert_not_called()
 
@@ -274,10 +276,10 @@ class TestChangeTools(unittest.TestCase):
             "risk": "low",
             "impact": "medium",
         }
-        
+
         # Call the function with swapped parameters (server_config as first parameter, auth_manager as second)
         result = create_change_request(self.server_config, self.auth_manager, params)
-        
+
         # The function should still work correctly
         self.assertTrue(result["success"])
         self.assertEqual(result["change_request"]["sys_id"], "change123")
@@ -285,4 +287,4 @@ class TestChangeTools(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

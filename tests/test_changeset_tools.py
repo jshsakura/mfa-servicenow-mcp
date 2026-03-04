@@ -24,7 +24,7 @@ from servicenow_mcp.tools.changeset_tools import (
     publish_changeset,
     update_changeset,
 )
-from servicenow_mcp.utils.config import ServerConfig, AuthConfig, AuthType, BasicAuthConfig
+from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
 
 class TestChangesetTools(unittest.TestCase):
@@ -34,10 +34,7 @@ class TestChangesetTools(unittest.TestCase):
         """Set up test fixtures."""
         auth_config = AuthConfig(
             type=AuthType.BASIC,
-            basic=BasicAuthConfig(
-                username="test_user",
-                password="test_password"
-            )
+            basic=BasicAuthConfig(username="test_user", password="test_password"),
         )
         self.server_config = ServerConfig(
             instance_url="https://test.service-now.com",
@@ -236,9 +233,7 @@ class TestChangesetTools(unittest.TestCase):
         # Verify the API call
         mock_patch.assert_called_once()
         args, kwargs = mock_patch.call_args
-        self.assertEqual(
-            args[0], "https://test.service-now.com/api/now/table/sys_update_set/123"
-        )
+        self.assertEqual(args[0], "https://test.service-now.com/api/now/table/sys_update_set/123")
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer test")
         self.assertEqual(kwargs["headers"]["Content-Type"], "application/json")
         self.assertEqual(kwargs["json"]["name"], "Updated Changeset")
@@ -277,9 +272,7 @@ class TestChangesetTools(unittest.TestCase):
         # Verify the API call
         mock_patch.assert_called_once()
         args, kwargs = mock_patch.call_args
-        self.assertEqual(
-            args[0], "https://test.service-now.com/api/now/table/sys_update_set/123"
-        )
+        self.assertEqual(args[0], "https://test.service-now.com/api/now/table/sys_update_set/123")
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer test")
         self.assertEqual(kwargs["headers"]["Content-Type"], "application/json")
         self.assertEqual(kwargs["json"]["state"], "complete")
@@ -318,9 +311,7 @@ class TestChangesetTools(unittest.TestCase):
         # Verify the API call
         mock_patch.assert_called_once()
         args, kwargs = mock_patch.call_args
-        self.assertEqual(
-            args[0], "https://test.service-now.com/api/now/table/sys_update_set/123"
-        )
+        self.assertEqual(args[0], "https://test.service-now.com/api/now/table/sys_update_set/123")
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer test")
         self.assertEqual(kwargs["headers"]["Content-Type"], "application/json")
         self.assertEqual(kwargs["json"]["state"], "published")
@@ -455,4 +446,4 @@ class TestChangesetToolsParams(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()
