@@ -152,7 +152,6 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -186,7 +185,7 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    needs: build
+    needs: lint
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
@@ -196,19 +195,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          scan-type: 'fs'
+          scan-ref: '.'
           format: 'sarif'
           output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy scan results
         uses: github/codeql-action/upload-sarif@v3
