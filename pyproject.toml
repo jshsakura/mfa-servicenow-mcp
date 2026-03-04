@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "servicenow-mcp"
+name = "mfa-servicenow-mcp"
 version = "0.1.0"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
