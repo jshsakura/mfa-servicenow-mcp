@@ -1,0 +1,89 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+*.egg
+.eggs
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+.venv
+venv
+env
+ENV
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*.sublime-*
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov/
+.tox
+.nox
+.hypothesis
+
+# Type checking
+.mypy_cache
+.pyre
+.pytype
+.dmypy.json
+dmypy.json
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Examples and scripts (not needed in production)
+examples/
+scripts/
+
+# Development files
+.env
+.env.*
+!.env.example
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker (avoid recursive builds)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Lock files (optional - uncomment if you want to exclude)
+# uv.lock
+# poetry.lock

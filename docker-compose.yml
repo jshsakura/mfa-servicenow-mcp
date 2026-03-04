@@ -1,0 +1,165 @@
+# ServiceNow MCP Server - Docker Compose Configuration
+# For local development and testing
+
+version: "3.8"
+
+services:
+  # ============================================
+  # Main MCP Server (stdio mode)
+  # ============================================
+  servicenow-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: servicenow-mcp:latest
+    container_name: servicenow-mcp
+    restart: unless-stopped
+    environment:
+      - SERVICENOW_INSTANCE_URL=${SERVICENOW_INSTANCE_URL}
+      - SERVICENOW_USERNAME=${SERVICENOW_USERNAME}
+      - SERVICENOW_PASSWORD=${SERVICENOW_PASSWORD}
+      - SERVICENOW_AUTH_TYPE=${SERVICENOW_AUTH_TYPE:-basic}
+      - SERVICENOW_DEBUG=${SERVICENOW_DEBUG:-false}
+      - SERVICENOW_TIMEOUT=${SERVICENOW_TIMEOUT:-30}
+      - MCP_TOOL_PACKAGE=${MCP_TOOL_PACKAGE:-full}
+    volumes:
+      # Mount config for tool packages customization
+      - ./config:/app/config:ro
+    networks:
+      - mcp-network
+    profiles:
+      - stdio
+
+  # ============================================
+  # MCP Server (SSE mode) - HTTP/WebSocket access
+  # ============================================
+  servicenow-mcp-sse:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: servicenow-mcp:latest
+    container_name: servicenow-mcp-sse
+    restart: unless-stopped
+    ports:
+      - "${MCP_PORT:-8080}:8080"
+    environment:
+      - SERVICENOW_INSTANCE_URL=${SERVICENOW_INSTANCE_URL}
+      - SERVICENOW_USERNAME=${SERVICENOW_USERNAME}
+      - SERVICENOW_PASSWORD=${SERVICENOW_PASSWORD}
+      - SERVICENOW_AUTH_TYPE=${SERVICENOW_AUTH_TYPE:-basic}
+      - SERVICENOW_DEBUG=${SERVICENOW_DEBUG:-false}
+      - SERVICENOW_TIMEOUT=${SERVICENOW_TIMEOUT:-30}
+      - MCP_TOOL_PACKAGE=${MCP_TOOL_PACKAGE:-full}
+    volumes:
+      - ./config:/app/config:ro
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/sse"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    profiles:
+      - sse
+
+  # ============================================
+  # MCP Server with Playwright (Browser Auth)
+  # ============================================
+  servicenow-mcp-browser:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime-playwright
+    image: servicenow-mcp:playwright
+    container_name: servicenow-mcp-browser
+    restart: unless-stopped
+    ports:
+      - "${MCP_PORT:-8080}:8080"
+    environment:
+      - SERVICENOW_INSTANCE_URL=${SERVICENOW_INSTANCE_URL}
+      - SERVICENOW_AUTH_TYPE=browser
+      - SERVICENOW_BROWSER_USERNAME=${SERVICENOW_BROWSER_USERNAME}
+      - SERVICENOW_BROWSER_PASSWORD=${SERVICENOW_BROWSER_PASSWORD}
+      - SERVICENOW_BROWSER_HEADLESS=${SERVICENOW_BROWSER_HEADLESS:-false}
+      - SERVICENOW_BROWSER_TIMEOUT=${SERVICENOW_BROWSER_TIMEOUT:-120}
+      - SERVICENOW_BROWSER_SESSION_TTL=${SERVICENOW_BROWSER_SESSION_TTL:-30}
+      - MCP_TOOL_PACKAGE=${MCP_TOOL_PACKAGE:-full}
+    volumes:
+      - ./config:/app/config:ro
+      # Persistent browser session storage
+      - browser-data:/home/appuser/.browser-data
+    networks:
+      - mcp-network
+    # Required for headless browser
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    profiles:
+      - browser
+
+  # ============================================
+  # Development mode with hot reload
+  # ============================================
+  servicenow-mcp-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: servicenow-mcp:latest
+    container_name: servicenow-mcp-dev
+    restart: unless-stopped
+    ports:
+      - "${MCP_PORT:-8080}:8080"
+    environment:
+      - SERVICENOW_INSTANCE_URL=${SERVICENOW_INSTANCE_URL}
+      - SERVICENOW_USERNAME=${SERVICENOW_USERNAME}
+      - SERVICENOW_PASSWORD=${SERVICENOW_PASSWORD}
+      - SERVICENOW_AUTH_TYPE=${SERVICENOW_AUTH_TYPE:-basic}
+      - SERVICENOW_DEBUG=true
+      - SERVICENOW_TIMEOUT=${SERVICENOW_TIMEOUT:-60}
+      - MCP_TOOL_PACKAGE=${MCP_TOOL_PACKAGE:-full}
+    volumes:
+      # Mount source code for development
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+    networks:
+      - mcp-network
+    profiles:
+      - dev
+
+networks:
+  mcp-network:
+    driver: bridge
+
+volumes:
+  browser-data:
+    driver: local
+
+# ============================================
+# Usage Examples:
+#
+# SSE mode (recommended for HTTP access):
+#   docker compose --profile sse up -d
+#
+# Stdio mode (for Claude Desktop integration):
+#   docker compose --profile stdio up -d
+#
+# Browser auth mode (for MFA/SSO):
+#   docker compose --profile browser up -d
+#
+# Development mode with hot reload:
+#   docker compose --profile dev up -d
+#
+# Build only:
+#   docker compose build
+#
+# View logs:
+#   docker compose logs -f servicenow-mcp-sse
+#
+# Stop:
+#   docker compose --profile sse down
+# ============================================
