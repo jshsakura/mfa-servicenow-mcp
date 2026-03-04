@@ -19,21 +19,6 @@ ServiceNow용 Model Context Protocol (MCP) 서버 구현체로, Claude가 Servic
 - Docker 컨테이너 지원
 - GitHub Actions CI/CD 파이프라인
 
-## 참조 프로젝트
-
-이 프로젝트는 다음 3개의 레거시 구현체를 통합한 결과입니다:
-
-| 프로젝트 | 통합된 기능 |
-|---------|------------|
-| **servicenow-mcp-1** | 범용 코어 도구 (`sn_query`, `sn_aggregate`, `sn_schema`, `sn_discover`, `sn_health`) 및 자연어 헬퍼 (`sn_nl`) |
-| **servicenow-mcp-2** | 광범위한 엔터프라이즈 도구, 패키지 기반 노출 (`MCP_TOOL_PACKAGE`), stdio/SSE 전송 |
-| **servicenow-mcp-3** | 실용적인 NLP 파싱 스타일 및 토큰/세션 라이프사이클 관리 |
-
-### 보안 우선 MFA 접근
-
-- MFA 우회 로직 미구현
-- 브라우저 인증은 대화형 및 MFA 호환
-- 브라우저 세션 쿠키는 인스턴스 범위 보안 쿠키만 필터링
 
 ## 설치
 
@@ -46,7 +31,7 @@ ServiceNow용 Model Context Protocol (MCP) 서버 구현체로, Claude가 Servic
 
 ```bash
 # 1. 저장소 클론
-git clone https://github.com/echelon-ai-labs/servicenow-mcp.git
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
 cd servicenow-mcp
 
 # 2. 가상환경 생성 및 패키지 설치
