@@ -37,16 +37,13 @@ claude_config = {
     "mcpServers": {
         "servicenow": {
             "command": "python",
-            "args": [
-                "-m",
-                "servicenow_mcp.cli"
-            ],
+            "args": ["-m", "servicenow_mcp.cli"],
             "env": {
                 "SERVICENOW_INSTANCE_URL": instance_url,
                 "SERVICENOW_USERNAME": username,
                 "SERVICENOW_PASSWORD": password,
-                "SERVICENOW_AUTH_TYPE": "basic"
-            }
+                "SERVICENOW_AUTH_TYPE": "basic",
+            },
         }
     }
 }
@@ -96,4 +93,4 @@ except KeyboardInterrupt:
     print("\nExiting script. Claude Desktop should be running.")
 except Exception as e:
     print(f"\nFailed to start Claude Desktop: {e}")
-    print("Please start Claude Desktop manually.") 
+    print("Please start Claude Desktop manually.")

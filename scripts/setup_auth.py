@@ -10,13 +10,15 @@ Usage:
 """
 
 import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
+
 
 def clear_screen():
     """Clear the terminal screen."""
-    os.system('cls' if os.name == 'nt' else 'clear')
+    os.system("cls" if os.name == "nt" else "clear")
+
 
 def print_header():
     """Print the header for the menu."""
@@ -25,6 +27,7 @@ def print_header():
     print("=" * 60)
     print("\nThis script will help you set up authentication for your ServiceNow instance.")
     print("Choose one of the following authentication methods:\n")
+
 
 def print_menu():
     """Print the menu options."""
@@ -35,6 +38,7 @@ def print_menu():
     print("5. Exit")
     print("\nEnter your choice (1-5): ", end="")
 
+
 def setup_basic_auth():
     """Set up basic authentication."""
     clear_screen()
@@ -42,32 +46,44 @@ def setup_basic_auth():
     print("Basic Authentication Setup".center(60))
     print("=" * 60)
     print("\nYou'll need your ServiceNow instance URL, username, and password.")
-    
+
     instance_url = input("\nEnter your ServiceNow instance URL: ")
     username = input("Enter your ServiceNow username: ")
     password = input("Enter your ServiceNow password: ")
-    
+
     # Update .env file
-    env_path = Path(__file__).parent.parent / '.env'
-    with open(env_path, 'r') as f:
+    env_path = Path(__file__).parent.parent / ".env"
+    with open(env_path, "r") as f:
         env_content = f.read()
-    
+
     # Update basic authentication configuration
-    env_content = env_content.replace('SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com', f'SERVICENOW_INSTANCE_URL={instance_url}')
-    env_content = env_content.replace('SERVICENOW_USERNAME=your-username', f'SERVICENOW_USERNAME={username}')
-    env_content = env_content.replace('SERVICENOW_PASSWORD=your-password', f'SERVICENOW_PASSWORD={password}')
-    
+    env_content = env_content.replace(
+        "SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com",
+        f"SERVICENOW_INSTANCE_URL={instance_url}",
+    )
+    env_content = env_content.replace(
+        "SERVICENOW_USERNAME=your-username", f"SERVICENOW_USERNAME={username}"
+    )
+    env_content = env_content.replace(
+        "SERVICENOW_PASSWORD=your-password", f"SERVICENOW_PASSWORD={password}"
+    )
+
     # Ensure auth type is set to basic
-    if 'SERVICENOW_AUTH_TYPE=oauth' in env_content:
-        env_content = env_content.replace('SERVICENOW_AUTH_TYPE=oauth', 'SERVICENOW_AUTH_TYPE=basic')
-    elif 'SERVICENOW_AUTH_TYPE=api_key' in env_content:
-        env_content = env_content.replace('SERVICENOW_AUTH_TYPE=api_key', 'SERVICENOW_AUTH_TYPE=basic')
-    
-    with open(env_path, 'w') as f:
+    if "SERVICENOW_AUTH_TYPE=oauth" in env_content:
+        env_content = env_content.replace(
+            "SERVICENOW_AUTH_TYPE=oauth", "SERVICENOW_AUTH_TYPE=basic"
+        )
+    elif "SERVICENOW_AUTH_TYPE=api_key" in env_content:
+        env_content = env_content.replace(
+            "SERVICENOW_AUTH_TYPE=api_key", "SERVICENOW_AUTH_TYPE=basic"
+        )
+
+    with open(env_path, "w") as f:
         f.write(env_content)
-    
+
     print("\n✅ Updated .env file with basic authentication configuration!")
     input("\nPress Enter to continue...")
+
 
 def main():
     """Main function to run the menu."""
@@ -75,26 +91,26 @@ def main():
         clear_screen()
         print_header()
         print_menu()
-        
+
         choice = input()
-        
-        if choice == '1':
+
+        if choice == "1":
             setup_basic_auth()
-        elif choice == '2':
+        elif choice == "2":
             # Run the OAuth setup script
-            subprocess.run([sys.executable, str(Path(__file__).parent / 'setup_oauth.py')])
+            subprocess.run([sys.executable, str(Path(__file__).parent / "setup_oauth.py")])
             input("\nPress Enter to continue...")
-        elif choice == '3':
+        elif choice == "3":
             # Run the API key setup script
-            subprocess.run([sys.executable, str(Path(__file__).parent / 'setup_api_key.py')])
+            subprocess.run([sys.executable, str(Path(__file__).parent / "setup_api_key.py")])
             input("\nPress Enter to continue...")
-        elif choice == '4':
+        elif choice == "4":
             # Run the test connection script
             clear_screen()
             print("Testing current configuration...\n")
-            subprocess.run([sys.executable, str(Path(__file__).parent / 'test_connection.py')])
+            subprocess.run([sys.executable, str(Path(__file__).parent / "test_connection.py")])
             input("\nPress Enter to continue...")
-        elif choice == '5':
+        elif choice == "5":
             clear_screen()
             print("Exiting...")
             break
@@ -102,5 +118,6 @@ def main():
             print("Invalid choice. Please try again.")
             input("\nPress Enter to continue...")
 
+
 if __name__ == "__main__":
-    main() 
+    main()

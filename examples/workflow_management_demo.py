@@ -6,9 +6,9 @@ This script demonstrates how to use the ServiceNow MCP workflow management tools
 to view, create, and modify workflows in ServiceNow.
 """
 
+import json
 import os
 import sys
-import json
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -17,21 +17,20 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 from servicenow_mcp.tools.workflow_tools import (
-    list_workflows,
+    activate_workflow,
+    add_workflow_activity,
+    create_workflow,
+    deactivate_workflow,
+    get_workflow_activities,
     get_workflow_details,
     list_workflow_versions,
-    get_workflow_activities,
-    create_workflow,
-    update_workflow,
-    activate_workflow,
-    deactivate_workflow,
-    add_workflow_activity,
-    update_workflow_activity,
-    delete_workflow_activity,
+    list_workflows,
     reorder_workflow_activities,
+    update_workflow,
+    update_workflow_activity,
 )
+from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
 
 def print_json(data):
@@ -91,7 +90,7 @@ def main():
     # Check if we have any workflows
     if workflows_result.get("count", 0) == 0:
         print("No active workflows found. Creating a new workflow...")
-        
+
         # Create a new workflow
         new_workflow_result = create_workflow(
             auth_manager,
@@ -105,19 +104,19 @@ def main():
         )
         print_json(new_workflow_result)
         print()
-        
+
         if "error" in new_workflow_result:
             print("Error creating workflow. Exiting.")
             sys.exit(1)
-            
+
         workflow_id = new_workflow_result["workflow"]["sys_id"]
     else:
         # Use the first workflow from the list
         workflow_id = workflows_result["workflows"][0]["sys_id"]
-        
+
     print(f"Using workflow with ID: {workflow_id}")
     print()
-    
+
     # Get workflow details
     print("Getting workflow details...")
     workflow_details = get_workflow_details(
@@ -129,7 +128,7 @@ def main():
     )
     print_json(workflow_details)
     print()
-    
+
     # List workflow versions
     print("Listing workflow versions...")
     versions_result = list_workflow_versions(
@@ -142,7 +141,7 @@ def main():
     )
     print_json(versions_result)
     print()
-    
+
     # Get workflow activities
     print("Getting workflow activities...")
     activities_result = get_workflow_activities(
@@ -154,7 +153,7 @@ def main():
     )
     print_json(activities_result)
     print()
-    
+
     # Add a new activity to the workflow
     print("Adding a new approval activity to the workflow...")
     add_activity_result = add_workflow_activity(
@@ -169,12 +168,12 @@ def main():
     )
     print_json(add_activity_result)
     print()
-    
+
     if "error" in add_activity_result:
         print("Error adding activity. Skipping activity modification steps.")
     else:
         activity_id = add_activity_result["activity"]["sys_id"]
-        
+
         # Update the activity
         print("Updating the activity...")
         update_activity_result = update_workflow_activity(
@@ -188,7 +187,7 @@ def main():
         )
         print_json(update_activity_result)
         print()
-        
+
         # Get the updated activities
         print("Getting updated workflow activities...")
         updated_activities_result = get_workflow_activities(
@@ -200,14 +199,16 @@ def main():
         )
         print_json(updated_activities_result)
         print()
-        
+
         # If there are multiple activities, reorder them
         if updated_activities_result.get("count", 0) > 1:
             print("Reordering workflow activities...")
-            activity_ids = [activity["sys_id"] for activity in updated_activities_result["activities"]]
+            activity_ids = [
+                activity["sys_id"] for activity in updated_activities_result["activities"]
+            ]
             # Reverse the order
             activity_ids.reverse()
-            
+
             reorder_result = reorder_workflow_activities(
                 auth_manager,
                 server_config,
@@ -218,7 +219,7 @@ def main():
             )
             print_json(reorder_result)
             print()
-            
+
             # Get the reordered activities
             print("Getting reordered workflow activities...")
             reordered_activities_result = get_workflow_activities(
@@ -230,7 +231,7 @@ def main():
             )
             print_json(reordered_activities_result)
             print()
-    
+
     # Update the workflow
     print("Updating the workflow...")
     update_result = update_workflow(
@@ -243,7 +244,7 @@ def main():
     )
     print_json(update_result)
     print()
-    
+
     # Deactivate the workflow
     print("Deactivating the workflow...")
     deactivate_result = deactivate_workflow(
@@ -255,7 +256,7 @@ def main():
     )
     print_json(deactivate_result)
     print()
-    
+
     # Activate the workflow
     print("Activating the workflow...")
     activate_result = activate_workflow(
@@ -267,9 +268,9 @@ def main():
     )
     print_json(activate_result)
     print()
-    
+
     print("Workflow management demo completed successfully!")
 
 
 if __name__ == "__main__":
-    main() 
+    main()

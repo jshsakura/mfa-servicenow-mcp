@@ -7,7 +7,6 @@ from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, S
 
 
 class TestIncidentTools(unittest.TestCase):
-
     def setUp(self):
         self.auth_config = AuthConfig(
             type=AuthType.BASIC, basic=BasicAuthConfig(username="test", password="test")

@@ -59,7 +59,7 @@ def main():
             basic=BasicAuthConfig(username=username, password=password),
         ),
     )
-    
+
     # Create the auth manager
     auth_manager = AuthManager(config.auth)
 
@@ -80,7 +80,7 @@ def main():
 def test_list_catalog_categories(config, auth_manager):
     """Test listing catalog categories."""
     print("Fetching catalog categories...")
-    
+
     # Create the parameters
     params = ListCatalogCategoriesParams(
         limit=5,
@@ -91,14 +91,14 @@ def test_list_catalog_categories(config, auth_manager):
 
     # Call the tool function directly
     result = list_catalog_categories(config, auth_manager, params)
-    
+
     # Print the result
     print(f"Found {result.get('total', 0)} catalog categories:")
     for i, category in enumerate(result.get("categories", []), 1):
         print(f"{i}. {category.get('title')} (ID: {category.get('sys_id')})")
         print(f"   Description: {category.get('description', 'N/A')}")
         print()
-    
+
     # Save the first category ID for later use
     if result.get("categories"):
         return result["categories"][0]["sys_id"]
@@ -108,7 +108,7 @@ def test_list_catalog_categories(config, auth_manager):
 def test_list_catalog_items(config, auth_manager, category_id=None):
     """Test listing catalog items."""
     print("Fetching catalog items...")
-    
+
     # Create the parameters
     params = ListCatalogItemsParams(
         limit=5,
@@ -120,7 +120,7 @@ def test_list_catalog_items(config, auth_manager, category_id=None):
 
     # Call the tool function directly
     result = list_catalog_items(config, auth_manager, params)
-    
+
     # Print the result
     print(f"Found {result.get('total', 0)} catalog items:")
     for i, item in enumerate(result.get("items", []), 1):
@@ -129,7 +129,7 @@ def test_list_catalog_items(config, auth_manager, category_id=None):
         print(f"   Category: {item.get('category', 'N/A')}")
         print(f"   Price: {item.get('price', 'N/A')}")
         print()
-    
+
     # Save the first item ID for later use
     if result.get("items"):
         return result["items"][0]["sys_id"]
@@ -139,7 +139,7 @@ def test_list_catalog_items(config, auth_manager, category_id=None):
 def test_get_catalog_item(config, auth_manager, item_id):
     """Test getting a specific catalog item."""
     print(f"Fetching details for catalog item: {item_id}")
-    
+
     # Create the parameters
     params = GetCatalogItemParams(
         item_id=item_id,
@@ -147,16 +147,18 @@ def test_get_catalog_item(config, auth_manager, item_id):
 
     # Call the tool function directly
     result = get_catalog_item(config, auth_manager, params)
-    
+
     # Print the result
     if result.success:
-        print(f"Retrieved catalog item: {result.data.get('name')} (ID: {result.data.get('sys_id')})")
+        print(
+            f"Retrieved catalog item: {result.data.get('name')} (ID: {result.data.get('sys_id')})"
+        )
         print(f"Description: {result.data.get('description', 'N/A')}")
         print(f"Category: {result.data.get('category', 'N/A')}")
         print(f"Price: {result.data.get('price', 'N/A')}")
         print(f"Delivery Time: {result.data.get('delivery_time', 'N/A')}")
         print(f"Availability: {result.data.get('availability', 'N/A')}")
-        
+
         # Print variables
         variables = result.data.get("variables", [])
         if variables:
@@ -172,4 +174,4 @@ def test_get_catalog_item(config, auth_manager, item_id):
 
 
 if __name__ == "__main__":
-    main() 
+    main()

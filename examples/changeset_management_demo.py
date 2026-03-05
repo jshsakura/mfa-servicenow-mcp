@@ -10,6 +10,7 @@ add files to changesets and retrieve changeset details.
 import json
 import os
 import sys
+
 from dotenv import load_dotenv
 
 # Add the parent directory to the path so we can import the servicenow_mcp package
@@ -70,21 +71,29 @@ def main():
 
     # Step 1: List existing changesets
     print("Step 1: Listing existing changesets...")
-    result = list_changesets(auth_manager, server_config, {
-        "limit": 5,
-        "timeframe": "recent",
-    })
+    result = list_changesets(
+        auth_manager,
+        server_config,
+        {
+            "limit": 5,
+            "timeframe": "recent",
+        },
+    )
     print_json(result)
     print("\n")
 
     # Step 2: Create a new changeset
     print("Step 2: Creating a new changeset...")
-    create_result = create_changeset(auth_manager, server_config, {
-        "name": "Demo Changeset",
-        "description": "A demonstration changeset created by the MCP demo script",
-        "application": "Global",  # Use a valid application name for your instance
-        "developer": username,
-    })
+    create_result = create_changeset(
+        auth_manager,
+        server_config,
+        {
+            "name": "Demo Changeset",
+            "description": "A demonstration changeset created by the MCP demo script",
+            "application": "Global",  # Use a valid application name for your instance
+            "developer": username,
+        },
+    )
     print_json(create_result)
     print("\n")
 
@@ -99,11 +108,15 @@ def main():
 
     # Step 3: Update the changeset
     print("Step 3: Updating the changeset...")
-    update_result = update_changeset(auth_manager, server_config, {
-        "changeset_id": changeset_id,
-        "name": "Demo Changeset - Updated",
-        "description": "An updated demonstration changeset",
-    })
+    update_result = update_changeset(
+        auth_manager,
+        server_config,
+        {
+            "changeset_id": changeset_id,
+            "name": "Demo Changeset - Updated",
+            "description": "An updated demonstration changeset",
+        },
+    )
     print_json(update_result)
     print("\n")
 
@@ -116,45 +129,65 @@ function demoFunction() {
     return 'Demo function executed successfully';
 }
 """
-    add_file_result = add_file_to_changeset(auth_manager, server_config, {
-        "changeset_id": changeset_id,
-        "file_path": "scripts/demo_function.js",
-        "file_content": file_content,
-    })
+    add_file_result = add_file_to_changeset(
+        auth_manager,
+        server_config,
+        {
+            "changeset_id": changeset_id,
+            "file_path": "scripts/demo_function.js",
+            "file_content": file_content,
+        },
+    )
     print_json(add_file_result)
     print("\n")
 
     # Step 5: Get changeset details
     print("Step 5: Getting changeset details...")
-    details_result = get_changeset_details(auth_manager, server_config, {
-        "changeset_id": changeset_id,
-    })
+    details_result = get_changeset_details(
+        auth_manager,
+        server_config,
+        {
+            "changeset_id": changeset_id,
+        },
+    )
     print_json(details_result)
     print("\n")
 
     # Step 6: Commit the changeset
     print("Step 6: Committing the changeset...")
-    commit_result = commit_changeset(auth_manager, server_config, {
-        "changeset_id": changeset_id,
-        "commit_message": "Completed the demo changeset",
-    })
+    commit_result = commit_changeset(
+        auth_manager,
+        server_config,
+        {
+            "changeset_id": changeset_id,
+            "commit_message": "Completed the demo changeset",
+        },
+    )
     print_json(commit_result)
     print("\n")
 
     # Step 7: Publish the changeset
     print("Step 7: Publishing the changeset...")
-    publish_result = publish_changeset(auth_manager, server_config, {
-        "changeset_id": changeset_id,
-        "publish_notes": "Demo changeset ready for deployment",
-    })
+    publish_result = publish_changeset(
+        auth_manager,
+        server_config,
+        {
+            "changeset_id": changeset_id,
+            "publish_notes": "Demo changeset ready for deployment",
+        },
+    )
     print_json(publish_result)
     print("\n")
 
     # Step 8: Get final changeset details
     print("Step 8: Getting final changeset details...")
-    final_details_result = get_changeset_details(auth_manager, server_config, {
-        "changeset_id": changeset_id,
-    })
+    final_details_result = get_changeset_details(
+        auth_manager,
+        server_config,
+        {
+            "changeset_id": changeset_id,
+        },
+    )
     print_json(final_details_result)
     print("\n")
 
@@ -162,4 +195,4 @@ function demoFunction() {
 
 
 if __name__ == "__main__":
-    main() 
+    main()
