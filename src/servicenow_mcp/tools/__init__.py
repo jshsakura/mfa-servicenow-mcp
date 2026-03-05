@@ -39,11 +39,7 @@ from servicenow_mcp.tools.changeset_tools import (
     publish_changeset,
     update_changeset,
 )
-from servicenow_mcp.tools.epic_tools import (
-    create_epic,
-    list_epics,
-    update_epic,
-)
+from servicenow_mcp.tools.epic_tools import create_epic, list_epics, update_epic
 from servicenow_mcp.tools.incident_tools import (
     add_comment,
     create_incident,
@@ -63,11 +59,7 @@ from servicenow_mcp.tools.knowledge_base import (
     publish_article,
     update_article,
 )
-from servicenow_mcp.tools.project_tools import (
-    create_project,
-    list_projects,
-    update_project,
-)
+from servicenow_mcp.tools.project_tools import create_project, list_projects, update_project
 from servicenow_mcp.tools.script_include_tools import (
     create_script_include,
     delete_script_include,

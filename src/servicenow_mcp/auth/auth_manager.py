@@ -174,7 +174,9 @@ class AuthManager:
         if self.config.type == AuthType.OAUTH:
             self._get_oauth_token()
 
-    def _login_with_browser(self, browser_config: BrowserAuthConfig, force_interactive: bool = False):
+    def _login_with_browser(
+        self, browser_config: BrowserAuthConfig, force_interactive: bool = False
+    ):
         instance_url = self.instance_url
         if not instance_url:
             raise ValueError("Instance URL is required for browser authentication")

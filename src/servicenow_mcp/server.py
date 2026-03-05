@@ -198,9 +198,13 @@ class ServiceNowMCP:
         # Iterate through defined tools and add enabled ones
         for tool_name, definition in self.tool_definitions.items():
             if tool_name in self.enabled_tool_names:
-                _impl_func, params_model, _return_annotation, description, _serialization = (
-                    definition
-                )
+                (
+                    _impl_func,
+                    params_model,
+                    _return_annotation,
+                    description,
+                    _serialization,
+                ) = definition
                 try:
                     schema = params_model.model_json_schema()
                     tool_list.append(

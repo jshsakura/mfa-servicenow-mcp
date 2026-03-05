@@ -98,11 +98,7 @@ from servicenow_mcp.tools.core_plus import sn_health as sn_health_tool
 from servicenow_mcp.tools.core_plus import sn_nl as sn_nl_tool
 from servicenow_mcp.tools.core_plus import sn_query as sn_query_tool
 from servicenow_mcp.tools.core_plus import sn_schema as sn_schema_tool
-from servicenow_mcp.tools.epic_tools import (
-    CreateEpicParams,
-    ListEpicsParams,
-    UpdateEpicParams,
-)
+from servicenow_mcp.tools.epic_tools import CreateEpicParams, ListEpicsParams, UpdateEpicParams
 from servicenow_mcp.tools.epic_tools import create_epic as create_epic_tool
 from servicenow_mcp.tools.epic_tools import list_epics as list_epics_tool
 from servicenow_mcp.tools.epic_tools import update_epic as update_epic_tool
@@ -122,9 +118,7 @@ from servicenow_mcp.tools.incident_tools import (
 from servicenow_mcp.tools.incident_tools import list_incidents as list_incidents_tool
 from servicenow_mcp.tools.incident_tools import resolve_incident as resolve_incident_tool
 from servicenow_mcp.tools.incident_tools import update_incident as update_incident_tool
-from servicenow_mcp.tools.knowledge_base import (
-    CreateArticleParams,
-)
+from servicenow_mcp.tools.knowledge_base import CreateArticleParams
 from servicenow_mcp.tools.knowledge_base import (
     CreateCategoryParams as CreateKBCategoryParams,  # Aliased
 )
