@@ -72,7 +72,9 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Command to run the application
-CMD ["servicenow-mcp-sse", "--host=0.0.0.0", "--port=8080"]
+# Use MCP_MODE=stdio for MCP server, MCP_MODE=sse for HTTP SSE server
+ENV MCP_MODE=stdio
+ENTRYPOINT ["sh", "-c", "if [ \"$MCP_MODE\" = \"sse\" ]; then servicenow-mcp-sse --host=0.0.0.0 --port=8080; else servicenow-mcp; fi"]
 
 # ============================================
 # Stage 3: Runtime with Playwright (for Browser Auth)
