@@ -77,7 +77,11 @@ class AuthManager:
             if not self.config.browser:
                 raise ValueError("Browser auth configuration is required")
             if not self._browser_cookie_header or self._is_browser_session_expired():
-                self._login_with_browser(self.config.browser)
+                # 세션 만료 시 사용자가 직접 로그인할 수 있도록 브라우저 표시
+                force_interactive = self._is_browser_session_expired()
+                if force_interactive:
+                    logger.info("Browser session expired. Opening browser for re-authentication...")
+                self._login_with_browser(self.config.browser, force_interactive=force_interactive)
             headers["Cookie"] = self._browser_cookie_header or ""
 
         return headers
@@ -170,7 +174,7 @@ class AuthManager:
         if self.config.type == AuthType.OAUTH:
             self._get_oauth_token()
 
-    def _login_with_browser(self, browser_config: BrowserAuthConfig):
+    def _login_with_browser(self, browser_config: BrowserAuthConfig, force_interactive: bool = False):
         instance_url = self.instance_url
         if not instance_url:
             raise ValueError("Instance URL is required for browser authentication")
@@ -188,20 +192,22 @@ class AuthManager:
         instance_url_pattern = re.compile(re.escape(instance_url) + r"/.*")
         instance_host = (urlparse(instance_url).hostname or "").lower()
 
-        if browser_config.headless and not self._browser_cookie_header:
+        # 세션 만료 시 강제로 브라우저 표시 (headless 설정 무시)
+        use_headless = browser_config.headless and not force_interactive
+
+        if use_headless and not self._browser_cookie_header:
             raise ValueError(
                 "Initial MFA/SSO bootstrap should run with headless=false for interactive login"
             )
-
         with sync_playwright() as playwright:
             if browser_config.user_data_dir:
                 context = playwright.chromium.launch_persistent_context(
                     browser_config.user_data_dir,
-                    headless=browser_config.headless,
+                    headless=use_headless,
                 )
                 page = context.pages[0] if context.pages else context.new_page()
             else:
-                browser = playwright.chromium.launch(headless=browser_config.headless)
+                browser = playwright.chromium.launch(headless=use_headless)
                 context = browser.new_context()
                 page = context.new_page()
 
@@ -264,5 +270,64 @@ class AuthManager:
             context.close()
 
     def invalidate_browser_session(self):
+        """Invalidate the current browser session, forcing re-authentication on next request."""
+        logger.info("Browser session invalidated")
         self._browser_cookie_header = None
         self._browser_cookie_expires_at = None
+
+    def make_request(
+        self,
+        method: str,
+        url: str,
+        max_retries: int = 1,
+        **kwargs,
+    ) -> requests.Response:
+        """
+        Make an authenticated HTTP request with automatic retry on 401.
+
+        For Browser Auth, 401 responses trigger session invalidation and
+        re-authentication before retry.
+
+        Args:
+            method: HTTP method (GET, POST, PATCH, PUT, DELETE).
+            url: Request URL.
+            max_retries: Maximum number of retries on 401 (default: 1).
+            **kwargs: Additional arguments passed to requests.request().
+
+        Returns:
+            requests.Response: The HTTP response.
+
+        Raises:
+            requests.RequestException: If the request fails after all retries.
+        """
+        # Get auth headers
+        headers = kwargs.pop("headers", {})
+        headers.update(self.get_headers())
+        kwargs["headers"] = headers
+
+        # Make initial request
+        response = requests.request(method, url, **kwargs)
+
+        # Handle 401 Unauthorized - retry with fresh session for Browser Auth
+        if response.status_code == 401 and max_retries > 0:
+            if self.config.type == AuthType.BROWSER:
+                logger.warning(
+                    "Received 401 Unauthorized. Invalidating browser session and retrying..."
+                )
+                # Invalidate current session
+                self.invalidate_browser_session()
+
+                # Get fresh headers (triggers re-login for Browser Auth)
+                headers = kwargs.get("headers", {})
+                headers.update(self.get_headers())
+                kwargs["headers"] = headers
+
+                # Retry request
+                response = requests.request(method, url, **kwargs)
+            else:
+                logger.warning(
+                    f"Received 401 Unauthorized with {self.config.type.value} auth. "
+                    "Check your credentials."
+                )
+
+        return response
