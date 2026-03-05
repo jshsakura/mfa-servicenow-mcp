@@ -38,6 +38,7 @@ htmlcov/
 .vscode/
 *.swp
 *.swo
+opencode.json
 
 # Environment files
 .env

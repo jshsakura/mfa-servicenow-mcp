@@ -38,11 +38,11 @@ dev = [
     "isort>=5.12.0",
     "mypy>=1.0.0",
     "ruff>=0.0.1",
-]
-browser = [
+    "pre-commit>=3.0.0",
+    ]
+    browser = [
     "playwright>=1.44.0",
 ]
-
 [project.scripts]
 servicenow-mcp = "servicenow_mcp.cli:main"
 servicenow-mcp-sse = "servicenow_mcp.server_sse:main"
