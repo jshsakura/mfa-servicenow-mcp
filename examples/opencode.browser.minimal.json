@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [".venv/bin/python", "-m", "servicenow_mcp.cli"],
+      "enabled": true,
+      "envFile": ".env.browser"
+    }
+  }
+}

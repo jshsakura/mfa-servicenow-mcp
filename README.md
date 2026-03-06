@@ -286,6 +286,31 @@ realpath .venv/bin/python
 
 출력된 경로를 `command`에 넣으면 됩니다.
 
+### OpenCode 최소 템플릿 파일
+
+아래 파일을 그대로 복사해서 시작하면 됩니다.
+
+- Basic 인증:
+  - `examples/opencode.basic.minimal.json`
+  - `examples/env.basic.minimal.example`
+- Browser(MFA/SSO) 인증:
+  - `examples/opencode.browser.minimal.json`
+  - `examples/env.browser.minimal.example`
+
+빠른 시작:
+
+```bash
+cp examples/opencode.basic.minimal.json opencode.json
+cp examples/env.basic.minimal.example .env.basic
+```
+
+Browser 인증으로 시작할 때:
+
+```bash
+cp examples/opencode.browser.minimal.json opencode.json
+cp examples/env.browser.minimal.example .env.browser
+```
+
 ---
 
 ## 도구 패키징
