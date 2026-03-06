@@ -173,59 +173,27 @@ MCP_TOOL_PACKAGE=full
 
 ## 클라이언트 설정
 
-### OpenCode 설정
+### 먼저: 왜 Python 경로를 직접 넣어야 하나?
 
-`opencode.json` 파일을 프로젝트 루트에 생성하세요.
+MCP 클라이언트(OpenCode/Claude)는 서버를 "별도 프로세스"로 실행합니다.  
+이때 어떤 Python 실행파일로 띄울지 애매하면(시스템 Python, pyenv, venv 충돌) 실행 실패가 자주 납니다.
 
-#### 예제 1: Basic 인증
+그래서 문서에서 `.venv/bin/python` 또는 절대경로를 권장한 이유는:
 
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [".venv/bin/python", "-m", "servicenow_mcp.cli"],
-      "enabled": true,
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "basic",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "full",
-        "SERVICENOW_DEBUG": "false",
-        "SERVICENOW_TIMEOUT": "30"
-      }
-    }
-  }
-}
-```
+- 항상 같은 가상환경/의존성으로 실행 보장
+- GUI 앱(Claude Desktop)에서 PATH가 다르게 잡혀도 안정적으로 동작
+- 로컬 쉘 상태(activate 여부)에 의존하지 않음
 
-#### 예제 2: Browser 인증 (MFA/SSO)
+정리:
 
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [".venv/bin/python", "-m", "servicenow_mcp.cli"],
-      "enabled": true,
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_TIMEOUT": "120",
-        "SERVICENOW_BROWSER_SESSION_TTL": "30",
-        "MCP_TOOL_PACKAGE": "full",
-        "SERVICENOW_DEBUG": "false"
-      }
-    }
-  }
-}
-```
+- 안정성 최우선: 절대경로 Python (권장)
+- 간편성 우선: `python3` (PATH 보장될 때만)
 
-#### 예제 3: .env 파일 사용 (권장)
+### 케이스별 권장 사용법
+
+#### 케이스 1: OpenCode + `.env` 사용 (권장)
+
+`opencode.json`:
 
 ```json
 {
@@ -241,11 +209,32 @@ MCP_TOOL_PACKAGE=full
 }
 ```
 
-### Claude Desktop 설정
+#### 케이스 2: OpenCode + Browser 인증(MFA/SSO)
 
-`~/Library/Application Support/Claude/claude_desktop_config.json` 파일을 수정하세요.
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [".venv/bin/python", "-m", "servicenow_mcp.cli"],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_TIMEOUT": "120",
+        "SERVICENOW_BROWSER_SESSION_TTL": "10",
+        "MCP_TOOL_PACKAGE": "full"
+      }
+    }
+  }
+}
+```
 
-#### 예제 1: Basic 인증
+#### 케이스 3: Claude Desktop + Basic 인증
+
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -265,7 +254,7 @@ MCP_TOOL_PACKAGE=full
 }
 ```
 
-#### 예제 2: Browser 인증 (MFA/SSO)
+#### 케이스 4: Claude Desktop + Browser 인증(MFA/SSO)
 
 ```json
 {
@@ -278,12 +267,24 @@ MCP_TOOL_PACKAGE=full
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_TIMEOUT": "120",
+        "SERVICENOW_BROWSER_SESSION_TTL": "10",
         "MCP_TOOL_PACKAGE": "full"
       }
     }
   }
 }
 ```
+
+### 경로 확인 방법
+
+```bash
+# venv 생성 후
+which python
+# 또는
+realpath .venv/bin/python
+```
+
+출력된 경로를 `command`에 넣으면 됩니다.
 
 ---
 
@@ -374,6 +375,24 @@ export MCP_TOOL_PACKAGE=service_desk
 
 ## Docker 사용법
 
+### GHCR 배포 태그 규칙
+
+GitHub Actions 배포 시 아래 태그가 생성됩니다.
+
+- `latest` - 기본 runtime 이미지 (multi-arch: `linux/amd64`, `linux/arm64`)
+- `latest-playwright` - Playwright 포함 이미지 (`linux/amd64`)
+- `v0.0.<run_number>` - 배포 실행번호 기반 릴리즈 태그
+- `sha-<commit>` - 커밋 기반 고유 태그
+
+예시:
+
+```bash
+docker pull ghcr.io/jshsakura/mfa-servicenow-mcp:latest
+docker pull ghcr.io/jshsakura/mfa-servicenow-mcp:latest-playwright
+docker pull ghcr.io/jshsakura/mfa-servicenow-mcp:v0.0.123
+docker pull ghcr.io/jshsakura/mfa-servicenow-mcp:sha-abcdef1
+```
+
 ### Docker 이미지 빌드
 
 ```bash
@@ -400,12 +419,23 @@ docker compose --profile dev up -d
 ### Docker 실행 예시
 
 ```bash
+# 기본 인증 예시
 docker run -p 8080:8080 \
   -e SERVICENOW_INSTANCE_URL=https://instance.service-now.com \
   -e SERVICENOW_AUTH_TYPE=basic \
   -e SERVICENOW_USERNAME=admin \
   -e SERVICENOW_PASSWORD=password \
-  servicenow-mcp:latest
+  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
+```
+
+```bash
+# Browser Auth(MFA/SSO) 예시: headless=false 권장
+docker run -p 8080:8080 \
+  -e SERVICENOW_INSTANCE_URL=https://instance.service-now.com \
+  -e SERVICENOW_AUTH_TYPE=browser \
+  -e SERVICENOW_BROWSER_HEADLESS=false \
+  -e SERVICENOW_BROWSER_SESSION_TTL=10 \
+  ghcr.io/jshsakura/mfa-servicenow-mcp:latest-playwright
 ```
 
 ---
