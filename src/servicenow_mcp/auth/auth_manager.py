@@ -3,6 +3,7 @@ Authentication manager for the ServiceNow MCP server.
 """
 
 import base64
+import threading
 import logging
 import re
 import time
@@ -232,7 +233,43 @@ class AuthManager:
 
     def _login_with_browser(
         self, browser_config: BrowserAuthConfig, force_interactive: bool = False
-    ):
+    ) -> None:
+        """
+        Run browser login safely when called from either sync or async contexts.
+
+        Playwright Sync API cannot run inside an active asyncio event loop.
+        MCP tool execution may happen while an event loop is active, so we
+        offload Sync API usage to a separate thread in that case.
+        """
+        try:
+            import asyncio
+
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                error_holder: list[BaseException] = []
+
+                def _runner() -> None:
+                    try:
+                        self._login_with_browser_sync(browser_config, force_interactive)
+                    except BaseException as exc:  # noqa: BLE001
+                        error_holder.append(exc)
+
+                thread = threading.Thread(target=_runner, daemon=True)
+                thread.start()
+                thread.join()
+
+                if error_holder:
+                    raise error_holder[0]
+                return
+        except RuntimeError:
+            # No running event loop in this thread; safe to execute sync API directly.
+            pass
+
+        self._login_with_browser_sync(browser_config, force_interactive)
+
+    def _login_with_browser_sync(
+        self, browser_config: BrowserAuthConfig, force_interactive: bool = False
+    ) -> None:
         instance_url = self.instance_url
         if not instance_url:
             raise ValueError("Instance URL is required for browser authentication")

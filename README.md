@@ -400,6 +400,17 @@ export MCP_TOOL_PACKAGE=service_desk
 
 ## Docker 사용법
 
+### 인증 방식별 권장 실행 방식
+
+| 인증 방식 | Docker 권장 여부 | 권장 실행 방식 | 이유 |
+|--------|------|-----------|------|
+| `basic` | 권장 | Docker (`latest`) | 브라우저 인터랙션이 필요 없음 |
+| `oauth` | 권장 | Docker (`latest`) | 토큰 기반 인증으로 컨테이너 환경 적합 |
+| `api_key` | 권장 | Docker (`latest`) | 헤더 인증만 필요 |
+| `browser` (MFA/SSO) | 비권장 | 로컬 Python (`.venv/bin/python -m servicenow_mcp.cli`) | MFA용 물리 브라우저 창/사용자 상호작용 필요 |
+
+> Browser(MFA/SSO) 모드는 Docker보다 로컬 실행이 안정적입니다.
+
 ### GHCR 배포 태그 규칙
 
 GitHub Actions 배포 시 아래 태그가 생성됩니다.
