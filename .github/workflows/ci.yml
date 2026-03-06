@@ -152,6 +152,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
+            type=sha,format=short,prefix=sha-
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
@@ -164,6 +165,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
+            type=sha,format=short,prefix=sha-
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
@@ -246,23 +248,7 @@ jobs:
       - name: Create next patch tag
         id: next_tag
         run: |
-          git fetch --force --tags
-
-          latest_tag=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
-          if [ -z "$latest_tag" ]; then
-            next_tag="v0.0.1"
-          else
-            version="${latest_tag#v}"
-            IFS='.' read -r major minor patch <<< "$version"
-
-            if [ -z "$major" ] || [ -z "$minor" ] || [ -z "$patch" ]; then
-              echo "Invalid semantic version tag format: $latest_tag"
-              exit 1
-            fi
-
-            next_patch=$((patch + 1))
-            next_tag="v${major}.${minor}.${next_patch}"
-          fi
+          next_tag="v0.0.${GITHUB_RUN_NUMBER}"
 
           echo "NEXT_TAG=$next_tag" >> "$GITHUB_OUTPUT"
 
