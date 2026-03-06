@@ -40,6 +40,8 @@ class AuthManager:
         self._browser_cookie_header: Optional[str] = None
         self._browser_cookie_expires_at: Optional[float] = None
         self._browser_session_key: Optional[str] = None
+        self._browser_last_validated_at: Optional[float] = None
+        self._browser_validation_interval_seconds: int = 30
 
     def get_headers(self) -> Dict[str, str]:
         """
@@ -82,6 +84,14 @@ class AuthManager:
                 if force_interactive:
                     logger.info("Browser session expired. Opening browser for re-authentication...")
                 self._login_with_browser(self.config.browser, force_interactive=force_interactive)
+            elif self._should_validate_browser_session():
+                if not self._is_browser_session_valid(self.config.browser):
+                    logger.info(
+                        "Browser session is no longer valid on ServiceNow. "
+                        "Opening browser for interactive re-authentication..."
+                    )
+                    self.invalidate_browser_session()
+                    self._login_with_browser(self.config.browser, force_interactive=True)
             headers["Cookie"] = self._browser_cookie_header or ""
 
         return headers
@@ -95,6 +105,52 @@ class AuthManager:
         if self._browser_cookie_expires_at is None:
             return False
         return time.time() >= self._browser_cookie_expires_at
+
+    def _should_validate_browser_session(self) -> bool:
+        if not self._browser_cookie_header:
+            return False
+        if self._browser_last_validated_at is None:
+            return True
+        return (
+            time.time() - self._browser_last_validated_at
+        ) >= self._browser_validation_interval_seconds
+
+    def _is_browser_session_valid(self, browser_config: BrowserAuthConfig) -> bool:
+        if not self.instance_url or not self._browser_cookie_header:
+            return False
+
+        probe_url = f"{self.instance_url}/api/now/table/sys_user"
+        probe_params = {"sysparm_limit": 1, "sysparm_fields": "sys_id"}
+        probe_headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Cookie": self._browser_cookie_header,
+        }
+
+        try:
+            response = requests.get(
+                probe_url,
+                params=probe_params,
+                headers=probe_headers,
+                timeout=min(int(browser_config.timeout_seconds), 30),
+            )
+        except requests.RequestException as exc:
+            logger.warning(
+                f"Browser session validation probe failed due to network/request issue: {exc}. "
+                "Keeping current session and continuing."
+            )
+            return True
+
+        self._browser_last_validated_at = time.time()
+
+        if response.status_code in (401, 403):
+            return False
+
+        location = response.headers.get("Location", "").lower()
+        if response.is_redirect and "login.do" in location:
+            return False
+
+        return True
 
     def _get_oauth_token(self):
         """
@@ -268,6 +324,7 @@ class AuthManager:
             self._browser_session_key = (
                 f"{instance_host}:{browser_config.username or 'interactive'}"
             )
+            self._browser_last_validated_at = time.time()
 
             context.close()
 
@@ -276,6 +333,7 @@ class AuthManager:
         logger.info("Browser session invalidated")
         self._browser_cookie_header = None
         self._browser_cookie_expires_at = None
+        self._browser_last_validated_at = None
 
     def make_request(
         self,
