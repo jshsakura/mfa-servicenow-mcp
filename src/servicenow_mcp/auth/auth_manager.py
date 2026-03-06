@@ -5,7 +5,6 @@ Authentication manager for the ServiceNow MCP server.
 import base64
 import threading
 import logging
-import re
 import time
 from typing import Dict, Optional
 from urllib.parse import urlparse
@@ -15,6 +14,14 @@ import requests
 from ..utils.config import AuthConfig, AuthType, BrowserAuthConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _is_login_page_url(url: str) -> bool:
+    """Return True when the URL still indicates ServiceNow login flow."""
+    parsed = urlparse(url)
+    path = parsed.path.lower()
+    query = parsed.query.lower()
+    return "login.do" in path or "sysparm_type=login" in query
 
 
 class AuthManager:
@@ -284,7 +291,6 @@ class AuthManager:
 
         login_url = browser_config.login_url or f"{instance_url}/login.do"
         timeout_ms = int(browser_config.timeout_seconds) * 1000
-        instance_url_pattern = re.compile(re.escape(instance_url) + r"/.*")
         instance_host = (urlparse(instance_url).hostname or "").lower()
 
         # 세션 만료 시 강제로 브라우저 표시 (headless 설정 무시)
@@ -327,14 +333,29 @@ class AuthManager:
                 elif page.locator(pass_selector).count() > 0:
                     page.locator(pass_selector).press("Enter")
 
-            try:
-                page.wait_for_url(instance_url_pattern, timeout=timeout_ms)
-            except Exception:
-                logger.info(
-                    "Browser login waiting for manual completion (MFA/SSO). "
-                    "Please complete login in the opened browser window."
+            logger.info(
+                "Browser login waiting for manual completion (MFA/SSO). "
+                "Please complete login in the opened browser window."
+            )
+
+            # Keep browser open until login page is left and at least one cookie appears.
+            # This avoids closing immediately while user is still entering MFA.
+            start = time.time()
+            login_confirmed = False
+            while (time.time() - start) * 1000 < timeout_ms:
+                current_url = page.url
+                if not _is_login_page_url(current_url):
+                    current_cookies = context.cookies(instance_url)
+                    if current_cookies:
+                        login_confirmed = True
+                        break
+                time.sleep(1)
+
+            if not login_confirmed:
+                raise ValueError(
+                    "Timed out waiting for manual browser login/MFA completion. "
+                    "Increase SERVICENOW_BROWSER_TIMEOUT and try again."
                 )
-                page.wait_for_url(instance_url_pattern, timeout=timeout_ms)
 
             cookies = context.cookies(instance_url)
             if not cookies:
