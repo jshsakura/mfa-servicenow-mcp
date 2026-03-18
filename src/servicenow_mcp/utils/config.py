@@ -47,6 +47,7 @@ class BrowserAuthConfig(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     login_url: Optional[str] = None
+    probe_path: str = "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id"
     headless: bool = False
     timeout_seconds: int = 120
     user_data_dir: Optional[str] = None

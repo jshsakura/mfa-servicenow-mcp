@@ -258,7 +258,7 @@ def create_project(
     url = f"{instance_url}/api/now/table/pm_project"
 
     try:
-        response = requests.post(url, json=data, headers=headers)
+        response = auth_manager.make_request("POST", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -350,7 +350,7 @@ def update_project(
     url = f"{instance_url}/api/now/table/pm_project/{validated_params.project_id}"
 
     try:
-        response = requests.put(url, json=data, headers=headers)
+        response = auth_manager.make_request("PUT", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -444,7 +444,7 @@ def list_projects(
     }
 
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = auth_manager.make_request("GET", url, headers=headers, params=params)
         response.raise_for_status()
 
         result = response.json()

@@ -276,7 +276,7 @@ def create_scrum_task(
     url = f"{instance_url}/api/now/table/rm_scrum_task"
 
     try:
-        response = requests.post(url, json=data, headers=headers)
+        response = auth_manager.make_request("POST", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -370,7 +370,7 @@ def update_scrum_task(
     url = f"{instance_url}/api/now/table/rm_scrum_task/{validated_params.scrum_task_id}"
 
     try:
-        response = requests.put(url, json=data, headers=headers)
+        response = auth_manager.make_request("PUT", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -464,7 +464,7 @@ def list_scrum_tasks(
     }
 
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = auth_manager.make_request("GET", url, headers=headers, params=params)
         response.raise_for_status()
 
         result = response.json()

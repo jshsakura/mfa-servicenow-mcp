@@ -3,6 +3,7 @@
 import logging
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qsl
 
 import requests
 from pydantic import BaseModel, Field
@@ -58,22 +59,76 @@ def _safe_json(response: requests.Response) -> Dict[str, Any]:
         return {"raw": response.text}
 
 
+def _is_login_redirect_response(response: requests.Response) -> bool:
+    location = response.headers.get("Location", "")
+    response_url = str(response.url)
+    return (
+        "login.do" in location.lower()
+        or "sysparm_type=login" in location.lower()
+        or "login.do" in response_url.lower()
+    )
+
+
 def sn_health(
     config: ServerConfig, auth_manager: AuthManager, params: HealthCheckParams
 ) -> Dict[str, Any]:
-    url = f"{config.instance_url}/api/now/table/sys_user"
+    probe_path = "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id"
+    if config.auth.type.value == "browser" and config.auth.browser:
+        probe_path = config.auth.browser.probe_path
+    probe_path = probe_path.lstrip("/")
+    if "?" in probe_path:
+        path_only, query_string = probe_path.split("?", 1)
+        probe_params = dict(parse_qsl(query_string, keep_blank_values=True))
+    else:
+        path_only = probe_path
+        probe_params = {}
+    url = f"{config.instance_url}/{path_only}"
     try:
-        response = requests.get(
+        response = auth_manager.make_request(
+            "GET",
             url,
-            params={"sysparm_limit": 1, "sysparm_fields": "sys_id"},
-            headers=auth_manager.get_headers(),
+            params=probe_params or None,
             timeout=params.timeout,
+            max_retries=1,
         )
         if response.status_code >= 400:
+            looks_like_login_redirect = _is_login_redirect_response(response)
+            if config.auth.type.value == "browser" and not looks_like_login_redirect:
+                return {
+                    "ok": True,
+                    "status_code": response.status_code,
+                    "instance_url": config.instance_url,
+                    "message": "Browser session is authenticated. Additional API credentials are not required; the configured probe path is unauthorized or blocked by ACLs.",
+                    "auth_type": "browser",
+                    "browser_session_authenticated": True,
+                    "additional_api_credentials_required": False,
+                    "warning": {
+                        "probe_path": config.auth.browser.probe_path
+                        if config.auth.browser
+                        else probe_path,
+                        "reason": "probe_path_unauthorized_or_acl_blocked",
+                        "details": _safe_json(response),
+                    },
+                }
+            location = response.headers.get("Location", "")
+            response_url = str(response.url)
             return {
                 "ok": False,
                 "status_code": response.status_code,
                 "message": "ServiceNow API reachable but request failed",
+                "auth_type": config.auth.type.value,
+                "browser_session_authenticated": False
+                if config.auth.type.value == "browser"
+                else None,
+                "additional_api_credentials_required": False
+                if config.auth.type.value == "browser"
+                else None,
+                "diagnostics": {
+                    "response_url": response_url,
+                    "is_redirect": bool(response.is_redirect),
+                    "location": location,
+                    "looks_like_login_redirect": looks_like_login_redirect,
+                },
                 "details": _safe_json(response),
             }
         return {
@@ -109,10 +164,10 @@ def sn_query(
         query_params[key] = params.orderby[1:] if params.orderby.startswith("-") else params.orderby
 
     try:
-        response = requests.get(
+        response = auth_manager.make_request(
+            "GET",
             url,
             params=query_params,
-            headers=auth_manager.get_headers(),
             timeout=config.timeout,
         )
         response.raise_for_status()
@@ -154,10 +209,10 @@ def sn_aggregate(
         query_params[f"sysparm_{agg.lower()}_fields"] = params.field
 
     try:
-        response = requests.get(
+        response = auth_manager.make_request(
+            "GET",
             url,
             params=query_params,
-            headers=auth_manager.get_headers(),
             timeout=config.timeout,
         )
         response.raise_for_status()
@@ -187,10 +242,10 @@ def sn_schema(
         "sysparm_display_value": "true",
     }
     try:
-        response = requests.get(
+        response = auth_manager.make_request(
+            "GET",
             url,
             params=query_params,
-            headers=auth_manager.get_headers(),
             timeout=config.timeout,
         )
         response.raise_for_status()
@@ -235,10 +290,10 @@ def sn_discover(
         "sysparm_exclude_reference_link": "true",
     }
     try:
-        response = requests.get(
+        response = auth_manager.make_request(
+            "GET",
             url,
             params=query_params,
-            headers=auth_manager.get_headers(),
             timeout=config.timeout,
         )
         response.raise_for_status()

@@ -6,6 +6,7 @@ import argparse
 import importlib
 import logging
 import os
+import re
 import sys
 
 from .server import ServiceNowMCP
@@ -25,6 +26,38 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+_ENV_REF_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def _resolve_env_reference(value: str | None) -> str | None:
+    """Resolve ${ENV_NAME} style values to the actual environment value."""
+    if not value:
+        return value
+    stripped = value.strip()
+    match = _ENV_REF_PATTERN.match(stripped)
+    if not match:
+        return value
+    env_name = match.group(1)
+    resolved = os.getenv(env_name)
+    # Guard against self-referential placeholder values like:
+    # SERVICENOW_USERNAME="${SERVICENOW_USERNAME}"
+    if not resolved or resolved.strip() == stripped:
+        return None
+    return resolved
+
+
+def _pick_first_resolved(*values: str | None) -> str | None:
+    """
+    Pick the first non-empty value after ${ENV_NAME} resolution.
+    Unresolved ${...} values are treated as missing and skipped.
+    """
+    for value in values:
+        resolved = _resolve_env_reference(value)
+        if resolved:
+            return resolved
+    return None
 
 
 def parse_args():
@@ -121,6 +154,14 @@ def parse_args():
         default=os.environ.get("SERVICENOW_BROWSER_LOGIN_URL"),
     )
     browser_group.add_argument(
+        "--browser-probe-path",
+        help="Probe path used to validate browser-authenticated API sessions",
+        default=os.environ.get(
+            "SERVICENOW_BROWSER_PROBE_PATH",
+            "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id",
+        ),
+    )
+    browser_group.add_argument(
         "--browser-headless",
         help="Run browser in headless mode (true/false)",
         default=os.environ.get("SERVICENOW_BROWSER_HEADLESS", "false"),
@@ -186,8 +227,10 @@ def create_config(args) -> ServerConfig:
     final_auth_config: AuthConfig
 
     if auth_type == AuthType.BASIC:
-        username = args.username or os.getenv("SERVICENOW_USERNAME")
-        password = args.password or os.getenv("SERVICENOW_PASSWORD")  # Get password from arg or env
+        username = _pick_first_resolved(args.username, os.getenv("SERVICENOW_USERNAME"))
+        password = _pick_first_resolved(
+            args.password, os.getenv("SERVICENOW_PASSWORD")
+        )  # Get password from arg or env
         if not username or not password:
             raise ValueError(
                 "Username and password are required for basic authentication "
@@ -205,8 +248,12 @@ def create_config(args) -> ServerConfig:
         # Simplified - assuming password grant for now based on previous args
         client_id = args.client_id or os.getenv("SERVICENOW_CLIENT_ID")
         client_secret = args.client_secret or os.getenv("SERVICENOW_CLIENT_SECRET")
-        username = args.username or os.getenv("SERVICENOW_USERNAME")  # Needed for password grant
-        password = args.password or os.getenv("SERVICENOW_PASSWORD")  # Needed for password grant
+        username = _pick_first_resolved(
+            args.username, os.getenv("SERVICENOW_USERNAME")
+        )  # Needed for password grant
+        password = _pick_first_resolved(
+            args.password, os.getenv("SERVICENOW_PASSWORD")
+        )  # Needed for password grant
         token_url = args.token_url or os.getenv("SERVICENOW_TOKEN_URL")
 
         if not client_id or not client_secret or not username or not password:
@@ -247,9 +294,21 @@ def create_config(args) -> ServerConfig:
         # Create the main AuthConfig wrapper
         final_auth_config = AuthConfig(type=auth_type, api_key=api_key_cfg)
     elif auth_type == AuthType.BROWSER:
-        browser_username = args.browser_username or os.getenv("SERVICENOW_BROWSER_USERNAME")
-        browser_password = args.browser_password or os.getenv("SERVICENOW_BROWSER_PASSWORD")
+        browser_username = _pick_first_resolved(
+            args.browser_username,
+            os.getenv("SERVICENOW_BROWSER_USERNAME"),
+            os.getenv("SERVICENOW_USERNAME"),
+        )
+        browser_password = _pick_first_resolved(
+            args.browser_password,
+            os.getenv("SERVICENOW_BROWSER_PASSWORD"),
+            os.getenv("SERVICENOW_PASSWORD"),
+        )
         browser_login_url = args.browser_login_url or os.getenv("SERVICENOW_BROWSER_LOGIN_URL")
+        browser_probe_path = args.browser_probe_path or os.getenv(
+            "SERVICENOW_BROWSER_PROBE_PATH",
+            "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id",
+        )
         browser_headless = str(args.browser_headless).lower() == "true"
         browser_timeout = args.browser_timeout or int(
             os.getenv("SERVICENOW_BROWSER_TIMEOUT", "120")
@@ -265,6 +324,7 @@ def create_config(args) -> ServerConfig:
             username=browser_username,
             password=browser_password,
             login_url=browser_login_url,
+            probe_path=browser_probe_path,
             headless=browser_headless,
             timeout_seconds=browser_timeout,
             user_data_dir=browser_user_data_dir,

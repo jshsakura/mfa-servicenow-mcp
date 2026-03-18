@@ -275,7 +275,7 @@ def list_changesets(
     url = f"{instance_url}/api/now/table/sys_update_set"
 
     try:
-        response = requests.get(url, params=query_params, headers=headers)
+        response = auth_manager.make_request("GET", url, params=query_params, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -339,7 +339,7 @@ def get_changeset_details(
     url = f"{instance_url}/api/now/table/sys_update_set/{validated_params.changeset_id}"
 
     try:
-        response = requests.get(url, headers=headers)
+        response = auth_manager.make_request("GET", url, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -353,7 +353,9 @@ def get_changeset_details(
             "sysparm_query": f"update_set={validated_params.changeset_id}",
         }
 
-        changes_response = requests.get(changes_url, params=changes_params, headers=headers)
+        changes_response = auth_manager.make_request(
+            "GET", changes_url, params=changes_params, headers=headers
+        )
         changes_response.raise_for_status()
 
         changes_result = changes_response.json()
@@ -434,7 +436,7 @@ def create_changeset(
     url = f"{instance_url}/api/now/table/sys_update_set"
 
     try:
-        response = requests.post(url, json=data, headers=headers)
+        response = auth_manager.make_request("POST", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -521,7 +523,7 @@ def update_changeset(
     url = f"{instance_url}/api/now/table/sys_update_set/{validated_params.changeset_id}"
 
     try:
-        response = requests.patch(url, json=data, headers=headers)
+        response = auth_manager.make_request("PATCH", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -597,7 +599,7 @@ def commit_changeset(
     url = f"{instance_url}/api/now/table/sys_update_set/{validated_params.changeset_id}"
 
     try:
-        response = requests.patch(url, json=data, headers=headers)
+        response = auth_manager.make_request("PATCH", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -673,7 +675,7 @@ def publish_changeset(
     url = f"{instance_url}/api/now/table/sys_update_set/{validated_params.changeset_id}"
 
     try:
-        response = requests.patch(url, json=data, headers=headers)
+        response = auth_manager.make_request("PATCH", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -750,7 +752,7 @@ def add_file_to_changeset(
     url = f"{instance_url}/api/now/table/sys_update_xml"
 
     try:
-        response = requests.post(url, json=data, headers=headers)
+        response = auth_manager.make_request("POST", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()

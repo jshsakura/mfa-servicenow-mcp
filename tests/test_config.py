@@ -7,6 +7,7 @@ from servicenow_mcp.utils.config import (
     AuthConfig,
     AuthType,
     BasicAuthConfig,
+    BrowserAuthConfig,
     OAuthConfig,
     ServerConfig,
 )
@@ -58,6 +59,15 @@ def test_api_key_config():
 
     config = ApiKeyConfig(api_key="api_key", header_name="Custom-Header")
     assert config.header_name == "Custom-Header"
+
+
+def test_browser_auth_config():
+    """Test the BrowserAuthConfig class."""
+    config = BrowserAuthConfig()
+    assert config.probe_path == "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id"
+
+    config = BrowserAuthConfig(probe_path="/api/now/table/incident?sysparm_limit=1")
+    assert config.probe_path == "/api/now/table/incident?sysparm_limit=1"
 
 
 def test_auth_config():

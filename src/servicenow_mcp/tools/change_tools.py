@@ -298,7 +298,7 @@ def create_change_request(
     url = f"{instance_url}/api/now/table/change_request"
 
     try:
-        response = requests.post(url, json=data, headers=headers)
+        response = auth_manager.make_request("POST", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -390,7 +390,7 @@ def update_change_request(
     url = f"{instance_url}/api/now/table/change_request/{validated_params.change_id}"
 
     try:
-        response = requests.put(url, json=data, headers=headers)
+        response = auth_manager.make_request("PUT", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -488,7 +488,7 @@ def list_change_requests(
     }
 
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = auth_manager.make_request("GET", url, headers=headers, params=params)
         response.raise_for_status()
 
         result = response.json()
@@ -561,7 +561,7 @@ def get_change_request_details(
     }
 
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = auth_manager.make_request("GET", url, headers=headers, params=params)
         response.raise_for_status()
 
         result = response.json()
@@ -573,7 +573,9 @@ def get_change_request_details(
             "sysparm_display_value": "true",
         }
 
-        tasks_response = requests.get(tasks_url, headers=headers, params=tasks_params)
+        tasks_response = auth_manager.make_request(
+            "GET", tasks_url, headers=headers, params=tasks_params
+        )
         tasks_response.raise_for_status()
 
         tasks_result = tasks_response.json()
@@ -656,7 +658,7 @@ def add_change_task(
     url = f"{instance_url}/api/now/table/change_task"
 
     try:
-        response = requests.post(url, json=data, headers=headers)
+        response = auth_manager.make_request("POST", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -732,7 +734,7 @@ def submit_change_for_approval(
     url = f"{instance_url}/api/now/table/change_request/{validated_params.change_id}"
 
     try:
-        response = requests.patch(url, json=data, headers=headers)
+        response = auth_manager.make_request("PATCH", url, json=data, headers=headers)
         response.raise_for_status()
 
         # Now, create an approval request
@@ -743,7 +745,9 @@ def submit_change_for_approval(
             "state": "requested",
         }
 
-        approval_response = requests.post(approval_url, json=approval_data, headers=headers)
+        approval_response = auth_manager.make_request(
+            "POST", approval_url, json=approval_data, headers=headers
+        )
         approval_response.raise_for_status()
 
         approval_result = approval_response.json()
@@ -810,7 +814,9 @@ def approve_change(
     }
 
     try:
-        approval_response = requests.get(approval_query_url, headers=headers, params=query_params)
+        approval_response = auth_manager.make_request(
+            "GET", approval_query_url, headers=headers, params=query_params
+        )
         approval_response.raise_for_status()
 
         approval_result = approval_response.json()
@@ -834,8 +840,8 @@ def approve_change(
         if validated_params.approval_comments:
             approval_data["comments"] = validated_params.approval_comments
 
-        approval_update_response = requests.patch(
-            approval_update_url, json=approval_data, headers=headers
+        approval_update_response = auth_manager.make_request(
+            "PATCH", approval_update_url, json=approval_data, headers=headers
         )
         approval_update_response.raise_for_status()
 
@@ -846,7 +852,9 @@ def approve_change(
             "state": "implement",  # This may vary depending on ServiceNow configuration
         }
 
-        change_response = requests.patch(change_url, json=change_data, headers=headers)
+        change_response = auth_manager.make_request(
+            "PATCH", change_url, json=change_data, headers=headers
+        )
         change_response.raise_for_status()
 
         return {
@@ -912,7 +920,9 @@ def reject_change(
     }
 
     try:
-        approval_response = requests.get(approval_query_url, headers=headers, params=query_params)
+        approval_response = auth_manager.make_request(
+            "GET", approval_query_url, headers=headers, params=query_params
+        )
         approval_response.raise_for_status()
 
         approval_result = approval_response.json()
@@ -934,8 +944,8 @@ def reject_change(
             "comments": validated_params.rejection_reason,
         }
 
-        approval_update_response = requests.patch(
-            approval_update_url, json=approval_data, headers=headers
+        approval_update_response = auth_manager.make_request(
+            "PATCH", approval_update_url, json=approval_data, headers=headers
         )
         approval_update_response.raise_for_status()
 
@@ -947,7 +957,9 @@ def reject_change(
             "work_notes": f"Change request rejected: {validated_params.rejection_reason}",
         }
 
-        change_response = requests.patch(change_url, json=change_data, headers=headers)
+        change_response = auth_manager.make_request(
+            "PATCH", change_url, json=change_data, headers=headers
+        )
         change_response.raise_for_status()
 
         return {

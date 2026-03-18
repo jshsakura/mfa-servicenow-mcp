@@ -7,7 +7,6 @@ This module provides tools for managing script includes in ServiceNow.
 import logging
 from typing import Any, Dict, Optional
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
@@ -123,7 +122,8 @@ def list_script_includes(
         # Make the request
         headers = auth_manager.get_headers()
 
-        response = requests.get(
+        response = auth_manager.make_request(
+            "GET",
             url,
             params=query_params,
             headers=headers,
@@ -207,7 +207,8 @@ def get_script_include(
         # Make the request
         headers = auth_manager.get_headers()
 
-        response = requests.get(
+        response = auth_manager.make_request(
+            "GET",
             url,
             params=query_params,
             headers=headers,
@@ -302,7 +303,8 @@ def create_script_include(
     headers = auth_manager.get_headers()
 
     try:
-        response = requests.post(
+        response = auth_manager.make_request(
+            "POST",
             url,
             json=body,
             headers=headers,
@@ -401,7 +403,8 @@ def update_script_include(
     headers = auth_manager.get_headers()
 
     try:
-        response = requests.patch(
+        response = auth_manager.make_request(
+            "PATCH",
             url,
             json=body,
             headers=headers,
@@ -471,7 +474,8 @@ def delete_script_include(
     headers = auth_manager.get_headers()
 
     try:
-        response = requests.delete(
+        response = auth_manager.make_request(
+            "DELETE",
             url,
             headers=headers,
             timeout=30,

@@ -140,7 +140,8 @@ def create_catalog_item_variable(
 
     # Make request
     try:
-        response = requests.post(
+        response = auth_manager.make_request(
+            "POST",
             api_url,
             json=data,
             headers=auth_manager.get_headers(),
@@ -202,7 +203,8 @@ def list_catalog_item_variables(
 
     # Make request
     try:
-        response = requests.get(
+        response = auth_manager.make_request(
+            "GET",
             api_url,
             params=query_params,
             headers=auth_manager.get_headers(),
@@ -280,7 +282,8 @@ def update_catalog_item_variable(
 
     # Make request
     try:
-        response = requests.patch(
+        response = auth_manager.make_request(
+            "PATCH",
             api_url,
             json=data,
             headers=auth_manager.get_headers(),

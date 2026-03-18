@@ -246,7 +246,7 @@ def list_workflows(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_workflow"
 
-        response = requests.get(url, headers=headers, params=query_params)
+        response = auth_manager.make_request("GET", url, headers=headers, params=query_params)
         response.raise_for_status()
 
         result = response.json()
@@ -297,7 +297,7 @@ def get_workflow_details(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_workflow/{workflow_id}"
 
-        response = requests.get(url, headers=headers)
+        response = auth_manager.make_request("GET", url, headers=headers)
         response.raise_for_status()
 
         result = response.json()
@@ -354,7 +354,7 @@ def list_workflow_versions(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_workflow_version"
 
-        response = requests.get(url, headers=headers, params=query_params)
+        response = auth_manager.make_request("GET", url, headers=headers, params=query_params)
         response.raise_for_status()
 
         result = response.json()
@@ -415,7 +415,9 @@ def get_workflow_activities(
                 "sysparm_orderby": "version DESC",
             }
 
-            version_response = requests.get(version_url, headers=headers, params=version_params)
+            version_response = auth_manager.make_request(
+                "GET", version_url, headers=headers, params=version_params
+            )
             version_response.raise_for_status()
 
             version_result = version_response.json()
@@ -444,8 +446,8 @@ def get_workflow_activities(
             "sysparm_orderby": "order",
         }
 
-        activities_response = requests.get(
-            activities_url, headers=headers, params=activities_params
+        activities_response = auth_manager.make_request(
+            "GET", activities_url, headers=headers, params=activities_params
         )
         activities_response.raise_for_status()
 
@@ -517,7 +519,7 @@ def create_workflow(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_workflow"
 
-        response = requests.post(url, headers=headers, json=data)
+        response = auth_manager.make_request("POST", url, headers=headers, json=data)
         response.raise_for_status()
 
         result = response.json()
@@ -590,7 +592,7 @@ def update_workflow(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_workflow/{workflow_id}"
 
-        response = requests.patch(url, headers=headers, json=data)
+        response = auth_manager.make_request("PATCH", url, headers=headers, json=data)
         response.raise_for_status()
 
         result = response.json()
@@ -646,7 +648,7 @@ def activate_workflow(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_workflow/{workflow_id}"
 
-        response = requests.patch(url, headers=headers, json=data)
+        response = auth_manager.make_request("PATCH", url, headers=headers, json=data)
         response.raise_for_status()
 
         result = response.json()
@@ -702,7 +704,7 @@ def deactivate_workflow(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_workflow/{workflow_id}"
 
-        response = requests.patch(url, headers=headers, json=data)
+        response = auth_manager.make_request("PATCH", url, headers=headers, json=data)
         response.raise_for_status()
 
         result = response.json()
@@ -774,7 +776,7 @@ def add_workflow_activity(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_activity"
 
-        response = requests.post(url, headers=headers, json=data)
+        response = auth_manager.make_request("POST", url, headers=headers, json=data)
         response.raise_for_status()
 
         result = response.json()
@@ -841,7 +843,7 @@ def update_workflow_activity(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_activity/{activity_id}"
 
-        response = requests.patch(url, headers=headers, json=data)
+        response = auth_manager.make_request("PATCH", url, headers=headers, json=data)
         response.raise_for_status()
 
         result = response.json()
@@ -892,7 +894,7 @@ def delete_workflow_activity(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_activity/{activity_id}"
 
-        response = requests.delete(url, headers=headers)
+        response = auth_manager.make_request("DELETE", url, headers=headers)
         response.raise_for_status()
 
         return {
@@ -954,7 +956,7 @@ def reorder_workflow_activities(
             data = {"order": new_order}
 
             try:
-                response = requests.patch(url, headers=headers, json=data)
+                response = auth_manager.make_request("PATCH", url, headers=headers, json=data)
                 response.raise_for_status()
 
                 results.append(
@@ -1019,7 +1021,7 @@ def delete_workflow(
         headers = auth_manager.get_headers()
         url = f"{server_config.instance_url}/api/now/table/wf_workflow/{workflow_id}"
 
-        response = requests.delete(url, headers=headers)
+        response = auth_manager.make_request("DELETE", url, headers=headers)
         response.raise_for_status()
 
         return {

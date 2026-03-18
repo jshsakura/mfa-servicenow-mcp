@@ -328,7 +328,7 @@ def get_tool_definitions(
             sn_health_tool,
             HealthCheckParams,
             Dict[str, Any],
-            "Run ServiceNow API connectivity and auth health checks",
+            "Run ServiceNow API connectivity and auth health checks. In browser auth mode, this may open a login window on first use and can return a warning when the browser session is valid but the configured probe path is blocked by ACLs.",
             "raw_dict",
         ),
         "sn_query": (
