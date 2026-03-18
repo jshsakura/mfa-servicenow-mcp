@@ -635,9 +635,39 @@ class AuthManager:
 
             page.goto(login_url, timeout=timeout_ms, wait_until="load")
 
+            username = browser_config.username
+            password = browser_config.password
+
+            if username and password:
+                user_selector = "input#user_name, input[name='user_name']"
+                pass_selector = (
+                    "input#user_password, input[name='user_password'], input[type='password']"
+                )
+                login_selector = "button#sysverb_login, input#sysverb_login, button[type='submit']"
+
+                if page.locator(user_selector).count() > 0:
+                    page.fill(user_selector, username)
+                if page.locator(pass_selector).count() > 0:
+                    page.fill(pass_selector, password)
+                if page.locator(login_selector).count() > 0:
+                    page.click(login_selector)
+                    if force_interactive:
+                        logger.info(
+                            "Interactive mode: credentials prefilled and login submitted. "
+                            "Waiting for manual MFA completion."
+                        )
+                else:
+                    if page.locator(pass_selector).count() > 0:
+                        page.locator(pass_selector).press("Enter")
+                    if force_interactive:
+                        logger.info(
+                            "Interactive mode: credentials prefilled and Enter submitted. "
+                            "Waiting for manual MFA completion."
+                        )
+
             logger.info(
-                "Browser login waiting for manual completion (Credentials + MFA/SSO). "
-                "Please complete the entire login process in the opened browser window."
+                "Browser login waiting for manual completion (MFA/SSO). "
+                "Please complete the login in the opened browser window."
             )
 
             # Keep browser open until cookie-based API probe confirms authenticated session.
