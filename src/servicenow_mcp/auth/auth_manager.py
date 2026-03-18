@@ -3,7 +3,9 @@ Authentication manager for the ServiceNow MCP server.
 """
 
 import base64
+import json
 import logging
+import os
 import threading
 import time
 from typing import Dict, Optional
@@ -137,6 +139,69 @@ class AuthManager:
         self._browser_last_login_at = None
         self._browser_post_login_grace_seconds = 90
         self._browser_reauth_cooldown_seconds = 120
+        self._session_cache_path = self._get_session_cache_path()
+
+        # Try to load existing session from disk on startup
+        if self.config.type == AuthType.BROWSER:
+            self._load_session_from_disk()
+
+    def _get_session_cache_path(self) -> str:
+        """Get the path to the session cache file."""
+        home = os.path.expanduser("~")
+        cache_dir = os.path.join(home, ".servicenow_mcp")
+        os.makedirs(cache_dir, exist_ok=True)
+        # Use a sanitized instance URL to keep sessions separate per instance
+        instance_id = "default"
+        if self.instance_url:
+            instance_id = (urlparse(self.instance_url).hostname or "default").replace(".", "_")
+        return os.path.join(cache_dir, f"session_{instance_id}.json")
+
+    def _save_session_to_disk(self) -> None:
+        """Save the current browser session to disk."""
+        if self.config.type != AuthType.BROWSER or not self._browser_cookie_header:
+            return
+
+        data = {
+            "cookie_header": self._browser_cookie_header,
+            "user_agent": self._browser_user_agent,
+            "session_token": self._browser_session_token,
+            "expires_at": self._browser_cookie_expires_at,
+            "instance_url": self.instance_url,
+        }
+        try:
+            with open(self._session_cache_path, "w") as f:
+                json.dump(data, f)
+            logger.info("Browser session saved to disk: %s", self._session_cache_path)
+        except Exception as exc:
+            logger.warning("Failed to save browser session to disk: %s", exc)
+
+    def _load_session_from_disk(self) -> None:
+        """Load the browser session from disk."""
+        if not os.path.exists(self._session_cache_path):
+            return
+
+        try:
+            with open(self._session_cache_path, "r") as f:
+                data = json.load(f)
+
+            # Basic validation
+            if data.get("instance_url") != self.instance_url:
+                return
+
+            expires_at = data.get("expires_at")
+            if expires_at and time.time() > expires_at:
+                logger.info("Disk session expired, ignoring.")
+                return
+
+            self._browser_cookie_header = data.get("cookie_header")
+            self._browser_user_agent = data.get("user_agent")
+            self._browser_session_token = data.get("session_token")
+            self._browser_cookie_expires_at = expires_at
+            # Set validation interval so we don't immediately probe
+            self._browser_last_validated_at = time.time()
+            logger.info("Loaded browser session from disk: %s", self._session_cache_path)
+        except Exception as exc:
+            logger.warning("Failed to load browser session from disk: %s", exc)
 
     def get_headers(self) -> Dict[str, str]:
         """
@@ -398,6 +463,7 @@ class AuthManager:
         self._browser_last_validated_at = time.time()
         self._browser_last_login_at = time.time()
         self._clear_browser_reauth_attempt()
+        self._save_session_to_disk()
         logger.info(
             "Browser session restored: session_key=%s cookie_count=%s cookie_names=%s ttl_minutes=%s",
             self._browser_session_key,
@@ -826,6 +892,7 @@ class AuthManager:
             self._browser_last_validated_at = time.time()
             self._browser_last_login_at = time.time()
             self._clear_browser_reauth_attempt()
+            self._save_session_to_disk()
             # Final validation before closing browser: avoid storing UI-only cookies that
             # still fail API auth and cause immediate 401/reopen loops.
             final_probe = self._probe_browser_api_with_cookie(
@@ -865,6 +932,13 @@ class AuthManager:
         self._browser_cookie_header = None
         self._browser_cookie_expires_at = None
         self._browser_last_validated_at = None
+        self._browser_session_token = None
+        if os.path.exists(self._session_cache_path):
+            try:
+                os.remove(self._session_cache_path)
+                logger.info("Session cache file removed: %s", self._session_cache_path)
+            except Exception as exc:
+                logger.warning("Failed to remove session cache file: %s", exc)
 
     def make_request(
         self,
