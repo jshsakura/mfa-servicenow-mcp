@@ -131,11 +131,12 @@ class AuthManager:
         self._browser_session_key: Optional[str] = None
         self._browser_last_validated_at: Optional[float] = None
         self._browser_last_reauth_attempt_at: Optional[float] = None
-        self._browser_user_agent: Optional[str] = None
-        self._browser_validation_interval_seconds: int = 30
-        self._browser_last_login_at: Optional[float] = None
-        self._browser_post_login_grace_seconds: int = 90
-        self._browser_reauth_cooldown_seconds: int = 120
+        self._browser_user_agent = None
+        self._browser_session_token = None
+        self._browser_validation_interval_seconds = 30
+        self._browser_last_login_at = None
+        self._browser_post_login_grace_seconds = 90
+        self._browser_reauth_cooldown_seconds = 120
 
     def get_headers(self) -> Dict[str, str]:
         """
@@ -177,6 +178,8 @@ class AuthManager:
                     headers["Cookie"] = self._browser_cookie_header or ""
                     if self._browser_user_agent:
                         headers["User-Agent"] = self._browser_user_agent
+                    if self._browser_session_token:
+                        headers["X-UserToken"] = self._browser_session_token
                     return headers
                 # Browser auth is user-driven (MFA/SSO). Always keep interactive mode.
                 if not self._can_attempt_browser_reauth():
@@ -206,6 +209,8 @@ class AuthManager:
             headers["Cookie"] = self._browser_cookie_header or ""
             if self._browser_user_agent:
                 headers["User-Agent"] = self._browser_user_agent
+            if self._browser_session_token:
+                headers["X-UserToken"] = self._browser_session_token
 
         return headers
 
@@ -348,8 +353,12 @@ class AuthManager:
                 except Exception:
                     # Navigation can fail transiently; cookie probe below is authoritative.
                     pass
-                # Capture User-Agent for session consistency
+                # Capture User-Agent and Session Token (g_ck) for session consistency
                 self._browser_user_agent = page.evaluate("navigator.userAgent")
+                try:
+                    self._browser_session_token = page.evaluate("window.g_ck")
+                except Exception:
+                    self._browser_session_token = None
                 cookies = context.cookies()
                 cookie_header = self._build_instance_cookie_header(
                     cookies, instance_url, instance_host
@@ -798,6 +807,10 @@ class AuthManager:
                 )
 
             # Capture from full context for the same reason as in the polling loop.
+            try:
+                self._browser_session_token = page.evaluate("window.g_ck")
+            except Exception:
+                self._browser_session_token = None
             cookies = context.cookies()
             if not cookies:
                 raise ValueError("Browser login succeeded but no cookies were captured")
