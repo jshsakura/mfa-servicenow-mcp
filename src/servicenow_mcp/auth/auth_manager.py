@@ -22,11 +22,21 @@ def _is_login_page_url(url: str) -> bool:
     path = parsed.path.lower()
     query = parsed.query.lower()
     # Explicit login/logout page markers
-    login_markers = ["/login.do", "/auth_redirect.do", "/external_logout_complete.do"]
+    login_markers = [
+        "/login.do",
+        "/auth_redirect.do",
+        "/external_logout_complete.do",
+        "/multi_factor_auth_view.do",
+        "/multi_factor_auth_setup.do",
+        "/external_login_complete.do",
+        "/sys_auth_info.do",
+    ]
     return (
         any(marker in path for marker in login_markers)
         or "sysparm_type=login" in query
         or "sysparm_reauth=true" in query
+        or "sysparm_mfa_needed=true" in query
+        or "sysparm_direct=true" in query
         or path == "/login"
         or path == "/auth"
     )
@@ -625,39 +635,9 @@ class AuthManager:
 
             page.goto(login_url, timeout=timeout_ms, wait_until="load")
 
-            username = browser_config.username
-            password = browser_config.password
-
-            if username and password:
-                user_selector = "input#user_name, input[name='user_name']"
-                pass_selector = (
-                    "input#user_password, input[name='user_password'], input[type='password']"
-                )
-                login_selector = "button#sysverb_login, input#sysverb_login, button[type='submit']"
-
-                if page.locator(user_selector).count() > 0:
-                    page.fill(user_selector, username)
-                if page.locator(pass_selector).count() > 0:
-                    page.fill(pass_selector, password)
-                if page.locator(login_selector).count() > 0:
-                    page.click(login_selector)
-                    if force_interactive:
-                        logger.info(
-                            "Interactive mode: credentials prefilled and login submitted. "
-                            "Waiting for manual MFA completion."
-                        )
-                else:
-                    if page.locator(pass_selector).count() > 0:
-                        page.locator(pass_selector).press("Enter")
-                    if force_interactive:
-                        logger.info(
-                            "Interactive mode: credentials prefilled and Enter submitted. "
-                            "Waiting for manual MFA completion."
-                        )
-
             logger.info(
-                "Browser login waiting for manual completion (MFA/SSO). "
-                "Please complete login in the opened browser window."
+                "Browser login waiting for manual completion (Credentials + MFA/SSO). "
+                "Please complete the entire login process in the opened browser window."
             )
 
             # Keep browser open until cookie-based API probe confirms authenticated session.
@@ -690,7 +670,11 @@ class AuthManager:
                         )
                         # Require consecutive successful probes so we do not treat
                         # intermediate redirect/cookie states as completed MFA login.
-                        if _response_indicates_authenticated_session(probe):
+                        # Also ensure the probe returned a clear authenticated status (200 or 403).
+                        # A 401 (Unauthorized) or 3xx (Redirect) indicates login is still in progress.
+                        if _response_indicates_authenticated_session(
+                            probe
+                        ) and probe.status_code in (200, 403):
                             resolved_url = str(probe.url)
                             resolved_host = (urlparse(resolved_url).hostname or "").lower()
                             if (
