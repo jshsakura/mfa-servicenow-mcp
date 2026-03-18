@@ -1005,36 +1005,34 @@ class AuthManager:
         # Handle 401 Unauthorized - retry with fresh session for Browser Auth
         if response.status_code == 401 and max_retries > 0:
             if self.config.type == AuthType.BROWSER:
-                # Only trigger browser re-auth when response indicates a login-session issue.
-                # If this is a role/ACL 401, reopening browser creates an infinite login loop.
-                if not _response_indicates_login_redirect(response):
-                    logger.warning(
-                        "Received 401 without login redirect indicators. "
-                        "Skipping browser re-auth to avoid login loop (likely ACL/role issue). "
-                        "Response: %s",
-                        response.text[:200],
-                    )
-                    return response
+                # In browser mode, 401 almost always means the session/X-UserToken is dead.
+                # We must invalidate and force a fresh login to keep the session alive.
                 logger.warning(
-                    "Received 401 Unauthorized. Invalidating browser session and retrying..."
+                    "Received 401 Unauthorized in browser mode. Invalidating session and triggering re-auth..."
                 )
-                # Invalidate current session
+                
+                # Invalidate current session (this also removes the cache file)
                 self.invalidate_browser_session()
 
-                # Get fresh headers (triggers re-login for Browser Auth)
+                # Get fresh headers (this will trigger _login_with_browser/MFA)
+                try:
+                    fresh_headers = self.get_headers()
+                except Exception as exc:
+                    logger.error("Failed to re-authenticate after 401: %s", exc)
+                    return response
+
+                # Update headers and cookies for the retry
                 headers = kwargs.get("headers", {})
-                headers.update(self.get_headers())
+                headers.update(fresh_headers)
                 cookie_map = _cookie_header_to_dict(headers.get("Cookie"))
                 if cookie_map:
                     kwargs["cookies"] = cookie_map
                     headers.pop("Cookie", None)
-                elif "cookies" in kwargs:
-                    kwargs.pop("cookies", None)
                 kwargs["headers"] = headers
 
-                # Retry request
+                # Retry request with decemented retries
                 retry_start = time.monotonic()
-                response = requests.request(method, url, **kwargs)
+                response = requests.request(method, url, max_retries=max_retries - 1, **kwargs)
                 retry_elapsed_ms = int((time.monotonic() - retry_start) * 1000)
                 logger.info(
                     "ServiceNow request retry end: method=%s host=%s status=%s elapsed_ms=%s",
