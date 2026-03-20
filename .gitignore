@@ -47,7 +47,11 @@ opencode.json
 
 # OS files
 .DS_Store
+**/.DS_Store
 Thumbs.db
+
+# Notebook metadata
+.ipynb_checkpoints/
 
 # Lint cache
 .ruff_cache/
