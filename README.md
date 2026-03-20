@@ -222,6 +222,16 @@ SERVICENOW_BROWSER_PROBE_PATH=/api/now/table/sys_user?sysparm_limit=1&sysparm_fi
 
 패키지 정의 파일: `config/tool_packages.yaml`
 
+## 페이로드 안전장치 (Payload Safety)
+
+대용량 데이터 조회 시 클라이언트(LLM)와 서버의 안정성을 보장하기 위해 다음과 같은 안전장치가 적용되어 있습니다:
+
+- **대용량 테이블 보호:** `sp_widget`, `sys_script`, `sys_metadata` 등 소스 코드가 포함된 무거운 테이블 조회 시, 필드를 지정하지 않으면 자동으로 `sys_id, name, id, sys_scope` 필드만 조회합니다.
+- **자동 Limit 조정:** `script`, `html`, `css` 등 대용량 필드를 명시적으로 요청할 경우, 페이로드 폭발을 막기 위해 `limit`을 최대 5건으로 자동 제한합니다.
+- **글로벌 Limit 강제:** 모든 일반 쿼리(`sn_query`)의 최대 조회 건수는 100건으로 제한됩니다. 더 많은 데이터가 필요한 경우 `offset`과 `total_count`를 활용한 Pagination을 사용해야 합니다.
+- **필드 데이터 절단 (Truncation):** 개별 필드의 문자열 길이가 10,000자를 초과하면 내용을 자동으로 자르고 안내 메시지를 추가하여 컨텍스트 오버플로우를 방지합니다.
+- **Pagination 지원:** 응답에 `total_count`가 포함되어 전체 레코드 규모를 파악할 수 있습니다.
+
 ## 사용 가능한 도구
 
 도구 노출은 로드한 패키지에 따라 달라집니다.

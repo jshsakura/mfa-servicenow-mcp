@@ -13,18 +13,80 @@ from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
 
+HEAVY_TABLES = {
+    "sp_widget",
+    "sys_script",
+    "sys_script_include",
+    "sys_ui_page",
+    "sys_ui_macro",
+    "sys_ui_script",
+    "sys_metadata",
+}
+HEAVY_FIELDS = {"script", "template", "css", "client_script", "link", "demo_data", "html"}
+DEFAULT_SAFE_FIELDS = "sys_id,name,id,sys_scope"
+
+
+def truncate_results(results: List[Dict[str, Any]], max_len: int = 10000) -> List[Dict[str, Any]]:
+    """Truncates long string values in results to prevent context overflow."""
+    for row in results:
+        for key, value in row.items():
+            if isinstance(value, str) and len(value) > max_len:
+                row[key] = value[:max_len] + f"... (truncated, original length: {len(value)})"
+    return results
+
+
+def apply_payload_safety(
+    table: str, limit: int, fields: Optional[str]
+) -> tuple[int, Optional[str], Optional[str]]:
+    """
+    Enforces payload safety by restricting limit and default fields.
+    Returns: (safe_limit, safe_fields, safety_notice_message)
+    """
+    safe_limit = min(limit, 100)
+    safety_notice = None
+
+    if table in HEAVY_TABLES:
+        if not fields:
+            # If no fields specified, only fetch safe fields to prevent payload explosion
+            return (
+                safe_limit,
+                DEFAULT_SAFE_FIELDS,
+                "Fields clamped to safe defaults to prevent payload overload.",
+            )
+
+        # If fields are specified, check if they include heavy fields
+        requested_fields = [f.strip().lower() for f in fields.split(",")]
+        has_heavy_fields = any(hf in requested_fields for hf in HEAVY_FIELDS)
+
+        if has_heavy_fields and safe_limit > 5:
+            # If heavy fields are explicitly requested, heavily restrict the limit
+            safe_limit = 5
+            safety_notice = "Limit clamped to 5 because heavy fields were requested. Fetch remaining items individually."
+
+    return safe_limit, fields, safety_notice
+
 
 class HealthCheckParams(BaseModel):
     timeout: int = Field(15, description="Request timeout in seconds")
 
 
 class GenericQueryParams(BaseModel):
-    table: str = Field(..., description="Target table name")
-    query: Optional[str] = Field(default=None, description="Encoded query (sysparm_query)")
-    fields: Optional[str] = Field(default=None, description="Comma-separated field list")
-    limit: int = Field(20, description="Maximum records")
-    offset: int = Field(0, description="Pagination offset")
-    orderby: Optional[str] = Field(default=None, description="Order by field, supports -field desc")
+    table: str = Field(
+        ...,
+        description="Target table name (e.g., incident, sp_widget). Heavy tables have automatic safety limits.",
+    )
+    query: Optional[str] = Field(
+        default=None, description="Encoded query (sysparm_query). Filter by priority, state, etc."
+    )
+    fields: Optional[str] = Field(
+        default=None,
+        description="Comma-separated field list. Avoid large fields like 'script' for list queries.",
+    )
+    limit: int = Field(20, description="Max records (max 100). Default 20.")
+    offset: int = Field(0, description="Pagination offset. Use with total_count to iterate.")
+    orderby: Optional[str] = Field(
+        default=None, description="Order by field, supports -field for desc"
+    )
     display_value: bool = Field(True, description="Return display values")
 
 
@@ -149,16 +211,22 @@ def sn_query(
     config: ServerConfig, auth_manager: AuthManager, params: GenericQueryParams
 ) -> Dict[str, Any]:
     url = f"{config.instance_url}/api/now/table/{params.table}"
+
+    safe_limit, safe_fields, safety_notice = apply_payload_safety(
+        params.table, params.limit, params.fields
+    )
+
     query_params: Dict[str, Any] = {
-        "sysparm_limit": params.limit,
+        "sysparm_limit": safe_limit,
         "sysparm_offset": params.offset,
         "sysparm_display_value": str(params.display_value).lower(),
         "sysparm_exclude_reference_link": "true",
+        "sysparm_suppress_pagination_header": "false",  # Ensure X-Total-Count is returned
     }
     if params.query:
         query_params["sysparm_query"] = params.query
-    if params.fields:
-        query_params["sysparm_fields"] = params.fields
+    if safe_fields:
+        query_params["sysparm_fields"] = safe_fields
     if params.orderby:
         key = "sysparm_orderby_desc" if params.orderby.startswith("-") else "sysparm_orderby"
         query_params[key] = params.orderby[1:] if params.orderby.startswith("-") else params.orderby
@@ -171,14 +239,25 @@ def sn_query(
             timeout=config.timeout,
         )
         response.raise_for_status()
+
+        total_count = response.headers.get("X-Total-Count")
         data = _safe_json(response)
         result = data.get("result", [])
-        return {
+
+        # Apply field-level truncation for stability
+        safe_result = truncate_results(result)
+
+        response_data = {
             "success": True,
             "table": params.table,
+            "total_count": int(total_count) if total_count else len(result),
             "count": len(result),
-            "results": result,
+            "results": safe_result,
         }
+        if safety_notice:
+            response_data["safety_notice"] = safety_notice
+
+        return response_data
     except Exception as exc:
         return {
             "success": False,
