@@ -103,9 +103,9 @@ def sn_health(
                     "browser_session_authenticated": True,
                     "additional_api_credentials_required": False,
                     "warning": {
-                        "probe_path": config.auth.browser.probe_path
-                        if config.auth.browser
-                        else probe_path,
+                        "probe_path": (
+                            config.auth.browser.probe_path if config.auth.browser else probe_path
+                        ),
                         "reason": "probe_path_unauthorized_or_acl_blocked",
                         "details": _safe_json(response),
                     },
@@ -117,12 +117,12 @@ def sn_health(
                 "status_code": response.status_code,
                 "message": "ServiceNow API reachable but request failed",
                 "auth_type": config.auth.type.value,
-                "browser_session_authenticated": False
-                if config.auth.type.value == "browser"
-                else None,
-                "additional_api_credentials_required": False
-                if config.auth.type.value == "browser"
-                else None,
+                "browser_session_authenticated": (
+                    False if config.auth.type.value == "browser" else None
+                ),
+                "additional_api_credentials_required": (
+                    False if config.auth.type.value == "browser" else None
+                ),
                 "diagnostics": {
                     "response_url": response_url,
                     "is_redirect": bool(response.is_redirect),

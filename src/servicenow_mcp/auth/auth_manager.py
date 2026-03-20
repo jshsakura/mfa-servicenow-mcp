@@ -1010,7 +1010,6 @@ class AuthManager:
                 logger.warning(
                     "Received 401 Unauthorized in browser mode. Invalidating session and triggering re-auth..."
                 )
-                
                 # Invalidate current session (this also removes the cache file)
                 self.invalidate_browser_session()
 
