@@ -27,6 +27,29 @@ logger = logging.getLogger(__name__)
 # Define path for the configuration file
 TOOL_PACKAGE_CONFIG_PATH = os.getenv("TOOL_PACKAGE_CONFIG_PATH", "config/tool_packages.yaml")
 
+MUTATING_TOOL_PREFIXES = (
+    "create_",
+    "update_",
+    "delete_",
+    "remove_",
+    "add_",
+    "move_",
+    "activate_",
+    "deactivate_",
+    "commit_",
+    "publish_",
+    "submit_",
+    "approve_",
+    "reject_",
+    "resolve_",
+    "reorder_",
+    "execute_",
+)
+
+EXPLICIT_APPROVAL_FLAG = "_approved"
+APPROVAL_BY_FIELD = "_approval_by"
+APPROVAL_REASON_FIELD = "_approval_reason"
+
 
 def serialize_tool_output(result: Any, tool_name: str) -> str:
     """Serializes tool output to a string, preferably JSON indented."""
@@ -118,8 +141,17 @@ class ServiceNowMCP:
         """Load tool package definitions from the YAML configuration file."""
         config_path = TOOL_PACKAGE_CONFIG_PATH
         if not os.path.isabs(config_path):
-            config_path = os.path.join(os.path.dirname(__file__), "..", "..", config_path)
-            config_path = os.path.abspath(config_path)
+            repository_candidate = os.path.join(os.path.dirname(__file__), "..", "..", config_path)
+            repository_candidate = os.path.abspath(repository_candidate)
+            packaged_candidate = os.path.join(
+                os.path.dirname(__file__), "config", "tool_packages.yaml"
+            )
+            if os.path.exists(repository_candidate):
+                config_path = repository_candidate
+            elif os.path.exists(packaged_candidate):
+                config_path = packaged_candidate
+            else:
+                config_path = repository_candidate
 
         try:
             with open(config_path, "r") as f:
@@ -148,11 +180,11 @@ class ServiceNowMCP:
 
     def _determine_enabled_tools(self):
         """Determine which tool package and tools to enable based on environment variable."""
-        requested_package = os.getenv("MCP_TOOL_PACKAGE", "full").strip()
+        requested_package = os.getenv("MCP_TOOL_PACKAGE", "approval_query_only").strip()
 
         if not requested_package:
-            self.current_package_name = "full"
-            logger.info("MCP_TOOL_PACKAGE is empty, defaulting to 'full' package.")
+            self.current_package_name = "approval_query_only"
+            logger.info("MCP_TOOL_PACKAGE is empty, defaulting to 'approval_query_only' package.")
         elif requested_package in self.package_definitions:
             self.current_package_name = requested_package
             logger.info(f"MCP_TOOL_PACKAGE set to '{self.current_package_name}'.")
@@ -171,6 +203,10 @@ class ServiceNowMCP:
         logger.info(
             f"Loading package '{self.current_package_name}' with {len(self.enabled_tool_names)} tools."
         )
+
+    @staticmethod
+    def _is_blocked_mutating_tool(tool_name: str) -> bool:
+        return tool_name.startswith(MUTATING_TOOL_PREFIXES)
 
     async def _list_tools_impl(self) -> List[types.Tool]:
         """Implementation for the list_tools MCP endpoint."""
@@ -254,6 +290,45 @@ class ServiceNowMCP:
             raise ValueError(
                 f"Tool '{name}' is not enabled in the current package '{self.current_package_name}'."
             )
+
+        explicit_approval_granted = bool(arguments.get(EXPLICIT_APPROVAL_FLAG, False))
+        approval_by = str(arguments.get(APPROVAL_BY_FIELD, "")).strip()
+        approval_reason = str(arguments.get(APPROVAL_REASON_FIELD, "")).strip()
+
+        requires_approval = self._is_blocked_mutating_tool(name) or (
+            name == "sn_nl" and bool(arguments.get("execute", False))
+        )
+
+        if requires_approval and not explicit_approval_granted:
+            raise ValueError(
+                f"Tool '{name}' requires explicit approval. "
+                f"Re-run with {EXPLICIT_APPROVAL_FLAG}=true after user confirmation."
+            )
+
+        if requires_approval and not approval_by:
+            raise ValueError(
+                f"Tool '{name}' requires '{APPROVAL_BY_FIELD}' when {EXPLICIT_APPROVAL_FLAG}=true."
+            )
+
+        if requires_approval and not approval_reason:
+            raise ValueError(
+                f"Tool '{name}' requires '{APPROVAL_REASON_FIELD}' when {EXPLICIT_APPROVAL_FLAG}=true."
+            )
+
+        if requires_approval:
+            logger.info(
+                "Approved execution: tool=%s approved_by=%s approval_reason=%s",
+                name,
+                approval_by,
+                approval_reason,
+            )
+
+        approval_fields_to_strip = {
+            EXPLICIT_APPROVAL_FLAG,
+            APPROVAL_BY_FIELD,
+            APPROVAL_REASON_FIELD,
+        }
+        arguments = {k: v for k, v in arguments.items() if k not in approval_fields_to_strip}
 
         # Get tool definition (we don't need the serialization hint anymore)
         definition = self.tool_definitions[name]

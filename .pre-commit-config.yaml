@@ -25,6 +25,7 @@ repos:
       - id: mypy
         additional_dependencies:
           - pydantic>=2.0.0
-        pass_filenames: false
-        args: [src/]
+          - types-requests
+          - types-PyYAML
+        args: [--config-file=pyproject.toml, --follow-imports=skip]
         language_version: python

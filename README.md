@@ -199,6 +199,56 @@ SERVICENOW_BROWSER_PROBE_PATH=/api/now/table/sys_user?sysparm_limit=1&sysparm_fi
 }
 ```
 
+### Codex CLI 예시 (stdio)
+
+Codex MCP 연결은 기본적으로 **stdio 방식**으로 사용합니다.
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "/absolute/path/to/mfa-servicenow-mcp/.venv/bin/python",
+      "args": ["-m", "servicenow_mcp.cli"],
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/mfa-servicenow-mcp/src",
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_TIMEOUT": "120",
+        "SERVICENOW_BROWSER_SESSION_TTL": "30",
+        "SERVICENOW_BROWSER_USER_DATA_DIR": "/absolute/path/to/browser-profile",
+        "SERVICENOW_BROWSER_USERNAME": "your-username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "approval_query_only"
+      }
+    }
+  }
+}
+```
+
+최소 실행형(브라우저 로그인 기준, 설치 후 PATH에 `servicenow-mcp`가 있을 때):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "servicenow-mcp",
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_TIMEOUT": "120",
+        "SERVICENOW_BROWSER_SESSION_TTL": "30",
+        "SERVICENOW_BROWSER_USER_DATA_DIR": "/absolute/path/to/browser-profile",
+        "SERVICENOW_BROWSER_USERNAME": "your-username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "approval_query_only"
+      }
+    }
+  }
+}
+```
+
 참고:
 - `pip install -e .`가 되어 있으면 `PYTHONPATH` 없이도 동작할 수 있습니다.
 - 클라이언트가 `servicenow-mcp` 실행 파일을 찾을 수 있는 환경이면 `command`를 `servicenow-mcp`로 단순화할 수도 있습니다.
@@ -207,9 +257,10 @@ SERVICENOW_BROWSER_PROBE_PATH=/api/now/table/sys_user?sysparm_limit=1&sysparm_fi
 
 `MCP_TOOL_PACKAGE` 환경변수로 도구 묶음을 제한할 수 있습니다.
 
-기본값은 `full`입니다.
+기본값은 `approval_query_only`입니다.
 
 대표 패키지:
+- `approval_query_only` (기본값: 순수 조회 전용)
 - `service_desk`
 - `catalog_builder`
 - `change_coordinator`
@@ -221,6 +272,16 @@ SERVICENOW_BROWSER_PROBE_PATH=/api/now/table/sys_user?sysparm_limit=1&sysparm_fi
 - `none`
 
 패키지 정의 파일: `config/tool_packages.yaml`
+
+## 승인 기반 실행 강제 정책
+
+서버는 기본적으로 수정/삭제/입력/승인 계열 도구 실행 시 **명시적 승인 플래그**를 요구합니다.
+
+- `create_*`, `update_*`, `delete_*`, `add_*`, `remove_*`, `move_*`, `submit_*`, `approve_*`, `reject_*` 등은 `_approved=true` 없이 실행할 수 없습니다.
+- `_approved=true`로 실행할 때는 `_approval_by`(승인자), `_approval_reason`(승인 사유)도 필수입니다.
+- `sn_nl`도 `execute=true`일 때 동일하게 `_approved=true`, `_approval_by`, `_approval_reason`이 필요합니다.
+- 조회 전용 사용을 원하면 기본 패키지 `approval_query_only`를 그대로 사용하세요.
+- 수정 작업이 필요한 경우 `MCP_TOOL_PACKAGE=full`로 전환한 뒤, 사용자 승인 후 `_approved=true`, `_approval_by`, `_approval_reason`과 함께 실행하세요.
 
 ## 페이로드 안전장치 (Payload Safety)
 
