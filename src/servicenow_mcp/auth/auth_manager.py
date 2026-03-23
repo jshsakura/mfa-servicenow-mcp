@@ -17,6 +17,36 @@ from ..utils.config import AuthConfig, AuthType, BrowserAuthConfig
 
 logger = logging.getLogger(__name__)
 
+USERNAME_SELECTORS = (
+    "input#user_name",
+    "input[name='user_name']",
+    "input#username",
+    "input[name='username']",
+    "input[type='email']",
+    "input[name='identifier']",
+    "input[name='loginfmt']",
+)
+
+PASSWORD_SELECTORS = (
+    "input#user_password",
+    "input[name='user_password']",
+    "input#password",
+    "input[name='password']",
+    "input[name='passwd']",
+    "input[type='password']",
+)
+
+SUBMIT_SELECTORS = (
+    "button#sysverb_login",
+    "input#sysverb_login",
+    "button[type='submit']",
+    "input[type='submit']",
+    "button[name='login']",
+    "input[name='login']",
+    "input#idSIButton9",
+    "button[data-type='save']",
+)
+
 
 def _is_login_page_url(url: str) -> bool:
     """Return True when the URL still indicates ServiceNow login flow."""
@@ -107,6 +137,44 @@ def _response_indicates_authenticated_session(response: requests.Response) -> bo
     return not _response_indicates_login_redirect(response)
 
 
+def _selector_exists(target, selector: str) -> bool:
+    try:
+        return target.locator(selector).count() > 0
+    except Exception:
+        return False
+
+
+def _fill_first_matching(target, selectors: tuple[str, ...], value: str) -> Optional[str]:
+    for selector in selectors:
+        if _selector_exists(target, selector):
+            try:
+                target.fill(selector, value)
+                return selector
+            except Exception:
+                continue
+    return None
+
+
+def _click_first_matching(target, selectors: tuple[str, ...]) -> Optional[str]:
+    for selector in selectors:
+        if _selector_exists(target, selector):
+            try:
+                target.click(selector)
+                return selector
+            except Exception:
+                continue
+    return None
+
+
+def _target_label(target, index: int) -> str:
+    try:
+        url = str(getattr(target, "url", "") or "")
+    except Exception:
+        url = ""
+    prefix = "main" if index == 0 else f"frame[{index}]"
+    return f"{prefix}:{url}" if url else prefix
+
+
 class AuthManager:
     """
     Authentication manager for ServiceNow API.
@@ -136,7 +204,7 @@ class AuthManager:
         self._browser_user_agent = None
         self._browser_session_token = None
         self._browser_validation_interval_seconds = 30
-        self._browser_last_login_at = None
+        self._browser_last_login_at: Optional[float] = None
         self._browser_post_login_grace_seconds = 90
         self._browser_reauth_cooldown_seconds = 120
         self._session_cache_path = self._get_session_cache_path()
@@ -714,31 +782,78 @@ class AuthManager:
             password = browser_config.password
 
             if username and password:
-                user_selector = "input#user_name, input[name='user_name']"
-                pass_selector = (
-                    "input#user_password, input[name='user_password'], input[type='password']"
-                )
-                login_selector = "button#sysverb_login, input#sysverb_login, button[type='submit']"
+                targets = [page]
+                for frame in page.frames:
+                    if frame is page.main_frame:
+                        continue
+                    targets.append(frame)
 
-                if page.locator(user_selector).count() > 0:
-                    page.fill(user_selector, username)
-                if page.locator(pass_selector).count() > 0:
-                    page.fill(pass_selector, password)
-                if page.locator(login_selector).count() > 0:
-                    page.click(login_selector)
-                    if force_interactive:
+                matched_any_selector = False
+                submitted_login = False
+                matched_locations: list[str] = []
+
+                for index, target in enumerate(targets):
+                    label = _target_label(target, index)
+                    matched_user_selector = _fill_first_matching(
+                        target, USERNAME_SELECTORS, username
+                    )
+                    matched_pass_selector = _fill_first_matching(
+                        target, PASSWORD_SELECTORS, password
+                    )
+
+                    if matched_user_selector or matched_pass_selector:
+                        matched_any_selector = True
+                        matched_locations.append(label)
                         logger.info(
-                            "Interactive mode: credentials prefilled and login submitted. "
-                            "Waiting for manual MFA completion."
+                            "Browser auth matched login fields on %s (user=%s pass=%s)",
+                            label,
+                            matched_user_selector,
+                            matched_pass_selector,
                         )
-                else:
-                    if page.locator(pass_selector).count() > 0:
-                        page.locator(pass_selector).press("Enter")
-                    if force_interactive:
+
+                    matched_submit_selector = _click_first_matching(target, SUBMIT_SELECTORS)
+                    if matched_submit_selector:
+                        submitted_login = True
                         logger.info(
-                            "Interactive mode: credentials prefilled and Enter submitted. "
-                            "Waiting for manual MFA completion."
+                            "Browser auth submitted login via click on %s selector=%s",
+                            label,
+                            matched_submit_selector,
                         )
+                        break
+
+                    if matched_pass_selector:
+                        try:
+                            target.locator(matched_pass_selector).press("Enter")
+                            submitted_login = True
+                            logger.info(
+                                "Browser auth submitted login via Enter on %s selector=%s",
+                                label,
+                                matched_pass_selector,
+                            )
+                            break
+                        except Exception:
+                            pass
+
+                if force_interactive and submitted_login:
+                    logger.info(
+                        "Interactive mode: credentials prefilled and login submitted. "
+                        "Waiting for manual MFA completion."
+                    )
+
+                if not matched_any_selector:
+                    logger.warning(
+                        "Browser auth did not find matching username/password selectors on current page/frames. "
+                        "current_url=%s frame_count=%s",
+                        page.url,
+                        len(targets),
+                    )
+                elif not submitted_login:
+                    logger.warning(
+                        "Browser auth filled credentials but could not submit login form. "
+                        "matched_locations=%s current_url=%s",
+                        ",".join(matched_locations),
+                        page.url,
+                    )
 
             logger.info(
                 "Browser login waiting for manual completion (MFA/SSO). "
@@ -1031,7 +1146,7 @@ class AuthManager:
 
                 # Retry request with decemented retries
                 retry_start = time.monotonic()
-                response = requests.request(method, url, max_retries=max_retries - 1, **kwargs)
+                response = requests.request(method, url, **kwargs)
                 retry_elapsed_ms = int((time.monotonic() - retry_start) * 1000)
                 logger.info(
                     "ServiceNow request retry end: method=%s host=%s status=%s elapsed_ms=%s",

@@ -3,11 +3,19 @@ Tests for browser-session behavior in AuthManager.
 """
 
 import time
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import requests
 
-from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.auth.auth_manager import (
+    PASSWORD_SELECTORS,
+    SUBMIT_SELECTORS,
+    USERNAME_SELECTORS,
+    AuthManager,
+    _click_first_matching,
+    _fill_first_matching,
+)
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig
 
 
@@ -53,7 +61,7 @@ def test_browser_session_probe_401_triggers_interactive_relogin():
     assert relogin.call_count == 1
 
 
-def test_browser_session_probe_request_error_keeps_existing_session():
+def test_browser_session_probe_request_error_triggers_interactive_relogin():
     manager = _make_browser_manager()
 
     with patch(
@@ -61,10 +69,18 @@ def test_browser_session_probe_request_error_keeps_existing_session():
         side_effect=requests.RequestException("network issue"),
     ):
         with patch.object(manager, "_login_with_browser") as relogin:
+
+            def _set_new_cookie(_cfg, force_interactive=False):
+                assert force_interactive is True
+                manager._browser_cookie_header = "NEW=COOKIE"
+                manager._browser_cookie_expires_at = time.time() + 600
+                manager._browser_last_validated_at = time.time()
+
+            relogin.side_effect = _set_new_cookie
             headers = manager.get_headers()
 
-    assert headers["Cookie"] == "OLD=COOKIE"
-    relogin.assert_not_called()
+    assert headers["Cookie"] == "NEW=COOKIE"
+    assert relogin.call_count == 1
 
 
 def test_browser_session_probe_403_without_login_redirect_keeps_session():
@@ -154,3 +170,60 @@ def test_make_request_replaces_cookies_on_retry_after_401():
     assert mock_request.call_count == 2
     assert mock_request.call_args_list[0].kwargs["cookies"] == {"OLD": "1"}
     assert mock_request.call_args_list[1].kwargs["cookies"] == {"NEW": "1"}
+
+
+class _FakeLocator:
+    def __init__(self, exists: bool, target: Any, selector: str):
+        self._exists = exists
+        self._target = target
+        self._selector = selector
+
+    def count(self):
+        return 1 if self._exists else 0
+
+    def press(self, key: str):
+        self._target.pressed.append((self._selector, key))
+
+
+class _FakeTarget:
+    def __init__(self, existing_selectors: set[str]):
+        self._existing_selectors = existing_selectors
+        self.filled: list[tuple[str, str]] = []
+        self.clicked: list[str] = []
+        self.pressed: list[tuple[str, str]] = []
+
+    def locator(self, selector: str):
+        return _FakeLocator(selector in self._existing_selectors, self, selector)
+
+    def fill(self, selector: str, value: str):
+        self.filled.append((selector, value))
+
+    def click(self, selector: str):
+        self.clicked.append(selector)
+
+
+def test_fill_first_matching_uses_first_available_selector():
+    target = _FakeTarget({USERNAME_SELECTORS[2], USERNAME_SELECTORS[4]})
+
+    matched = _fill_first_matching(target, USERNAME_SELECTORS, "alice")
+
+    assert matched == USERNAME_SELECTORS[2]
+    assert target.filled == [(USERNAME_SELECTORS[2], "alice")]
+
+
+def test_click_first_matching_uses_first_available_selector():
+    target = _FakeTarget({SUBMIT_SELECTORS[3], SUBMIT_SELECTORS[4]})
+
+    matched = _click_first_matching(target, SUBMIT_SELECTORS)
+
+    assert matched == SUBMIT_SELECTORS[3]
+    assert target.clicked == [SUBMIT_SELECTORS[3]]
+
+
+def test_fill_first_matching_returns_none_when_password_selector_missing():
+    target = _FakeTarget(set())
+
+    matched = _fill_first_matching(target, PASSWORD_SELECTORS, "secret")
+
+    assert matched is None
+    assert target.filled == []
