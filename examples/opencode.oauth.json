@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "mfa-servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "oauth",
+        "--oauth-client-id", "your_client_id",
+        "--oauth-client-secret", "your_client_secret"
+      ],
+      "enabled": true,
+      "metadata": {
+        "client": "gemini",
+        "description": "ServiceNow MCP with OAuth"
+      }
+    }
+  }
+}

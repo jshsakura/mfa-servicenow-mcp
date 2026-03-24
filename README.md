@@ -89,18 +89,21 @@ SERVICENOW_BROWSER_HEADLESS=false
 ```
 
 ### Gemini / Vertex AI (OpenCode 설정)
-MCP 클라이언트(OpenCode 등)에서 아래와 같이 로컬 서버를 추가하여 사용할 수 있습니다.
+Gemini Code Assist 또는 OpenCode와 같은 MCP 클라이언트에서 아래와 같이 로컬 서버를 추가할 수 있습니다. 사용하시는 인증 방식에 맞춰 설정을 선택하세요.
 
+#### 1. 브라우저 인증 (MFA/SSO 대응 - 추천)
+브라우저 창이 직접 떠서 로그인을 진행합니다. 아이디/비밀번호 자동 입력도 지원합니다.
 ```json
 {
   "mcp": {
     "servicenow": {
       "type": "local",
       "command": [
-        "uvx",
-        "mfa-servicenow-mcp",
+        "uvx", "mfa-servicenow-mcp",
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
+        "--username", "your_id",
+        "--password", "your_password",
         "--browser-headless", "false"
       ],
       "enabled": true
@@ -108,6 +111,30 @@ MCP 클라이언트(OpenCode 등)에서 아래와 같이 로컬 서버를 추가
   }
 }
 ```
+
+#### 2. 기본 인증 (Basic Auth)
+MFA가 없는 PDI(개인 개발 인스턴스) 등에서 적합합니다.
+```json
+{
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx", "mfa-servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "basic",
+        "--username", "your_id",
+        "--password", "your_password"
+      ],
+      "enabled": true
+    }
+  }
+}
+```
+
+#### 3. 기타 인증 (OAuth / API Key)
+- **OAuth:** `--auth-type oauth --oauth-client-id <id> --oauth-client-secret <secret>`
+- **API Key:** `--auth-type api_key --api-key <key>`
 
 ---
 
