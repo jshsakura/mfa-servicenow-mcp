@@ -67,6 +67,28 @@ SERVICENOW_BROWSER_HEADLESS=false
 
 ---
 
+## 🛠️ 도구 패키지 및 프로필 (Profiles)
+
+ServiceNow의 방대한 도구 중 필요한 것만 골라 사용하거나, 특정 역할에 최적화된 환경을 로드할 수 있습니다. 
+환경변수 `MCP_TOOL_PACKAGE`를 설정하여 사용하세요. (기본값: `approval_query_only`)
+
+| 패키지명 | 추천 역할 | 주요 포함 도구 |
+| :--- | :--- | :--- |
+| `portal_developer` | **포탈 개발자** | 위젯 번들링, Angular Provider 관리, 핀포인트 코드 수정 |
+| `platform_developer` | **플랫폼 개발자** | 스크립트 인클루드, 워크플로우, 체인지셋(Update Sets) |
+| `service_desk` | **운영자 (ITSM)** | 인시던트 생성/수정/조회, 사용자 조회 |
+| `catalog_builder` | **카탈로그 관리자** | 카탈로그 아이템/카테고리 생성, 변수 관리, UI Policy |
+| `full` | **전체 권한** | 모든 도구 (100개 이상) 로드 |
+| `approval_query_only` | **보안 조회 모드** | 모든 영역 조회 권한 + 위험 작업 시 승인 필수 |
+
+### 설정 방법 (예: 포탈 개발자 모드)
+Claude Desktop 설정(`args`) 또는 `.env` 파일에 추가:
+```json
+"--env", "MCP_TOOL_PACKAGE=portal_developer"
+```
+
+---
+
 ## 🤖 MCP 클라이언트 설정
 
 ### Claude Desktop (추천 설정)
