@@ -28,6 +28,7 @@ dependencies = [
     "uvicorn>=0.22.0",
     "httpx>=0.24.0",
     "PyYAML>=6.0",
+    "playwright>=1.44.0",
 ]
 
 [project.optional-dependencies]
@@ -39,9 +40,6 @@ dev = [
     "mypy>=1.0.0",
     "ruff>=0.0.1",
     "pre-commit>=3.0.0",
-    ]
-    browser = [
-    "playwright>=1.44.0",
 ]
 [project.scripts]
 servicenow-mcp = "servicenow_mcp.cli:main"

@@ -1,105 +1,64 @@
-## Windows에서 가장 쉬운 설치 방법 (브라우저 로그인 기준)
+# Windows 설치 및 실행 가이드 (MFA/Browser 최적화)
 
-### 1) 권장 설치: `pipx` (가장 간단)
-PowerShell:
-
-```powershell
-py -m pip install --user pipx
-py -m pipx ensurepath
-# PowerShell 재시작
-pipx install mfa-servicenow-mcp
-pipx inject mfa-servicenow-mcp playwright
-playwright install chromium
-```
-
-설치 확인:
-
-```powershell
-servicenow-mcp --help
-```
+도커(Docker)는 브라우저를 직접 띄우는 기능에 제약이 있어, 윈도우에서는 **네이티브 실행**을 강력히 권장합니다. 
+`uv`를 사용하면 소스 코드 다운로드 없이 바로 실행하거나, 소스를 받아 직접 개발 환경을 구축할 수 있습니다.
 
 ---
 
-### 2) 실행용 환경변수 (브라우저 로그인)
-PowerShell:
+### [방법 1] 초간편 실행 (소스 코드 불필요)
 
-```powershell
-$env:SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com"
-$env:SERVICENOW_AUTH_TYPE="browser"
-$env:SERVICENOW_BROWSER_HEADLESS="false"
-$env:SERVICENOW_BROWSER_TIMEOUT="120"
-$env:SERVICENOW_BROWSER_SESSION_TTL="30"
-$env:SERVICENOW_BROWSER_USER_DATA_DIR="$env:USERPROFILE\.mfa-servicenow-browser"
-$env:SERVICENOW_BROWSER_USERNAME="your-username"
-$env:SERVICENOW_BROWSER_PASSWORD="your-password"
-$env:MCP_TOOL_PACKAGE="approval_query_only"
-servicenow-mcp
-```
+PyPI에 배포된 패키지를 바로 사용하는 방식입니다. 가장 빠르고 간편합니다.
 
-> `MCP_TOOL_PACKAGE="approval_query_only"`는 조회 중심으로 안전하게 시작할 때 권장입니다.
-
----
-
-### 3) 영구 환경변수로 등록 (`setx`) — 재부팅/재실행 후에도 유지
-
-PowerShell:
-
-```powershell
-$profileDir = Join-Path $env:USERPROFILE ".mfa-servicenow-browser"
-
-setx SERVICENOW_INSTANCE_URL "https://your-instance.service-now.com"
-setx SERVICENOW_AUTH_TYPE "browser"
-setx SERVICENOW_BROWSER_HEADLESS "false"
-setx SERVICENOW_BROWSER_TIMEOUT "120"
-setx SERVICENOW_BROWSER_SESSION_TTL "30"
-setx SERVICENOW_BROWSER_USER_DATA_DIR "$profileDir"
-setx SERVICENOW_BROWSER_USERNAME "your-username"
-setx SERVICENOW_BROWSER_PASSWORD "your-password"
-setx MCP_TOOL_PACKAGE "approval_query_only"
-```
-
-> `setx` 적용값은 **새 콘솔부터 반영**됩니다. PowerShell을 닫았다가 다시 열어주세요.
-
-반영 확인:
-
-```powershell
-echo $env:SERVICENOW_INSTANCE_URL
-echo $env:SERVICENOW_BROWSER_USER_DATA_DIR
-echo $env:SERVICENOW_AUTH_TYPE
-servicenow-mcp --help
-```
-
----
-
-### 4) Codex MCP 설정 예시 (stdio)
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "servicenow-mcp",
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_TIMEOUT": "120",
-        "SERVICENOW_BROWSER_SESSION_TTL": "30",
-        "SERVICENOW_BROWSER_USER_DATA_DIR": "C:\\Users\\<you>\\.mfa-servicenow-browser",
-        "SERVICENOW_BROWSER_USERNAME": "your-username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "approval_query_only"
+1.  **Claude Desktop 설정에 바로 추가:**
+    `claude_desktop_config.json` 파일을 열고 아래 내용을 붙여넣으세요.
+    ```json
+    {
+      "mcpServers": {
+        "servicenow": {
+          "command": "uvx",
+          "args": [
+            "mfa-servicenow-mcp",
+            "--instance-url", "https://your-instance.service-now.com",
+            "--auth-type", "browser",
+            "--browser-headless", "false"
+          ]
+        }
       }
     }
-  }
-}
-```
+    ```
+
+2.  **터미널에서 테스트 실행:**
+    ```powershell
+    uvx mfa-servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
+    ```
 
 ---
 
-### 5) PATH 문제 있을 때
-`servicenow-mcp`가 안 잡히면 `command`를 절대경로로 지정:
+### [방법 2] 소스 코드 실행 (Git Clone 방식)
 
-```text
-C:\Users\<you>\AppData\Roaming\Python\Python3x\Scripts\servicenow-mcp.exe
-```
+소스 코드를 다운로드하여 로컬에서 수정하거나 직접 실행하고 싶을 때 사용합니다.
 
-또는 pipx 경로(환경마다 다름)를 직접 지정하면 됩니다.
+1.  **소스 다운로드 및 설정:**
+    ```powershell
+    git clone https://github.com/your-repo/mfa-servicenow-mcp.git
+    cd mfa-servicenow-mcp
+    .\setup_windows.ps1  # 모든 환경 구성을 자동으로 수행합니다.
+    ```
+
+2.  **서버 실행:**
+    ```powershell
+    uv run servicenow-mcp
+    ```
+
+---
+
+### 💡 왜 이 방식이 좋은가요?
+
+*   **MFA 완벽 지원:** 실제 윈도우 브라우저(크롬/엣지)가 직접 떠서 모든 MFA 인증을 수행할 수 있습니다.
+*   **환경 변수 대신 설정 파일:** `args`를 활용하여 모든 인증 설정을 JSON 하나로 관리할 수 있습니다.
+*   **세션 유지:** 한 번 로그인하면 세션이 안전하게 저장되어, 이후에는 로그인 과정 없이 즉시 실행됩니다.
+
+### 🛠️ 문제 해결 (Troubleshooting)
+
+*   **브라우저가 안 떠요:** 터미널에서 `uvx playwright install chromium` 명령어를 실행하여 브라우저 엔진을 설치해 주세요.
+*   **uv 명령어를 찾을 수 없음:** [uv 설치 가이드](https://github.com/astral-sh/uv)를 참고하여 `uv`를 먼저 설치해 주세요.
