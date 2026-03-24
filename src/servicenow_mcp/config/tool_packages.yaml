@@ -132,7 +132,10 @@ portal_developer:
   - update_portal_component
   - list_script_includes
   - get_script_include
+  - create_script_include
   - update_script_include
+  - execute_script_include
+  - add_file_to_changeset
   - sn_query
   - sn_schema
 
