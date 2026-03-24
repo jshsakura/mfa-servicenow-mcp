@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
-from .core_plus import get_table_data
+from .core_plus import GenericQueryParams, sn_query
 
 logger = logging.getLogger(__name__)
 
@@ -66,39 +66,47 @@ def get_widget_bundle(
     Fetch a high-speed, token-efficient bundle of a Service Portal widget.
     Returns core code and metadata about dependencies.
     """
-    instance_url = config.instance_url
-
     # 1. Fetch the widget record
     query = f"sys_id={params.widget_id}^ORid={params.widget_id}"
     widget_fields = ["name", "id", "template", "script", "client_script", "css", "sys_id"]
 
-    widget_data = get_table_data(instance_url, auth_manager, WIDGET_TABLE, query, limit=1)
+    query_params = GenericQueryParams(
+        table=WIDGET_TABLE, query=query, fields=",".join(widget_fields), limit=1
+    )
+    response = sn_query(config, auth_manager, query_params)
 
-    if not widget_data:
+    if not response.get("success") or not response.get("results"):
         return {"error": f"Widget '{params.widget_id}' not found."}
 
-    widget = _strip_metadata(widget_data[0], widget_fields)
+    widget = _strip_metadata(response["results"][0], widget_fields)
     bundle: Dict[str, Any] = {"widget": widget}
 
     # 2. Fetch Angular Provider list (minimal info to save context)
     if params.include_providers:
-        m2m_query = f"sp_widget={widget['sys_id']}"
-        providers_m2m = get_table_data(
-            instance_url, auth_manager, ANGULAR_PROVIDER_M2M_TABLE, m2m_query
+        m2m_query_params = GenericQueryParams(
+            table=ANGULAR_PROVIDER_M2M_TABLE,
+            query=f"sp_widget={widget['sys_id']}",
+            fields="sp_angular_provider",
         )
+        m2m_response = sn_query(config, auth_manager, m2m_query_params)
+        providers_m2m = m2m_response.get("results", [])
 
         provider_ids = [
-            p["sp_angular_provider"]["value"] for p in providers_m2m if "sp_angular_provider" in p
+            p["sp_angular_provider"]["value"]
+            for p in providers_m2m
+            if isinstance(p.get("sp_angular_provider"), dict)
         ]
 
         if provider_ids:
-            prov_query = f"sys_idIN{','.join(provider_ids)}"
-            providers = get_table_data(
-                instance_url, auth_manager, ANGULAR_PROVIDER_TABLE, prov_query
+            prov_query_params = GenericQueryParams(
+                table=ANGULAR_PROVIDER_TABLE,
+                query=f"sys_idIN{','.join(provider_ids)}",
+                fields="name,sys_id,type",
             )
+            prov_response = sn_query(config, auth_manager, prov_query_params)
             bundle["angular_providers"] = [
                 {"name": p["name"], "sys_id": p["sys_id"], "type": p.get("type", "")}
-                for p in providers
+                for p in prov_response.get("results", [])
             ]
         else:
             bundle["angular_providers"] = []
@@ -110,19 +118,21 @@ def get_portal_component_code(
     config: ServerConfig, auth_manager: AuthManager, params: GetPortalComponentParams
 ) -> Dict[str, Any]:
     """Fetch specific code fields from a portal-related record."""
-    instance_url = config.instance_url
-
-    data = get_table_data(
-        instance_url, auth_manager, params.table, f"sys_id={params.sys_id}", limit=1
+    query_params = GenericQueryParams(
+        table=params.table,
+        query=f"sys_id={params.sys_id}",
+        fields=",".join(params.fields + ["name", "sys_id"]),
+        limit=1,
     )
+    response = sn_query(config, auth_manager, query_params)
 
-    if not data:
+    if not response.get("success") or not response.get("results"):
         return {"error": f"Component not found in {params.table} with sys_id {params.sys_id}"}
 
     # Only return requested code fields to keep context clean
-    result = _strip_metadata(data[0], params.fields)
+    result = _strip_metadata(response["results"][0], params.fields)
 
-    # Basic safety: check for very large scripts
+    # Basic safety: check for very large scripts (though sn_query also does truncation)
     for field in params.fields:
         val = result.get(field, "")
         if isinstance(val, str) and len(val) > 10000:
