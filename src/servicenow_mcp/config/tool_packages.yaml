@@ -1,109 +1,61 @@
+# ServiceNow MCP Tool Packages Configuration
+# Define sets of tools to be exposed by the MCP server based on roles/workflows.
+
+# --- Package Definitions ---
+
 none: []
 
 standard:
+  # Core Plus
   - sn_health
   - sn_query
   - sn_aggregate
   - sn_schema
   - sn_discover
   - sn_nl
+  # Incident
   - list_incidents
   - get_incident_by_number
-  - list_catalog_items
-  - get_catalog_item
-  - list_catalog_categories
-  - list_catalog_item_variables
-  - get_optimization_recommendations
-  - list_change_requests
-  - get_change_request_details
-  - list_workflows
-  - get_workflow_details
-  - list_workflow_versions
-  - get_workflow_activities
-  - list_changesets
-  - get_changeset_details
-  - list_script_includes
-  - get_script_include
-  - list_knowledge_bases
-  - list_articles
-  - get_article
-  - list_categories
-  - get_user
-  - list_users
-  - list_groups
-  - list_stories
-  - list_story_dependencies
-  - list_epics
-  - list_scrum_tasks
-  - list_projects
-
-service_desk:
-  - sn_health
-  - sn_query
-  - sn_aggregate
-  - sn_schema
-  - sn_discover
-  - sn_nl
   - create_incident
   - update_incident
   - add_comment
-  - resolve_incident
-  - list_incidents
-  - get_incident_by_number
-  - get_user
-  - list_users
-  - get_article
-  - list_articles
-
-catalog_builder:
-  - list_catalogs
+  # Catalog
   - list_catalog_items
   - get_catalog_item
-  - create_catalog_item
-  - update_catalog_item
   - list_catalog_categories
-  - create_catalog_category
-  - update_catalog_category
-  - move_catalog_items
-  - create_catalog_item_variable
   - list_catalog_item_variables
-  - update_catalog_item_variable
-  - delete_catalog_item_variable
-  - create_catalog_variable_choice
-  - create_ui_policy
-  - create_ui_policy_action
-  - create_user_criteria
-  - create_user_criteria_condition
-  - get_optimization_recommendations
-
-change_coordinator:
-  - create_change_request
-  - update_change_request
-  - list_change_requests
-  - get_change_request_details
-  - add_change_task
-  - submit_change_for_approval
-  - approve_change
-  - reject_change
-
-knowledge_author:
-  - create_knowledge_base
+  # Knowledge
   - list_knowledge_bases
-  - create_category
-  - list_categories
-  - create_article
-  - update_article
-  - publish_article
   - list_articles
   - get_article
+  - list_categories
+
+portal_developer:
+  # 위젯 및 포탈 컴포넌트 개발
+  - get_widget_bundle
+  - get_portal_component_code
+  - update_portal_component
+  # 서버 스크립트(SI) 통합 개발
+  - list_script_includes
+  - get_script_include
+  - create_script_include
+  - update_script_include
+  # Update Set (Changeset) 관리
+  - list_changesets
+  - get_changeset_details
+  - create_changeset
+  - update_changeset
+  - add_file_to_changeset
 
 platform_developer:
+  # 비즈니스 로직 (Script Include)
   - list_script_includes
   - get_script_include
   - create_script_include
   - update_script_include
   - delete_script_include
   - execute_script_include
+  # 워크플로우 자동화
   - list_workflows
   - get_workflow_details
   - create_workflow
@@ -116,8 +68,10 @@ platform_developer:
   - delete_workflow_activity
   - reorder_workflow_activities
   - get_workflow_activities
+  # UI Policy
   - create_ui_policy
   - create_ui_policy_action
+  # 체인지셋 관리
   - list_changesets
   - get_changeset_details
   - create_changeset
@@ -126,48 +80,27 @@ platform_developer:
   - publish_changeset
   - add_file_to_changeset
 
-portal_developer:
-  - get_widget_bundle
-  - get_portal_component_code
-  - update_portal_component
-  - list_script_includes
-  - get_script_include
-  - create_script_include
-  - update_script_include
-  - execute_script_include
-  - add_file_to_changeset
+service_desk:
+  # Core Plus
+  - sn_health
   - sn_query
+  - sn_aggregate
   - sn_schema
-
-agile_management:
-  - create_story
-  - update_story
-  - list_stories
-  - list_story_dependencies
-  - create_story_dependency
-  - delete_story_dependency
-  - create_epic
-  - update_epic
-  - list_epics
-  - create_scrum_task
-  - update_scrum_task
-  - list_scrum_tasks
-  - create_project
-  - update_project
-  - list_projects
-
-system_administrator:
-  - create_user
-  - update_user
+  - sn_discover
+  - sn_nl
+  # 인시던트 생성/수정/코멘트
+  - create_incident
+  - update_incident
+  - add_comment
+  - resolve_incident
+  - list_incidents
+  - get_incident_by_number
+  # 사용자 정보 조회
   - get_user
   - list_users
-  - create_group
-  - update_group
-  - list_groups
-  - add_group_members
-  - remove_group_members
-  - list_syslog_entries
-  - get_syslog_entry
+  # 지식베이스 조회
+  - get_article
+  - list_articles
 
 full:
   - sn_health
@@ -182,21 +115,17 @@ full:
   - resolve_incident
   - list_incidents
   - get_incident_by_number
-  - list_catalogs
   - list_catalog_items
   - get_catalog_item
-  - create_catalog_item
-  - update_catalog_item
   - list_catalog_categories
   - create_catalog_category
   - update_catalog_category
   - move_catalog_items
   - get_optimization_recommendations
+  - update_catalog_item
   - create_catalog_item_variable
   - list_catalog_item_variables
   - update_catalog_item_variable
-  - delete_catalog_item_variable
-  - create_catalog_variable_choice
   - create_change_request
   - update_change_request
   - list_change_requests
@@ -224,24 +153,23 @@ full:
   - commit_changeset
   - publish_changeset
   - add_file_to_changeset
+  - get_widget_bundle
+  - get_portal_component_code
+  - update_portal_component
   - list_script_includes
   - get_script_include
   - create_script_include
   - update_script_include
   - delete_script_include
-  - execute_script_include
-  - get_widget_bundle
-  - get_portal_component_code
-  - update_portal_component
   - create_knowledge_base
   - list_knowledge_bases
   - create_category
-  - list_categories
   - create_article
   - update_article
   - publish_article
   - list_articles
   - get_article
+  - list_categories
   - create_user
   - update_user
   - get_user
@@ -251,12 +179,6 @@ full:
   - add_group_members
   - remove_group_members
   - list_groups
-  - list_syslog_entries
-  - get_syslog_entry
-  - create_user_criteria
-  - create_user_criteria_condition
-  - create_ui_policy
-  - create_ui_policy_action
   - create_story
   - update_story
   - list_stories

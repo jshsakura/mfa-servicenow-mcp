@@ -138,70 +138,82 @@ class ServiceNowMCP:
 
     def _load_package_config(self):
         """Load tool package definitions from the YAML configuration file."""
-        config_path = TOOL_PACKAGE_CONFIG_PATH
-        if not os.path.isabs(config_path):
-            repository_candidate = os.path.join(os.path.dirname(__file__), "..", "..", config_path)
-            repository_candidate = os.path.abspath(repository_candidate)
-            packaged_candidate = os.path.join(
-                os.path.dirname(__file__), "config", "tool_packages.yaml"
+        # Priority 1: Environment variable with absolute path
+        config_path = os.getenv("TOOL_PACKAGE_CONFIG_PATH")
+
+        # Priority 2: Standard locations relative to this file
+        if not config_path:
+            # Check ../../config/tool_packages.yaml (Project root)
+            repo_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..", "config", "tool_packages.yaml")
             )
-            if os.path.exists(repository_candidate):
-                config_path = repository_candidate
-            elif os.path.exists(packaged_candidate):
-                config_path = packaged_candidate
+            # Check ./config/tool_packages.yaml (Inside package)
+            pkg_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "config", "tool_packages.yaml")
+            )
+
+            if os.path.exists(repo_path):
+                config_path = repo_path
+            elif os.path.exists(pkg_path):
+                config_path = pkg_path
             else:
-                config_path = repository_candidate
+                config_path = repo_path  # Default to repo path even if not exists for error message
+
+        logger.info(f"Attempting to load tool package config from: {config_path}")
 
         try:
+            if not os.path.exists(config_path):
+                logger.error(f"Tool package config file NOT FOUND at {config_path}")
+                self.package_definitions = {}
+                return
+
             with open(config_path, "r") as f:
                 loaded_config = yaml.safe_load(f)
                 if isinstance(loaded_config, dict):
-                    self.package_definitions = loaded_config
-                    logger.info(f"Successfully loaded tool package config from {config_path}")
+                    # Normalize all keys to lowercase for robust matching
+                    self.package_definitions = {str(k).lower(): v for k, v in loaded_config.items()}
+                    logger.info(
+                        f"Successfully loaded {len(self.package_definitions)} package definitions from {config_path}"
+                    )
                 else:
                     logger.error(
-                        f"Invalid format in {config_path}: Expected a dictionary, got {type(loaded_config)}. No packages loaded."
+                        f"Invalid format in {config_path}: Expected dict, got {type(loaded_config)}"
                     )
                     self.package_definitions = {}
-        except FileNotFoundError:
-            logger.error(
-                f"Tool package config file not found at {config_path}. No packages loaded."
-            )
-            self.package_definitions = {}
-        except yaml.YAMLError as e:
-            logger.error(
-                f"Error parsing tool package config file {config_path}: {e}. No packages loaded."
-            )
-            self.package_definitions = {}
         except Exception as e:
-            logger.error(f"Unexpected error loading tool package config {config_path}: {e}")
+            logger.exception(f"Unexpected error loading tool package config: {e}")
             self.package_definitions = {}
 
     def _determine_enabled_tools(self):
         """Determine which tool package and tools to enable based on environment variable."""
-        requested_package = os.getenv("MCP_TOOL_PACKAGE", "standard").strip()
+        # Get raw environment variable
+        env_package = os.getenv("MCP_TOOL_PACKAGE")
 
-        if not requested_package:
-            self.current_package_name = "standard"
-            logger.info("MCP_TOOL_PACKAGE is empty, defaulting to 'standard' package.")
-        elif requested_package in self.package_definitions:
-            self.current_package_name = requested_package
-            logger.info(f"MCP_TOOL_PACKAGE set to '{self.current_package_name}'.")
-        else:
-            self.current_package_name = "none"
-            logger.warning(
-                f"MCP_TOOL_PACKAGE '{requested_package}' is not a valid package name. "
-                f"Valid packages: {list(self.package_definitions.keys())}. Loading 'none' package."
+        if env_package:
+            requested_package = env_package.strip().lower()
+            logger.info(
+                f"MCP_TOOL_PACKAGE environment variable found: '{env_package}' (normalized to '{requested_package}')"
             )
-
-        if self.package_definitions:
-            self.enabled_tool_names = self.package_definitions.get(self.current_package_name, [])
         else:
-            self.enabled_tool_names = []
+            requested_package = "standard"
+            logger.info("MCP_TOOL_PACKAGE environment variable not set, defaulting to 'standard'")
 
-        logger.info(
-            f"Loading package '{self.current_package_name}' with {len(self.enabled_tool_names)} tools."
-        )
+        # Check if the requested package exists in our definitions
+        if requested_package in self.package_definitions:
+            self.current_package_name = requested_package
+            self.enabled_tool_names = self.package_definitions[requested_package]
+            logger.info(
+                f"Successfully loaded package '{self.current_package_name}' with {len(self.enabled_tool_names)} tools."
+            )
+        else:
+            # Fallback to none if an invalid package was requested
+            self.current_package_name = "none"
+            self.enabled_tool_names = []
+            available = list(self.package_definitions.keys())
+            logger.warning(
+                f"Requested package '{requested_package}' not found in configuration. "
+                f"Available packages: {available}. Loading 'none' (no tools enabled)."
+            )
 
     @staticmethod
     def _is_blocked_mutating_tool(tool_name: str) -> bool:
@@ -211,8 +223,17 @@ class ServiceNowMCP:
         """Implementation for the list_tools MCP endpoint."""
         tool_list: List[types.Tool] = []
 
+        logger.info(
+            f"Listing tools for package '{self.current_package_name}'. Enabled tool count: {len(self.enabled_tool_names)}"
+        )
+        if not self.enabled_tool_names and self.current_package_name != "none":
+            logger.warning(
+                f"No tools enabled for package '{self.current_package_name}'! Check tool_packages.yaml names."
+            )
+
         # Add the introspection tool if not 'none' package
         if self.current_package_name != "none":
+            # (introspection tool code remains)
             tool_list.append(
                 types.Tool(
                     name="list_tool_packages",
