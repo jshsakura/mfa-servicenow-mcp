@@ -126,6 +126,16 @@ platform_developer:
   - publish_changeset
   - add_file_to_changeset
 
+portal_developer:
+  - get_widget_bundle
+  - get_portal_component_code
+  - update_portal_component
+  - list_script_includes
+  - get_script_include
+  - update_script_include
+  - sn_query
+  - sn_schema
+
 agile_management:
   - create_story
   - update_story
@@ -217,6 +227,9 @@ full:
   - update_script_include
   - delete_script_include
   - execute_script_include
+  - get_widget_bundle
+  - get_portal_component_code
+  - update_portal_component
   - create_knowledge_base
   - list_knowledge_bases
   - create_category

@@ -146,6 +146,18 @@ from servicenow_mcp.tools.knowledge_base import (
 )
 from servicenow_mcp.tools.knowledge_base import publish_article as publish_article_tool
 from servicenow_mcp.tools.knowledge_base import update_article as update_article_tool
+from servicenow_mcp.tools.portal_tools import (
+    GetPortalComponentParams,
+    GetWidgetBundleParams,
+    UpdatePortalComponentParams,
+)
+from servicenow_mcp.tools.portal_tools import (
+    get_portal_component_code as get_portal_component_code_tool,
+)
+from servicenow_mcp.tools.portal_tools import get_widget_bundle as get_widget_bundle_tool
+from servicenow_mcp.tools.portal_tools import (
+    update_portal_component as update_portal_component_tool,
+)
 from servicenow_mcp.tools.project_tools import (
     CreateProjectParams,
     ListProjectsParams,
@@ -911,6 +923,28 @@ def get_tool_definitions(
             str,  # Expects JSON string
             "List projects from ServiceNow",
             "json",  # Tool returns list/dict
+        ),
+        # Portal Development Tools
+        "get_widget_bundle": (
+            get_widget_bundle_tool,
+            GetWidgetBundleParams,
+            dict,
+            "Fetch a high-speed bundle of a Service Portal widget (HTML, Scripts, and Provider list)",
+            "raw_dict",
+        ),
+        "get_portal_component_code": (
+            get_portal_component_code_tool,
+            GetPortalComponentParams,
+            dict,
+            "Fetch specific code from a portal widget, provider, or script include (token efficient)",
+            "raw_dict",
+        ),
+        "update_portal_component": (
+            update_portal_component_tool,
+            UpdatePortalComponentParams,
+            dict,
+            "Pinpoint update of specific portal component fields (HTML, CSS, or scripts)",
+            "raw_dict",
         ),
     }
     return tool_definitions
