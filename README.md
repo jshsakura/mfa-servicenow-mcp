@@ -70,16 +70,16 @@ SERVICENOW_BROWSER_HEADLESS=false
 ## 🛠️ 도구 패키지 및 프로필 (Profiles)
 
 ServiceNow의 방대한 도구 중 필요한 것만 골라 사용하거나, 특정 역할에 최적화된 환경을 로드할 수 있습니다. 
-환경변수 `MCP_TOOL_PACKAGE`를 설정하여 사용하세요. (기본값: `approval_query_only`)
+환경변수 `MCP_TOOL_PACKAGE`를 설정하여 사용하세요. (기본값: **`standard_safe`**)
 
 | 패키지명 | 추천 역할 | 주요 포함 도구 및 가능 작업 |
 | :--- | :--- | :--- |
-| `portal_developer` | **풀스택 포탈 개발자** | **위젯(HTML/JS/CSS) + 서버 스크립트(Script Include) 통합 개발**, Angular Provider 관리, 실시간 스크립트 테스트, **작업 내용 Update Set 저장** |
-| `platform_developer` | **플랫폼/백엔드 개발자** | 비즈니스 로직(Script Include), 워크플로우 자동화, UI Policy, 시스템 설정 변경 및 체인지셋 관리 |
-| `service_desk` | **운영 및 헬프데스크** | 인시던트 신규 생성 및 처리, 업무 코멘트 추가, 사용자 정보 조회, 지식베이스(KB) 검색 |
-| `catalog_builder` | **서비스 카탈로그 관리자** | 카탈로그 아이템 설계, 변수(Variable) 세트 구성, 카탈로그 최적화 제안 및 사용자 권한(Criteria) 설정 |
-| `full` | **슈퍼 관리자** | 시스템 전체 도구(100개 이상) 로드 (데이터 관리, 프로젝트 관리, 스크럼 태스크 등 전 영역) |
-| `approval_query_only` | **안전 조회 모드** | 전 영역 데이터 조회 전용. 수정/삭제 시 반드시 승인 파라미터 필요 (기본값) |
+| `standard_safe` | **표준 안전 모드** | **기본 패키지.** 모든 영역의 안전한 데이터 조회 + 수정 시 개별 승인 거쳐 실행 |
+| `portal_developer` | **풀스택 포탈 개발자** | **위젯 + 서버 스크립트 통합 개발**, Angular Provider 관리, 실시간 테스트, Update Set 저장 |
+| `platform_developer` | **플랫폼/백엔드 개발자** | 비즈니스 로직(Script Include), 워크플로우 자동화, UI Policy, 체인지셋 관리 |
+| `service_desk` | **운영 및 헬프데스크** | 인시던트 신규 생성 및 처리, 업무 코멘트 추가, 사용자 정보 조회 |
+| `catalog_builder` | **서비스 카탈로그 관리자** | 카탈로그 아이템 설계, 변수(Variable) 세트 구성, 카테고리 관리 |
+| `full` | **슈퍼 관리자** | 시스템 전체 도구(100개 이상) 로드 (데이터, 프로젝트, 스크럼 등 전 영역) |
 
 ### 설정 방법 (예: 포탈 개발자 모드)
 Claude Desktop 설정(`args`) 또는 `.env` 파일에 추가:
@@ -89,7 +89,14 @@ Claude Desktop 설정(`args`) 또는 `.env` 파일에 추가:
 
 ---
 
-## 🤖 MCP 클라이언트 설정
+## 🛡️ 데이터 보호 및 강제 승인 정책 (Mandatory Approval)
+
+본 서버는 데이터 파괴 및 의도하지 않은 변경을 방지하기 위해 **모든 프로필에서 예외 없이** 아래의 원칙을 적용합니다.
+
+1. **안전한 조회:** 데이터 조회(`list_`, `get_`, `sn_query` 등)는 자유롭게 수행 가능합니다.
+2. **강제 승인:** 데이터를 수정하거나 서버 측 소스를 변경하는 모든 도구(`create_`, `update_`, `delete_`, `execute_`, `add_` 등)를 호출할 때는 반드시 사용자의 명시적 동의가 필요합니다.
+   - **`confirm='approve'`** 파라미터를 명시적으로 전달해야만 실제 서버 작업이 수행됩니다.
+   - 이 파라미터가 없으면 서버는 실행을 거절하고 사용자에게 확인을 요청합니다.
 
 ### Claude Desktop (추천 설정)
 `claude_desktop_config.json`에 아래 설정을 복사하여 사용하세요. 환경변수 설정 없이 `args`만으로 간편하게 관리할 수 있습니다.

@@ -1,6 +1,6 @@
 none: []
 
-approval_query_only:
+standard_safe:
   - sn_health
   - sn_query
   - sn_aggregate
