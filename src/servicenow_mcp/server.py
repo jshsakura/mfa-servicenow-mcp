@@ -46,9 +46,8 @@ MUTATING_TOOL_PREFIXES = (
     "execute_",
 )
 
-EXPLICIT_APPROVAL_FLAG = "_approved"
-APPROVAL_BY_FIELD = "_approval_by"
-APPROVAL_REASON_FIELD = "_approval_reason"
+CONFIRM_FIELD = "confirm"
+CONFIRM_VALUE = "approve"
 
 
 def serialize_tool_output(result: Any, tool_name: str) -> str:
@@ -291,44 +290,23 @@ class ServiceNowMCP:
                 f"Tool '{name}' is not enabled in the current package '{self.current_package_name}'."
             )
 
-        explicit_approval_granted = bool(arguments.get(EXPLICIT_APPROVAL_FLAG, False))
-        approval_by = str(arguments.get(APPROVAL_BY_FIELD, "")).strip()
-        approval_reason = str(arguments.get(APPROVAL_REASON_FIELD, "")).strip()
-
-        requires_approval = self._is_blocked_mutating_tool(name) or (
+        # Safety check for mutating actions: require confirmation
+        requires_confirmation = self._is_blocked_mutating_tool(name) or (
             name == "sn_nl" and bool(arguments.get("execute", False))
         )
 
-        if requires_approval and not explicit_approval_granted:
-            raise ValueError(
-                f"Tool '{name}' requires explicit approval. "
-                f"Re-run with {EXPLICIT_APPROVAL_FLAG}=true after user confirmation."
-            )
+        if requires_confirmation:
+            confirmation = str(arguments.get(CONFIRM_FIELD, "")).lower().strip()
+            if confirmation != CONFIRM_VALUE:
+                raise ValueError(
+                    f"This action for '{name}' will modify or delete data. "
+                    f"To proceed, please add the parameter {CONFIRM_FIELD}='{CONFIRM_VALUE}' to your request "
+                    "to confirm you want to execute this."
+                )
+            logger.info("Executing confirmed action: tool=%s", name)
 
-        if requires_approval and not approval_by:
-            raise ValueError(
-                f"Tool '{name}' requires '{APPROVAL_BY_FIELD}' when {EXPLICIT_APPROVAL_FLAG}=true."
-            )
-
-        if requires_approval and not approval_reason:
-            raise ValueError(
-                f"Tool '{name}' requires '{APPROVAL_REASON_FIELD}' when {EXPLICIT_APPROVAL_FLAG}=true."
-            )
-
-        if requires_approval:
-            logger.info(
-                "Approved execution: tool=%s approved_by=%s approval_reason=%s",
-                name,
-                approval_by,
-                approval_reason,
-            )
-
-        approval_fields_to_strip = {
-            EXPLICIT_APPROVAL_FLAG,
-            APPROVAL_BY_FIELD,
-            APPROVAL_REASON_FIELD,
-        }
-        arguments = {k: v for k, v in arguments.items() if k not in approval_fields_to_strip}
+        # Strip the confirmation field before passing to the tool
+        arguments = {k: v for k, v in arguments.items() if k != CONFIRM_FIELD}
 
         # Get tool definition (we don't need the serialization hint anymore)
         definition = self.tool_definitions[name]

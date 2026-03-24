@@ -24,7 +24,7 @@ uvx mfa-servicenow-mcp --instance-url "https://your-instance.service-now.com" --
 
 - **MFA/SSO 완벽 지원:** Playwright 기반 브라우저 인증 모드로 Okta, Microsoft Authenticator 등 모든 인증 환경 대응
 - **Zero Configuration:** `uvx`를 통한 소스 코드 없는 즉시 실행 지원
-- **강력한 보안:** 수정/삭제 작업 시 명시적 승인(`_approved=true`) 요구 정책 적용
+- **강력한 보안:** 수정/삭제 작업 시 명시적 확인(`confirm='approve'`) 요구 정책 적용
 - **데이터 안전장치:** 페이로드 폭발 방지를 위한 자동 Limit 및 필드 절단(Truncation) 기능
 - **방대한 도구 모음:** 인시던트, 서비스 카탈로그, 변경 관리, 워크플로우, 지식베이스 등 ServiceNow 전 영역 커버
 
@@ -88,15 +88,34 @@ SERVICENOW_BROWSER_HEADLESS=false
 }
 ```
 
+### Gemini / Vertex AI (OpenCode 설정)
+MCP 클라이언트(OpenCode 등)에서 아래와 같이 로컬 서버를 추가하여 사용할 수 있습니다.
+
+```json
+{
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "mfa-servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "browser",
+        "--browser-headless", "false"
+      ],
+      "enabled": true
+    }
+  }
+}
+```
+
 ---
 
-## 🛡️ 승인 기반 실행 정책
+## 🛡️ 데이터 보호 정책 (Confirmation Required)
 
-본 서버는 데이터 파괴 방지를 위해 Mutation(수정/삭제 등) 도구 실행 시 다음 파라미터를 필수로 요구합니다.
+본 서버는 데이터 파괴 방지를 위해 Mutation(수정/삭제 등) 도구 실행 시 명시적인 확인 파라미터를 요구합니다.
 
-- `_approved=true` : 실행 승인 여부
-- `_approval_by` : 승인자 이름
-- `_approval_reason` : 실행 사유
+- `confirm='approve'` : 실행을 확정하기 위해 반드시 전달해야 하는 파라미터
 
 이 정보가 없으면 수정 도구는 실행되지 않고 안내 메시지를 반환합니다.
 
