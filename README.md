@@ -72,14 +72,14 @@ SERVICENOW_BROWSER_HEADLESS=false
 ServiceNow의 방대한 도구 중 필요한 것만 골라 사용하거나, 특정 역할에 최적화된 환경을 로드할 수 있습니다. 
 환경변수 `MCP_TOOL_PACKAGE`를 설정하여 사용하세요. (기본값: `approval_query_only`)
 
-| 패키지명 | 추천 역할 | 주요 포함 도구 |
+| 패키지명 | 추천 역할 | 주요 포함 도구 및 가능 작업 |
 | :--- | :--- | :--- |
-| `portal_developer` | **포탈 개발자** | 위젯 번들링, Angular Provider 관리, 핀포인트 코드 수정 |
-| `platform_developer` | **플랫폼 개발자** | 스크립트 인클루드, 워크플로우, 체인지셋(Update Sets) |
-| `service_desk` | **운영자 (ITSM)** | 인시던트 생성/수정/조회, 사용자 조회 |
-| `catalog_builder` | **카탈로그 관리자** | 카탈로그 아이템/카테고리 생성, 변수 관리, UI Policy |
-| `full` | **전체 권한** | 모든 도구 (100개 이상) 로드 |
-| `approval_query_only` | **보안 조회 모드** | 모든 영역 조회 권한 + 위험 작업 시 승인 필수 |
+| `portal_developer` | **풀스택 포탈 개발자** | **위젯(HTML/JS/CSS) + 서버 스크립트(Script Include) 통합 개발**, Angular Provider 관리, 실시간 스크립트 테스트, **작업 내용 Update Set 저장** |
+| `platform_developer` | **플랫폼/백엔드 개발자** | 비즈니스 로직(Script Include), 워크플로우 자동화, UI Policy, 시스템 설정 변경 및 체인지셋 관리 |
+| `service_desk` | **운영 및 헬프데스크** | 인시던트 신규 생성 및 처리, 업무 코멘트 추가, 사용자 정보 조회, 지식베이스(KB) 검색 |
+| `catalog_builder` | **서비스 카탈로그 관리자** | 카탈로그 아이템 설계, 변수(Variable) 세트 구성, 카탈로그 최적화 제안 및 사용자 권한(Criteria) 설정 |
+| `full` | **슈퍼 관리자** | 시스템 전체 도구(100개 이상) 로드 (데이터 관리, 프로젝트 관리, 스크럼 태스크 등 전 영역) |
+| `approval_query_only` | **안전 조회 모드** | 전 영역 데이터 조회 전용. 수정/삭제 시 반드시 승인 파라미터 필요 (기본값) |
 
 ### 설정 방법 (예: 포탈 개발자 모드)
 Claude Desktop 설정(`args`) 또는 `.env` 파일에 추가:
