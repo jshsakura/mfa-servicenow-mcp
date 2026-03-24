@@ -1,6 +1,6 @@
 none: []
 
-standard_safe:
+standard:
   - sn_health
   - sn_query
   - sn_aggregate

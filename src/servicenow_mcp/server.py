@@ -179,11 +179,11 @@ class ServiceNowMCP:
 
     def _determine_enabled_tools(self):
         """Determine which tool package and tools to enable based on environment variable."""
-        requested_package = os.getenv("MCP_TOOL_PACKAGE", "standard_safe").strip()
+        requested_package = os.getenv("MCP_TOOL_PACKAGE", "standard").strip()
 
         if not requested_package:
-            self.current_package_name = "standard_safe"
-            logger.info("MCP_TOOL_PACKAGE is empty, defaulting to 'standard_safe' package.")
+            self.current_package_name = "standard"
+            logger.info("MCP_TOOL_PACKAGE is empty, defaulting to 'standard' package.")
         elif requested_package in self.package_definitions:
             self.current_package_name = requested_package
             logger.info(f"MCP_TOOL_PACKAGE set to '{self.current_package_name}'.")
