@@ -1,17 +1,16 @@
 {
   "mcpServers": {
     "servicenow": {
-      "command": "python",
+      "command": "uvx",
       "args": [
-        "-m",
-        "servicenow_mcp.cli"
+        "mfa-servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "browser",
+        "--browser-headless", "false"
       ],
       "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "SERVICENOW_AUTH_TYPE": "basic"
+        "SERVICENOW_DEBUG": "false"
       }
     }
   }
-} 
+}
