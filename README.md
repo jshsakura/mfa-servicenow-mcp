@@ -1,21 +1,19 @@
 # ServiceNow MCP Server
 
-ServiceNow용 Model Context Protocol (MCP) 서버 구현체입니다. MFA(다요소 인증) 및 SSO가 설정된 환경에서도 브라우저 인증을 통해 완벽하게 동작합니다.
+[English](./README.md) | [한국어](./README.ko.md)
+
+ServiceNow MCP server with browser-based authentication for MFA/SSO environments. It is designed for direct use from MCP clients such as Claude Desktop, OpenCode, Gemini Code Assist, and similar local MCP hosts.
 
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
 
----
+## Quick Start
 
-## ⚡ 바로 쓰기
+Most users do not need to clone this repository. If you have [uv](https://astral.sh/uv), you can register the server directly in your MCP client.
 
-대부분의 사용자는 Git으로 소스를 받을 필요가 없습니다. [uv](https://astral.sh/uv)만 있으면 MCP 클라이언트 설정에 바로 넣어 쓸 수 있습니다.
+### Claude Desktop
 
-### 1. MCP 클라이언트에 바로 등록 (가장 추천)
-
-#### Claude Desktop
-
-`claude_desktop_config.json`에 아래처럼 넣으면 됩니다.
+Add this to `claude_desktop_config.json`:
 
 ```json
 {
@@ -24,16 +22,19 @@ ServiceNow용 Model Context Protocol (MCP) 서버 구현체입니다. MFA(다요
       "command": "uvx",
       "args": [
         "mfa-servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
+        "--instance-url",
+        "https://your-instance.service-now.com",
+        "--auth-type",
+        "browser",
+        "--browser-headless",
+        "false"
       ]
     }
   }
 }
 ```
 
-#### OpenCode / Gemini / Vertex AI
+### OpenCode / Gemini / Vertex AI
 
 ```json
 {
@@ -41,10 +42,14 @@ ServiceNow용 Model Context Protocol (MCP) 서버 구현체입니다. MFA(다요
     "servicenow": {
       "type": "local",
       "command": [
-        "uvx", "mfa-servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
+        "uvx",
+        "mfa-servicenow-mcp",
+        "--instance-url",
+        "https://your-instance.service-now.com",
+        "--auth-type",
+        "browser",
+        "--browser-headless",
+        "false"
       ],
       "enabled": true
     }
@@ -52,67 +57,41 @@ ServiceNow용 Model Context Protocol (MCP) 서버 구현체입니다. MFA(다요
 }
 ```
 
-### 2. 터미널에서 바로 실행
-
-MCP 클라이언트 설정 전에 단독으로 먼저 띄워보고 싶다면 다음 명령으로 충분합니다.
+### Run Directly From a Terminal
 
 ```bash
 uvx mfa-servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
-- 최초 실행 시 브라우저 관련 의존성이 자동으로 준비될 수 있습니다.
-- 브라우저 인증에서는 로그인 창이 뜰 수 있습니다.
-- `--browser-headless false`를 주면 MFA/SSO 확인이 더 쉽습니다.
+Notes:
+- The first run may install browser dependencies automatically.
+- Browser auth may open a login window.
+- Use `--browser-headless false` if you want an interactive MFA/SSO flow.
 
-### 3. 로컬에 설치해서 계속 쓰기
-
-`uvx` 대신 명령을 고정 설치해 두고 싶다면:
+### Install as a Local Command
 
 ```bash
 uv tool install mfa-servicenow-mcp
 servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
-> **Windows 사용자라면?** 도커 없이 브라우저 인증을 가장 편하게 사용하는 방법인 [Windows 설치 및 실행 가이드](./WINDOWS_INSTALL.md)를 확인하세요.
+Windows users can also use [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
 
----
+## Features
 
-## ✨ 주요 특징
+- Browser authentication for MFA/SSO environments
+- Safe write confirmation with `confirm='approve'`
+- Payload safety limits and truncation for large records
+- Tool packages for standard users, service desk, portal developers, and platform developers
+- Developer-focused tools for logs, source lookup, workflow inspection, and update set operations
 
-- **MFA/SSO 완벽 지원:** Playwright 기반 브라우저 인증 모드로 Okta, Microsoft Authenticator 등 모든 인증 환경 대응
-- **Zero Configuration:** `uvx`를 통한 소스 코드 없는 즉시 실행 지원
-- **강력한 보안:** 수정/삭제 작업 시 명시적 확인(`confirm='approve'`) 요구 정책 적용
-- **데이터 안전장치:** 페이로드 폭발 방지를 위한 자동 Limit 및 필드 절단(Truncation) 기능
-- **방대한 도구 모음:** 인시던트, 서비스 카탈로그, 변경 관리, 워크플로우, 지식베이스 등 ServiceNow 전 영역 커버
+## Authentication
 
----
+Choose the auth mode based on your ServiceNow environment.
 
-## 🚀 시작하기
+### Browser Auth
 
-### 1. 설치 방법 (개발자용)
-
-소스 코드를 직접 수정하거나 로컬에서 실행하고 싶다면 다음 과정을 따르세요.
-
-```bash
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-
-# Windows 통합 설치 스크립트 실행 (추천)
-.\setup_windows.ps1
-
-# 또는 수동 설치
-uv venv
-uv pip install -e .
-uv run playwright install chromium
-```
-
-### 2. 인증 설정
-
-아래 4가지 중 하나를 고르면 됩니다. 가장 중요한 기준은 "MFA/SSO가 있느냐" 입니다.
-
-#### 브라우저 인증: MFA/SSO 환경에서 기본 선택
-
-Okta, Microsoft Authenticator, 사내 SSO 같은 로그인 흐름이 있으면 이 방식을 쓰면 됩니다.
+Use this for Okta, Entra ID, SAML, MFA, or any interactive SSO flow.
 
 ```bash
 uvx mfa-servicenow-mcp \
@@ -121,7 +100,14 @@ uvx mfa-servicenow-mcp \
   --browser-headless "false"
 ```
 
-환경변수로도 동일하게 설정할 수 있습니다.
+Optional browser-related flags:
+- `--browser-username`
+- `--browser-password`
+- `--browser-user-data-dir`
+- `--browser-timeout`
+- `--browser-probe-path`
+
+Environment variables:
 
 ```env
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
@@ -129,12 +115,9 @@ SERVICENOW_AUTH_TYPE=browser
 SERVICENOW_BROWSER_HEADLESS=false
 ```
 
-추가로 쓸 수 있는 옵션:
-- `--browser-username`, `--browser-password`: 로그인 폼 자동 입력 보조
-- `--browser-user-data-dir`: 브라우저 세션 재사용
-- `--browser-timeout`: MFA 대기 시간을 늘리고 싶을 때
+### Basic Auth
 
-#### Basic 인증: PDI나 MFA 없는 인스턴스
+Use this for PDIs or instances without MFA.
 
 ```bash
 uvx mfa-servicenow-mcp \
@@ -144,18 +127,9 @@ uvx mfa-servicenow-mcp \
   --password "your_password"
 ```
 
-또는:
+### OAuth
 
-```env
-SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
-SERVICENOW_AUTH_TYPE=basic
-SERVICENOW_USERNAME=your_id
-SERVICENOW_PASSWORD=your_password
-```
-
-#### OAuth 인증: Client ID/Secret 기반
-
-이 서버는 현재 OAuth password grant 기준으로 받습니다.
+Current CLI support expects OAuth password grant inputs.
 
 ```bash
 uvx mfa-servicenow-mcp \
@@ -167,9 +141,9 @@ uvx mfa-servicenow-mcp \
   --password "your_password"
 ```
 
-필요하면 `--token-url`을 직접 지정할 수 있고, 지정하지 않으면 기본적으로 `https://<instance>/oauth_token.do`를 사용합니다.
+If `--token-url` is omitted, the server defaults to `https://<instance>/oauth_token.do`.
 
-#### API Key 인증: 전용 헤더 기반
+### API Key
 
 ```bash
 uvx mfa-servicenow-mcp \
@@ -178,102 +152,59 @@ uvx mfa-servicenow-mcp \
   --api-key "your_api_key"
 ```
 
-기본 헤더명은 `X-ServiceNow-API-Key`이며, 다르면 `--api-key-header`로 바꿀 수 있습니다.
+Default header: `X-ServiceNow-API-Key`
 
----
+## Tool Packages
 
-## 🛠️ 도구 프로필 (Profiles)
+Set `MCP_TOOL_PACKAGE` to choose a smaller tool set. Default: `standard`
 
-상황에 맞게 필요한 도구 모음을 선택하여 사용할 수 있습니다. 환경변수 `MCP_TOOL_PACKAGE`로 설정하세요. (기본값: **`standard`**)
-
-| 프로필명 | 추천 역할 | 주요 포함 도구 |
+| Package | Intended Use | Highlights |
 | :--- | :--- | :--- |
-| `standard` | **표준 모드** | **기본값.** 인시던트, 서비스 카탈로그, 지식베이스 등 공통 데이터 조회 및 처리 |
-| `portal_developer` | **풀스택 포탈 개발자** | **위젯 + 서버 스크립트(SI) 통합 개발**, 안전한 로그 분석, 워크플로우 조회, Update Set 커밋/퍼블리시 |
-| `platform_developer` | **플랫폼 개발자** | 비즈니스 로직(Script Include), 안전한 로그 분석, 워크플로우 자동화, UI Policy, 체인지셋 관리 |
-| `service_desk` | **운영 및 헬프데스크** | 인시던트 생성/수정, 업무 코멘트 추가, 사용자 정보 조회 |
-| `full` | **슈퍼 관리자** | 모든 도구 로드 (데이터, 프로젝트, 스크럼, 워크플로우 등 전 영역) |
+| `standard` | General users | Incidents, catalog, knowledge, core queries |
+| `portal_developer` | Portal developers | Portal code, script includes, safe logs, source lookup, workflow read, update set commit/publish |
+| `platform_developer` | Platform developers | Script includes, safe logs, source lookup, workflows, UI policy, change set management |
+| `service_desk` | Operations | Incident handling, comments, user lookup, article lookup |
+| `full` | Admin / unrestricted read surface | Broad access across all implemented tool domains |
 
----
+## Safety Policy
 
-## 🛡️ 전역 보안 정책 (Universal Safety Policy)
+All mutating tools are protected by explicit confirmation.
 
-**중요: 본 서버의 보안 정책은 모든 프로필에 예외 없이 강제 적용되는 '절대 원칙'입니다.** 
+Rules:
+1. Tools such as `create_`, `update_`, `delete_`, `execute_`, `add_`, `commit_`, and `publish_` require confirmation.
+2. You must pass `confirm='approve'`.
+3. Without that parameter, the server rejects the request before execution.
 
-어떤 프로필을 사용하든, **서버의 데이터를 수정/삭제하거나 소스 코드를 변경하는 행위**가 발생하면 무조건 사용자의 **명시적 승인**을 받아야만 실행됩니다.
+This policy applies regardless of the selected tool package.
 
-1. **승인 조건:** `create_`, `update_`, `delete_`, `execute_`, `add_` 등으로 시작하는 모든 '수정형' 도구 호출 시.
-2. **승인 방법:** 요청 시 반드시 파라미터로 **`confirm='approve'`**를 명시적으로 전달해야 합니다.
-3. **작동 방식:** 승인 파라미터 없이 실행을 시도하면 서버가 **물리적으로 실행을 거부**하고 사용자에게 확인을 요청합니다.
+## Developer Setup
 
-### Gemini / Vertex AI (OpenCode 설정)
-Gemini Code Assist 또는 OpenCode와 같은 MCP 클라이언트에서 아래와 같이 로컬 서버를 추가할 수 있습니다. 사용하시는 인증 방식에 맞춰 설정을 선택하세요.
+If you want to modify the source locally:
 
-#### 1. 브라우저 인증 (MFA/SSO 대응 - 추천)
-브라우저 창이 직접 떠서 로그인을 진행합니다. 아이디/비밀번호 자동 입력도 지원합니다.
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "mfa-servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--username", "your_id",
-        "--password", "your_password",
-        "--browser-headless", "false"
-      ],
-      "enabled": true
-    }
-  }
-}
+```bash
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+
+uv venv
+uv pip install -e .
+uv run playwright install chromium
 ```
 
-#### 2. 기본 인증 (Basic Auth)
-MFA가 없는 PDI(개인 개발 인스턴스) 등에서 적합합니다.
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "mfa-servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "basic",
-        "--username", "your_id",
-        "--password", "your_password"
-      ],
-      "enabled": true
-    }
-  }
-}
-```
+For Windows-specific setup, see [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
 
-#### 3. 기타 인증 (OAuth / API Key)
-- **OAuth:** `--auth-type oauth --oauth-client-id <id> --oauth-client-secret <secret>`
-- **API Key:** `--auth-type api_key --api-key <key>`
+## Documentation
 
----
+- [Catalog Guide](docs/catalog.md)
+- [Change Management Guide](docs/change_management.md)
+- [Workflow and Developer Tools](docs/workflow_management.md)
+- [Korean README](./README.ko.md)
 
-## 🛡️ 데이터 보호 정책 (Confirmation Required)
+## Related Projects and Acknowledgements
 
-본 서버는 데이터 파괴 방지를 위해 Mutation(수정/삭제 등) 도구 실행 시 명시적인 확인 파라미터를 요구합니다.
+- This repository includes tools that were consolidated and refactored from earlier internal / legacy ServiceNow MCP implementations. You can still see that lineage in modules such as [core_plus.py](./src/servicenow_mcp/tools/core_plus.py) and [tool_utils.py](./src/servicenow_mcp/utils/tool_utils.py).
+- Some developer productivity workflows, especially server-side source lookup, were designed with ideas inspired by [SN Utils](https://github.com/arnoudkooi/SN-Utils). This project does not bundle or redistribute SN Utils code. It implements MCP-oriented server tools separately.
+- This project is focused on MCP server use cases rather than browser-extension UX. If you want in-browser productivity features directly inside ServiceNow, SN Utils remains a strong companion tool.
 
-- `confirm='approve'` : 실행을 확정하기 위해 반드시 전달해야 하는 파라미터
-
-이 정보가 없으면 수정 도구는 실행되지 않고 안내 메시지를 반환합니다.
-
----
-
-## 📚 상세 문서
-
-더 자세한 도구 사용법과 설정은 `docs/` 폴더를 참고하세요.
-
-- [서비스 카탈로그 가이드](docs/catalog.md)
-- [변경 관리 가이드](docs/change_management.md)
-- [워크플로우 및 개발 도구](docs/workflow_management.md)
-
-## 라이선스
+## License
 
 MIT License
