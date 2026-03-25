@@ -59,6 +59,12 @@ from servicenow_mcp.tools.knowledge_base import (
     publish_article,
     update_article,
 )
+from servicenow_mcp.tools.log_tools import (
+    get_background_script_logs,
+    get_journal_entries,
+    get_system_logs,
+    get_transaction_logs,
+)
 from servicenow_mcp.tools.project_tools import create_project, list_projects, update_project
 from servicenow_mcp.tools.script_include_tools import (
     create_script_include,
@@ -72,6 +78,7 @@ from servicenow_mcp.tools.scrum_task_tools import (
     list_scrum_tasks,
     update_scrum_task,
 )
+from servicenow_mcp.tools.source_tools import get_metadata_source, search_server_code
 from servicenow_mcp.tools.story_tools import (
     create_story,
     create_story_dependency,
@@ -117,6 +124,14 @@ __all__ = [
     "resolve_incident",
     "list_incidents",
     "get_incident_by_number",
+    # Log tools
+    "get_system_logs",
+    "get_journal_entries",
+    "get_transaction_logs",
+    "get_background_script_logs",
+    # Source tools
+    "search_server_code",
+    "get_metadata_source",
     # Catalog tools
     "list_catalog_items",
     "get_catalog_item",

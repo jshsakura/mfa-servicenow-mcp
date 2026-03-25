@@ -146,6 +146,18 @@ from servicenow_mcp.tools.knowledge_base import (
 )
 from servicenow_mcp.tools.knowledge_base import publish_article as publish_article_tool
 from servicenow_mcp.tools.knowledge_base import update_article as update_article_tool
+from servicenow_mcp.tools.log_tools import (
+    GetBackgroundScriptLogsParams,
+    GetJournalEntriesParams,
+    GetSystemLogsParams,
+    GetTransactionLogsParams,
+)
+from servicenow_mcp.tools.log_tools import (
+    get_background_script_logs as get_background_script_logs_tool,
+)
+from servicenow_mcp.tools.log_tools import get_journal_entries as get_journal_entries_tool
+from servicenow_mcp.tools.log_tools import get_system_logs as get_system_logs_tool
+from servicenow_mcp.tools.log_tools import get_transaction_logs as get_transaction_logs_tool
 from servicenow_mcp.tools.portal_tools import (
     GetPortalComponentParams,
     GetWidgetBundleParams,
@@ -195,6 +207,9 @@ from servicenow_mcp.tools.scrum_task_tools import (
 from servicenow_mcp.tools.scrum_task_tools import create_scrum_task as create_scrum_task_tool
 from servicenow_mcp.tools.scrum_task_tools import list_scrum_tasks as list_scrum_tasks_tool
 from servicenow_mcp.tools.scrum_task_tools import update_scrum_task as update_scrum_task_tool
+from servicenow_mcp.tools.source_tools import GetMetadataSourceParams, SearchServerCodeParams
+from servicenow_mcp.tools.source_tools import get_metadata_source as get_metadata_source_tool
+from servicenow_mcp.tools.source_tools import search_server_code as search_server_code_tool
 from servicenow_mcp.tools.story_tools import (
     CreateStoryDependencyParams,
     CreateStoryParams,
@@ -376,6 +391,48 @@ def get_tool_definitions(
             NaturalLanguageParams,
             Dict[str, Any],
             "Natural language assistant for query/schema/aggregate intents",
+            "raw_dict",
+        ),
+        "get_system_logs": (
+            get_system_logs_tool,
+            GetSystemLogsParams,
+            Dict[str, Any],
+            "Read recent ServiceNow system logs with hard safety limits and fixed summary fields",
+            "raw_dict",
+        ),
+        "get_journal_entries": (
+            get_journal_entries_tool,
+            GetJournalEntriesParams,
+            Dict[str, Any],
+            "Read recent journal entries with fixed summary fields and low result caps",
+            "raw_dict",
+        ),
+        "get_transaction_logs": (
+            get_transaction_logs_tool,
+            GetTransactionLogsParams,
+            Dict[str, Any],
+            "Read recent transaction logs with summary fields and strong pagination limits",
+            "raw_dict",
+        ),
+        "get_background_script_logs": (
+            get_background_script_logs_tool,
+            GetBackgroundScriptLogsParams,
+            Dict[str, Any],
+            "Read recent background execution logs from sys_execution_tracker with safe defaults",
+            "raw_dict",
+        ),
+        "search_server_code": (
+            search_server_code_tool,
+            SearchServerCodeParams,
+            Dict[str, Any],
+            "Search supported ServiceNow server-side source tables with capped results and snippets",
+            "raw_dict",
+        ),
+        "get_metadata_source": (
+            get_metadata_source_tool,
+            GetMetadataSourceParams,
+            Dict[str, Any],
+            "Fetch a supported ServiceNow source record by name, id, or sys_id with truncated source fields",
             "raw_dict",
         ),
         # Catalog Tools

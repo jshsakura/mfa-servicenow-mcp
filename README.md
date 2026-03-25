@@ -74,8 +74,8 @@ SERVICENOW_BROWSER_HEADLESS=false
 | 프로필명 | 추천 역할 | 주요 포함 도구 |
 | :--- | :--- | :--- |
 | `standard` | **표준 모드** | **기본값.** 인시던트, 서비스 카탈로그, 지식베이스 등 공통 데이터 조회 및 처리 |
-| `portal_developer` | **풀스택 포탈 개발자** | **위젯 + 서버 스크립트(SI) 통합 개발**, Angular Provider, Update Set 관리 |
-| `platform_developer` | **플랫폼 개발자** | 비즈니스 로직(Script Include), 워크플로우 자동화, UI Policy, 체인지셋 관리 |
+| `portal_developer` | **풀스택 포탈 개발자** | **위젯 + 서버 스크립트(SI) 통합 개발**, 안전한 로그 분석, 워크플로우 조회, Update Set 커밋/퍼블리시 |
+| `platform_developer` | **플랫폼 개발자** | 비즈니스 로직(Script Include), 안전한 로그 분석, 워크플로우 자동화, UI Policy, 체인지셋 관리 |
 | `service_desk` | **운영 및 헬프데스크** | 인시던트 생성/수정, 업무 코멘트 추가, 사용자 정보 조회 |
 | `full` | **슈퍼 관리자** | 모든 도구 로드 (데이터, 프로젝트, 스크럼, 워크플로우 등 전 영역) |
 

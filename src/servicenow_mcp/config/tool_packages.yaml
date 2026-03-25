@@ -31,6 +31,14 @@ standard:
   - list_categories
 
 portal_developer:
+  # 안전한 로그 분석
+  - get_system_logs
+  - get_journal_entries
+  - get_transaction_logs
+  - get_background_script_logs
+  # 서버 소스 검색/조회
+  - search_server_code
+  - get_metadata_source
   # 위젯 및 포탈 컴포넌트 개발
   - get_widget_bundle
   - get_portal_component_code
@@ -40,14 +48,29 @@ portal_developer:
   - get_script_include
   - create_script_include
   - update_script_include
+  # 워크플로우 조회 (프로세스 이해용)
+  - list_workflows
+  - get_workflow_details
+  - list_workflow_versions
+  - get_workflow_activities
   # Update Set (Changeset) 관리
   - list_changesets
   - get_changeset_details
   - create_changeset
   - update_changeset
+  - commit_changeset
+  - publish_changeset
   - add_file_to_changeset
 
 platform_developer:
+  # 안전한 로그 분석
+  - get_system_logs
+  - get_journal_entries
+  - get_transaction_logs
+  - get_background_script_logs
+  # 서버 소스 검색/조회
+  - search_server_code
+  - get_metadata_source
   # 비즈니스 로직 (Script Include)
   - list_script_includes
   - get_script_include
@@ -109,6 +132,12 @@ full:
   - sn_schema
   - sn_discover
   - sn_nl
+  - get_system_logs
+  - get_journal_entries
+  - get_transaction_logs
+  - get_background_script_logs
+  - search_server_code
+  - get_metadata_source
   - create_incident
   - update_incident
   - add_comment
