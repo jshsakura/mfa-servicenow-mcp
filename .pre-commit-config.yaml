@@ -1,9 +1,12 @@
 repos:
   # Black - code formatting
-  - repo: https://github.com/psf/black
-    rev: 23.12.1
+  - repo: local
     hooks:
       - id: black
+        name: black
+        entry: ./.venv/bin/black
+        language: system
+        types: [python]
   # isort - import sorting
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2

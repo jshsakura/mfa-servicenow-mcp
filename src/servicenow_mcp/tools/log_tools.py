@@ -207,9 +207,9 @@ def get_system_logs(
         text_preview_length=params.max_text_length,
     )
     if result.get("success"):
-        result[
-            "safety_notice"
-        ] = "System logs use fixed summary fields and a hard limit cap to avoid large payloads."
+        result["safety_notice"] = (
+            "System logs use fixed summary fields and a hard limit cap to avoid large payloads."
+        )
     return result
 
 
@@ -244,9 +244,9 @@ def get_journal_entries(
         text_preview_length=params.max_text_length,
     )
     if result.get("success"):
-        result[
-            "safety_notice"
-        ] = "Journal entry queries are restricted to summary fields. Filter by record_sys_id or table when possible."
+        result["safety_notice"] = (
+            "Journal entry queries are restricted to summary fields. Filter by record_sys_id or table when possible."
+        )
     return result
 
 
@@ -279,9 +279,9 @@ def get_transaction_logs(
         text_preview_length=params.max_text_length,
     )
     if result.get("success"):
-        result[
-            "safety_notice"
-        ] = "Transaction logs are returned as summaries only. Use filters such as url_contains or min_response_time_ms."
+        result["safety_notice"] = (
+            "Transaction logs are returned as summaries only. Use filters such as url_contains or min_response_time_ms."
+        )
     return result
 
 
@@ -314,7 +314,7 @@ def get_background_script_logs(
         text_preview_length=params.max_text_length,
     )
     if result.get("success"):
-        result[
-            "safety_notice"
-        ] = "Background execution logs come from sys_execution_tracker with capped result size and truncated text fields."
+        result["safety_notice"] = (
+            "Background execution logs come from sys_execution_tracker with capped result size and truncated text fields."
+        )
     return result
