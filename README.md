@@ -7,13 +7,70 @@ ServiceNow용 Model Context Protocol (MCP) 서버 구현체입니다. MFA(다요
 
 ---
 
-## ⚡ 초간편 실행 (추천)
+## ⚡ 바로 쓰기
 
-소스 코드를 다운로드하거나 개발 환경을 구축할 필요가 없습니다. [uv](https://astral.sh/uv)가 설치되어 있다면 명령어 한 줄로 즉시 실행 가능합니다.
+대부분의 사용자는 Git으로 소스를 받을 필요가 없습니다. [uv](https://astral.sh/uv)만 있으면 MCP 클라이언트 설정에 바로 넣어 쓸 수 있습니다.
+
+### 1. MCP 클라이언트에 바로 등록 (가장 추천)
+
+#### Claude Desktop
+
+`claude_desktop_config.json`에 아래처럼 넣으면 됩니다.
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "mfa-servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "browser",
+        "--browser-headless", "false"
+      ]
+    }
+  }
+}
+```
+
+#### OpenCode / Gemini / Vertex AI
+
+```json
+{
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx", "mfa-servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "browser",
+        "--browser-headless", "false"
+      ],
+      "enabled": true
+    }
+  }
+}
+```
+
+### 2. 터미널에서 바로 실행
+
+MCP 클라이언트 설정 전에 단독으로 먼저 띄워보고 싶다면 다음 명령으로 충분합니다.
 
 ```bash
-# 1. 서버 실행 (최초 실행 시 브라우저 엔진 자동 설치)
 uvx mfa-servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
+```
+
+- 최초 실행 시 브라우저 관련 의존성이 자동으로 준비될 수 있습니다.
+- 브라우저 인증에서는 로그인 창이 뜰 수 있습니다.
+- `--browser-headless false`를 주면 MFA/SSO 확인이 더 쉽습니다.
+
+### 3. 로컬에 설치해서 계속 쓰기
+
+`uvx` 대신 명령을 고정 설치해 두고 싶다면:
+
+```bash
+uv tool install mfa-servicenow-mcp
+servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
 > **Windows 사용자라면?** 도커 없이 브라우저 인증을 가장 편하게 사용하는 방법인 [Windows 설치 및 실행 가이드](./WINDOWS_INSTALL.md)를 확인하세요.
@@ -51,19 +108,77 @@ uv run playwright install chromium
 
 ### 2. 인증 설정
 
-#### 브라우저 인증 (MFA/SSO 필수 환경)
-브라우저가 직접 떠서 로그인을 진행합니다. 세션은 로컬에 저장되어 재사용됩니다.
+아래 4가지 중 하나를 고르면 됩니다. 가장 중요한 기준은 "MFA/SSO가 있느냐" 입니다.
+
+#### 브라우저 인증: MFA/SSO 환경에서 기본 선택
+
+Okta, Microsoft Authenticator, 사내 SSO 같은 로그인 흐름이 있으면 이 방식을 쓰면 됩니다.
+
+```bash
+uvx mfa-servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"
+```
+
+환경변수로도 동일하게 설정할 수 있습니다.
 
 ```env
-SERVICENOW_AUTH_TYPE=browser
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
+SERVICENOW_AUTH_TYPE=browser
 SERVICENOW_BROWSER_HEADLESS=false
 ```
 
-#### 기타 인증 방식
-- **Basic:** `SERVICENOW_AUTH_TYPE=basic` (ID/PW)
-- **OAuth:** `SERVICENOW_AUTH_TYPE=oauth` (Client ID/Secret)
-- **API Key:** `SERVICENOW_AUTH_TYPE=api_key`
+추가로 쓸 수 있는 옵션:
+- `--browser-username`, `--browser-password`: 로그인 폼 자동 입력 보조
+- `--browser-user-data-dir`: 브라우저 세션 재사용
+- `--browser-timeout`: MFA 대기 시간을 늘리고 싶을 때
+
+#### Basic 인증: PDI나 MFA 없는 인스턴스
+
+```bash
+uvx mfa-servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "basic" \
+  --username "your_id" \
+  --password "your_password"
+```
+
+또는:
+
+```env
+SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
+SERVICENOW_AUTH_TYPE=basic
+SERVICENOW_USERNAME=your_id
+SERVICENOW_PASSWORD=your_password
+```
+
+#### OAuth 인증: Client ID/Secret 기반
+
+이 서버는 현재 OAuth password grant 기준으로 받습니다.
+
+```bash
+uvx mfa-servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "oauth" \
+  --client-id "your_client_id" \
+  --client-secret "your_client_secret" \
+  --username "your_id" \
+  --password "your_password"
+```
+
+필요하면 `--token-url`을 직접 지정할 수 있고, 지정하지 않으면 기본적으로 `https://<instance>/oauth_token.do`를 사용합니다.
+
+#### API Key 인증: 전용 헤더 기반
+
+```bash
+uvx mfa-servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "api_key" \
+  --api-key "your_api_key"
+```
+
+기본 헤더명은 `X-ServiceNow-API-Key`이며, 다르면 `--api-key-header`로 바꿀 수 있습니다.
 
 ---
 
@@ -90,25 +205,6 @@ SERVICENOW_BROWSER_HEADLESS=false
 1. **승인 조건:** `create_`, `update_`, `delete_`, `execute_`, `add_` 등으로 시작하는 모든 '수정형' 도구 호출 시.
 2. **승인 방법:** 요청 시 반드시 파라미터로 **`confirm='approve'`**를 명시적으로 전달해야 합니다.
 3. **작동 방식:** 승인 파라미터 없이 실행을 시도하면 서버가 **물리적으로 실행을 거부**하고 사용자에게 확인을 요청합니다.
-
-### Claude Desktop (추천 설정)
-`claude_desktop_config.json`에 아래 설정을 복사하여 사용하세요. 환경변수 설정 없이 `args`만으로 간편하게 관리할 수 있습니다.
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "mfa-servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ]
-    }
-  }
-}
-```
 
 ### Gemini / Vertex AI (OpenCode 설정)
 Gemini Code Assist 또는 OpenCode와 같은 MCP 클라이언트에서 아래와 같이 로컬 서버를 추가할 수 있습니다. 사용하시는 인증 방식에 맞춰 설정을 선택하세요.
