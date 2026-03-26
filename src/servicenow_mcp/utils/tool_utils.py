@@ -207,7 +207,18 @@ from servicenow_mcp.tools.scrum_task_tools import (
 from servicenow_mcp.tools.scrum_task_tools import create_scrum_task as create_scrum_task_tool
 from servicenow_mcp.tools.scrum_task_tools import list_scrum_tasks as list_scrum_tasks_tool
 from servicenow_mcp.tools.scrum_task_tools import update_scrum_task as update_scrum_task_tool
-from servicenow_mcp.tools.source_tools import GetMetadataSourceParams, SearchServerCodeParams
+from servicenow_mcp.tools.source_tools import (
+    ExtractTableDependenciesParams,
+    ExtractWidgetTableDependenciesParams,
+    GetMetadataSourceParams,
+    SearchServerCodeParams,
+)
+from servicenow_mcp.tools.source_tools import (
+    extract_table_dependencies as extract_table_dependencies_tool,
+)
+from servicenow_mcp.tools.source_tools import (
+    extract_widget_table_dependencies as extract_widget_table_dependencies_tool,
+)
 from servicenow_mcp.tools.source_tools import get_metadata_source as get_metadata_source_tool
 from servicenow_mcp.tools.source_tools import search_server_code as search_server_code_tool
 from servicenow_mcp.tools.story_tools import (
@@ -433,6 +444,20 @@ def get_tool_definitions(
             GetMetadataSourceParams,
             Dict[str, Any],
             "Fetch a supported ServiceNow source record by name, id, or sys_id with truncated source fields",
+            "raw_dict",
+        ),
+        "extract_table_dependencies": (
+            extract_table_dependencies_tool,
+            ExtractTableDependenciesParams,
+            Dict[str, Any],
+            "Extract table dependency graph from widget server scripts, business rules, and linked script includes",
+            "raw_dict",
+        ),
+        "extract_widget_table_dependencies": (
+            extract_widget_table_dependencies_tool,
+            ExtractWidgetTableDependenciesParams,
+            Dict[str, Any],
+            "Extract table dependency graph for one widget with optional linked script include expansion",
             "raw_dict",
         ),
         # Catalog Tools

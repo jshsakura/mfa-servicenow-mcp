@@ -1,8 +1,12 @@
 from unittest.mock import MagicMock
 
 from servicenow_mcp.tools.source_tools import (
+    ExtractTableDependenciesParams,
+    ExtractWidgetTableDependenciesParams,
     GetMetadataSourceParams,
     SearchServerCodeParams,
+    extract_table_dependencies,
+    extract_widget_table_dependencies,
     get_metadata_source,
     search_server_code,
 )
@@ -314,3 +318,275 @@ def test_get_metadata_source_escapes_lookup_value():
 
     _, kwargs = auth_manager.make_request.call_args
     assert "Thing^^ORname\\=Other" in kwargs["params"]["sysparm_query"]
+
+
+def test_extract_table_dependencies_scans_widget_br_and_linked_script_include():
+    config = _build_config()
+    auth_manager = MagicMock()
+
+    si_response = MagicMock()
+    si_response.raise_for_status.return_value = None
+    si_response.json.return_value = {
+        "result": [
+            {
+                "sys_id": "si-1",
+                "name": "BpmOrderUtils",
+                "api_name": "x_bpm.BpmOrderUtils",
+                "script": "var gr = new GlideRecord('sc_req_item');",
+            }
+        ]
+    }
+
+    widget_response = MagicMock()
+    widget_response.raise_for_status.return_value = None
+    widget_response.json.return_value = {
+        "result": [
+            {
+                "sys_id": "wid-1",
+                "name": "BPM Summary",
+                "id": "bpm_summary",
+                "script": "var gr = new GlideRecord('task'); var util = new BpmOrderUtils();",
+            }
+        ]
+    }
+
+    br_response = MagicMock()
+    br_response.raise_for_status.return_value = None
+    br_response.json.return_value = {
+        "result": [
+            {
+                "sys_id": "br-1",
+                "name": "BPM BR",
+                "collection": "incident",
+                "script": "var tableName = 'incident'; var gr = new GlideRecord(tableName);",
+            }
+        ]
+    }
+
+    db_object_response = MagicMock()
+    db_object_response.raise_for_status.return_value = None
+    db_object_response.json.return_value = {
+        "result": [
+            {"name": "incident", "label": "Incident"},
+            {"name": "sc_req_item", "label": "Requested Item"},
+            {"name": "task", "label": "Task"},
+        ]
+    }
+
+    auth_manager.make_request.side_effect = [
+        si_response,
+        widget_response,
+        br_response,
+        db_object_response,
+    ]
+
+    result = extract_table_dependencies(
+        config,
+        auth_manager,
+        ExtractTableDependenciesParams(scope="x_bpm", max_records_per_source=100, page_size=50),
+    )
+
+    assert result["success"] is True
+    assert result["scan_summary"]["widgets_scanned"] == 1
+    assert result["scan_summary"]["business_rules_scanned"] == 1
+    assert result["scan_summary"]["linked_script_includes_scanned"] == 1
+    assert result["dependency_summary"]["referenced_script_include_count"] == 1
+
+    table_names = {entry["table_name"] for entry in result["tables"]}
+    assert {"task", "incident", "sc_req_item"}.issubset(table_names)
+
+    task_entry = next(entry for entry in result["tables"] if entry["table_name"] == "task")
+    assert task_entry["table_label"] == "Task"
+    assert "widget" in task_entry["source_type_counts"]
+
+    for entry in result["tables"]:
+        assert "script" not in entry
+
+
+def test_extract_table_dependencies_can_skip_linked_script_includes():
+    config = _build_config()
+    auth_manager = MagicMock()
+
+    widget_response = MagicMock()
+    widget_response.raise_for_status.return_value = None
+    widget_response.json.return_value = {
+        "result": [
+            {
+                "sys_id": "wid-1",
+                "name": "BPM Summary",
+                "id": "bpm_summary",
+                "script": "var util = new BpmOrderUtils(); var gr = new GlideRecord('task');",
+            }
+        ]
+    }
+
+    br_response = MagicMock()
+    br_response.raise_for_status.return_value = None
+    br_response.json.return_value = {"result": []}
+
+    db_object_response = MagicMock()
+    db_object_response.raise_for_status.return_value = None
+    db_object_response.json.return_value = {"result": [{"name": "task", "label": "Task"}]}
+
+    auth_manager.make_request.side_effect = [widget_response, br_response, db_object_response]
+
+    result = extract_table_dependencies(
+        config,
+        auth_manager,
+        ExtractTableDependenciesParams(
+            include_linked_script_includes=False,
+            max_records_per_source=20,
+            page_size=20,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["scan_summary"]["linked_script_includes_scanned"] == 0
+    assert result["dependency_summary"]["referenced_script_include_count"] == 0
+    assert [entry["table_name"] for entry in result["tables"]] == ["task"]
+
+
+def test_extract_table_dependencies_handles_br_collection_without_script_and_settablename_and_api_name_ref():
+    config = _build_config()
+    auth_manager = MagicMock()
+
+    si_response = MagicMock()
+    si_response.raise_for_status.return_value = None
+    si_response.json.return_value = {
+        "result": [
+            {
+                "sys_id": "si-10",
+                "name": "OrderSI",
+                "api_name": "x_bpm.OrderSI",
+                "script": "var gr = new GlideRecord('sc_request');",
+            }
+        ]
+    }
+
+    widget_response = MagicMock()
+    widget_response.raise_for_status.return_value = None
+    widget_response.json.return_value = {
+        "result": [
+            {
+                "sys_id": "wid-10",
+                "name": "Order Widget",
+                "id": "order_widget",
+                "script": "var gr = new GlideRecord('task'); var gr2 = new GlideRecord(); gr2.setTableName('incident'); var si = new x_bpm.OrderSI();",
+            }
+        ]
+    }
+
+    br_response = MagicMock()
+    br_response.raise_for_status.return_value = None
+    br_response.json.return_value = {
+        "result": [
+            {
+                "sys_id": "br-10",
+                "name": "BR no script",
+                "collection": "problem",
+                "script": None,
+            }
+        ]
+    }
+
+    db_object_response = MagicMock()
+    db_object_response.raise_for_status.return_value = None
+    db_object_response.json.return_value = {
+        "result": [
+            {"name": "incident", "label": "Incident"},
+            {"name": "problem", "label": "Problem"},
+            {"name": "sc_request", "label": "Request"},
+            {"name": "task", "label": "Task"},
+        ]
+    }
+
+    auth_manager.make_request.side_effect = [
+        si_response,
+        widget_response,
+        br_response,
+        db_object_response,
+    ]
+
+    result = extract_table_dependencies(
+        config,
+        auth_manager,
+        ExtractTableDependenciesParams(scope="x_bpm", max_records_per_source=100, page_size=50),
+    )
+
+    assert result["success"] is True
+    table_names = {entry["table_name"] for entry in result["tables"]}
+    assert {"task", "incident", "problem", "sc_request"}.issubset(table_names)
+
+
+def test_extract_widget_table_dependencies_returns_widget_and_linked_si_tables():
+    config = _build_config()
+    auth_manager = MagicMock()
+
+    widget_response = MagicMock()
+    widget_response.raise_for_status.return_value = None
+    widget_response.json.return_value = {
+        "result": [
+            {
+                "sys_id": "wid-1",
+                "name": "Order Widget",
+                "id": "order_widget",
+                "sys_scope": "x_bpm",
+                "script": "var gr = new GlideRecord('task'); var si = new x_bpm.OrderSI();",
+            }
+        ]
+    }
+
+    si_lookup_response = MagicMock()
+    si_lookup_response.raise_for_status.return_value = None
+    si_lookup_response.json.return_value = {
+        "result": [
+            {
+                "sys_id": "si-1",
+                "name": "OrderSI",
+                "api_name": "x_bpm.OrderSI",
+                "script": "var gr = new GlideRecord('sc_req_item');",
+            }
+        ]
+    }
+
+    label_response = MagicMock()
+    label_response.raise_for_status.return_value = None
+    label_response.json.return_value = {
+        "result": [
+            {"name": "task", "label": "Task"},
+            {"name": "sc_req_item", "label": "Requested Item"},
+        ]
+    }
+
+    auth_manager.make_request.side_effect = [widget_response, si_lookup_response, label_response]
+
+    result = extract_widget_table_dependencies(
+        config,
+        auth_manager,
+        ExtractWidgetTableDependenciesParams(widget_id="order_widget", scope="x_bpm"),
+    )
+
+    assert result["success"] is True
+    assert result["widget"]["identifier"] == "order_widget"
+    table_names = {entry["table_name"] for entry in result["tables"]}
+    assert {"task", "sc_req_item"}.issubset(table_names)
+    assert result["scan_summary"]["linked_script_includes_scanned"] == 1
+
+
+def test_extract_widget_table_dependencies_returns_not_found_for_missing_widget():
+    config = _build_config()
+    auth_manager = MagicMock()
+
+    widget_response = MagicMock()
+    widget_response.raise_for_status.return_value = None
+    widget_response.json.return_value = {"result": []}
+    auth_manager.make_request.return_value = widget_response
+
+    result = extract_widget_table_dependencies(
+        config,
+        auth_manager,
+        ExtractWidgetTableDependenciesParams(widget_id="missing_widget"),
+    )
+
+    assert result["success"] is False
+    assert "not found" in result["message"].lower()

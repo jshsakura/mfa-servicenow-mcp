@@ -4,7 +4,10 @@ Designed for MCP use: read-only, token-efficient, and strongly scoped.
 """
 
 import logging
-from typing import Any, Dict, List
+import re
+import time
+from collections import Counter, defaultdict
+from typing import Any, Dict, List, Set
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +21,44 @@ PER_TYPE_LIMIT = 5
 MAX_FIELD_LENGTH = 12000
 DEFAULT_FIELD_LENGTH = 4000
 SNIPPET_RADIUS = 120
+MAX_DEP_SCAN_LIMIT = 5000
+DEFAULT_DEP_SCAN_LIMIT = 500
+DEFAULT_DEP_PAGE_SIZE = 100
+MAX_TABLES_PER_RECORD = 50
+DEFAULT_MAX_LINKED_SI = 20
+MAX_LINKED_SI = 100
+
+TABLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,79}$")
+STRING_TABLE_LITERAL_RE = re.compile(r"[\"']([a-z][a-z0-9_]{1,79})[\"']")
+JS_TABLE_ASSIGNMENT_RE = re.compile(
+    r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[\"']([a-z][a-z0-9_]{1,79})[\"']"
+)
+GLIDE_CONSTRUCTOR_RE = re.compile(
+    r"\bnew\s+(?:global\.)?(GlideRecord|GlideRecordSecure|GlideAggregate)\s*\(\s*([^\)]+?)\s*\)",
+    re.IGNORECASE,
+)
+GLIDE_DB_FUNCTION_RE = re.compile(
+    r"\b(?:addToUpdateSet|newRecord|getRecordClassName|getTableName)\s*\(\s*[\"']([a-z][a-z0-9_]{1,79})[\"']\s*\)"
+)
+GR_SET_TABLE_RE = re.compile(
+    r"\b[A-Za-z_$][\w$]*\s*\.\s*setTableName\s*\(\s*[\"']([a-z][a-z0-9_]{1,79})[\"']\s*\)"
+)
+SCRIPT_INCLUDE_INSTANCE_RE = re.compile(
+    r"\bnew\s+(?:global\.)?((?:[A-Za-z_$][\w$]*\.)*[A-Za-z_$][\w$]*)\s*\("
+)
+IGNORED_CLASS_NAMES = {
+    "GlideRecord",
+    "GlideRecordSecure",
+    "GlideAggregate",
+    "GlideDateTime",
+    "GlideDuration",
+    "GlideElement",
+    "GlideAjax",
+    "Object",
+    "Array",
+    "Date",
+    "RegExp",
+}
 
 SOURCE_TYPE_ALL = "all"
 DEFAULT_SOURCE_TYPE_ORDER = [
@@ -131,6 +172,65 @@ class GetMetadataSourceParams(BaseModel):
     )
 
 
+class ExtractTableDependenciesParams(BaseModel):
+    scope: str | None = Field(
+        None,
+        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
+    )
+    include_widgets: bool = Field(
+        True,
+        description="Scan widget server scripts (sp_widget.script) for table dependencies",
+    )
+    include_business_rules: bool = Field(
+        True,
+        description="Scan business rules (sys_script.script) for table dependencies",
+    )
+    include_linked_script_includes: bool = Field(
+        True,
+        description="From scanned widget/business rule scripts, resolve referenced Script Includes and scan them too",
+    )
+    only_active: bool = Field(
+        True,
+        description="When supported by the source table, scan only active records",
+    )
+    max_records_per_source: int = Field(
+        DEFAULT_DEP_SCAN_LIMIT,
+        description=f"Maximum records scanned per source type. Clamped to {MAX_DEP_SCAN_LIMIT}.",
+    )
+    page_size: int = Field(
+        DEFAULT_DEP_PAGE_SIZE,
+        description="Fetch page size for each API call. Clamped to 10..200.",
+    )
+    include_loose_literal_scan: bool = Field(
+        False,
+        description="If true, also scan generic string literals that look like table names (higher recall, lower precision)",
+    )
+
+
+class ExtractWidgetTableDependenciesParams(BaseModel):
+    widget_id: str = Field(..., description="Widget sys_id, id, or name")
+    scope: str | None = Field(
+        None,
+        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
+    )
+    include_linked_script_includes: bool = Field(
+        True,
+        description="Resolve script includes referenced by the widget and include their table dependencies",
+    )
+    only_active: bool = Field(
+        True,
+        description="When supported by table, include only active records",
+    )
+    include_loose_literal_scan: bool = Field(
+        False,
+        description="If true, also scan generic string literals that look like table names (higher recall, lower precision)",
+    )
+    max_linked_script_includes: int = Field(
+        DEFAULT_MAX_LINKED_SI,
+        description=f"Maximum linked script includes to resolve per widget. Clamped to {MAX_LINKED_SI}.",
+    )
+
+
 def _normalize_source_type(source_type: str) -> str:
     normalized = (source_type or SOURCE_TYPE_ALL).strip().lower()
     if normalized == SOURCE_TYPE_ALL or normalized in SOURCE_CONFIG:
@@ -167,6 +267,255 @@ def _build_search_query(config: Dict[str, Any], params: SearchServerCodeParams) 
 def _build_lookup_query(config: Dict[str, Any], source_id: str) -> str:
     safe_source_id = _escape_query_value(source_id)
     return "^OR".join(f"{field}={safe_source_id}" for field in config["lookup_fields"])
+
+
+def _escape_query_fragment(value: str) -> str:
+    return str(value).replace("^", "^^").replace("=", r"\=").replace("@", r"\@")
+
+
+def _clamp_dep_scan_limit(value: int) -> int:
+    return max(1, min(value, MAX_DEP_SCAN_LIMIT))
+
+
+def _clamp_page_size(value: int) -> int:
+    return max(10, min(value, 200))
+
+
+def _clamp_linked_si_limit(value: int) -> int:
+    return max(1, min(value, MAX_LINKED_SI))
+
+
+def _build_dependency_query(
+    *, scope: str | None, only_active: bool, source_table: str
+) -> str | None:
+    parts: List[str] = []
+    if scope:
+        parts.append(f"sys_scope={_escape_query_fragment(scope)}")
+
+    supports_active = source_table in {"sp_widget", "sys_script", "sys_script_include"}
+    if only_active and supports_active:
+        parts.append("active=true")
+
+    return "^".join(parts) if parts else None
+
+
+def _fetch_records_paginated(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    table: str,
+    fields: List[str],
+    query: str | None,
+    page_size: int,
+    max_records: int,
+) -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    offset = 0
+
+    while len(records) < max_records:
+        fetch_size = min(page_size, max_records - len(records))
+        response = auth_manager.make_request(
+            "GET",
+            f"{config.instance_url}/api/now/table/{table}",
+            headers=auth_manager.get_headers(),
+            params={
+                "sysparm_query": query,
+                "sysparm_fields": ",".join(fields),
+                "sysparm_limit": fetch_size,
+                "sysparm_offset": offset,
+                "sysparm_display_value": "false",
+                "sysparm_exclude_reference_link": "true",
+                "sysparm_suppress_pagination_header": "true",
+            },
+            timeout=config.timeout,
+        )
+        response.raise_for_status()
+        rows = response.json().get("result", [])
+        if not rows:
+            break
+
+        records.extend(rows)
+        if len(rows) < fetch_size:
+            break
+        offset += fetch_size
+
+    return records
+
+
+def _normalize_table_candidate(candidate: str) -> str | None:
+    token = candidate.strip().strip("\"'").lower()
+    if not token:
+        return None
+    if TABLE_NAME_RE.match(token):
+        return token
+    return None
+
+
+def _parse_string_arg(arg: str) -> str | None:
+    value = arg.strip()
+    if (value.startswith('"') and value.endswith('"')) or (
+        value.startswith("'") and value.endswith("'")
+    ):
+        return _normalize_table_candidate(value[1:-1])
+    return None
+
+
+def _extract_table_names_from_script(
+    script: str, *, include_loose_literal_scan: bool = False
+) -> Set[str]:
+    if not script:
+        return set()
+
+    tables: Set[str] = set()
+    var_to_table: Dict[str, str] = {}
+
+    for var_name, table_name in JS_TABLE_ASSIGNMENT_RE.findall(script):
+        normalized = _normalize_table_candidate(table_name)
+        if normalized:
+            var_to_table[var_name] = normalized
+
+    for _ctor_name, raw_arg in GLIDE_CONSTRUCTOR_RE.findall(script):
+        direct = _parse_string_arg(raw_arg)
+        if direct:
+            tables.add(direct)
+            continue
+
+        var_name = raw_arg.strip()
+        if var_name in var_to_table:
+            tables.add(var_to_table[var_name])
+
+    for table_name in GLIDE_DB_FUNCTION_RE.findall(script):
+        normalized = _normalize_table_candidate(table_name)
+        if normalized:
+            tables.add(normalized)
+
+    for table_name in GR_SET_TABLE_RE.findall(script):
+        normalized = _normalize_table_candidate(table_name)
+        if normalized:
+            tables.add(normalized)
+
+    if include_loose_literal_scan and len(tables) < MAX_TABLES_PER_RECORD:
+        for candidate in STRING_TABLE_LITERAL_RE.findall(script):
+            normalized = _normalize_table_candidate(candidate)
+            if normalized:
+                tables.add(normalized)
+            if len(tables) >= MAX_TABLES_PER_RECORD:
+                break
+
+    return tables
+
+
+def _extract_script_include_refs(script: str, known_script_include_names: Set[str]) -> Set[str]:
+    if not script:
+        return set()
+
+    refs: Set[str] = set()
+    for candidate in SCRIPT_INCLUDE_INSTANCE_RE.findall(script):
+        dotted_last = candidate.split(".")[-1]
+        if candidate in known_script_include_names:
+            refs.add(candidate)
+        elif dotted_last in known_script_include_names:
+            refs.add(dotted_last)
+    return refs
+
+
+def _extract_script_include_candidates(script: str) -> Set[str]:
+    if not script:
+        return set()
+
+    candidates: Set[str] = set()
+    for raw in SCRIPT_INCLUDE_INSTANCE_RE.findall(script):
+        short_name = raw.split(".")[-1]
+        if short_name and short_name not in IGNORED_CLASS_NAMES:
+            candidates.add(short_name)
+    return candidates
+
+
+def _find_script_include_by_candidate(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    candidate: str,
+    scope: str | None,
+    only_active: bool,
+) -> Dict[str, Any] | None:
+    safe_candidate = _escape_query_fragment(candidate)
+    query_parts = [
+        f"name={safe_candidate}^ORapi_name={safe_candidate}^ORapi_nameENDSWITH.{safe_candidate}"
+    ]
+    if scope:
+        query_parts.append(f"sys_scope={_escape_query_fragment(scope)}")
+    if only_active:
+        query_parts.append("active=true")
+    query = "^".join(query_parts)
+
+    rows = _make_request(
+        config,
+        auth_manager,
+        table="sys_script_include",
+        query=query,
+        fields=["sys_id", "name", "api_name", "script"],
+        limit=1,
+    )
+    return rows[0] if rows else None
+
+
+def _chunked(values: List[str], size: int) -> List[List[str]]:
+    return [values[i : i + size] for i in range(0, len(values), size)]
+
+
+def _build_label_map(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table_names: Set[str],
+) -> Dict[str, str]:
+    if not table_names:
+        return {}
+
+    label_map: Dict[str, str] = {}
+    sorted_names = sorted(table_names)
+    for chunk in _chunked(sorted_names, 50):
+        encoded_names = ",".join(_escape_query_fragment(name) for name in chunk)
+        response = auth_manager.make_request(
+            "GET",
+            f"{config.instance_url}/api/now/table/sys_db_object",
+            headers=auth_manager.get_headers(),
+            params={
+                "sysparm_query": f"nameIN{encoded_names}",
+                "sysparm_fields": "name,label",
+                "sysparm_limit": 200,
+                "sysparm_display_value": "false",
+                "sysparm_exclude_reference_link": "true",
+                "sysparm_suppress_pagination_header": "true",
+            },
+            timeout=config.timeout,
+        )
+        response.raise_for_status()
+        rows = response.json().get("result", [])
+        for row in rows:
+            name = row.get("name")
+            label = row.get("label")
+            if isinstance(name, str) and isinstance(label, str):
+                label_map[name] = label
+
+    return label_map
+
+
+def _append_table_references(
+    table_to_sources: Dict[str, List[Dict[str, str]]],
+    source_type: str,
+    source_sys_id: str,
+    source_name: str,
+    discovered_tables: Set[str],
+) -> None:
+    for table_name in discovered_tables:
+        table_to_sources[table_name].append(
+            {
+                "source_type": source_type,
+                "source_sys_id": source_sys_id,
+                "source_name": source_name,
+            }
+        )
 
 
 def _truncate_text(value: str, max_length: int) -> str:
@@ -368,4 +717,385 @@ def get_metadata_source(
         "metadata": metadata,
         "sources": sources,
         "safety_notice": "Only supported source fields are returned, each with per-field truncation.",
+    }
+
+
+def extract_table_dependencies(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ExtractTableDependenciesParams,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    max_records = _clamp_dep_scan_limit(params.max_records_per_source)
+    page_size = _clamp_page_size(params.page_size)
+
+    table_to_sources: Dict[str, List[Dict[str, str]]] = defaultdict(list)
+    script_include_refs: Set[str] = set()
+
+    scanned_counts: Counter[str] = Counter()
+    failed_sources: List[Dict[str, str]] = []
+
+    script_include_records: List[Dict[str, Any]] = []
+    known_si_names: Set[str] = set()
+    si_script_by_key: Dict[str, str] = {}
+
+    if params.include_linked_script_includes:
+        si_query = _build_dependency_query(
+            scope=params.scope,
+            only_active=params.only_active,
+            source_table="sys_script_include",
+        )
+        try:
+            script_include_records = _fetch_records_paginated(
+                config,
+                auth_manager,
+                table="sys_script_include",
+                fields=["sys_id", "name", "api_name", "script"],
+                query=si_query,
+                page_size=page_size,
+                max_records=max_records,
+            )
+            scanned_counts["script_include_candidates"] = len(script_include_records)
+            for row in script_include_records:
+                name = row.get("name")
+                api_name = row.get("api_name")
+                script = row.get("script")
+                if isinstance(name, str):
+                    known_si_names.add(name)
+                    if isinstance(script, str):
+                        si_script_by_key[name] = script
+                if isinstance(api_name, str):
+                    known_si_names.add(api_name)
+                    short_name = api_name.split(".")[-1]
+                    if short_name:
+                        known_si_names.add(short_name)
+                    if isinstance(script, str):
+                        si_script_by_key[api_name] = script
+                        if short_name:
+                            si_script_by_key[short_name] = script
+        except Exception as exc:
+            failed_sources.append(
+                {
+                    "source_type": "script_include_candidates",
+                    "message": str(exc),
+                }
+            )
+
+    if params.include_widgets:
+        widget_query = _build_dependency_query(
+            scope=params.scope,
+            only_active=params.only_active,
+            source_table="sp_widget",
+        )
+        try:
+            widget_rows = _fetch_records_paginated(
+                config,
+                auth_manager,
+                table="sp_widget",
+                fields=["sys_id", "name", "id", "script"],
+                query=widget_query,
+                page_size=page_size,
+                max_records=max_records,
+            )
+            scanned_counts["widget"] = len(widget_rows)
+            for row in widget_rows:
+                script = row.get("script")
+                if not isinstance(script, str):
+                    continue
+                source_name = str(row.get("name") or row.get("id") or "")
+                source_sys_id = str(row.get("sys_id") or "")
+
+                discovered_tables = _extract_table_names_from_script(
+                    script,
+                    include_loose_literal_scan=params.include_loose_literal_scan,
+                )
+                _append_table_references(
+                    table_to_sources,
+                    "widget",
+                    source_sys_id,
+                    source_name,
+                    discovered_tables,
+                )
+
+                if params.include_linked_script_includes and known_si_names:
+                    refs = _extract_script_include_refs(script, known_si_names)
+                    script_include_refs.update(refs)
+        except Exception as exc:
+            failed_sources.append({"source_type": "widget", "message": str(exc)})
+
+    if params.include_business_rules:
+        br_query = _build_dependency_query(
+            scope=params.scope,
+            only_active=params.only_active,
+            source_table="sys_script",
+        )
+        try:
+            br_rows = _fetch_records_paginated(
+                config,
+                auth_manager,
+                table="sys_script",
+                fields=["sys_id", "name", "collection", "script"],
+                query=br_query,
+                page_size=page_size,
+                max_records=max_records,
+            )
+            scanned_counts["business_rule"] = len(br_rows)
+            for row in br_rows:
+                script = row.get("script")
+                source_name = str(row.get("name") or "")
+                source_sys_id = str(row.get("sys_id") or "")
+
+                discovered_tables = set()
+                if isinstance(script, str):
+                    discovered_tables = _extract_table_names_from_script(
+                        script,
+                        include_loose_literal_scan=params.include_loose_literal_scan,
+                    )
+                collection = row.get("collection")
+                if isinstance(collection, str):
+                    normalized_collection = _normalize_table_candidate(collection)
+                    if normalized_collection:
+                        discovered_tables.add(normalized_collection)
+
+                _append_table_references(
+                    table_to_sources,
+                    "business_rule",
+                    source_sys_id,
+                    source_name,
+                    discovered_tables,
+                )
+
+                if (
+                    params.include_linked_script_includes
+                    and known_si_names
+                    and isinstance(script, str)
+                ):
+                    refs = _extract_script_include_refs(script, known_si_names)
+                    script_include_refs.update(refs)
+        except Exception as exc:
+            failed_sources.append({"source_type": "business_rule", "message": str(exc)})
+
+    scanned_si_count = 0
+    if params.include_linked_script_includes and script_include_refs:
+        for ref_name in sorted(script_include_refs):
+            script = si_script_by_key.get(ref_name)
+            if not script:
+                continue
+            scanned_si_count += 1
+            discovered_tables = _extract_table_names_from_script(
+                script,
+                include_loose_literal_scan=params.include_loose_literal_scan,
+            )
+            source_row = next(
+                (row for row in script_include_records if row.get("name") == ref_name), None
+            )
+            source_sys_id = str(source_row.get("sys_id") if source_row else "")
+            _append_table_references(
+                table_to_sources,
+                "script_include",
+                source_sys_id,
+                ref_name,
+                discovered_tables,
+            )
+
+    scanned_counts["linked_script_include"] = scanned_si_count
+
+    all_tables = set(table_to_sources.keys())
+    try:
+        label_map = _build_label_map(config, auth_manager, all_tables)
+    except Exception as exc:
+        label_map = {}
+        failed_sources.append({"source_type": "sys_db_object", "message": str(exc)})
+
+    table_entries: List[Dict[str, Any]] = []
+    for table_name in sorted(all_tables):
+        source_refs = table_to_sources[table_name]
+        type_counter = Counter(ref["source_type"] for ref in source_refs)
+        table_entries.append(
+            {
+                "table_name": table_name,
+                "table_label": label_map.get(table_name, ""),
+                "reference_count": len(source_refs),
+                "source_type_counts": dict(type_counter),
+                "sources": source_refs,
+            }
+        )
+
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    return {
+        "success": True,
+        "scope": params.scope,
+        "scan_summary": {
+            "widgets_scanned": scanned_counts["widget"],
+            "business_rules_scanned": scanned_counts["business_rule"],
+            "script_include_candidates_scanned": scanned_counts["script_include_candidates"],
+            "linked_script_includes_scanned": scanned_counts["linked_script_include"],
+            "tables_discovered": len(table_entries),
+            "scan_duration_ms": elapsed_ms,
+            "max_records_per_source": max_records,
+            "page_size": page_size,
+        },
+        "tables": table_entries,
+        "dependency_summary": {
+            "referenced_script_include_count": len(script_include_refs),
+            "referenced_script_includes": sorted(script_include_refs),
+        },
+        "warnings": failed_sources,
+        "safety_notice": "Dependency graph output only. Raw script bodies are never returned to prevent context overload.",
+    }
+
+
+def extract_widget_table_dependencies(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ExtractWidgetTableDependenciesParams,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    table_to_sources: Dict[str, List[Dict[str, str]]] = defaultdict(list)
+    failed_sources: List[Dict[str, str]] = []
+
+    widget_cfg = SOURCE_CONFIG["widget"]
+    widget_query = _build_lookup_query(widget_cfg, params.widget_id)
+    if params.scope:
+        widget_query += f"^sys_scope={_escape_query_fragment(params.scope)}"
+    if params.only_active:
+        widget_query += "^active=true"
+
+    try:
+        widget_rows = _make_request(
+            config,
+            auth_manager,
+            table="sp_widget",
+            query=widget_query,
+            fields=["sys_id", "name", "id", "script", "sys_scope"],
+            limit=1,
+        )
+    except Exception as exc:
+        return {
+            "success": False,
+            "message": f"Failed to fetch widget: {exc}",
+            "widget": None,
+            "tables": [],
+        }
+
+    if not widget_rows:
+        return {
+            "success": False,
+            "message": f"Widget not found for id '{params.widget_id}'",
+            "widget": None,
+            "tables": [],
+        }
+
+    widget = widget_rows[0]
+    widget_sys_id = str(widget.get("sys_id") or "")
+    widget_name = str(widget.get("name") or widget.get("id") or "")
+    widget_identifier = str(widget.get("id") or widget.get("name") or "")
+    widget_scope = str(widget.get("sys_scope") or "")
+    widget_script = widget.get("script")
+
+    if isinstance(widget_script, str):
+        widget_tables = _extract_table_names_from_script(
+            widget_script,
+            include_loose_literal_scan=params.include_loose_literal_scan,
+        )
+        _append_table_references(
+            table_to_sources,
+            "widget",
+            widget_sys_id,
+            widget_name,
+            widget_tables,
+        )
+
+    linked_script_includes: List[Dict[str, str]] = []
+    linked_si_limit = _clamp_linked_si_limit(params.max_linked_script_includes)
+    if params.include_linked_script_includes and isinstance(widget_script, str):
+        si_candidates = sorted(_extract_script_include_candidates(widget_script))[:linked_si_limit]
+        for candidate in si_candidates:
+            try:
+                si_row = _find_script_include_by_candidate(
+                    config,
+                    auth_manager,
+                    candidate=candidate,
+                    scope=params.scope,
+                    only_active=params.only_active,
+                )
+            except Exception as exc:
+                failed_sources.append(
+                    {
+                        "source_type": "script_include_lookup",
+                        "message": f"{candidate}: {exc}",
+                    }
+                )
+                continue
+
+            if not si_row:
+                continue
+
+            si_name = str(si_row.get("name") or candidate)
+            si_api_name = str(si_row.get("api_name") or "")
+            si_sys_id = str(si_row.get("sys_id") or "")
+            linked_script_includes.append(
+                {
+                    "name": si_name,
+                    "api_name": si_api_name,
+                    "sys_id": si_sys_id,
+                }
+            )
+
+            si_script = si_row.get("script")
+            if isinstance(si_script, str):
+                si_tables = _extract_table_names_from_script(
+                    si_script,
+                    include_loose_literal_scan=params.include_loose_literal_scan,
+                )
+                _append_table_references(
+                    table_to_sources,
+                    "script_include",
+                    si_sys_id,
+                    si_name,
+                    si_tables,
+                )
+
+    all_tables = set(table_to_sources.keys())
+    try:
+        label_map = _build_label_map(config, auth_manager, all_tables)
+    except Exception as exc:
+        label_map = {}
+        failed_sources.append({"source_type": "sys_db_object", "message": str(exc)})
+
+    table_entries: List[Dict[str, Any]] = []
+    for table_name in sorted(all_tables):
+        refs = table_to_sources[table_name]
+        type_counter = Counter(ref["source_type"] for ref in refs)
+        table_entries.append(
+            {
+                "table_name": table_name,
+                "table_label": label_map.get(table_name, ""),
+                "reference_count": len(refs),
+                "source_type_counts": dict(type_counter),
+                "sources": refs,
+            }
+        )
+
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    return {
+        "success": True,
+        "widget": {
+            "sys_id": widget_sys_id,
+            "name": widget_name,
+            "identifier": widget_identifier,
+            "scope": widget_scope,
+        },
+        "scan_summary": {
+            "linked_script_includes_scanned": len(linked_script_includes),
+            "tables_discovered": len(table_entries),
+            "scan_duration_ms": elapsed_ms,
+            "max_linked_script_includes": linked_si_limit,
+        },
+        "tables": table_entries,
+        "dependency_summary": {
+            "linked_script_includes": linked_script_includes,
+        },
+        "warnings": failed_sources,
+        "safety_notice": "Dependency graph output only. Raw script bodies are never returned to prevent context overload.",
     }
