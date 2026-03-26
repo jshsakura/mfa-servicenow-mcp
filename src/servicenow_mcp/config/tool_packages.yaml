@@ -42,6 +42,7 @@ portal_developer:
   # 위젯 및 포탈 컴포넌트 개발
   - get_widget_bundle
   - get_portal_component_code
+  - search_widget_author_patterns
   - update_portal_component
   # 서버 스크립트(SI) 통합 개발
   - list_script_includes
@@ -184,6 +185,7 @@ full:
   - add_file_to_changeset
   - get_widget_bundle
   - get_portal_component_code
+  - search_widget_author_patterns
   - update_portal_component
   - list_script_includes
   - get_script_include
