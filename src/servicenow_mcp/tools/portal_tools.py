@@ -146,21 +146,80 @@ DEFAULT_REDIRECT_PATTERN = r"/[A-Za-z0-9_-]+\?id=[A-Za-z0-9_-]+"
 MAX_WIDGET_REVIEW_LIMIT = 1000
 MAX_WIDGET_REVIEW_MATCHES = 2000
 DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH = 220
+MAX_ANGULAR_PROVIDER_SCAN_LIMIT = 2000
+MAX_ANGULAR_IMPLICIT_GLOBAL_MATCHES = 5000
+DEFAULT_ANGULAR_IMPLICIT_SNIPPET_LENGTH = 180
+
+KNOWN_GLOBAL_IDENTIFIERS = {
+    "this",
+    "self",
+    "window",
+    "document",
+    "location",
+    "navigator",
+    "console",
+    "angular",
+    "Math",
+    "JSON",
+    "Object",
+    "Array",
+    "String",
+    "Number",
+    "Boolean",
+    "Date",
+    "RegExp",
+    "Promise",
+    "setTimeout",
+    "setInterval",
+    "clearTimeout",
+    "clearInterval",
+    "$scope",
+    "$window",
+    "$document",
+    "$timeout",
+    "$interval",
+    "c",
+    "data",
+    "input",
+    "options",
+}
+
+DECLARATION_NAME_RE = re.compile(r"\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)")
+FUNCTION_DECL_RE = re.compile(r"\bfunction\s+[A-Za-z_$][\w$]*\s*\(([^)]*)\)")
+FUNCTION_EXPR_RE = re.compile(r"\bfunction\s*\(([^)]*)\)")
+ARROW_FN_RE = re.compile(r"\(([^)]*)\)\s*=>")
+CATCH_PARAM_RE = re.compile(r"\bcatch\s*\(\s*([A-Za-z_$][\w$]*)\s*\)")
+IMPLICIT_ASSIGNMENT_RE = re.compile(r"(?<![.\w$])([A-Za-z_$][\w$]*)\s*([+\-*/%]?=)(?!=)")
 
 
-class SearchWidgetAuthorPatternsParams(BaseModel):
-    updated_by: str = Field(
-        ...,
-        description="Filter widgets by this updater (sys_updated_by). Example: admin@example.com",
-    )
-    pattern: str = Field(
+class SearchPortalRegexMatchesParams(BaseModel):
+    regex: str = Field(
         DEFAULT_REDIRECT_PATTERN,
-        description="Pattern to find in source. Literal by default unless use_regex=true.",
+        description="Regex pattern to find in source code",
     )
-    use_regex: bool = Field(False, description="Treat pattern as regex when true")
+    updated_by: str | None = Field(
+        None,
+        description="Optional updater filter (sys_updated_by). Example: admin@example.com",
+    )
     scope: str | None = Field(
         None,
         description="Optional app scope filter (sys_scope). Example: x_company_bpm",
+    )
+    widget_ids: List[str] | None = Field(
+        None,
+        description="Optional widget id/sys_id/name filters. If provided, scan only these widgets.",
+    )
+    source_types: List[str] = Field(
+        ["widget", "script_include", "angular_provider"],
+        description="Source types to include. Allowed: widget, script_include, angular_provider",
+    )
+    updated_after: str | None = Field(
+        None,
+        description="Optional lower bound for sys_updated_on (YYYY-MM-DD or datetime)",
+    )
+    updated_before: str | None = Field(
+        None,
+        description="Optional upper bound for sys_updated_on (YYYY-MM-DD or datetime)",
     )
     include_linked_script_includes: bool = Field(
         True,
@@ -194,6 +253,50 @@ class SearchWidgetAuthorPatternsParams(BaseModel):
     compact_output: bool = Field(
         True,
         description="Return compact output (location, line, snippet) to minimize tokens",
+    )
+    output_mode: str | None = Field(
+        None,
+        description="Optional output shape override: minimal | compact | full",
+    )
+
+
+class DetectAngularImplicitGlobalsParams(BaseModel):
+    updated_by: str | None = Field(
+        None,
+        description="Optional updater filter (sys_updated_by). Example: admin@example.com",
+    )
+    scope: str | None = Field(
+        None,
+        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
+    )
+    provider_ids: List[str] | None = Field(
+        None,
+        description="Optional provider id/sys_id/name filters. If provided, scan only these providers.",
+    )
+    updated_after: str | None = Field(
+        None,
+        description="Optional lower bound for sys_updated_on (YYYY-MM-DD or datetime)",
+    )
+    updated_before: str | None = Field(
+        None,
+        description="Optional upper bound for sys_updated_on (YYYY-MM-DD or datetime)",
+    )
+    max_providers: int = Field(
+        300,
+        description=f"Maximum providers to scan after filter. Clamped to {MAX_ANGULAR_PROVIDER_SCAN_LIMIT}.",
+    )
+    page_size: int = Field(100, description="Pagination size for API queries (10..100)")
+    max_matches: int = Field(
+        500,
+        description=f"Maximum total findings to return. Clamped to {MAX_ANGULAR_IMPLICIT_GLOBAL_MATCHES}.",
+    )
+    snippet_length: int = Field(
+        DEFAULT_ANGULAR_IMPLICIT_SNIPPET_LENGTH,
+        description="Maximum one-line snippet length per finding",
+    )
+    output_mode: str = Field(
+        "minimal",
+        description="Output shape: minimal | compact | full",
     )
 
 
@@ -245,10 +348,9 @@ def _clamp_snippet_length(value: int) -> int:
     return max(80, min(value, 500))
 
 
-def _compile_search_pattern(pattern: str, use_regex: bool) -> re.Pattern[str]:
+def _compile_search_pattern(pattern: str) -> re.Pattern[str]:
     raw = pattern or DEFAULT_REDIRECT_PATTERN
-    compiled_pattern = raw if use_regex else re.escape(raw)
-    return re.compile(compiled_pattern)
+    return re.compile(raw)
 
 
 def _to_one_line(value: str) -> str:
@@ -332,6 +434,112 @@ def _compact_matches(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             }
         )
     return compact
+
+
+def _minimal_matches(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    minimal: List[Dict[str, Any]] = []
+    for item in items:
+        minimal.append(
+            {
+                "location": _match_location(
+                    str(item.get("source_type") or ""),
+                    str(item.get("source_name") or ""),
+                    str(item.get("field") or ""),
+                ),
+                "line": item.get("line"),
+            }
+        )
+    return minimal
+
+
+def _resolve_output_mode(output_mode: str | None, compact_output: bool) -> str:
+    if output_mode is None:
+        return "compact" if compact_output else "full"
+    normalized = output_mode.strip().lower()
+    if normalized in {"minimal", "compact", "full"}:
+        return normalized
+    raise ValueError("output_mode must be one of: minimal, compact, full")
+
+
+def _resolve_fixed_output_mode(output_mode: str) -> str:
+    normalized = output_mode.strip().lower()
+    if normalized in {"minimal", "compact", "full"}:
+        return normalized
+    raise ValueError("output_mode must be one of: minimal, compact, full")
+
+
+def _clamp_provider_scan_limit(value: int) -> int:
+    return max(1, min(value, MAX_ANGULAR_PROVIDER_SCAN_LIMIT))
+
+
+def _clamp_implicit_global_matches(value: int) -> int:
+    return max(1, min(value, MAX_ANGULAR_IMPLICIT_GLOBAL_MATCHES))
+
+
+def _split_param_names(param_block: str) -> Set[str]:
+    names: Set[str] = set()
+    for token in param_block.split(","):
+        base = token.split("=", 1)[0].strip()
+        if re.fullmatch(r"[A-Za-z_$][\w$]*", base):
+            names.add(base)
+    return names
+
+
+def _collect_declared_identifiers(script: str) -> Set[str]:
+    declared: Set[str] = set()
+    for name in DECLARATION_NAME_RE.findall(script):
+        declared.add(name)
+    for block in FUNCTION_DECL_RE.findall(script):
+        declared.update(_split_param_names(block))
+    for block in FUNCTION_EXPR_RE.findall(script):
+        declared.update(_split_param_names(block))
+    for block in ARROW_FN_RE.findall(script):
+        declared.update(_split_param_names(block))
+    for name in CATCH_PARAM_RE.findall(script):
+        declared.add(name)
+    return declared
+
+
+def _extract_implicit_global_hits(
+    *,
+    source_sys_id: str,
+    source_name: str,
+    script: str,
+    snippet_length: int,
+    max_matches: int,
+) -> List[Dict[str, Any]]:
+    if not script or max_matches <= 0:
+        return []
+
+    declared = _collect_declared_identifiers(script)
+    hits: List[Dict[str, Any]] = []
+
+    for match in IMPLICIT_ASSIGNMENT_RE.finditer(script):
+        if len(hits) >= max_matches:
+            break
+        name = match.group(1)
+        op = match.group(2)
+        if name in declared or name in KNOWN_GLOBAL_IDENTIFIERS:
+            continue
+        start, end = match.span()
+        line, column = _line_col_from_index(script, start)
+        hits.append(
+            {
+                "source_type": "angular_provider",
+                "source_sys_id": source_sys_id,
+                "source_name": source_name,
+                "field": "script",
+                "line": line,
+                "column": column,
+                "match": match.group(0),
+                "snippet": _slice_one_line_snippet(script, start, end, snippet_length),
+                "variable": name,
+                "operator": op,
+                "issue": "implicit_global_assignment",
+            }
+        )
+
+    return hits
 
 
 def _sn_query_all(
@@ -594,25 +802,62 @@ def get_portal_component_code(
     return result
 
 
-def search_widget_author_patterns(
+def search_portal_regex_matches(
     config: ServerConfig,
     auth_manager: AuthManager,
-    params: SearchWidgetAuthorPatternsParams,
+    params: SearchPortalRegexMatchesParams,
 ) -> Dict[str, Any]:
     try:
-        regex = _compile_search_pattern(params.pattern, params.use_regex)
+        regex = _compile_search_pattern(params.regex)
     except re.error as exc:
-        return {"success": False, "message": f"Invalid pattern: {exc}", "matches": []}
+        return {"success": False, "message": f"Invalid regex: {exc}", "matches": []}
+
+    try:
+        output_mode = _resolve_output_mode(params.output_mode, params.compact_output)
+    except ValueError as exc:
+        return {"success": False, "message": str(exc), "matches": []}
 
     page_size = max(10, min(params.page_size, 100))
     max_widgets = _clamp_widget_review_limit(params.max_widgets)
     max_matches = _clamp_widget_review_matches(params.max_matches)
     snippet_length = _clamp_snippet_length(params.snippet_length)
 
-    safe_updated_by = _escape_query(params.updated_by)
-    widget_query_parts = [f"sys_updated_by={safe_updated_by}"]
+    source_type_set = {value.strip().lower() for value in params.source_types if value.strip()}
+    allowed_source_types = {"widget", "script_include", "angular_provider"}
+    invalid_source_types = sorted(source_type_set - allowed_source_types)
+    if invalid_source_types:
+        return {
+            "success": False,
+            "message": f"Unsupported source_types: {', '.join(invalid_source_types)}",
+            "matches": [],
+        }
+
+    safe_updated_by = _escape_query(params.updated_by) if params.updated_by else ""
+    widget_query_parts: List[str] = []
+    if params.updated_by:
+        widget_query_parts.append(f"sys_updated_by={safe_updated_by}")
     if params.scope:
         widget_query_parts.append(f"sys_scope={_escape_query(params.scope)}")
+    if params.updated_after:
+        widget_query_parts.append(f"sys_updated_on>={_escape_query(params.updated_after)}")
+    if params.updated_before:
+        widget_query_parts.append(f"sys_updated_on<={_escape_query(params.updated_before)}")
+    if params.widget_ids:
+        id_tokens = [
+            _escape_query(value)
+            for value in params.widget_ids
+            if isinstance(value, str) and value.strip()
+        ]
+        if id_tokens:
+            widget_query_parts.append(
+                "("
+                + "^OR".join(
+                    [f"sys_id={t}" for t in id_tokens]
+                    + [f"id={t}" for t in id_tokens]
+                    + [f"name={t}" for t in id_tokens]
+                )
+                + ")"
+            )
     widget_query = "^".join(widget_query_parts)
 
     widget_fields = [
@@ -651,7 +896,7 @@ def search_widget_author_patterns(
         if widget_sys_id:
             widget_ids.append(widget_sys_id)
 
-        if params.include_linked_script_includes:
+        if params.include_linked_script_includes and "script_include" in source_type_set:
             script_include_candidates.update(
                 _extract_ref_candidates(str(widget.get("script") or ""))
             )
@@ -659,30 +904,36 @@ def search_widget_author_patterns(
                 _extract_ref_candidates(str(widget.get("client_script") or ""))
             )
 
-        for field_name in ["template", "script", "client_script", "link", "css"]:
-            if field_name not in requested_widget_fields:
-                continue
-            content = str(widget.get(field_name) or "")
-            if not content:
-                continue
-            remaining = max_matches - len(matches)
-            if remaining <= 0:
-                break
-            matches.extend(
-                _extract_pattern_hits(
-                    source_type="widget",
-                    source_sys_id=widget_sys_id,
-                    source_name=widget_name,
-                    field_name=field_name,
-                    content=content,
-                    regex=regex,
-                    snippet_length=snippet_length,
-                    max_matches=remaining,
+        if "widget" in source_type_set:
+            for field_name in ["template", "script", "client_script", "link", "css"]:
+                if field_name not in requested_widget_fields:
+                    continue
+                content = str(widget.get(field_name) or "")
+                if not content:
+                    continue
+                remaining = max_matches - len(matches)
+                if remaining <= 0:
+                    break
+                matches.extend(
+                    _extract_pattern_hits(
+                        source_type="widget",
+                        source_sys_id=widget_sys_id,
+                        source_name=widget_name,
+                        field_name=field_name,
+                        content=content,
+                        regex=regex,
+                        snippet_length=snippet_length,
+                        max_matches=remaining,
+                    )
                 )
-            )
 
     provider_scanned = 0
-    if params.include_linked_angular_providers and widget_ids and len(matches) < max_matches:
+    if (
+        params.include_linked_angular_providers
+        and "angular_provider" in source_type_set
+        and widget_ids
+        and len(matches) < max_matches
+    ):
         provider_ids: Set[str] = set()
         for chunk in _chunked(widget_ids, 100):
             relation_rows = _sn_query_all(
@@ -701,8 +952,12 @@ def search_widget_author_patterns(
 
         if provider_ids:
             provider_query = f"sys_idIN{','.join(sorted(provider_ids))}"
-            if params.linked_components_updated_by_only:
+            if params.linked_components_updated_by_only and params.updated_by:
                 provider_query += f"^sys_updated_by={safe_updated_by}"
+            if params.updated_after:
+                provider_query += f"^sys_updated_on>={_escape_query(params.updated_after)}"
+            if params.updated_before:
+                provider_query += f"^sys_updated_on<={_escape_query(params.updated_before)}"
             provider_rows = _sn_query_all(
                 config,
                 auth_manager,
@@ -736,6 +991,7 @@ def search_widget_author_patterns(
     script_include_scanned = 0
     if (
         params.include_linked_script_includes
+        and "script_include" in source_type_set
         and script_include_candidates
         and len(matches) < max_matches
     ):
@@ -748,8 +1004,12 @@ def search_widget_author_patterns(
             query = f"name={safe_candidate}^ORapi_name={safe_candidate}^ORapi_nameENDSWITH.{safe_candidate}"
             if params.scope:
                 query += f"^sys_scope={_escape_query(params.scope)}"
-            if params.linked_components_updated_by_only:
+            if params.linked_components_updated_by_only and params.updated_by:
                 query += f"^sys_updated_by={safe_updated_by}"
+            if params.updated_after:
+                query += f"^sys_updated_on>={_escape_query(params.updated_after)}"
+            if params.updated_before:
+                query += f"^sys_updated_on<={_escape_query(params.updated_before)}"
 
             rows = _sn_query_all(
                 config,
@@ -781,15 +1041,24 @@ def search_widget_author_patterns(
             )
 
     trimmed_matches = matches[:max_matches]
-    output_matches = _compact_matches(trimmed_matches) if params.compact_output else trimmed_matches
+    if output_mode == "minimal":
+        output_matches = _minimal_matches(trimmed_matches)
+    elif output_mode == "compact":
+        output_matches = _compact_matches(trimmed_matches)
+    else:
+        output_matches = trimmed_matches
     return {
         "success": True,
         "filters": {
             "updated_by": params.updated_by,
             "scope": params.scope,
-            "pattern": params.pattern,
-            "use_regex": params.use_regex,
+            "regex": params.regex,
+            "source_types": sorted(source_type_set),
+            "widget_ids": params.widget_ids,
+            "updated_after": params.updated_after,
+            "updated_before": params.updated_before,
             "linked_components_updated_by_only": params.linked_components_updated_by_only,
+            "output_mode": output_mode,
         },
         "scan_summary": {
             "widgets_scanned": len(widget_rows),
@@ -799,10 +1068,118 @@ def search_widget_author_patterns(
             "match_count": len(trimmed_matches),
             "max_matches": max_matches,
             "max_widgets": max_widgets,
-            "compact_output": params.compact_output,
+            "output_mode": output_mode,
         },
         "matches": output_matches,
         "safety_notice": "Returns concise line-level snippets only; full source bodies are intentionally excluded.",
+    }
+
+
+def search_widget_author_patterns(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: SearchPortalRegexMatchesParams,
+) -> Dict[str, Any]:
+    return search_portal_regex_matches(config, auth_manager, params)
+
+
+def detect_angular_implicit_globals(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: DetectAngularImplicitGlobalsParams,
+) -> Dict[str, Any]:
+    try:
+        output_mode = _resolve_fixed_output_mode(params.output_mode)
+    except ValueError as exc:
+        return {"success": False, "message": str(exc), "findings": []}
+
+    page_size = max(10, min(params.page_size, 100))
+    max_providers = _clamp_provider_scan_limit(params.max_providers)
+    max_matches = _clamp_implicit_global_matches(params.max_matches)
+    snippet_length = _clamp_snippet_length(params.snippet_length)
+
+    query_parts: List[str] = []
+    if params.updated_by:
+        query_parts.append(f"sys_updated_by={_escape_query(params.updated_by)}")
+    if params.scope:
+        query_parts.append(f"sys_scope={_escape_query(params.scope)}")
+    if params.updated_after:
+        query_parts.append(f"sys_updated_on>={_escape_query(params.updated_after)}")
+    if params.updated_before:
+        query_parts.append(f"sys_updated_on<={_escape_query(params.updated_before)}")
+    if params.provider_ids:
+        id_tokens = [
+            _escape_query(value)
+            for value in params.provider_ids
+            if isinstance(value, str) and value.strip()
+        ]
+        if id_tokens:
+            query_parts.append(
+                "("
+                + "^OR".join(
+                    [f"sys_id={token}" for token in id_tokens]
+                    + [f"id={token}" for token in id_tokens]
+                    + [f"name={token}" for token in id_tokens]
+                )
+                + ")"
+            )
+    query = "^".join(query_parts)
+
+    provider_rows = _sn_query_all(
+        config,
+        auth_manager,
+        table=ANGULAR_PROVIDER_TABLE,
+        query=query,
+        fields="sys_id,name,id,script,sys_updated_by,sys_updated_on,sys_scope",
+        page_size=page_size,
+        max_records=max_providers,
+    )
+
+    findings: List[Dict[str, Any]] = []
+    for row in provider_rows:
+        if len(findings) >= max_matches:
+            break
+        script = str(row.get("script") or "")
+        if not script:
+            continue
+        remaining = max_matches - len(findings)
+        findings.extend(
+            _extract_implicit_global_hits(
+                source_sys_id=str(row.get("sys_id") or ""),
+                source_name=str(row.get("name") or row.get("id") or row.get("sys_id") or ""),
+                script=script,
+                snippet_length=snippet_length,
+                max_matches=remaining,
+            )
+        )
+
+    trimmed = findings[:max_matches]
+    if output_mode == "minimal":
+        output_findings = _minimal_matches(trimmed)
+    elif output_mode == "compact":
+        output_findings = _compact_matches(trimmed)
+    else:
+        output_findings = trimmed
+
+    return {
+        "success": True,
+        "filters": {
+            "updated_by": params.updated_by,
+            "scope": params.scope,
+            "provider_ids": params.provider_ids,
+            "updated_after": params.updated_after,
+            "updated_before": params.updated_before,
+            "output_mode": output_mode,
+        },
+        "scan_summary": {
+            "providers_scanned": len(provider_rows),
+            "finding_count": len(trimmed),
+            "max_matches": max_matches,
+            "max_providers": max_providers,
+            "output_mode": output_mode,
+        },
+        "findings": output_findings,
+        "safety_notice": "Findings are static-analysis heuristics; verify before patching provider scripts.",
     }
 
 

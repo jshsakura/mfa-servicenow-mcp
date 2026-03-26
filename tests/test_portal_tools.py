@@ -3,15 +3,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from servicenow_mcp.tools.portal_tools import (
+    DetectAngularImplicitGlobalsParams,
     DownloadPortalSourcesParams,
     GetPortalComponentParams,
     GetWidgetBundleParams,
-    SearchWidgetAuthorPatternsParams,
+    SearchPortalRegexMatchesParams,
     UpdatePortalComponentParams,
+    detect_angular_implicit_globals,
     download_portal_sources,
     get_portal_component_code,
     get_widget_bundle,
-    search_widget_author_patterns,
+    search_portal_regex_matches,
     update_portal_component,
 )
 from servicenow_mcp.utils.config import ServerConfig
@@ -230,7 +232,7 @@ def test_download_portal_sources_widget_ids_mode_handles_missing_widget(
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_search_widget_author_patterns_returns_compact_line_matches(
+def test_search_portal_regex_matches_returns_compact_line_matches(
     mock_sn_query, mock_config, mock_auth_manager
 ):
     mock_sn_query.side_effect = [
@@ -275,12 +277,12 @@ def test_search_widget_author_patterns_returns_compact_line_matches(
         },
     ]
 
-    result = search_widget_author_patterns(
+    result = search_portal_regex_matches(
         mock_config,
         mock_auth_manager,
-        SearchWidgetAuthorPatternsParams(
+        SearchPortalRegexMatchesParams(
             updated_by="admin@example.com",
-            pattern="/ybpm?id=rfqentry",
+            regex=r"/ybpm\?id=rfqentry",
             compact_output=True,
             max_widgets=20,
             max_matches=20,
@@ -298,3 +300,142 @@ def test_search_widget_author_patterns_returns_compact_line_matches(
     assert "sp_angular_provider/redirectProvider/script" in locations
     assert "sys_script_include/RedirectUtil/script" in locations
     assert all(isinstance(item["line"], int) and item["line"] >= 1 for item in result["matches"])
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_search_portal_regex_matches_allows_missing_updated_by(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.return_value = {"success": True, "results": []}
+
+    result = search_portal_regex_matches(
+        mock_config,
+        mock_auth_manager,
+        SearchPortalRegexMatchesParams(regex=r"/ybpm\?id=rfqentry", max_widgets=5, max_matches=5),
+    )
+
+    assert result["success"] is True
+    args, _kwargs = mock_sn_query.call_args
+    query = args[2].query
+    assert "sys_updated_by=" not in query
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_search_portal_regex_matches_minimal_output_mode(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.return_value = {
+        "success": True,
+        "results": [
+            {
+                "sys_id": "wid-1",
+                "name": "RFQ Entry Widget",
+                "id": "rfq_entry_widget",
+                "script": "data.url='/ybpm?id=rfqentry';",
+                "template": "",
+                "client_script": "",
+                "link": "",
+                "css": "",
+            }
+        ],
+    }
+
+    result = search_portal_regex_matches(
+        mock_config,
+        mock_auth_manager,
+        SearchPortalRegexMatchesParams(
+            regex=r"/ybpm\?id=rfqentry",
+            output_mode="minimal",
+            include_linked_script_includes=False,
+            include_linked_angular_providers=False,
+            max_widgets=5,
+            max_matches=5,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["filters"]["output_mode"] == "minimal"
+    assert result["scan_summary"]["output_mode"] == "minimal"
+    assert len(result["matches"]) == 1
+    assert set(result["matches"][0].keys()) == {"location", "line"}
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_detect_angular_implicit_globals_finds_undeclared_assignment(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.return_value = {
+        "success": True,
+        "results": [
+            {
+                "sys_id": "prov-1",
+                "name": "providerOne",
+                "script": "function f(){ test = 'x'; }",
+            }
+        ],
+    }
+
+    result = detect_angular_implicit_globals(
+        mock_config,
+        mock_auth_manager,
+        DetectAngularImplicitGlobalsParams(output_mode="full", max_matches=10),
+    )
+
+    assert result["success"] is True
+    assert result["scan_summary"]["providers_scanned"] == 1
+    assert result["scan_summary"]["finding_count"] == 1
+    finding = result["findings"][0]
+    assert finding["variable"] == "test"
+    assert finding["issue"] == "implicit_global_assignment"
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_detect_angular_implicit_globals_respects_let_const_declarations(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.return_value = {
+        "success": True,
+        "results": [
+            {
+                "sys_id": "prov-1",
+                "name": "providerOne",
+                "script": "function f(){ let test = ''; const done = true; test = 'y'; doneLocal = 1; }",
+            }
+        ],
+    }
+
+    result = detect_angular_implicit_globals(
+        mock_config,
+        mock_auth_manager,
+        DetectAngularImplicitGlobalsParams(output_mode="full", max_matches=10),
+    )
+
+    assert result["success"] is True
+    assert result["scan_summary"]["finding_count"] == 1
+    assert result["findings"][0]["variable"] == "doneLocal"
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_detect_angular_implicit_globals_minimal_mode_shape(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.return_value = {
+        "success": True,
+        "results": [
+            {
+                "sys_id": "prov-1",
+                "name": "providerOne",
+                "script": "test = 'x';",
+            }
+        ],
+    }
+
+    result = detect_angular_implicit_globals(
+        mock_config,
+        mock_auth_manager,
+        DetectAngularImplicitGlobalsParams(output_mode="minimal", max_matches=10),
+    )
+
+    assert result["success"] is True
+    assert result["filters"]["output_mode"] == "minimal"
+    assert set(result["findings"][0].keys()) == {"location", "line"}
