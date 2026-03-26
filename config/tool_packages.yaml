@@ -39,6 +39,8 @@ portal_developer:
   # 서버 소스 검색/조회
   - search_server_code
   - get_metadata_source
+  - extract_table_dependencies
+  - extract_widget_table_dependencies
   # 위젯 및 포탈 컴포넌트 개발
   - get_widget_bundle
   - get_portal_component_code
@@ -71,6 +73,8 @@ platform_developer:
   # 서버 소스 검색/조회
   - search_server_code
   - get_metadata_source
+  - extract_table_dependencies
+  - extract_widget_table_dependencies
   # 비즈니스 로직 (Script Include)
   - list_script_includes
   - get_script_include
@@ -138,6 +142,8 @@ full:
   - get_background_script_logs
   - search_server_code
   - get_metadata_source
+  - extract_table_dependencies
+  - extract_widget_table_dependencies
   - create_incident
   - update_incident
   - add_comment
