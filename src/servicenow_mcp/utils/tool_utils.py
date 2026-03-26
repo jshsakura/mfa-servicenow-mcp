@@ -159,9 +159,13 @@ from servicenow_mcp.tools.log_tools import get_journal_entries as get_journal_en
 from servicenow_mcp.tools.log_tools import get_system_logs as get_system_logs_tool
 from servicenow_mcp.tools.log_tools import get_transaction_logs as get_transaction_logs_tool
 from servicenow_mcp.tools.portal_tools import (
+    DownloadPortalSourcesParams,
     GetPortalComponentParams,
     GetWidgetBundleParams,
     UpdatePortalComponentParams,
+)
+from servicenow_mcp.tools.portal_tools import (
+    download_portal_sources as download_portal_sources_tool,
 )
 from servicenow_mcp.tools.portal_tools import (
     get_portal_component_code as get_portal_component_code_tool,
@@ -178,6 +182,20 @@ from servicenow_mcp.tools.project_tools import (
 from servicenow_mcp.tools.project_tools import create_project as create_project_tool
 from servicenow_mcp.tools.project_tools import list_projects as list_projects_tool
 from servicenow_mcp.tools.project_tools import update_project as update_project_tool
+from servicenow_mcp.tools.repo_tools import (
+    GetRepoChangeReportParams,
+    GetRepoFileLastModifierParams,
+    GetRepoRecentCommitsParams,
+    GetRepoWorkingTreeStatusParams,
+)
+from servicenow_mcp.tools.repo_tools import get_repo_change_report as get_repo_change_report_tool
+from servicenow_mcp.tools.repo_tools import (
+    get_repo_file_last_modifier as get_repo_file_last_modifier_tool,
+)
+from servicenow_mcp.tools.repo_tools import get_repo_recent_commits as get_repo_recent_commits_tool
+from servicenow_mcp.tools.repo_tools import (
+    get_repo_working_tree_status as get_repo_working_tree_status_tool,
+)
 from servicenow_mcp.tools.script_include_tools import (
     CreateScriptIncludeParams,
     DeleteScriptIncludeParams,
@@ -1026,6 +1044,41 @@ def get_tool_definitions(
             UpdatePortalComponentParams,
             dict,
             "Pinpoint update of specific portal component fields (HTML, CSS, or scripts)",
+            "raw_dict",
+        ),
+        "download_portal_sources": (
+            download_portal_sources_tool,
+            DownloadPortalSourcesParams,
+            dict,
+            "Download widgets and linked portal/server source files in sn-utils-like local structure",
+            "raw_dict",
+        ),
+        "get_repo_change_report": (
+            get_repo_change_report_tool,
+            GetRepoChangeReportParams,
+            dict,
+            "Report recent file modifications, last modifiers, and commit/uncommitted status from local git repo",
+            "raw_dict",
+        ),
+        "get_repo_working_tree_status": (
+            get_repo_working_tree_status_tool,
+            GetRepoWorkingTreeStatusParams,
+            dict,
+            "Inspect working tree status including staged, unstaged, and untracked files",
+            "raw_dict",
+        ),
+        "get_repo_recent_commits": (
+            get_repo_recent_commits_tool,
+            GetRepoRecentCommitsParams,
+            dict,
+            "List recent commits with author and optional changed file lists",
+            "raw_dict",
+        ),
+        "get_repo_file_last_modifier": (
+            get_repo_file_last_modifier_tool,
+            GetRepoFileLastModifierParams,
+            dict,
+            "Lookup per-file last modifier and commit metadata with optional uncommitted status",
             "raw_dict",
         ),
     }

@@ -45,6 +45,11 @@ portal_developer:
   - get_widget_bundle
   - get_portal_component_code
   - update_portal_component
+  - download_portal_sources
+  - get_repo_change_report
+  - get_repo_working_tree_status
+  - get_repo_recent_commits
+  - get_repo_file_last_modifier
   # 서버 스크립트(SI) 통합 개발
   - list_script_includes
   - get_script_include
@@ -75,6 +80,11 @@ platform_developer:
   - get_metadata_source
   - extract_table_dependencies
   - extract_widget_table_dependencies
+  - download_portal_sources
+  - get_repo_change_report
+  - get_repo_working_tree_status
+  - get_repo_recent_commits
+  - get_repo_file_last_modifier
   # 비즈니스 로직 (Script Include)
   - list_script_includes
   - get_script_include
@@ -191,6 +201,11 @@ full:
   - get_widget_bundle
   - get_portal_component_code
   - update_portal_component
+  - download_portal_sources
+  - get_repo_change_report
+  - get_repo_working_tree_status
+  - get_repo_recent_commits
+  - get_repo_file_last_modifier
   - list_script_includes
   - get_script_include
   - create_script_include
