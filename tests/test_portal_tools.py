@@ -6,10 +6,12 @@ from servicenow_mcp.tools.portal_tools import (
     DownloadPortalSourcesParams,
     GetPortalComponentParams,
     GetWidgetBundleParams,
+    SearchWidgetAuthorPatternsParams,
     UpdatePortalComponentParams,
     download_portal_sources,
     get_portal_component_code,
     get_widget_bundle,
+    search_widget_author_patterns,
     update_portal_component,
 )
 from servicenow_mcp.utils.config import ServerConfig
@@ -225,3 +227,74 @@ def test_download_portal_sources_widget_ids_mode_handles_missing_widget(
     assert result["success"] is True
     assert result["summary"]["widgets"] == 0
     assert (tmp_path / "x_bpm" / "sp_widget" / "_map.json").exists()
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_search_widget_author_patterns_returns_compact_line_matches(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.side_effect = [
+        {
+            "success": True,
+            "results": [
+                {
+                    "sys_id": "wid-1",
+                    "name": "Sample Form Widget",
+                    "id": "sample_form_widget",
+                    "script": "data.url='/sp?id=sampleform'; var util = new RedirectUtil();",
+                    "template": "",
+                    "client_script": "",
+                    "link": "",
+                    "css": "",
+                }
+            ],
+        },
+        {
+            "success": True,
+            "results": [{"sp_angular_provider": {"value": "prov-1"}}],
+        },
+        {
+            "success": True,
+            "results": [
+                {
+                    "sys_id": "prov-1",
+                    "name": "redirectProvider",
+                    "script": "return '/sp?id=sampleform';",
+                }
+            ],
+        },
+        {
+            "success": True,
+            "results": [
+                {
+                    "sys_id": "si-1",
+                    "name": "RedirectUtil",
+                    "script": "var path = '/sp?id=sampleform';",
+                }
+            ],
+        },
+    ]
+
+    result = search_widget_author_patterns(
+        mock_config,
+        mock_auth_manager,
+        SearchWidgetAuthorPatternsParams(
+            updated_by="dev.user@example.com",
+            pattern="/sp?id=sampleform",
+            compact_output=True,
+            max_widgets=20,
+            max_matches=20,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["scan_summary"]["widgets_scanned"] == 1
+    assert result["scan_summary"]["linked_angular_providers_scanned"] == 1
+    assert result["scan_summary"]["linked_script_includes_scanned"] == 1
+    assert result["scan_summary"]["match_count"] == 3
+
+    locations = [item["location"] for item in result["matches"]]
+    assert "sp_widget/Sample_Form_Widget/script" in locations
+    assert "sp_angular_provider/redirectProvider/script" in locations
+    assert "sys_script_include/RedirectUtil/script" in locations
+    assert all(isinstance(item["line"], int) and item["line"] >= 1 for item in result["matches"])

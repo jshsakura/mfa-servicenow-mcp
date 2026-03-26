@@ -162,6 +162,7 @@ from servicenow_mcp.tools.portal_tools import (
     DownloadPortalSourcesParams,
     GetPortalComponentParams,
     GetWidgetBundleParams,
+    SearchWidgetAuthorPatternsParams,
     UpdatePortalComponentParams,
 )
 from servicenow_mcp.tools.portal_tools import (
@@ -171,6 +172,9 @@ from servicenow_mcp.tools.portal_tools import (
     get_portal_component_code as get_portal_component_code_tool,
 )
 from servicenow_mcp.tools.portal_tools import get_widget_bundle as get_widget_bundle_tool
+from servicenow_mcp.tools.portal_tools import (
+    search_widget_author_patterns as search_widget_author_patterns_tool,
+)
 from servicenow_mcp.tools.portal_tools import (
     update_portal_component as update_portal_component_tool,
 )
@@ -1051,6 +1055,13 @@ def get_tool_definitions(
             DownloadPortalSourcesParams,
             dict,
             "Download widgets and linked portal/server source files in sn-utils-like local structure",
+            "raw_dict",
+        ),
+        "search_widget_author_patterns": (
+            search_widget_author_patterns_tool,
+            SearchWidgetAuthorPatternsParams,
+            dict,
+            "Extract line-level pattern matches from widgets updated by specific user, with optional linked SI/provider expansion",
             "raw_dict",
         ),
         "get_repo_change_report": (
