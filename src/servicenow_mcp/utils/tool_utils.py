@@ -159,11 +159,15 @@ from servicenow_mcp.tools.log_tools import get_journal_entries as get_journal_en
 from servicenow_mcp.tools.log_tools import get_system_logs as get_system_logs_tool
 from servicenow_mcp.tools.log_tools import get_transaction_logs as get_transaction_logs_tool
 from servicenow_mcp.tools.portal_tools import (
+    DetectAngularImplicitGlobalsParams,
     DownloadPortalSourcesParams,
     GetPortalComponentParams,
     GetWidgetBundleParams,
-    SearchWidgetAuthorPatternsParams,
+    SearchPortalRegexMatchesParams,
     UpdatePortalComponentParams,
+)
+from servicenow_mcp.tools.portal_tools import (
+    detect_angular_implicit_globals as detect_angular_implicit_globals_tool,
 )
 from servicenow_mcp.tools.portal_tools import (
     download_portal_sources as download_portal_sources_tool,
@@ -173,7 +177,7 @@ from servicenow_mcp.tools.portal_tools import (
 )
 from servicenow_mcp.tools.portal_tools import get_widget_bundle as get_widget_bundle_tool
 from servicenow_mcp.tools.portal_tools import (
-    search_widget_author_patterns as search_widget_author_patterns_tool,
+    search_portal_regex_matches as search_portal_regex_matches_tool,
 )
 from servicenow_mcp.tools.portal_tools import (
     update_portal_component as update_portal_component_tool,
@@ -1057,11 +1061,18 @@ def get_tool_definitions(
             "Download widgets and linked portal/server source files in sn-utils-like local structure",
             "raw_dict",
         ),
-        "search_widget_author_patterns": (
-            search_widget_author_patterns_tool,
-            SearchWidgetAuthorPatternsParams,
+        "search_portal_regex_matches": (
+            search_portal_regex_matches_tool,
+            SearchPortalRegexMatchesParams,
             dict,
-            "Extract line-level pattern matches from widgets updated by specific user, with optional linked SI/provider expansion",
+            "Regex-based match extraction across widget and linked portal sources with minimal/compact/full output modes",
+            "raw_dict",
+        ),
+        "detect_angular_implicit_globals": (
+            detect_angular_implicit_globals_tool,
+            DetectAngularImplicitGlobalsParams,
+            dict,
+            "Detect implicit global assignments in Angular provider scripts (undeclared variables causing not defined issues)",
             "raw_dict",
         ),
         "get_repo_change_report": (
