@@ -599,10 +599,6 @@ def search_widget_author_patterns(
     auth_manager: AuthManager,
     params: SearchWidgetAuthorPatternsParams,
 ) -> Dict[str, Any]:
-    """
-    Scan widgets updated by a specific user and extract line-level code matches.
-    Optionally expands to linked script includes and angular providers.
-    """
     try:
         regex = _compile_search_pattern(params.pattern, params.use_regex)
     except re.error as exc:
@@ -785,6 +781,7 @@ def search_widget_author_patterns(
             )
 
     trimmed_matches = matches[:max_matches]
+    output_matches = _compact_matches(trimmed_matches) if params.compact_output else trimmed_matches
     return {
         "success": True,
         "filters": {
@@ -802,8 +799,9 @@ def search_widget_author_patterns(
             "match_count": len(trimmed_matches),
             "max_matches": max_matches,
             "max_widgets": max_widgets,
+            "compact_output": params.compact_output,
         },
-        "matches": trimmed_matches,
+        "matches": output_matches,
         "safety_notice": "Returns concise line-level snippets only; full source bodies are intentionally excluded.",
     }
 
