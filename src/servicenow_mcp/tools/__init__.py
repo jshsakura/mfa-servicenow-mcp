@@ -65,7 +65,10 @@ from servicenow_mcp.tools.log_tools import (
     get_system_logs,
     get_transaction_logs,
 )
-from servicenow_mcp.tools.portal_tools import search_widget_author_patterns
+from servicenow_mcp.tools.portal_tools import (
+    detect_angular_implicit_globals,
+    search_portal_regex_matches,
+)
 from servicenow_mcp.tools.project_tools import create_project, list_projects, update_project
 from servicenow_mcp.tools.script_include_tools import (
     create_script_include,
@@ -220,7 +223,8 @@ __all__ = [
     "create_project",
     "update_project",
     "list_projects",
-    "search_widget_author_patterns",
+    "search_portal_regex_matches",
+    "detect_angular_implicit_globals",
     # Future tools
     # "create_problem",
     # "update_problem",
