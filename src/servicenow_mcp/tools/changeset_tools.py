@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +194,7 @@ def _get_headers(
     return None
 
 
+@register_tool(name="list_changesets", params=ListChangesetsParams, description="List changesets from ServiceNow", serialization="json", return_type=str)
 def list_changesets(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -293,6 +295,7 @@ def list_changesets(
         }
 
 
+@register_tool(name="get_changeset_details", params=GetChangesetDetailsParams, description="Get detailed information about a specific changeset", serialization="json", return_type=str)
 def get_changeset_details(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -375,6 +378,7 @@ def get_changeset_details(
         }
 
 
+@register_tool(name="create_changeset", params=CreateChangesetParams, description="Create a new changeset in ServiceNow", serialization="json_dict", return_type=str)
 def create_changeset(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -454,6 +458,7 @@ def create_changeset(
         }
 
 
+@register_tool(name="update_changeset", params=UpdateChangesetParams, description="Update an existing changeset in ServiceNow", serialization="json_dict", return_type=str)
 def update_changeset(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -541,6 +546,7 @@ def update_changeset(
         }
 
 
+@register_tool(name="commit_changeset", params=CommitChangesetParams, description="Commit a changeset in ServiceNow", serialization="str", return_type=str)
 def commit_changeset(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -617,6 +623,7 @@ def commit_changeset(
         }
 
 
+@register_tool(name="publish_changeset", params=PublishChangesetParams, description="Publish a changeset in ServiceNow", serialization="str", return_type=str)
 def publish_changeset(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -693,6 +700,7 @@ def publish_changeset(
         }
 
 
+@register_tool(name="add_file_to_changeset", params=AddFileToChangesetParams, description="Add a file to a changeset in ServiceNow", serialization="str", return_type=str)
 def add_file_to_changeset(
     auth_manager: AuthManager,
     server_config: ServerConfig,

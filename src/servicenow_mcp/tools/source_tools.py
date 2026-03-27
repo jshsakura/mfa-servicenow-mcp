@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -576,6 +577,13 @@ def _build_snippet(record: Dict[str, Any], fields: List[str], query: str, max_le
     return ""
 
 
+@register_tool(
+    "search_server_code",
+    params=SearchServerCodeParams,
+    description="Search supported ServiceNow server-side source tables with capped results and snippets",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def search_server_code(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -656,6 +664,13 @@ def search_server_code(
     }
 
 
+@register_tool(
+    "get_metadata_source",
+    params=GetMetadataSourceParams,
+    description="Fetch a supported ServiceNow source record by name, id, or sys_id with truncated source fields",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_metadata_source(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -720,6 +735,13 @@ def get_metadata_source(
     }
 
 
+@register_tool(
+    "extract_table_dependencies",
+    params=ExtractTableDependenciesParams,
+    description="Extract table dependency graph from widget server scripts, business rules, and linked script includes",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def extract_table_dependencies(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -945,6 +967,13 @@ def extract_table_dependencies(
     }
 
 
+@register_tool(
+    "extract_widget_table_dependencies",
+    params=ExtractWidgetTableDependenciesParams,
+    description="Extract table dependency graph for one widget with optional linked script include expansion",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def extract_widget_table_dependencies(
     config: ServerConfig,
     auth_manager: AuthManager,

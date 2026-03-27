@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
+from ..utils.registry import register_tool
 from .core_plus import GenericQueryParams, sn_query
 from .log_tools import GetTransactionLogsParams, get_transaction_logs
 from .source_tools import get_metadata_source
@@ -343,6 +344,13 @@ def _fetch_angular_providers(
     return prov_response.get("results", []) if prov_response.get("success") else []
 
 
+@register_tool(
+    "analyze_widget_performance",
+    params=AnalyzeWidgetPerformanceParams,
+    description="Analyze widget performance including code patterns, transaction logs, and data provider efficiency",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def analyze_widget_performance(
     config: ServerConfig,
     auth_manager: AuthManager,
