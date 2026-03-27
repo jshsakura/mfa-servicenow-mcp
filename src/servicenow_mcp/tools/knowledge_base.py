@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,13 @@ class ListCategoriesParams(BaseModel):
     query: Optional[str] = Field(None, description="Search query for categories")
 
 
+@register_tool(
+    "create_knowledge_base",
+    params=CreateKnowledgeBaseParams,
+    description="Create a new knowledge base in ServiceNow",
+    serialization="json_dict",
+    return_type=str,
+)
 def create_knowledge_base(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -215,6 +223,13 @@ def create_knowledge_base(
         )
 
 
+@register_tool(
+    "list_knowledge_bases",
+    params=ListKnowledgeBasesParams,
+    description="List knowledge bases from ServiceNow",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def list_knowledge_bases(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -345,6 +360,13 @@ def list_knowledge_bases(
         }
 
 
+@register_tool(
+    "create_category",
+    params=CreateCategoryParams,
+    description="Create a new category in a knowledge base",
+    serialization="json_dict",
+    return_type=str,
+)
 def create_category(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -418,6 +440,13 @@ def create_category(
         )
 
 
+@register_tool(
+    "create_article",
+    params=CreateArticleParams,
+    description="Create a new knowledge article",
+    serialization="json_dict",
+    return_type=str,
+)
 def create_article(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -479,6 +508,13 @@ def create_article(
         )
 
 
+@register_tool(
+    "update_article",
+    params=UpdateArticleParams,
+    description="Update an existing knowledge article",
+    serialization="json_dict",
+    return_type=str,
+)
 def update_article(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -540,6 +576,13 @@ def update_article(
         )
 
 
+@register_tool(
+    "publish_article",
+    params=PublishArticleParams,
+    description="Publish a knowledge article",
+    serialization="json_dict",
+    return_type=str,
+)
 def publish_article(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -595,6 +638,13 @@ def publish_article(
         )
 
 
+@register_tool(
+    "list_articles",
+    params=ListArticlesParams,
+    description="List knowledge articles",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def list_articles(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -733,6 +783,13 @@ def list_articles(
         }
 
 
+@register_tool(
+    "get_article",
+    params=GetArticleParams,
+    description="Get a specific knowledge article by ID",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_article(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -843,6 +900,13 @@ def get_article(
         }
 
 
+@register_tool(
+    "list_categories",
+    params=ListCategoriesParams,
+    description="List categories in a knowledge base",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def list_categories(
     config: ServerConfig,
     auth_manager: AuthManager,

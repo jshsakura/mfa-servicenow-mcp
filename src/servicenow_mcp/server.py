@@ -4,6 +4,7 @@ ServiceNow MCP Server
 This module provides the main implementation of the ServiceNow MCP server.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -15,13 +16,9 @@ from mcp.server.lowlevel import Server
 from pydantic import ValidationError
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools.knowledge_base import create_category as create_kb_category_tool
-from servicenow_mcp.tools.knowledge_base import list_categories as list_kb_categories_tool
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define path for the configuration file
@@ -64,20 +61,13 @@ def serialize_tool_output(result: Any, tool_name: str) -> str:
         elif isinstance(result, dict):
             # Dump dicts to JSON
             return json.dumps(result, indent=2)
-        elif hasattr(result, "model_dump_json"):  # Pydantic v2
-            # Prefer Pydantic v2 model_dump_json
-            # The indent argument might not be supported by all versions/models,
-            # so we might need to dump to dict first if indent is crucial.
+        elif hasattr(result, "model_dump_json"):
             try:
                 return result.model_dump_json(indent=2)
-            except TypeError:  # Handle case where indent is not supported
+            except TypeError:
                 return json.dumps(result.model_dump(), indent=2)
-        elif hasattr(result, "model_dump"):  # Pydantic v2 fallback
-            # Fallback to Pydantic v2 model_dump -> dict -> json
+        elif hasattr(result, "model_dump"):
             return json.dumps(result.model_dump(), indent=2)
-        elif hasattr(result, "dict"):  # Pydantic v1
-            # Fallback to Pydantic v1 dict -> json
-            return json.dumps(result.dict(), indent=2)
         else:
             # Absolute fallback: convert to string
             logger.warning(
@@ -123,10 +113,8 @@ class ServiceNowMCP:
         self._load_package_config()
         self._determine_enabled_tools()
 
-        # Get tool definitions, passing the aliased KB tool functions if needed
-        self.tool_definitions = get_tool_definitions(
-            create_kb_category_tool, list_kb_categories_tool
-        )
+        # Auto-discover all tool definitions via @register_tool decorators
+        self.tool_definitions = get_tool_definitions()
 
         self._register_handlers()
 
@@ -141,26 +129,39 @@ class ServiceNowMCP:
         # Priority 1: Environment variable with absolute path
         config_path = os.getenv("TOOL_PACKAGE_CONFIG_PATH")
 
-        # Priority 2: Standard locations relative to this file
-        if not config_path:
-            # Check ../../config/tool_packages.yaml (Project root)
-            repo_path = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "..", "config", "tool_packages.yaml")
-            )
-            # Check ./config/tool_packages.yaml (Inside package)
-            pkg_path = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "config", "tool_packages.yaml")
-            )
+        if config_path:
+            logger.info(f"Loading tool package config from env: {config_path}")
+            self._load_yaml_config(config_path)
+            return
 
-            if os.path.exists(repo_path):
-                config_path = repo_path
-            elif os.path.exists(pkg_path):
-                config_path = pkg_path
-            else:
-                config_path = repo_path  # Default to repo path even if not exists for error message
+        # Priority 2: importlib.resources (works reliably in pip-installed packages)
+        try:
+            from importlib.resources import files
 
+            pkg_file = files("servicenow_mcp.config").joinpath("tool_packages.yaml")
+            loaded_config = yaml.safe_load(pkg_file.read_text(encoding="utf-8"))
+            if isinstance(loaded_config, dict):
+                self.package_definitions = {str(k).lower(): v for k, v in loaded_config.items()}
+                logger.info(
+                    f"Successfully loaded {len(self.package_definitions)} package definitions via importlib.resources"
+                )
+                return
+        except Exception:
+            logger.debug("importlib.resources lookup failed, falling back to file paths")
+
+        # Priority 3: File-system fallback (development / editable installs)
+        repo_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "config", "tool_packages.yaml")
+        )
+        pkg_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "config", "tool_packages.yaml")
+        )
+        fallback = repo_path if os.path.exists(repo_path) else pkg_path
+        self._load_yaml_config(fallback)
+
+    def _load_yaml_config(self, config_path: str):
+        """Load and parse a YAML tool-package config file."""
         logger.info(f"Attempting to load tool package config from: {config_path}")
-
         try:
             if not os.path.exists(config_path):
                 logger.error(f"Tool package config file NOT FOUND at {config_path}")
@@ -170,7 +171,6 @@ class ServiceNowMCP:
             with open(config_path, "r") as f:
                 loaded_config = yaml.safe_load(f)
                 if isinstance(loaded_config, dict):
-                    # Normalize all keys to lowercase for robust matching
                     self.package_definitions = {str(k).lower(): v for k, v in loaded_config.items()}
                     logger.info(
                         f"Successfully loaded {len(self.package_definitions)} package definitions from {config_path}"
@@ -240,13 +240,7 @@ class ServiceNowMCP:
                     description="Lists available tool packages and the currently loaded one.",
                     inputSchema={
                         "type": "object",
-                        "properties": {
-                            "random_string": {
-                                "type": "string",
-                                "description": "Dummy parameter for no-parameter tools",
-                            }
-                        },
-                        "required": ["random_string"],
+                        "properties": {},
                     },
                 )
             )
@@ -346,13 +340,15 @@ class ServiceNowMCP:
             )
             raise ValueError(f"Failed to parse arguments for tool '{name}': {e}") from e
 
-        # Execute the tool implementation function
+        # Execute the tool implementation function (in a thread to avoid blocking the event loop)
         try:
-            result = impl_func(self.config, self.auth_manager, params)
+            result = await asyncio.to_thread(impl_func, self.config, self.auth_manager, params)
             logger.debug(f"Raw result type from tool '{name}': {type(result)}")
         except Exception as e:
             logger.error(f"Error executing tool '{name}': {e}", exc_info=True)
-            raise RuntimeError(f"Error during execution of tool '{name}': {e}") from e
+            error_result = {"success": False, "error": str(e), "tool": name}
+            serialized_string = json.dumps(error_result, indent=2)
+            return [types.TextContent(type="text", text=serialized_string)]
 
         # Serialize the result to a string (preferably JSON) using the helper
         serialized_string = serialize_tool_output(result, name)
