@@ -282,7 +282,6 @@ class ServiceNowMCP:
 
         Raises:
             ValueError: If the tool is unknown, disabled, or if arguments are invalid.
-            RuntimeError: If tool execution or serialization fails.
         """
         logger.info(f"Received call_tool request for tool '{name}'")
         # Handle the introspection tool separately
