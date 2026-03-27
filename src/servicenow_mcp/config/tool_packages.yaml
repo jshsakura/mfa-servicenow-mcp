@@ -45,6 +45,7 @@ portal_developer:
   - search_portal_regex_matches
   - detect_angular_implicit_globals
   - update_portal_component
+  - analyze_widget_performance
   # 서버 스크립트(SI) 통합 개발
   - list_script_includes
   - get_script_include
@@ -189,6 +190,7 @@ full:
   - search_portal_regex_matches
   - detect_angular_implicit_globals
   - update_portal_component
+  - analyze_widget_performance
   - list_script_includes
   - get_script_include
   - create_script_include
