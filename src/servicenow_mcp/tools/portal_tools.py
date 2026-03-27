@@ -45,6 +45,14 @@ class GetPortalComponentParams(BaseModel):
     fields: List[str] = Field(
         ["template", "script", "client_script", "css"], description="Specific code fields to fetch"
     )
+    script_offset: int = Field(
+        0,
+        description="Character offset to start reading script fields from. Use for paginating large scripts.",
+    )
+    script_max_length: int = Field(
+        20000,
+        description="Maximum characters to return per script field (default 20000). Use with script_offset to paginate.",
+    )
 
 
 class UpdatePortalComponentParams(BaseModel):
@@ -209,6 +217,10 @@ class SearchPortalRegexMatchesParams(BaseModel):
     widget_ids: List[str] | None = Field(
         None,
         description="Optional widget id/sys_id/name filters. If provided, scan only these widgets.",
+    )
+    provider_ids: List[str] | None = Field(
+        None,
+        description="Optional angular provider sys_id/name filters. If provided, scan these providers directly (bypasses widget→M2M lookup).",
     )
     source_types: List[str] = Field(
         ["widget", "script_include", "angular_provider"],
@@ -807,12 +819,38 @@ def get_portal_component_code(
     # Only return requested code fields to keep context clean
     result = _strip_metadata(response["results"][0], params.fields)
 
-    # Basic safety: check for very large scripts (though sn_query also does truncation)
+    max_len = max(1000, params.script_max_length)
+    offset = max(0, params.script_offset)
+
     for field in params.fields:
         val = result.get(field, "")
-        if isinstance(val, str) and len(val) > 10000:
-            result[field] = val[:10000] + "... [TRUNCATED FOR CONTEXT SAFETY]"
-            result[f"_{field}_is_truncated"] = True
+        if not isinstance(val, str):
+            continue
+        total_length = len(val)
+
+        # Apply offset/length windowing for large scripts
+        if offset > 0 or total_length > max_len:
+            end = offset + max_len
+            # Snap to a safe boundary so we never split mid-token
+            if end < total_length:
+                # Try newline first, then fall back to statement-level delimiters
+                snap = val.rfind("\n", offset, end)
+                if snap <= offset:
+                    # No newline found (minified code) — try statement/block delimiters
+                    for delim in (";", "}", ")", "]", ",", ">", " "):
+                        snap = val.rfind(delim, offset, end)
+                        if snap > offset:
+                            break
+                if snap > offset:
+                    end = snap + 1
+            chunk = val[offset:end]
+            result[field] = chunk
+            result[f"_{field}_total_length"] = total_length
+            result[f"_{field}_offset"] = offset
+            result[f"_{field}_returned_length"] = len(chunk)
+            if end < total_length:
+                result[f"_{field}_has_more"] = True
+                result[f"_{field}_next_offset"] = end
 
     return result
 
@@ -950,27 +988,31 @@ def search_portal_regex_matches(
                 )
 
     provider_scanned = 0
-    if (
-        params.include_linked_angular_providers
-        and "angular_provider" in source_type_set
-        and widget_ids
-        and len(matches) < max_matches
-    ):
+    if "angular_provider" in source_type_set and len(matches) < max_matches:
         provider_ids: Set[str] = set()
-        for chunk in _chunked(widget_ids, 100):
-            relation_rows = _sn_query_all(
-                config,
-                auth_manager,
-                table=ANGULAR_PROVIDER_M2M_TABLE,
-                query=f"sp_widgetIN{','.join(_escape_query(value) for value in chunk)}",
-                fields="sp_angular_provider",
-                page_size=page_size,
-                max_records=1000,
-            )
-            for row in relation_rows:
-                provider_id = _as_ref_sys_id(row.get("sp_angular_provider"))
-                if provider_id:
-                    provider_ids.add(provider_id)
+
+        # Direct provider_ids filter — bypass M2M lookup
+        if params.provider_ids:
+            for pid in params.provider_ids:
+                if isinstance(pid, str) and pid.strip():
+                    provider_ids.add(_escape_query(pid.strip()))
+
+        # M2M lookup from widgets (only when no direct provider_ids and widgets exist)
+        if not params.provider_ids and params.include_linked_angular_providers and widget_ids:
+            for chunk in _chunked(widget_ids, 100):
+                relation_rows = _sn_query_all(
+                    config,
+                    auth_manager,
+                    table=ANGULAR_PROVIDER_M2M_TABLE,
+                    query=f"sp_widgetIN{','.join(_escape_query(value) for value in chunk)}",
+                    fields="sp_angular_provider",
+                    page_size=page_size,
+                    max_records=1000,
+                )
+                for row in relation_rows:
+                    provider_id = _as_ref_sys_id(row.get("sp_angular_provider"))
+                    if provider_id:
+                        provider_ids.add(provider_id)
 
         if provider_ids:
             provider_query = f"sys_idIN{','.join(sorted(provider_ids))}"

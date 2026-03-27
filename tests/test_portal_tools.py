@@ -67,20 +67,57 @@ def test_get_widget_bundle_success(mock_sn_query, mock_config, mock_auth_manager
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_get_portal_component_code_truncation(mock_sn_query, mock_config, mock_auth_manager):
-    # Mock Large Script
-    large_script = "x" * 15000
+def test_get_portal_component_code_pagination(mock_sn_query, mock_config, mock_auth_manager):
+    # Mock large script with line breaks
+    large_script = "\n".join([f"var line{i} = {i};" for i in range(2000)])
     mock_sn_query.return_value = {
         "success": True,
         "results": [{"script": large_script, "sys_id": "sys-1", "name": "Test"}],
     }
 
-    params = GetPortalComponentParams(table="sp_widget", sys_id="sys-1", fields=["script"])
+    # First page
+    params = GetPortalComponentParams(
+        table="sp_widget", sys_id="sys-1", fields=["script"], script_max_length=5000
+    )
     result = get_portal_component_code(mock_config, mock_auth_manager, params)
 
-    assert len(result["script"]) < 15000
-    assert "[TRUNCATED FOR CONTEXT SAFETY]" in result["script"]
-    assert result["_script_is_truncated"] is True
+    assert len(result["script"]) <= 5000
+    assert result["_script_total_length"] == len(large_script)
+    assert result["_script_offset"] == 0
+    assert result["_script_has_more"] is True
+    assert result["_script_next_offset"] > 0
+    # Should end at a newline boundary
+    assert result["script"].endswith("\n")
+
+    # Second page using next_offset
+    params2 = GetPortalComponentParams(
+        table="sp_widget",
+        sys_id="sys-1",
+        fields=["script"],
+        script_offset=result["_script_next_offset"],
+        script_max_length=5000,
+    )
+    result2 = get_portal_component_code(mock_config, mock_auth_manager, params2)
+    assert result2["_script_offset"] == result["_script_next_offset"]
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_get_portal_component_code_minified_fallback(mock_sn_query, mock_config, mock_auth_manager):
+    # Minified code — no newlines
+    large_script = ";".join([f"var x{i}={i}" for i in range(3000)])
+    mock_sn_query.return_value = {
+        "success": True,
+        "results": [{"script": large_script, "sys_id": "sys-1", "name": "Test"}],
+    }
+
+    params = GetPortalComponentParams(
+        table="sp_widget", sys_id="sys-1", fields=["script"], script_max_length=5000
+    )
+    result = get_portal_component_code(mock_config, mock_auth_manager, params)
+
+    assert len(result["script"]) <= 5000
+    # Should end at a semicolon boundary
+    assert result["script"].endswith(";")
 
 
 def test_update_portal_component_success(mock_config, mock_auth_manager):
