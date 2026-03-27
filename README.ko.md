@@ -69,30 +69,36 @@ uv tool install mfa-servicenow-mcp
 servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
-### 4. 브라우저 인증 의존성
+### 4. 브라우저 인증 설정
 
-브라우저 인증(MFA/SSO)은 Playwright가 필요하며, **선택적 의존성**으로 분리되어 있습니다.
+브라우저 인증은 [Playwright](https://playwright.dev/)로 로컬 브라우저를 제어하여 MFA/SSO 로그인을 수행합니다. Playwright는 **선택적 의존성**이므로 별도 설치가 필요합니다:
 
 ```bash
-# pip 사용 시
-pip install "mfa-servicenow-mcp[browser]"
+# 1. Playwright 설치
+pip install playwright
+# 또는
+uv pip install playwright
 
-# uv 사용 시
-uv pip install "mfa-servicenow-mcp[browser]"
-
-# 브라우저 바이너리 설치
+# 2. 브라우저 바이너리 설치 (로컬 Chromium 사용)
 playwright install chromium
 ```
 
-`uvx`로 브라우저 인증을 사용하려면:
+`uvx`로 사용하려면:
 
 ```bash
-uvx --with "playwright>=1.44.0" mfa-servicenow-mcp \
+uvx --with playwright mfa-servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"
 ```
 
-Basic, OAuth, API Key 인증은 추가 의존성 없이 바로 사용 가능합니다.
+한 번에 설치:
+
+```bash
+pip install "mfa-servicenow-mcp[browser]"
+playwright install chromium
+```
+
+Playwright는 브라우저 인증에서만 필요합니다. Basic, OAuth, API Key 인증은 추가 설치 없이 바로 사용 가능합니다.
 
 > Windows 사용자라면 [Windows 설치 및 실행 가이드](./WINDOWS_INSTALL.md)를 확인하세요.
 
