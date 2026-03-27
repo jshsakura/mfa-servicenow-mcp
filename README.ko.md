@@ -2,16 +2,16 @@
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-ServiceNow용 Model Context Protocol (MCP) 서버 구현체입니다. MFA(다요소 인증) 및 SSO가 설정된 환경에서도 브라우저 인증을 통해 완벽하게 동작합니다.
+MFA(다요소 인증) 및 SSO 환경을 위한 브라우저 인증 기반 ServiceNow MCP 서버입니다. Claude Desktop, Claude Code, OpenCode, Gemini Code Assist 같은 MCP 클라이언트에서 바로 사용할 수 있습니다.
 
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
 
-## ⚡ 바로 쓰기
+## 바로 쓰기
 
 대부분의 사용자는 Git으로 소스를 받을 필요가 없습니다. [uv](https://astral.sh/uv)만 있으면 MCP 클라이언트 설정에 바로 넣어 쓸 수 있습니다.
 
-### 1. MCP 클라이언트에 바로 등록
+### 1. MCP 클라이언트에 등록
 
 #### Claude Desktop
 
@@ -102,7 +102,7 @@ Playwright는 브라우저 인증에서만 필요합니다. Basic, OAuth, API Ke
 
 > Windows 사용자라면 [Windows 설치 및 실행 가이드](./WINDOWS_INSTALL.md)를 확인하세요.
 
-## ✨ 주요 특징
+## 주요 특징
 
 - MFA/SSO 환경용 브라우저 인증
 - `confirm='approve'` 기반 수정 승인 정책
@@ -111,6 +111,8 @@ Playwright는 브라우저 인증에서만 필요합니다. Basic, OAuth, API Ke
 - 로그 조회, 서버 소스 조회, 워크플로우 조회, 체인지셋 관리 같은 개발자 기능
 
 ## 인증 방법
+
+ServiceNow 환경에 맞는 인증 방식을 선택하세요.
 
 ### 브라우저 인증
 
@@ -177,11 +179,11 @@ uvx mfa-servicenow-mcp \
 
 기본 헤더는 `X-ServiceNow-API-Key`입니다.
 
-## 도구 프로필
+## 도구 패키지
 
-필요한 도구만 쓰고 싶다면 `MCP_TOOL_PACKAGE`를 설정하세요. 기본값은 `standard`입니다.
+`MCP_TOOL_PACKAGE`를 설정하여 도구 세트를 선택할 수 있습니다. 기본값: `standard`
 
-| 프로필명 | 추천 역할 | 주요 포함 도구 |
+| 패키지명 | 추천 역할 | 주요 포함 도구 |
 | :--- | :--- | :--- |
 | `standard` | 표준 사용자 | 인시던트, 카탈로그, 지식베이스, 코어 조회 |
 | `portal_developer` | 포탈 개발자 | 포탈 코드, Script Include, 안전한 로그 조회, 서버 소스 조회, 워크플로우 조회, 체인지셋 커밋/퍼블리시 |
@@ -213,13 +215,14 @@ uv pip install -e ".[browser,dev]"
 uv run playwright install chromium
 ```
 
-Windows 전용 절차는 [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)를 참고하세요.
+> Windows 전용 절차: [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)
 
 ## 상세 문서
 
 - [서비스 카탈로그 가이드](docs/catalog.md)
 - [변경 관리 가이드](docs/change_management.md)
 - [워크플로우 및 개발 도구](docs/workflow_management.md)
+- [English README](./README.md)
 
 ## 관련 프로젝트 및 참고
 
