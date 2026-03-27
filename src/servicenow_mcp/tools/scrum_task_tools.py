@@ -199,7 +199,13 @@ def _get_headers(auth_manager: Any, server_config: Any) -> Optional[Dict[str, st
     return None
 
 
-@register_tool(name="create_scrum_task", params=CreateScrumTaskParams, description="Create a new scrum task in ServiceNow", serialization="str", return_type=str)
+@register_tool(
+    name="create_scrum_task",
+    params=CreateScrumTaskParams,
+    description="Create a new scrum task in ServiceNow",
+    serialization="str",
+    return_type=str,
+)
 def create_scrum_task(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -296,7 +302,13 @@ def create_scrum_task(
         }
 
 
-@register_tool(name="update_scrum_task", params=UpdateScrumTaskParams, description="Update an existing scrum task in ServiceNow", serialization="str", return_type=str)
+@register_tool(
+    name="update_scrum_task",
+    params=UpdateScrumTaskParams,
+    description="Update an existing scrum task in ServiceNow",
+    serialization="str",
+    return_type=str,
+)
 def update_scrum_task(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -391,7 +403,13 @@ def update_scrum_task(
         }
 
 
-@register_tool(name="list_scrum_tasks", params=ListScrumTasksParams, description="List scrum tasks from ServiceNow", serialization="json", return_type=str)
+@register_tool(
+    name="list_scrum_tasks",
+    params=ListScrumTasksParams,
+    description="List scrum tasks from ServiceNow",
+    serialization="json",
+    return_type=str,
+)
 def list_scrum_tasks(
     auth_manager: AuthManager,
     server_config: ServerConfig,
