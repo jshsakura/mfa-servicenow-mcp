@@ -27,7 +27,7 @@ HEAVY_FIELDS = {"script", "template", "css", "client_script", "link", "demo_data
 DEFAULT_SAFE_FIELDS = "sys_id,name,id,sys_scope"
 
 
-def truncate_results(results: List[Dict[str, Any]], max_len: int = 10000) -> List[Dict[str, Any]]:
+def truncate_results(results: List[Dict[str, Any]], max_len: int = 50000) -> List[Dict[str, Any]]:
     """Truncates long string values in results to prevent context overflow."""
     for row in results:
         for key, value in row.items():
