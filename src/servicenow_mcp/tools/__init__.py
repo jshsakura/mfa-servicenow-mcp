@@ -65,56 +65,10 @@ from servicenow_mcp.tools.log_tools import (
     get_system_logs,
     get_transaction_logs,
 )
+from servicenow_mcp.tools.performance_tools import analyze_widget_performance
 from servicenow_mcp.tools.portal_tools import (
     detect_angular_implicit_globals,
     search_portal_regex_matches,
-)
-from servicenow_mcp.tools.project_tools import create_project, list_projects, update_project
-from servicenow_mcp.tools.script_include_tools import (
-    create_script_include,
-    delete_script_include,
-    get_script_include,
-    list_script_includes,
-    update_script_include,
-)
-from servicenow_mcp.tools.scrum_task_tools import (
-    create_scrum_task,
-    list_scrum_tasks,
-    update_scrum_task,
-)
-from servicenow_mcp.tools.source_tools import get_metadata_source, search_server_code
-from servicenow_mcp.tools.story_tools import (
-    create_story,
-    create_story_dependency,
-    delete_story_dependency,
-    list_stories,
-    list_story_dependencies,
-    update_story,
-)
-from servicenow_mcp.tools.user_tools import (
-    add_group_members,
-    create_group,
-    create_user,
-    get_user,
-    list_groups,
-    list_users,
-    remove_group_members,
-    update_group,
-    update_user,
-)
-from servicenow_mcp.tools.workflow_tools import (
-    activate_workflow,
-    add_workflow_activity,
-    create_workflow,
-    deactivate_workflow,
-    delete_workflow_activity,
-    get_workflow_activities,
-    get_workflow_details,
-    list_workflow_versions,
-    list_workflows,
-    reorder_workflow_activities,
-    update_workflow,
-    update_workflow_activity,
 )
 
 # from servicenow_mcp.tools.problem_tools import create_problem, update_problem
@@ -225,6 +179,7 @@ __all__ = [
     "list_projects",
     "search_portal_regex_matches",
     "detect_angular_implicit_globals",
+    "analyze_widget_performance",
     # Future tools
     # "create_problem",
     # "update_problem",
