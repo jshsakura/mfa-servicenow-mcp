@@ -819,8 +819,9 @@ def get_portal_component_code(
     # Only return requested code fields to keep context clean
     result = _strip_metadata(response["results"][0], params.fields)
 
-    max_len = max(1000, params.script_max_length)
+    budget = max(1000, params.script_max_length)  # total char budget across ALL fields
     offset = max(0, params.script_offset)
+    remaining_budget = budget
 
     for field in params.fields:
         val = result.get(field, "")
@@ -828,29 +829,39 @@ def get_portal_component_code(
             continue
         total_length = len(val)
 
-        # Apply offset/length windowing for large scripts
-        if offset > 0 or total_length > max_len:
-            end = offset + max_len
-            # Snap to a safe boundary so we never split mid-token
-            if end < total_length:
-                # Try newline first, then fall back to statement-level delimiters
-                snap = val.rfind("\n", offset, end)
-                if snap <= offset:
-                    # No newline found (minified code) — try statement/block delimiters
-                    for delim in (";", "}", ")", "]", ",", ">", " "):
-                        snap = val.rfind(delim, offset, end)
-                        if snap > offset:
-                            break
-                if snap > offset:
-                    end = snap + 1
-            chunk = val[offset:end]
-            result[field] = chunk
+        if remaining_budget <= 0:
+            # Budget exhausted — don't include this field's content
+            result[field] = ""
             result[f"_{field}_total_length"] = total_length
             result[f"_{field}_offset"] = offset
-            result[f"_{field}_returned_length"] = len(chunk)
-            if end < total_length:
+            result[f"_{field}_returned_length"] = 0
+            if offset < total_length:
                 result[f"_{field}_has_more"] = True
-                result[f"_{field}_next_offset"] = end
+                result[f"_{field}_next_offset"] = offset
+            continue
+
+        # Apply windowing with remaining budget
+        field_max = remaining_budget
+        end = offset + field_max
+        # Snap to a safe boundary so we never split mid-token
+        if end < total_length:
+            snap = val.rfind("\n", offset, end)
+            if snap <= offset:
+                for delim in (";", "}", ")", "]", ",", ">", " "):
+                    snap = val.rfind(delim, offset, end)
+                    if snap > offset:
+                        break
+            if snap > offset:
+                end = snap + 1
+        chunk = val[offset:end]
+        result[field] = chunk
+        result[f"_{field}_total_length"] = total_length
+        result[f"_{field}_offset"] = offset
+        result[f"_{field}_returned_length"] = len(chunk)
+        remaining_budget -= len(chunk)
+        if end < total_length:
+            result[f"_{field}_has_more"] = True
+            result[f"_{field}_next_offset"] = end
 
     return result
 
