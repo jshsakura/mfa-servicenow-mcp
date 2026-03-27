@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +230,7 @@ def _get_headers(auth_manager: Any, server_config: Any) -> Optional[Dict[str, st
     return None
 
 
+@register_tool(name="create_story", params=CreateStoryParams, description="Create a new story in ServiceNow", serialization="str", return_type=str)
 def create_story(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -321,6 +323,7 @@ def create_story(
         }
 
 
+@register_tool(name="update_story", params=UpdateStoryParams, description="Update an existing story in ServiceNow", serialization="str", return_type=str)
 def update_story(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -411,6 +414,7 @@ def update_story(
         }
 
 
+@register_tool(name="list_stories", params=ListStoriesParams, description="List stories from ServiceNow", serialization="json", return_type=str)
 def list_stories(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -510,6 +514,7 @@ def list_stories(
         }
 
 
+@register_tool(name="list_story_dependencies", params=ListStoryDependenciesParams, description="List story dependencies from ServiceNow", serialization="json", return_type=str)
 def list_story_dependencies(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -599,6 +604,7 @@ def list_story_dependencies(
         }
 
 
+@register_tool(name="create_story_dependency", params=CreateStoryDependencyParams, description="Create a dependency between two stories in ServiceNow", serialization="str", return_type=str)
 def create_story_dependency(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -673,6 +679,7 @@ def create_story_dependency(
         }
 
 
+@register_tool(name="delete_story_dependency", params=DeleteStoryDependencyParams, description="Delete a story dependency in ServiceNow", serialization="str", return_type=str)
 def delete_story_dependency(
     auth_manager: AuthManager,
     server_config: ServerConfig,

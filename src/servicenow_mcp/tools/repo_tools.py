@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
+from servicenow_mcp.utils.registry import register_tool
+
 
 class RepoQueryBaseParams(BaseModel):
     repo_path: str = Field(".", description="Target git repository path")
@@ -169,6 +171,13 @@ def _latest_commit_by_file(commits: List[Dict[str, Any]]) -> Dict[str, Dict[str,
     return latest
 
 
+@register_tool(
+    "get_repo_working_tree_status",
+    params=GetRepoWorkingTreeStatusParams,
+    description="Inspect working tree status including staged, unstaged, and untracked files",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_repo_working_tree_status(params: GetRepoWorkingTreeStatusParams) -> Dict[str, Any]:
     try:
         repo_path, branch, head = _resolve_repo(params.repo_path)
@@ -207,6 +216,13 @@ def get_repo_working_tree_status(params: GetRepoWorkingTreeStatusParams) -> Dict
     }
 
 
+@register_tool(
+    "get_repo_recent_commits",
+    params=GetRepoRecentCommitsParams,
+    description="List recent commits with author and optional changed file lists",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_repo_recent_commits(params: GetRepoRecentCommitsParams) -> Dict[str, Any]:
     try:
         repo_path, branch, head = _resolve_repo(params.repo_path)
@@ -242,6 +258,13 @@ def get_repo_recent_commits(params: GetRepoRecentCommitsParams) -> Dict[str, Any
     }
 
 
+@register_tool(
+    "get_repo_file_last_modifier",
+    params=GetRepoFileLastModifierParams,
+    description="Lookup per-file last modifier and commit metadata with optional uncommitted status",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_repo_file_last_modifier(params: GetRepoFileLastModifierParams) -> Dict[str, Any]:
     try:
         repo_path, branch, head = _resolve_repo(params.repo_path)
@@ -326,6 +349,13 @@ def get_repo_file_last_modifier(params: GetRepoFileLastModifierParams) -> Dict[s
     }
 
 
+@register_tool(
+    "get_repo_change_report",
+    params=GetRepoChangeReportParams,
+    description="Report recent file modifications, last modifiers, and commit/uncommitted status from local git repo",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_repo_change_report(params: GetRepoChangeReportParams) -> Dict[str, Any]:
     status_result = get_repo_working_tree_status(
         GetRepoWorkingTreeStatusParams(
