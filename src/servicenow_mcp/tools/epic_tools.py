@@ -186,7 +186,13 @@ def _get_headers(auth_manager: Any, server_config: Any) -> Optional[Dict[str, st
     return None
 
 
-@register_tool(name="create_epic", params=CreateEpicParams, description="Create a new epic in ServiceNow", serialization="str", return_type=str)
+@register_tool(
+    name="create_epic",
+    params=CreateEpicParams,
+    description="Create a new epic in ServiceNow",
+    serialization="str",
+    return_type=str,
+)
 def create_epic(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -272,7 +278,13 @@ def create_epic(
         }
 
 
-@register_tool(name="update_epic", params=UpdateEpicParams, description="Update an existing epic in ServiceNow", serialization="str", return_type=str)
+@register_tool(
+    name="update_epic",
+    params=UpdateEpicParams,
+    description="Update an existing epic in ServiceNow",
+    serialization="str",
+    return_type=str,
+)
 def update_epic(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -355,7 +367,13 @@ def update_epic(
         }
 
 
-@register_tool(name="list_epics", params=ListEpicsParams, description="List epics from ServiceNow", serialization="json", return_type=str)
+@register_tool(
+    name="list_epics",
+    params=ListEpicsParams,
+    description="List epics from ServiceNow",
+    serialization="json",
+    return_type=str,
+)
 def list_epics(
     auth_manager: AuthManager,
     server_config: ServerConfig,

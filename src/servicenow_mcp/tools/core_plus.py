@@ -132,7 +132,13 @@ def _is_login_redirect_response(response: requests.Response) -> bool:
     )
 
 
-@register_tool(name="sn_health", params=HealthCheckParams, description="Run ServiceNow API connectivity and auth health checks. In browser auth mode, this may open a login window on first use and can return a warning when the browser session is valid but the configured probe path is blocked by ACLs.", serialization="raw_dict", return_type=Dict[str, Any])
+@register_tool(
+    name="sn_health",
+    params=HealthCheckParams,
+    description="Run ServiceNow API connectivity and auth health checks. In browser auth mode, this may open a login window on first use and can return a warning when the browser session is valid but the configured probe path is blocked by ACLs.",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
 def sn_health(
     config: ServerConfig, auth_manager: AuthManager, params: HealthCheckParams
 ) -> Dict[str, Any]:
@@ -209,7 +215,13 @@ def sn_health(
         }
 
 
-@register_tool(name="sn_query", params=GenericQueryParams, description="Run generic query against any ServiceNow table", serialization="raw_dict", return_type=Dict[str, Any])
+@register_tool(
+    name="sn_query",
+    params=GenericQueryParams,
+    description="Run generic query against any ServiceNow table",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
 def sn_query(
     config: ServerConfig, auth_manager: AuthManager, params: GenericQueryParams
 ) -> Dict[str, Any]:
@@ -269,7 +281,13 @@ def sn_query(
         }
 
 
-@register_tool(name="sn_aggregate", params=AggregateParams, description="Run aggregate statistics (count/sum/avg/min/max)", serialization="raw_dict", return_type=Dict[str, Any])
+@register_tool(
+    name="sn_aggregate",
+    params=AggregateParams,
+    description="Run aggregate statistics (count/sum/avg/min/max)",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
 def sn_aggregate(
     config: ServerConfig, auth_manager: AuthManager, params: AggregateParams
 ) -> Dict[str, Any]:
@@ -314,7 +332,13 @@ def sn_aggregate(
         }
 
 
-@register_tool(name="sn_schema", params=SchemaParams, description="Fetch table schema from sys_dictionary", serialization="raw_dict", return_type=Dict[str, Any])
+@register_tool(
+    name="sn_schema",
+    params=SchemaParams,
+    description="Fetch table schema from sys_dictionary",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
 def sn_schema(
     config: ServerConfig, auth_manager: AuthManager, params: SchemaParams
 ) -> Dict[str, Any]:
@@ -360,7 +384,13 @@ def sn_schema(
         }
 
 
-@register_tool(name="sn_discover", params=DiscoverParams, description="Discover tables by name or label keyword", serialization="raw_dict", return_type=Dict[str, Any])
+@register_tool(
+    name="sn_discover",
+    params=DiscoverParams,
+    description="Discover tables by name or label keyword",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
 def sn_discover(
     config: ServerConfig, auth_manager: AuthManager, params: DiscoverParams
 ) -> Dict[str, Any]:
@@ -397,7 +427,13 @@ def sn_discover(
         }
 
 
-@register_tool(name="sn_nl", params=NaturalLanguageParams, description="Natural language assistant for query/schema/aggregate intents", serialization="raw_dict", return_type=Dict[str, Any])
+@register_tool(
+    name="sn_nl",
+    params=NaturalLanguageParams,
+    description="Natural language assistant for query/schema/aggregate intents",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
 def sn_nl(
     config: ServerConfig, auth_manager: AuthManager, params: NaturalLanguageParams
 ) -> Dict[str, Any]:

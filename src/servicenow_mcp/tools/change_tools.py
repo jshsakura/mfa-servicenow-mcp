@@ -226,7 +226,13 @@ def _get_headers(auth_manager: Any, server_config: Any) -> Optional[Dict[str, st
     return None
 
 
-@register_tool(name="create_change_request", params=CreateChangeRequestParams, description="Create a new change request in ServiceNow", serialization="str", return_type=str)
+@register_tool(
+    name="create_change_request",
+    params=CreateChangeRequestParams,
+    description="Create a new change request in ServiceNow",
+    serialization="str",
+    return_type=str,
+)
 def create_change_request(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -318,7 +324,13 @@ def create_change_request(
         }
 
 
-@register_tool(name="update_change_request", params=UpdateChangeRequestParams, description="Update an existing change request in ServiceNow", serialization="str", return_type=str)
+@register_tool(
+    name="update_change_request",
+    params=UpdateChangeRequestParams,
+    description="Update an existing change request in ServiceNow",
+    serialization="str",
+    return_type=str,
+)
 def update_change_request(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -411,7 +423,13 @@ def update_change_request(
         }
 
 
-@register_tool(name="list_change_requests", params=ListChangeRequestsParams, description="List change requests from ServiceNow", serialization="json", return_type=str)
+@register_tool(
+    name="list_change_requests",
+    params=ListChangeRequestsParams,
+    description="List change requests from ServiceNow",
+    serialization="json",
+    return_type=str,
+)
 def list_change_requests(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -515,7 +533,13 @@ def list_change_requests(
         }
 
 
-@register_tool(name="get_change_request_details", params=GetChangeRequestDetailsParams, description="Get detailed information about a specific change request", serialization="json", return_type=str)
+@register_tool(
+    name="get_change_request_details",
+    params=GetChangeRequestDetailsParams,
+    description="Get detailed information about a specific change request",
+    serialization="json",
+    return_type=str,
+)
 def get_change_request_details(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -598,7 +622,13 @@ def get_change_request_details(
         }
 
 
-@register_tool(name="add_change_task", params=AddChangeTaskParams, description="Add a task to a change request", serialization="json_dict", return_type=str)
+@register_tool(
+    name="add_change_task",
+    params=AddChangeTaskParams,
+    description="Add a task to a change request",
+    serialization="json_dict",
+    return_type=str,
+)
 def add_change_task(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -682,7 +712,13 @@ def add_change_task(
         }
 
 
-@register_tool(name="submit_change_for_approval", params=SubmitChangeForApprovalParams, description="Submit a change request for approval", serialization="str", return_type=str)
+@register_tool(
+    name="submit_change_for_approval",
+    params=SubmitChangeForApprovalParams,
+    description="Submit a change request for approval",
+    serialization="str",
+    return_type=str,
+)
 def submit_change_for_approval(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -772,7 +808,13 @@ def submit_change_for_approval(
         }
 
 
-@register_tool(name="approve_change", params=ApproveChangeParams, description="Approve a change request", serialization="str", return_type=str)
+@register_tool(
+    name="approve_change",
+    params=ApproveChangeParams,
+    description="Approve a change request",
+    serialization="str",
+    return_type=str,
+)
 def approve_change(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -877,7 +919,13 @@ def approve_change(
         }
 
 
-@register_tool(name="reject_change", params=RejectChangeParams, description="Reject a change request", serialization="str", return_type=str)
+@register_tool(
+    name="reject_change",
+    params=RejectChangeParams,
+    description="Reject a change request",
+    serialization="str",
+    return_type=str,
+)
 def reject_change(
     auth_manager: AuthManager,
     server_config: ServerConfig,

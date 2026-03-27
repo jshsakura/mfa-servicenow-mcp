@@ -152,7 +152,13 @@ class GroupResponse(BaseModel):
     group_name: Optional[str] = Field(None, description="Name of the affected group")
 
 
-@register_tool(name="create_user", params=CreateUserParams, description="Create a new user in ServiceNow", serialization="raw_dict", return_type=dict)
+@register_tool(
+    name="create_user",
+    params=CreateUserParams,
+    description="Create a new user in ServiceNow",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def create_user(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -227,7 +233,13 @@ def create_user(
         )
 
 
-@register_tool(name="update_user", params=UpdateUserParams, description="Update an existing user in ServiceNow", serialization="raw_dict", return_type=dict)
+@register_tool(
+    name="update_user",
+    params=UpdateUserParams,
+    description="Update an existing user in ServiceNow",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def update_user(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -305,7 +317,13 @@ def update_user(
         )
 
 
-@register_tool(name="get_user", params=GetUserParams, description="Get a specific user in ServiceNow", serialization="raw_dict", return_type=dict)
+@register_tool(
+    name="get_user",
+    params=GetUserParams,
+    description="Get a specific user in ServiceNow",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_user(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -360,7 +378,13 @@ def get_user(
         return {"success": False, "message": f"Failed to get user: {str(e)}"}
 
 
-@register_tool(name="list_users", params=ListUsersParams, description="List users in ServiceNow", serialization="raw_dict", return_type=dict)
+@register_tool(
+    name="list_users",
+    params=ListUsersParams,
+    description="List users in ServiceNow",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def list_users(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -423,7 +447,13 @@ def list_users(
         return {"success": False, "message": f"Failed to list users: {str(e)}"}
 
 
-@register_tool(name="list_groups", params=ListGroupsParams, description="List groups from ServiceNow with optional filtering", serialization="raw_dict", return_type=dict)
+@register_tool(
+    name="list_groups",
+    params=ListGroupsParams,
+    description="List groups from ServiceNow with optional filtering",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def list_groups(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -625,7 +655,13 @@ def check_user_has_role(
         return False
 
 
-@register_tool(name="create_group", params=CreateGroupParams, description="Create a new group in ServiceNow", serialization="raw_dict", return_type=dict)
+@register_tool(
+    name="create_group",
+    params=CreateGroupParams,
+    description="Create a new group in ServiceNow",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def create_group(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -698,7 +734,13 @@ def create_group(
         )
 
 
-@register_tool(name="update_group", params=UpdateGroupParams, description="Update an existing group in ServiceNow", serialization="raw_dict", return_type=dict)
+@register_tool(
+    name="update_group",
+    params=UpdateGroupParams,
+    description="Update an existing group in ServiceNow",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def update_group(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -762,7 +804,13 @@ def update_group(
         )
 
 
-@register_tool(name="add_group_members", params=AddGroupMembersParams, description="Add members to an existing group in ServiceNow", serialization="raw_dict", return_type=dict)
+@register_tool(
+    name="add_group_members",
+    params=AddGroupMembersParams,
+    description="Add members to an existing group in ServiceNow",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def add_group_members(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -831,7 +879,13 @@ def add_group_members(
     )
 
 
-@register_tool(name="remove_group_members", params=RemoveGroupMembersParams, description="Remove members from an existing group in ServiceNow", serialization="raw_dict", return_type=dict)
+@register_tool(
+    name="remove_group_members",
+    params=RemoveGroupMembersParams,
+    description="Remove members from an existing group in ServiceNow",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def remove_group_members(
     config: ServerConfig,
     auth_manager: AuthManager,
