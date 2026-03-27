@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,7 @@ def _get_headers(auth_manager: Any, server_config: Any) -> Optional[Dict[str, st
     return None
 
 
+@register_tool(name="create_project", params=CreateProjectParams, description="Create a new project in ServiceNow", serialization="str", return_type=str)
 def create_project(
     config: ServerConfig,  # Changed from auth_manager
     auth_manager: AuthManager,  # Changed from server_config
@@ -276,6 +278,7 @@ def create_project(
         }
 
 
+@register_tool(name="update_project", params=UpdateProjectParams, description="Update an existing project in ServiceNow", serialization="str", return_type=str)
 def update_project(
     config: ServerConfig,  # Changed from auth_manager
     auth_manager: AuthManager,  # Changed from server_config
@@ -368,6 +371,7 @@ def update_project(
         }
 
 
+@register_tool(name="list_projects", params=ListProjectsParams, description="List projects from ServiceNow", serialization="json", return_type=str)
 def list_projects(
     config: ServerConfig,  # Changed from auth_manager
     auth_manager: AuthManager,  # Changed from server_config
