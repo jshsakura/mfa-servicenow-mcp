@@ -75,6 +75,31 @@ uv tool install mfa-servicenow-mcp
 servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
+### Browser Auth Dependency
+
+Browser authentication (MFA/SSO) requires Playwright, which is an **optional** dependency. Install it when needed:
+
+```bash
+# With pip
+pip install "mfa-servicenow-mcp[browser]"
+
+# With uv
+uv pip install "mfa-servicenow-mcp[browser]"
+
+# Then install the browser binary
+playwright install chromium
+```
+
+When using `uvx`, Playwright is not bundled by default. If you need browser auth via `uvx`:
+
+```bash
+uvx --with "playwright>=1.44.0" mfa-servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser"
+```
+
+For Basic, OAuth, or API Key auth, no extra dependency is needed.
+
 Windows users can also use [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
 
 ## Features
@@ -186,7 +211,7 @@ git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
 cd mfa-servicenow-mcp
 
 uv venv
-uv pip install -e .
+uv pip install -e ".[browser,dev]"
 uv run playwright install chromium
 ```
 

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,7 @@ def _get_auth_and_config(
     return auth_manager, server_config
 
 
+@register_tool(name="list_workflows", params=ListWorkflowsParams, description="List workflows from ServiceNow", serialization="json", return_type=str)
 def list_workflows(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -263,6 +265,7 @@ def list_workflows(
         return {"error": str(e)}
 
 
+@register_tool(name="get_workflow_details", params=GetWorkflowDetailsParams, description="Get detailed information about a specific workflow", serialization="json", return_type=str)
 def get_workflow_details(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -312,6 +315,7 @@ def get_workflow_details(
         return {"error": str(e)}
 
 
+@register_tool(name="list_workflow_versions", params=ListWorkflowVersionsParams, description="List workflow versions from ServiceNow", serialization="json", return_type=str)
 def list_workflow_versions(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -372,6 +376,7 @@ def list_workflow_versions(
         return {"error": str(e)}
 
 
+@register_tool(name="get_workflow_activities", params=GetWorkflowActivitiesParams, description="Get activities for a specific workflow", serialization="json", return_type=str)
 def get_workflow_activities(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -466,6 +471,7 @@ def get_workflow_activities(
         return {"error": str(e)}
 
 
+@register_tool(name="create_workflow", params=CreateWorkflowParams, description="Create a new workflow in ServiceNow", serialization="json_dict", return_type=str)
 def create_workflow(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -535,6 +541,7 @@ def create_workflow(
         return {"error": str(e)}
 
 
+@register_tool(name="update_workflow", params=UpdateWorkflowParams, description="Update an existing workflow in ServiceNow", serialization="json_dict", return_type=str)
 def update_workflow(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -608,6 +615,7 @@ def update_workflow(
         return {"error": str(e)}
 
 
+@register_tool(name="activate_workflow", params=ActivateWorkflowParams, description="Activate a workflow in ServiceNow", serialization="str", return_type=str)
 def activate_workflow(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -664,6 +672,7 @@ def activate_workflow(
         return {"error": str(e)}
 
 
+@register_tool(name="deactivate_workflow", params=DeactivateWorkflowParams, description="Deactivate a workflow in ServiceNow", serialization="str", return_type=str)
 def deactivate_workflow(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -720,6 +729,7 @@ def deactivate_workflow(
         return {"error": str(e)}
 
 
+@register_tool(name="add_workflow_activity", params=AddWorkflowActivityParams, description="Add a new activity to a workflow in ServiceNow", serialization="json_dict", return_type=str)
 def add_workflow_activity(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -792,6 +802,7 @@ def add_workflow_activity(
         return {"error": str(e)}
 
 
+@register_tool(name="update_workflow_activity", params=UpdateWorkflowActivityParams, description="Update an existing activity in a workflow", serialization="json_dict", return_type=str)
 def update_workflow_activity(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -859,6 +870,7 @@ def update_workflow_activity(
         return {"error": str(e)}
 
 
+@register_tool(name="delete_workflow_activity", params=DeleteWorkflowActivityParams, description="Delete an activity from a workflow", serialization="str", return_type=str)
 def delete_workflow_activity(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -909,6 +921,7 @@ def delete_workflow_activity(
         return {"error": str(e)}
 
 
+@register_tool(name="reorder_workflow_activities", params=ReorderWorkflowActivitiesParams, description="Reorder activities in a workflow", serialization="str", return_type=str)
 def reorder_workflow_activities(
     auth_manager: AuthManager,
     server_config: ServerConfig,
