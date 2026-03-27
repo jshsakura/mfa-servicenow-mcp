@@ -4,7 +4,6 @@ ServiceNow MCP Server
 This module provides the main implementation of the ServiceNow MCP server.
 """
 
-import asyncio
 import json
 import logging
 import os
@@ -340,9 +339,12 @@ class ServiceNowMCP:
             )
             raise ValueError(f"Failed to parse arguments for tool '{name}': {e}") from e
 
-        # Execute the tool implementation function (in a thread to avoid blocking the event loop)
+        # Execute the tool implementation function synchronously.
+        # NOTE: asyncio.to_thread() was removed because Playwright (browser auth)
+        # requires execution on the thread that created its event loop. Running in
+        # a separate thread causes crashes during MFA/SSO login flows.
         try:
-            result = await asyncio.to_thread(impl_func, self.config, self.auth_manager, params)
+            result = impl_func(self.config, self.auth_manager, params)
             logger.debug(f"Raw result type from tool '{name}': {type(result)}")
         except Exception as e:
             logger.error(f"Error executing tool '{name}': {e}", exc_info=True)
