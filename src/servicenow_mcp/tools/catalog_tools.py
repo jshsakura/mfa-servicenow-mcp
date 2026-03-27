@@ -80,7 +80,13 @@ class MoveCatalogItemsParams(BaseModel):
     target_category_id: str = Field(..., description="Target category ID to move items to")
 
 
-@register_tool(name="list_catalog_items", params=ListCatalogItemsParams, description="List service catalog items.", serialization="json", return_type=str)
+@register_tool(
+    name="list_catalog_items",
+    params=ListCatalogItemsParams,
+    description="List service catalog items.",
+    serialization="json",
+    return_type=str,
+)
 def list_catalog_items(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -171,7 +177,13 @@ def list_catalog_items(
         }
 
 
-@register_tool(name="get_catalog_item", params=GetCatalogItemParams, description="Get a specific service catalog item.", serialization="json_dict", return_type=str)
+@register_tool(
+    name="get_catalog_item",
+    params=GetCatalogItemParams,
+    description="Get a specific service catalog item.",
+    serialization="json_dict",
+    return_type=str,
+)
 def get_catalog_item(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -312,7 +324,13 @@ def get_catalog_item_variables(
         return []
 
 
-@register_tool(name="list_catalog_categories", params=ListCatalogCategoriesParams, description="List service catalog categories.", serialization="json", return_type=str)
+@register_tool(
+    name="list_catalog_categories",
+    params=ListCatalogCategoriesParams,
+    description="List service catalog categories.",
+    serialization="json",
+    return_type=str,
+)
 def list_catalog_categories(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -400,7 +418,13 @@ def list_catalog_categories(
         }
 
 
-@register_tool(name="create_catalog_category", params=CreateCatalogCategoryParams, description="Create a new service catalog category.", serialization="json_dict", return_type=str)
+@register_tool(
+    name="create_catalog_category",
+    params=CreateCatalogCategoryParams,
+    description="Create a new service catalog category.",
+    serialization="json_dict",
+    return_type=str,
+)
 def create_catalog_category(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -477,7 +501,13 @@ def create_catalog_category(
         )
 
 
-@register_tool(name="update_catalog_category", params=UpdateCatalogCategoryParams, description="Update an existing service catalog category.", serialization="json_dict", return_type=str)
+@register_tool(
+    name="update_catalog_category",
+    params=UpdateCatalogCategoryParams,
+    description="Update an existing service catalog category.",
+    serialization="json_dict",
+    return_type=str,
+)
 def update_catalog_category(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -553,7 +583,13 @@ def update_catalog_category(
         )
 
 
-@register_tool(name="move_catalog_items", params=MoveCatalogItemsParams, description="Move catalog items to a different category.", serialization="json_dict", return_type=str)
+@register_tool(
+    name="move_catalog_items",
+    params=MoveCatalogItemsParams,
+    description="Move catalog items to a different category.",
+    serialization="json_dict",
+    return_type=str,
+)
 def move_catalog_items(
     config: ServerConfig,
     auth_manager: AuthManager,
