@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,7 @@ class UpdateCatalogItemVariableParams(BaseModel):
     max: Optional[int] = Field(None, description="Maximum value for numeric fields")
 
 
+@register_tool(name="create_catalog_item_variable", params=CreateCatalogItemVariableParams, description="Create a new catalog item variable", serialization="dict", return_type=dict)
 def create_catalog_item_variable(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -166,6 +168,7 @@ def create_catalog_item_variable(
         )
 
 
+@register_tool(name="list_catalog_item_variables", params=ListCatalogItemVariablesParams, description="List catalog item variables", serialization="dict", return_type=dict)
 def list_catalog_item_variables(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -229,6 +232,7 @@ def list_catalog_item_variables(
         )
 
 
+@register_tool(name="update_catalog_item_variable", params=UpdateCatalogItemVariableParams, description="Update a catalog item variable", serialization="dict", return_type=dict)
 def update_catalog_item_variable(
     config: ServerConfig,
     auth_manager: AuthManager,

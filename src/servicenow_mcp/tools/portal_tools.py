@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
+from ..utils.registry import register_tool
 from .core_plus import GenericQueryParams, sn_query
 
 logger = logging.getLogger(__name__)
@@ -706,6 +707,13 @@ def _json_or_raw_string(value: Any) -> Any:
     return value
 
 
+@register_tool(
+    "get_widget_bundle",
+    params=GetWidgetBundleParams,
+    description="Fetch a high-speed bundle of a Service Portal widget (HTML, Scripts, and Provider list)",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_widget_bundle(
     config: ServerConfig, auth_manager: AuthManager, params: GetWidgetBundleParams
 ) -> Dict[str, Any]:
@@ -772,6 +780,13 @@ def get_widget_bundle(
     return bundle
 
 
+@register_tool(
+    "get_portal_component_code",
+    params=GetPortalComponentParams,
+    description="Fetch specific code from a portal widget, provider, or script include (token efficient)",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_portal_component_code(
     config: ServerConfig, auth_manager: AuthManager, params: GetPortalComponentParams
 ) -> Dict[str, Any]:
@@ -802,6 +817,13 @@ def get_portal_component_code(
     return result
 
 
+@register_tool(
+    "search_portal_regex_matches",
+    params=SearchPortalRegexMatchesParams,
+    description="Regex-based match extraction across widget and linked portal sources with minimal/compact/full output modes",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def search_portal_regex_matches(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1083,6 +1105,13 @@ def search_widget_author_patterns(
     return search_portal_regex_matches(config, auth_manager, params)
 
 
+@register_tool(
+    "detect_angular_implicit_globals",
+    params=DetectAngularImplicitGlobalsParams,
+    description="Detect implicit global assignments in Angular provider scripts (undeclared variables causing not defined issues)",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def detect_angular_implicit_globals(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1183,6 +1212,13 @@ def detect_angular_implicit_globals(
     }
 
 
+@register_tool(
+    "update_portal_component",
+    params=UpdatePortalComponentParams,
+    description="Pinpoint update of specific portal component fields (HTML, CSS, or scripts)",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def update_portal_component(
     config: ServerConfig, auth_manager: AuthManager, params: UpdatePortalComponentParams
 ) -> Dict[str, Any]:
@@ -1203,6 +1239,13 @@ def update_portal_component(
     }
 
 
+@register_tool(
+    "download_portal_sources",
+    params=DownloadPortalSourcesParams,
+    description="Download widgets and linked portal/server source files in sn-utils-like local structure",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def download_portal_sources(
     config: ServerConfig,
     auth_manager: AuthManager,
