@@ -3,7 +3,6 @@ Command-line interface for the ServiceNow MCP server.
 """
 
 import argparse
-import importlib
 import logging
 import os
 import re
@@ -358,10 +357,7 @@ def create_config(args) -> ServerConfig:
 
 async def arun_server(server_instance):
     """Runs the given MCP server instance using stdio transport."""
-    import importlib
-
-    stdio_module = importlib.import_module("mcp.server.stdio")
-    stdio_server = stdio_module.stdio_server
+    from mcp.server.stdio import stdio_server
 
     logger.info("Starting server with stdio transport...")
     async with stdio_server() as streams:
@@ -374,8 +370,8 @@ async def arun_server(server_instance):
 def main():
     """Main entry point for the CLI."""
     # Load environment variables from .env file
-    dotenv_module = importlib.import_module("dotenv")
-    load_dotenv = dotenv_module.load_dotenv
+    from dotenv import load_dotenv
+
     load_dotenv()
 
     try:
@@ -401,9 +397,9 @@ def main():
         server_to_run = mcp_controller.start()
 
         # Run the server using anyio and the stdio transport
-        anyio_module = importlib.import_module("anyio")
-        anyio_run = anyio_module.run
-        anyio_run(arun_server, server_to_run)
+        import anyio
+
+        anyio.run(arun_server, server_to_run)
 
     except ValueError as e:
         logger.error(f"Configuration or runtime error: {e}")

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,13 @@ def _fetch_logs(
         }
 
 
+@register_tool(
+    "get_system_logs",
+    params=GetSystemLogsParams,
+    description="Read recent ServiceNow system logs with hard safety limits and fixed summary fields",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_system_logs(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -213,6 +221,13 @@ def get_system_logs(
     return result
 
 
+@register_tool(
+    "get_journal_entries",
+    params=GetJournalEntriesParams,
+    description="Read recent journal entries with fixed summary fields and low result caps",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_journal_entries(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -250,6 +265,13 @@ def get_journal_entries(
     return result
 
 
+@register_tool(
+    "get_transaction_logs",
+    params=GetTransactionLogsParams,
+    description="Read recent transaction logs with summary fields and strong pagination limits",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_transaction_logs(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -285,6 +307,13 @@ def get_transaction_logs(
     return result
 
 
+@register_tool(
+    "get_background_script_logs",
+    params=GetBackgroundScriptLogsParams,
+    description="Read recent background execution logs from sys_execution_tracker with safe defaults",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def get_background_script_logs(
     config: ServerConfig,
     auth_manager: AuthManager,
