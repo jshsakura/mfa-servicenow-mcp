@@ -2,7 +2,7 @@
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-ServiceNow MCP server with browser-based authentication for MFA/SSO environments. It is designed for direct use from MCP clients such as Claude Desktop, OpenCode, Gemini Code Assist, and similar local MCP hosts.
+ServiceNow MCP server with browser-based authentication for MFA/SSO environments. Designed for direct use from MCP clients such as Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, and similar local MCP hosts.
 
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
@@ -11,7 +11,9 @@ ServiceNow MCP server with browser-based authentication for MFA/SSO environments
 
 Most users do not need to clone this repository. If you have [uv](https://astral.sh/uv), you can register the server directly in your MCP client.
 
-### Claude Desktop
+### 1. Register in Your MCP Client
+
+#### Claude Desktop
 
 Add this to `claude_desktop_config.json`:
 
@@ -22,19 +24,16 @@ Add this to `claude_desktop_config.json`:
       "command": "uvx",
       "args": [
         "mfa-servicenow-mcp",
-        "--instance-url",
-        "https://your-instance.service-now.com",
-        "--auth-type",
-        "browser",
-        "--browser-headless",
-        "false"
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "browser",
+        "--browser-headless", "false"
       ]
     }
   }
 }
 ```
 
-### OpenCode / Gemini / Vertex AI
+#### OpenCode / Gemini / Vertex AI
 
 ```json
 {
@@ -42,14 +41,10 @@ Add this to `claude_desktop_config.json`:
     "servicenow": {
       "type": "local",
       "command": [
-        "uvx",
-        "mfa-servicenow-mcp",
-        "--instance-url",
-        "https://your-instance.service-now.com",
-        "--auth-type",
-        "browser",
-        "--browser-headless",
-        "false"
+        "uvx", "mfa-servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "browser",
+        "--browser-headless", "false"
       ],
       "enabled": true
     }
@@ -57,25 +52,24 @@ Add this to `claude_desktop_config.json`:
 }
 ```
 
-### Run Directly From a Terminal
+### 2. Run Directly From a Terminal
 
 ```bash
 uvx mfa-servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
-Notes:
 - The first run may install browser dependencies automatically.
 - Browser auth may open a login window.
 - Use `--browser-headless false` if you want an interactive MFA/SSO flow.
 
-### Install as a Local Command
+### 3. Install as a Local Command
 
 ```bash
 uv tool install mfa-servicenow-mcp
 servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
-### Browser Auth Setup
+### 4. Browser Auth Setup
 
 Browser authentication uses [Playwright](https://playwright.dev/) to drive your local browser for MFA/SSO login. Playwright is an **optional** dependency — install it separately:
 
@@ -106,7 +100,7 @@ playwright install chromium
 
 Playwright is only needed for browser auth. Basic, OAuth, and API Key auth work without it.
 
-Windows users can also use [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
+> Windows users can also use [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
 
 ## Features
 
@@ -195,7 +189,7 @@ Set `MCP_TOOL_PACKAGE` to choose a smaller tool set. Default: `standard`
 | `portal_developer` | Portal developers | Portal code, script includes, safe logs, source lookup, workflow read, update set commit/publish |
 | `platform_developer` | Platform developers | Script includes, safe logs, source lookup, workflows, UI policy, change set management |
 | `service_desk` | Operations | Incident handling, comments, user lookup, article lookup |
-| `full` | Admin / unrestricted read surface | Broad access across all implemented tool domains |
+| `full` | Admin / unrestricted | Broad access across all implemented tool domains |
 
 ## Safety Policy
 
@@ -221,7 +215,7 @@ uv pip install -e ".[browser,dev]"
 uv run playwright install chromium
 ```
 
-For Windows-specific setup, see [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
+> Windows-specific setup: [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)
 
 ## Documentation
 
