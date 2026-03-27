@@ -39,7 +39,13 @@ class UpdateCatalogItemParams(BaseModel):
     order: Optional[int] = None
 
 
-@register_tool(name="get_optimization_recommendations", params=OptimizationRecommendationsParams, description="Get optimization recommendations for the service catalog.", serialization="json", return_type=str)
+@register_tool(
+    name="get_optimization_recommendations",
+    params=OptimizationRecommendationsParams,
+    description="Get optimization recommendations for the service catalog.",
+    serialization="json",
+    return_type=str,
+)
 def get_optimization_recommendations(
     config: ServerConfig, auth_manager: AuthManager, params: OptimizationRecommendationsParams
 ) -> Dict:
@@ -151,7 +157,13 @@ def get_optimization_recommendations(
         }
 
 
-@register_tool(name="update_catalog_item", params=UpdateCatalogItemParams, description="Update a service catalog item.", serialization="json", return_type=str)
+@register_tool(
+    name="update_catalog_item",
+    params=UpdateCatalogItemParams,
+    description="Update a service catalog item.",
+    serialization="json",
+    return_type=str,
+)
 def update_catalog_item(
     config: ServerConfig, auth_manager: AuthManager, params: UpdateCatalogItemParams
 ) -> Dict:
