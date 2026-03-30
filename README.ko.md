@@ -202,6 +202,37 @@ uvx mfa-servicenow-mcp \
 
 이 정책은 어떤 도구 패키지를 쓰든 동일합니다.
 
+포탈 조사 도구도 기본적으로 보수적으로 동작합니다.
+
+- `search_portal_regex_matches`는 기본적으로 widget만 조회하고 linked 확장은 꺼져 있으며 기본 제한도 작게 잡혀 있습니다.
+- `download_portal_sources`도 명시적으로 요청하지 않으면 Script Include, Angular Provider를 따라가지 않습니다.
+- 큰 포탈 스캔 요청은 서버에서 상한이 적용되며, 안전 기본값보다 넓은 요청에는 경고를 반환합니다.
+- 권장 흐름은 특정 위젯 1~2개를 먼저 지정하고, 정말 필요할 때만 linked 확장과 범위를 늘리는 것입니다.
+
+예시: 특정 위젯만 대상으로 조회
+
+```json
+{
+  "regex": "btnClickLoadData|myQuery",
+  "widget_ids": ["jobWFMngt2Wd"],
+  "max_widgets": 1,
+  "max_matches": 20
+}
+```
+
+예시: 확장이 필요한 경우에만 명시적으로 요청
+
+```json
+{
+  "regex": "btnClickLoadData|myQuery",
+  "widget_ids": ["jobWFMngt2Wd", "jobWFMngtLegacyWd"],
+  "include_linked_script_includes": true,
+  "include_linked_angular_providers": true,
+  "max_widgets": 2,
+  "max_matches": 50
+}
+```
+
 ## 개발용 설치
 
 로컬에서 직접 수정하려면:
