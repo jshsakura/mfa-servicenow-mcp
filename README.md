@@ -202,6 +202,37 @@ Rules:
 
 This policy applies regardless of the selected tool package.
 
+Portal investigation tools are also conservative by default.
+
+- `search_portal_regex_matches` starts with widget-only scanning, linked expansion off, and small default limits.
+- `download_portal_sources` does not pull linked Script Includes or Angular Providers unless explicitly requested.
+- Large portal scans are capped server-side and return warnings when the request is broader than the safe default.
+- The intended workflow is: target one widget or a small widget list first, then opt in to broader expansion only when needed.
+
+Example targeted portal search:
+
+```json
+{
+  "regex": "btnClickLoadData|myQuery",
+  "widget_ids": ["jobWFMngt2Wd"],
+  "max_widgets": 1,
+  "max_matches": 20
+}
+```
+
+Example broader search with explicit opt-in:
+
+```json
+{
+  "regex": "btnClickLoadData|myQuery",
+  "widget_ids": ["jobWFMngt2Wd", "jobWFMngtLegacyWd"],
+  "include_linked_script_includes": true,
+  "include_linked_angular_providers": true,
+  "max_widgets": 2,
+  "max_matches": 50
+}
+```
+
 ## Developer Setup
 
 If you want to modify the source locally:

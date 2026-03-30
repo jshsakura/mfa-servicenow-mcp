@@ -50,8 +50,8 @@ class GetPortalComponentParams(BaseModel):
         description="Character offset to start reading script fields from. Use for paginating large scripts.",
     )
     script_max_length: int = Field(
-        20000,
-        description="Maximum characters to return per script field (default 20000). Use with script_offset to paginate.",
+        8000,
+        description="Maximum characters to return per script field (default 8000, clamped to 12000). Use with script_offset to paginate.",
     )
 
 
@@ -80,11 +80,11 @@ class DownloadPortalSourcesParams(BaseModel):
         description="Optional list of widget sys_id/id/name. If empty, exports all widgets in scope.",
     )
     include_linked_script_includes: bool = Field(
-        True,
+        False,
         description="Include script includes referenced by exported widgets",
     )
     include_linked_angular_providers: bool = Field(
-        True,
+        False,
         description="Include angular providers linked via widget-provider M2M",
     )
     include_widget_client_script: bool = Field(
@@ -107,8 +107,11 @@ class DownloadPortalSourcesParams(BaseModel):
         True,
         description="Include widget css.scss output",
     )
-    max_widgets: int = Field(500, description="Maximum widgets to export")
-    page_size: int = Field(100, description="Pagination size for API queries (10..100)")
+    max_widgets: int = Field(
+        25,
+        description="Maximum widgets to export (default 25, clamped to 100)",
+    )
+    page_size: int = Field(50, description="Pagination size for API queries (10..100)")
 
 
 def _strip_metadata(record: Dict[str, Any], keep_fields: List[str]) -> Dict[str, Any]:
@@ -152,12 +155,14 @@ WIDGET_METADATA_FIELDS = [
 ]
 
 DEFAULT_REDIRECT_PATTERN = r"/[A-Za-z0-9_-]+\?id=[A-Za-z0-9_-]+"
-MAX_WIDGET_REVIEW_LIMIT = 1000
-MAX_WIDGET_REVIEW_MATCHES = 2000
+MAX_PORTAL_DOWNLOAD_WIDGETS = 100
+MAX_WIDGET_REVIEW_LIMIT = 100
+MAX_WIDGET_REVIEW_MATCHES = 100
 DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH = 220
-MAX_ANGULAR_PROVIDER_SCAN_LIMIT = 2000
-MAX_ANGULAR_IMPLICIT_GLOBAL_MATCHES = 5000
+MAX_ANGULAR_PROVIDER_SCAN_LIMIT = 100
+MAX_ANGULAR_IMPLICIT_GLOBAL_MATCHES = 100
 DEFAULT_ANGULAR_IMPLICIT_SNIPPET_LENGTH = 180
+MAX_COMPONENT_SCRIPT_CHARS = 12000
 
 KNOWN_GLOBAL_IDENTIFIERS = {
     "this",
@@ -223,7 +228,7 @@ class SearchPortalRegexMatchesParams(BaseModel):
         description="Optional angular provider sys_id/name filters. If provided, scan these providers directly (bypasses widget→M2M lookup).",
     )
     source_types: List[str] = Field(
-        ["widget", "script_include", "angular_provider"],
+        ["widget"],
         description="Source types to include. Allowed: widget, script_include, angular_provider",
     )
     updated_after: str | None = Field(
@@ -235,11 +240,11 @@ class SearchPortalRegexMatchesParams(BaseModel):
         description="Optional upper bound for sys_updated_on (YYYY-MM-DD or datetime)",
     )
     include_linked_script_includes: bool = Field(
-        True,
+        False,
         description="Expand scan to script includes referenced by matched widgets",
     )
     include_linked_angular_providers: bool = Field(
-        True,
+        False,
         description="Expand scan to angular providers linked to matched widgets",
     )
     linked_components_updated_by_only: bool = Field(
@@ -251,12 +256,12 @@ class SearchPortalRegexMatchesParams(BaseModel):
         description="Widget fields to scan for pattern",
     )
     max_widgets: int = Field(
-        200,
+        25,
         description=f"Maximum widgets to scan after filter. Clamped to {MAX_WIDGET_REVIEW_LIMIT}.",
     )
-    page_size: int = Field(100, description="Pagination size for API queries (10..100)")
+    page_size: int = Field(50, description="Pagination size for API queries (10..100)")
     max_matches: int = Field(
-        300,
+        25,
         description=f"Maximum total matches to return. Clamped to {MAX_WIDGET_REVIEW_MATCHES}.",
     )
     snippet_length: int = Field(
@@ -295,12 +300,12 @@ class DetectAngularImplicitGlobalsParams(BaseModel):
         description="Optional upper bound for sys_updated_on (YYYY-MM-DD or datetime)",
     )
     max_providers: int = Field(
-        300,
+        25,
         description=f"Maximum providers to scan after filter. Clamped to {MAX_ANGULAR_PROVIDER_SCAN_LIMIT}.",
     )
-    page_size: int = Field(100, description="Pagination size for API queries (10..100)")
+    page_size: int = Field(50, description="Pagination size for API queries (10..100)")
     max_matches: int = Field(
-        500,
+        25,
         description=f"Maximum total findings to return. Clamped to {MAX_ANGULAR_IMPLICIT_GLOBAL_MATCHES}.",
     )
     snippet_length: int = Field(
@@ -359,6 +364,61 @@ def _clamp_widget_review_matches(value: int) -> int:
 
 def _clamp_snippet_length(value: int) -> int:
     return max(80, min(value, 500))
+
+
+def _clamp_download_widget_limit(value: int) -> int:
+    return max(1, min(value, MAX_PORTAL_DOWNLOAD_WIDGETS))
+
+
+def _clamp_script_chunk_length(value: int) -> int:
+    return max(1000, min(value, MAX_COMPONENT_SCRIPT_CHARS))
+
+
+def _portal_scan_warnings(
+    *,
+    requested_max_widgets: int | None = None,
+    effective_max_widgets: int | None = None,
+    requested_max_matches: int | None = None,
+    effective_max_matches: int | None = None,
+    include_linked_script_includes: bool = False,
+    include_linked_angular_providers: bool = False,
+    widget_ids: List[str] | None = None,
+    provider_ids: List[str] | None = None,
+) -> List[str]:
+    warnings: List[str] = []
+    targeted_widget_count = len(widget_ids or [])
+    targeted_provider_count = len(provider_ids or [])
+
+    if targeted_widget_count == 0 and targeted_provider_count == 0:
+        warnings.append(
+            "No explicit widget/provider target was provided. The server will stay conservative, but targeted IDs are recommended."
+        )
+    if include_linked_script_includes or include_linked_angular_providers:
+        warnings.append(
+            "Linked component expansion is enabled. This increases remote queries and response size."
+        )
+    if (
+        requested_max_widgets is not None
+        and effective_max_widgets is not None
+        and requested_max_widgets > effective_max_widgets
+    ):
+        warnings.append(
+            f"Requested max_widgets={requested_max_widgets} exceeds the safety cap and was reduced to {effective_max_widgets}."
+        )
+    if (
+        requested_max_matches is not None
+        and effective_max_matches is not None
+        and requested_max_matches > effective_max_matches
+    ):
+        warnings.append(
+            f"Requested max_matches={requested_max_matches} exceeds the safety cap and was reduced to {effective_max_matches}."
+        )
+    if requested_max_widgets is not None and requested_max_widgets > 25:
+        warnings.append(
+            "Broad widget scans should be used only when a targeted widget or small widget set is not available."
+        )
+
+    return warnings
 
 
 def _compile_search_pattern(pattern: str) -> re.Pattern[str]:
@@ -819,7 +879,7 @@ def get_portal_component_code(
     # Only return requested code fields to keep context clean
     result = _strip_metadata(response["results"][0], params.fields)
 
-    budget = max(1000, params.script_max_length)  # total char budget across ALL fields
+    budget = _clamp_script_chunk_length(params.script_max_length)
     offset = max(0, params.script_offset)
     remaining_budget = budget
 
@@ -892,6 +952,16 @@ def search_portal_regex_matches(
     max_widgets = _clamp_widget_review_limit(params.max_widgets)
     max_matches = _clamp_widget_review_matches(params.max_matches)
     snippet_length = _clamp_snippet_length(params.snippet_length)
+    warnings = _portal_scan_warnings(
+        requested_max_widgets=params.max_widgets,
+        effective_max_widgets=max_widgets,
+        requested_max_matches=params.max_matches,
+        effective_max_matches=max_matches,
+        include_linked_script_includes=params.include_linked_script_includes,
+        include_linked_angular_providers=params.include_linked_angular_providers,
+        widget_ids=params.widget_ids,
+        provider_ids=params.provider_ids,
+    )
 
     source_type_set = {value.strip().lower() for value in params.source_types if value.strip()}
     allowed_source_types = {"widget", "script_include", "angular_provider"}
@@ -1146,6 +1216,7 @@ def search_portal_regex_matches(
             "output_mode": output_mode,
         },
         "matches": output_matches,
+        "warnings": warnings,
         "safety_notice": "Returns concise line-level snippets only; full source bodies are intentionally excluded.",
     }
 
@@ -1179,6 +1250,13 @@ def detect_angular_implicit_globals(
     max_providers = _clamp_provider_scan_limit(params.max_providers)
     max_matches = _clamp_implicit_global_matches(params.max_matches)
     snippet_length = _clamp_snippet_length(params.snippet_length)
+    warnings = _portal_scan_warnings(
+        requested_max_widgets=params.max_providers,
+        effective_max_widgets=max_providers,
+        requested_max_matches=params.max_matches,
+        effective_max_matches=max_matches,
+        provider_ids=params.provider_ids,
+    )
 
     query_parts: List[str] = []
     if params.updated_by:
@@ -1261,6 +1339,7 @@ def detect_angular_implicit_globals(
             "output_mode": output_mode,
         },
         "findings": output_findings,
+        "warnings": warnings,
         "safety_notice": "Findings are static-analysis heuristics; verify before patching provider scripts.",
     }
 
@@ -1304,7 +1383,18 @@ def download_portal_sources(
     auth_manager: AuthManager,
     params: DownloadPortalSourcesParams,
 ) -> Dict[str, Any]:
-    root = Path(params.output_dir or ".").expanduser().resolve()
+    if params.output_dir and params.output_dir != ".":
+        root = Path(params.output_dir).expanduser().resolve()
+    else:
+        root = Path.cwd().resolve()
+    max_widgets = _clamp_download_widget_limit(params.max_widgets)
+    warnings = _portal_scan_warnings(
+        requested_max_widgets=params.max_widgets,
+        effective_max_widgets=max_widgets,
+        include_linked_script_includes=params.include_linked_script_includes,
+        include_linked_angular_providers=params.include_linked_angular_providers,
+        widget_ids=params.widget_ids,
+    )
     scope_name = _safe_name(params.scope or "global")
     scope_root = root / scope_name
     instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
@@ -1351,7 +1441,7 @@ def download_portal_sources(
             query=widget_base_query,
             fields=widget_fields,
             page_size=params.page_size,
-            max_records=max(1, params.max_widgets),
+            max_records=max_widgets,
         )
 
     widget_map: Dict[str, str] = {}
@@ -1551,6 +1641,7 @@ def download_portal_sources(
             "angular_providers": len(exported_providers),
             "script_includes": len(exported_script_includes),
         },
+        "warnings": warnings,
         "widget_map_path": str(scope_root / "sp_widget" / "_map.json"),
         "angular_provider_map_path": str(scope_root / "sp_angular_provider" / "_map.json"),
         "script_include_map_path": str(scope_root / "sys_script_include" / "_map.json"),

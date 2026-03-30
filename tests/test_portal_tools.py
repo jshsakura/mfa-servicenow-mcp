@@ -134,6 +134,40 @@ def test_update_portal_component_success(mock_config, mock_auth_manager):
     mock_auth_manager.make_request.assert_called_once()
 
 
+def test_portal_search_defaults_are_conservative():
+    params = SearchPortalRegexMatchesParams()
+
+    assert params.source_types == ["widget"]
+    assert params.include_linked_script_includes is False
+    assert params.include_linked_angular_providers is False
+    assert params.max_widgets == 25
+    assert params.max_matches == 25
+    assert params.page_size == 50
+
+
+def test_portal_download_defaults_are_conservative():
+    params = DownloadPortalSourcesParams()
+
+    assert params.include_linked_script_includes is False
+    assert params.include_linked_angular_providers is False
+    assert params.max_widgets == 25
+    assert params.page_size == 50
+
+
+def test_portal_component_code_default_chunk_is_conservative():
+    params = GetPortalComponentParams(table="sp_widget", sys_id="sys-1")
+
+    assert params.script_max_length == 8000
+
+
+def test_detect_angular_defaults_are_conservative():
+    params = DetectAngularImplicitGlobalsParams()
+
+    assert params.max_providers == 25
+    assert params.max_matches == 25
+    assert params.page_size == 50
+
+
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
 def test_download_portal_sources_exports_widget_provider_and_script_include(
     mock_sn_query, mock_config, mock_auth_manager, tmp_path
@@ -208,7 +242,12 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
     result = download_portal_sources(
         mock_config,
         mock_auth_manager,
-        DownloadPortalSourcesParams(output_dir=str(tmp_path), scope="x_bpm"),
+        DownloadPortalSourcesParams(
+            output_dir=str(tmp_path),
+            scope="x_bpm",
+            include_linked_script_includes=True,
+            include_linked_angular_providers=True,
+        ),
     )
 
     assert result["success"] is True
@@ -321,6 +360,9 @@ def test_search_portal_regex_matches_returns_compact_line_matches(
             updated_by="jeongsh@sorin.co.kr",
             regex=r"/ybpm\?id=rfqentry",
             compact_output=True,
+            source_types=["widget", "script_include", "angular_provider"],
+            include_linked_script_includes=True,
+            include_linked_angular_providers=True,
             max_widgets=20,
             max_matches=20,
         ),
@@ -331,6 +373,7 @@ def test_search_portal_regex_matches_returns_compact_line_matches(
     assert result["scan_summary"]["linked_angular_providers_scanned"] == 1
     assert result["scan_summary"]["linked_script_includes_scanned"] == 1
     assert result["scan_summary"]["match_count"] == 3
+    assert any("Linked component expansion is enabled" in warning for warning in result["warnings"])
 
     locations = [item["location"] for item in result["matches"]]
     assert "sp_widget/RFQ_Entry_Widget/script" in locations
@@ -355,6 +398,50 @@ def test_search_portal_regex_matches_allows_missing_updated_by(
     args, _kwargs = mock_sn_query.call_args
     query = args[2].query
     assert "sys_updated_by=" not in query
+    assert any("No explicit widget/provider target" in warning for warning in result["warnings"])
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_search_portal_regex_matches_warns_and_clamps_broad_requests(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.return_value = {"success": True, "results": []}
+
+    result = search_portal_regex_matches(
+        mock_config,
+        mock_auth_manager,
+        SearchPortalRegexMatchesParams(
+            regex=r"abc",
+            max_widgets=999,
+            max_matches=999,
+            include_linked_script_includes=True,
+            include_linked_angular_providers=True,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["scan_summary"]["max_widgets"] == 100
+    assert result["scan_summary"]["max_matches"] == 100
+    assert any("reduced to 100" in warning for warning in result["warnings"])
+    assert any("Broad widget scans" in warning for warning in result["warnings"])
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_search_portal_regex_matches_targeted_widget_avoids_broad_target_warning(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.return_value = {"success": True, "results": []}
+
+    result = search_portal_regex_matches(
+        mock_config,
+        mock_auth_manager,
+        SearchPortalRegexMatchesParams(regex=r"abc", widget_ids=["wid-1"]),
+    )
+
+    assert result["success"] is True
+    assert not any(
+        "No explicit widget/provider target" in warning for warning in result["warnings"]
+    )
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
@@ -421,6 +508,7 @@ def test_detect_angular_implicit_globals_finds_undeclared_assignment(
     assert result["success"] is True
     assert result["scan_summary"]["providers_scanned"] == 1
     assert result["scan_summary"]["finding_count"] == 1
+    assert any("No explicit widget/provider target" in warning for warning in result["warnings"])
     finding = result["findings"][0]
     assert finding["variable"] == "test"
     assert finding["issue"] == "implicit_global_assignment"
@@ -476,3 +564,29 @@ def test_detect_angular_implicit_globals_minimal_mode_shape(
     assert result["success"] is True
     assert result["filters"]["output_mode"] == "minimal"
     assert set(result["findings"][0].keys()) == {"location", "line"}
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_download_portal_sources_warns_and_clamps_broad_requests(
+    mock_sn_query, mock_config, mock_auth_manager, tmp_path
+):
+    mock_sn_query.side_effect = [
+        {"success": True, "results": []},
+        {"success": True, "results": []},
+    ]
+
+    result = download_portal_sources(
+        mock_config,
+        mock_auth_manager,
+        DownloadPortalSourcesParams(
+            output_dir=str(tmp_path),
+            scope="x_bpm",
+            max_widgets=999,
+            include_linked_script_includes=True,
+            include_linked_angular_providers=True,
+        ),
+    )
+
+    assert result["success"] is True
+    assert any("reduced to 100" in warning for warning in result["warnings"])
+    assert any("Linked component expansion is enabled" in warning for warning in result["warnings"])
