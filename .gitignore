@@ -39,6 +39,8 @@ htmlcov/
 *.swp
 *.swo
 opencode.json
+.cursorrules
+.claude/
 
 # Environment files
 .env
@@ -62,3 +64,8 @@ Thumbs.db
 # Project specific
 debug_*.py
 *.bak
+_settings.json
+_last_error.json
+scopes.json
+x_bpm/
+.tmp*/
