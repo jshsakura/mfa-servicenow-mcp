@@ -815,70 +815,108 @@ def get_provider_dependency_map(
 # Tool 4: get_developer_daily_summary
 # ---------------------------------------------------------------------------
 
-DAILY_SUMMARY_TABLES = {
+# Source code fields to analyse per table type (fetched, parsed, then discarded)
+_SUMMARY_SOURCE_FIELDS: Dict[str, Dict[str, Any]] = {
     "widget": {
         "table": "sp_widget",
         "label": "Widget",
         "name_field": "name",
-        "extra_fields": "id",
+        "meta_fields": "sys_id,name,id,sys_scope,sys_updated_on",
+        "source_fields": ["script", "client_script", "template", "css"],
     },
     "angular_provider": {
         "table": "sp_angular_provider",
         "label": "Angular Provider",
         "name_field": "name",
-        "extra_fields": "",
+        "meta_fields": "sys_id,name,sys_scope,sys_updated_on",
+        "source_fields": ["script"],
     },
     "script_include": {
         "table": "sys_script_include",
         "label": "Script Include",
         "name_field": "name",
-        "extra_fields": "api_name",
+        "meta_fields": "sys_id,name,api_name,sys_scope,sys_updated_on",
+        "source_fields": ["script"],
     },
     "business_rule": {
         "table": "sys_script",
         "label": "Business Rule",
         "name_field": "name",
-        "extra_fields": "collection",
+        "meta_fields": "sys_id,name,collection,sys_scope,sys_updated_on",
+        "source_fields": ["script"],
     },
     "client_script": {
         "table": "sys_client_script",
         "label": "Client Script",
         "name_field": "name",
-        "extra_fields": "table,type",
+        "meta_fields": "sys_id,name,table,type,sys_scope,sys_updated_on",
+        "source_fields": ["script"],
     },
     "ui_action": {
         "table": "sys_ui_action",
         "label": "UI Action",
         "name_field": "name",
-        "extra_fields": "table,action_name",
+        "meta_fields": "sys_id,name,table,action_name,sys_scope,sys_updated_on",
+        "source_fields": ["script"],
     },
     "ui_script": {
         "table": "sys_ui_script",
         "label": "UI Script",
         "name_field": "name",
-        "extra_fields": "",
+        "meta_fields": "sys_id,name,sys_scope,sys_updated_on",
+        "source_fields": ["script"],
     },
     "ui_page": {
         "table": "sys_ui_page",
         "label": "UI Page",
         "name_field": "name",
-        "extra_fields": "",
+        "meta_fields": "sys_id,name,sys_scope,sys_updated_on",
+        "source_fields": ["html", "client_script", "processing_script"],
     },
     "scripted_rest": {
         "table": "sys_ws_operation",
         "label": "Scripted REST",
         "name_field": "name",
-        "extra_fields": "http_method",
+        "meta_fields": "sys_id,name,http_method,sys_scope,sys_updated_on",
+        "source_fields": ["operation_script"],
     },
     "fix_script": {
         "table": "sys_script_fix",
         "label": "Fix Script",
         "name_field": "name",
-        "extra_fields": "",
+        "meta_fields": "sys_id,name,sys_scope,sys_updated_on",
+        "source_fields": ["script"],
     },
 }
 
-MAX_DAILY_SUMMARY_PER_TABLE = 50
+MAX_DAILY_SUMMARY_PER_TABLE = 30
+
+# Regex for extracting top-level function/class names from scripts
+_FUNC_NAME_RE = re.compile(
+    r"(?:"
+    r"\bfunction\s+([A-Za-z_$][\w$]*)"  # function declarations
+    r"|\b([A-Za-z_$][\w$]*)\s*[:=]\s*function"  # function expressions
+    r"|\b([A-Za-z_$][\w$]*)\s*[:=]\s*\([^)]*\)\s*=>"  # arrow functions
+    r"|\bClass\.create\(\)"  # ServiceNow class pattern
+    r"|\bvar\s+([A-Za-z_$][\w$]*)\s*=\s*Class\.create"  # SI class name
+    r")"
+)
+
+
+def _extract_script_profile(content: str) -> Dict[str, Any]:
+    """Extract lightweight profile from a script: line count, function names."""
+    if not content or not content.strip():
+        return {}
+    lines = content.count("\n") + 1
+    funcs: List[str] = []
+    for m in _FUNC_NAME_RE.finditer(content):
+        name = m.group(1) or m.group(2) or m.group(3) or m.group(4)
+        if name and name not in funcs and len(funcs) < 15:
+            funcs.append(name)
+    profile: Dict[str, Any] = {"lines": lines}
+    if funcs:
+        profile["functions"] = funcs
+    return profile
 
 
 class GetDeveloperDailySummaryParams(BaseModel):
@@ -902,9 +940,17 @@ class GetDeveloperDailySummaryParams(BaseModel):
         True,
         description="Include list of update sets touched on that date",
     )
+    include_details: bool = Field(
+        True,
+        description=(
+            "When true, fetch source fields to extract line counts, function names, "
+            "and field presence. Script bodies are parsed then discarded (not returned). "
+            "For widgets, also resolves linked Angular Providers."
+        ),
+    )
     output_format: str = Field(
         "jira",
-        description="Output format: jira (markdown table for Jira/Confluence), plain (flat list), structured (JSON)",
+        description="Output format: jira (markdown table), plain (flat list), structured (JSON)",
     )
 
 
@@ -913,8 +959,9 @@ class GetDeveloperDailySummaryParams(BaseModel):
     params=GetDeveloperDailySummaryParams,
     description=(
         "Generate a daily work summary for a portal developer, optimized for Jira/Confluence reporting. "
-        "Lists all portal components (widgets, providers, script includes) modified on a specific date. "
-        "Output is compact and ready to paste into Jira issues or daily standup notes. "
+        "With include_details=true (default), analyses source code to show line counts, function names, "
+        "field presence (template/script/css), and linked Angular Providers per widget. "
+        "Script bodies are parsed server-side then discarded — only metrics are returned. "
         "Supports jira (markdown table), plain (flat list), and structured (JSON) output formats."
     ),
     serialization="raw_dict",
@@ -931,11 +978,12 @@ def get_developer_daily_summary(
     date_end = f"{date_str} 23:59:59"
 
     total_api_calls = 0
-    categories: Dict[str, List[Dict[str, str]]] = {}
+    categories: Dict[str, List[Dict[str, Any]]] = {}
     total_changes = 0
+    all_widget_ids: List[str] = []
 
     for stype in params.source_types:
-        tconfig = DAILY_SUMMARY_TABLES.get(stype)
+        tconfig = _SUMMARY_SOURCE_FIELDS.get(stype)
         if not tconfig:
             continue
 
@@ -948,12 +996,13 @@ def get_developer_daily_summary(
             query_parts.append(f"sys_scope={_escape_query(params.scope)}")
         query = "^".join(query_parts)
 
-        fields = f"sys_id,{tconfig['name_field']},sys_scope,sys_updated_on"
-        if tconfig["extra_fields"]:
-            fields += f",{tconfig['extra_fields']}"
+        # Build fields: metadata + source fields if details requested
+        fields = tconfig["meta_fields"]
+        if params.include_details:
+            fields += "," + ",".join(tconfig["source_fields"])
 
         try:
-            rows, total_count = _sn_get(
+            rows, _ = _sn_get(
                 config,
                 auth_manager,
                 tconfig["table"],
@@ -970,28 +1019,154 @@ def get_developer_daily_summary(
         if not rows:
             continue
 
-        items: List[Dict[str, str]] = []
+        items: List[Dict[str, Any]] = []
         for row in rows:
-            item: Dict[str, str] = {
+            item: Dict[str, Any] = {
                 "name": row.get(tconfig["name_field"], ""),
                 "sys_id": row.get("sys_id", ""),
-                "updated_on": row.get("sys_updated_on", ""),
             }
+            # Time portion only for brevity
+            updated = row.get("sys_updated_on", "")
+            item["time"] = updated.split(" ")[-1] if " " in updated else updated
+
             scope_val = row.get("sys_scope", "")
             if isinstance(scope_val, dict):
                 scope_val = scope_val.get("display_value", "")
             if scope_val:
                 item["scope"] = scope_val
-            for ef in tconfig["extra_fields"].split(","):
-                ef = ef.strip()
-                if ef and row.get(ef):
-                    item[ef] = row[ef]
+
+            # Extra metadata fields (id, collection, table, etc.)
+            for mf in tconfig["meta_fields"].split(","):
+                mf = mf.strip()
+                if mf not in (
+                    "sys_id",
+                    "name",
+                    tconfig["name_field"],
+                    "sys_scope",
+                    "sys_updated_on",
+                ):
+                    val = row.get(mf, "")
+                    if val:
+                        item[mf] = val
+
+            # Source analysis: extract profiles then discard bodies
+            if params.include_details:
+                field_profiles: Dict[str, Any] = {}
+                for sf in tconfig["source_fields"]:
+                    content = row.get(sf, "")
+                    if content and isinstance(content, str) and content.strip():
+                        profile = _extract_script_profile(content)
+                        if profile:
+                            field_profiles[sf] = profile
+                if field_profiles:
+                    item["fields"] = field_profiles
+
+            # Track widget IDs for provider lookup
+            if stype == "widget" and row.get("sys_id"):
+                all_widget_ids.append(row["sys_id"])
+
             items.append(item)
 
         categories[tconfig["label"]] = items
         total_changes += len(items)
 
-    # Optionally include update sets touched on that date
+    # Resolve Widget → Angular Provider links
+    widget_providers: Dict[str, List[str]] = {}
+    if params.include_details and all_widget_ids:
+        try:
+            m2m_query = "sp_widgetIN" + ",".join(all_widget_ids)
+            m2m_rows, _ = _sn_get(
+                config,
+                auth_manager,
+                "m2m_sp_widget_angular_provider",
+                m2m_query,
+                "sp_widget,sp_angular_provider",
+                limit=100,
+            )
+            total_api_calls += 1
+
+            provider_ids: List[str] = []
+            w_p_map: Dict[str, List[str]] = {}
+            for row in m2m_rows:
+                w_ref = row.get("sp_widget", "")
+                p_ref = row.get("sp_angular_provider", "")
+                w_id = w_ref.get("value", w_ref) if isinstance(w_ref, dict) else str(w_ref)
+                p_id = p_ref.get("value", p_ref) if isinstance(p_ref, dict) else str(p_ref)
+                if w_id and p_id:
+                    w_p_map.setdefault(w_id, []).append(p_id)
+                    if p_id not in provider_ids:
+                        provider_ids.append(p_id)
+
+            # Resolve provider names
+            if provider_ids:
+                p_query = "sys_idIN" + ",".join(provider_ids)
+                p_rows, _ = _sn_get(
+                    config,
+                    auth_manager,
+                    "sp_angular_provider",
+                    p_query,
+                    "sys_id,name",
+                    limit=100,
+                )
+                total_api_calls += 1
+                p_names = {p.get("sys_id", ""): p.get("name", "") for p in p_rows}
+
+                for w_id, p_ids in w_p_map.items():
+                    widget_providers[w_id] = [p_names.get(pid, pid) for pid in p_ids]
+
+        except Exception as exc:
+            logger.warning("Failed to resolve widget providers: %s", exc)
+
+    # Attach provider names to widget items
+    if widget_providers and "Widget" in categories:
+        for item in categories["Widget"]:
+            providers = widget_providers.get(item.get("sys_id", ""), [])
+            if providers:
+                item["providers"] = providers
+
+    # Update XML cross-match for action type (INSERT vs UPDATE)
+    all_sys_ids: List[str] = []
+    for items in categories.values():
+        for item in items:
+            if item.get("sys_id"):
+                all_sys_ids.append(item["sys_id"])
+
+    action_map: Dict[str, str] = {}
+    if params.include_details and all_sys_ids:
+        try:
+            # sys_update_xml.action field: INSERT_OR_UPDATE, etc.
+            xml_query = (
+                f"sys_updated_by={safe_developer}"
+                f"^sys_updated_on>={date_start}"
+                f"^sys_updated_on<={date_end}"
+            )
+            xml_rows, _ = _sn_get(
+                config,
+                auth_manager,
+                "sys_update_xml",
+                xml_query,
+                "target_name,action,name",
+                limit=100,
+                orderby="-sys_updated_on",
+            )
+            total_api_calls += 1
+            for xr in xml_rows:
+                target = xr.get("target_name", "")
+                action = xr.get("action", "")
+                if target and action:
+                    action_map[target] = action
+        except Exception as exc:
+            logger.warning("Failed to fetch update XML for action mapping: %s", exc)
+
+    # Attach action to items
+    if action_map:
+        for items in categories.values():
+            for item in items:
+                action = action_map.get(item.get("name", ""))
+                if action:
+                    item["action"] = action
+
+    # Optionally include update sets
     update_set_summary: List[Dict[str, str]] = []
     if params.include_update_sets:
         us_query_parts = [
@@ -1040,14 +1215,32 @@ def get_developer_daily_summary(
         ]
         for cat_label, items in categories.items():
             lines.append(f"### {cat_label} ({len(items)}건)")
-            lines.append("| Name | Scope | Updated |")
-            lines.append("|------|-------|---------|")
-            for item in items:
-                name = item.get("name", "")
-                scope = item.get("scope", "")
-                updated = item.get("updated_on", "")
-                time_part = updated.split(" ")[-1] if " " in updated else updated
-                lines.append(f"| {name} | {scope} | {time_part} |")
+            if params.include_details:
+                lines.append("| Name | Action | Details | Time |")
+                lines.append("|------|--------|---------|------|")
+                for item in items:
+                    name = item.get("name", "")
+                    action = item.get("action", "")
+                    time_val = item.get("time", "")
+                    # Build details string
+                    details_parts: List[str] = []
+                    if item.get("scope"):
+                        details_parts.append(item["scope"])
+                    fields_info = item.get("fields", {})
+                    for fname, fprofile in fields_info.items():
+                        line_count = fprofile.get("lines", 0)
+                        details_parts.append(f"{fname}:{line_count}L")
+                    if item.get("providers"):
+                        details_parts.append("→ " + ", ".join(item["providers"]))
+                    details = " · ".join(details_parts) if details_parts else ""
+                    lines.append(f"| {name} | {action} | {details} | {time_val} |")
+            else:
+                lines.append("| Name | Scope | Updated |")
+                lines.append("|------|-------|---------|")
+                for item in items:
+                    lines.append(
+                        f"| {item.get('name', '')} | {item.get('scope', '')} | {item.get('time', '')} |"
+                    )
             lines.append("")
 
         if update_set_summary:
@@ -1075,8 +1268,21 @@ def get_developer_daily_summary(
             lines.append(f"\n● {cat_label} ({len(items)}건)")
             for item in items:
                 name = item.get("name", "")
-                scope = item.get("scope", "")
-                lines.append(f"  - {name}" + (f" ({scope})" if scope else ""))
+                action = item.get("action", "")
+                parts = [name]
+                if action:
+                    parts.append(f"[{action}]")
+                if item.get("scope"):
+                    parts.append(f"({item['scope']})")
+                fields_info = item.get("fields", {})
+                if fields_info:
+                    field_str = ", ".join(
+                        f"{k}:{v.get('lines', 0)}L" for k, v in fields_info.items()
+                    )
+                    parts.append(f"({field_str})")
+                if item.get("providers"):
+                    parts.append(f"→ {', '.join(item['providers'])}")
+                lines.append(f"  - {' '.join(parts)}")
 
         if update_set_summary:
             lines.append(f"\n● Update Sets ({len(update_set_summary)}건)")
