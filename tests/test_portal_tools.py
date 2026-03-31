@@ -8,12 +8,14 @@ from servicenow_mcp.tools.portal_tools import (
     GetPortalComponentParams,
     GetWidgetBundleParams,
     SearchPortalRegexMatchesParams,
+    TracePortalRouteTargetsParams,
     UpdatePortalComponentParams,
     detect_angular_implicit_globals,
     download_portal_sources,
     get_portal_component_code,
     get_widget_bundle,
     search_portal_regex_matches,
+    trace_portal_route_targets,
     update_portal_component,
 )
 from servicenow_mcp.utils.config import ServerConfig
@@ -482,6 +484,213 @@ def test_search_portal_regex_matches_minimal_output_mode(
     assert result["scan_summary"]["output_mode"] == "minimal"
     assert len(result["matches"]) == 1
     assert set(result["matches"][0].keys()) == {"location", "line"}
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_search_portal_regex_matches_auto_mode_treats_plain_text_as_literal(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.return_value = {
+        "success": True,
+        "results": [
+            {
+                "sys_id": "wid-1",
+                "name": "RFQ Entry Widget",
+                "id": "rfq_entry_widget",
+                "script": "data.url='/ybpm?id=rfqentry';",
+                "template": "",
+                "client_script": "",
+                "link": "",
+                "css": "",
+            }
+        ],
+    }
+
+    result = search_portal_regex_matches(
+        mock_config,
+        mock_auth_manager,
+        SearchPortalRegexMatchesParams(
+            regex="/ybpm?id=rfqentry",
+            max_widgets=5,
+            max_matches=5,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["filters"]["match_mode"] == "auto"
+    assert result["filters"]["effective_match_mode"] == "literal"
+    assert result["filters"]["resolved_pattern"] == r"/ybpm\?id=rfqentry"
+    assert len(result["matches"]) == 1
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_search_portal_regex_matches_regex_mode_preserves_pattern(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.return_value = {"success": True, "results": []}
+
+    result = search_portal_regex_matches(
+        mock_config,
+        mock_auth_manager,
+        SearchPortalRegexMatchesParams(
+            regex=r"/ybpm\?id=(rfqentry|rfqdetail)",
+            match_mode="regex",
+            max_widgets=5,
+            max_matches=5,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["filters"]["effective_match_mode"] == "regex"
+    assert result["filters"]["resolved_pattern"] == r"/ybpm\?id=(rfqentry|rfqdetail)"
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.side_effect = [
+        {
+            "success": True,
+            "results": [
+                {
+                    "sys_id": "wid-1",
+                    "name": "Budget Widget",
+                    "id": "budget_widget",
+                    "template": '<button ng-click="branchToBudget()">Budget</button>',
+                    "script": "",
+                    "client_script": (
+                        "function branchToBudget(){ return '/sp?id=hopesinitplanbudgetmanhour'; }"
+                    ),
+                    "link": "",
+                }
+            ],
+        },
+        {
+            "success": True,
+            "results": [
+                {"sp_widget": {"value": "wid-1"}, "sp_angular_provider": {"value": "prov-1"}}
+            ],
+        },
+        {
+            "success": True,
+            "results": [
+                {
+                    "sys_id": "prov-1",
+                    "name": "budgetProvider",
+                    "script": (
+                        "function resolveBudgetRoute(){ return '/sp?id=hopesinitplanbudgetmanhour'; }"
+                    ),
+                }
+            ],
+        },
+    ]
+
+    result = trace_portal_route_targets(
+        mock_config,
+        mock_auth_manager,
+        TracePortalRouteTargetsParams(
+            regex=r"hopesinitplanbudgetmanhour",
+            widget_ids=["budget_widget"],
+            output_mode="minimal",
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["summary"]["widgets_scanned"] == 1
+    assert result["summary"]["providers_with_hits"] == 1
+    assert result["summary"]["trace_count"] == 1
+
+    trace = result["traces"][0]
+    assert trace["widget"]["name"] == "Budget Widget"
+    assert trace["service_names"] == ["budgetProvider"]
+    assert "branchToBudget()" in trace["button_handlers"]
+    assert "branchToBudget" in trace["button_handlers"]
+    assert "branchToBudget" in trace["branch_names"]
+    assert "resolveBudgetRoute" in trace["branch_names"]
+    assert trace["route_targets"][0]["page_id"] == "hopesinitplanbudgetmanhour"
+    assert {"location", "line", "match"} <= set(trace["evidence"][0].keys())
+    assert result["filters"]["effective_match_mode"] == "literal"
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_trace_portal_route_targets_full_mode_includes_provider_details(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.side_effect = [
+        {
+            "success": True,
+            "results": [
+                {
+                    "sys_id": "wid-1",
+                    "name": "Budget Widget",
+                    "id": "budget_widget",
+                    "template": "",
+                    "script": "function openBudget(){ return '/sp?id=hopesinitplanbudgetmanhour'; }",
+                    "client_script": "",
+                    "link": "",
+                }
+            ],
+        },
+        {
+            "success": True,
+            "results": [
+                {"sp_widget": {"value": "wid-1"}, "sp_angular_provider": {"value": "prov-1"}}
+            ],
+        },
+        {
+            "success": True,
+            "results": [
+                {
+                    "sys_id": "prov-1",
+                    "name": "budgetProvider",
+                    "script": "function resolveBudgetRoute(){ return '/sp?id=hopesinitplanbudgetmanhour'; }",
+                }
+            ],
+        },
+    ]
+
+    result = trace_portal_route_targets(
+        mock_config,
+        mock_auth_manager,
+        TracePortalRouteTargetsParams(
+            regex=r"hopesinitplanbudgetmanhour",
+            widget_ids=["budget_widget"],
+            output_mode="full",
+        ),
+    )
+
+    trace = result["traces"][0]
+    assert trace["matched_provider_count"] == 1
+    assert trace["matched_widget_field_count"] == 1
+    assert trace["linked_providers"] == [{"sys_id": "prov-1", "name": "budgetProvider"}]
+    assert trace["provider_matches"][0]["provider"] == {
+        "sys_id": "prov-1",
+        "name": "budgetProvider",
+    }
+    assert trace["provider_matches"][0]["context_name"] == "resolveBudgetRoute"
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_trace_portal_route_targets_regex_mode_preserves_route_pattern(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.return_value = {"success": True, "results": []}
+
+    result = trace_portal_route_targets(
+        mock_config,
+        mock_auth_manager,
+        TracePortalRouteTargetsParams(
+            regex=r"hopes(init|legacy)planbudgetmanhour",
+            match_mode="regex",
+            max_widgets=5,
+            max_traces=5,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["filters"]["effective_match_mode"] == "regex"
+    assert result["filters"]["resolved_pattern"] == r"hopes(init|legacy)planbudgetmanhour"
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")

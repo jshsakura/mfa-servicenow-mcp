@@ -8,7 +8,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Set
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel, Field
 
@@ -209,7 +209,13 @@ IMPLICIT_ASSIGNMENT_RE = re.compile(r"(?<![.\w$])([A-Za-z_$][\w$]*)\s*([+\-*/%]?
 class SearchPortalRegexMatchesParams(BaseModel):
     regex: str = Field(
         DEFAULT_REDIRECT_PATTERN,
-        description="Regex pattern to find in source code",
+        description=(
+            "Pattern to find in source code. In auto mode (default), plain strings are treated literally and regex-looking patterns stay regex."
+        ),
+    )
+    match_mode: str = Field(
+        "auto",
+        description="Pattern mode: auto | literal | regex. Use auto for LLM-friendly matching without manual escaping.",
     )
     updated_by: str | None = Field(
         None,
@@ -275,6 +281,60 @@ class SearchPortalRegexMatchesParams(BaseModel):
     output_mode: str | None = Field(
         None,
         description="Optional output shape override: minimal | compact | full",
+    )
+
+
+class TracePortalRouteTargetsParams(BaseModel):
+    regex: str = Field(
+        DEFAULT_REDIRECT_PATTERN,
+        description=(
+            "Pattern for the route/target to trace. In auto mode (default), plain strings are treated literally and regex-looking patterns stay regex."
+        ),
+    )
+    match_mode: str = Field(
+        "auto",
+        description="Pattern mode: auto | literal | regex. Use auto for LLM-friendly matching without manual escaping.",
+    )
+    updated_by: str | None = Field(
+        None,
+        description="Optional updater filter (sys_updated_by). Example: admin@example.com",
+    )
+    scope: str | None = Field(
+        None,
+        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
+    )
+    widget_ids: List[str] | None = Field(
+        None,
+        description="Optional widget id/sys_id/name filters. If provided, only these widgets are traced.",
+    )
+    provider_ids: List[str] | None = Field(
+        None,
+        description="Optional provider id/sys_id/name filters. When provided, linked widgets are resolved first.",
+    )
+    include_linked_angular_providers: bool = Field(
+        True,
+        description="Expand each widget trace to linked Angular Providers before scanning for route matches.",
+    )
+    include_widget_fields: List[str] = Field(
+        ["template", "script", "client_script", "link"],
+        description="Widget fields to inspect for route matches or click-handler clues.",
+    )
+    max_widgets: int = Field(
+        10,
+        description=f"Maximum widgets to analyze after filters. Clamped to {MAX_WIDGET_REVIEW_LIMIT}.",
+    )
+    page_size: int = Field(50, description="Pagination size for API queries (10..100)")
+    max_traces: int = Field(
+        25,
+        description=f"Maximum widget trace rows to return. Clamped to {MAX_WIDGET_REVIEW_MATCHES}.",
+    )
+    snippet_length: int = Field(
+        DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH,
+        description="Maximum one-line evidence snippet length per match",
+    )
+    output_mode: str = Field(
+        "minimal",
+        description="Output shape: minimal | compact | full",
     )
 
 
@@ -421,9 +481,33 @@ def _portal_scan_warnings(
     return warnings
 
 
-def _compile_search_pattern(pattern: str) -> re.Pattern[str]:
+def _looks_like_regex(pattern: str) -> bool:
+    return bool(re.search(r"\\|\[|\]|\(|\)|\{|\}|\||\^|\$|\.\*|\.\+|\.\?|\(\?", pattern))
+
+
+def _resolve_match_mode(match_mode: str) -> str:
+    normalized = match_mode.strip().lower()
+    if normalized in {"auto", "literal", "regex"}:
+        return normalized
+    raise ValueError("match_mode must be one of: auto, literal, regex")
+
+
+def _compile_search_pattern(pattern: str, match_mode: str) -> tuple[re.Pattern[str], str, str]:
     raw = pattern or DEFAULT_REDIRECT_PATTERN
-    return re.compile(raw)
+    mode = _resolve_match_mode(match_mode)
+    effective_mode = mode
+    resolved_pattern = raw
+
+    if mode == "literal":
+        resolved_pattern = re.escape(raw)
+    elif mode == "auto":
+        if not _looks_like_regex(raw):
+            effective_mode = "literal"
+            resolved_pattern = re.escape(raw)
+        else:
+            effective_mode = "regex"
+
+    return re.compile(resolved_pattern), resolved_pattern, effective_mode
 
 
 def _to_one_line(value: str) -> str:
@@ -470,6 +554,7 @@ def _extract_pattern_hits(
                 "source_sys_id": source_sys_id,
                 "source_name": source_name,
                 "field": field_name,
+                "offset": start,
                 "line": line,
                 "column": column,
                 "match": matched_text,
@@ -539,6 +624,104 @@ def _resolve_fixed_output_mode(output_mode: str) -> str:
     if normalized in {"minimal", "compact", "full"}:
         return normalized
     raise ValueError("output_mode must be one of: minimal, compact, full")
+
+
+_TEMPLATE_ACTION_RE = re.compile(r"(?:ng-click|ng-change|onclick)\s*=\s*[\"']([^\"']+)[\"']")
+_CALLABLE_NAME_RE = re.compile(r"(?:^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(")
+_FUNCTION_CONTEXT_RE = re.compile(
+    r"(?:function\s+([A-Za-z_$][\w$]*)\s*\(|([A-Za-z_$][\w$]*)\s*[:=]\s*function\s*\(|([A-Za-z_$][\w$]*)\s*[:=]\s*\([^)]*\)\s*=>)"
+)
+
+
+def _dedupe_preserve_order(values: List[str]) -> List[str]:
+    seen: Set[str] = set()
+    deduped: List[str] = []
+    for value in values:
+        token = value.strip()
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        deduped.append(token)
+    return deduped
+
+
+def _extract_click_handlers(template: str) -> List[str]:
+    handlers: List[str] = []
+    if not template:
+        return handlers
+    for expression in _TEMPLATE_ACTION_RE.findall(template):
+        inner = expression.strip()
+        if inner:
+            handlers.append(inner)
+        for callable_name in _CALLABLE_NAME_RE.findall(expression):
+            handlers.append(callable_name)
+    return _dedupe_preserve_order(handlers)
+
+
+def _find_latest_function_context(content: str, index: int) -> str | None:
+    latest: str | None = None
+    for match in _FUNCTION_CONTEXT_RE.finditer(content):
+        if match.start() > index:
+            break
+        latest = match.group(1) or match.group(2) or match.group(3)
+    return latest
+
+
+def _route_target_summary(value: str) -> Dict[str, str]:
+    parsed = urlparse(value)
+    route_path = parsed.path or value
+    query = parse_qs(parsed.query)
+    page_id = ""
+    if "id" in query and query["id"]:
+        page_id = query["id"][0]
+    elif re.fullmatch(r"[A-Za-z0-9_-]+", value.strip()):
+        page_id = value.strip()
+    return {
+        "target": value,
+        "path": route_path,
+        "page_id": page_id,
+    }
+
+
+def _shape_trace_hit(hit: Dict[str, Any], *, output_mode: str) -> Dict[str, Any]:
+    base = {
+        "location": _match_location(
+            str(hit.get("source_type") or ""),
+            str(hit.get("source_name") or ""),
+            str(hit.get("field") or ""),
+        ),
+        "line": hit.get("line"),
+        "match": hit.get("match"),
+    }
+    if output_mode in {"compact", "full"}:
+        base["field"] = hit.get("field")
+        base["column"] = hit.get("column")
+        base["snippet"] = hit.get("snippet")
+    if output_mode == "full":
+        if hit.get("context_name"):
+            base["context_name"] = hit.get("context_name")
+        if hit.get("provider"):
+            base["provider"] = hit.get("provider")
+    return base
+
+
+def _shape_route_trace(trace: Dict[str, Any], *, output_mode: str) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "widget": trace["widget"],
+        "route_targets": trace["route_targets"],
+        "service_names": trace["service_names"],
+        "button_handlers": trace["button_handlers"],
+        "branch_names": trace["branch_names"],
+        "evidence": trace["evidence"],
+    }
+    if output_mode in {"compact", "full"}:
+        payload["matched_provider_count"] = trace["matched_provider_count"]
+        payload["matched_widget_field_count"] = trace["matched_widget_field_count"]
+    if output_mode == "full":
+        payload["provider_matches"] = trace["provider_matches"]
+        payload["widget_matches"] = trace["widget_matches"]
+        payload["linked_providers"] = trace["linked_providers"]
+    return payload
 
 
 def _clamp_provider_scan_limit(value: int) -> int:
@@ -939,8 +1122,10 @@ def search_portal_regex_matches(
     params: SearchPortalRegexMatchesParams,
 ) -> Dict[str, Any]:
     try:
-        regex = _compile_search_pattern(params.regex)
-    except re.error as exc:
+        regex, resolved_pattern, effective_match_mode = _compile_search_pattern(
+            params.regex, params.match_mode
+        )
+    except (re.error, ValueError) as exc:
         return {"success": False, "message": f"Invalid regex: {exc}", "matches": []}
 
     try:
@@ -1198,6 +1383,9 @@ def search_portal_regex_matches(
             "updated_by": params.updated_by,
             "scope": params.scope,
             "regex": params.regex,
+            "match_mode": params.match_mode,
+            "effective_match_mode": effective_match_mode,
+            "resolved_pattern": resolved_pattern,
             "source_types": sorted(source_type_set),
             "widget_ids": params.widget_ids,
             "updated_after": params.updated_after,
@@ -1227,6 +1415,331 @@ def search_widget_author_patterns(
     params: SearchPortalRegexMatchesParams,
 ) -> Dict[str, Any]:
     return search_portal_regex_matches(config, auth_manager, params)
+
+
+@register_tool(
+    "trace_portal_route_targets",
+    params=TracePortalRouteTargetsParams,
+    description=(
+        "Trace portal route targets into LLM-friendly widget rows. Best for mapping "
+        "Widget → Angular Provider → target route evidence without returning raw script bodies. "
+        "Returns minimal/compact/full summaries with route targets, provider names, button handlers, "
+        "and branch/function clues."
+    ),
+    serialization="raw_dict",
+    return_type=dict,
+)
+def trace_portal_route_targets(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: TracePortalRouteTargetsParams,
+) -> Dict[str, Any]:
+    try:
+        regex, resolved_pattern, effective_match_mode = _compile_search_pattern(
+            params.regex, params.match_mode
+        )
+    except (re.error, ValueError) as exc:
+        return {"success": False, "message": f"Invalid regex: {exc}", "traces": []}
+
+    try:
+        output_mode = _resolve_fixed_output_mode(params.output_mode)
+    except ValueError as exc:
+        return {"success": False, "message": str(exc), "traces": []}
+
+    page_size = max(10, min(params.page_size, 100))
+    max_widgets = _clamp_widget_review_limit(params.max_widgets)
+    max_traces = _clamp_widget_review_matches(params.max_traces)
+    snippet_length = _clamp_snippet_length(params.snippet_length)
+    warnings = _portal_scan_warnings(
+        requested_max_widgets=params.max_widgets,
+        effective_max_widgets=max_widgets,
+        requested_max_matches=params.max_traces,
+        effective_max_matches=max_traces,
+        include_linked_angular_providers=params.include_linked_angular_providers,
+        widget_ids=params.widget_ids,
+        provider_ids=params.provider_ids,
+    )
+
+    widget_query_parts: List[str] = []
+    if params.updated_by:
+        widget_query_parts.append(f"sys_updated_by={_escape_query(params.updated_by)}")
+    if params.scope:
+        widget_query_parts.append(f"sys_scope={_escape_query(params.scope)}")
+
+    provider_filter_tokens = [
+        _escape_query(value)
+        for value in (params.provider_ids or [])
+        if isinstance(value, str) and value.strip()
+    ]
+    provider_to_widget_ids: Set[str] = set()
+    provider_lookup_rows: List[Dict[str, Any]] = []
+    if provider_filter_tokens:
+        provider_query = (
+            "("
+            + "^OR".join(
+                [f"sys_id={token}" for token in provider_filter_tokens]
+                + [f"name={token}" for token in provider_filter_tokens]
+                + [f"id={token}" for token in provider_filter_tokens]
+            )
+            + ")"
+        )
+        provider_lookup_rows = _sn_query_all(
+            config,
+            auth_manager,
+            table=ANGULAR_PROVIDER_TABLE,
+            query=provider_query,
+            fields="sys_id,name,id",
+            page_size=page_size,
+            max_records=100,
+        )
+        resolved_provider_ids = [
+            str(row.get("sys_id") or "") for row in provider_lookup_rows if row.get("sys_id")
+        ]
+        if resolved_provider_ids:
+            relation_rows = _sn_query_all(
+                config,
+                auth_manager,
+                table=ANGULAR_PROVIDER_M2M_TABLE,
+                query=f"sp_angular_providerIN{','.join(resolved_provider_ids)}",
+                fields="sp_widget,sp_angular_provider",
+                page_size=page_size,
+                max_records=1000,
+            )
+            for row in relation_rows:
+                widget_sys_id = _as_ref_sys_id(row.get("sp_widget"))
+                if widget_sys_id:
+                    provider_to_widget_ids.add(widget_sys_id)
+
+    widget_tokens = [
+        _escape_query(value)
+        for value in (params.widget_ids or [])
+        if isinstance(value, str) and value.strip()
+    ]
+    if provider_to_widget_ids or widget_tokens:
+        combined_tokens = widget_tokens + sorted(provider_to_widget_ids)
+        widget_query_parts.append(
+            "("
+            + "^OR".join(
+                [f"sys_id={token}" for token in combined_tokens]
+                + [f"id={token}" for token in widget_tokens]
+                + [f"name={token}" for token in widget_tokens]
+            )
+            + ")"
+        )
+
+    widget_fields = [
+        "sys_id",
+        "name",
+        "id",
+        "sys_updated_by",
+        "sys_updated_on",
+        "sys_scope",
+        "template",
+        "script",
+        "client_script",
+        "link",
+    ]
+    widget_rows = _sn_query_all(
+        config,
+        auth_manager,
+        table=WIDGET_TABLE,
+        query="^".join(widget_query_parts),
+        fields=",".join(widget_fields),
+        page_size=page_size,
+        max_records=max_widgets,
+    )
+
+    widget_sys_ids = [str(row.get("sys_id") or "") for row in widget_rows if row.get("sys_id")]
+    widget_name_by_id = {
+        str(row.get("sys_id") or ""): str(
+            row.get("name") or row.get("id") or row.get("sys_id") or ""
+        )
+        for row in widget_rows
+        if row.get("sys_id")
+    }
+
+    widget_provider_map: Dict[str, List[str]] = {}
+    if params.include_linked_angular_providers and widget_sys_ids:
+        for chunk in _chunked(widget_sys_ids, 100):
+            relation_rows = _sn_query_all(
+                config,
+                auth_manager,
+                table=ANGULAR_PROVIDER_M2M_TABLE,
+                query=f"sp_widgetIN{','.join(_escape_query(value) for value in chunk)}",
+                fields="sp_widget,sp_angular_provider",
+                page_size=page_size,
+                max_records=1000,
+            )
+            for row in relation_rows:
+                widget_sys_id = _as_ref_sys_id(row.get("sp_widget"))
+                provider_sys_id = _as_ref_sys_id(row.get("sp_angular_provider"))
+                if widget_sys_id and provider_sys_id:
+                    widget_provider_map.setdefault(widget_sys_id, [])
+                    if provider_sys_id not in widget_provider_map[widget_sys_id]:
+                        widget_provider_map[widget_sys_id].append(provider_sys_id)
+
+    all_provider_ids = sorted({pid for values in widget_provider_map.values() for pid in values})
+    provider_rows: List[Dict[str, Any]] = []
+    if all_provider_ids:
+        for chunk in _chunked(all_provider_ids, 100):
+            provider_rows.extend(
+                _sn_query_all(
+                    config,
+                    auth_manager,
+                    table=ANGULAR_PROVIDER_TABLE,
+                    query=f"sys_idIN{','.join(chunk)}",
+                    fields="sys_id,name,id,script,sys_updated_by,sys_updated_on,sys_scope",
+                    page_size=page_size,
+                    max_records=1000,
+                )
+            )
+
+    providers_by_id = {
+        str(row.get("sys_id") or ""): row for row in provider_rows if row.get("sys_id")
+    }
+
+    requested_widget_fields = set(params.include_widget_fields)
+    traces: List[Dict[str, Any]] = []
+    total_route_hits = 0
+    widgets_with_hits = 0
+    providers_with_hits: Set[str] = set()
+
+    for widget in widget_rows:
+        if len(traces) >= max_traces:
+            break
+
+        widget_sys_id = str(widget.get("sys_id") or "")
+        widget_name = widget_name_by_id.get(widget_sys_id, widget_sys_id)
+        widget_hits_raw: List[Dict[str, Any]] = []
+        route_targets: List[str] = []
+        branch_names: List[str] = []
+
+        for field_name in ["template", "script", "client_script", "link"]:
+            if field_name not in requested_widget_fields:
+                continue
+            content = str(widget.get(field_name) or "")
+            if not content:
+                continue
+            hits = _extract_pattern_hits(
+                source_type="widget",
+                source_sys_id=widget_sys_id,
+                source_name=widget_name,
+                field_name=field_name,
+                content=content,
+                regex=regex,
+                snippet_length=snippet_length,
+                max_matches=max_traces,
+            )
+            for hit in hits:
+                hit["context_name"] = _find_latest_function_context(
+                    content, int(hit.get("offset") or 0)
+                )
+                route_targets.append(str(hit.get("match") or ""))
+                if hit.get("context_name"):
+                    branch_names.append(str(hit["context_name"]))
+            widget_hits_raw.extend(hits)
+
+        provider_matches: List[Dict[str, Any]] = []
+        matched_provider_entries: List[Dict[str, Any]] = []
+        linked_providers: List[Dict[str, str]] = []
+        for provider_id in widget_provider_map.get(widget_sys_id, []):
+            provider = providers_by_id.get(provider_id)
+            if not provider:
+                continue
+            provider_name = str(provider.get("name") or provider.get("id") or provider_id)
+            linked_providers.append({"sys_id": provider_id, "name": provider_name})
+            script = str(provider.get("script") or "")
+            if not script:
+                continue
+            hits = _extract_pattern_hits(
+                source_type="angular_provider",
+                source_sys_id=provider_id,
+                source_name=provider_name,
+                field_name="script",
+                content=script,
+                regex=regex,
+                snippet_length=snippet_length,
+                max_matches=max_traces,
+            )
+            if not hits:
+                continue
+            providers_with_hits.add(provider_id)
+            matched_provider_entries.append({"sys_id": provider_id, "name": provider_name})
+            for hit in hits:
+                hit["context_name"] = _find_latest_function_context(
+                    script, int(hit.get("offset") or 0)
+                )
+                hit["provider"] = {"sys_id": provider_id, "name": provider_name}
+                route_targets.append(str(hit.get("match") or ""))
+                if hit.get("context_name"):
+                    branch_names.append(str(hit["context_name"]))
+                provider_matches.append(_shape_trace_hit(hit, output_mode=output_mode))
+
+        if not widget_hits_raw and not provider_matches:
+            continue
+
+        widgets_with_hits += 1
+        total_route_hits += len(widget_hits_raw) + len(provider_matches)
+        button_handlers = _extract_click_handlers(str(widget.get("template") or ""))
+        evidence = [_shape_trace_hit(hit, output_mode=output_mode) for hit in widget_hits_raw]
+        evidence.extend(provider_matches)
+
+        route_summaries = []
+        for target in _dedupe_preserve_order(route_targets):
+            route_summaries.append(_route_target_summary(target))
+
+        trace_row = {
+            "widget": {
+                "sys_id": widget_sys_id,
+                "name": str(widget.get("name") or ""),
+                "id": str(widget.get("id") or ""),
+            },
+            "route_targets": route_summaries,
+            "service_names": _dedupe_preserve_order(
+                [item["name"] for item in matched_provider_entries]
+            ),
+            "button_handlers": button_handlers,
+            "branch_names": _dedupe_preserve_order(branch_names),
+            "evidence": evidence[:max_traces],
+            "matched_provider_count": len(matched_provider_entries),
+            "matched_widget_field_count": len(widget_hits_raw),
+            "provider_matches": provider_matches,
+            "widget_matches": [
+                _shape_trace_hit(hit, output_mode=output_mode) for hit in widget_hits_raw
+            ],
+            "linked_providers": linked_providers,
+        }
+        traces.append(_shape_route_trace(trace_row, output_mode=output_mode))
+
+    return {
+        "success": True,
+        "filters": {
+            "regex": params.regex,
+            "match_mode": params.match_mode,
+            "effective_match_mode": effective_match_mode,
+            "resolved_pattern": resolved_pattern,
+            "updated_by": params.updated_by,
+            "scope": params.scope,
+            "widget_ids": params.widget_ids,
+            "provider_ids": params.provider_ids,
+            "include_linked_angular_providers": params.include_linked_angular_providers,
+            "include_widget_fields": params.include_widget_fields,
+            "output_mode": output_mode,
+        },
+        "summary": {
+            "widgets_scanned": len(widget_rows),
+            "widgets_with_hits": widgets_with_hits,
+            "linked_angular_providers_scanned": len(provider_rows),
+            "providers_with_hits": len(providers_with_hits),
+            "trace_count": len(traces),
+            "route_hit_count": total_route_hits,
+            "max_widgets": max_widgets,
+            "max_traces": max_traces,
+        },
+        "traces": traces,
+        "warnings": warnings,
+        "safety_notice": "Trace rows are condensed for LLM consumption. Use get_portal_component_code only when a returned evidence row needs full source inspection.",
+    }
 
 
 @register_tool(
