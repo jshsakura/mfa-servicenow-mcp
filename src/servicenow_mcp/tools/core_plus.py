@@ -18,22 +18,57 @@ HEAVY_TABLES = {
     "sp_widget",
     "sys_script",
     "sys_script_include",
+    "sys_client_script",
+    "sys_ui_action",
     "sys_ui_page",
     "sys_ui_macro",
     "sys_ui_script",
+    "sys_ws_operation",
+    "sys_script_fix",
     "sys_metadata",
 }
 HEAVY_FIELDS = {"script", "template", "css", "client_script", "link", "demo_data", "html"}
 DEFAULT_SAFE_FIELDS = "sys_id,name,id,sys_scope"
 
+# Maximum total response size in characters to prevent context window overflow.
+MAX_TOTAL_RESPONSE_SIZE = 200_000
 
-def truncate_results(results: List[Dict[str, Any]], max_len: int = 50000) -> List[Dict[str, Any]]:
-    """Truncates long string values in results to prevent context overflow."""
+
+def truncate_results(
+    results: List[Dict[str, Any]],
+    max_len: int = 50000,
+    max_total: int = MAX_TOTAL_RESPONSE_SIZE,
+) -> tuple[List[Dict[str, Any]], Optional[str]]:
+    """Truncates long string values in results to prevent context overflow.
+
+    Returns (safe_results, truncation_notice). The notice is None when no
+    total-budget trimming occurred.
+    """
+    total_chars = 0
+    truncation_notice = None
+    safe: List[Dict[str, Any]] = []
+
     for row in results:
+        row_chars = 0
         for key, value in row.items():
-            if isinstance(value, str) and len(value) > max_len:
-                row[key] = value[:max_len] + f"... (truncated, original length: {len(value)})"
-    return results
+            if isinstance(value, str):
+                if len(value) > max_len:
+                    row[key] = value[:max_len] + f"... (truncated, original length: {len(value)})"
+                row_chars += len(row[key]) if isinstance(row[key], str) else len(str(row[key]))
+            else:
+                row_chars += len(str(value))
+
+        if total_chars + row_chars > max_total and safe:
+            truncation_notice = (
+                f"Response truncated at {len(safe)}/{len(results)} records "
+                f"to stay within {max_total:,} character budget. "
+                "Use offset/limit pagination to fetch remaining records."
+            )
+            break
+        total_chars += row_chars
+        safe.append(row)
+
+    return safe, truncation_notice
 
 
 def apply_payload_safety(
@@ -101,12 +136,12 @@ class AggregateParams(BaseModel):
 
 class SchemaParams(BaseModel):
     table: str = Field(..., description="Table name for schema lookup")
-    limit: int = Field(500, description="Maximum schema rows")
+    limit: int = Field(500, description="Maximum schema rows (max 1000)")
 
 
 class DiscoverParams(BaseModel):
     keyword: str = Field(..., description="Keyword to search table names and labels")
-    limit: int = Field(50, description="Max matches")
+    limit: int = Field(50, description="Max matches (max 200)")
 
 
 class NaturalLanguageParams(BaseModel):
@@ -259,18 +294,23 @@ def sn_query(
         data = _safe_json(response)
         result = data.get("result", [])
 
-        # Apply field-level truncation for stability
-        safe_result = truncate_results(result)
+        # Apply field-level and total-budget truncation for stability
+        safe_result, budget_notice = truncate_results(result)
 
-        response_data = {
+        response_data: Dict[str, Any] = {
             "success": True,
             "table": params.table,
             "total_count": int(total_count) if total_count else len(result),
-            "count": len(result),
+            "count": len(safe_result),
             "results": safe_result,
         }
+        notices: List[str] = []
         if safety_notice:
-            response_data["safety_notice"] = safety_notice
+            notices.append(safety_notice)
+        if budget_notice:
+            notices.append(budget_notice)
+        if notices:
+            response_data["safety_notice"] = " | ".join(notices)
 
         return response_data
     except Exception as exc:
@@ -343,10 +383,11 @@ def sn_schema(
     config: ServerConfig, auth_manager: AuthManager, params: SchemaParams
 ) -> Dict[str, Any]:
     url = f"{config.instance_url}/api/now/table/sys_dictionary"
+    safe_limit = min(params.limit, 1000)
     query_params = {
         "sysparm_query": f"name={params.table}^internal_type!=collection",
         "sysparm_fields": "element,column_label,internal_type,max_length,mandatory,reference",
-        "sysparm_limit": params.limit,
+        "sysparm_limit": safe_limit,
         "sysparm_display_value": "true",
     }
     try:
@@ -397,9 +438,10 @@ def sn_discover(
     url = f"{config.instance_url}/api/now/table/sys_db_object"
     escaped = params.keyword.replace("^", "")
     query = f"nameLIKE{escaped}^ORlabelLIKE{escaped}"
+    safe_limit = min(params.limit, 200)
     query_params = {
         "sysparm_query": query,
-        "sysparm_limit": params.limit,
+        "sysparm_limit": safe_limit,
         "sysparm_fields": "name,label,super_class,sys_scope",
         "sysparm_display_value": "true",
         "sysparm_exclude_reference_link": "true",
