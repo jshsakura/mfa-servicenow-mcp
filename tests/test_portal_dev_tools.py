@@ -329,7 +329,7 @@ class TestGetProviderDependencyMap:
 
 
 class TestGetDeveloperDailySummary:
-    def test_jira_format(self):
+    def test_jira_format_with_details(self):
         config = _make_config()
         auth = _make_auth()
 
@@ -337,8 +337,13 @@ class TestGetDeveloperDailySummary:
             {
                 "sys_id": "w1",
                 "name": "MyWidget",
+                "id": "my-widget",
                 "sys_scope": {"display_value": "x_app"},
                 "sys_updated_on": "2026-03-31 10:30:00",
+                "script": "function serverFn() {\n  var gr = new GlideRecord('incident');\n}",
+                "client_script": "function clientFn() { console.log('hi'); }",
+                "template": "<div>hello</div>",
+                "css": "",
             },
         ]
         si_rows = [
@@ -347,7 +352,14 @@ class TestGetDeveloperDailySummary:
                 "name": "MyHelper",
                 "sys_scope": {"display_value": "x_app"},
                 "sys_updated_on": "2026-03-31 14:00:00",
+                "script": "var MyHelper = Class.create();\nMyHelper.prototype = {\n  doWork: function() {}\n};",
             },
+        ]
+        m2m_rows = [{"sp_widget": {"value": "w1"}, "sp_angular_provider": {"value": "p1"}}]
+        provider_rows = [{"sys_id": "p1", "name": "myWidgetService"}]
+        xml_rows = [
+            {"target_name": "MyWidget", "action": "INSERT_OR_UPDATE", "name": "sp_widget"},
+            {"target_name": "MyHelper", "action": "INSERT_OR_UPDATE", "name": "sys_script_include"},
         ]
         us_rows = [
             {
@@ -359,9 +371,12 @@ class TestGetDeveloperDailySummary:
         ]
 
         auth.make_request.side_effect = [
-            _mock_response({"result": widget_rows}, total_count=1),
+            _mock_response({"result": widget_rows}, total_count=1),  # widget
             _mock_response({"result": []}, total_count=0),  # angular_provider
-            _mock_response({"result": si_rows}, total_count=1),
+            _mock_response({"result": si_rows}, total_count=1),  # script_include
+            _mock_response({"result": m2m_rows}, total_count=1),  # M2M
+            _mock_response({"result": provider_rows}, total_count=1),  # provider names
+            _mock_response({"result": xml_rows}, total_count=2),  # update_xml
             _mock_response({"result": us_rows}, total_count=1),  # update sets
         ]
 
@@ -369,18 +384,20 @@ class TestGetDeveloperDailySummary:
             developer="jeongsh@sorin.co.kr",
             date="2026-03-31",
             output_format="jira",
+            include_details=True,
         )
         result = get_developer_daily_summary(config, auth, params)
 
         assert result["success"] is True
         assert result["total_changes"] == 2
-        assert "jira_markdown" in result
         md = result["jira_markdown"]
         assert "MyWidget" in md
         assert "MyHelper" in md
-        assert "작업 내역" in md
+        assert "INSERT_OR_UPDATE" in md
+        assert "myWidgetService" in md
+        assert "script:" in md  # field line count
 
-    def test_plain_format(self):
+    def test_plain_format_no_details(self):
         config = _make_config()
         auth = _make_auth()
 
@@ -395,13 +412,14 @@ class TestGetDeveloperDailySummary:
             ),
             _mock_response({"result": []}, total_count=0),
             _mock_response({"result": []}, total_count=0),
-            _mock_response({"result": []}, total_count=0),
+            _mock_response({"result": []}, total_count=0),  # update sets
         ]
 
         params = GetDeveloperDailySummaryParams(
             developer="test@test.com",
             date="2026-03-31",
             output_format="plain",
+            include_details=False,
         )
         result = get_developer_daily_summary(config, auth, params)
 
@@ -409,7 +427,7 @@ class TestGetDeveloperDailySummary:
         assert "plain_text" in result
         assert "W1" in result["plain_text"]
 
-    def test_structured_format(self):
+    def test_structured_format_empty(self):
         config = _make_config()
         auth = _make_auth()
 
@@ -417,7 +435,8 @@ class TestGetDeveloperDailySummary:
             _mock_response({"result": []}, total_count=0),
             _mock_response({"result": []}, total_count=0),
             _mock_response({"result": []}, total_count=0),
-            _mock_response({"result": []}, total_count=0),
+            _mock_response({"result": []}, total_count=0),  # update_xml (no items so skipped)
+            _mock_response({"result": []}, total_count=0),  # update sets
         ]
 
         params = GetDeveloperDailySummaryParams(
@@ -439,16 +458,16 @@ class TestGetDeveloperDailySummary:
             _mock_response({"result": []}, total_count=0),
             _mock_response({"result": []}, total_count=0),
             _mock_response({"result": []}, total_count=0),
-            # No update set call expected
         ]
 
         params = GetDeveloperDailySummaryParams(
             developer="test@test.com",
             date="2026-03-31",
             include_update_sets=False,
+            include_details=False,
             output_format="structured",
         )
         result = get_developer_daily_summary(config, auth, params)
 
         assert result["success"] is True
-        assert result["api_calls_made"] == 3  # Only 3 source type calls, no update set
+        assert result["api_calls_made"] == 3
