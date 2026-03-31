@@ -105,11 +105,11 @@ def list_script_includes(
 
         # Build query parameters
         query_params = {
-            "sysparm_limit": params.limit,
+            "sysparm_limit": min(params.limit, 50),
             "sysparm_offset": params.offset,
             "sysparm_display_value": "true",
             "sysparm_exclude_reference_link": "true",
-            "sysparm_fields": "sys_id,name,script,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by",
+            "sysparm_fields": "sys_id,name,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by",
         }
 
         # Add filters if provided

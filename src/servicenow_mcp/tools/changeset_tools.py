@@ -243,7 +243,7 @@ def list_changesets(
 
     # Build query parameters
     query_params = {
-        "sysparm_limit": validated_params.limit,
+        "sysparm_limit": min(validated_params.limit, 100),
         "sysparm_offset": validated_params.offset,
     }
 
