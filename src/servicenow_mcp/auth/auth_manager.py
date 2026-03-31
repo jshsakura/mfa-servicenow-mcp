@@ -316,9 +316,20 @@ class AuthManager:
                     return headers
                 # Browser auth is user-driven (MFA/SSO). Always keep interactive mode.
                 if not self._can_attempt_browser_reauth():
+                    cooldown_remaining = 0
+                    if self._browser_last_reauth_attempt_at is not None:
+                        cooldown_remaining = max(
+                            0,
+                            int(
+                                self._browser_reauth_cooldown_seconds
+                                - (time.time() - self._browser_last_reauth_attempt_at)
+                            ),
+                        )
                     raise ValueError(
-                        "Browser re-auth attempted too frequently. "
-                        "Skipping auto reopen to prevent login loop."
+                        "Browser session expired but re-authentication is on cooldown "
+                        f"({cooldown_remaining}s remaining). "
+                        "This prevents login loops. The session will automatically "
+                        "retry after the cooldown period. Please wait and try again."
                     )
                 logger.info("Opening browser in interactive mode for login/MFA.")
                 self._mark_browser_reauth_attempt()
@@ -667,6 +678,9 @@ class AuthManager:
         MCP tool execution may happen while an event loop is active, so we
         offload Sync API usage to a separate thread in that case.
         """
+        # Hard ceiling for thread join to prevent infinite hangs if the browser
+        # freezes or the user never completes MFA.
+        join_timeout = max(int(browser_config.timeout_seconds) + 60, 360)
 
         def _run_sync_login(interactive: bool) -> None:
             try:
@@ -684,7 +698,18 @@ class AuthManager:
 
                     thread = threading.Thread(target=_runner, daemon=True)
                     thread.start()
-                    thread.join()
+                    thread.join(timeout=join_timeout)
+
+                    if thread.is_alive():
+                        logger.error(
+                            "Browser login thread did not finish within %ss. "
+                            "The browser may be frozen or MFA was not completed.",
+                            join_timeout,
+                        )
+                        raise ValueError(
+                            f"Browser login timed out after {join_timeout}s. "
+                            "Please check if the browser window is responding and try again."
+                        )
 
                     if error_holder:
                         raise error_holder[0]
@@ -1063,7 +1088,8 @@ class AuthManager:
         **kwargs,
     ) -> requests.Response:
         """
-        Make an authenticated HTTP request with automatic retry on 401.
+        Make an authenticated HTTP request with automatic retry on 401
+        and transient network errors (ConnectionError, Timeout).
 
         For Browser Auth, 401 responses trigger session invalidation and
         re-authentication before retry.
@@ -1106,8 +1132,49 @@ class AuthManager:
         if cookie_names:
             logger.debug("ServiceNow request cookies: %s", ",".join(cookie_names))
 
-        # Make initial request
-        response = requests.request(method, url, **kwargs)
+        # Retry on transient network errors (ConnectionError, Timeout) before
+        # giving up.  This prevents brief network blips from being surfaced as
+        # "MCP disconnected" to the caller.
+        max_transient_retries = 2
+        last_exc: Optional[Exception] = None
+        response: Optional[requests.Response] = None
+
+        for attempt in range(1 + max_transient_retries):
+            try:
+                response = requests.request(method, url, **kwargs)
+                last_exc = None
+                break
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last_exc = exc
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                if attempt < max_transient_retries:
+                    wait = 1.0 * (attempt + 1)  # 1s, 2s backoff
+                    logger.warning(
+                        "Transient network error (attempt %s/%s): %s. "
+                        "Retrying in %.1fs... method=%s host=%s elapsed_ms=%s",
+                        attempt + 1,
+                        1 + max_transient_retries,
+                        exc,
+                        wait,
+                        method.upper(),
+                        request_host,
+                        elapsed_ms,
+                    )
+                    time.sleep(wait)
+                else:
+                    logger.error(
+                        "Network error persisted after %s attempts: %s method=%s host=%s elapsed_ms=%s",
+                        1 + max_transient_retries,
+                        exc,
+                        method.upper(),
+                        request_host,
+                        elapsed_ms,
+                    )
+
+        if response is None:
+            # All attempts failed with transient errors — raise the last one.
+            raise last_exc  # type: ignore[misc]
+
         elapsed_ms = int((time.monotonic() - start) * 1000)
         logger.info(
             "ServiceNow request end: method=%s host=%s status=%s elapsed_ms=%s",
@@ -1121,18 +1188,23 @@ class AuthManager:
         if response.status_code == 401 and max_retries > 0:
             if self.config.type == AuthType.BROWSER:
                 # In browser mode, 401 almost always means the session/X-UserToken is dead.
-                # We must invalidate and force a fresh login to keep the session alive.
+                # First try restoring from persistent profile before forcing interactive re-auth.
                 logger.warning(
-                    "Received 401 Unauthorized in browser mode. Invalidating session and triggering re-auth..."
+                    "Received 401 Unauthorized in browser mode. "
+                    "Attempting session restore before full re-auth..."
                 )
-                # Invalidate current session (this also removes the cache file)
+                # Invalidate current in-memory session (this also removes the cache file)
                 self.invalidate_browser_session()
 
-                # Get fresh headers (this will trigger _login_with_browser/MFA)
+                # Get fresh headers — get_headers() will try restore first, then interactive
                 try:
                     fresh_headers = self.get_headers()
                 except Exception as exc:
-                    logger.error("Failed to re-authenticate after 401: %s", exc)
+                    logger.error(
+                        "Failed to re-authenticate after 401: %s. "
+                        "The request will be returned as-is with the 401 status.",
+                        exc,
+                    )
                     return response
 
                 # Update headers and cookies for the retry
@@ -1144,7 +1216,7 @@ class AuthManager:
                     headers.pop("Cookie", None)
                 kwargs["headers"] = headers
 
-                # Retry request with decemented retries
+                # Retry request with decremented retries
                 retry_start = time.monotonic()
                 response = requests.request(method, url, **kwargs)
                 retry_elapsed_ms = int((time.monotonic() - retry_start) * 1000)
