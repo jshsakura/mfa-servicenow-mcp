@@ -66,7 +66,12 @@ DEFAULT_SOURCE_TYPE_ORDER = [
     "script_include",
     "widget",
     "business_rule",
+    "client_script",
+    "ui_action",
     "ui_script",
+    "ui_page",
+    "scripted_rest",
+    "fix_script",
     "update_xml",
 ]
 SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
@@ -103,6 +108,42 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         "search_fields": ["name", "collection", "script"],
         "lookup_fields": ["sys_id", "name"],
     },
+    "client_script": {
+        "table": "sys_client_script",
+        "identifier_field": "name",
+        "summary_fields": [
+            "sys_id",
+            "name",
+            "table",
+            "type",
+            "ui_type",
+            "active",
+            "sys_scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": ["script"],
+        "search_fields": ["name", "table", "script"],
+        "lookup_fields": ["sys_id", "name"],
+    },
+    "ui_action": {
+        "table": "sys_ui_action",
+        "identifier_field": "name",
+        "summary_fields": [
+            "sys_id",
+            "name",
+            "table",
+            "action_name",
+            "active",
+            "client",
+            "sys_scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": ["script"],
+        "search_fields": ["name", "table", "action_name", "script"],
+        "lookup_fields": ["sys_id", "name"],
+    },
     "ui_script": {
         "table": "sys_ui_script",
         "identifier_field": "name",
@@ -117,6 +158,54 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         ],
         "source_fields": ["script"],
         "search_fields": ["name", "script"],
+        "lookup_fields": ["sys_id", "name"],
+    },
+    "ui_page": {
+        "table": "sys_ui_page",
+        "identifier_field": "name",
+        "summary_fields": [
+            "sys_id",
+            "name",
+            "description",
+            "sys_scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": ["html", "client_script", "processing_script"],
+        "search_fields": ["name", "description", "html", "client_script", "processing_script"],
+        "lookup_fields": ["sys_id", "name"],
+    },
+    "scripted_rest": {
+        "table": "sys_ws_operation",
+        "identifier_field": "name",
+        "summary_fields": [
+            "sys_id",
+            "name",
+            "http_method",
+            "active",
+            "web_service_definition",
+            "sys_scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": ["operation_script"],
+        "search_fields": ["name", "operation_script"],
+        "lookup_fields": ["sys_id", "name"],
+    },
+    "fix_script": {
+        "table": "sys_script_fix",
+        "identifier_field": "name",
+        "summary_fields": [
+            "sys_id",
+            "name",
+            "description",
+            "active",
+            "sys_scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": ["script"],
+        "search_fields": ["name", "description", "script"],
         "lookup_fields": ["sys_id", "name"],
     },
     "update_xml": {
@@ -155,7 +244,10 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
 
 class SearchServerCodeParams(BaseModel):
     query: str = Field(..., description="Text to search in names, identifiers, and source fields")
-    source_type: str = Field(SOURCE_TYPE_ALL, description="One of: all, script_include, widget")
+    source_type: str = Field(
+        SOURCE_TYPE_ALL,
+        description="One of: all, script_include, widget, business_rule, client_script, ui_action, ui_script, ui_page, scripted_rest, fix_script, update_xml",
+    )
     limit: int = Field(
         5, description=f"Maximum number of total matches to return. Clamped to {MAX_SEARCH_LIMIT}."
     )
@@ -165,7 +257,10 @@ class SearchServerCodeParams(BaseModel):
 
 
 class GetMetadataSourceParams(BaseModel):
-    source_type: str = Field(..., description="One of: script_include, widget")
+    source_type: str = Field(
+        ...,
+        description="One of: script_include, widget, business_rule, client_script, ui_action, ui_script, ui_page, scripted_rest, fix_script, update_xml",
+    )
     source_id: str = Field(..., description="sys_id, name, or logical identifier")
     max_field_length: int = Field(
         DEFAULT_FIELD_LENGTH,

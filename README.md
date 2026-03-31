@@ -69,7 +69,32 @@ uv tool install mfa-servicenow-mcp
 servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
-### 4. Browser Auth Setup
+### 4. Update to Latest Version
+
+#### macOS / Linux
+
+```bash
+# uvx (always runs the latest from PyPI — no manual update needed)
+uvx mfa-servicenow-mcp --version
+
+# uv tool
+uv tool upgrade mfa-servicenow-mcp
+
+# pip
+pip install --upgrade mfa-servicenow-mcp
+```
+
+#### Windows
+
+```powershell
+# uv tool
+uv tool upgrade mfa-servicenow-mcp
+
+# pip
+pip install --upgrade mfa-servicenow-mcp
+```
+
+### 5. Browser Auth Setup
 
 Browser authentication uses [Playwright](https://playwright.dev/) to drive your local browser for MFA/SSO login. Playwright is an **optional** dependency — install it separately:
 
@@ -104,11 +129,29 @@ Playwright is only needed for browser auth. Basic, OAuth, and API Key auth work 
 
 ## Features
 
-- Browser authentication for MFA/SSO environments
+- Browser authentication for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - Safe write confirmation with `confirm='approve'`
-- Payload safety limits and truncation for large records
+- Payload safety limits, per-field truncation, and total response budget (200K chars)
+- Transient network error retry with backoff
 - Tool packages for standard users, service desk, portal developers, and platform developers
-- Developer-focused tools for logs, source lookup, workflow inspection, and update set operations
+- Developer productivity tools: activity tracking, uncommitted changes, dependency mapping, daily summary
+- Full coverage of core ServiceNow artifact tables (see below)
+
+### Supported ServiceNow Tables
+
+| Artifact Type | Table Name | Source Search | Developer Tracking | Safety (Heavy Table) |
+|--------------|------------|:---:|:---:|:---:|
+| Script Include | `sys_script_include` | O | O | O |
+| Business Rule | `sys_script` | O | O | O |
+| Client Script | `sys_client_script` | O | O | O |
+| UI Action | `sys_ui_action` | O | O | O |
+| UI Script | `sys_ui_script` | O | O | O |
+| UI Page | `sys_ui_page` | O | O | O |
+| Scripted REST API | `sys_ws_operation` | O | O | O |
+| Fix Script | `sys_script_fix` | O | O | O |
+| Service Portal Widget | `sp_widget` | O | O | O |
+| Angular Provider | `sp_angular_provider` | - | O | - |
+| Update XML | `sys_update_xml` | O | - | - |
 
 ## Authentication
 
@@ -186,10 +229,21 @@ Set `MCP_TOOL_PACKAGE` to choose a smaller tool set. Default: `standard`
 | Package | Intended Use | Highlights |
 | :--- | :--- | :--- |
 | `standard` | General users | Incidents, catalog, knowledge, core queries |
-| `portal_developer` | Portal developers | Portal code, script includes, safe logs, source lookup, workflow read, update set commit/publish |
-| `platform_developer` | Platform developers | Script includes, safe logs, source lookup, workflows, UI policy, change set management |
+| `portal_developer` | Portal developers | Portal code, script includes, source search (all 9 artifact types), developer activity tracking, dependency mapping, daily summary, safe logs, workflow read, update set commit/publish |
+| `platform_developer` | Platform developers | Everything in portal_developer + delete script include, full workflow CRUD, UI policy |
 | `service_desk` | Operations | Incident handling, comments, user lookup, article lookup |
 | `full` | Admin / unrestricted | Broad access across all implemented tool domains |
+
+### Developer Productivity Tools
+
+These tools are available in `portal_developer`, `platform_developer`, and `full` packages:
+
+| Tool | Description |
+| :--- | :--- |
+| `get_developer_changes` | List recent changes by a developer across all artifact tables. Supports `count_only` for cost preview. |
+| `get_uncommitted_changes` | Find items in uncommitted (in-progress) update sets, grouped by update set. |
+| `get_provider_dependency_map` | Map Widget → Angular Provider → Script Include dependency chains. |
+| `get_developer_daily_summary` | Generate a daily work report in Jira markdown, plain text, or structured JSON. |
 
 ## Safety Policy
 

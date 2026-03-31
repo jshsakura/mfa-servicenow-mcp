@@ -57,6 +57,11 @@ portal_developer:
   - get_script_include
   - create_script_include
   - update_script_include
+  # 개발자 생산성 도구
+  - get_developer_changes
+  - get_uncommitted_changes
+  - get_provider_dependency_map
+  - get_developer_daily_summary
   # 워크플로우 조회 (프로세스 이해용)
   - list_workflows
   - get_workflow_details
@@ -87,6 +92,11 @@ platform_developer:
   - get_repo_working_tree_status
   - get_repo_recent_commits
   - get_repo_file_last_modifier
+  # 개발자 생산성 도구
+  - get_developer_changes
+  - get_uncommitted_changes
+  - get_provider_dependency_map
+  - get_developer_daily_summary
   # 비즈니스 로직 (Script Include)
   - list_script_includes
   - get_script_include
@@ -215,6 +225,11 @@ full:
   - create_script_include
   - update_script_include
   - delete_script_include
+  # 개발자 생산성 도구
+  - get_developer_changes
+  - get_uncommitted_changes
+  - get_provider_dependency_map
+  - get_developer_daily_summary
   - create_knowledge_base
   - list_knowledge_bases
   - create_category
