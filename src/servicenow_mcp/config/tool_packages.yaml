@@ -43,6 +43,7 @@ portal_developer:
   - get_widget_bundle
   - get_portal_component_code
   - search_portal_regex_matches
+  - trace_portal_route_targets
   - detect_angular_implicit_globals
   - update_portal_component
   - analyze_widget_performance
@@ -188,6 +189,7 @@ full:
   - get_widget_bundle
   - get_portal_component_code
   - search_portal_regex_matches
+  - trace_portal_route_targets
   - detect_angular_implicit_globals
   - update_portal_component
   - analyze_widget_performance
