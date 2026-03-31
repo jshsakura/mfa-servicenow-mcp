@@ -579,7 +579,7 @@ def _build_label_map(
             params={
                 "sysparm_query": f"nameIN{encoded_names}",
                 "sysparm_fields": "name,label",
-                "sysparm_limit": 200,
+                "sysparm_limit": 100,
                 "sysparm_display_value": "false",
                 "sysparm_exclude_reference_link": "true",
                 "sysparm_suppress_pagination_header": "true",

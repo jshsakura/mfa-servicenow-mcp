@@ -403,7 +403,7 @@ def list_users(
     """
     api_url = f"{config.api_url}/table/sys_user"
     query_params = {
-        "sysparm_limit": str(params.limit),
+        "sysparm_limit": str(min(params.limit, 100)),
         "sysparm_offset": str(params.offset),
         "sysparm_display_value": "true",
     }
@@ -472,7 +472,7 @@ def list_groups(
     """
     api_url = f"{config.api_url}/table/sys_user_group"
     query_params = {
-        "sysparm_limit": str(params.limit),
+        "sysparm_limit": str(min(params.limit, 100)),
         "sysparm_offset": str(params.offset),
         "sysparm_display_value": "true",
     }
