@@ -243,6 +243,7 @@ These tools are available in `portal_developer`, `platform_developer`, and `full
 | `get_developer_changes` | List recent changes by a developer across all artifact tables. Supports `count_only` for cost preview. |
 | `get_uncommitted_changes` | Find items in uncommitted (in-progress) update sets, grouped by update set. |
 | `get_provider_dependency_map` | Map Widget → Angular Provider → Script Include dependency chains. |
+| `trace_portal_route_targets` | Return LLM-friendly widget/provider route traces with minimal evidence rows instead of raw script bodies. |
 | `get_developer_daily_summary` | Generate a daily work report in Jira markdown, plain text, or structured JSON. |
 
 ## Safety Policy
@@ -259,6 +260,8 @@ This policy applies regardless of the selected tool package.
 Portal investigation tools are also conservative by default.
 
 - `search_portal_regex_matches` starts with widget-only scanning, linked expansion off, and small default limits.
+- `trace_portal_route_targets` is the preferred follow-up when the model needs a compact table of Widget → Provider → route target evidence.
+- `sn_query` should be treated as a generic fallback for ordinary records, not the first choice for portal source/routing analysis.
 - `download_portal_sources` does not pull linked Script Includes or Angular Providers unless explicitly requested.
 - Large portal scans are capped server-side and return warnings when the request is broader than the safe default.
 - The intended workflow is: target one widget or a small widget list first, then opt in to broader expansion only when needed.
@@ -284,6 +287,24 @@ Example broader search with explicit opt-in:
   "include_linked_angular_providers": true,
   "max_widgets": 2,
   "max_matches": 50
+}
+```
+
+Pattern matching modes for LLM-friendly use:
+
+- `match_mode: "auto"` (default): plain strings are treated literally, regex-looking patterns remain regex.
+- `match_mode: "literal"`: always escape the pattern first; safest when the model just has a route or token.
+- `match_mode: "regex"`: use only when you intentionally need regex operators.
+
+Example LLM-friendly route trace:
+
+```json
+{
+  "regex": "hopesinitplanbudgetmanhour",
+  "match_mode": "auto",
+  "widget_ids": ["jobWFMngt2Wd"],
+  "include_linked_angular_providers": true,
+  "output_mode": "minimal"
 }
 ```
 
