@@ -78,7 +78,7 @@ class ListEpicsParams(BaseModel):
 
 
 def _unwrap_and_validate_params(
-    params: Any, model_class: Type[T], required_fields: List[str] = None
+    params: Any, model_class: Type[T], required_fields: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """
     Helper function to unwrap and validate parameters.
@@ -443,7 +443,7 @@ def list_epics(
     url = f"{instance_url}/api/now/table/rm_epic"
 
     params = {
-        "sysparm_limit": validated_params.limit,
+        "sysparm_limit": min(validated_params.limit, 100),
         "sysparm_offset": validated_params.offset,
         "sysparm_query": query,
         "sysparm_display_value": "true",

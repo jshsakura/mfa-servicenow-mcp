@@ -403,7 +403,7 @@ def list_incidents(
 
     # Build query parameters
     query_params = {
-        "sysparm_limit": params.limit,
+        "sysparm_limit": min(params.limit, 100),
         "sysparm_offset": params.offset,
         "sysparm_display_value": "true",
         "sysparm_exclude_reference_link": "true",
