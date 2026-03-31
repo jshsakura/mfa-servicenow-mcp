@@ -109,14 +109,23 @@ class HealthCheckParams(BaseModel):
 class GenericQueryParams(BaseModel):
     table: str = Field(
         ...,
-        description="Target table name (e.g., incident, sp_widget). Heavy tables have automatic safety limits.",
+        description=(
+            "Target table name for general record lookup (e.g., incident, kb_knowledge). "
+            "For portal/widget/provider source analysis, prefer specialized portal tools instead of raw table reads. "
+            "Heavy tables have automatic safety limits."
+        ),
     )
     query: Optional[str] = Field(
-        default=None, description="Encoded query (sysparm_query). Filter by priority, state, etc."
+        default=None,
+        description=(
+            "Encoded query (sysparm_query) for generic filtering. Use portal tracing/search tools when the goal is to map widget/provider logic or route targets."
+        ),
     )
     fields: Optional[str] = Field(
         default=None,
-        description="Comma-separated field list. Avoid large fields like 'script' for list queries.",
+        description=(
+            "Comma-separated field list. Avoid large fields like 'script' for list queries; use specialized source-aware tools when code evidence is needed."
+        ),
     )
     limit: int = Field(20, description="Max records (max 100). Default 20.")
     offset: int = Field(0, description="Pagination offset. Use with total_count to iterate.")
@@ -253,7 +262,9 @@ def sn_health(
 @register_tool(
     name="sn_query",
     params=GenericQueryParams,
-    description="Run generic query against any ServiceNow table",
+    description=(
+        "Run a generic ServiceNow table query for ordinary record lookup. Fallback tool only — prefer specialized tools for portal/widget/provider source tracing, code search, or dependency mapping."
+    ),
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
