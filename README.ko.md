@@ -205,6 +205,8 @@ uvx mfa-servicenow-mcp \
 포탈 조사 도구도 기본적으로 보수적으로 동작합니다.
 
 - `search_portal_regex_matches`는 기본적으로 widget만 조회하고 linked 확장은 꺼져 있으며 기본 제한도 작게 잡혀 있습니다.
+- `trace_portal_route_targets`는 LLM에게 Widget → Provider → route target 근거를 최소 결과 형태로 넘길 때 권장되는 후속 도구입니다.
+- `sn_query`는 일반 레코드 조회용 fallback으로 보고, 포탈 소스/라우팅 분석의 1순위 도구로 쓰지 않는 것이 좋습니다.
 - `download_portal_sources`도 명시적으로 요청하지 않으면 Script Include, Angular Provider를 따라가지 않습니다.
 - 큰 포탈 스캔 요청은 서버에서 상한이 적용되며, 안전 기본값보다 넓은 요청에는 경고를 반환합니다.
 - 권장 흐름은 특정 위젯 1~2개를 먼저 지정하고, 정말 필요할 때만 linked 확장과 범위를 늘리는 것입니다.
@@ -217,6 +219,24 @@ uvx mfa-servicenow-mcp \
   "widget_ids": ["jobWFMngt2Wd"],
   "max_widgets": 1,
   "max_matches": 20
+}
+```
+
+LLM 친화적인 pattern matching 모드:
+
+- `match_mode: "auto"` (기본값): 일반 문자열은 literal로 처리하고, regex처럼 보이는 패턴만 regex로 처리합니다.
+- `match_mode: "literal"`: 패턴을 항상 escape해서 안전하게 찾습니다. 경로나 토큰 문자열만 있을 때 가장 무난합니다.
+- `match_mode: "regex"`: 정규식 연산자가 정말 필요할 때만 사용합니다.
+
+예시: LLM 친화적인 route trace
+
+```json
+{
+  "regex": "hopesinitplanbudgetmanhour",
+  "match_mode": "auto",
+  "widget_ids": ["jobWFMngt2Wd"],
+  "include_linked_angular_providers": true,
+  "output_mode": "minimal"
 }
 ```
 
