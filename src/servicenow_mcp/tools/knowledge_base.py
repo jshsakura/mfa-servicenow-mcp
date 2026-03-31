@@ -250,7 +250,7 @@ def list_knowledge_bases(
 
     # Build query parameters
     query_params = {
-        "sysparm_limit": params.limit,
+        "sysparm_limit": min(params.limit, 100),
         "sysparm_offset": params.offset,
         "sysparm_display_value": "true",
     }
@@ -665,7 +665,7 @@ def list_articles(
 
     # Build query parameters
     query_params = {
-        "sysparm_limit": params.limit,
+        "sysparm_limit": min(params.limit, 100),
         "sysparm_offset": params.offset,
         "sysparm_display_value": "all",
     }
@@ -927,7 +927,7 @@ def list_categories(
 
     # Build query parameters
     query_params = {
-        "sysparm_limit": params.limit,
+        "sysparm_limit": min(params.limit, 100),
         "sysparm_offset": params.offset,
         "sysparm_display_value": "all",
     }
