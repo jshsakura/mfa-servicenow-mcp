@@ -15,6 +15,7 @@ def test_portal_developer_includes_changeset_commit_and_workflow_read_tools():
     assert "get_background_script_logs" in portal_tools
     assert "search_server_code" in portal_tools
     assert "get_metadata_source" in portal_tools
+    assert "trace_portal_route_targets" in portal_tools
     assert "commit_changeset" in portal_tools
     assert "publish_changeset" in portal_tools
     assert "list_workflows" in portal_tools
