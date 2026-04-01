@@ -42,15 +42,12 @@ class TestUserTools(unittest.TestCase):
                 basic=BasicAuthConfig(username="admin", password="password"),
             ),
         )
-        self.auth_manager = AuthManager(self.config.auth)
+        self.auth_manager = MagicMock(spec=AuthManager)
+        self.auth_manager.get_headers.return_value = {
+            "Authorization": "Basic YWRtaW46cGFzc3dvcmQ=",
+        }
 
-        # Mock auth_manager.get_headers() method
-        self.auth_manager.get_headers = MagicMock(
-            return_value={"Authorization": "Basic YWRtaW46cGFzc3dvcmQ="}
-        )
-
-    @patch("requests.post")
-    def test_create_user(self, mock_post):
+    def test_create_user(self):
         """Test create_user function."""
         # Configure mock
         mock_response = MagicMock()
@@ -61,7 +58,7 @@ class TestUserTools(unittest.TestCase):
                 "user_name": "alice.radiology",
             }
         }
-        mock_post.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
         params = CreateUserParams(
@@ -82,9 +79,10 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(result.user_name, "alice.radiology")
 
         # Verify mock was called correctly
-        mock_post.assert_called_once()
-        call_args = mock_post.call_args
-        self.assertEqual(call_args[0][0], f"{self.config.api_url}/table/sys_user")
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual(call_args[0][0], "POST")
+        self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user")
         self.assertEqual(call_args[1]["json"]["user_name"], "alice.radiology")
         self.assertEqual(call_args[1]["json"]["first_name"], "Alice")
         self.assertEqual(call_args[1]["json"]["last_name"], "Radiology")
@@ -92,8 +90,7 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(call_args[1]["json"]["department"], "Radiology")
         self.assertEqual(call_args[1]["json"]["title"], "Doctor")
 
-    @patch("requests.patch")
-    def test_update_user(self, mock_patch):
+    def test_update_user(self):
         """Test update_user function."""
         # Configure mock
         mock_response = MagicMock()
@@ -104,7 +101,7 @@ class TestUserTools(unittest.TestCase):
                 "user_name": "alice.radiology",
             }
         }
-        mock_patch.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
         params = UpdateUserParams(
@@ -122,14 +119,14 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(result.user_name, "alice.radiology")
 
         # Verify mock was called correctly
-        mock_patch.assert_called_once()
-        call_args = mock_patch.call_args
-        self.assertEqual(call_args[0][0], f"{self.config.api_url}/table/sys_user/user123")
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual(call_args[0][0], "PATCH")
+        self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user/user123")
         self.assertEqual(call_args[1]["json"]["manager"], "user456")
         self.assertEqual(call_args[1]["json"]["title"], "Senior Doctor")
 
-    @patch("requests.get")
-    def test_get_user(self, mock_get):
+    def test_get_user(self):
         """Test get_user function."""
         # Configure mock
         mock_response = MagicMock()
@@ -145,7 +142,7 @@ class TestUserTools(unittest.TestCase):
                 }
             ]
         }
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
         params = GetUserParams(
@@ -161,13 +158,13 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(result["user"]["user_name"], "alice.radiology")
 
         # Verify mock was called correctly
-        mock_get.assert_called_once()
-        call_args = mock_get.call_args
-        self.assertEqual(call_args[0][0], f"{self.config.api_url}/table/sys_user")
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual(call_args[0][0], "GET")
+        self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user")
         self.assertEqual(call_args[1]["params"]["sysparm_query"], "user_name=alice.radiology")
 
-    @patch("requests.get")
-    def test_list_users(self, mock_get):
+    def test_list_users(self):
         """Test list_users function."""
         # Configure mock
         mock_response = MagicMock()
@@ -184,7 +181,7 @@ class TestUserTools(unittest.TestCase):
                 },
             ]
         }
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
         params = ListUsersParams(
@@ -202,14 +199,14 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(result["users"][1]["sys_id"], "user456")
 
         # Verify mock was called correctly
-        mock_get.assert_called_once()
-        call_args = mock_get.call_args
-        self.assertEqual(call_args[0][0], f"{self.config.api_url}/table/sys_user")
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual(call_args[0][0], "GET")
+        self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user")
         self.assertEqual(call_args[1]["params"]["sysparm_limit"], "10")
         self.assertIn("department=Radiology", call_args[1]["params"]["sysparm_query"])
 
-    @patch("requests.get")
-    def test_list_groups(self, mock_get):
+    def test_list_groups(self):
         """Test list_groups function."""
         # Configure mock
         mock_response = MagicMock()
@@ -232,7 +229,7 @@ class TestUserTools(unittest.TestCase):
                 },
             ]
         }
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
         params = ListGroupsParams(
@@ -253,9 +250,10 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(result["count"], 2)
 
         # Verify mock was called correctly
-        mock_get.assert_called_once()
-        call_args = mock_get.call_args
-        self.assertEqual(call_args[0][0], f"{self.config.api_url}/table/sys_user_group")
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual(call_args[0][0], "GET")
+        self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user_group")
         self.assertEqual(call_args[1]["params"]["sysparm_limit"], "10")
         self.assertEqual(call_args[1]["params"]["sysparm_offset"], "0")
         self.assertEqual(call_args[1]["params"]["sysparm_display_value"], "true")
@@ -264,8 +262,7 @@ class TestUserTools(unittest.TestCase):
         self.assertIn("nameLIKE", call_args[1]["params"]["sysparm_query"])
         self.assertIn("descriptionLIKE", call_args[1]["params"]["sysparm_query"])
 
-    @patch("requests.post")
-    def test_create_group(self, mock_post):
+    def test_create_group(self):
         """Test create_group function."""
         # Configure mock
         mock_response = MagicMock()
@@ -276,7 +273,7 @@ class TestUserTools(unittest.TestCase):
                 "name": "Biomedical Engineering",
             }
         }
-        mock_post.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
         params = CreateGroupParams(
@@ -294,17 +291,17 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(result.group_name, "Biomedical Engineering")
 
         # Verify mock was called correctly
-        mock_post.assert_called_once()
-        call_args = mock_post.call_args
-        self.assertEqual(call_args[0][0], f"{self.config.api_url}/table/sys_user_group")
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual(call_args[0][0], "POST")
+        self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user_group")
         self.assertEqual(call_args[1]["json"]["name"], "Biomedical Engineering")
         self.assertEqual(
             call_args[1]["json"]["description"], "Group for biomedical engineering staff"
         )
         self.assertEqual(call_args[1]["json"]["manager"], "user456")
 
-    @patch("requests.patch")
-    def test_update_group(self, mock_patch):
+    def test_update_group(self):
         """Test update_group function."""
         # Configure mock
         mock_response = MagicMock()
@@ -315,7 +312,7 @@ class TestUserTools(unittest.TestCase):
                 "name": "Biomedical Engineering",
             }
         }
-        mock_patch.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
         params = UpdateGroupParams(
@@ -333,9 +330,10 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(result.group_name, "Biomedical Engineering")
 
         # Verify mock was called correctly
-        mock_patch.assert_called_once()
-        call_args = mock_patch.call_args
-        self.assertEqual(call_args[0][0], f"{self.config.api_url}/table/sys_user_group/group123")
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual(call_args[0][0], "PATCH")
+        self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user_group/group123")
         self.assertEqual(
             call_args[1]["json"]["description"],
             "Updated description for biomedical engineering group",
@@ -343,13 +341,12 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(call_args[1]["json"]["manager"], "user789")
 
     @patch("servicenow_mcp.tools.user_tools.get_user")
-    @patch("requests.post")
-    def test_add_group_members(self, mock_post, mock_get_user):
+    def test_add_group_members(self, mock_get_user):
         """Test add_group_members function."""
-        # Configure mocks
+        # Configure mock for make_request (POST to add member)
         mock_post_response = MagicMock()
         mock_post_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_post_response
+        self.auth_manager.make_request.return_value = mock_post_response
 
         mock_get_user.return_value = {
             "success": True,
@@ -373,23 +370,19 @@ class TestUserTools(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.group_id, "group123")
 
-        # Verify mock was called correctly
-        self.assertEqual(mock_post.call_count, 2)  # Once for each member
-        call_args = mock_post.call_args_list[0]
-        self.assertEqual(call_args[0][0], f"{self.config.api_url}/table/sys_user_grmember")
+        # Verify mock was called correctly (once for each member)
+        self.assertEqual(self.auth_manager.make_request.call_count, 2)
+        call_args = self.auth_manager.make_request.call_args_list[0]
+        self.assertEqual(call_args[0][0], "POST")
+        self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user_grmember")
         self.assertEqual(call_args[1]["json"]["group"], "group123")
         self.assertEqual(call_args[1]["json"]["user"], "user123")
 
     @patch("servicenow_mcp.tools.user_tools.get_user")
-    @patch("requests.get")
-    @patch("requests.delete")
-    def test_remove_group_members(self, mock_delete, mock_get, mock_get_user):
+    def test_remove_group_members(self, mock_get_user):
         """Test remove_group_members function."""
-        # Configure mocks
-        mock_delete_response = MagicMock()
-        mock_delete_response.raise_for_status = MagicMock()
-        mock_delete.return_value = mock_delete_response
-
+        # Configure mocks for make_request
+        # First call: GET to find membership record
         mock_get_response = MagicMock()
         mock_get_response.raise_for_status = MagicMock()
         mock_get_response.json.return_value = {
@@ -407,7 +400,15 @@ class TestUserTools(unittest.TestCase):
                 }
             ]
         }
-        mock_get.return_value = mock_get_response
+
+        # Second call: DELETE to remove membership
+        mock_delete_response = MagicMock()
+        mock_delete_response.raise_for_status = MagicMock()
+
+        self.auth_manager.make_request.side_effect = [
+            mock_get_response,
+            mock_delete_response,
+        ]
 
         mock_get_user.return_value = {
             "success": True,
@@ -432,15 +433,20 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(result.group_id, "group123")
 
         # Verify mock was called correctly
-        mock_get.assert_called_once()
-        get_call_args = mock_get.call_args
-        self.assertEqual(get_call_args[0][0], f"{self.config.api_url}/table/sys_user_grmember")
+        self.assertEqual(self.auth_manager.make_request.call_count, 2)
+
+        # Verify GET call to find membership
+        get_call_args = self.auth_manager.make_request.call_args_list[0]
+        self.assertEqual(get_call_args[0][0], "GET")
+        self.assertEqual(get_call_args[0][1], f"{self.config.api_url}/table/sys_user_grmember")
         self.assertEqual(get_call_args[1]["params"]["sysparm_query"], "group=group123^user=user123")
 
-        mock_delete.assert_called_once()
-        delete_call_args = mock_delete.call_args
+        # Verify DELETE call
+        delete_call_args = self.auth_manager.make_request.call_args_list[1]
+        self.assertEqual(delete_call_args[0][0], "DELETE")
         self.assertEqual(
-            delete_call_args[0][0], f"{self.config.api_url}/table/sys_user_grmember/member123"
+            delete_call_args[0][1],
+            f"{self.config.api_url}/table/sys_user_grmember/member123",
         )
 
 

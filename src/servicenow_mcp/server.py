@@ -347,7 +347,33 @@ class ServiceNowMCP:
             logger.debug(f"Raw result type from tool '{name}': {type(result)}")
         except Exception as e:
             logger.error(f"Error executing tool '{name}': {e}", exc_info=True)
-            error_result = {"success": False, "error": str(e), "tool": name}
+            error_str = str(e)
+            # Detect auth-related failures and provide actionable guidance to the LLM
+            is_auth_error = any(
+                marker in error_str.lower()
+                for marker in [
+                    "browser session expired",
+                    "browser login",
+                    "re-authentication",
+                    "mfa",
+                    "login is currently in progress",
+                ]
+            )
+            if is_auth_error:
+                error_result = {
+                    "success": False,
+                    "error": error_str,
+                    "error_type": "auth_session_expired",
+                    "tool": name,
+                    "action_required": (
+                        "The ServiceNow browser session needs re-authentication. "
+                        "A browser window should open (or has opened) for the user to complete MFA/SSO login. "
+                        "Please inform the user and retry this tool call after they complete authentication. "
+                        "Do NOT repeatedly call tools while authentication is pending."
+                    ),
+                }
+            else:
+                error_result = {"success": False, "error": error_str, "tool": name}
             serialized_string = json.dumps(error_result, indent=2)
             return [types.TextContent(type="text", text=serialized_string)]
 
