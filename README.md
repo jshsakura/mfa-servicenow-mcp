@@ -65,7 +65,10 @@ Add this to `claude_desktop_config.json`:
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
         "--browser-headless", "false"
-      ]
+      ],
+      "env": {
+        "MCP_TOOL_PACKAGE": "portal_developer"
+      }
     }
   }
 }
@@ -90,7 +93,8 @@ These hosts are easiest to manage with one of the following two execution styles
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "portal_developer"
       },
       "enabled": true
     }
@@ -379,12 +383,12 @@ Default header: `X-ServiceNow-API-Key`
 
 ## Tool Packages
 
-Set `MCP_TOOL_PACKAGE` to choose a smaller tool set. Default: `standard`
+Set `MCP_TOOL_PACKAGE` to choose a specific tool set. Default: `portal_developer`
 
 | Package | Intended Use | Highlights |
 | :--- | :--- | :--- |
+| `portal_developer` | Portal developers | **(Default)** Portal code, script includes, source search (all 9 artifact types), developer activity tracking, dependency mapping, daily summary, safe logs, workflow read, update set commit/publish |
 | `standard` | General users | Incidents, catalog, knowledge, core queries |
-| `portal_developer` | Portal developers | Portal code, script includes, source search (all 9 artifact types), developer activity tracking, dependency mapping, daily summary, safe logs, workflow read, update set commit/publish |
 | `platform_developer` | Platform developers | Everything in portal_developer + delete script include, full workflow CRUD, UI policy |
 | `service_desk` | Operations | Incident handling, comments, user lookup, article lookup |
 | `full` | Admin / unrestricted | Broad access across all implemented tool domains |
