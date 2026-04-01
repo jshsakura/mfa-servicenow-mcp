@@ -5,7 +5,7 @@ A Model Context Protocol (MCP) server implementation for ServiceNow,
 focusing on the ITSM module.
 """
 
-__version__ = "1.2.6"
+__version__ = "1.3.0"
 
 from servicenow_mcp.server import ServiceNowMCP
 
