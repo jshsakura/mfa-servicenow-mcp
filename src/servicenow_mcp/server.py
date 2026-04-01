@@ -128,6 +128,10 @@ class ServiceNowMCP:
             return
 
         for tool_name, definition in self.tool_definitions.items():
+            # Only register tools that are in the enabled list for the current package
+            if tool_name not in self.enabled_tool_names:
+                continue
+
             impl_func, _params_model, _return_annotation, description, _serialization = definition
             try:
                 decorator = tool_decorator(name=tool_name, description=description)
