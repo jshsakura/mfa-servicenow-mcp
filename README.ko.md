@@ -7,6 +7,42 @@ MFA(다요소 인증) 및 SSO 환경을 위한 브라우저 인증 기반 Servic
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
 
+## 필수 준비 사항 (Prerequisites)
+
+서버를 등록하기 전에 아래 도구들이 설치되어 있는지 확인하세요.
+
+### 1. `uv` 설치 (권장)
+
+이 프로젝트는 [uv](https://astral.sh/uv)에 최적화되어 있습니다.
+
+- **macOS / Linux:**
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+- **Windows:**
+  ```powershell
+  powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+  ```
+
+### 2. 브라우저 바이너리 설치 (`browser` 인증 필수)
+
+MFA/SSO 환경에서 `auth-type: browser`를 사용하려면 로컬 시스템에 Chromium 브라우저 바이너리가 설치되어 있어야 합니다:
+
+```bash
+# uvx를 사용하여 전역 설치 없이 브라우저 바이너리만 설치
+uvx playwright install chromium
+```
+
+### 3. Windows 전용 팁
+
+Windows 사용자는 PowerShell에서 스크립트 실행 권한이 허용되어 있어야 합니다:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+원클릭 PowerShell 스크립트와 상세한 Windows 전용 가이드는 [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)에서 확인하세요.
+
 ## 바로 쓰기
 
 대부분의 사용자는 Git으로 소스를 받을 필요가 없습니다. [uv](https://astral.sh/uv)만 있으면 MCP 클라이언트 설정에 바로 넣어 쓸 수 있습니다.
@@ -23,6 +59,8 @@ MFA(다요소 인증) 및 SSO 환경을 위한 브라우저 인증 기반 Servic
     "servicenow": {
       "command": "uvx",
       "args": [
+        "--with",
+        "playwright",
         "mfa-servicenow-mcp",
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
@@ -35,22 +73,121 @@ MFA(다요소 인증) 및 SSO 환경을 위한 브라우저 인증 기반 Servic
 
 #### OpenCode / Gemini / Vertex AI
 
+이 계열 호스트는 보통 아래 두 가지 실행 방식 중 하나로 쓰면 관리가 편합니다.
+
+##### `uvx`로 실행
+
 ```json
 {
   "mcp": {
     "servicenow": {
       "type": "local",
       "command": [
-        "uvx", "mfa-servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
+        "uvx", "--with", "playwright", "mfa-servicenow-mcp"
       ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_USERNAME": "your.username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+      },
       "enabled": true
     }
   }
 }
 ```
+
+##### 체크아웃한 소스에서 바로 실행
+
+이 저장소를 로컬에 clone 해 두었다면 프로젝트 경로를 지정해서 `uv run`으로 바로 실행하면 됩니다.
+
+```json
+{
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "/absolute/path/to/mfa-servicenow-mcp",
+        "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_USERNAME": "your.username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+      },
+      "enabled": true
+    }
+  }
+}
+```
+
+> `SERVICENOW_BROWSER_USERNAME`, `SERVICENOW_BROWSER_PASSWORD`는 필수는 아니지만, MFA/SSO 로그인 화면에 계정을 미리 채우고 싶을 때 유용합니다.
+
+#### AntiGravity
+
+AntiGravity Editor는 Claude Desktop 스타일의 `mcpServers` 설정을 사용합니다. 에디터 우측 에이전트 패널 상단의 **점 세 개(...)** -> **Manage MCP Servers** -> **View raw config**를 눌러 설정 파일을 편집할 수 있습니다.
+
+- **macOS/Linux:** `~/.gemini/antigravity/mcp_config.json`
+- **Windows:** `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
+
+##### `uvx`로 실행 (권장)
+
+`auth-type: browser`를 사용할 경우, `uvx` 실행 환경에 브라우저 제어 의존성이 포함되도록 `--with playwright`를 **반드시** 추가해야 합니다.
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "--with",
+        "playwright",
+        "mfa-servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_USERNAME": "your.username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+##### 체크아웃한 소스에서 바로 실행
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "/absolute/path/to/mfa-servicenow-mcp",
+        "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_USERNAME": "your.username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+> **주의:** 설정을 저장한 후 AntiGravity의 MCP 관리 화면에서 **Refresh**를 눌러주세요. 브라우저 인증을 사용한다면 로컬에 `playwright install chromium`이 완료된 상태여야 합니다.
 
 #### OpenAI Codex
 
@@ -89,33 +226,20 @@ uv tool install mfa-servicenow-mcp
 servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
-### 4. 브라우저 인증 설정
+### 4. 브라우저 인증 설정 (Browser Auth)
 
-브라우저 인증은 [Playwright](https://playwright.dev/)로 로컬 브라우저를 제어하여 MFA/SSO 로그인을 수행합니다. Playwright는 **선택적 의존성**이므로 별도 설치가 필요합니다:
+브라우저 인증은 [Playwright](https://playwright.dev/)를 통해 로컬 브라우저를 제어합니다.
 
-```bash
-# 1. Playwright 설치
-pip install playwright
-# 또는
-uv pip install playwright
-
-# 2. 브라우저 바이너리 설치 (로컬 Chromium 사용)
-playwright install chromium
-```
-
-`uvx`로 사용하려면:
+`uvx` 실행 시 `--with playwright` 플래그를 사용하면 라이브러리는 자동으로 준비되지만, [필수 준비 사항](#2-브라우저-바이너리-설치-browser-인증-필수)에서 언급한 **브라우저 바이너리**는 미리 설치되어 있어야 합니다.
 
 ```bash
+# 1단계: 브라우저 바이너리 설치 확인
+uvx playwright install chromium
+
+# 2단계: playwright 의존성을 주입하여 실행
 uvx --with playwright mfa-servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"
-```
-
-한 번에 설치:
-
-```bash
-pip install "mfa-servicenow-mcp[browser]"
-playwright install chromium
 ```
 
 Playwright는 브라우저 인증에서만 필요합니다. Basic, OAuth, API Key 인증은 추가 설치 없이 바로 사용 가능합니다.
@@ -158,6 +282,8 @@ uvx mfa-servicenow-mcp \
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
 SERVICENOW_AUTH_TYPE=browser
 SERVICENOW_BROWSER_HEADLESS=false
+SERVICENOW_BROWSER_USERNAME=your.username
+SERVICENOW_BROWSER_PASSWORD=your-password
 ```
 
 ### Basic 인증
@@ -170,6 +296,15 @@ uvx mfa-servicenow-mcp \
   --auth-type "basic" \
   --username "your_id" \
   --password "your_password"
+```
+
+환경변수 예시:
+
+```env
+SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
+SERVICENOW_AUTH_TYPE=basic
+SERVICENOW_USERNAME=your.username
+SERVICENOW_PASSWORD=your-password
 ```
 
 ### OAuth 인증

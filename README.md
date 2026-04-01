@@ -7,6 +7,42 @@ ServiceNow MCP server with browser-based authentication for MFA/SSO environments
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
 
+## Prerequisites
+
+Before registering the server, ensure your environment is ready.
+
+### 1. Install `uv` (Recommended)
+
+This project is optimized for [uv](https://astral.sh/uv).
+
+- **macOS / Linux:**
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+- **Windows:**
+  ```powershell
+  powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+  ```
+
+### 2. Install Browser Binary (Required for `browser` auth)
+
+If you plan to use `auth-type: browser` (MFA/SSO), you must install the Chromium browser binary on your machine:
+
+```bash
+# Using uvx to install the browser without global pip installation
+uvx playwright install chromium
+```
+
+### 3. Windows Specifics
+
+If you are on Windows, ensure your PowerShell execution policy allows script execution:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+For a step-by-step Windows setup (including a one-click PowerShell script), see [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
+
 ## Quick Start
 
 Most users do not need to clone this repository. If you have [uv](https://astral.sh/uv), you can register the server directly in your MCP client.
@@ -23,6 +59,8 @@ Add this to `claude_desktop_config.json`:
     "servicenow": {
       "command": "uvx",
       "args": [
+        "--with",
+        "playwright",
         "mfa-servicenow-mcp",
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
@@ -35,22 +73,121 @@ Add this to `claude_desktop_config.json`:
 
 #### OpenCode / Gemini / Vertex AI
 
+These hosts are easiest to manage with one of the following two execution styles.
+
+##### Run with `uvx`
+
 ```json
 {
   "mcp": {
     "servicenow": {
       "type": "local",
       "command": [
-        "uvx", "mfa-servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
+        "uvx", "--with", "playwright", "mfa-servicenow-mcp"
       ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_USERNAME": "your.username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+      },
       "enabled": true
     }
   }
 }
 ```
+
+##### Run directly from a checked-out source tree
+
+If you cloned this repository locally, point the MCP host at the project and run it with `uv run`:
+
+```json
+{
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "/absolute/path/to/mfa-servicenow-mcp",
+        "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_USERNAME": "your.username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+      },
+      "enabled": true
+    }
+  }
+}
+```
+
+> `SERVICENOW_BROWSER_USERNAME` and `SERVICENOW_BROWSER_PASSWORD` are optional, but they help prefill the browser login form in MFA/SSO flows.
+
+#### AntiGravity
+
+AntiGravity Editor uses a Claude Desktop-style `mcpServers` config. You can edit this by clicking the "three dots" at the top of the agent panel -> **Manage MCP Servers** -> **View raw config**.
+
+- **macOS / Linux:** `~/.gemini/antigravity/mcp_config.json`
+- **Windows:** `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
+
+##### Run with `uvx` (Recommended)
+
+When using `auth-type: browser`, you **must** include `--with playwright` to ensure the browser dependencies are available in the ephemeral environment.
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "--with",
+        "playwright",
+        "mfa-servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_USERNAME": "your.username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+##### Run directly from a checked-out source tree
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "/absolute/path/to/mfa-servicenow-mcp",
+        "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_USERNAME": "your.username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+> **Note:** After saving the config, click **Refresh** in the AntiGravity MCP management view. If you are using browser auth, ensure you have run `playwright install chromium` on your machine.
 
 #### OpenAI Codex
 
@@ -114,33 +251,20 @@ uv tool upgrade mfa-servicenow-mcp
 pip install --upgrade mfa-servicenow-mcp
 ```
 
-### 5. Browser Auth Setup
+### 4. Browser Auth Setup
 
-Browser authentication uses [Playwright](https://playwright.dev/) to drive your local browser for MFA/SSO login. Playwright is an **optional** dependency — install it separately:
+Browser authentication uses [Playwright](https://playwright.dev/) to drive your local browser. 
 
-```bash
-# 1. Install Playwright
-pip install playwright
-# or
-uv pip install playwright
-
-# 2. Install the browser binary (uses your local Chromium)
-playwright install chromium
-```
-
-With `uvx`:
+If you use `uvx` with the `--with playwright` flag, the package is handled automatically, but you still need the **browser binary** as mentioned in the [Prerequisites](#2-install-browser-binary-required-for-browser-auth).
 
 ```bash
+# Step 1: Ensure browser binary is installed
+uvx playwright install chromium
+
+# Step 2: Run with playwright dependency injected
 uvx --with playwright mfa-servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"
-```
-
-Or install as a bundle:
-
-```bash
-pip install "mfa-servicenow-mcp[browser]"
-playwright install chromium
 ```
 
 Playwright is only needed for browser auth. Basic, OAuth, and API Key auth work without it.
@@ -201,6 +325,8 @@ Environment variables:
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
 SERVICENOW_AUTH_TYPE=browser
 SERVICENOW_BROWSER_HEADLESS=false
+SERVICENOW_BROWSER_USERNAME=your.username
+SERVICENOW_BROWSER_PASSWORD=your-password
 ```
 
 ### Basic Auth
@@ -213,6 +339,15 @@ uvx mfa-servicenow-mcp \
   --auth-type "basic" \
   --username "your_id" \
   --password "your_password"
+```
+
+With environment variables:
+
+```env
+SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
+SERVICENOW_AUTH_TYPE=basic
+SERVICENOW_USERNAME=your.username
+SERVICENOW_PASSWORD=your-password
 ```
 
 ### OAuth
