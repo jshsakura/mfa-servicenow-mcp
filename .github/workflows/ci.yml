@@ -248,7 +248,8 @@ jobs:
       - name: Create next patch tag
         id: next_tag
         run: |
-          next_tag="v0.0.${GITHUB_RUN_NUMBER}"
+          # Read version from pyproject.toml
+          next_tag="v$(grep -m1 '^version' pyproject.toml | sed 's/version = "\(.*\)"/\1/')"
 
           echo "NEXT_TAG=$next_tag" >> "$GITHUB_OUTPUT"
 
