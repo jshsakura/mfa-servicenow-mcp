@@ -425,8 +425,8 @@ Example targeted portal search:
 
 ```json
 {
-  "regex": "btnClickLoadData|myQuery",
-  "widget_ids": ["jobWFMngt2Wd"],
+  "regex": "click-event|another-query",
+  "widget_ids": ["portal-widget-id"],
   "max_widgets": 1,
   "max_matches": 20
 }
@@ -436,8 +436,8 @@ Example broader search with explicit opt-in:
 
 ```json
 {
-  "regex": "btnClickLoadData|myQuery",
-  "widget_ids": ["jobWFMngt2Wd", "jobWFMngtLegacyWd"],
+  "regex": "click-event|another-query",
+  "widget_ids": ["portal-widget-id", "legacy-widget-id"],
   "include_linked_script_includes": true,
   "include_linked_angular_providers": true,
   "max_widgets": 2,
@@ -455,9 +455,9 @@ Example LLM-friendly route trace:
 
 ```json
 {
-  "regex": "hopesinitplanbudgetmanhour",
+  "regex": "my-search-regex",
   "match_mode": "auto",
-  "widget_ids": ["jobWFMngt2Wd"],
+  "widget_ids": ["portal-widget-id"],
   "include_linked_angular_providers": true,
   "output_mode": "minimal"
 }
