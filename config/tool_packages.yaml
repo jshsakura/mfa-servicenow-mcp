@@ -1,11 +1,8 @@
 # ServiceNow MCP Tool Packages Configuration
 # Define sets of tools to be exposed by the MCP server based on roles/workflows.
 
-# --- Package Definitions ---
-
-none: []
-
-standard:
+# --- Reusable Anchors ---
+.common_tools: &common_tools
   # Core Plus
   - sn_health
   - sn_query
@@ -13,12 +10,20 @@ standard:
   - sn_schema
   - sn_discover
   - sn_nl
+
+# --- Package Definitions ---
+
+none: []
+
+standard:
+  <<: *common_tools
   # Incident
   - list_incidents
   - get_incident_by_number
   - create_incident
   - update_incident
   - add_comment
+  - resolve_incident
   # Catalog
   - list_catalog_items
   - get_catalog_item
@@ -31,6 +36,7 @@ standard:
   - list_categories
 
 portal_developer:
+  <<: *common_tools
   # 안전한 로그 분석
   - get_system_logs
   - get_journal_entries
@@ -78,6 +84,7 @@ portal_developer:
   - add_file_to_changeset
 
 platform_developer:
+  <<: *common_tools
   # 안전한 로그 분석
   - get_system_logs
   - get_journal_entries
@@ -131,13 +138,7 @@ platform_developer:
   - add_file_to_changeset
 
 service_desk:
-  # Core Plus
-  - sn_health
-  - sn_query
-  - sn_aggregate
-  - sn_schema
-  - sn_discover
-  - sn_nl
+  <<: *common_tools
   # 인시던트 생성/수정/코멘트
   - create_incident
   - update_incident
@@ -153,12 +154,7 @@ service_desk:
   - list_articles
 
 full:
-  - sn_health
-  - sn_query
-  - sn_aggregate
-  - sn_schema
-  - sn_discover
-  - sn_nl
+  <<: *common_tools
   - get_system_logs
   - get_journal_entries
   - get_transaction_logs
