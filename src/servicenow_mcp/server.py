@@ -228,8 +228,10 @@ class ServiceNowMCP:
                 f"MCP_TOOL_PACKAGE environment variable found: '{env_package}' (normalized to '{requested_package}')"
             )
         else:
-            requested_package = "standard"
-            logger.info("MCP_TOOL_PACKAGE environment variable not set, defaulting to 'standard'")
+            requested_package = "portal_developer"
+            logger.info(
+                "MCP_TOOL_PACKAGE environment variable not set, defaulting to 'portal_developer'"
+            )
 
         # Check if the requested package exists in our definitions
         if requested_package in self.package_definitions:
