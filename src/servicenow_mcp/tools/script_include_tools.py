@@ -4,6 +4,7 @@ Script Include tools for the ServiceNow MCP server.
 This module provides tools for managing script includes in ServiceNow.
 """
 
+import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -58,6 +59,16 @@ class UpdateScriptIncludeParams(BaseModel):
     )
     active: Optional[bool] = Field(None, description="Whether the script include is active")
     access: Optional[str] = Field(None, description="Access level of the script include")
+
+
+class ExecuteScriptIncludeParams(BaseModel):
+    """Parameters for executing a client-callable script include."""
+
+    name: str = Field(..., description="Name of the script include to execute")
+    method: str = Field("execute", description="Method name to invoke (default: execute)")
+    params: Optional[Dict[str, str]] = Field(
+        None, description="Key-value parameters to pass to the script include"
+    )
 
 
 class DeleteScriptIncludeParams(BaseModel):
@@ -531,3 +542,89 @@ def delete_script_include(
             success=False,
             message=f"Error deleting script include: {str(e)}",
         )
+
+
+@register_tool(
+    name="execute_script_include",
+    params=ExecuteScriptIncludeParams,
+    description="Execute a client-callable script include via GlideAjax REST endpoint",
+    serialization="raw_dict",
+    return_type=dict,
+)
+def execute_script_include(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ExecuteScriptIncludeParams,
+) -> Dict[str, Any]:
+    """Execute a client-callable script include via GlideAjax REST endpoint.
+
+    The target script include must have client_callable=true.
+
+    Args:
+        config: The server configuration.
+        auth_manager: The authentication manager.
+        params: The parameters for the request.
+
+    Returns:
+        A dictionary containing the execution result.
+    """
+    try:
+        # First verify the script include exists and is client-callable
+        get_params = GetScriptIncludeParams(script_include_id=params.name)
+        get_result = get_script_include(config, auth_manager, get_params)
+
+        if not get_result["success"]:
+            return {
+                "success": False,
+                "message": f"Script include not found: {params.name}",
+            }
+
+        si = get_result["script_include"]
+        if not si.get("client_callable"):
+            return {
+                "success": False,
+                "message": f"Script include '{params.name}' is not client-callable. "
+                "Set client_callable=true to enable remote execution.",
+            }
+
+        # Build GlideAjax-style request
+        ajax_params = {
+            "sysparm_ajax_processor": params.name,
+            "sysparm_name": params.method,
+        }
+
+        # Add user-supplied parameters
+        if params.params:
+            for key, value in params.params.items():
+                ajax_params[f"sysparm_{key}"] = value
+
+        headers = auth_manager.get_headers()
+
+        response = auth_manager.make_request(
+            "GET",
+            f"{config.instance_url}/xmlhttp.do",
+            params=ajax_params,
+            headers=headers,
+            timeout=60,
+        )
+        response.raise_for_status()
+
+        # Try to parse as JSON first, fall back to text
+        response_text = response.text
+        try:
+            result_data = json.loads(response_text)
+        except (json.JSONDecodeError, ValueError):
+            result_data = response_text
+
+        return {
+            "success": True,
+            "message": f"Executed {params.name}.{params.method}",
+            "result": result_data,
+        }
+
+    except Exception as e:
+        logger.error(f"Error executing script include: {e}")
+        return {
+            "success": False,
+            "message": f"Error executing script include: {str(e)}",
+        }

@@ -3,7 +3,7 @@ Tests for the workflow management tools.
 """
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 
@@ -38,10 +38,13 @@ class TestWorkflowTools(unittest.TestCase):
             instance_url="https://test.service-now.com",
             auth=self.auth_config,
         )
-        self.auth_manager = AuthManager(self.auth_config)
+        self.auth_manager = MagicMock(spec=AuthManager)
+        self.auth_manager.get_headers.return_value = {
+            "Authorization": "Bearer test",
+            "Content-Type": "application/json",
+        }
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_list_workflows_success(self, mock_get):
+    def test_list_workflows_success(self):
         """Test listing workflows successfully."""
         # Mock the response
         mock_response = MagicMock()
@@ -65,7 +68,7 @@ class TestWorkflowTools(unittest.TestCase):
         }
         mock_response.headers = {"X-Total-Count": "2"}
         mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {
@@ -81,15 +84,14 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["workflows"][0]["sys_id"], "workflow123")
         self.assertEqual(result["workflows"][1]["sys_id"], "workflow456")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_list_workflows_empty_result(self, mock_get):
+    def test_list_workflows_empty_result(self):
         """Test listing workflows with empty result."""
         # Mock the response
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": []}
         mock_response.headers = {"X-Total-Count": "0"}
         mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {
@@ -103,11 +105,10 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["count"], 0)
         self.assertEqual(result["total"], 0)
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_list_workflows_error(self, mock_get):
+    def test_list_workflows_error(self):
         """Test listing workflows with error."""
         # Mock the response
-        mock_get.side_effect = requests.RequestException("API Error")
+        self.auth_manager.make_request.side_effect = requests.RequestException("API Error")
 
         # Call the function
         params = {
@@ -120,8 +121,7 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertIn("error", result)
         self.assertEqual(result["error"], "API Error")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_get_workflow_details_success(self, mock_get):
+    def test_get_workflow_details_success(self):
         """Test getting workflow details successfully."""
         # Mock the response
         mock_response = MagicMock()
@@ -135,7 +135,7 @@ class TestWorkflowTools(unittest.TestCase):
             }
         }
         mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {
@@ -147,11 +147,10 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["workflow"]["sys_id"], "workflow123")
         self.assertEqual(result["workflow"]["name"], "Incident Approval")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_get_workflow_details_error(self, mock_get):
+    def test_get_workflow_details_error(self):
         """Test getting workflow details with error."""
         # Mock the response
-        mock_get.side_effect = requests.RequestException("API Error")
+        self.auth_manager.make_request.side_effect = requests.RequestException("API Error")
 
         # Call the function
         params = {
@@ -163,8 +162,7 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertIn("error", result)
         self.assertEqual(result["error"], "API Error")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_list_workflow_versions_success(self, mock_get):
+    def test_list_workflow_versions_success(self):
         """Test listing workflow versions successfully."""
         # Mock the response
         mock_response = MagicMock()
@@ -188,7 +186,7 @@ class TestWorkflowTools(unittest.TestCase):
         }
         mock_response.headers = {"X-Total-Count": "2"}
         mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {
@@ -204,8 +202,7 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["versions"][0]["sys_id"], "version123")
         self.assertEqual(result["versions"][1]["sys_id"], "version456")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_get_workflow_activities_success(self, mock_get):
+    def test_get_workflow_activities_success(self):
         """Test getting workflow activities successfully."""
         # Mock the responses for version query and activities query
         version_response = MagicMock()
@@ -243,16 +240,8 @@ class TestWorkflowTools(unittest.TestCase):
         }
         activities_response.raise_for_status = MagicMock()
 
-        # Configure the mock to return different responses for different URLs
-        def side_effect(*args, **kwargs):
-            url = args[0] if args else kwargs.get("url", "")
-            if "wf_workflow_version" in url:
-                return version_response
-            elif "wf_activity" in url:
-                return activities_response
-            return MagicMock()
-
-        mock_get.side_effect = side_effect
+        # Configure the mock to return different responses for sequential calls
+        self.auth_manager.make_request.side_effect = [version_response, activities_response]
 
         # Call the function
         params = {
@@ -268,8 +257,7 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["activities"][0]["sys_id"], "activity123")
         self.assertEqual(result["activities"][1]["sys_id"], "activity456")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.post")
-    def test_create_workflow_success(self, mock_post):
+    def test_create_workflow_success(self):
         """Test creating a workflow successfully."""
         # Mock the response
         mock_response = MagicMock()
@@ -283,7 +271,7 @@ class TestWorkflowTools(unittest.TestCase):
             }
         }
         mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {
@@ -299,8 +287,7 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["workflow"]["name"], "New Workflow")
         self.assertEqual(result["message"], "Workflow created successfully")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.patch")
-    def test_update_workflow_success(self, mock_patch):
+    def test_update_workflow_success(self):
         """Test updating a workflow successfully."""
         # Mock the response
         mock_response = MagicMock()
@@ -314,7 +301,7 @@ class TestWorkflowTools(unittest.TestCase):
             }
         }
         mock_response.raise_for_status = MagicMock()
-        mock_patch.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {
@@ -329,8 +316,7 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["workflow"]["name"], "Updated Workflow")
         self.assertEqual(result["message"], "Workflow updated successfully")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.patch")
-    def test_activate_workflow_success(self, mock_patch):
+    def test_activate_workflow_success(self):
         """Test activating a workflow successfully."""
         # Mock the response
         mock_response = MagicMock()
@@ -342,7 +328,7 @@ class TestWorkflowTools(unittest.TestCase):
             }
         }
         mock_response.raise_for_status = MagicMock()
-        mock_patch.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {
@@ -355,8 +341,7 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["workflow"]["active"], "true")
         self.assertEqual(result["message"], "Workflow activated successfully")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.patch")
-    def test_deactivate_workflow_success(self, mock_patch):
+    def test_deactivate_workflow_success(self):
         """Test deactivating a workflow successfully."""
         # Mock the response
         mock_response = MagicMock()
@@ -368,7 +353,7 @@ class TestWorkflowTools(unittest.TestCase):
             }
         }
         mock_response.raise_for_status = MagicMock()
-        mock_patch.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {
@@ -381,36 +366,9 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["workflow"]["active"], "false")
         self.assertEqual(result["message"], "Workflow deactivated successfully")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    @patch("servicenow_mcp.tools.workflow_tools.requests.post")
-    def test_add_workflow_activity_success(self, mock_post, mock_get):
+    def test_add_workflow_activity_success(self):
         """Test adding a workflow activity successfully."""
-        # Mock the responses for version query and activity creation
-        version_response = MagicMock()
-        version_response.json.return_value = {
-            "result": [
-                {
-                    "sys_id": "version123",
-                    "workflow": "workflow123",
-                    "name": "Version 1",
-                    "version": "1",
-                    "published": "false",
-                }
-            ]
-        }
-        version_response.raise_for_status = MagicMock()
-
-        order_response = MagicMock()
-        order_response.json.return_value = {
-            "result": [
-                {
-                    "sys_id": "activity123",
-                    "order": "100",
-                }
-            ]
-        }
-        order_response.raise_for_status = MagicMock()
-
+        # Mock the response for activity creation
         activity_response = MagicMock()
         activity_response.json.return_value = {
             "result": {
@@ -422,22 +380,11 @@ class TestWorkflowTools(unittest.TestCase):
             }
         }
         activity_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = activity_response
 
-        # Configure the mocks
-        def get_side_effect(*args, **kwargs):
-            url = args[0] if args else kwargs.get("url", "")
-            if "wf_workflow_version" in url:
-                return version_response
-            elif "wf_activity" in url:
-                return order_response
-            return MagicMock()
-
-        mock_get.side_effect = get_side_effect
-        mock_post.return_value = activity_response
-
-        # Call the function
+        # Call the function -- add_workflow_activity requires workflow_version_id
         params = {
-            "workflow_id": "workflow123",
+            "workflow_version_id": "version123",
             "name": "New Activity",
             "activity_type": "approval",
             "description": "A new approval activity",
@@ -447,12 +394,9 @@ class TestWorkflowTools(unittest.TestCase):
         # Verify the result
         self.assertEqual(result["activity"]["sys_id"], "activity789")
         self.assertEqual(result["activity"]["name"], "New Activity")
-        self.assertEqual(result["workflow_id"], "workflow123")
-        self.assertEqual(result["version_id"], "version123")
-        self.assertEqual(result["message"], "Activity added successfully")
+        self.assertEqual(result["message"], "Workflow activity added successfully")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.patch")
-    def test_update_workflow_activity_success(self, mock_patch):
+    def test_update_workflow_activity_success(self):
         """Test updating a workflow activity successfully."""
         # Mock the response
         mock_response = MagicMock()
@@ -464,7 +408,7 @@ class TestWorkflowTools(unittest.TestCase):
             }
         }
         mock_response.raise_for_status = MagicMock()
-        mock_patch.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {
@@ -479,13 +423,12 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["activity"]["name"], "Updated Activity")
         self.assertEqual(result["message"], "Activity updated successfully")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.delete")
-    def test_delete_workflow_activity_success(self, mock_delete):
+    def test_delete_workflow_activity_success(self):
         """Test deleting a workflow activity successfully."""
         # Mock the response
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
-        mock_delete.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {
@@ -497,14 +440,13 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["message"], "Activity deleted successfully")
         self.assertEqual(result["activity_id"], "activity123")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.patch")
-    def test_reorder_workflow_activities_success(self, mock_patch):
+    def test_reorder_workflow_activities_success(self):
         """Test reordering workflow activities successfully."""
         # Mock the response
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": {}}
         mock_response.raise_for_status = MagicMock()
-        mock_patch.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = {

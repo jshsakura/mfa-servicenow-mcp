@@ -52,6 +52,26 @@ Add this to `claude_desktop_config.json`:
 }
 ```
 
+#### OpenAI Codex
+
+Add this to `codex.json` or pass via CLI:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "mfa-servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "browser",
+        "--browser-headless", "false"
+      ]
+    }
+  }
+}
+```
+
 ### 2. Run Directly From a Terminal
 
 ```bash

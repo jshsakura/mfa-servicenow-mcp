@@ -39,6 +39,8 @@ portal_developer:
   # 서버 소스 검색/조회
   - search_server_code
   - get_metadata_source
+  - extract_table_dependencies
+  - extract_widget_table_dependencies
   # 위젯 및 포탈 컴포넌트 개발
   - get_widget_bundle
   - get_portal_component_code
@@ -46,7 +48,22 @@ portal_developer:
   - trace_portal_route_targets
   - detect_angular_implicit_globals
   - update_portal_component
+  - download_portal_sources
   - analyze_widget_performance
+  # 포탈 구조 관리
+  - list_portals
+  - get_portal
+  - list_pages
+  - get_page
+  - list_widget_instances
+  - get_widget_instance
+  - create_widget_instance
+  - update_widget_instance
+  # 포탈 개발자 도구
+  - get_developer_changes
+  - get_uncommitted_changes
+  - get_provider_dependency_map
+  - get_developer_daily_summary
   # 서버 스크립트(SI) 통합 개발
   - list_script_includes
   - get_script_include
@@ -75,6 +92,8 @@ platform_developer:
   # 서버 소스 검색/조회
   - search_server_code
   - get_metadata_source
+  - extract_table_dependencies
+  - extract_widget_table_dependencies
   # 비즈니스 로직 (Script Include)
   - list_script_includes
   - get_script_include
@@ -142,6 +161,8 @@ full:
   - get_background_script_logs
   - search_server_code
   - get_metadata_source
+  - extract_table_dependencies
+  - extract_widget_table_dependencies
   - create_incident
   - update_incident
   - add_comment
@@ -192,12 +213,28 @@ full:
   - trace_portal_route_targets
   - detect_angular_implicit_globals
   - update_portal_component
+  - download_portal_sources
   - analyze_widget_performance
+  - get_developer_changes
+  - get_uncommitted_changes
+  - get_provider_dependency_map
+  - get_developer_daily_summary
+  - list_portals
+  - get_portal
+  - list_pages
+  - get_page
+  - list_widget_instances
+  - get_widget_instance
+  - create_widget_instance
+  - update_widget_instance
   - list_script_includes
   - get_script_include
   - create_script_include
   - update_script_include
   - delete_script_include
+  - execute_script_include
+  - create_ui_policy
+  - create_ui_policy_action
   - create_knowledge_base
   - list_knowledge_bases
   - create_category
@@ -231,3 +268,7 @@ full:
   - create_project
   - update_project
   - list_projects
+  - get_repo_working_tree_status
+  - get_repo_recent_commits
+  - get_repo_file_last_modifier
+  - get_repo_change_report

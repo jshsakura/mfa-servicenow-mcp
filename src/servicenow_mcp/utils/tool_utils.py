@@ -21,18 +21,10 @@ ToolDefinition = Tuple[
 ]
 
 
-def get_tool_definitions(
-    create_kb_category_tool_impl: Callable = None,
-    list_kb_categories_tool_impl: Callable = None,
-) -> Dict[str, ToolDefinition]:
-    """Returns a dictionary containing definitions for all available ServiceNow tools.
+def get_tool_definitions() -> Dict[str, ToolDefinition]:
+    """Returns all registered ServiceNow tool definitions.
 
-    Tools register themselves via the @register_tool decorator when their
-    modules are imported. This function triggers that import via discover_tools()
-    and returns the populated registry.
-
-    The create_kb_category_tool_impl / list_kb_categories_tool_impl parameters
-    are kept for backward compatibility but are no longer needed — the KB
-    category tools now register themselves directly.
+    Tools register themselves via @register_tool when their modules are imported.
+    This function triggers that import via discover_tools() and returns the registry.
     """
     return discover_tools()
