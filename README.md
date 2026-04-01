@@ -271,7 +271,7 @@ These tools are available in `portal_developer`, `platform_developer`, and `full
 All mutating tools are protected by explicit confirmation.
 
 Rules:
-1. Tools such as `create_`, `update_`, `delete_`, `execute_`, `add_`, `commit_`, and `publish_` require confirmation.
+1. Mutating tools with prefixes such as `create_`, `update_`, `delete_`, `remove_`, `add_`, `move_`, `activate_`, `deactivate_`, `commit_`, `publish_`, `submit_`, `approve_`, `reject_`, `resolve_`, `reorder_`, and `execute_` require confirmation.
 2. You must pass `confirm='approve'`.
 3. Without that parameter, the server rejects the request before execution.
 
