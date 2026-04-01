@@ -4,6 +4,7 @@ ServiceNow MCP Server
 This module provides the main implementation of the ServiceNow MCP server.
 """
 
+import copy
 import json
 import logging
 import os
@@ -218,6 +219,32 @@ class ServiceNowMCP:
     def _is_blocked_mutating_tool(tool_name: str) -> bool:
         return tool_name.startswith(MUTATING_TOOL_PREFIXES)
 
+    @staticmethod
+    def _tool_requires_confirmation(tool_name: str) -> bool:
+        return ServiceNowMCP._is_blocked_mutating_tool(tool_name) or tool_name == "sn_nl"
+
+    @staticmethod
+    def _inject_confirmation_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+        schema_with_confirm = copy.deepcopy(schema)
+        properties = schema_with_confirm.setdefault("properties", {})
+        properties[CONFIRM_FIELD] = {
+            "type": "string",
+            "enum": [CONFIRM_VALUE],
+            "description": (
+                "Required only for operations that modify data. Pass 'approve' to confirm intent."
+            ),
+        }
+        required = schema_with_confirm.setdefault("required", [])
+        if CONFIRM_FIELD not in required:
+            required.append(CONFIRM_FIELD)
+        return schema_with_confirm
+
+    @staticmethod
+    def _augment_tool_description(tool_name: str, description: str) -> str:
+        if not ServiceNowMCP._tool_requires_confirmation(tool_name):
+            return description
+        return f"{description} Requires confirm='approve' when executing a write or destructive action."
+
     async def _list_tools_impl(self) -> List[types.Tool]:
         """Implementation for the list_tools MCP endpoint."""
         tool_list: List[types.Tool] = []
@@ -256,8 +283,14 @@ class ServiceNowMCP:
                 ) = definition
                 try:
                     schema = params_model.model_json_schema()
+                    if self._tool_requires_confirmation(tool_name):
+                        schema = self._inject_confirmation_schema(schema)
                     tool_list.append(
-                        types.Tool(name=tool_name, description=description, inputSchema=schema)
+                        types.Tool(
+                            name=tool_name,
+                            description=self._augment_tool_description(tool_name, description),
+                            inputSchema=schema,
+                        )
                     )
                 except Exception as e:
                     logger.error(

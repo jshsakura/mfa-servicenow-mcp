@@ -56,6 +56,32 @@ def test_list_tools_shows_enabled_mutating_tools(monkeypatch: pytest.MonkeyPatch
     assert "approve_change" in names
 
 
+def test_list_tools_injects_confirm_field_for_mutating_tools(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    server = _build_server(monkeypatch, tmp_path)
+
+    tools = {tool.name: tool for tool in asyncio.run(server._list_tools_impl())}
+
+    create_incident_schema = tools["create_incident"].inputSchema
+    confirm_schema = create_incident_schema["properties"]["confirm"]
+
+    assert confirm_schema["enum"] == ["approve"]
+    assert "modify data" in confirm_schema["description"]
+    assert "confirm" in create_incident_schema["required"]
+    assert "confirm='approve'" in tools["create_incident"].description
+
+
+def test_list_tools_injects_confirm_field_for_sn_nl(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    server = _build_server(monkeypatch, tmp_path)
+
+    tools = {tool.name: tool for tool in asyncio.run(server._list_tools_impl())}
+
+    sn_nl_schema = tools["sn_nl"].inputSchema
+    assert sn_nl_schema["properties"]["confirm"]["enum"] == ["approve"]
+    assert "confirm='approve'" in tools["sn_nl"].description
+
+
 def test_call_tool_blocks_mutating_tool_without_confirmation(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ):
@@ -152,6 +178,30 @@ def test_call_tool_allows_sn_nl_execute_true_with_confirmation(
             "sn_nl", {"text": "create incident", "execute": True, "confirm": "approve"}
         )
     )
+    assert called["value"] is True
+
+
+def test_call_tool_allows_sn_nl_execute_false_without_confirmation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    server = _build_server(monkeypatch, tmp_path)
+
+    called = {"value": False}
+
+    def should_run(_config, _auth_manager, _params):
+        called["value"] = True
+        return {"ok": True}
+
+    server.tool_definitions["sn_nl"] = (
+        should_run,
+        EmptyParams,
+        dict,
+        "sn_nl_read_only",
+        "raw_dict",
+    )
+
+    asyncio.run(server._call_tool_impl("sn_nl", {"text": "list incidents", "execute": False}))
+
     assert called["value"] is True
 
 
