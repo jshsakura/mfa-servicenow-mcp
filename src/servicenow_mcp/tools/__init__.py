@@ -71,9 +71,6 @@ from servicenow_mcp.tools.portal_tools import (
     search_portal_regex_matches,
 )
 
-# from servicenow_mcp.tools.problem_tools import create_problem, update_problem
-# from servicenow_mcp.tools.request_tools import create_request, update_request
-
 __all__ = [
     # Incident tools
     "create_incident",
