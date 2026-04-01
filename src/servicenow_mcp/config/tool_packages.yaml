@@ -74,6 +74,8 @@ portal_developer:
   - get_workflow_details
   - list_workflow_versions
   - get_workflow_activities
+  # 변경사항 감사/리뷰
+  - audit_pending_changes
   # Update Set (Changeset) 관리
   - list_changesets
   - get_changeset_details
@@ -117,6 +119,8 @@ platform_developer:
   # UI Policy
   - create_ui_policy
   - create_ui_policy_action
+  # 변경사항 감사/리뷰
+  - audit_pending_changes
   # 체인지셋 관리
   - list_changesets
   - get_changeset_details
@@ -272,3 +276,4 @@ full:
   - get_repo_recent_commits
   - get_repo_file_last_modifier
   - get_repo_change_report
+  - audit_pending_changes
