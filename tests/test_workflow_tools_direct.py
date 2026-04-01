@@ -8,6 +8,7 @@ import json
 import logging
 import os
 
+import pytest
 from dotenv import load_dotenv
 
 from servicenow_mcp.auth.auth_manager import AuthManager
@@ -25,6 +26,38 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+
+@pytest.fixture(scope="module")
+def server_config():
+    instance_url = os.getenv("SERVICENOW_INSTANCE_URL")
+    username = os.getenv("SERVICENOW_USERNAME")
+    password = os.getenv("SERVICENOW_PASSWORD")
+
+    if not all([instance_url, username, password]):
+        pytest.skip(
+            "Direct workflow tests require SERVICENOW_INSTANCE_URL, SERVICENOW_USERNAME, and SERVICENOW_PASSWORD."
+        )
+
+    auth_config = AuthConfig(
+        type=AuthType.BASIC,
+        basic=BasicAuthConfig(username=username, password=password),
+    )
+    return ServerConfig(instance_url=instance_url, auth=auth_config)
+
+
+@pytest.fixture(scope="module")
+def auth_manager(server_config):
+    return AuthManager(server_config.auth, server_config.instance_url)
+
+
+@pytest.fixture(scope="module")
+def workflow_id(auth_manager, server_config):
+    result = list_workflows(auth_manager, server_config, {})
+    workflows = result.get("workflows", [])
+    if not workflows:
+        pytest.skip("No workflows available in the target ServiceNow instance.")
+    return workflows[0]["sys_id"]
 
 
 def setup_auth_and_config():
@@ -53,7 +86,7 @@ def setup_auth_and_config():
     )
 
     # Create authentication manager
-    auth_manager = AuthManager(auth_config)
+    auth_manager = AuthManager(auth_config, instance_url)
 
     return auth_manager, server_config
 
@@ -127,27 +160,27 @@ if __name__ == "__main__":
     logger.info("Testing workflow_tools module...")
 
     # Set up authentication and server configuration
-    auth_manager, server_config = setup_auth_and_config()
+    cli_auth_manager, cli_server_config = setup_auth_and_config()
 
     # Test list_workflows
-    workflows_result = test_list_workflows(auth_manager, server_config)
+    workflows_result = test_list_workflows(cli_auth_manager, cli_server_config)
 
     # If we got any workflows, test the other functions
     if "workflows" in workflows_result and workflows_result["workflows"]:
-        workflow_id = workflows_result["workflows"][0]["sys_id"]
+        cli_workflow_id = workflows_result["workflows"][0]["sys_id"]
 
         # Test get_workflow_details
-        test_get_workflow_details(auth_manager, server_config, workflow_id)
+        test_get_workflow_details(cli_auth_manager, cli_server_config, cli_workflow_id)
 
         # Test list_workflow_versions
-        test_list_workflow_versions(auth_manager, server_config, workflow_id)
+        test_list_workflow_versions(cli_auth_manager, cli_server_config, cli_workflow_id)
 
         # Test get_workflow_activities
-        test_get_workflow_activities(auth_manager, server_config, workflow_id)
+        test_get_workflow_activities(cli_auth_manager, cli_server_config, cli_workflow_id)
     else:
         logger.warning("No workflows found, skipping detail tests.")
 
     # Test with swapped parameters
-    test_with_swapped_params(auth_manager, server_config)
+    test_with_swapped_params(cli_auth_manager, cli_server_config)
 
     logger.info("Tests completed.")
