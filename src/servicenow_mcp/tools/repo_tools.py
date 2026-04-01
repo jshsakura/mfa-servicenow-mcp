@@ -415,6 +415,9 @@ def get_repo_change_report(params: GetRepoChangeReportParams) -> Dict[str, Any]:
             **status_result.get("summary", {}),
             "commits_scanned": len(recent_commits),
             "files_reported": len(files),
+            "uncommitted_files": sum(
+                1 for entry in files if entry.get("commit_state") == "uncommitted"
+            ),
         },
         "files": files,
         "recent_commits": recent_commits,

@@ -21,6 +21,8 @@ from servicenow_mcp.utils.tool_utils import get_tool_definitions
 
 logger = logging.getLogger(__name__)
 
+FastMCP = Server
+
 # Define path for the configuration file
 TOOL_PACKAGE_CONFIG_PATH = os.getenv("TOOL_PACKAGE_CONFIG_PATH", "config/tool_packages.yaml")
 
@@ -104,7 +106,7 @@ class ServiceNowMCP:
             self.config = config
 
         self.auth_manager = AuthManager(self.config.auth, self.config.instance_url)
-        self.mcp_server = Server("ServiceNow")  # Use low-level Server
+        self.mcp_server = FastMCP("ServiceNow")  # Use low-level Server
         self.name = "ServiceNow"
 
         self.package_definitions: Dict[str, List[str]] = {}
@@ -117,6 +119,37 @@ class ServiceNowMCP:
         self.tool_definitions = get_tool_definitions()
 
         self._register_handlers()
+        self._register_tools()
+        self._register_resources()
+
+    def _register_tools(self):
+        tool_decorator = getattr(self.mcp_server, "tool", None)
+        if not callable(tool_decorator):
+            return
+
+        for tool_name, definition in self.tool_definitions.items():
+            impl_func, _params_model, _return_annotation, description, _serialization = definition
+            try:
+                decorator = tool_decorator(name=tool_name, description=description)
+                if callable(decorator):
+                    decorator(impl_func)
+            except Exception:
+                logger.debug(
+                    "Legacy tool registration shim failed for %s", tool_name, exc_info=True
+                )
+
+    def _register_resources(self):
+        resource_decorator = getattr(self.mcp_server, "resource", None)
+        if not callable(resource_decorator):
+            return
+
+        for resource_path in ("catalog://items", "catalog://categories", "catalog://{item_id}"):
+            try:
+                resource_decorator(resource_path)
+            except Exception:
+                logger.debug(
+                    "Legacy resource registration shim failed for %s", resource_path, exc_info=True
+                )
 
     def _register_handlers(self):
         """Register the list_tools and call_tool handlers."""
