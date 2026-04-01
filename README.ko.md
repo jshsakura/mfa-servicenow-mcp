@@ -65,7 +65,10 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
         "--browser-headless", "false"
-      ]
+      ],
+      "env": {
+        "MCP_TOOL_PACKAGE": "portal_developer"
+      }
     }
   }
 }
@@ -90,7 +93,8 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "portal_developer"
       },
       "enabled": true
     }
@@ -336,12 +340,12 @@ uvx mfa-servicenow-mcp \
 
 ## 도구 패키지
 
-`MCP_TOOL_PACKAGE`를 설정하여 도구 세트를 선택할 수 있습니다. 기본값: `standard`
+`MCP_TOOL_PACKAGE`를 설정하여 도구 세트를 선택할 수 있습니다. 기본값: `portal_developer`
 
 | 패키지명 | 추천 역할 | 주요 포함 도구 |
 | :--- | :--- | :--- |
+| `portal_developer` | 포탈 개발자 | **(기본값)** 포탈 코드, Script Include, 안전한 로그 조회, 서버 소스 조회, 워크플로우 조회, 체인지셋 커밋/퍼블리시 |
 | `standard` | 표준 사용자 | 인시던트, 카탈로그, 지식베이스, 코어 조회 |
-| `portal_developer` | 포탈 개발자 | 포탈 코드, Script Include, 안전한 로그 조회, 서버 소스 조회, 워크플로우 조회, 체인지셋 커밋/퍼블리시 |
 | `platform_developer` | 플랫폼 개발자 | Script Include, 안전한 로그 조회, 서버 소스 조회, 워크플로우, UI Policy, 체인지셋 관리 |
 | `service_desk` | 운영/헬프데스크 | 인시던트 처리, 코멘트, 사용자 조회, 문서 조회 |
 | `full` | 관리자 | 구현된 전 영역 도구 |
