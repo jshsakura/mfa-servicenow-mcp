@@ -28,7 +28,11 @@ def _make_browser_manager() -> AuthManager:
             session_ttl_minutes=30,
         ),
     )
-    manager = AuthManager(cfg, "https://example.service-now.com")
+    with (
+        patch.object(AuthManager, "_eager_restore_browser_session"),
+        patch.object(AuthManager, "_start_keepalive"),
+    ):
+        manager = AuthManager(cfg, "https://example.service-now.com")
     manager._browser_cookie_header = "OLD=COOKIE"
     manager._browser_cookie_expires_at = time.time() + 600
     manager._browser_last_validated_at = None
@@ -108,7 +112,11 @@ def test_browser_probe_path_query_string_is_split_into_url_and_params():
             timeout_seconds=10,
         ),
     )
-    manager = AuthManager(cfg, "https://example.service-now.com")
+    with (
+        patch.object(AuthManager, "_eager_restore_browser_session"),
+        patch.object(AuthManager, "_start_keepalive"),
+    ):
+        manager = AuthManager(cfg, "https://example.service-now.com")
 
     with patch("servicenow_mcp.auth.auth_manager.requests.get") as mock_get:
         manager._probe_browser_api_with_cookie(

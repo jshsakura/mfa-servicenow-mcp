@@ -44,8 +44,7 @@ class TestCatalogTools(unittest.TestCase):
         self.auth_manager = MagicMock(spec=AuthManager)
         self.auth_manager.get_headers.return_value = {"Authorization": "Basic YWRtaW46cGFzc3dvcmQ="}
 
-    @patch("servicenow_mcp.tools.catalog_tools.requests.get")
-    def test_list_catalog_items(self, mock_get):
+    def test_list_catalog_items(self):
         """Test listing catalog items."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -64,7 +63,7 @@ class TestCatalogTools(unittest.TestCase):
             ]
         }
         mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = ListCatalogItemsParams(
@@ -83,9 +82,10 @@ class TestCatalogTools(unittest.TestCase):
         self.assertEqual(result["items"][0]["category"], "Hardware")
 
         # Check that the correct URL and parameters were used
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
-        self.assertEqual(args[0], "https://example.service-now.com/api/now/table/sc_cat_item")
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
+        self.assertEqual(args[0], "GET")
+        self.assertEqual(args[1], "https://example.service-now.com/api/now/table/sc_cat_item")
         self.assertEqual(kwargs["params"]["sysparm_limit"], 10)
         self.assertEqual(kwargs["params"]["sysparm_offset"], 0)
         self.assertIn("sysparm_query", kwargs["params"])
@@ -95,11 +95,10 @@ class TestCatalogTools(unittest.TestCase):
             "short_descriptionLIKElaptop^ORnameLIKElaptop", kwargs["params"]["sysparm_query"]
         )
 
-    @patch("servicenow_mcp.tools.catalog_tools.requests.get")
-    def test_list_catalog_items_error(self, mock_get):
+    def test_list_catalog_items_error(self):
         """Test listing catalog items with an error."""
         # Mock the response from ServiceNow
-        mock_get.side_effect = requests.exceptions.RequestException("Error")
+        self.auth_manager.make_request.side_effect = requests.exceptions.RequestException("Error")
 
         # Call the function
         params = ListCatalogItemsParams(
@@ -114,8 +113,7 @@ class TestCatalogTools(unittest.TestCase):
         self.assertIn("Error", result["message"])
 
     @patch("servicenow_mcp.tools.catalog_tools.get_catalog_item_variables")
-    @patch("servicenow_mcp.tools.catalog_tools.requests.get")
-    def test_get_catalog_item(self, mock_get, mock_get_variables):
+    def test_get_catalog_item(self, mock_get_variables):
         """Test getting a specific catalog item."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -135,7 +133,7 @@ class TestCatalogTools(unittest.TestCase):
             }
         }
         mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Mock the variables
         mock_get_variables.return_value = [
@@ -163,18 +161,18 @@ class TestCatalogTools(unittest.TestCase):
         self.assertEqual(result.data["variables"][0]["name"], "model")
 
         # Check that the correct URL and parameters were used
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
-        self.assertEqual(args[0], "https://example.service-now.com/api/now/table/sc_cat_item/item1")
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
+        self.assertEqual(args[0], "GET")
+        self.assertEqual(args[1], "https://example.service-now.com/api/now/table/sc_cat_item/item1")
 
-    @patch("servicenow_mcp.tools.catalog_tools.requests.get")
-    def test_get_catalog_item_not_found(self, mock_get):
+    def test_get_catalog_item_not_found(self):
         """Test getting a catalog item that doesn't exist."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": {}}
         mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = GetCatalogItemParams(item_id="nonexistent")
@@ -185,11 +183,10 @@ class TestCatalogTools(unittest.TestCase):
         self.assertIn("not found", result.message)
         self.assertIsNone(result.data)
 
-    @patch("servicenow_mcp.tools.catalog_tools.requests.get")
-    def test_get_catalog_item_error(self, mock_get):
+    def test_get_catalog_item_error(self):
         """Test getting a catalog item with an error."""
         # Mock the response from ServiceNow
-        mock_get.side_effect = requests.exceptions.RequestException("Error")
+        self.auth_manager.make_request.side_effect = requests.exceptions.RequestException("Error")
 
         # Call the function
         params = GetCatalogItemParams(item_id="item1")
@@ -200,8 +197,7 @@ class TestCatalogTools(unittest.TestCase):
         self.assertIn("Error", result.message)
         self.assertIsNone(result.data)
 
-    @patch("servicenow_mcp.tools.catalog_tools.requests.get")
-    def test_get_catalog_item_variables(self, mock_get):
+    def test_get_catalog_item_variables(self):
         """Test getting variables for a catalog item."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -220,7 +216,7 @@ class TestCatalogTools(unittest.TestCase):
             ]
         }
         mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         result = get_catalog_item_variables(self.config, self.auth_manager, "item1")
@@ -232,16 +228,16 @@ class TestCatalogTools(unittest.TestCase):
         self.assertEqual(result[0]["type"], "string")
 
         # Check that the correct URL and parameters were used
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
-        self.assertEqual(args[0], "https://example.service-now.com/api/now/table/item_option_new")
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
+        self.assertEqual(args[0], "GET")
+        self.assertEqual(args[1], "https://example.service-now.com/api/now/table/item_option_new")
         self.assertEqual(kwargs["params"]["sysparm_query"], "cat_item=item1^ORDERBYorder")
 
-    @patch("servicenow_mcp.tools.catalog_tools.requests.get")
-    def test_get_catalog_item_variables_error(self, mock_get):
+    def test_get_catalog_item_variables_error(self):
         """Test getting variables for a catalog item with an error."""
         # Mock the response from ServiceNow
-        mock_get.side_effect = requests.exceptions.RequestException("Error")
+        self.auth_manager.make_request.side_effect = requests.exceptions.RequestException("Error")
 
         # Call the function
         result = get_catalog_item_variables(self.config, self.auth_manager, "item1")
@@ -249,8 +245,7 @@ class TestCatalogTools(unittest.TestCase):
         # Check the result
         self.assertEqual(len(result), 0)
 
-    @patch("servicenow_mcp.tools.catalog_tools.requests.get")
-    def test_list_catalog_categories(self, mock_get):
+    def test_list_catalog_categories(self):
         """Test listing catalog categories."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -268,7 +263,7 @@ class TestCatalogTools(unittest.TestCase):
             ]
         }
         mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         params = ListCatalogCategoriesParams(
@@ -286,9 +281,10 @@ class TestCatalogTools(unittest.TestCase):
         self.assertEqual(result["categories"][0]["description"], "Hardware requests")
 
         # Check that the correct URL and parameters were used
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
-        self.assertEqual(args[0], "https://example.service-now.com/api/now/table/sc_category")
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
+        self.assertEqual(args[0], "GET")
+        self.assertEqual(args[1], "https://example.service-now.com/api/now/table/sc_category")
         self.assertEqual(kwargs["params"]["sysparm_limit"], 10)
         self.assertEqual(kwargs["params"]["sysparm_offset"], 0)
         self.assertIn("sysparm_query", kwargs["params"])
@@ -297,11 +293,10 @@ class TestCatalogTools(unittest.TestCase):
             "titleLIKEhardware^ORdescriptionLIKEhardware", kwargs["params"]["sysparm_query"]
         )
 
-    @patch("servicenow_mcp.tools.catalog_tools.requests.get")
-    def test_list_catalog_categories_error(self, mock_get):
+    def test_list_catalog_categories_error(self):
         """Test listing catalog categories with an error."""
         # Mock the response from ServiceNow
-        mock_get.side_effect = requests.exceptions.RequestException("Error")
+        self.auth_manager.make_request.side_effect = requests.exceptions.RequestException("Error")
 
         # Call the function
         params = ListCatalogCategoriesParams(
@@ -315,8 +310,7 @@ class TestCatalogTools(unittest.TestCase):
         self.assertEqual(len(result["categories"]), 0)
         self.assertIn("Error", result["message"])
 
-    @patch("requests.post")
-    def test_create_catalog_category(self, mock_post):
+    def test_create_catalog_category(self):
         """Test creating a catalog category."""
         # Mock response
         mock_response = MagicMock()
@@ -331,7 +325,8 @@ class TestCatalogTools(unittest.TestCase):
                 "order": "100",
             }
         }
-        mock_post.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create params
         params = CreateCatalogCategoryParams(
@@ -351,14 +346,14 @@ class TestCatalogTools(unittest.TestCase):
         self.assertEqual(result.data["sys_id"], "test_sys_id")
 
         # Verify request
-        mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
-        self.assertEqual(args[0], "https://example.service-now.com/api/now/table/sc_category")
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertEqual(args[1], "https://example.service-now.com/api/now/table/sc_category")
         self.assertEqual(kwargs["json"]["title"], "Test Category")
         self.assertEqual(kwargs["json"]["description"], "Test Description")
 
-    @patch("requests.patch")
-    def test_update_catalog_category(self, mock_patch):
+    def test_update_catalog_category(self):
         """Test updating a catalog category."""
         # Mock response
         mock_response = MagicMock()
@@ -373,7 +368,8 @@ class TestCatalogTools(unittest.TestCase):
                 "order": "200",
             }
         }
-        mock_patch.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create params
         params = UpdateCatalogCategoryParams(
@@ -393,24 +389,25 @@ class TestCatalogTools(unittest.TestCase):
         self.assertEqual(result.data["order"], "200")
 
         # Verify request
-        mock_patch.assert_called_once()
-        args, kwargs = mock_patch.call_args
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
+        self.assertEqual(args[0], "PATCH")
         self.assertEqual(
-            args[0], "https://example.service-now.com/api/now/table/sc_category/test_sys_id"
+            args[1], "https://example.service-now.com/api/now/table/sc_category/test_sys_id"
         )
         self.assertEqual(kwargs["json"]["title"], "Updated Category")
         self.assertEqual(kwargs["json"]["description"], "Updated Description")
         self.assertEqual(kwargs["json"]["order"], "200")
 
-    @patch("requests.patch")
-    def test_move_catalog_items(self, mock_patch):
+    def test_move_catalog_items(self):
         """Test moving catalog items."""
         # Mock response
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "result": {"sys_id": "item_id", "category": "target_category_id"}
         }
-        mock_patch.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create params
         params = MoveCatalogItemsParams(
@@ -426,11 +423,12 @@ class TestCatalogTools(unittest.TestCase):
         self.assertEqual(result.data["moved_items_count"], 3)
 
         # Verify request
-        self.assertEqual(mock_patch.call_count, 3)
-        for i, call in enumerate(mock_patch.call_args_list):
+        self.assertEqual(self.auth_manager.make_request.call_count, 3)
+        for i, call in enumerate(self.auth_manager.make_request.call_args_list):
             args, kwargs = call
+            self.assertEqual(args[0], "PATCH")
             self.assertEqual(
-                args[0],
+                args[1],
                 f"https://example.service-now.com/api/now/table/sc_cat_item/{params.item_ids[i]}",
             )
             self.assertEqual(kwargs["json"]["category"], "target_category_id")

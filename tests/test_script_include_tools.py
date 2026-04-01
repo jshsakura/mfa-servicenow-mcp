@@ -7,8 +7,6 @@ This module contains tests for the script include tools in the ServiceNow MCP se
 import unittest
 from unittest.mock import MagicMock, patch
 
-import requests
-
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.script_include_tools import (
     CreateScriptIncludeParams,
@@ -45,8 +43,7 @@ class TestScriptIncludeTools(unittest.TestCase):
             "Content-Type": "application/json",
         }
 
-    @patch("servicenow_mcp.tools.script_include_tools.requests.get")
-    def test_list_script_includes(self, mock_get):
+    def test_list_script_includes(self):
         """Test listing script includes."""
         # Mock response
         mock_response = MagicMock()
@@ -68,8 +65,8 @@ class TestScriptIncludeTools(unittest.TestCase):
                 }
             ]
         }
-        mock_response.status_code = 200
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
         params = ListScriptIncludesParams(
@@ -86,20 +83,21 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertTrue(result["script_includes"][0]["active"])
 
         # Verify the request
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual("GET", call_args[0][0])
         self.assertEqual(
-            f"{self.server_config.instance_url}/api/now/table/sys_script_include", args[0]
+            f"{self.server_config.instance_url}/api/now/table/sys_script_include",
+            call_args[0][1],
         )
-        self.assertEqual(self.auth_manager.get_headers(), kwargs["headers"])
-        self.assertEqual(10, kwargs["params"]["sysparm_limit"])
-        self.assertEqual(0, kwargs["params"]["sysparm_offset"])
+        self.assertEqual(10, call_args[1]["params"]["sysparm_limit"])
+        self.assertEqual(0, call_args[1]["params"]["sysparm_offset"])
         self.assertEqual(
-            "active=true^client_callable=true^nameLIKETest", kwargs["params"]["sysparm_query"]
+            "active=true^client_callable=true^nameLIKETest",
+            call_args[1]["params"]["sysparm_query"],
         )
 
-    @patch("servicenow_mcp.tools.script_include_tools.requests.get")
-    def test_get_script_include(self, mock_get):
+    def test_get_script_include(self):
         """Test getting a script include."""
         # Mock response
         mock_response = MagicMock()
@@ -119,8 +117,8 @@ class TestScriptIncludeTools(unittest.TestCase):
                 "sys_updated_by": {"display_value": "admin"},
             }
         }
-        mock_response.status_code = 200
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
         params = GetScriptIncludeParams(script_include_id="123")
@@ -134,16 +132,16 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertTrue(result["script_include"]["active"])
 
         # Verify the request
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual("GET", call_args[0][0])
         self.assertEqual(
-            f"{self.server_config.instance_url}/api/now/table/sys_script_include", args[0]
+            f"{self.server_config.instance_url}/api/now/table/sys_script_include",
+            call_args[0][1],
         )
-        self.assertEqual(self.auth_manager.get_headers(), kwargs["headers"])
-        self.assertEqual("name=123", kwargs["params"]["sysparm_query"])
+        self.assertEqual("name=123", call_args[1]["params"]["sysparm_query"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.requests.post")
-    def test_create_script_include(self, mock_post):
+    def test_create_script_include(self):
         """Test creating a script include."""
         # Mock response
         mock_response = MagicMock()
@@ -153,8 +151,8 @@ class TestScriptIncludeTools(unittest.TestCase):
                 "name": "TestScriptInclude",
             }
         }
-        mock_response.status_code = 201
-        mock_post.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
         params = CreateScriptIncludeParams(
@@ -174,20 +172,20 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertEqual("TestScriptInclude", result.script_include_name)
 
         # Verify the request
-        mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual("POST", call_args[0][0])
         self.assertEqual(
-            f"{self.server_config.instance_url}/api/now/table/sys_script_include", args[0]
+            f"{self.server_config.instance_url}/api/now/table/sys_script_include",
+            call_args[0][1],
         )
-        self.assertEqual(self.auth_manager.get_headers(), kwargs["headers"])
-        self.assertEqual("TestScriptInclude", kwargs["json"]["name"])
-        self.assertEqual("true", kwargs["json"]["client_callable"])
-        self.assertEqual("true", kwargs["json"]["active"])
-        self.assertEqual("public", kwargs["json"]["access"])
+        self.assertEqual("TestScriptInclude", call_args[1]["json"]["name"])
+        self.assertEqual("true", call_args[1]["json"]["client_callable"])
+        self.assertEqual("true", call_args[1]["json"]["active"])
+        self.assertEqual("public", call_args[1]["json"]["access"])
 
     @patch("servicenow_mcp.tools.script_include_tools.get_script_include")
-    @patch("servicenow_mcp.tools.script_include_tools.requests.patch")
-    def test_update_script_include(self, mock_patch, mock_get_script_include):
+    def test_update_script_include(self, mock_get_script_include):
         """Test updating a script include."""
         # Mock get_script_include response
         mock_get_script_include.return_value = {
@@ -213,8 +211,8 @@ class TestScriptIncludeTools(unittest.TestCase):
                 "name": "TestScriptInclude",
             }
         }
-        mock_response.status_code = 200
-        mock_patch.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
         params = UpdateScriptIncludeParams(
@@ -231,18 +229,18 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertEqual("TestScriptInclude", result.script_include_name)
 
         # Verify the request
-        mock_patch.assert_called_once()
-        args, kwargs = mock_patch.call_args
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual("PATCH", call_args[0][0])
         self.assertEqual(
-            f"{self.server_config.instance_url}/api/now/table/sys_script_include/123", args[0]
+            f"{self.server_config.instance_url}/api/now/table/sys_script_include/123",
+            call_args[0][1],
         )
-        self.assertEqual(self.auth_manager.get_headers(), kwargs["headers"])
-        self.assertEqual("Updated Test Script Include", kwargs["json"]["description"])
-        self.assertEqual("false", kwargs["json"]["client_callable"])
+        self.assertEqual("Updated Test Script Include", call_args[1]["json"]["description"])
+        self.assertEqual("false", call_args[1]["json"]["client_callable"])
 
     @patch("servicenow_mcp.tools.script_include_tools.get_script_include")
-    @patch("servicenow_mcp.tools.script_include_tools.requests.delete")
-    def test_delete_script_include(self, mock_delete, mock_get_script_include):
+    def test_delete_script_include(self, mock_get_script_include):
         """Test deleting a script include."""
         # Mock get_script_include response
         mock_get_script_include.return_value = {
@@ -256,8 +254,8 @@ class TestScriptIncludeTools(unittest.TestCase):
 
         # Mock delete response
         mock_response = MagicMock()
-        mock_response.status_code = 204
-        mock_delete.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
         params = DeleteScriptIncludeParams(script_include_id="123")
@@ -269,18 +267,18 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertEqual("TestScriptInclude", result.script_include_name)
 
         # Verify the request
-        mock_delete.assert_called_once()
-        args, kwargs = mock_delete.call_args
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual("DELETE", call_args[0][0])
         self.assertEqual(
-            f"{self.server_config.instance_url}/api/now/table/sys_script_include/123", args[0]
+            f"{self.server_config.instance_url}/api/now/table/sys_script_include/123",
+            call_args[0][1],
         )
-        self.assertEqual(self.auth_manager.get_headers(), kwargs["headers"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.requests.get")
-    def test_list_script_includes_error(self, mock_get):
+    def test_list_script_includes_error(self):
         """Test listing script includes with an error."""
         # Mock response
-        mock_get.side_effect = requests.RequestException("Test error")
+        self.auth_manager.make_request.side_effect = Exception("Test error")
 
         # Call the method
         params = ListScriptIncludesParams()
@@ -290,11 +288,10 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("Error listing script includes", result["message"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.requests.get")
-    def test_get_script_include_error(self, mock_get):
+    def test_get_script_include_error(self):
         """Test getting a script include with an error."""
         # Mock response
-        mock_get.side_effect = requests.RequestException("Test error")
+        self.auth_manager.make_request.side_effect = Exception("Test error")
 
         # Call the method
         params = GetScriptIncludeParams(script_include_id="123")
@@ -304,11 +301,10 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("Error getting script include", result["message"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.requests.post")
-    def test_create_script_include_error(self, mock_post):
+    def test_create_script_include_error(self):
         """Test creating a script include with an error."""
         # Mock response
-        mock_post.side_effect = requests.RequestException("Test error")
+        self.auth_manager.make_request.side_effect = Exception("Test error")
 
         # Call the method
         params = CreateScriptIncludeParams(

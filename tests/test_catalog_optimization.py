@@ -39,8 +39,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.auth_manager = MagicMock(spec=AuthManager)
         self.auth_manager.get_headers.return_value = {"Authorization": "Basic YWRtaW46cGFzc3dvcmQ="}
 
-    @patch("requests.get")
-    def test_get_inactive_items(self, mock_get):
+    def test_get_inactive_items(self):
         """Test getting inactive catalog items."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -60,7 +59,8 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 },
             ]
         }
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         result = _get_inactive_items(self.config, self.auth_manager)
@@ -71,12 +71,11 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertEqual(result[1]["name"], "Legacy Software")
 
         # Verify the API call
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
         self.assertEqual(kwargs["params"]["sysparm_query"], "active=false")
 
-    @patch("requests.get")
-    def test_get_inactive_items_with_category(self, mock_get):
+    def test_get_inactive_items_with_category(self):
         """Test getting inactive catalog items filtered by category."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -90,7 +89,8 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 },
             ]
         }
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function with a category filter
         result = _get_inactive_items(self.config, self.auth_manager, "hardware")
@@ -100,15 +100,16 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertEqual(result[0]["name"], "Old Laptop")
 
         # Verify the API call
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
         self.assertEqual(kwargs["params"]["sysparm_query"], "active=false^category=hardware")
 
-    @patch("requests.get")
-    def test_get_inactive_items_error(self, mock_get):
+    def test_get_inactive_items_error(self):
         """Test error handling when getting inactive catalog items."""
         # Mock an error response
-        mock_get.side_effect = requests.exceptions.RequestException("API Error")
+        self.auth_manager.make_request.side_effect = requests.exceptions.RequestException(
+            "API Error"
+        )
 
         # Call the function
         result = _get_inactive_items(self.config, self.auth_manager)
@@ -116,10 +117,9 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         # Verify the results
         self.assertEqual(result, [])
 
-    @patch("requests.get")
     @patch("random.sample")
     @patch("random.randint")
-    def test_get_low_usage_items(self, mock_randint, mock_sample, mock_get):
+    def test_get_low_usage_items(self, mock_randint, mock_sample):
         """Test getting catalog items with low usage."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -145,7 +145,8 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 },
             ]
         }
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Mock the random sample to return the first two items
         mock_sample.return_value = [
@@ -177,8 +178,8 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertEqual(result[1]["order_count"], 2)
 
         # Verify the API call
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
         self.assertEqual(kwargs["params"]["sysparm_query"], "active=true")
 
     def test_high_abandonment_items_format(self):
@@ -219,10 +220,9 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertEqual(high_abandonment_items[1]["cart_adds"], 20)
         self.assertEqual(high_abandonment_items[1]["orders"], 8)
 
-    @patch("requests.get")
     @patch("random.sample")
     @patch("random.uniform")
-    def test_get_slow_fulfillment_items(self, mock_uniform, mock_sample, mock_get):
+    def test_get_slow_fulfillment_items(self, mock_uniform, mock_sample):
         """Test getting catalog items with slow fulfillment times."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -242,7 +242,8 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 },
             ]
         }
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Mock the random sample to return all items
         mock_sample.return_value = [
@@ -275,8 +276,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertEqual(result[1]["avg_fulfillment_time"], 7.5)
         self.assertEqual(result[1]["avg_fulfillment_time_vs_catalog"], 3.0)  # 7.5 / 2.5 = 3.0
 
-    @patch("requests.get")
-    def test_get_poor_description_items(self, mock_get):
+    def test_get_poor_description_items(self):
         """Test getting catalog items with poor description quality."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -302,7 +302,8 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 },
             ]
         }
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         result = _get_poor_description_items(self.config, self.auth_manager)
@@ -469,8 +470,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertNotIn("slow_fulfillment", recommendation_types)
         self.assertNotIn("description_quality", recommendation_types)
 
-    @patch("requests.patch")
-    def test_update_catalog_item(self, mock_patch):
+    def test_update_catalog_item(self):
         """Test updating a catalog item."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -486,7 +486,8 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 "order": "100",
             }
         }
-        mock_patch.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create the parameters
         params = UpdateCatalogItemParams(
@@ -502,13 +503,13 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertEqual(result["data"]["short_description"], "Updated laptop description")
 
         # Verify the API call
-        mock_patch.assert_called_once()
-        args, kwargs = mock_patch.call_args
-        self.assertEqual(args[0], "https://example.service-now.com/api/now/table/sc_cat_item/item1")
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
+        self.assertEqual(args[0], "PATCH")
+        self.assertEqual(args[1], "https://example.service-now.com/api/now/table/sc_cat_item/item1")
         self.assertEqual(kwargs["json"], {"short_description": "Updated laptop description"})
 
-    @patch("requests.patch")
-    def test_update_catalog_item_multiple_fields(self, mock_patch):
+    def test_update_catalog_item_multiple_fields(self):
         """Test updating multiple fields of a catalog item."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -524,7 +525,8 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 "order": "100",
             }
         }
-        mock_patch.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create the parameters with multiple fields
         params = UpdateCatalogItemParams(
@@ -544,9 +546,10 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertEqual(result["data"]["price"], "1099.99")
 
         # Verify the API call
-        mock_patch.assert_called_once()
-        args, kwargs = mock_patch.call_args
-        self.assertEqual(args[0], "https://example.service-now.com/api/now/table/sc_cat_item/item1")
+        self.auth_manager.make_request.assert_called_once()
+        args, kwargs = self.auth_manager.make_request.call_args
+        self.assertEqual(args[0], "PATCH")
+        self.assertEqual(args[1], "https://example.service-now.com/api/now/table/sc_cat_item/item1")
         self.assertEqual(
             kwargs["json"],
             {
@@ -556,11 +559,12 @@ class TestCatalogOptimizationTools(unittest.TestCase):
             },
         )
 
-    @patch("requests.patch")
-    def test_update_catalog_item_error(self, mock_patch):
+    def test_update_catalog_item_error(self):
         """Test error handling when updating a catalog item."""
         # Mock an error response
-        mock_patch.side_effect = requests.exceptions.RequestException("API Error")
+        self.auth_manager.make_request.side_effect = requests.exceptions.RequestException(
+            "API Error"
+        )
 
         # Create the parameters
         params = UpdateCatalogItemParams(

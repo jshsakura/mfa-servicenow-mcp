@@ -206,12 +206,22 @@ class AuthManager:
         self._browser_validation_interval_seconds = 30
         self._browser_last_login_at: Optional[float] = None
         self._browser_post_login_grace_seconds = 90
-        self._browser_reauth_cooldown_seconds = 120
+        self._browser_reauth_cooldown_seconds = 15  # Start short, back off on repeated failures
+        self._browser_reauth_cooldown_base = 15
+        self._browser_reauth_cooldown_max = 120
+        self._browser_reauth_failure_count = 0
+        self._browser_login_in_progress = False  # True while browser window is open for MFA
+        self._keepalive_thread: Optional[threading.Thread] = None
+        self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
 
-        # Try to load existing session from disk on startup
+        # Eagerly restore browser session on startup:
+        # 1. Try disk cache first (fastest, no browser needed)
+        # 2. If expired/missing, try browser profile cookies (opens headless browser briefly)
+        # 3. If both fail, auto-trigger interactive login so user sees browser immediately
         if self.config.type == AuthType.BROWSER:
-            self._load_session_from_disk()
+            self._eager_restore_browser_session()
+            self._start_keepalive()
 
     def _get_session_cache_path(self) -> str:
         """Get the path to the session cache file."""
@@ -244,7 +254,12 @@ class AuthManager:
             logger.warning("Failed to save browser session to disk: %s", exc)
 
     def _load_session_from_disk(self) -> None:
-        """Load the browser session from disk."""
+        """Load the browser session from disk.
+
+        If the disk TTL has expired, the session is still loaded and verified
+        with a live API probe — the ServiceNow server session may outlive the
+        conservative disk TTL, so we should not discard a potentially valid session.
+        """
         if not os.path.exists(self._session_cache_path):
             return
 
@@ -256,12 +271,47 @@ class AuthManager:
             if data.get("instance_url") != self.instance_url:
                 return
 
-            expires_at = data.get("expires_at")
-            if expires_at and time.time() > expires_at:
-                logger.info("Disk session expired, ignoring.")
+            cookie_header = data.get("cookie_header")
+            if not cookie_header:
                 return
 
-            self._browser_cookie_header = data.get("cookie_header")
+            expires_at = data.get("expires_at")
+            disk_expired = expires_at and time.time() > expires_at
+
+            if disk_expired:
+                # TTL expired, but the real session might still be alive.
+                # Verify with a live probe before discarding.
+                logger.info(
+                    "Disk session TTL expired. Probing server to check if session is still valid..."
+                )
+                self._browser_user_agent = data.get("user_agent")
+                try:
+                    if self.config.browser:
+                        probe = self._probe_browser_api_with_cookie(
+                            cookie_header,
+                            timeout_seconds=10,
+                            browser_config=self.config.browser,
+                        )
+                        if _response_indicates_authenticated_session(probe):
+                            # Session is still alive — extend TTL and reuse
+                            new_ttl = (self.config.browser.session_ttl_minutes or 30) * 60
+                            self._browser_cookie_header = cookie_header
+                            self._browser_cookie_expires_at = time.time() + new_ttl
+                            self._browser_session_token = data.get("session_token")
+                            self._browser_last_validated_at = time.time()
+                            self._save_session_to_disk()
+                            logger.info(
+                                "Disk session TTL expired but server session is still valid — "
+                                "extended TTL by %d minutes.",
+                                self.config.browser.session_ttl_minutes or 30,
+                            )
+                            return
+                except Exception as exc:
+                    logger.debug("Disk session probe failed: %s", exc)
+                logger.info("Disk session expired and server confirmed invalid.")
+                return
+
+            self._browser_cookie_header = cookie_header
             self._browser_user_agent = data.get("user_agent")
             self._browser_session_token = data.get("session_token")
             self._browser_cookie_expires_at = expires_at
@@ -270,6 +320,139 @@ class AuthManager:
             logger.info("Loaded browser session from disk: %s", self._session_cache_path)
         except Exception as exc:
             logger.warning("Failed to load browser session from disk: %s", exc)
+
+    def _eager_restore_browser_session(self) -> None:
+        """Eagerly restore browser session on startup.
+
+        Tries all available session sources in order of cost:
+        1. Disk cache (instant, no browser)
+        2. Browser profile cookies (brief headless browser open)
+        3. Auto interactive login (opens visible browser for MFA)
+
+        This ensures MCP is authenticated as soon as possible,
+        rather than waiting for the first tool call to discover auth is missing.
+        """
+        # Step 1: Try disk cache
+        self._load_session_from_disk()
+        if self._browser_cookie_header and not self._is_browser_session_expired():
+            logger.info("Startup: session restored from disk cache — ready.")
+            return
+
+        # Disk cache missing or expired — clear stale state
+        if self._browser_cookie_header:
+            logger.info("Startup: disk cache session expired, trying browser profile...")
+            self._browser_cookie_header = None
+            self._browser_cookie_expires_at = None
+
+        # Step 2: Try browser profile (user_data_dir)
+        if self.config.browser and self.config.browser.user_data_dir:
+            try:
+                if self._try_restore_browser_session(self.config.browser):
+                    logger.info("Startup: session restored from browser profile — ready.")
+                    return
+                logger.info("Startup: browser profile has no valid session cookies.")
+            except Exception as exc:
+                logger.warning("Startup: browser profile restore failed: %s", exc)
+
+        # Step 3: Auto-trigger interactive login in background thread
+        # so the browser window appears immediately on MCP start.
+        if self.config.browser:
+            logger.info(
+                "Startup: no valid session found. "
+                "Triggering automatic browser login for MFA/SSO..."
+            )
+            self._browser_login_in_progress = True
+            self._mark_browser_reauth_attempt()
+            try:
+                self._login_with_browser(self.config.browser, force_interactive=True)
+                self._browser_reauth_failure_count = 0
+                self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
+                self._browser_login_in_progress = False
+                logger.info("Startup: browser login completed — ready.")
+            except Exception as exc:
+                error_text = str(exc).lower()
+                if "still in progress" in error_text or "still be completing" in error_text:
+                    logger.info(
+                        "Startup: browser login still in progress (user completing MFA). "
+                        "MCP will serve requests once authentication completes."
+                    )
+                else:
+                    self._browser_login_in_progress = False
+                    self._browser_reauth_failure_count += 1
+                    self._browser_reauth_cooldown_seconds = min(
+                        self._browser_reauth_cooldown_base
+                        * (2**self._browser_reauth_failure_count),
+                        self._browser_reauth_cooldown_max,
+                    )
+                    logger.warning(
+                        "Startup: browser login failed: %s. "
+                        "Will retry on first tool call (cooldown=%ds).",
+                        exc,
+                        self._browser_reauth_cooldown_seconds,
+                    )
+
+    def _start_keepalive(self) -> None:
+        """Start a background thread that periodically pings ServiceNow
+        to keep the browser session alive (sliding window reset).
+
+        The ping interval is half the session TTL (default 15 minutes).
+        Only runs when a valid session exists; sleeps quietly otherwise.
+        """
+        if not self.config.browser:
+            return
+
+        ttl_minutes = self.config.browser.session_ttl_minutes or 30
+        ping_interval = max(ttl_minutes * 60 // 2, 60)  # half of TTL, minimum 60s
+
+        def _keepalive_loop() -> None:
+            while not self._keepalive_stop_event.is_set():
+                self._keepalive_stop_event.wait(ping_interval)
+                if self._keepalive_stop_event.is_set():
+                    break
+                # Only ping if we have a valid session
+                if not self._browser_cookie_header or self._is_browser_session_expired():
+                    continue
+                try:
+                    probe = self._probe_browser_api_with_cookie(
+                        self._browser_cookie_header,
+                        timeout_seconds=10,
+                        browser_config=self.config.browser,
+                    )
+                    if _response_indicates_authenticated_session(probe):
+                        # Session is alive — extend TTL
+                        self._browser_cookie_expires_at = time.time() + (ttl_minutes * 60)
+                        self._browser_last_validated_at = time.time()
+                        self._save_session_to_disk()
+                        logger.debug(
+                            "Keep-alive ping OK: session extended by %d minutes.",
+                            ttl_minutes,
+                        )
+                    else:
+                        logger.info(
+                            "Keep-alive ping: session no longer valid (status=%s). "
+                            "Will re-authenticate on next tool call.",
+                            probe.status_code,
+                        )
+                        self.invalidate_browser_session()
+                except Exception as exc:
+                    logger.debug("Keep-alive ping failed: %s", exc)
+
+        self._keepalive_thread = threading.Thread(
+            target=_keepalive_loop, daemon=True, name="sn-session-keepalive"
+        )
+        self._keepalive_thread.start()
+        logger.info(
+            "Session keep-alive started: ping every %d minutes (TTL=%d minutes).",
+            ping_interval // 60,
+            ttl_minutes,
+        )
+
+    def stop_keepalive(self) -> None:
+        """Stop the keep-alive background thread."""
+        self._keepalive_stop_event.set()
+        if self._keepalive_thread and self._keepalive_thread.is_alive():
+            self._keepalive_thread.join(timeout=5)
+            logger.info("Session keep-alive stopped.")
 
     def get_headers(self) -> Dict[str, str]:
         """
@@ -308,6 +491,9 @@ class AuthManager:
                 raise ValueError("Browser auth configuration is required")
             if not self._browser_cookie_header or self._is_browser_session_expired():
                 if self._try_restore_browser_session(self.config.browser):
+                    # Restore succeeded — reset failure state
+                    self._browser_reauth_failure_count = 0
+                    self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
                     headers["Cookie"] = self._browser_cookie_header or ""
                     if self._browser_user_agent:
                         headers["User-Agent"] = self._browser_user_agent
@@ -315,28 +501,59 @@ class AuthManager:
                         headers["X-UserToken"] = self._browser_session_token
                     return headers
                 # Browser auth is user-driven (MFA/SSO). Always keep interactive mode.
-                if not self._can_attempt_browser_reauth():
-                    cooldown_remaining = 0
-                    if self._browser_last_reauth_attempt_at is not None:
-                        cooldown_remaining = max(
-                            0,
-                            int(
-                                self._browser_reauth_cooldown_seconds
-                                - (time.time() - self._browser_last_reauth_attempt_at)
-                            ),
-                        )
+                if self._browser_login_in_progress:
                     raise ValueError(
-                        "Browser session expired but re-authentication is on cooldown "
-                        f"({cooldown_remaining}s remaining). "
-                        "This prevents login loops. The session will automatically "
-                        "retry after the cooldown period. Please wait and try again."
+                        "Browser login is currently in progress — the user is completing MFA/SSO authentication. "
+                        "Please wait for the user to finish and then retry this request. "
+                        "Do NOT start a new login attempt."
                     )
-                logger.info("Opening browser in interactive mode for login/MFA.")
+                if not self._can_attempt_browser_reauth():
+                    cooldown_remaining = self._get_reauth_cooldown_remaining()
+                    raise ValueError(
+                        f"Browser session expired. Re-login will be attempted automatically "
+                        f"in {cooldown_remaining}s. "
+                        f"(Attempt {self._browser_reauth_failure_count} failed — "
+                        f"cooldown {self._browser_reauth_cooldown_seconds}s) "
+                        "If the browser login window appeared, please complete MFA/SSO authentication. "
+                        "You can also retry this tool call after the cooldown to trigger a new login."
+                    )
+                logger.info(
+                    "Opening browser in interactive mode for login/MFA. "
+                    "(attempt #%d, cooldown=%ds)",
+                    self._browser_reauth_failure_count + 1,
+                    self._browser_reauth_cooldown_seconds,
+                )
                 self._mark_browser_reauth_attempt()
+                self._browser_login_in_progress = True
                 try:
                     self._login_with_browser(self.config.browser, force_interactive=True)
-                except Exception:
-                    # Keep the re-auth attempt timestamp to respect cooldown even on failure
+                    # Login succeeded — reset failure state
+                    self._browser_reauth_failure_count = 0
+                    self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
+                    self._browser_login_in_progress = False
+                except Exception as exc:
+                    error_text = str(exc).lower()
+                    if "still in progress" in error_text or "still be completing" in error_text:
+                        # Thread join timed out but browser is still open for user MFA.
+                        # Keep _browser_login_in_progress=True so concurrent calls
+                        # see "login in progress" and don't open duplicate windows.
+                        logger.info(
+                            "Browser login thread still running — keeping login_in_progress=True"
+                        )
+                    else:
+                        # Actual failure — allow new attempts
+                        self._browser_login_in_progress = False
+                        self._browser_reauth_failure_count += 1
+                        self._browser_reauth_cooldown_seconds = min(
+                            self._browser_reauth_cooldown_base
+                            * (2**self._browser_reauth_failure_count),
+                            self._browser_reauth_cooldown_max,
+                        )
+                        logger.warning(
+                            "Browser re-auth failed (attempt #%d). " "Next retry cooldown: %ds",
+                            self._browser_reauth_failure_count,
+                            self._browser_reauth_cooldown_seconds,
+                        )
                     raise
             elif self._should_validate_browser_session():
                 if not self._is_browser_session_valid(self.config.browser):
@@ -346,9 +563,26 @@ class AuthManager:
                     )
                     self.invalidate_browser_session()
                     self._mark_browser_reauth_attempt()
+                    self._browser_login_in_progress = True
                     try:
                         self._login_with_browser(self.config.browser, force_interactive=True)
-                    except Exception:
+                        self._browser_reauth_failure_count = 0
+                        self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
+                        self._browser_login_in_progress = False
+                    except Exception as exc:
+                        error_text = str(exc).lower()
+                        if "still in progress" in error_text or "still be completing" in error_text:
+                            logger.info(
+                                "Browser login thread still running — keeping login_in_progress=True"
+                            )
+                        else:
+                            self._browser_login_in_progress = False
+                            self._browser_reauth_failure_count += 1
+                            self._browser_reauth_cooldown_seconds = min(
+                                self._browser_reauth_cooldown_base
+                                * (2**self._browser_reauth_failure_count),
+                                self._browser_reauth_cooldown_max,
+                            )
                         raise
             headers["Cookie"] = self._browser_cookie_header or ""
             if self._browser_user_agent:
@@ -392,6 +626,18 @@ class AuthManager:
 
     def _clear_browser_reauth_attempt(self) -> None:
         self._browser_last_reauth_attempt_at = None
+
+    def _get_reauth_cooldown_remaining(self) -> int:
+        """Return remaining cooldown seconds before next re-auth attempt."""
+        if self._browser_last_reauth_attempt_at is None:
+            return 0
+        return max(
+            0,
+            int(
+                self._browser_reauth_cooldown_seconds
+                - (time.time() - self._browser_last_reauth_attempt_at)
+            ),
+        )
 
     def _is_browser_session_valid(self, browser_config: BrowserAuthConfig) -> bool:
         if not self.instance_url or not self._browser_cookie_header:
@@ -678,9 +924,13 @@ class AuthManager:
         MCP tool execution may happen while an event loop is active, so we
         offload Sync API usage to a separate thread in that case.
         """
-        # Hard ceiling for thread join to prevent infinite hangs if the browser
-        # freezes or the user never completes MFA.
-        join_timeout = max(int(browser_config.timeout_seconds) + 60, 360)
+        # Hard ceiling for thread join — in interactive mode give generous time
+        # for MFA/SSO (user must open authenticator app, read code, type it in).
+        # Do NOT close the browser or raise an error while the user is still working.
+        if force_interactive:
+            join_timeout = max(int(browser_config.timeout_seconds) + 120, 600)
+        else:
+            join_timeout = max(int(browser_config.timeout_seconds) + 60, 360)
 
         def _run_sync_login(interactive: bool) -> None:
             try:
@@ -693,7 +943,11 @@ class AuthManager:
                     def _runner() -> None:
                         try:
                             self._login_with_browser_sync(browser_config, interactive)
+                            # Login succeeded — if thread was still running after join timeout,
+                            # clear the in-progress flag so next tool call can proceed.
+                            self._browser_login_in_progress = False
                         except BaseException as exc:  # noqa: BLE001
+                            self._browser_login_in_progress = False
                             error_holder.append(exc)
 
                     thread = threading.Thread(target=_runner, daemon=True)
@@ -701,14 +955,20 @@ class AuthManager:
                     thread.join(timeout=join_timeout)
 
                     if thread.is_alive():
-                        logger.error(
-                            "Browser login thread did not finish within %ss. "
-                            "The browser may be frozen or MFA was not completed.",
+                        # The browser is still open — user may still be completing MFA.
+                        # Do NOT close or kill it. Keep login_in_progress=True so that
+                        # concurrent tool calls see "login in progress" instead of
+                        # triggering a duplicate browser window.
+                        logger.warning(
+                            "Browser login thread still running after %ss. "
+                            "The user may still be completing MFA — keeping browser open.",
                             join_timeout,
                         )
                         raise ValueError(
-                            f"Browser login timed out after {join_timeout}s. "
-                            "Please check if the browser window is responding and try again."
+                            f"Browser login is still in progress after {join_timeout}s. "
+                            "The user may still be completing MFA/SSO authentication. "
+                            "The browser window remains open — please wait for the user to finish "
+                            "and then retry. Do NOT close the browser or start a new login."
                         )
 
                     if error_holder:
