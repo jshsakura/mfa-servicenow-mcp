@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.workflow_tools import (
@@ -51,77 +51,77 @@ class TestWorkflowToolsParams(unittest.TestCase):
         with self.assertRaises(ValueError):
             _get_auth_and_config(invalid_obj1, invalid_obj2)
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_list_workflows_correct_params(self, mock_get):
+    def test_list_workflows_correct_params(self):
         """Test list_workflows with parameters in the correct order."""
         # Setup mock response
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": [{"sys_id": "123", "name": "Test Workflow"}]}
         mock_response.headers = {"X-Total-Count": "1"}
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         result = list_workflows(self.auth_manager, self.server_config, {"limit": 10})
 
-        # Verify the function called requests.get with the correct parameters
-        mock_get.assert_called_once()
+        # Verify the function called make_request with the correct parameters
+        self.auth_manager.make_request.assert_called_once()
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["workflows"][0]["name"], "Test Workflow")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_list_workflows_swapped_params(self, mock_get):
+    def test_list_workflows_swapped_params(self):
         """Test list_workflows with parameters in the swapped order."""
         # Setup mock response
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": [{"sys_id": "123", "name": "Test Workflow"}]}
         mock_response.headers = {"X-Total-Count": "1"}
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function with swapped parameters
         result = list_workflows(self.server_config, self.auth_manager, {"limit": 10})
 
         # Verify the function still works correctly
-        mock_get.assert_called_once()
+        self.auth_manager.make_request.assert_called_once()
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["workflows"][0]["name"], "Test Workflow")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_get_workflow_details_correct_params(self, mock_get):
+    def test_get_workflow_details_correct_params(self):
         """Test get_workflow_details with parameters in the correct order."""
         # Setup mock response
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": {"sys_id": "123", "name": "Test Workflow"}}
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         result = get_workflow_details(self.auth_manager, self.server_config, {"workflow_id": "123"})
 
-        # Verify the function called requests.get with the correct parameters
-        mock_get.assert_called_once()
+        # Verify the function called make_request with the correct parameters
+        self.auth_manager.make_request.assert_called_once()
         self.assertEqual(result["workflow"]["name"], "Test Workflow")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.get")
-    def test_get_workflow_details_swapped_params(self, mock_get):
+    def test_get_workflow_details_swapped_params(self):
         """Test get_workflow_details with parameters in the swapped order."""
         # Setup mock response
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": {"sys_id": "123", "name": "Test Workflow"}}
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function with swapped parameters
         result = get_workflow_details(self.server_config, self.auth_manager, {"workflow_id": "123"})
 
         # Verify the function still works correctly
-        mock_get.assert_called_once()
+        self.auth_manager.make_request.assert_called_once()
         self.assertEqual(result["workflow"]["name"], "Test Workflow")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.post")
-    def test_create_workflow_correct_params(self, mock_post):
+    def test_create_workflow_correct_params(self):
         """Test create_workflow with parameters in the correct order."""
         # Setup mock response
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": {"sys_id": "123", "name": "New Workflow"}}
-        mock_post.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
         result = create_workflow(
@@ -130,18 +130,18 @@ class TestWorkflowToolsParams(unittest.TestCase):
             {"name": "New Workflow", "description": "Test description"},
         )
 
-        # Verify the function called requests.post with the correct parameters
-        mock_post.assert_called_once()
+        # Verify the function called make_request with the correct parameters
+        self.auth_manager.make_request.assert_called_once()
         self.assertEqual(result["workflow"]["name"], "New Workflow")
         self.assertEqual(result["message"], "Workflow created successfully")
 
-    @patch("servicenow_mcp.tools.workflow_tools.requests.post")
-    def test_create_workflow_swapped_params(self, mock_post):
+    def test_create_workflow_swapped_params(self):
         """Test create_workflow with parameters in the swapped order."""
         # Setup mock response
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": {"sys_id": "123", "name": "New Workflow"}}
-        mock_post.return_value = mock_response
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
 
         # Call the function with swapped parameters
         result = create_workflow(
@@ -151,7 +151,7 @@ class TestWorkflowToolsParams(unittest.TestCase):
         )
 
         # Verify the function still works correctly
-        mock_post.assert_called_once()
+        self.auth_manager.make_request.assert_called_once()
         self.assertEqual(result["workflow"]["name"], "New Workflow")
         self.assertEqual(result["message"], "Workflow created successfully")
 

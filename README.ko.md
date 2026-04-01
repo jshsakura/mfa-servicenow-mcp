@@ -52,6 +52,26 @@ MFA(다요소 인증) 및 SSO 환경을 위한 브라우저 인증 기반 Servic
 }
 ```
 
+#### OpenAI Codex
+
+`codex.json`에 추가하거나 CLI로 전달합니다:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "mfa-servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "browser",
+        "--browser-headless", "false"
+      ]
+    }
+  }
+}
+```
+
 ### 2. 터미널에서 바로 실행
 
 ```bash

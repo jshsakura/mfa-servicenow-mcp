@@ -3,7 +3,7 @@ Tests for the catalog item variables tools.
 """
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 
@@ -36,8 +36,7 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.auth_manager = MagicMock()
         self.auth_manager.get_headers.return_value = {"Content-Type": "application/json"}
 
-    @patch("requests.post")
-    def test_create_catalog_item_variable(self, mock_post):
+    def test_create_catalog_item_variable(self):
         """Test create_catalog_item_variable function."""
         # Configure mock
         mock_response = MagicMock()
@@ -51,7 +50,7 @@ class TestCatalogVariablesTools(unittest.TestCase):
                 "mandatory": "false",
             }
         }
-        mock_post.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
         params = CreateCatalogItemVariableParams(
@@ -71,10 +70,11 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.assertIsNotNone(result.details)
 
         # Verify mock was called correctly
-        mock_post.assert_called_once()
-        call_args = mock_post.call_args
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual(call_args[0][0], "POST")
         self.assertEqual(
-            call_args[0][0], f"{self.config.instance_url}/api/now/table/item_option_new"
+            call_args[0][1], f"{self.config.instance_url}/api/now/table/item_option_new"
         )
         self.assertEqual(call_args[1]["json"]["cat_item"], "item123")
         self.assertEqual(call_args[1]["json"]["name"], "test_variable")
@@ -82,8 +82,7 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.assertEqual(call_args[1]["json"]["question_text"], "Test Variable")
         self.assertEqual(call_args[1]["json"]["mandatory"], "false")
 
-    @patch("requests.post")
-    def test_create_catalog_item_variable_with_optional_params(self, mock_post):
+    def test_create_catalog_item_variable_with_optional_params(self):
         """Test create_catalog_item_variable function with optional parameters."""
         # Configure mock
         mock_response = MagicMock()
@@ -103,7 +102,7 @@ class TestCatalogVariablesTools(unittest.TestCase):
                 "order": 100,
             }
         }
-        mock_post.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params with optional fields
         params = CreateCatalogItemVariableParams(
@@ -128,8 +127,8 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.assertEqual(result.variable_id, "abc123")
 
         # Verify mock was called correctly
-        mock_post.assert_called_once()
-        call_args = mock_post.call_args
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
         self.assertEqual(call_args[1]["json"]["reference"], "sys_user")
         self.assertEqual(call_args[1]["json"]["reference_qual"], "active=true")
         self.assertEqual(call_args[1]["json"]["help_text"], "Select a user")
@@ -137,11 +136,10 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.assertEqual(call_args[1]["json"]["description"], "Reference to a user")
         self.assertEqual(call_args[1]["json"]["order"], 100)
 
-    @patch("requests.post")
-    def test_create_catalog_item_variable_error(self, mock_post):
+    def test_create_catalog_item_variable_error(self):
         """Test create_catalog_item_variable function with error."""
         # Configure mock to raise exception
-        mock_post.side_effect = requests.RequestException("Test error")
+        self.auth_manager.make_request.side_effect = requests.RequestException("Test error")
 
         # Create test params
         params = CreateCatalogItemVariableParams(
@@ -158,8 +156,7 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertTrue("failed" in result.message.lower())
 
-    @patch("requests.get")
-    def test_list_catalog_item_variables(self, mock_get):
+    def test_list_catalog_item_variables(self):
         """Test list_catalog_item_variables function."""
         # Configure mock
         mock_response = MagicMock()
@@ -184,7 +181,7 @@ class TestCatalogVariablesTools(unittest.TestCase):
                 },
             ]
         }
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
         params = ListCatalogItemVariablesParams(
@@ -203,23 +200,23 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.assertEqual(result.variables[1]["sys_id"], "var2")
 
         # Verify mock was called correctly
-        mock_get.assert_called_once()
-        call_args = mock_get.call_args
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual(call_args[0][0], "GET")
         self.assertEqual(
-            call_args[0][0], f"{self.config.instance_url}/api/now/table/item_option_new"
+            call_args[0][1], f"{self.config.instance_url}/api/now/table/item_option_new"
         )
         self.assertEqual(call_args[1]["params"]["sysparm_query"], "cat_item=item123^ORDERBYorder")
         self.assertEqual(call_args[1]["params"]["sysparm_display_value"], "true")
         self.assertEqual(call_args[1]["params"]["sysparm_exclude_reference_link"], "false")
 
-    @patch("requests.get")
-    def test_list_catalog_item_variables_with_pagination(self, mock_get):
+    def test_list_catalog_item_variables_with_pagination(self):
         """Test list_catalog_item_variables function with pagination parameters."""
         # Configure mock
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
         mock_response.json.return_value = {"result": [{"sys_id": "var1"}]}
-        mock_get.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params with pagination
         params = ListCatalogItemVariablesParams(
@@ -236,8 +233,8 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.assertTrue(result.success)
 
         # Verify mock was called correctly with pagination
-        mock_get.assert_called_once()
-        call_args = mock_get.call_args
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
         self.assertEqual(call_args[1]["params"]["sysparm_limit"], 10)
         self.assertEqual(call_args[1]["params"]["sysparm_offset"], 20)
         self.assertEqual(
@@ -245,11 +242,10 @@ class TestCatalogVariablesTools(unittest.TestCase):
             "sys_id,name,type,question_text,order,mandatory",
         )
 
-    @patch("requests.get")
-    def test_list_catalog_item_variables_error(self, mock_get):
+    def test_list_catalog_item_variables_error(self):
         """Test list_catalog_item_variables function with error."""
         # Configure mock to raise exception
-        mock_get.side_effect = requests.RequestException("Test error")
+        self.auth_manager.make_request.side_effect = requests.RequestException("Test error")
 
         # Create test params
         params = ListCatalogItemVariablesParams(
@@ -263,8 +259,7 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertTrue("failed" in result.message.lower())
 
-    @patch("requests.patch")
-    def test_update_catalog_item_variable(self, mock_patch):
+    def test_update_catalog_item_variable(self):
         """Test update_catalog_item_variable function."""
         # Configure mock
         mock_response = MagicMock()
@@ -277,7 +272,7 @@ class TestCatalogVariablesTools(unittest.TestCase):
                 "help_text": "This is help text",
             }
         }
-        mock_patch.return_value = mock_response
+        self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
         params = UpdateCatalogItemVariableParams(
@@ -296,18 +291,18 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.assertIsNotNone(result.details)
 
         # Verify mock was called correctly
-        mock_patch.assert_called_once()
-        call_args = mock_patch.call_args
+        self.auth_manager.make_request.assert_called_once()
+        call_args = self.auth_manager.make_request.call_args
+        self.assertEqual(call_args[0][0], "PATCH")
         self.assertEqual(
-            call_args[0][0],
+            call_args[0][1],
             f"{self.config.instance_url}/api/now/table/item_option_new/var1",
         )
         self.assertEqual(call_args[1]["json"]["question_text"], "Updated Variable")
         self.assertEqual(call_args[1]["json"]["mandatory"], "true")
         self.assertEqual(call_args[1]["json"]["help_text"], "This is help text")
 
-    @patch("requests.patch")
-    def test_update_catalog_item_variable_no_params(self, mock_patch):
+    def test_update_catalog_item_variable_no_params(self):
         """Test update_catalog_item_variable function with no update parameters."""
         # Create test params with no updates (only ID)
         params = UpdateCatalogItemVariableParams(
@@ -322,13 +317,12 @@ class TestCatalogVariablesTools(unittest.TestCase):
         self.assertEqual(result.message, "No update parameters provided")
 
         # Verify mock was not called
-        mock_patch.assert_not_called()
+        self.auth_manager.make_request.assert_not_called()
 
-    @patch("requests.patch")
-    def test_update_catalog_item_variable_error(self, mock_patch):
+    def test_update_catalog_item_variable_error(self):
         """Test update_catalog_item_variable function with error."""
         # Configure mock to raise exception
-        mock_patch.side_effect = requests.RequestException("Test error")
+        self.auth_manager.make_request.side_effect = requests.RequestException("Test error")
 
         # Create test params
         params = UpdateCatalogItemVariableParams(
