@@ -229,7 +229,7 @@ def _get_headers(auth_manager: Any, server_config: Any) -> Optional[Dict[str, st
 @register_tool(
     name="create_change_request",
     params=CreateChangeRequestParams,
-    description="Create a new change request in ServiceNow",
+    description="Create a change request. Requires short_description and type (normal/standard/emergency).",
     serialization="str",
     return_type=str,
 )
@@ -327,7 +327,7 @@ def create_change_request(
 @register_tool(
     name="update_change_request",
     params=UpdateChangeRequestParams,
-    description="Update an existing change request in ServiceNow",
+    description="Update a change request by sys_id. Supports state, description, risk, impact, dates, and work notes.",
     serialization="str",
     return_type=str,
 )
@@ -426,7 +426,7 @@ def update_change_request(
 @register_tool(
     name="list_change_requests",
     params=ListChangeRequestsParams,
-    description="List change requests from ServiceNow",
+    description="Search change requests with filters for state, type, assignment group, and timeframe. Returns summary list.",
     serialization="json",
     return_type=str,
 )
@@ -536,7 +536,7 @@ def list_change_requests(
 @register_tool(
     name="get_change_request_details",
     params=GetChangeRequestDetailsParams,
-    description="Get detailed information about a specific change request",
+    description="Fetch a single change request by sys_id or number. Returns full details including associated tasks.",
     serialization="json",
     return_type=str,
 )
@@ -625,7 +625,7 @@ def get_change_request_details(
 @register_tool(
     name="add_change_task",
     params=AddChangeTaskParams,
-    description="Add a task to a change request",
+    description="Create a change_task under a change request. Requires change_id and short_description.",
     serialization="json_dict",
     return_type=str,
 )
@@ -715,7 +715,7 @@ def add_change_task(
 @register_tool(
     name="submit_change_for_approval",
     params=SubmitChangeForApprovalParams,
-    description="Submit a change request for approval",
+    description="Transition a change request to assess state and create an approval record. Requires change_id.",
     serialization="str",
     return_type=str,
 )
@@ -811,7 +811,7 @@ def submit_change_for_approval(
 @register_tool(
     name="approve_change",
     params=ApproveChangeParams,
-    description="Approve a change request",
+    description="Approve a change request and transition its state to implement. Requires change_id.",
     serialization="str",
     return_type=str,
 )
@@ -922,7 +922,7 @@ def approve_change(
 @register_tool(
     name="reject_change",
     params=RejectChangeParams,
-    description="Reject a change request",
+    description="Reject a change request and transition its state to canceled. Requires change_id and rejection_reason.",
     serialization="str",
     return_type=str,
 )

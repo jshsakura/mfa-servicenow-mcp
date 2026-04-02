@@ -232,10 +232,8 @@ class ServiceNowMCP:
                 f"MCP_TOOL_PACKAGE environment variable found: '{env_package}' (normalized to '{requested_package}')"
             )
         else:
-            requested_package = "portal_developer"
-            logger.info(
-                "MCP_TOOL_PACKAGE environment variable not set, defaulting to 'portal_developer'"
-            )
+            requested_package = "standard"
+            logger.info("MCP_TOOL_PACKAGE environment variable not set, defaulting to 'standard'")
 
         # Check if the requested package exists in our definitions
         if requested_package in self.package_definitions:
@@ -371,9 +369,24 @@ class ServiceNowMCP:
         if name not in self.tool_definitions:
             raise ValueError(f"Unknown tool: {name}")
         if name not in self.enabled_tool_names:
-            raise ValueError(
-                f"Tool '{name}' is not enabled in the current package '{self.current_package_name}'."
-            )
+            # Find which packages DO include this tool
+            available_in = [
+                pkg
+                for pkg, tools in self.package_definitions.items()
+                if tools and name in tools and pkg != "none"
+            ]
+            if available_in:
+                raise ValueError(
+                    f"Tool '{name}' is not available in the current package '{self.current_package_name}'. "
+                    f"This tool is available in: {available_in}. "
+                    f"Switch by setting MCP_TOOL_PACKAGE environment variable. "
+                    f"Alternatively, use sn_query for basic read operations."
+                )
+            else:
+                raise ValueError(
+                    f"Tool '{name}' exists but is not included in any active package. "
+                    f"Use sn_query to access the underlying table directly."
+                )
 
         # Safety check for mutating actions: require confirmation
         requires_confirmation = self._is_blocked_mutating_tool(name) or (
