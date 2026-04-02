@@ -199,7 +199,7 @@ def _get_auth_and_config(
 @register_tool(
     name="list_workflows",
     params=ListWorkflowsParams,
-    description="List workflows from ServiceNow",
+    description="List workflows with optional filters by name, table, or active status. Returns summary with total count.",
     serialization="json",
     return_type=str,
 )
@@ -274,7 +274,7 @@ def list_workflows(
 @register_tool(
     name="get_workflow_details",
     params=GetWorkflowDetailsParams,
-    description="Get detailed information about a specific workflow",
+    description="Get a single workflow by sys_id with full configuration and metadata.",
     serialization="json",
     return_type=str,
 )
@@ -330,7 +330,7 @@ def get_workflow_details(
 @register_tool(
     name="list_workflow_versions",
     params=ListWorkflowVersionsParams,
-    description="List workflow versions from ServiceNow",
+    description="List version history for a workflow. Returns version records with publish status.",
     serialization="json",
     return_type=str,
 )
@@ -397,7 +397,7 @@ def list_workflow_versions(
 @register_tool(
     name="get_workflow_activities",
     params=GetWorkflowActivitiesParams,
-    description="Get activities for a specific workflow",
+    description="Get ordered activity list for a workflow version. Defaults to latest published version if unspecified.",
     serialization="json",
     return_type=str,
 )
@@ -498,7 +498,7 @@ def get_workflow_activities(
 @register_tool(
     name="create_workflow",
     params=CreateWorkflowParams,
-    description="Create a new workflow in ServiceNow",
+    description="Create a workflow with name, table, description, and active flag. Returns created record.",
     serialization="json_dict",
     return_type=str,
 )
@@ -574,7 +574,7 @@ def create_workflow(
 @register_tool(
     name="update_workflow",
     params=UpdateWorkflowParams,
-    description="Update an existing workflow in ServiceNow",
+    description="Update workflow name, description, table, or active status by sys_id.",
     serialization="json_dict",
     return_type=str,
 )
@@ -654,7 +654,7 @@ def update_workflow(
 @register_tool(
     name="activate_workflow",
     params=ActivateWorkflowParams,
-    description="Activate a workflow in ServiceNow",
+    description="Set a workflow to active state by sys_id. Returns updated workflow record.",
     serialization="str",
     return_type=str,
 )
@@ -717,7 +717,7 @@ def activate_workflow(
 @register_tool(
     name="deactivate_workflow",
     params=DeactivateWorkflowParams,
-    description="Deactivate a workflow in ServiceNow",
+    description="Set a workflow to inactive state by sys_id. Returns updated workflow record.",
     serialization="str",
     return_type=str,
 )
@@ -780,7 +780,7 @@ def deactivate_workflow(
 @register_tool(
     name="add_workflow_activity",
     params=AddWorkflowActivityParams,
-    description="Add a new activity to a workflow in ServiceNow",
+    description="Add an activity (approval, task, notification, etc.) to a workflow version.",
     serialization="json_dict",
     return_type=str,
 )
@@ -859,7 +859,7 @@ def add_workflow_activity(
 @register_tool(
     name="update_workflow_activity",
     params=UpdateWorkflowActivityParams,
-    description="Update an existing activity in a workflow",
+    description="Update activity name, description, or attributes by activity sys_id.",
     serialization="json_dict",
     return_type=str,
 )
@@ -933,7 +933,7 @@ def update_workflow_activity(
 @register_tool(
     name="delete_workflow_activity",
     params=DeleteWorkflowActivityParams,
-    description="Delete an activity from a workflow",
+    description="Remove an activity from a workflow by activity sys_id. Irreversible.",
     serialization="str",
     return_type=str,
 )
@@ -990,7 +990,7 @@ def delete_workflow_activity(
 @register_tool(
     name="reorder_workflow_activities",
     params=ReorderWorkflowActivitiesParams,
-    description="Reorder activities in a workflow",
+    description="Reorder workflow activities by providing activity sys_ids in desired sequence.",
     serialization="str",
     return_type=str,
 )

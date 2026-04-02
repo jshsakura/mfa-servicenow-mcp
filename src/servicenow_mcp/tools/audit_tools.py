@@ -325,10 +325,7 @@ class AuditPendingChangesParams(BaseModel):
     params=AuditPendingChangesParams,
     description=(
         "Audit a developer's pending update set changes in one call. "
-        "Returns an App Engine Studio-style change inventory grouped by type "
-        "(widget, provider, script, OAuth, layout, etc.), risk pattern scan results, "
-        "clone detection, and cross-reference analysis. "
-        "Replaces 20+ sequential queries with a single consolidated report."
+        "Returns inventory grouped by type, risk pattern scan, clone detection, and cross-references."
     ),
     serialization="raw_dict",
     return_type=dict,

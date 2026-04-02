@@ -224,10 +224,8 @@ class GetDeveloperChangesParams(BaseModel):
     name="get_developer_changes",
     params=GetDeveloperChangesParams,
     description=(
-        "Get recent changes by a specific developer across portal tables "
-        "(widgets, angular providers, script includes, etc.). "
-        "Set count_only=true first to preview data volume before fetching records. "
-        "Returns metadata only (no script bodies) for token efficiency."
+        "List a developer's recent changes across portal tables (widgets, providers, SI, etc.). "
+        "Returns metadata only, no script bodies. Use count_only=true to preview volume first."
     ),
     serialization="raw_dict",
     return_type=dict,
@@ -369,9 +367,8 @@ class GetUncommittedChangesParams(BaseModel):
     name="get_uncommitted_changes",
     params=GetUncommittedChangesParams,
     description=(
-        "List uncommitted (in-progress) update set entries filtered by developer. "
-        "Shows what a developer has changed that hasn't been committed yet. "
-        "Set count_only=true first to check data volume before fetching full list."
+        "List uncommitted update set entries for a developer. "
+        "Use count_only=true first to check volume before fetching full list."
     ),
     serialization="raw_dict",
     return_type=dict,
@@ -570,13 +567,7 @@ def _extract_si_refs(script: str) -> List[str]:
 @register_tool(
     name="get_provider_dependency_map",
     params=GetProviderDependencyMapParams,
-    description=(
-        "Build a dependency map showing Widget → Angular Provider → Script Include relationships. "
-        "Essential for understanding logic flow in Service Portal development. "
-        "Returns metadata only (no script bodies). Script bodies are parsed server-side "
-        "to extract 'new ClassName()' references, then discarded to save tokens. "
-        "Reports estimated API cost before large queries."
-    ),
+    description="Build widget-to-provider-to-script-include dependency graph. Returns metadata only, no script bodies.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -958,11 +949,8 @@ class GetDeveloperDailySummaryParams(BaseModel):
     name="get_developer_daily_summary",
     params=GetDeveloperDailySummaryParams,
     description=(
-        "Generate a daily work summary for a portal developer, optimized for Jira/Confluence reporting. "
-        "With include_details=true (default), analyses source code to show line counts, function names, "
-        "field presence (template/script/css), and linked Angular Providers per widget. "
-        "Script bodies are parsed server-side then discarded — only metrics are returned. "
-        "Supports jira (markdown table), plain (flat list), and structured (JSON) output formats."
+        "Generate a developer's daily work summary for Jira/Confluence. "
+        "Returns line counts, functions, and provider links. Supports jira/plain/structured formats."
     ),
     serialization="raw_dict",
     return_type=dict,
