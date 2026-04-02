@@ -123,7 +123,8 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
       },
       "enabled": true
     }
@@ -159,7 +160,8 @@ AntiGravity Editor는 Claude Desktop 스타일의 `mcpServers` 설정을 사용�
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
       }
     }
   }
@@ -184,7 +186,8 @@ AntiGravity Editor는 Claude Desktop 스타일의 `mcpServers` 설정을 사용�
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
       }
     }
   }
@@ -206,7 +209,8 @@ AntiGravity Editor는 Claude Desktop 스타일의 `mcpServers` 설정을 사용�
         "mfa-servicenow-mcp",
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
-        "--browser-headless", "false"
+        "--browser-headless", "false",
+        "--tool-package", "standard"
       ]
     }
   }
@@ -280,6 +284,10 @@ uvx mfa-servicenow-mcp \
 - `--browser-timeout`
 - `--browser-probe-path`
 
+기타 옵션:
+- `--tool-package` — 도구 패키지 선택 (환경변수: `MCP_TOOL_PACKAGE`, 기본값: `standard`)
+- `--timeout` — HTTP 요청 타임아웃 초 (환경변수: `SERVICENOW_TIMEOUT`, 기본값: `30`)
+
 환경변수:
 
 ```env
@@ -288,6 +296,7 @@ SERVICENOW_AUTH_TYPE=browser
 SERVICENOW_BROWSER_HEADLESS=false
 SERVICENOW_BROWSER_USERNAME=your.username
 SERVICENOW_BROWSER_PASSWORD=your-password
+MCP_TOOL_PACKAGE=standard
 ```
 
 ### Basic 인증
