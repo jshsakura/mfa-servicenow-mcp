@@ -74,7 +74,7 @@ class GetPortalParams(BaseModel):
 @register_tool(
     name="list_portals",
     params=ListPortalsParams,
-    description="List Service Portal instances with theme and homepage info",
+    description="List portals with title, URL suffix, theme, and homepage references. Filterable by title.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -124,7 +124,7 @@ def list_portals(
 @register_tool(
     name="get_portal",
     params=GetPortalParams,
-    description="Get a Service Portal instance with full configuration",
+    description="Get a single portal by sys_id or URL suffix. Returns full config including theme, KB, catalog, and login page.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -192,7 +192,7 @@ class GetPageParams(BaseModel):
 @register_tool(
     name="list_pages",
     params=ListPagesParams,
-    description="List Service Portal pages with title and URL path",
+    description="List portal pages with title, URL path, and visibility flags. Filterable by title or portal.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -243,7 +243,7 @@ def list_pages(
 @register_tool(
     name="get_page",
     params=GetPageParams,
-    description="Get a portal page with optional container/row/column/widget layout hierarchy",
+    description="Get a page by sys_id or URL path. Optionally includes full container/row/column/widget layout tree.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -410,7 +410,7 @@ class UpdateWidgetInstanceParams(BaseModel):
 @register_tool(
     name="list_widget_instances",
     params=ListWidgetInstancesParams,
-    description="List widget instances, optionally filtered by page or widget",
+    description="List widget placements on pages with column and order info. Filter by page or widget sys_id.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -465,7 +465,7 @@ def list_widget_instances(
 @register_tool(
     name="get_widget_instance",
     params=GetWidgetInstanceParams,
-    description="Get a widget instance with its configuration and placement details",
+    description="Get a single widget instance with its placement, parameters, and CSS overrides.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -505,7 +505,7 @@ def get_widget_instance(
 @register_tool(
     name="create_widget_instance",
     params=CreateWidgetInstanceParams,
-    description="Place a widget on a page column as a new instance",
+    description="Place a widget on a page column. Specify widget sys_id, target column, order, and optional parameters.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -557,7 +557,7 @@ def create_widget_instance(
 @register_tool(
     name="update_widget_instance",
     params=UpdateWidgetInstanceParams,
-    description="Update a widget instance (move, reorder, or change options)",
+    description="Move, reorder, or update options/CSS of an existing widget instance on a page.",
     serialization="raw_dict",
     return_type=dict,
 )

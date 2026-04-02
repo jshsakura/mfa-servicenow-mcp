@@ -41,7 +41,7 @@ Windows 사용자는 PowerShell에서 스크립트 실행 권한이 허용되어
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-원클릭 PowerShell 스크립트와 상세한 Windows 전용 가이드는 [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)에서 확인하세요.
+상세한 Windows 설치 가이드는 [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)에서 확인하세요.
 
 ## 바로 쓰기
 
@@ -67,7 +67,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
         "--browser-headless", "false"
       ],
       "env": {
-        "MCP_TOOL_PACKAGE": "portal_developer"
+        "MCP_TOOL_PACKAGE": "standard"
       }
     }
   }
@@ -94,7 +94,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_USERNAME": "your.username",
         "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "portal_developer"
+        "MCP_TOOL_PACKAGE": "standard"
       },
       "enabled": true
     }
@@ -248,7 +248,7 @@ uvx --with playwright mfa-servicenow-mcp \
 
 Playwright는 브라우저 인증에서만 필요합니다. Basic, OAuth, API Key 인증은 추가 설치 없이 바로 사용 가능합니다.
 
-> Windows 사용자라면 [Windows 설치 및 실행 가이드](./WINDOWS_INSTALL.md)를 확인하세요.
+> Windows 사용자라면 [Windows 설치 가이드](./WINDOWS_INSTALL.md)를 확인하세요.
 
 ## 주요 특징
 
@@ -340,15 +340,21 @@ uvx mfa-servicenow-mcp \
 
 ## 도구 패키지
 
-`MCP_TOOL_PACKAGE`를 설정하여 도구 세트를 선택할 수 있습니다. 기본값: `portal_developer`
+`MCP_TOOL_PACKAGE`를 설정하여 도구 세트를 선택할 수 있습니다. 기본값: `standard`
 
-| 패키지명 | 추천 역할 | 주요 포함 도구 |
+모든 패키지는 읽기 전용 도구 48개를 기본 포함하며, 상위 패키지는 도메인별 수정 권한을 추가합니다.
+
+| 패키지명 | 도구 수 | 설명 |
 | :--- | :--- | :--- |
-| `portal_developer` | 포탈 개발자 | **(기본값)** 포탈 코드, Script Include, 안전한 로그 조회, 서버 소스 조회, 워크플로우 조회, 체인지셋 커밋/퍼블리시 |
-| `standard` | 표준 사용자 | 인시던트, 카탈로그, 지식베이스, 코어 조회 |
-| `platform_developer` | 플랫폼 개발자 | Script Include, 안전한 로그 조회, 서버 소스 조회, 워크플로우, UI Policy, 체인지셋 관리 |
-| `service_desk` | 운영/헬프데스크 | 인시던트 처리, 코멘트, 사용자 조회, 문서 조회 |
-| `full` | 관리자 | 구현된 전 영역 도구 |
+| `standard` | 48 | **(기본값)** 읽기 전용 safe mode. 전 도메인 조회/분석 도구 포함 |
+| `portal_developer` | 58 | standard + 포탈/위젯 수정, Script Include 수정, 체인지셋 커밋/퍼블리시 |
+| `platform_developer` | 71 | standard + 워크플로우 CRUD, UI Policy, 인시던트/변경관리 수정 |
+| `service_desk` | 52 | standard + 인시던트 생성/처리/해결/코멘트 |
+| `full` | 86 | 전 도메인 수정/삭제 가능 |
+
+현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
+
+카테고리별 전체 도구 목록은 [Tool Inventory](docs/TOOL_INVENTORY.md)에서 확인할 수 있습니다.
 
 ## 보안 정책
 
@@ -425,7 +431,7 @@ uv pip install -e ".[browser,dev]"
 uv run playwright install chromium
 ```
 
-> Windows 전용 절차: [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)
+> Windows 설치: [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)
 
 ## 상세 문서
 
