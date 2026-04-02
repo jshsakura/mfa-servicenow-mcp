@@ -183,6 +183,13 @@ def parse_args():
         default=int(os.environ.get("SERVICENOW_BROWSER_SESSION_TTL", "30")),
     )
 
+    # Tool package
+    parser.add_argument(
+        "--tool-package",
+        help="Tool package to load (e.g., standard, portal_developer, platform_developer, service_desk, full)",
+        default=os.environ.get("MCP_TOOL_PACKAGE"),
+    )
+
     # Script execution API resource path
     script_execution_group = parser.add_argument_group("Script Execution API")
     script_execution_group.add_argument(
@@ -384,6 +391,10 @@ def main():
             logger.info("Debug logging enabled.")
         else:
             logging.getLogger().setLevel(logging.INFO)
+
+        # Propagate --tool-package to env so server.py picks it up
+        if args.tool_package:
+            os.environ["MCP_TOOL_PACKAGE"] = args.tool_package
 
         # Create server configuration
         config = create_config(args)
