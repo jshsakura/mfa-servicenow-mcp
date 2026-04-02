@@ -141,7 +141,7 @@ def _resolve_incident_sys_id(
 @register_tool(
     "create_incident",
     params=CreateIncidentParams,
-    description="Create a new incident in ServiceNow",
+    description="Create a new incident (short_description required). Returns sys_id and INC number on success.",
     serialization="str",
     return_type=str,
 )
@@ -197,7 +197,7 @@ def create_incident(
 @register_tool(
     "update_incident",
     params=UpdateIncidentParams,
-    description="Update an existing incident in ServiceNow",
+    description="Update an incident by sys_id or INC number with partial field changes. Accepts any incident field.",
     serialization="str",
     return_type=str,
 )
@@ -256,7 +256,7 @@ def update_incident(
 @register_tool(
     "add_comment",
     params=AddCommentParams,
-    description="Add a comment to an incident in ServiceNow",
+    description="Add a work note (internal) or customer-visible comment to an incident by sys_id or INC number.",
     serialization="str",
     return_type=str,
 )
@@ -315,7 +315,7 @@ def add_comment(
 @register_tool(
     "resolve_incident",
     params=ResolveIncidentParams,
-    description="Resolve an incident in ServiceNow",
+    description="Set incident state to Resolved with resolution_code and close_notes. Use update_incident for other state changes.",
     serialization="str",
     return_type=str,
 )
@@ -379,7 +379,7 @@ def resolve_incident(
 @register_tool(
     "list_incidents",
     params=ListIncidentsParams,
-    description="List incidents from ServiceNow",
+    description="List incidents with state/category/assignee filters. Returns summary fields only — use get_incident_by_number for full details.",
     serialization="json",
     return_type=str,
 )
@@ -472,7 +472,7 @@ def list_incidents(
 @register_tool(
     "get_incident_by_number",
     params=GetIncidentByNumberParams,
-    description="Incident details from ServiceNow",
+    description="Fetch a single incident by INC number with full field details including timestamps and assignment info.",
     serialization="json_dict",
     return_type=str,
 )

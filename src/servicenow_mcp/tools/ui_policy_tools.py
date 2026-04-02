@@ -84,7 +84,7 @@ class CreateUIPolicyActionParams(BaseModel):
 @register_tool(
     name="create_ui_policy",
     params=CreateUIPolicyParams,
-    description="Create a UI policy to control form field behavior based on conditions",
+    description="Create a form field behavior rule (show/hide/mandatory) triggered by encoded query conditions.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -142,7 +142,7 @@ def create_ui_policy(
 @register_tool(
     name="create_ui_policy_action",
     params=CreateUIPolicyActionParams,
-    description="Create a UI policy action to set field visibility, mandatory, or read-only state",
+    description="Add a field-level action to a UI policy: set visibility, mandatory, or read-only per field.",
     serialization="raw_dict",
     return_type=dict,
 )

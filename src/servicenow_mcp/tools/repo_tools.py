@@ -352,7 +352,7 @@ def get_repo_file_last_modifier(params: GetRepoFileLastModifierParams) -> Dict[s
 @register_tool(
     "get_repo_change_report",
     params=GetRepoChangeReportParams,
-    description="Report recent file modifications, last modifiers, and commit/uncommitted status from local git repo",
+    description="Combined git report: working tree status + recent commits + per-file last modifier in one call.",
     serialization="raw_dict",
     return_type=dict,
 )

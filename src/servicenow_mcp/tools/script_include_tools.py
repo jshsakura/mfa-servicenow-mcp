@@ -91,7 +91,7 @@ class ScriptIncludeResponse(BaseModel):
 @register_tool(
     name="list_script_includes",
     params=ListScriptIncludesParams,
-    description="List script includes from ServiceNow",
+    description="List script includes filtered by name/scope/active. Returns metadata without script bodies.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -194,7 +194,7 @@ def list_script_includes(
 @register_tool(
     name="get_script_include",
     params=GetScriptIncludeParams,
-    description="Get a specific script include from ServiceNow",
+    description="Retrieve a single script include with full script body by sys_id or name.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -295,7 +295,7 @@ def get_script_include(
 @register_tool(
     name="create_script_include",
     params=CreateScriptIncludeParams,
-    description="Create a new script include in ServiceNow",
+    description="Create a script include with name, script, api_name, and client_callable fields. Returns sys_id.",
     serialization="raw_pydantic",
     return_type=ScriptIncludeResponse,
 )
@@ -374,7 +374,7 @@ def create_script_include(
 @register_tool(
     name="update_script_include",
     params=UpdateScriptIncludeParams,
-    description="Update an existing script include in ServiceNow",
+    description="Update a script include's script, api_name, client_callable, or other fields by sys_id or name.",
     serialization="raw_pydantic",
     return_type=ScriptIncludeResponse,
 )
@@ -481,7 +481,7 @@ def update_script_include(
 @register_tool(
     name="delete_script_include",
     params=DeleteScriptIncludeParams,
-    description="Delete a script include in ServiceNow",
+    description="Permanently delete a script include by sys_id or name. Irreversible.",
     serialization="json_dict",
     return_type=str,
 )
@@ -547,7 +547,7 @@ def delete_script_include(
 @register_tool(
     name="execute_script_include",
     params=ExecuteScriptIncludeParams,
-    description="Execute a client-callable script include via GlideAjax REST endpoint",
+    description="Run a client-callable script include method via GlideAjax REST. Requires client_callable=true on the SI.",
     serialization="raw_dict",
     return_type=dict,
 )

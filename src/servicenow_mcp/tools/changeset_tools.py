@@ -197,7 +197,7 @@ def _get_headers(
 @register_tool(
     name="list_changesets",
     params=ListChangesetsParams,
-    description="List changesets from ServiceNow",
+    description="List update sets filtered by state/developer/app. Returns name, state, and scope summary.",
     serialization="json",
     return_type=str,
 )
@@ -304,7 +304,7 @@ def list_changesets(
 @register_tool(
     name="get_changeset_details",
     params=GetChangesetDetailsParams,
-    description="Get detailed information about a specific changeset",
+    description="Retrieve a single update set with its entries and metadata by sys_id.",
     serialization="json",
     return_type=str,
 )
@@ -393,7 +393,7 @@ def get_changeset_details(
 @register_tool(
     name="create_changeset",
     params=CreateChangesetParams,
-    description="Create a new changeset in ServiceNow",
+    description="Create a new update set. Returns the new sys_id on success.",
     serialization="json_dict",
     return_type=str,
 )
@@ -479,7 +479,7 @@ def create_changeset(
 @register_tool(
     name="update_changeset",
     params=UpdateChangesetParams,
-    description="Update an existing changeset in ServiceNow",
+    description="Update an existing update set's name, description, state, or developer.",
     serialization="json_dict",
     return_type=str,
 )
@@ -573,7 +573,7 @@ def update_changeset(
 @register_tool(
     name="commit_changeset",
     params=CommitChangesetParams,
-    description="Commit a changeset in ServiceNow",
+    description="Finalize an update set by marking it complete. Prevents further edits.",
     serialization="str",
     return_type=str,
 )
@@ -656,7 +656,7 @@ def commit_changeset(
 @register_tool(
     name="publish_changeset",
     params=PublishChangesetParams,
-    description="Publish a changeset in ServiceNow",
+    description="Deploy a committed update set to the target instance.",
     serialization="str",
     return_type=str,
 )
@@ -739,7 +739,7 @@ def publish_changeset(
 @register_tool(
     name="add_file_to_changeset",
     params=AddFileToChangesetParams,
-    description="Add a file to a changeset in ServiceNow",
+    description="Attach a record (file path + content) to an update set.",
     serialization="str",
     return_type=str,
 )

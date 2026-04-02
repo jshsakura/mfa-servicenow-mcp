@@ -965,7 +965,7 @@ def _json_or_raw_string(value: Any) -> Any:
 @register_tool(
     "get_widget_bundle",
     params=GetWidgetBundleParams,
-    description="Fetch a high-speed bundle of a Service Portal widget (HTML, Scripts, and Provider list)",
+    description="Fetch widget HTML, scripts, and provider list in a single API call. Returns complete bundle for analysis.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1038,7 +1038,7 @@ def get_widget_bundle(
 @register_tool(
     "get_portal_component_code",
     params=GetPortalComponentParams,
-    description="Fetch specific code from a portal widget, provider, or script include (token efficient)",
+    description="Fetch specific code field from a widget, provider, or script include. Token-efficient: returns only requested fields.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1112,7 +1112,7 @@ def get_portal_component_code(
 @register_tool(
     "search_portal_regex_matches",
     params=SearchPortalRegexMatchesParams,
-    description="Regex-based match extraction across widget and linked portal sources with minimal/compact/full output modes",
+    description="Regex search across widget sources (HTML/scripts/providers). Supports minimal, compact, and full output modes.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1420,12 +1420,7 @@ def search_widget_author_patterns(
 @register_tool(
     "trace_portal_route_targets",
     params=TracePortalRouteTargetsParams,
-    description=(
-        "Trace portal route targets into LLM-friendly widget rows. Best for mapping "
-        "Widget → Angular Provider → target route evidence without returning raw script bodies. "
-        "Returns minimal/compact/full summaries with route targets, provider names, button handlers, "
-        "and branch/function clues."
-    ),
+    description="Map widget-to-provider-to-route relationships without raw script bodies. Returns route targets and handler clues.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1745,7 +1740,7 @@ def trace_portal_route_targets(
 @register_tool(
     "detect_angular_implicit_globals",
     params=DetectAngularImplicitGlobalsParams,
-    description="Detect implicit global assignments in Angular provider scripts (undeclared variables causing not defined issues)",
+    description="Find undeclared variable assignments in Angular provider scripts that cause runtime 'not defined' errors.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1860,7 +1855,7 @@ def detect_angular_implicit_globals(
 @register_tool(
     "update_portal_component",
     params=UpdatePortalComponentParams,
-    description="Pinpoint update of specific portal component fields (HTML, CSS, or scripts)",
+    description="Update specific code fields (HTML, CSS, or script) of a widget, provider, or script include.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1887,7 +1882,7 @@ def update_portal_component(
 @register_tool(
     "download_portal_sources",
     params=DownloadPortalSourcesParams,
-    description="Download widgets and linked portal/server source files in sn-utils-like local structure",
+    description="Export widget, provider, and script include sources to local file structure. Supports scope and widget filters.",
     serialization="raw_dict",
     return_type=dict,
 )

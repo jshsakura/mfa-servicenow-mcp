@@ -184,7 +184,7 @@ def _fetch_logs(
 @register_tool(
     "get_system_logs",
     params=GetSystemLogsParams,
-    description="Read recent ServiceNow system logs with hard safety limits and fixed summary fields",
+    description="Query syslog entries by level/source/message. Hard-capped at 20 rows for safety.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -224,7 +224,7 @@ def get_system_logs(
 @register_tool(
     "get_journal_entries",
     params=GetJournalEntriesParams,
-    description="Read recent journal entries with fixed summary fields and low result caps",
+    description="Fetch work notes and comments on any record. Filter by table, record sys_id, or field name.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -268,7 +268,7 @@ def get_journal_entries(
 @register_tool(
     "get_transaction_logs",
     params=GetTransactionLogsParams,
-    description="Read recent transaction logs with summary fields and strong pagination limits",
+    description="Query HTTP transaction logs with URL, status, and duration. Use for request performance analysis.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -310,7 +310,7 @@ def get_transaction_logs(
 @register_tool(
     "get_background_script_logs",
     params=GetBackgroundScriptLogsParams,
-    description="Read recent background execution logs from sys_execution_tracker with safe defaults",
+    description="Query sys_execution_tracker for scheduled/background script run logs with state and progress.",
     serialization="raw_dict",
     return_type=dict,
 )

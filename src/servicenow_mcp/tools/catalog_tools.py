@@ -83,7 +83,7 @@ class MoveCatalogItemsParams(BaseModel):
 @register_tool(
     name="list_catalog_items",
     params=ListCatalogItemsParams,
-    description="List service catalog items.",
+    description="Search catalog items with optional category/active filters. Returns name, price, and category summary.",
     serialization="json",
     return_type=str,
 )
@@ -180,7 +180,7 @@ def list_catalog_items(
 @register_tool(
     name="get_catalog_item",
     params=GetCatalogItemParams,
-    description="Get a specific service catalog item.",
+    description="Fetch a single catalog item by sys_id. Returns full details including variables.",
     serialization="json_dict",
     return_type=str,
 )
@@ -327,7 +327,7 @@ def get_catalog_item_variables(
 @register_tool(
     name="list_catalog_categories",
     params=ListCatalogCategoriesParams,
-    description="List service catalog categories.",
+    description="List catalog categories with parent/child relationships. Filter by active status or search query.",
     serialization="json",
     return_type=str,
 )
@@ -421,7 +421,7 @@ def list_catalog_categories(
 @register_tool(
     name="create_catalog_category",
     params=CreateCatalogCategoryParams,
-    description="Create a new service catalog category.",
+    description="Create a catalog category. Requires title. Optionally set parent, icon, order, and active status.",
     serialization="json_dict",
     return_type=str,
 )
@@ -504,7 +504,7 @@ def create_catalog_category(
 @register_tool(
     name="update_catalog_category",
     params=UpdateCatalogCategoryParams,
-    description="Update an existing service catalog category.",
+    description="Partial update of a catalog category by sys_id. Supports title, parent, icon, order, and active fields.",
     serialization="json_dict",
     return_type=str,
 )
@@ -586,7 +586,7 @@ def update_catalog_category(
 @register_tool(
     name="move_catalog_items",
     params=MoveCatalogItemsParams,
-    description="Move catalog items to a different category.",
+    description="Reassign one or more catalog items to a target category. Requires item_ids and target_category_id.",
     serialization="json_dict",
     return_type=str,
 )
