@@ -9,7 +9,8 @@
         "--browser-headless", "false"
       ],
       "env": {
-        "SERVICENOW_DEBUG": "false"
+        "SERVICENOW_DEBUG": "false",
+        "MCP_TOOL_PACKAGE": "standard"
       }
     }
   }

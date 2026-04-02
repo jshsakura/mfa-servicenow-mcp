@@ -123,7 +123,8 @@ If you cloned this repository locally, point the MCP host at the project and run
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
       },
       "enabled": true
     }
@@ -159,7 +160,8 @@ When using `auth-type: browser`, you **must** include `--with playwright` to ens
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
       }
     }
   }
@@ -184,7 +186,8 @@ When using `auth-type: browser`, you **must** include `--with playwright` to ens
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password"
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
       }
     }
   }
@@ -206,7 +209,8 @@ Add this to `codex.json` or pass via CLI:
         "mfa-servicenow-mcp",
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
-        "--browser-headless", "false"
+        "--browser-headless", "false",
+        "--tool-package", "standard"
       ]
     }
   }
@@ -323,6 +327,10 @@ Optional browser-related flags:
 - `--browser-timeout`
 - `--browser-probe-path`
 
+Other flags:
+- `--tool-package` — Tool package to load (env: `MCP_TOOL_PACKAGE`, default: `standard`)
+- `--timeout` — HTTP request timeout in seconds (env: `SERVICENOW_TIMEOUT`, default: `30`)
+
 Environment variables:
 
 ```env
@@ -331,6 +339,7 @@ SERVICENOW_AUTH_TYPE=browser
 SERVICENOW_BROWSER_HEADLESS=false
 SERVICENOW_BROWSER_USERNAME=your.username
 SERVICENOW_BROWSER_PASSWORD=your-password
+MCP_TOOL_PACKAGE=standard
 ```
 
 ### Basic Auth
