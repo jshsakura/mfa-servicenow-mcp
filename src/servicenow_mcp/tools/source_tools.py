@@ -675,7 +675,7 @@ def _build_snippet(record: Dict[str, Any], fields: List[str], query: str, max_le
 @register_tool(
     "search_server_code",
     params=SearchServerCodeParams,
-    description="Search supported ServiceNow server-side source tables with capped results and snippets",
+    description="Keyword/regex search across server-side scripts (SI, BR, client scripts, etc.). Returns matching snippets.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -762,7 +762,7 @@ def search_server_code(
 @register_tool(
     "get_metadata_source",
     params=GetMetadataSourceParams,
-    description="Fetch a supported ServiceNow source record by name, id, or sys_id with truncated source fields",
+    description="Fetch a source record (SI, BR, widget, etc.) by name or sys_id. Returns metadata + truncated script body.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -833,7 +833,7 @@ def get_metadata_source(
 @register_tool(
     "extract_table_dependencies",
     params=ExtractTableDependenciesParams,
-    description="Extract table dependency graph from widget server scripts, business rules, and linked script includes",
+    description="Build a GlideRecord table dependency graph from server scripts. Scans SI, BR, and widget code.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1065,7 +1065,7 @@ def extract_table_dependencies(
 @register_tool(
     "extract_widget_table_dependencies",
     params=ExtractWidgetTableDependenciesParams,
-    description="Extract table dependency graph for one widget with optional linked script include expansion",
+    description="Build a table dependency graph for a single widget, optionally expanding linked script includes.",
     serialization="raw_dict",
     return_type=dict,
 )

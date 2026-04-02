@@ -41,7 +41,7 @@ If you are on Windows, ensure your PowerShell execution policy allows script exe
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-For a step-by-step Windows setup (including a one-click PowerShell script), see [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
+For a step-by-step Windows setup guide, see [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
 
 ## Quick Start
 
@@ -67,7 +67,7 @@ Add this to `claude_desktop_config.json`:
         "--browser-headless", "false"
       ],
       "env": {
-        "MCP_TOOL_PACKAGE": "portal_developer"
+        "MCP_TOOL_PACKAGE": "standard"
       }
     }
   }
@@ -94,7 +94,7 @@ These hosts are easiest to manage with one of the following two execution styles
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_BROWSER_USERNAME": "your.username",
         "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "portal_developer"
+        "MCP_TOOL_PACKAGE": "standard"
       },
       "enabled": true
     }
@@ -383,27 +383,21 @@ Default header: `X-ServiceNow-API-Key`
 
 ## Tool Packages
 
-Set `MCP_TOOL_PACKAGE` to choose a specific tool set. Default: `portal_developer`
+Set `MCP_TOOL_PACKAGE` to choose a specific tool set. Default: `standard`
 
-| Package | Intended Use | Highlights |
+All packages except `none` include the full set of read-only tools (48 tools). Higher packages add write capabilities for their domain.
+
+| Package | Tools | Description |
 | :--- | :--- | :--- |
-| `portal_developer` | Portal developers | **(Default)** Portal code, script includes, source search (all 9 artifact types), developer activity tracking, dependency mapping, daily summary, safe logs, workflow read, update set commit/publish |
-| `standard` | General users | Incidents, catalog, knowledge, core queries |
-| `platform_developer` | Platform developers | Everything in portal_developer + delete script include, full workflow CRUD, UI policy |
-| `service_desk` | Operations | Incident handling, comments, user lookup, article lookup |
-| `full` | Admin / unrestricted | Broad access across all implemented tool domains |
+| `standard` | 48 | **(Default)** Read-only safe mode. All query/analysis tools across every domain. |
+| `portal_developer` | 58 | standard + portal/widget updates, script include writes, changeset commit/publish |
+| `platform_developer` | 71 | standard + workflow CRUD, UI policy, incident/change management writes |
+| `service_desk` | 52 | standard + incident create/update/resolve/comment |
+| `full` | 86 | All write operations across every domain |
 
-### Developer Productivity Tools
+If a tool is not available in your current package, the server tells you which package includes it.
 
-These tools are available in `portal_developer`, `platform_developer`, and `full` packages:
-
-| Tool | Description |
-| :--- | :--- |
-| `get_developer_changes` | List recent changes by a developer across all artifact tables. Supports `count_only` for cost preview. |
-| `get_uncommitted_changes` | Find items in uncommitted (in-progress) update sets, grouped by update set. |
-| `get_provider_dependency_map` | Map Widget → Angular Provider → Script Include dependency chains. |
-| `trace_portal_route_targets` | Return LLM-friendly widget/provider route traces with minimal evidence rows instead of raw script bodies. |
-| `get_developer_daily_summary` | Generate a daily work report in Jira markdown, plain text, or structured JSON. |
+For the complete tool list by category, see [Tool Inventory](docs/TOOL_INVENTORY.md).
 
 ## Safety Policy
 
@@ -480,7 +474,7 @@ uv pip install -e ".[browser,dev]"
 uv run playwright install chromium
 ```
 
-> Windows-specific setup: [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)
+> Windows setup: [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)
 
 ## Documentation
 

@@ -96,7 +96,7 @@ class UpdateCatalogItemVariableParams(BaseModel):
 @register_tool(
     name="create_catalog_item_variable",
     params=CreateCatalogItemVariableParams,
-    description="Create a new catalog item variable",
+    description="Add a form variable to a catalog item. Requires cat_item sys_id, variable type, name, and label.",
     serialization="dict",
     return_type=dict,
 )
@@ -177,7 +177,7 @@ def create_catalog_item_variable(
 @register_tool(
     name="list_catalog_item_variables",
     params=ListCatalogItemVariablesParams,
-    description="List catalog item variables",
+    description="List variable definitions for a catalog item. Returns type, order, mandatory flag, and default values.",
     serialization="dict",
     return_type=dict,
 )
@@ -247,7 +247,7 @@ def list_catalog_item_variables(
 @register_tool(
     name="update_catalog_item_variable",
     params=UpdateCatalogItemVariableParams,
-    description="Update a catalog item variable",
+    description="Partial update of a catalog item variable by sys_id. Supports label, order, mandatory, and default value.",
     serialization="dict",
     return_type=dict,
 )

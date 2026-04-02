@@ -179,7 +179,7 @@ def _is_login_redirect_response(response: requests.Response) -> bool:
 @register_tool(
     name="sn_health",
     params=HealthCheckParams,
-    description="Run ServiceNow API connectivity and auth health checks. In browser auth mode, this may open a login window on first use and can return a warning when the browser session is valid but the configured probe path is blocked by ACLs.",
+    description="Check ServiceNow API connectivity and auth status. Triggers browser login on first use in MFA mode.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -262,9 +262,7 @@ def sn_health(
 @register_tool(
     name="sn_query",
     params=GenericQueryParams,
-    description=(
-        "Run a generic ServiceNow table query for ordinary record lookup. Fallback tool only — prefer specialized tools for portal/widget/provider source tracing, code search, or dependency mapping."
-    ),
+    description="Query any ServiceNow table with encoded query filters. Fallback only — prefer specialized tools for portal/widget/code tasks.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -335,7 +333,7 @@ def sn_query(
 @register_tool(
     name="sn_aggregate",
     params=AggregateParams,
-    description="Run aggregate statistics (count/sum/avg/min/max)",
+    description="Run COUNT/SUM/AVG/MIN/MAX on any table with optional group_by. Returns stats without fetching records.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -386,7 +384,7 @@ def sn_aggregate(
 @register_tool(
     name="sn_schema",
     params=SchemaParams,
-    description="Fetch table schema from sys_dictionary",
+    description="Fetch field names, types, labels, and constraints from sys_dictionary for a given table.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -439,7 +437,7 @@ def sn_schema(
 @register_tool(
     name="sn_discover",
     params=DiscoverParams,
-    description="Discover tables by name or label keyword",
+    description="Find tables by name or label keyword. Returns table name, label, scope, and parent class.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -483,7 +481,7 @@ def sn_discover(
 @register_tool(
     name="sn_nl",
     params=NaturalLanguageParams,
-    description="Natural language assistant for query/schema/aggregate intents",
+    description="Convert natural language to query, schema, or aggregate calls. Parses intent and dispatches to sn_query/sn_schema/sn_aggregate.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )

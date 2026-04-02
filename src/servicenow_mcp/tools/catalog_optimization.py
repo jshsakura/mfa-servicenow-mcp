@@ -42,7 +42,7 @@ class UpdateCatalogItemParams(BaseModel):
 @register_tool(
     name="get_optimization_recommendations",
     params=OptimizationRecommendationsParams,
-    description="Get optimization recommendations for the service catalog.",
+    description="Analyze catalog structure and suggest improvements (inactive items, low usage, abandonment, fulfillment, descriptions).",
     serialization="json",
     return_type=str,
 )
@@ -160,7 +160,7 @@ def get_optimization_recommendations(
 @register_tool(
     name="update_catalog_item",
     params=UpdateCatalogItemParams,
-    description="Update a service catalog item.",
+    description="Partial update of a catalog item by sys_id. Supports name, description, category, price, active, and order.",
     serialization="json",
     return_type=str,
 )

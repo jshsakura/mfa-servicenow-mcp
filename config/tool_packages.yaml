@@ -1,160 +1,263 @@
 # ServiceNow MCP Tool Packages Configuration
-# Define sets of tools to be exposed by the MCP server based on roles/workflows.
+#
+# Default: standard (safe mode - all reads, no writes)
+# All other packages inherit standard's read tools and add domain-specific writes.
+# Tools not in any package (Agile/PPM, User/Group, Knowledge) → use sn_query.
 
-# --- Reusable Anchors ---
-.common_tools: &common_tools
-  # Core Plus
+none: []
+
+# --- Safe Mode: Read-only across all domains ---
+standard:
+  # Core
   - sn_health
   - sn_query
   - sn_aggregate
   - sn_schema
   - sn_discover
   - sn_nl
-
-# --- Package Definitions ---
-
-none: []
-
-standard:
-  <<: *common_tools
-  # Incident
+  # Incident (Read)
   - list_incidents
   - get_incident_by_number
-  - create_incident
-  - update_incident
-  - add_comment
-  - resolve_incident
-  # Catalog
+  # Catalog (Read)
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
-  # Knowledge
-  - list_knowledge_bases
-  - list_articles
-  - get_article
-  - list_categories
-
-portal_developer:
-  <<: *common_tools
-  # 안전한 로그 분석
-  - get_system_logs
-  - get_journal_entries
-  - get_transaction_logs
-  - get_background_script_logs
-  # 서버 소스 검색/조회
-  - search_server_code
-  - get_metadata_source
-  - extract_table_dependencies
-  - extract_widget_table_dependencies
-  # 위젯 및 포탈 컴포넌트 개발
-  - get_widget_bundle
-  - get_portal_component_code
-  - search_portal_regex_matches
-  - trace_portal_route_targets
-  - detect_angular_implicit_globals
-  - update_portal_component
-  - download_portal_sources
-  - get_repo_change_report
-  - get_repo_working_tree_status
-  - get_repo_recent_commits
-  - get_repo_file_last_modifier
-  # 서버 스크립트(SI) 통합 개발
-  - list_script_includes
-  - get_script_include
-  - create_script_include
-  - update_script_include
-  # 개발자 생산성 도구
-  - get_developer_changes
-  - get_uncommitted_changes
-  - get_provider_dependency_map
-  - get_developer_daily_summary
-  # 워크플로우 조회 (프로세스 이해용)
+  - get_optimization_recommendations
+  # Change Management (Read)
+  - list_change_requests
+  - get_change_request_details
+  # Changeset (Read)
+  - list_changesets
+  - get_changeset_details
+  # Workflow (Read)
   - list_workflows
   - get_workflow_details
   - list_workflow_versions
   - get_workflow_activities
-  # Update Set (Changeset) 관리
-  - list_changesets
-  - get_changeset_details
-  - create_changeset
-  - update_changeset
-  - commit_changeset
-  - publish_changeset
-  - add_file_to_changeset
-
-platform_developer:
-  <<: *common_tools
-  # 안전한 로그 분석
+  # Portal (Read)
+  - list_portals
+  - get_portal
+  - list_pages
+  - get_page
+  - get_widget_bundle
+  - get_portal_component_code
+  - get_widget_instance
+  - list_widget_instances
+  - download_portal_sources
+  - search_portal_regex_matches
+  - trace_portal_route_targets
+  - detect_angular_implicit_globals
+  - get_provider_dependency_map
+  - analyze_widget_performance
+  - extract_widget_table_dependencies
+  # Script Include (Read)
+  - list_script_includes
+  - get_script_include
+  # Developer Productivity (Read)
+  - get_developer_changes
+  - audit_pending_changes
+  - get_repo_change_report
+  # Logs
   - get_system_logs
   - get_journal_entries
   - get_transaction_logs
   - get_background_script_logs
-  # 서버 소스 검색/조회
+  # Search & Analysis
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
-  - extract_widget_table_dependencies
+
+# --- Portal Developer: standard + portal/changeset/script writes ---
+portal_developer:
+  # standard (all reads)
+  - sn_health
+  - sn_query
+  - sn_aggregate
+  - sn_schema
+  - sn_discover
+  - sn_nl
+  - list_incidents
+  - get_incident_by_number
+  - list_catalog_items
+  - get_catalog_item
+  - list_catalog_categories
+  - list_catalog_item_variables
+  - get_optimization_recommendations
+  - list_change_requests
+  - get_change_request_details
+  - list_changesets
+  - get_changeset_details
+  - list_workflows
+  - get_workflow_details
+  - list_workflow_versions
+  - get_workflow_activities
+  - list_portals
+  - get_portal
+  - list_pages
+  - get_page
+  - get_widget_bundle
+  - get_portal_component_code
+  - get_widget_instance
+  - list_widget_instances
   - download_portal_sources
-  - get_repo_change_report
-  - get_repo_working_tree_status
-  - get_repo_recent_commits
-  - get_repo_file_last_modifier
-  # 개발자 생산성 도구
-  - get_developer_changes
-  - get_uncommitted_changes
+  - search_portal_regex_matches
+  - trace_portal_route_targets
+  - detect_angular_implicit_globals
   - get_provider_dependency_map
-  - get_developer_daily_summary
-  # 비즈니스 로직 (Script Include)
+  - analyze_widget_performance
+  - extract_widget_table_dependencies
   - list_script_includes
   - get_script_include
+  - get_developer_changes
+  - audit_pending_changes
+  - get_repo_change_report
+  - get_system_logs
+  - get_journal_entries
+  - get_transaction_logs
+  - get_background_script_logs
+  - search_server_code
+  - get_metadata_source
+  - extract_table_dependencies
+  # + Portal writes
+  - update_portal_component
+  - create_widget_instance
+  - update_widget_instance
+  # + Script Include writes
+  - create_script_include
+  - update_script_include
+  # + Changeset writes
+  - create_changeset
+  - update_changeset
+  - add_file_to_changeset
+  - commit_changeset
+  - publish_changeset
+
+# --- Platform Developer: standard + workflow/incident/change/script writes ---
+platform_developer:
+  # standard (all reads)
+  - sn_health
+  - sn_query
+  - sn_aggregate
+  - sn_schema
+  - sn_discover
+  - sn_nl
+  - list_incidents
+  - get_incident_by_number
+  - list_catalog_items
+  - get_catalog_item
+  - list_catalog_categories
+  - list_catalog_item_variables
+  - get_optimization_recommendations
+  - list_change_requests
+  - get_change_request_details
+  - list_changesets
+  - get_changeset_details
+  - list_workflows
+  - get_workflow_details
+  - list_workflow_versions
+  - get_workflow_activities
+  - list_portals
+  - get_portal
+  - list_pages
+  - get_page
+  - get_widget_bundle
+  - get_portal_component_code
+  - get_widget_instance
+  - list_widget_instances
+  - download_portal_sources
+  - search_portal_regex_matches
+  - trace_portal_route_targets
+  - detect_angular_implicit_globals
+  - get_provider_dependency_map
+  - analyze_widget_performance
+  - extract_widget_table_dependencies
+  - list_script_includes
+  - get_script_include
+  - get_developer_changes
+  - audit_pending_changes
+  - get_repo_change_report
+  - get_system_logs
+  - get_journal_entries
+  - get_transaction_logs
+  - get_background_script_logs
+  - search_server_code
+  - get_metadata_source
+  - extract_table_dependencies
+  # + Workflow writes
+  - create_workflow
+  - update_workflow
+  - activate_workflow
+  - deactivate_workflow
+  - add_workflow_activity
+  - update_workflow_activity
+  - delete_workflow_activity
+  - reorder_workflow_activities
+  # + UI Policy writes
+  - create_ui_policy
+  - create_ui_policy_action
+  # + Script Include writes (full)
   - create_script_include
   - update_script_include
   - delete_script_include
   - execute_script_include
-  # 워크플로우 자동화
-  - list_workflows
-  - get_workflow_details
-  - create_workflow
-  - update_workflow
-  - activate_workflow
-  - deactivate_workflow
-  - list_workflow_versions
-  - add_workflow_activity
-  - update_workflow_activity
-  - delete_workflow_activity
-  - reorder_workflow_activities
-  - get_workflow_activities
-  # UI Policy
-  - create_ui_policy
-  - create_ui_policy_action
-  # 체인지셋 관리
-  - list_changesets
-  - get_changeset_details
+  # + Incident writes
+  - update_incident
+  - resolve_incident
+  # + Change Management writes
+  - update_change_request
+  - submit_change_for_approval
+  # + Changeset writes
   - create_changeset
   - update_changeset
+  - add_file_to_changeset
   - commit_changeset
   - publish_changeset
-  - add_file_to_changeset
 
+# --- Service Desk: standard + incident writes ---
 service_desk:
-  <<: *common_tools
-  # 인시던트 생성/수정/코멘트
-  - create_incident
-  - update_incident
-  - add_comment
-  - resolve_incident
+  # standard (all reads)
+  - sn_health
+  - sn_query
+  - sn_aggregate
+  - sn_schema
+  - sn_discover
+  - sn_nl
   - list_incidents
   - get_incident_by_number
-  # 사용자 정보 조회
-  - get_user
-  - list_users
-  # 지식베이스 조회
-  - get_article
-  - list_articles
-
-full:
-  <<: *common_tools
+  - list_catalog_items
+  - get_catalog_item
+  - list_catalog_categories
+  - list_catalog_item_variables
+  - get_optimization_recommendations
+  - list_change_requests
+  - get_change_request_details
+  - list_changesets
+  - get_changeset_details
+  - list_workflows
+  - get_workflow_details
+  - list_workflow_versions
+  - get_workflow_activities
+  - list_portals
+  - get_portal
+  - list_pages
+  - get_page
+  - get_widget_bundle
+  - get_portal_component_code
+  - get_widget_instance
+  - list_widget_instances
+  - download_portal_sources
+  - search_portal_regex_matches
+  - trace_portal_route_targets
+  - detect_angular_implicit_globals
+  - get_provider_dependency_map
+  - analyze_widget_performance
+  - extract_widget_table_dependencies
+  - list_script_includes
+  - get_script_include
+  - get_developer_changes
+  - audit_pending_changes
+  - get_repo_change_report
   - get_system_logs
   - get_journal_entries
   - get_transaction_logs
@@ -162,36 +265,85 @@ full:
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
-  - extract_widget_table_dependencies
+  # + Incident writes
   - create_incident
   - update_incident
   - add_comment
   - resolve_incident
+
+# --- Full: all tools ---
+full:
+  # standard (all reads)
+  - sn_health
+  - sn_query
+  - sn_aggregate
+  - sn_schema
+  - sn_discover
+  - sn_nl
   - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
-  - create_catalog_category
-  - update_catalog_category
-  - move_catalog_items
-  - get_optimization_recommendations
-  - update_catalog_item
-  - create_catalog_item_variable
   - list_catalog_item_variables
-  - update_catalog_item_variable
-  - create_change_request
-  - update_change_request
+  - get_optimization_recommendations
   - list_change_requests
   - get_change_request_details
-  - add_change_task
-  - submit_change_for_approval
-  - approve_change
-  - reject_change
+  - list_changesets
+  - get_changeset_details
   - list_workflows
   - get_workflow_details
   - list_workflow_versions
   - get_workflow_activities
+  - list_portals
+  - get_portal
+  - list_pages
+  - get_page
+  - get_widget_bundle
+  - get_portal_component_code
+  - get_widget_instance
+  - list_widget_instances
+  - download_portal_sources
+  - search_portal_regex_matches
+  - trace_portal_route_targets
+  - detect_angular_implicit_globals
+  - get_provider_dependency_map
+  - analyze_widget_performance
+  - extract_widget_table_dependencies
+  - list_script_includes
+  - get_script_include
+  - get_developer_changes
+  - audit_pending_changes
+  - get_repo_change_report
+  - get_system_logs
+  - get_journal_entries
+  - get_transaction_logs
+  - get_background_script_logs
+  - search_server_code
+  - get_metadata_source
+  - extract_table_dependencies
+  # + All writes
+  - create_incident
+  - update_incident
+  - add_comment
+  - resolve_incident
+  - create_catalog_category
+  - update_catalog_category
+  - move_catalog_items
+  - update_catalog_item
+  - create_catalog_item_variable
+  - update_catalog_item_variable
+  - create_change_request
+  - update_change_request
+  - add_change_task
+  - submit_change_for_approval
+  - approve_change
+  - reject_change
+  - create_changeset
+  - update_changeset
+  - add_file_to_changeset
+  - commit_changeset
+  - publish_changeset
   - create_workflow
   - update_workflow
   - activate_workflow
@@ -200,64 +352,12 @@ full:
   - update_workflow_activity
   - delete_workflow_activity
   - reorder_workflow_activities
-  - list_changesets
-  - get_changeset_details
-  - create_changeset
-  - update_changeset
-  - commit_changeset
-  - publish_changeset
-  - add_file_to_changeset
-  - get_widget_bundle
-  - get_portal_component_code
-  - search_portal_regex_matches
-  - trace_portal_route_targets
-  - detect_angular_implicit_globals
   - update_portal_component
-  - download_portal_sources
-  - get_repo_change_report
-  - get_repo_working_tree_status
-  - get_repo_recent_commits
-  - get_repo_file_last_modifier
-  - list_script_includes
-  - get_script_include
+  - create_widget_instance
+  - update_widget_instance
   - create_script_include
   - update_script_include
   - delete_script_include
-  # 개발자 생산성 도구
-  - get_developer_changes
-  - get_uncommitted_changes
-  - get_provider_dependency_map
-  - get_developer_daily_summary
-  - create_knowledge_base
-  - list_knowledge_bases
-  - create_category
-  - create_article
-  - update_article
-  - publish_article
-  - list_articles
-  - get_article
-  - list_categories
-  - create_user
-  - update_user
-  - get_user
-  - list_users
-  - create_group
-  - update_group
-  - add_group_members
-  - remove_group_members
-  - list_groups
-  - create_story
-  - update_story
-  - list_stories
-  - list_story_dependencies
-  - create_story_dependency
-  - delete_story_dependency
-  - create_epic
-  - update_epic
-  - list_epics
-  - create_scrum_task
-  - update_scrum_task
-  - list_scrum_tasks
-  - create_project
-  - update_project
-  - list_projects
+  - execute_script_include
+  - create_ui_policy
+  - create_ui_policy_action
