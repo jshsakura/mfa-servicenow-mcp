@@ -279,14 +279,17 @@ def sn_query_all(
         if server_remaining <= 0:
             return rows[:cap]
 
+        # --- Dynamic page_size: if remaining fits in one page (<=100), enlarge ---
+        dynamic_size = min(server_remaining, 100) if server_remaining <= 100 else size
+
         offsets = []
         off = len(rows)
         while off < len(rows) + server_remaining:
             offsets.append(off)
-            off += size
+            off += dynamic_size
 
         def _fetch_page(page_offset: int) -> List[Dict[str, Any]]:
-            fetch = min(size, cap - page_offset)
+            fetch = min(dynamic_size, cap - page_offset)
             if fetch <= 0:
                 return []
             # Subsequent pages skip total count for speed
@@ -349,6 +352,79 @@ def sn_query_all(
         offset += fetch
 
     return rows[:cap]
+
+
+# ---------------------------------------------------------------------------
+# Batch API — combine multiple queries into a single HTTP roundtrip
+# ---------------------------------------------------------------------------
+
+SN_BATCH_MAX_REQUESTS = 150  # ServiceNow batch endpoint limit
+
+
+def sn_batch(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    requests: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Send multiple REST sub-requests in a single ``/api/now/batch`` call.
+
+    Each item in *requests* must have ``id``, ``method``, and ``url`` keys.
+    Returns a dict keyed by request ``id`` → response body.
+
+    Automatically chunks into multiple batch calls when the list exceeds
+    ``SN_BATCH_MAX_REQUESTS``.
+    """
+    if not requests:
+        return {}
+
+    results: Dict[str, Any] = {}
+
+    # Chunk into SN_BATCH_MAX_REQUESTS-sized batches
+    for i in range(0, len(requests), SN_BATCH_MAX_REQUESTS):
+        chunk = requests[i : i + SN_BATCH_MAX_REQUESTS]
+        payload = {
+            "rest_requests": [
+                {
+                    "id": r["id"],
+                    "method": r.get("method", "GET"),
+                    "url": r["url"],
+                    "headers": [{"name": "Accept", "value": "application/json"}],
+                }
+                for r in chunk
+            ]
+        }
+
+        url = f"{config.instance_url}/api/now/batch"
+        try:
+            response = auth_manager.make_request(
+                "POST",
+                url,
+                json=payload,
+                timeout=config.request_timeout,
+            )
+            raw = getattr(response, "content", None)
+            data = (
+                json_fast.loads(raw) if isinstance(raw, (bytes, str)) and raw else response.json()
+            )
+
+            for sub in data.get("serviced_requests", []):
+                req_id = sub.get("id", "")
+                body = sub.get("body", {})
+                status = sub.get("status_code", 0)
+                if status >= 400:
+                    # Preserve error info
+                    if not body.get("error"):
+                        body["error"] = {
+                            "message": f"Batch sub-request failed with status {status}"
+                        }
+                results[req_id] = body
+        except Exception as exc:
+            logger.warning("Batch API call failed: %s", exc)
+            for r in chunk:
+                results[r["id"]] = {"error": {"message": str(exc)}}
+
+    return results
 
 
 class HealthCheckParams(BaseModel):

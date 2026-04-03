@@ -170,75 +170,60 @@ def test_detect_angular_defaults_are_conservative():
     assert params.page_size == 50
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
 def test_download_portal_sources_exports_widget_provider_and_script_include(
-    mock_sn_query, mock_config, mock_auth_manager, tmp_path
+    mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
 ):
-    mock_sn_query.side_effect = [
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "wid-1",
-                    "name": "Quotation Widget",
-                    "id": "quotation_widget",
-                    "sys_scope": "x_bpm",
-                    "template": "<div>ok</div>",
-                    "script": "var si = new x_bpm.QuotationUtil();",
-                    "client_script": "",
-                    "link": "function link() {}",
-                    "css": ".a{}",
-                    "option_schema": '{"type":"object"}',
-                    "demo_data": '{"demo":true}',
-                }
-            ],
-        },
-        {
-            "success": True,
-            "results": [
-                {
-                    "element": "template",
-                    "column_label": "Body HTML template",
-                    "internal_type": "html_template",
-                    "read_only": "false",
-                    "mandatory": "false",
-                    "max_length": "65000",
-                    "choice": "0",
-                    "reference": "",
-                    "attributes": "",
-                }
-            ],
-        },
-        {
-            "success": True,
-            "results": [
-                {
-                    "sp_widget": {"value": "wid-1"},
-                    "sp_angular_provider": {"value": "prov-1"},
-                }
-            ],
-        },
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "prov-1",
-                    "name": "quotationService",
-                    "script": "angular.module('x').factory('quotationService', function(){});",
-                }
-            ],
-        },
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "si-1",
-                    "name": "QuotationUtil",
-                    "api_name": "x_bpm.QuotationUtil",
-                    "script": "var gr = new GlideRecord('task');",
-                }
-            ],
-        },
+    mock_sn_query_all.side_effect = [
+        [
+            {
+                "sys_id": "wid-1",
+                "name": "Quotation Widget",
+                "id": "quotation_widget",
+                "sys_scope": "x_bpm",
+                "template": "<div>ok</div>",
+                "script": "var si = new x_bpm.QuotationUtil();",
+                "client_script": "",
+                "link": "function link() {}",
+                "css": ".a{}",
+                "option_schema": '{"type":"object"}',
+                "demo_data": '{"demo":true}',
+            }
+        ],
+        [
+            {
+                "element": "template",
+                "column_label": "Body HTML template",
+                "internal_type": "html_template",
+                "read_only": "false",
+                "mandatory": "false",
+                "max_length": "65000",
+                "choice": "0",
+                "reference": "",
+                "attributes": "",
+            }
+        ],
+        [
+            {
+                "sp_widget": {"value": "wid-1"},
+                "sp_angular_provider": {"value": "prov-1"},
+            }
+        ],
+        [
+            {
+                "sys_id": "prov-1",
+                "name": "quotationService",
+                "script": "angular.module('x').factory('quotationService', function(){});",
+            }
+        ],
+        [
+            {
+                "sys_id": "si-1",
+                "name": "QuotationUtil",
+                "api_name": "x_bpm.QuotationUtil",
+                "script": "var gr = new GlideRecord('task');",
+            }
+        ],
     ]
 
     result = download_portal_sources(
@@ -309,50 +294,38 @@ def test_download_portal_sources_widget_ids_mode_handles_missing_widget(
     assert (tmp_path / "x_bpm" / "sp_widget" / "_map.json").exists()
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
 def test_search_portal_regex_matches_returns_compact_line_matches(
-    mock_sn_query, mock_config, mock_auth_manager
+    mock_sn_query_all, mock_config, mock_auth_manager
 ):
-    mock_sn_query.side_effect = [
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "wid-1",
-                    "name": "RFQ Entry Widget",
-                    "id": "rfq_entry_widget",
-                    "script": "data.url='/ybpm?id=rfqentry'; var util = new RedirectUtil();",
-                    "template": "",
-                    "client_script": "",
-                    "link": "",
-                    "css": "",
-                }
-            ],
-        },
-        {
-            "success": True,
-            "results": [{"sp_angular_provider": {"value": "prov-1"}}],
-        },
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "prov-1",
-                    "name": "redirectProvider",
-                    "script": "return '/ybpm?id=rfqentry';",
-                }
-            ],
-        },
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "si-1",
-                    "name": "RedirectUtil",
-                    "script": "var path = '/ybpm?id=rfqentry';",
-                }
-            ],
-        },
+    mock_sn_query_all.side_effect = [
+        [
+            {
+                "sys_id": "wid-1",
+                "name": "RFQ Entry Widget",
+                "id": "rfq_entry_widget",
+                "script": "data.url='/ybpm?id=rfqentry'; var util = new RedirectUtil();",
+                "template": "",
+                "client_script": "",
+                "link": "",
+                "css": "",
+            }
+        ],
+        [{"sp_angular_provider": {"value": "prov-1"}}],
+        [
+            {
+                "sys_id": "prov-1",
+                "name": "redirectProvider",
+                "script": "return '/ybpm?id=rfqentry';",
+            }
+        ],
+        [
+            {
+                "sys_id": "si-1",
+                "name": "RedirectUtil",
+                "script": "var path = '/ybpm?id=rfqentry';",
+            }
+        ],
     ]
 
     result = search_portal_regex_matches(
@@ -384,11 +357,11 @@ def test_search_portal_regex_matches_returns_compact_line_matches(
     assert all(isinstance(item["line"], int) and item["line"] >= 1 for item in result["matches"])
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
 def test_search_portal_regex_matches_allows_missing_updated_by(
-    mock_sn_query, mock_config, mock_auth_manager
+    mock_sn_query_all, mock_config, mock_auth_manager
 ):
-    mock_sn_query.return_value = {"success": True, "results": []}
+    mock_sn_query_all.return_value = []
 
     result = search_portal_regex_matches(
         mock_config,
@@ -397,8 +370,8 @@ def test_search_portal_regex_matches_allows_missing_updated_by(
     )
 
     assert result["success"] is True
-    args, _kwargs = mock_sn_query.call_args
-    query = args[2].query
+    _args, kwargs = mock_sn_query_all.call_args
+    query = kwargs.get("query", "")
     assert "sys_updated_by=" not in query
     assert any("No explicit widget/provider target" in warning for warning in result["warnings"])
 
@@ -446,25 +419,22 @@ def test_search_portal_regex_matches_targeted_widget_avoids_broad_target_warning
     )
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
 def test_search_portal_regex_matches_minimal_output_mode(
-    mock_sn_query, mock_config, mock_auth_manager
+    mock_sn_query_all, mock_config, mock_auth_manager
 ):
-    mock_sn_query.return_value = {
-        "success": True,
-        "results": [
-            {
-                "sys_id": "wid-1",
-                "name": "RFQ Entry Widget",
-                "id": "rfq_entry_widget",
-                "script": "data.url='/ybpm?id=rfqentry';",
-                "template": "",
-                "client_script": "",
-                "link": "",
-                "css": "",
-            }
-        ],
-    }
+    mock_sn_query_all.return_value = [
+        {
+            "sys_id": "wid-1",
+            "name": "RFQ Entry Widget",
+            "id": "rfq_entry_widget",
+            "script": "data.url='/ybpm?id=rfqentry';",
+            "template": "",
+            "client_script": "",
+            "link": "",
+            "css": "",
+        }
+    ]
 
     result = search_portal_regex_matches(
         mock_config,
@@ -486,25 +456,22 @@ def test_search_portal_regex_matches_minimal_output_mode(
     assert set(result["matches"][0].keys()) == {"location", "line"}
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
 def test_search_portal_regex_matches_auto_mode_treats_plain_text_as_literal(
-    mock_sn_query, mock_config, mock_auth_manager
+    mock_sn_query_all, mock_config, mock_auth_manager
 ):
-    mock_sn_query.return_value = {
-        "success": True,
-        "results": [
-            {
-                "sys_id": "wid-1",
-                "name": "RFQ Entry Widget",
-                "id": "rfq_entry_widget",
-                "script": "data.url='/ybpm?id=rfqentry';",
-                "template": "",
-                "client_script": "",
-                "link": "",
-                "css": "",
-            }
-        ],
-    }
+    mock_sn_query_all.return_value = [
+        {
+            "sys_id": "wid-1",
+            "name": "RFQ Entry Widget",
+            "id": "rfq_entry_widget",
+            "script": "data.url='/ybpm?id=rfqentry';",
+            "template": "",
+            "client_script": "",
+            "link": "",
+            "css": "",
+        }
+    ]
 
     result = search_portal_regex_matches(
         mock_config,
@@ -545,45 +512,34 @@ def test_search_portal_regex_matches_regex_mode_preserves_pattern(
     assert result["filters"]["resolved_pattern"] == r"/ybpm\?id=(rfqentry|rfqdetail)"
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
 def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
-    mock_sn_query, mock_config, mock_auth_manager
+    mock_sn_query_all, mock_config, mock_auth_manager
 ):
-    mock_sn_query.side_effect = [
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "wid-1",
-                    "name": "Budget Widget",
-                    "id": "budget_widget",
-                    "template": '<button ng-click="branchToBudget()">Budget</button>',
-                    "script": "",
-                    "client_script": (
-                        "function branchToBudget(){ return '/sp?id=hopesinitplanbudgetmanhour'; }"
-                    ),
-                    "link": "",
-                }
-            ],
-        },
-        {
-            "success": True,
-            "results": [
-                {"sp_widget": {"value": "wid-1"}, "sp_angular_provider": {"value": "prov-1"}}
-            ],
-        },
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "prov-1",
-                    "name": "budgetProvider",
-                    "script": (
-                        "function resolveBudgetRoute(){ return '/sp?id=hopesinitplanbudgetmanhour'; }"
-                    ),
-                }
-            ],
-        },
+    mock_sn_query_all.side_effect = [
+        [
+            {
+                "sys_id": "wid-1",
+                "name": "Budget Widget",
+                "id": "budget_widget",
+                "template": '<button ng-click="branchToBudget()">Budget</button>',
+                "script": "",
+                "client_script": (
+                    "function branchToBudget(){ return '/sp?id=hopesinitplanbudgetmanhour'; }"
+                ),
+                "link": "",
+            }
+        ],
+        [{"sp_widget": {"value": "wid-1"}, "sp_angular_provider": {"value": "prov-1"}}],
+        [
+            {
+                "sys_id": "prov-1",
+                "name": "budgetProvider",
+                "script": (
+                    "function resolveBudgetRoute(){ return '/sp?id=hopesinitplanbudgetmanhour'; }"
+                ),
+            }
+        ],
     ]
 
     result = trace_portal_route_targets(
@@ -613,41 +569,30 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
     assert result["filters"]["effective_match_mode"] == "literal"
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
 def test_trace_portal_route_targets_full_mode_includes_provider_details(
-    mock_sn_query, mock_config, mock_auth_manager
+    mock_sn_query_all, mock_config, mock_auth_manager
 ):
-    mock_sn_query.side_effect = [
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "wid-1",
-                    "name": "Budget Widget",
-                    "id": "budget_widget",
-                    "template": "",
-                    "script": "function openBudget(){ return '/sp?id=hopesinitplanbudgetmanhour'; }",
-                    "client_script": "",
-                    "link": "",
-                }
-            ],
-        },
-        {
-            "success": True,
-            "results": [
-                {"sp_widget": {"value": "wid-1"}, "sp_angular_provider": {"value": "prov-1"}}
-            ],
-        },
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "prov-1",
-                    "name": "budgetProvider",
-                    "script": "function resolveBudgetRoute(){ return '/sp?id=hopesinitplanbudgetmanhour'; }",
-                }
-            ],
-        },
+    mock_sn_query_all.side_effect = [
+        [
+            {
+                "sys_id": "wid-1",
+                "name": "Budget Widget",
+                "id": "budget_widget",
+                "template": "",
+                "script": "function openBudget(){ return '/sp?id=hopesinitplanbudgetmanhour'; }",
+                "client_script": "",
+                "link": "",
+            }
+        ],
+        [{"sp_widget": {"value": "wid-1"}, "sp_angular_provider": {"value": "prov-1"}}],
+        [
+            {
+                "sys_id": "prov-1",
+                "name": "budgetProvider",
+                "script": "function resolveBudgetRoute(){ return '/sp?id=hopesinitplanbudgetmanhour'; }",
+            }
+        ],
     ]
 
     result = trace_portal_route_targets(
@@ -693,20 +638,17 @@ def test_trace_portal_route_targets_regex_mode_preserves_route_pattern(
     assert result["filters"]["resolved_pattern"] == r"hopes(init|legacy)planbudgetmanhour"
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
 def test_detect_angular_implicit_globals_finds_undeclared_assignment(
-    mock_sn_query, mock_config, mock_auth_manager
+    mock_sn_query_all, mock_config, mock_auth_manager
 ):
-    mock_sn_query.return_value = {
-        "success": True,
-        "results": [
-            {
-                "sys_id": "prov-1",
-                "name": "providerOne",
-                "script": "function f(){ test = 'x'; }",
-            }
-        ],
-    }
+    mock_sn_query_all.return_value = [
+        {
+            "sys_id": "prov-1",
+            "name": "providerOne",
+            "script": "function f(){ test = 'x'; }",
+        }
+    ]
 
     result = detect_angular_implicit_globals(
         mock_config,
@@ -723,20 +665,17 @@ def test_detect_angular_implicit_globals_finds_undeclared_assignment(
     assert finding["issue"] == "implicit_global_assignment"
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
 def test_detect_angular_implicit_globals_respects_let_const_declarations(
-    mock_sn_query, mock_config, mock_auth_manager
+    mock_sn_query_all, mock_config, mock_auth_manager
 ):
-    mock_sn_query.return_value = {
-        "success": True,
-        "results": [
-            {
-                "sys_id": "prov-1",
-                "name": "providerOne",
-                "script": "function f(){ let test = ''; const done = true; test = 'y'; doneLocal = 1; }",
-            }
-        ],
-    }
+    mock_sn_query_all.return_value = [
+        {
+            "sys_id": "prov-1",
+            "name": "providerOne",
+            "script": "function f(){ let test = ''; const done = true; test = 'y'; doneLocal = 1; }",
+        }
+    ]
 
     result = detect_angular_implicit_globals(
         mock_config,
@@ -749,20 +688,17 @@ def test_detect_angular_implicit_globals_respects_let_const_declarations(
     assert result["findings"][0]["variable"] == "doneLocal"
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
 def test_detect_angular_implicit_globals_minimal_mode_shape(
-    mock_sn_query, mock_config, mock_auth_manager
+    mock_sn_query_all, mock_config, mock_auth_manager
 ):
-    mock_sn_query.return_value = {
-        "success": True,
-        "results": [
-            {
-                "sys_id": "prov-1",
-                "name": "providerOne",
-                "script": "test = 'x';",
-            }
-        ],
-    }
+    mock_sn_query_all.return_value = [
+        {
+            "sys_id": "prov-1",
+            "name": "providerOne",
+            "script": "test = 'x';",
+        }
+    ]
 
     result = detect_angular_implicit_globals(
         mock_config,
