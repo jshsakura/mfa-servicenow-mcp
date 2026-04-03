@@ -48,7 +48,7 @@ def test_browser_session_probe_401_triggers_interactive_relogin():
     mock_response.headers = {"Location": "/login.do"}
     mock_response.url = "https://example.service-now.com/login.do"
 
-    with patch("servicenow_mcp.auth.auth_manager.requests.get", return_value=mock_response):
+    with patch.object(manager._http_session, "get", return_value=mock_response):
         with patch.object(manager, "_login_with_browser") as relogin:
 
             def _set_new_cookie(_cfg, force_interactive=False):
@@ -68,8 +68,9 @@ def test_browser_session_probe_401_triggers_interactive_relogin():
 def test_browser_session_probe_request_error_triggers_interactive_relogin():
     manager = _make_browser_manager()
 
-    with patch(
-        "servicenow_mcp.auth.auth_manager.requests.get",
+    with patch.object(
+        manager._http_session,
+        "get",
         side_effect=requests.RequestException("network issue"),
     ):
         with patch.object(manager, "_login_with_browser") as relogin:
@@ -96,7 +97,7 @@ def test_browser_session_probe_403_without_login_redirect_keeps_session():
     mock_response.headers = {}
     mock_response.url = "https://example.service-now.com/api/now/table/sys_user"
 
-    with patch("servicenow_mcp.auth.auth_manager.requests.get", return_value=mock_response):
+    with patch.object(manager._http_session, "get", return_value=mock_response):
         with patch.object(manager, "_login_with_browser") as relogin:
             headers = manager.get_headers()
 
@@ -118,7 +119,7 @@ def test_browser_probe_path_query_string_is_split_into_url_and_params():
     ):
         manager = AuthManager(cfg, "https://example.service-now.com")
 
-    with patch("servicenow_mcp.auth.auth_manager.requests.get") as mock_get:
+    with patch.object(manager._http_session, "get") as mock_get:
         manager._probe_browser_api_with_cookie(
             "a=b",
             timeout_seconds=5,
@@ -164,7 +165,7 @@ def test_make_request_replaces_cookies_on_retry_after_401():
             {"Accept": "application/json", "Content-Type": "application/json", "Cookie": "NEW=1"},
         ],
     ):
-        with patch("servicenow_mcp.auth.auth_manager.requests.request") as mock_request:
+        with patch.object(manager._http_session, "request") as mock_request:
             mock_request.side_effect = [first_response, second_response]
 
             response = manager.make_request(
