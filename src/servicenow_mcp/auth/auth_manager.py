@@ -37,13 +37,15 @@ def _build_http_session() -> requests.Session:
     - urllib3 connection pool: reuses sockets across threads
     """
     session = requests.Session()
-    # Enable gzip/deflate compression — reduces payload 60-80% on large JSON responses
-    session.headers.update(
-        {
-            "Accept-Encoding": "gzip, deflate",
-            "Accept": "application/json",
-        }
-    )
+    # Enable gzip/deflate — reduces payload 60-80% on large JSON responses.
+    # NOTE: Do NOT set Accept or Content-Type here — individual requests set
+    # these via get_headers(). Setting Accept: application/json at session
+    # level breaks browser auth (login page expects HTML negotiation).
+    session.headers.update({"Accept-Encoding": "gzip, deflate"})
+    # Disable automatic cookie handling — browser auth manages cookies manually
+    # via the Cookie header. Session-level cookie jar would conflict.
+    session.cookies.clear()
+    session.trust_env = False  # Skip .netrc / env proxy cookies
     adapter = HTTPAdapter(
         pool_connections=_SESSION_POOL_SIZE,
         pool_maxsize=_SESSION_POOL_SIZE,
@@ -1531,4 +1533,7 @@ class AuthManager:
                     "Check your credentials."
                 )
 
+        # Clear session cookie jar to prevent stale cookies leaking across
+        # requests.  Browser auth manages cookies explicitly via headers.
+        self._http_session.cookies.clear()
         return response
