@@ -1,11 +1,6 @@
 from unittest.mock import MagicMock
 
-from servicenow_mcp.tools.core_plus import (
-    GenericQueryParams,
-    HealthCheckParams,
-    sn_health,
-    sn_query,
-)
+from servicenow_mcp.tools.sn_api import GenericQueryParams, HealthCheckParams, sn_health, sn_query
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig, ServerConfig
 
 

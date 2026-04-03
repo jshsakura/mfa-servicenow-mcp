@@ -32,6 +32,10 @@ class ListChangesetsParams(BaseModel):
         None, description="Filter by timeframe (recent, last_week, last_month)"
     )
     query: Optional[str] = Field(None, description="Additional query string")
+    count_only: bool = Field(
+        False,
+        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+    )
 
 
 class GetChangesetDetailsParams(BaseModel):
@@ -276,8 +280,19 @@ def list_changesets(
     if validated_params.query:
         query_parts.append(validated_params.query)
 
-    if query_parts:
-        query_params["sysparm_query"] = "^".join(query_parts)
+    query_string = "^".join(query_parts) if query_parts else ""
+
+    if validated_params.count_only:
+        from .sn_api import sn_count
+
+        # Determine the correct config and auth objects
+        config_obj = server_config if hasattr(server_config, "instance_url") else auth_manager
+        auth_obj = auth_manager if hasattr(auth_manager, "get_headers") else server_config
+        count = sn_count(config_obj, auth_obj, "sys_update_set", query_string)
+        return {"success": True, "count": count}
+
+    if query_string:
+        query_params["sysparm_query"] = query_string
 
     # Make the API request
     url = f"{instance_url}/api/now/table/sys_update_set"
