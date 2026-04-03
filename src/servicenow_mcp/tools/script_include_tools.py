@@ -25,6 +25,10 @@ class ListScriptIncludesParams(BaseModel):
     active: Optional[bool] = Field(None, description="Filter by active status")
     client_callable: Optional[bool] = Field(None, description="Filter by client callable status")
     query: Optional[str] = Field(None, description="Search query for script includes")
+    count_only: bool = Field(
+        False,
+        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+    )
 
 
 class GetScriptIncludeParams(BaseModel):
@@ -111,18 +115,6 @@ def list_script_includes(
         A dictionary containing the list of script includes.
     """
     try:
-        # Build the URL
-        url = f"{config.instance_url}/api/now/table/sys_script_include"
-
-        # Build query parameters
-        query_params = {
-            "sysparm_limit": min(params.limit, 50),
-            "sysparm_offset": params.offset,
-            "sysparm_display_value": "true",
-            "sysparm_exclude_reference_link": "true",
-            "sysparm_fields": "sys_id,name,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by",
-        }
-
         # Add filters if provided
         query_parts = []
 
@@ -135,8 +127,28 @@ def list_script_includes(
         if params.query:
             query_parts.append(f"nameLIKE{params.query}")
 
-        if query_parts:
-            query_params["sysparm_query"] = "^".join(query_parts)
+        query_string = "^".join(query_parts) if query_parts else ""
+
+        if params.count_only:
+            from .sn_api import sn_count
+
+            count = sn_count(config, auth_manager, "sys_script_include", query_string)
+            return {"success": True, "count": count}
+
+        # Build the URL
+        url = f"{config.instance_url}/api/now/table/sys_script_include"
+
+        # Build query parameters
+        query_params = {
+            "sysparm_limit": min(params.limit, 50),
+            "sysparm_offset": params.offset,
+            "sysparm_display_value": "true",
+            "sysparm_exclude_reference_link": "true",
+            "sysparm_fields": "sys_id,name,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by",
+        }
+
+        if query_string:
+            query_params["sysparm_query"] = query_string
 
         # Make the request
         headers = auth_manager.get_headers()

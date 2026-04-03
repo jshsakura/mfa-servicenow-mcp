@@ -87,4 +87,4 @@ def test_server_allows_update_with_confirmation(monkeypatch: pytest.MonkeyPatch,
         )
     )
 
-    assert result[0].text == '{\n  "message": "Success"\n}'
+    assert result[0].text == '{"message":"Success"}'

@@ -71,6 +71,10 @@ class ListChangeRequestsParams(BaseModel):
         None, description="Filter by timeframe (upcoming, in-progress, completed)"
     )
     query: Optional[str] = Field(None, description="Additional query string")
+    count_only: bool = Field(
+        False,
+        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+    )
 
 
 class GetChangeRequestDetailsParams(BaseModel):
@@ -482,6 +486,15 @@ def list_change_requests(
 
     # Combine query parts
     query = "^".join(query_parts) if query_parts else ""
+
+    if validated_params.count_only:
+        from .sn_api import sn_count
+
+        # Determine the correct config and auth objects
+        config_obj = server_config if hasattr(server_config, "instance_url") else auth_manager
+        auth_obj = auth_manager if hasattr(auth_manager, "get_headers") else server_config
+        count = sn_count(config_obj, auth_obj, "change_request", query)
+        return {"success": True, "count": count}
 
     # Get the instance URL
     instance_url = _get_instance_url(auth_manager, server_config)

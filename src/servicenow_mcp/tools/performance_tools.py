@@ -11,8 +11,8 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .core_plus import GenericQueryParams, sn_query
 from .log_tools import GetTransactionLogsParams, get_transaction_logs
+from .sn_api import GenericQueryParams, sn_query
 from .source_tools import get_metadata_source
 
 logger = logging.getLogger(__name__)
