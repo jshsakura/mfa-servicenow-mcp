@@ -236,26 +236,23 @@ servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-typ
 
 ### 4. 최신 버전으로 업데이트
 
-#### macOS / Linux
+#### uvx
+
+`uvx`는 실행할 때마다 자동으로 최신 버전을 가져옵니다. 캐시를 강제로 갱신하려면:
 
 ```bash
-# uvx (--refresh로 PyPI 최신 버전을 강제로 가져오기)
 uvx --refresh mfa-servicenow-mcp --version
-
-# uv tool
-uv tool upgrade mfa-servicenow-mcp
-
-# pip
-pip install --upgrade mfa-servicenow-mcp
 ```
 
-#### Windows
+#### uv tool
 
-```powershell
-# uv tool
+```bash
 uv tool upgrade mfa-servicenow-mcp
+```
 
-# pip
+#### pip
+
+```bash
 pip install --upgrade mfa-servicenow-mcp
 ```
 

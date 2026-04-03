@@ -236,26 +236,23 @@ servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-typ
 
 ### 4. Update to Latest Version
 
-#### macOS / Linux
+#### uvx
+
+`uvx` automatically fetches the latest version on every run. To force a cache refresh (e.g., right after a new release):
 
 ```bash
-# uvx (force refresh to pull the latest version from PyPI)
 uvx --refresh mfa-servicenow-mcp --version
-
-# uv tool
-uv tool upgrade mfa-servicenow-mcp
-
-# pip
-pip install --upgrade mfa-servicenow-mcp
 ```
 
-#### Windows
+#### uv tool
 
-```powershell
-# uv tool
+```bash
 uv tool upgrade mfa-servicenow-mcp
+```
 
-# pip
+#### pip
+
+```bash
 pip install --upgrade mfa-servicenow-mcp
 ```
 
