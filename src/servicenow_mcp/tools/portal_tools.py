@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .core_plus import GenericQueryParams, sn_query
+from .core_plus import GenericQueryParams, sn_query, sn_query_all
 
 logger = logging.getLogger(__name__)
 
@@ -808,39 +808,16 @@ def _sn_query_all(
     page_size: int,
     max_records: int,
 ) -> List[Dict[str, Any]]:
-    """Paginated fetch via sn_query (mockable in tests).
-
-    For new code that doesn't need mock compatibility, prefer
-    ``sn_query_all`` from core_plus which supports parallel page fetches.
-    """
-    rows: List[Dict[str, Any]] = []
-    offset = 0
-    size = max(10, min(page_size, 100))
-    limit_cap = max(1, max_records)
-    while len(rows) < limit_cap:
-        fetch = min(size, limit_cap - len(rows))
-        response = sn_query(
-            config,
-            auth_manager,
-            GenericQueryParams(
-                table=table,
-                query=query,
-                fields=fields,
-                limit=fetch,
-                offset=offset,
-                display_value=True,
-            ),
-        )
-        if not response.get("success"):
-            break
-        chunk = response.get("results", [])
-        if not chunk:
-            break
-        rows.extend(chunk)
-        if len(chunk) < fetch:
-            break
-        offset += fetch
-    return rows
+    """Delegate to shared parallel-capable ``sn_query_all`` in core_plus."""
+    return sn_query_all(
+        config,
+        auth_manager,
+        table=table,
+        query=query,
+        fields=fields,
+        page_size=page_size,
+        max_records=max_records,
+    )
 
 
 def _write_text_file(path: Path, content: str) -> None:
