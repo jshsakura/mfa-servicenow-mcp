@@ -28,6 +28,10 @@ class ListWorkflowsParams(BaseModel):
     active: Optional[bool] = Field(None, description="Filter by active status")
     name: Optional[str] = Field(None, description="Filter by name (contains)")
     query: Optional[str] = Field(None, description="Additional query string")
+    count_only: bool = Field(
+        False,
+        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+    )
 
 
 class GetWorkflowDetailsParams(BaseModel):
@@ -228,12 +232,6 @@ def list_workflows(
         logger.error(f"Error getting auth and config: {e}")
         return {"error": str(e)}
 
-    # Convert parameters to ServiceNow query format
-    query_params = {
-        "sysparm_limit": params.get("limit", 10),
-        "sysparm_offset": params.get("offset", 0),
-    }
-
     # Build query string
     query_parts = []
 
@@ -246,8 +244,22 @@ def list_workflows(
     if params.get("query"):
         query_parts.append(params["query"])
 
-    if query_parts:
-        query_params["sysparm_query"] = "^".join(query_parts)
+    query_string = "^".join(query_parts) if query_parts else ""
+
+    if params.get("count_only"):
+        from .sn_api import sn_count
+
+        count = sn_count(server_config, auth_manager, "wf_workflow", query_string)
+        return {"success": True, "count": count}
+
+    # Convert parameters to ServiceNow query format
+    query_params = {
+        "sysparm_limit": params.get("limit", 10),
+        "sysparm_offset": params.get("offset", 0),
+    }
+
+    if query_string:
+        query_params["sysparm_query"] = query_string
 
     # Make the API request
     try:

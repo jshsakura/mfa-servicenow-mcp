@@ -25,6 +25,10 @@ class ListCatalogItemsParams(BaseModel):
     category: Optional[str] = Field(None, description="Filter by category")
     query: Optional[str] = Field(None, description="Search query for catalog items")
     active: bool = Field(True, description="Whether to only return active catalog items")
+    count_only: bool = Field(
+        False,
+        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+    )
 
 
 class GetCatalogItemParams(BaseModel):
@@ -105,6 +109,23 @@ def list_catalog_items(
     """
     logger.info("Listing service catalog items")
 
+    # Add filters
+    filters = []
+    if params.active:
+        filters.append("active=true")
+    if params.category:
+        filters.append(f"category={params.category}")
+    if params.query:
+        filters.append(f"short_descriptionLIKE{params.query}^ORnameLIKE{params.query}")
+
+    query_string = "^".join(filters) if filters else ""
+
+    if params.count_only:
+        from .sn_api import sn_count
+
+        count = sn_count(config, auth_manager, "sc_cat_item", query_string)
+        return {"success": True, "count": count}
+
     # Build the API URL
     url = f"{config.instance_url}/api/now/table/sc_cat_item"
 
@@ -116,17 +137,8 @@ def list_catalog_items(
         "sysparm_exclude_reference_link": "true",
     }
 
-    # Add filters
-    filters = []
-    if params.active:
-        filters.append("active=true")
-    if params.category:
-        filters.append(f"category={params.category}")
-    if params.query:
-        filters.append(f"short_descriptionLIKE{params.query}^ORnameLIKE{params.query}")
-
-    if filters:
-        query_params["sysparm_query"] = "^".join(filters)
+    if query_string:
+        query_params["sysparm_query"] = query_string
 
     # Make the API request
     headers = auth_manager.get_headers()

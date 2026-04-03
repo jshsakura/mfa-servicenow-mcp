@@ -76,6 +76,10 @@ class ListIncidentsParams(BaseModel):
     assigned_to: Optional[str] = Field(None, description="Filter by assigned user")
     category: Optional[str] = Field(None, description="Filter by category")
     query: Optional[str] = Field(None, description="Search query for incidents")
+    count_only: bool = Field(
+        False,
+        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+    )
 
 
 class GetIncidentByNumberParams(BaseModel):
@@ -401,15 +405,7 @@ def list_incidents(
     """
     api_url = f"{config.api_url}/table/incident"
 
-    # Build query parameters
-    query_params = {
-        "sysparm_limit": min(params.limit, 100),
-        "sysparm_offset": params.offset,
-        "sysparm_display_value": "true",
-        "sysparm_exclude_reference_link": "true",
-    }
-
-    # Add filters
+    # Build filters
     filters = []
     if params.state:
         filters.append(f"state={params.state}")
@@ -420,8 +416,24 @@ def list_incidents(
     if params.query:
         filters.append(f"short_descriptionLIKE{params.query}^ORdescriptionLIKE{params.query}")
 
-    if filters:
-        query_params["sysparm_query"] = "^".join(filters)
+    query_string = "^".join(filters) if filters else ""
+
+    if params.count_only:
+        from .sn_api import sn_count
+
+        count = sn_count(config, auth_manager, "incident", query_string)
+        return {"success": True, "count": count}
+
+    # Build query parameters
+    query_params = {
+        "sysparm_limit": min(params.limit, 100),
+        "sysparm_offset": params.offset,
+        "sysparm_display_value": "true",
+        "sysparm_exclude_reference_link": "true",
+    }
+
+    if query_string:
+        query_params["sysparm_query"] = query_string
 
     # Make request
     try:

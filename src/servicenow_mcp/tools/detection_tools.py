@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .core_plus import sn_query_all as _sn_query_all_shared
+from .sn_api import sn_query_all as _sn_query_all_shared
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +215,7 @@ def _sn_query_all(
     page_size: int,
     max_records: int,
 ) -> List[Dict[str, Any]]:
-    """Delegate to shared parallel-capable ``sn_query_all`` in core_plus."""
+    """Delegate to shared parallel-capable ``sn_query_all`` in sn_api."""
     return _sn_query_all_shared(
         config,
         auth_manager,
