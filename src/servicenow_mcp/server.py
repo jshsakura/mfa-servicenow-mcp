@@ -49,38 +49,41 @@ CONFIRM_FIELD = "confirm"
 CONFIRM_VALUE = "approve"
 
 
+def _compact_json(obj: Any) -> str:
+    """Dump *obj* to compact JSON with no indentation or extra whitespace."""
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
 def serialize_tool_output(result: Any, tool_name: str) -> str:
-    """Serializes tool output to a string, preferably JSON indented."""
+    """Serialize tool output to compact JSON for LLM token efficiency.
+
+    No indentation or extra whitespace — saves 20-30% tokens on typical responses.
+    """
     try:
         if isinstance(result, str):
-            # If it's already a string, assume it's intended as such
-            # Try to parse/re-dump JSON for consistent formatting if it looks like JSON
             try:
                 parsed = json.loads(result)
-                return json.dumps(parsed, indent=2)
+                return _compact_json(parsed)
             except json.JSONDecodeError:
-                return result  # Return as is if not valid JSON
+                return result
         elif isinstance(result, dict):
-            # Dump dicts to JSON
-            return json.dumps(result, indent=2)
+            return _compact_json(result)
         elif hasattr(result, "model_dump_json"):
             try:
-                return result.model_dump_json(indent=2)
+                return result.model_dump_json()
             except TypeError:
-                return json.dumps(result.model_dump(), indent=2)
+                return _compact_json(result.model_dump())
         elif hasattr(result, "model_dump"):
-            return json.dumps(result.model_dump(), indent=2)
+            return _compact_json(result.model_dump())
         else:
-            # Absolute fallback: convert to string
             logger.warning(
                 f"Could not serialize result for tool '{tool_name}' to JSON, falling back to str(). Type: {type(result)}"
             )
             return str(result)
     except Exception as e:
         logger.error(f"Error during serialization for tool '{tool_name}': {e}", exc_info=True)
-        # Return an error message string formatted as JSON
-        return json.dumps(
-            {"error": f"Serialization failed for tool {tool_name}", "details": str(e)}, indent=2
+        return _compact_json(
+            {"error": f"Serialization failed for tool {tool_name}", "details": str(e)}
         )
 
 

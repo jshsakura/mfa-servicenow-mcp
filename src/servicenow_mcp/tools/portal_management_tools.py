@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .core_plus import GenericQueryParams, sn_query
+from .sn_api import GenericQueryParams, sn_query
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,10 @@ class ListPortalsParams(BaseModel):
     limit: int = Field(20, description="Maximum portals to return (max 50)")
     offset: int = Field(0, description="Pagination offset")
     query: Optional[str] = Field(None, description="Filter by title (LIKE match)")
+    count_only: bool = Field(
+        False,
+        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+    )
 
 
 class GetPortalParams(BaseModel):
@@ -82,10 +86,17 @@ def list_portals(
     config: ServerConfig, auth_manager: AuthManager, params: ListPortalsParams
 ) -> Dict[str, Any]:
     """List Service Portal instances."""
-    fields = "sys_id,title,url_suffix,homepage,theme,css,default_,logo,sp_rectangle"
     query = ""
     if params.query:
         query = f"titleLIKE{params.query}"
+
+    if params.count_only:
+        from .sn_api import sn_count
+
+        count = sn_count(config, auth_manager, "sp_portal", query)
+        return {"success": True, "count": count}
+
+    fields = "sys_id,title,url_suffix,homepage,theme,css,default_,logo,sp_rectangle"
 
     response = _query(
         config,
