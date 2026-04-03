@@ -234,7 +234,32 @@ uv tool install mfa-servicenow-mcp
 servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
-### 4. 브라우저 인증 설정 (Browser Auth)
+### 4. 최신 버전으로 업데이트
+
+#### macOS / Linux
+
+```bash
+# uvx (--refresh로 PyPI 최신 버전을 강제로 가져오기)
+uvx --refresh mfa-servicenow-mcp --version
+
+# uv tool
+uv tool upgrade mfa-servicenow-mcp
+
+# pip
+pip install --upgrade mfa-servicenow-mcp
+```
+
+#### Windows
+
+```powershell
+# uv tool
+uv tool upgrade mfa-servicenow-mcp
+
+# pip
+pip install --upgrade mfa-servicenow-mcp
+```
+
+### 5. 브라우저 인증 설정 (Browser Auth)
 
 브라우저 인증은 [Playwright](https://playwright.dev/)를 통해 로컬 브라우저를 제어합니다.
 
