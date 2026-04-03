@@ -808,11 +808,15 @@ def _sn_query_all(
     page_size: int,
     max_records: int,
 ) -> List[Dict[str, Any]]:
+    """Paginated fetch via sn_query (mockable in tests).
+
+    For new code that doesn't need mock compatibility, prefer
+    ``sn_query_all`` from core_plus which supports parallel page fetches.
+    """
     rows: List[Dict[str, Any]] = []
     offset = 0
     size = max(10, min(page_size, 100))
     limit_cap = max(1, max_records)
-
     while len(rows) < limit_cap:
         fetch = min(size, limit_cap - len(rows))
         response = sn_query(
@@ -836,7 +840,6 @@ def _sn_query_all(
         if len(chunk) < fetch:
             break
         offset += fetch
-
     return rows
 
 
@@ -1186,19 +1189,16 @@ def search_portal_regex_matches(
             )
     widget_query = "^".join(widget_query_parts)
 
-    widget_fields = [
-        "sys_id",
-        "name",
-        "id",
-        "sys_updated_by",
-        "sys_updated_on",
-        "sys_scope",
-        "template",
-        "script",
-        "client_script",
-        "link",
-        "css",
-    ]
+    requested_widget_fields = set(params.include_widget_fields)
+    # Only fetch heavy code fields that will actually be scanned
+    widget_fields = ["sys_id", "name", "id", "sys_updated_by", "sys_updated_on", "sys_scope"]
+    scannable_code_fields = {"template", "script", "client_script", "link", "css"}
+    widget_fields.extend(sorted(requested_widget_fields & scannable_code_fields))
+    # Always include script fields when linked SI expansion needs them for ref extraction
+    if params.include_linked_script_includes and "script_include" in source_type_set:
+        for f in ("script", "client_script"):
+            if f not in widget_fields:
+                widget_fields.append(f)
     widget_rows = _sn_query_all(
         config,
         auth_manager,
@@ -1210,7 +1210,6 @@ def search_portal_regex_matches(
     )
 
     matches: List[Dict[str, Any]] = []
-    requested_widget_fields = set(params.include_widget_fields)
     script_include_candidates: Set[str] = set()
     widget_ids: List[str] = []
 
@@ -1522,18 +1521,11 @@ def trace_portal_route_targets(
             + ")"
         )
 
-    widget_fields = [
-        "sys_id",
-        "name",
-        "id",
-        "sys_updated_by",
-        "sys_updated_on",
-        "sys_scope",
-        "template",
-        "script",
-        "client_script",
-        "link",
-    ]
+    # Only fetch heavy code fields that will actually be scanned
+    widget_fields = ["sys_id", "name", "id", "sys_updated_by", "sys_updated_on", "sys_scope"]
+    trace_scannable_fields = {"template", "script", "client_script", "link"}
+    requested_trace_fields = set(params.include_widget_fields)
+    widget_fields.extend(sorted(requested_trace_fields & trace_scannable_fields))
     widget_rows = _sn_query_all(
         config,
         auth_manager,
@@ -1593,7 +1585,7 @@ def trace_portal_route_targets(
         str(row.get("sys_id") or ""): row for row in provider_rows if row.get("sys_id")
     }
 
-    requested_widget_fields = set(params.include_widget_fields)
+    requested_widget_fields = requested_trace_fields
     traces: List[Dict[str, Any]] = []
     total_route_hits = 0
     widgets_with_hits = 0
