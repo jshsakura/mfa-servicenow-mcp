@@ -239,8 +239,8 @@ servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-typ
 #### macOS / Linux
 
 ```bash
-# uvx (always runs the latest from PyPI — no manual update needed)
-uvx mfa-servicenow-mcp --version
+# uvx (force refresh to pull the latest version from PyPI)
+uvx --refresh mfa-servicenow-mcp --version
 
 # uv tool
 uv tool upgrade mfa-servicenow-mcp
@@ -259,7 +259,7 @@ uv tool upgrade mfa-servicenow-mcp
 pip install --upgrade mfa-servicenow-mcp
 ```
 
-### 4. Browser Auth Setup
+### 5. Browser Auth Setup
 
 Browser authentication uses [Playwright](https://playwright.dev/) to drive your local browser. 
 
