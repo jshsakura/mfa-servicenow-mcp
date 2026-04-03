@@ -1,83 +1,48 @@
 """
-Tests for the ServiceNow MCP server workflow management integration.
+Tests for workflow tool registration via @register_tool decorator system.
 """
 
-import unittest
-from unittest.mock import MagicMock, patch
-
-from servicenow_mcp.server import ServiceNowMCP
-from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
+from servicenow_mcp.utils.registry import discover_tools
 
 
-class TestServerWorkflow(unittest.TestCase):
-    """Tests for the ServiceNow MCP server workflow management integration."""
+def test_workflow_tools_are_discovered_by_registry():
+    """Verify all workflow tools appear in the global @register_tool registry."""
+    registry = discover_tools()
 
-    def setUp(self):
-        """Set up test fixtures."""
-        self.auth_config = AuthConfig(
-            type=AuthType.BASIC,
-            basic=BasicAuthConfig(username="test_user", password="test_password"),
-        )
-        self.server_config = ServerConfig(
-            instance_url="https://test.service-now.com",
-            auth=self.auth_config,
-        )
+    workflow_tools = [
+        "list_workflows",
+        "get_workflow_details",
+        "list_workflow_versions",
+        "get_workflow_activities",
+        "create_workflow",
+        "update_workflow",
+        "activate_workflow",
+        "deactivate_workflow",
+        "add_workflow_activity",
+        "update_workflow_activity",
+        "delete_workflow_activity",
+        "reorder_workflow_activities",
+    ]
 
-        # Create a mock FastMCP instance
-        self.mock_mcp = MagicMock()
-
-        # Patch the FastMCP class
-        self.patcher = patch("servicenow_mcp.server.FastMCP", return_value=self.mock_mcp)
-        self.mock_fastmcp = self.patcher.start()
-
-        # Create the server instance
-        self.server = ServiceNowMCP(self.server_config)
-
-    def tearDown(self):
-        """Tear down test fixtures."""
-        self.patcher.stop()
-
-    def test_register_workflow_tools(self):
-        """Test that workflow tools are registered with the MCP server."""
-        # Get all the tool decorator calls
-        tool_decorator_calls = self.mock_mcp.tool.call_count
-
-        # Verify that the tool decorator was called at least 12 times (for all workflow tools)
-        self.assertGreaterEqual(
-            tool_decorator_calls, 12, "Expected at least 12 tool registrations for workflow tools"
-        )
-
-        # Check that the workflow tools are registered by examining the decorated functions
-        decorated_functions = []
-        for call in self.mock_mcp.tool.call_args_list:
-            # Each call to tool() returns a decorator function
-            decorator = call[0][0] if call[0] else call[1].get("return_value", None)
-            if decorator:
-                decorated_functions.append(decorator.__name__)
-
-        # Check for workflow tool registrations
-        workflow_tools = [
-            "list_workflows",
-            "get_workflow_details",
-            "list_workflow_versions",
-            "get_workflow_activities",
-            "create_workflow",
-            "update_workflow",
-            "activate_workflow",
-            "deactivate_workflow",
-            "add_workflow_activity",
-            "update_workflow_activity",
-            "delete_workflow_activity",
-            "reorder_workflow_activities",
-        ]
-
-        # Print the decorated functions for debugging
-        print(f"Decorated functions: {decorated_functions}")
-
-        # Check that all workflow tools are registered
-        for tool in workflow_tools:
-            self.assertIn(tool, str(self.mock_mcp.mock_calls), f"Expected {tool} to be registered")
+    for tool_name in workflow_tools:
+        assert tool_name in registry, f"Expected '{tool_name}' in discover_tools() registry"
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_workflow_tools_have_valid_params_and_description():
+    """Verify each workflow tool has a Pydantic params model and non-empty description."""
+    registry = discover_tools()
+
+    workflow_tools = [
+        "list_workflows",
+        "get_workflow_details",
+        "create_workflow",
+        "update_workflow",
+    ]
+
+    for tool_name in workflow_tools:
+        impl_func, params_cls, ret_type, description, serialization = registry[tool_name]
+        assert callable(impl_func), f"{tool_name}: impl must be callable"
+        assert hasattr(
+            params_cls, "model_json_schema"
+        ), f"{tool_name}: params must be Pydantic model"
+        assert len(description) > 10, f"{tool_name}: description too short"

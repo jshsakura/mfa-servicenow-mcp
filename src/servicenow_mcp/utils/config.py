@@ -71,9 +71,15 @@ class ServerConfig(BaseModel):
     auth: AuthConfig
     debug: bool = False
     timeout: int = 30
+    connect_timeout: int = 10
     script_execution_api_resource_path: Optional[str] = None
 
     @property
     def api_url(self) -> str:
         """Get the API URL for the ServiceNow instance."""
         return f"{self.instance_url}/api/now"
+
+    @property
+    def request_timeout(self) -> tuple[int, int]:
+        """Return (connect_timeout, read_timeout) tuple for requests library."""
+        return (self.connect_timeout, self.timeout)

@@ -67,6 +67,8 @@ standard:
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
+  # Detection
+  - detect_missing_profit_company_codes
 
 # --- Portal Developer: standard + portal/changeset/script writes ---
 portal_developer:
@@ -119,6 +121,8 @@ portal_developer:
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
+  # Detection
+  - detect_missing_profit_company_codes
   # + Portal writes
   - update_portal_component
   - create_widget_instance
@@ -184,6 +188,8 @@ platform_developer:
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
+  # Detection
+  - detect_missing_profit_company_codes
   # + Workflow writes
   - create_workflow
   - update_workflow
@@ -265,6 +271,8 @@ service_desk:
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
+  # Detection
+  - detect_missing_profit_company_codes
   # + Incident writes
   - create_incident
   - update_incident
@@ -322,6 +330,8 @@ full:
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
+  # Detection
+  - detect_missing_profit_company_codes
   # + All writes
   - create_incident
   - update_incident

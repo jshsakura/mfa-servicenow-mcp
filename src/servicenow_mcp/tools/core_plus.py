@@ -2,6 +2,7 @@
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl
 
@@ -9,6 +10,7 @@ import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -102,6 +104,253 @@ def apply_payload_safety(
     return safe_limit, fields, safety_notice
 
 
+# ---------------------------------------------------------------------------
+# Shared paginated query helpers (used by portal_tools, detection_tools, etc.)
+# ---------------------------------------------------------------------------
+
+_MAX_PARALLEL_PAGES = 4  # Concurrent page fetches (keep conservative for SN rate limits)
+
+# ---------------------------------------------------------------------------
+# Lightweight TTL cache for repeated identical queries within a session.
+# Entries expire after _CACHE_TTL_SECONDS to prevent stale reads.
+# ---------------------------------------------------------------------------
+
+import threading as _threading
+import time as _time
+
+_CACHE_TTL_SECONDS = 30
+_CACHE_MAX_ENTRIES = 128
+_query_cache: Dict[str, tuple[float, Any]] = {}
+_cache_lock = _threading.Lock()
+
+
+def _cache_key(table: str, query: str, fields: str, limit: int, offset: int) -> str:
+    return f"{table}|{query}|{fields}|{limit}|{offset}"
+
+
+def _cache_get(key: str) -> Optional[Any]:
+    with _cache_lock:
+        entry = _query_cache.get(key)
+        if entry is None:
+            return None
+        ts, value = entry
+        if _time.monotonic() - ts > _CACHE_TTL_SECONDS:
+            del _query_cache[key]
+            return None
+        return value
+
+
+def _cache_put(key: str, value: Any) -> None:
+    with _cache_lock:
+        # Evict oldest entries if over capacity
+        if len(_query_cache) >= _CACHE_MAX_ENTRIES:
+            oldest_key = min(_query_cache, key=lambda k: _query_cache[k][0])
+            del _query_cache[oldest_key]
+        _query_cache[key] = (_time.monotonic(), value)
+
+
+def sn_query_page(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    table: str,
+    query: str,
+    fields: str,
+    limit: int,
+    offset: int,
+    display_value: bool = False,
+    no_count: bool = False,
+) -> tuple[List[Dict[str, Any]], Optional[int]]:
+    """Fetch a single page from ServiceNow Table API.
+
+    Returns ``(rows, total_count)``.  ``total_count`` is the server-reported
+    X-Total-Count header (None when unavailable).  This bypasses
+    ``apply_payload_safety`` — callers are responsible for limit clamping.
+
+    Args:
+        display_value: When False (default for internal use), skips expensive
+            server-side reference joins.  Set True only when callers need
+            human-readable display values.
+        no_count: When True, sends ``sysparm_no_count=true`` to skip
+            server-side total count computation for faster responses.
+
+    Results are cached for ``_CACHE_TTL_SECONDS`` to avoid duplicate round-trips
+    for identical queries within the same session.
+    """
+    ck = _cache_key(table, query, fields, limit, offset)
+    cached = _cache_get(ck)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
+    url = f"{config.instance_url}/api/now/table/{table}"
+    params: Dict[str, Any] = {
+        "sysparm_limit": limit,
+        "sysparm_offset": offset,
+        "sysparm_display_value": "true" if display_value else "false",
+        "sysparm_exclude_reference_link": "true",
+    }
+    if no_count:
+        params["sysparm_no_count"] = "true"
+    else:
+        params["sysparm_suppress_pagination_header"] = "false"
+    if query:
+        params["sysparm_query"] = query
+    if fields:
+        params["sysparm_fields"] = fields
+    try:
+        response = auth_manager.make_request(
+            "GET",
+            url,
+            params=params,
+            timeout=config.request_timeout,
+        )
+        response.raise_for_status()
+        total = response.headers.get("X-Total-Count")
+        data = (
+            json_fast.loads(response.content)
+            if getattr(response, "content", None)
+            else response.json()
+        )
+        rows = data.get("result", [])
+        result = (rows, int(total) if total else None)
+        _cache_put(ck, result)
+        return result
+    except Exception:
+        return [], None
+
+
+def sn_query_all(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    table: str,
+    query: str,
+    fields: str,
+    page_size: int = 50,
+    max_records: int = 100,
+    parallel: bool = True,
+    display_value: bool = False,
+) -> List[Dict[str, Any]]:
+    """Paginated fetch with optional parallel page retrieval.
+
+    Strategy:
+    1. Fetch the first page sequentially to get ``X-Total-Count``.
+    2. If more pages are needed *and* ``parallel=True``, fetch remaining
+       pages concurrently via ``ThreadPoolExecutor`` (up to ``_MAX_PARALLEL_PAGES``
+       workers to stay within ServiceNow rate limits).
+    3. Fall back to sequential if total count is unknown.
+
+    Args:
+        display_value: Passed through to ``sn_query_page``.  Default False
+            for internal bulk fetches (faster); set True when callers need
+            human-readable reference display values.
+    """
+    size = max(10, min(page_size, 100))
+    cap = max(1, max_records)
+    kw = dict(display_value=display_value)
+
+    # --- First page (sequential, needs total count) ---
+    first_fetch = min(size, cap)
+    first_rows, total_count = sn_query_page(
+        config,
+        auth_manager,
+        table=table,
+        query=query,
+        fields=fields,
+        limit=first_fetch,
+        offset=0,
+        **kw,
+    )
+    if not first_rows:
+        return []
+
+    rows: List[Dict[str, Any]] = list(first_rows)
+    if len(first_rows) < first_fetch:
+        return rows[:cap]
+
+    # Determine how many records remain
+    remaining = cap - len(rows)
+    if remaining <= 0:
+        return rows[:cap]
+
+    # If we know the total, we can calculate exact page offsets for parallel fetch
+    if parallel and total_count is not None:
+        server_remaining = min(total_count - len(rows), remaining)
+        if server_remaining <= 0:
+            return rows[:cap]
+
+        offsets = []
+        off = len(rows)
+        while off < len(rows) + server_remaining:
+            offsets.append(off)
+            off += size
+
+        def _fetch_page(page_offset: int) -> List[Dict[str, Any]]:
+            fetch = min(size, cap - page_offset)
+            if fetch <= 0:
+                return []
+            # Subsequent pages skip total count for speed
+            page_rows, _ = sn_query_page(
+                config,
+                auth_manager,
+                table=table,
+                query=query,
+                fields=fields,
+                limit=fetch,
+                offset=page_offset,
+                no_count=True,
+                **kw,
+            )
+            return page_rows
+
+        # Parallel fetch of remaining pages
+        page_results: Dict[int, List[Dict[str, Any]]] = {}
+        with ThreadPoolExecutor(max_workers=_MAX_PARALLEL_PAGES) as pool:
+            future_map = {pool.submit(_fetch_page, off): off for off in offsets}
+            for future in as_completed(future_map):
+                page_offset = future_map[future]
+                try:
+                    page_results[page_offset] = future.result()
+                except Exception:
+                    logger.warning("Parallel page fetch failed at offset %s", page_offset)
+                    page_results[page_offset] = []
+
+        # Merge in offset order
+        for off in sorted(page_results.keys()):
+            chunk = page_results[off]
+            if not chunk:
+                break  # Stop on empty page (end of data)
+            rows.extend(chunk)
+            if len(rows) >= cap:
+                break
+
+        return rows[:cap]
+
+    # --- Fallback: sequential pagination (total_count unknown or parallel=False) ---
+    offset = len(rows)
+    while len(rows) < cap:
+        fetch = min(size, cap - len(rows))
+        chunk, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=query,
+            fields=fields,
+            limit=fetch,
+            offset=offset,
+            no_count=True,
+            **kw,
+        )
+        if not chunk:
+            break
+        rows.extend(chunk)
+        if len(chunk) < fetch:
+            break
+        offset += fetch
+
+    return rows[:cap]
+
+
 class HealthCheckParams(BaseModel):
     timeout: int = Field(15, description="Request timeout in seconds")
 
@@ -161,6 +410,9 @@ class NaturalLanguageParams(BaseModel):
 
 def _safe_json(response: requests.Response) -> Dict[str, Any]:
     try:
+        raw = getattr(response, "content", None)
+        if isinstance(raw, (bytes, str)) and raw:
+            return json_fast.loads(raw)
         return response.json()
     except Exception:
         return {"raw": response.text}

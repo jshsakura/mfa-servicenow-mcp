@@ -12,10 +12,47 @@ from typing import Dict, Optional
 from urllib.parse import parse_qsl, urljoin, urlparse
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from ..utils.config import AuthConfig, AuthType, BrowserAuthConfig
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Shared HTTP Session Factory
+# ---------------------------------------------------------------------------
+
+_SESSION_POOL_SIZE = 20  # Max connections per host (default urllib3 is 10)
+_SESSION_MAX_RETRIES_CONNECT = 0  # Connection-level retries handled by make_request
+
+
+def _build_http_session() -> requests.Session:
+    """Create a ``requests.Session`` with connection-pooling tuned for
+    repeated calls to a single ServiceNow instance.
+
+    Benefits over bare ``requests.request()``:
+    - TCP keep-alive: avoids 3-way handshake on every call
+    - TLS session resumption: saves ~100-300ms per request
+    - urllib3 connection pool: reuses sockets across threads
+    """
+    session = requests.Session()
+    # Enable gzip/deflate compression — reduces payload 60-80% on large JSON responses
+    session.headers.update(
+        {
+            "Accept-Encoding": "gzip, deflate",
+            "Accept": "application/json",
+        }
+    )
+    adapter = HTTPAdapter(
+        pool_connections=_SESSION_POOL_SIZE,
+        pool_maxsize=_SESSION_POOL_SIZE,
+        max_retries=Retry(connect=_SESSION_MAX_RETRIES_CONNECT, read=0),
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
 
 USERNAME_SELECTORS = (
     "input#user_name",
@@ -193,6 +230,7 @@ class AuthManager:
         """
         self.config = config
         self.instance_url = instance_url
+        self._http_session: requests.Session = _build_http_session()
         self.token: Optional[str] = None
         self.token_type: Optional[str] = None
         self.token_expires_at: Optional[float] = None
@@ -416,7 +454,7 @@ class AuthManager:
                     probe = self._probe_browser_api_with_cookie(
                         self._browser_cookie_header,
                         timeout_seconds=10,
-                        browser_config=self.config.browser,
+                        browser_config=self.config.browser,  # type: ignore[arg-type]
                     )
                     if _response_indicates_authenticated_session(probe):
                         # Session is alive — extend TTL
@@ -706,7 +744,7 @@ class AuthManager:
         if self._browser_user_agent:
             probe_headers["User-Agent"] = self._browser_user_agent
         probe_cookies = _cookie_header_to_dict(cookie_header)
-        return requests.get(
+        return self._http_session.get(
             probe_url,
             params=probe_params,
             headers=probe_headers,
@@ -870,7 +908,7 @@ class AuthManager:
         data_client_credentials = {"grant_type": "client_credentials"}
 
         logger.info("Attempting client_credentials grant...")
-        response = requests.post(token_url, headers=headers, data=data_client_credentials)
+        response = self._http_session.post(token_url, headers=headers, data=data_client_credentials)
 
         logger.info(f"client_credentials response status: {response.status_code}")
 
@@ -892,7 +930,7 @@ class AuthManager:
             }
 
             logger.info("Attempting password grant...")
-            response = requests.post(token_url, headers=headers, data=data_password)
+            response = self._http_session.post(token_url, headers=headers, data=data_password)
 
             logger.info(f"password grant response status: {response.status_code}")
 
@@ -1401,7 +1439,7 @@ class AuthManager:
 
         for attempt in range(1 + max_transient_retries):
             try:
-                response = requests.request(method, url, **kwargs)
+                response = self._http_session.request(method, url, **kwargs)
                 last_exc = None
                 break
             except (requests.ConnectionError, requests.Timeout) as exc:
@@ -1478,7 +1516,7 @@ class AuthManager:
 
                 # Retry request with decremented retries
                 retry_start = time.monotonic()
-                response = requests.request(method, url, **kwargs)
+                response = self._http_session.request(method, url, **kwargs)
                 retry_elapsed_ms = int((time.monotonic() - retry_start) * 1000)
                 logger.info(
                     "ServiceNow request retry end: method=%s host=%s status=%s elapsed_ms=%s",
