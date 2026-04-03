@@ -3,10 +3,12 @@ Command-line interface for the ServiceNow MCP server.
 """
 
 import argparse
+import json
 import logging
 import os
 import re
 import sys
+import urllib.request
 
 from .server import ServiceNowMCP
 from .utils.config import (
@@ -26,6 +28,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+_PACKAGE_NAME = "mfa-servicenow-mcp"
+_PYPI_URL = f"https://pypi.org/pypi/{_PACKAGE_NAME}/json"
 
 _ENV_REF_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
@@ -374,6 +379,24 @@ async def arun_server(server_instance):
     logger.info("Stdio server finished.")
 
 
+def _check_for_updates() -> None:
+    """Check PyPI for a newer version and log a warning if available."""
+    try:
+        from importlib.metadata import version as pkg_version
+
+        current = pkg_version(_PACKAGE_NAME)
+        req = urllib.request.Request(_PYPI_URL, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            latest = json.loads(resp.read())["info"]["version"]
+        if latest != current:
+            logger.warning(
+                f"New version available: {latest} (current: {current}). "
+                f"Upgrade: uvx {_PACKAGE_NAME}@latest  or  pip install -U {_PACKAGE_NAME}"
+            )
+    except Exception:
+        pass
+
+
 def main():
     """Main entry point for the CLI."""
     # Load environment variables from .env file
@@ -395,6 +418,9 @@ def main():
         # Propagate --tool-package to env so server.py picks it up
         if args.tool_package:
             os.environ["MCP_TOOL_PACKAGE"] = args.tool_package
+
+        # Check for newer version (non-blocking, silent on failure)
+        _check_for_updates()
 
         # Create server configuration
         config = create_config(args)
