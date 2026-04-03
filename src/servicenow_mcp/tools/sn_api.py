@@ -355,6 +355,32 @@ def sn_query_all(
 
 
 # ---------------------------------------------------------------------------
+# Shared count-only helper (Aggregate API)
+# ---------------------------------------------------------------------------
+
+
+def sn_count(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    query: str = "",
+) -> int:
+    """Return record count via Aggregate API — single lightweight call, no bodies."""
+    url = f"{config.instance_url}/api/now/stats/{table}"
+    params: Dict[str, str] = {"sysparm_count": "true"}
+    if query:
+        params["sysparm_query"] = query
+    try:
+        resp = auth_manager.make_request("GET", url, params=params, timeout=config.timeout)
+        data = resp.json() if hasattr(resp, "json") else {}
+        result = data.get("result", {})
+        stats = result.get("stats", result)
+        return int(stats.get("count", 0))
+    except Exception:
+        return 0
+
+
+# ---------------------------------------------------------------------------
 # Batch API — combine multiple queries into a single HTTP roundtrip
 # ---------------------------------------------------------------------------
 

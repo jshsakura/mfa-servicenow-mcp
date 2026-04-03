@@ -73,6 +73,10 @@ class ListUsersParams(BaseModel):
         None,
         description="Case-insensitive search term that matches against name, username, or email fields. Uses ServiceNow's LIKE operator for partial matching.",
     )
+    count_only: bool = Field(
+        False,
+        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+    )
 
 
 class CreateGroupParams(BaseModel):
@@ -402,11 +406,6 @@ def list_users(
         Dictionary containing list of users.
     """
     api_url = f"{config.api_url}/table/sys_user"
-    query_params = {
-        "sysparm_limit": str(min(params.limit, 100)),
-        "sysparm_offset": str(params.offset),
-        "sysparm_display_value": "true",
-    }
 
     # Build query
     query_parts = []
@@ -419,8 +418,22 @@ def list_users(
             f"^nameLIKE{params.query}^ORuser_nameLIKE{params.query}^ORemailLIKE{params.query}"
         )
 
-    if query_parts:
-        query_params["sysparm_query"] = "^".join(query_parts)
+    query_string = "^".join(query_parts) if query_parts else ""
+
+    if params.count_only:
+        from .sn_api import sn_count
+
+        count = sn_count(config, auth_manager, "sys_user", query_string)
+        return {"success": True, "count": count}
+
+    query_params = {
+        "sysparm_limit": str(min(params.limit, 100)),
+        "sysparm_offset": str(params.offset),
+        "sysparm_display_value": "true",
+    }
+
+    if query_string:
+        query_params["sysparm_query"] = query_string
 
     # Make request
     try:

@@ -39,7 +39,7 @@ class TestBatchAPI:
     def test_sn_batch_combines_multiple_queries_into_one_http_call(self, mock_config, mock_auth):
         """Batch helper must send a single POST to /api/now/batch with multiple
         serviced_requests, and return parsed results per sub-request."""
-        from servicenow_mcp.tools.core_plus import sn_batch
+        from servicenow_mcp.tools.sn_api import sn_batch
 
         # Mock response: batch endpoint returns an array of sub-responses
         batch_response = MagicMock()
@@ -92,7 +92,7 @@ class TestBatchAPI:
 
     def test_sn_batch_handles_partial_failure(self, mock_config, mock_auth):
         """If one sub-request fails, batch must still return successes and mark failures."""
-        from servicenow_mcp.tools.core_plus import sn_batch
+        from servicenow_mcp.tools.sn_api import sn_batch
 
         batch_response = MagicMock()
         batch_response.status_code = 200
@@ -129,7 +129,7 @@ class TestBatchAPI:
 
     def test_sn_batch_empty_requests_returns_empty(self, mock_config, mock_auth):
         """Empty request list should return empty dict without making API call."""
-        from servicenow_mcp.tools.core_plus import sn_batch
+        from servicenow_mcp.tools.sn_api import sn_batch
 
         results = sn_batch(mock_config, mock_auth, requests=[])
         assert results == {}
@@ -137,7 +137,7 @@ class TestBatchAPI:
 
     def test_sn_batch_chunks_large_request_lists(self, mock_config, mock_auth):
         """Batch API has limits (~150 requests). Helper must chunk automatically."""
-        from servicenow_mcp.tools.core_plus import SN_BATCH_MAX_REQUESTS, sn_batch
+        from servicenow_mcp.tools.sn_api import SN_BATCH_MAX_REQUESTS, sn_batch
 
         # Create more requests than the limit
         many_requests = [
@@ -288,10 +288,10 @@ class TestDynamicPaging:
 
     def test_small_dataset_fetched_in_single_page(self, mock_config, mock_auth):
         """When total_count <= page_size, no subsequent pages should be fetched."""
-        from servicenow_mcp.tools.core_plus import sn_query_all
+        from servicenow_mcp.tools.sn_api import sn_query_all
 
         # 3 records total, page_size=50 — should fetch once and done
-        with patch("servicenow_mcp.tools.core_plus.sn_query_page") as mock_page:
+        with patch("servicenow_mcp.tools.sn_api.sn_query_page") as mock_page:
             mock_page.return_value = (
                 [{"sys_id": f"r{i}"} for i in range(3)],
                 3,  # total_count = 3
@@ -312,7 +312,7 @@ class TestDynamicPaging:
     def test_large_dataset_uses_enlarged_page_for_remaining(self, mock_config, mock_auth):
         """When remaining records fit in one enlarged page (<=100), fetch them
         in a single request instead of multiple small pages."""
-        from servicenow_mcp.tools.core_plus import sn_query_all
+        from servicenow_mcp.tools.sn_api import sn_query_all
 
         # total=80, first page fetches 20 (page_size=20), remaining=60
         # 60 fits in one page (<=100), so should enlarge to 60 instead of 3x20
@@ -331,7 +331,7 @@ class TestDynamicPaging:
                 assert limit == 60, f"Expected dynamic limit=60, got {limit}"
                 return remaining_page
 
-        with patch("servicenow_mcp.tools.core_plus.sn_query_page", side_effect=_mock_page):
+        with patch("servicenow_mcp.tools.sn_api.sn_query_page", side_effect=_mock_page):
             rows = sn_query_all(
                 mock_config,
                 mock_auth,
@@ -347,7 +347,7 @@ class TestDynamicPaging:
 
     def test_page_size_never_exceeds_100(self, mock_config, mock_auth):
         """Dynamic page enlargement must never exceed ServiceNow's 100 limit."""
-        from servicenow_mcp.tools.core_plus import sn_query_all
+        from servicenow_mcp.tools.sn_api import sn_query_all
 
         # total=500, page_size=20 → remaining=480 → cannot enlarge beyond 100
         first_page = ([{"sys_id": f"r{i}"} for i in range(20)], 500)
@@ -360,7 +360,7 @@ class TestDynamicPaging:
                 return first_page
             return ([{"sys_id": f"r{offset + i}"} for i in range(limit)], 500)
 
-        with patch("servicenow_mcp.tools.core_plus.sn_query_page", side_effect=_mock_page):
+        with patch("servicenow_mcp.tools.sn_api.sn_query_page", side_effect=_mock_page):
             rows = sn_query_all(
                 mock_config,
                 mock_auth,
