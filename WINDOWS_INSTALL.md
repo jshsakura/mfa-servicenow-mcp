@@ -56,7 +56,8 @@ uvx playwright install chromium
       "command": "uvx",
       "args": [
         "--with", "playwright",
-        "mfa-servicenow-mcp",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp",
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
         "--browser-headless", "false"
@@ -74,7 +75,7 @@ uvx playwright install chromium
 별도 설정 파일 없이 `claude mcp add` 명령어로 등록합니다:
 
 ```powershell
-claude mcp add servicenow -- uvx --with playwright mfa-servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type browser --browser-headless false
+claude mcp add servicenow -- uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type browser --browser-headless false
 ```
 
 ### AntiGravity
@@ -90,7 +91,8 @@ claude mcp add servicenow -- uvx --with playwright mfa-servicenow-mcp --instance
       "command": "uvx",
       "args": [
         "--with", "playwright",
-        "mfa-servicenow-mcp"
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp"
       ],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -114,7 +116,8 @@ claude mcp add servicenow -- uvx --with playwright mfa-servicenow-mcp --instance
       "command": "uvx",
       "args": [
         "--with", "playwright",
-        "mfa-servicenow-mcp",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp",
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
         "--browser-headless", "false"

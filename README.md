@@ -59,9 +59,9 @@ Add this to `claude_desktop_config.json`:
     "servicenow": {
       "command": "uvx",
       "args": [
-        "--with",
-        "playwright",
-        "mfa-servicenow-mcp",
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp",
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
         "--browser-headless", "false"
@@ -86,7 +86,7 @@ These hosts are easiest to manage with one of the following two execution styles
     "servicenow": {
       "type": "local",
       "command": [
-        "uvx", "--with", "playwright", "mfa-servicenow-mcp"
+        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
       ],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -151,9 +151,9 @@ When using `auth-type: browser`, you **must** include `--with playwright` to ens
     "servicenow": {
       "command": "uvx",
       "args": [
-        "--with",
-        "playwright",
-        "mfa-servicenow-mcp"
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp"
       ],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -177,8 +177,7 @@ When using `auth-type: browser`, you **must** include `--with playwright` to ens
       "command": "uv",
       "args": [
         "run",
-        "--project",
-        "/absolute/path/to/mfa-servicenow-mcp",
+        "--project", "/absolute/path/to/mfa-servicenow-mcp",
         "servicenow-mcp"
       ],
       "env": {
@@ -206,7 +205,9 @@ Add this to `codex.json` or pass via CLI:
     "servicenow": {
       "command": "uvx",
       "args": [
-        "mfa-servicenow-mcp",
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp",
         "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser",
         "--browser-headless", "false",
@@ -220,7 +221,7 @@ Add this to `codex.json` or pass via CLI:
 ### 2. Run Directly From a Terminal
 
 ```bash
-uvx mfa-servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
+uvx --from mfa-servicenow-mcp servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
 ```
 
 - The first run may install browser dependencies automatically.
@@ -241,7 +242,7 @@ servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-typ
 `uvx` automatically fetches the latest version on every run. To force a cache refresh (e.g., right after a new release):
 
 ```bash
-uvx --refresh mfa-servicenow-mcp --version
+uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 ```
 
 #### uv tool
@@ -267,7 +268,7 @@ If you use `uvx` with the `--with playwright` flag, the package is handled autom
 uvx playwright install chromium
 
 # Step 2: Run with playwright dependency injected
-uvx --with playwright mfa-servicenow-mcp \
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"
 ```
@@ -311,7 +312,7 @@ Choose the auth mode based on your ServiceNow environment.
 Use this for Okta, Entra ID, SAML, MFA, or any interactive SSO flow.
 
 ```bash
-uvx mfa-servicenow-mcp \
+uvx --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"
@@ -344,7 +345,7 @@ MCP_TOOL_PACKAGE=standard
 Use this for PDIs or instances without MFA.
 
 ```bash
-uvx mfa-servicenow-mcp \
+uvx --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "basic" \
   --username "your_id" \
@@ -365,7 +366,7 @@ SERVICENOW_PASSWORD=your-password
 Current CLI support expects OAuth password grant inputs.
 
 ```bash
-uvx mfa-servicenow-mcp \
+uvx --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "oauth" \
   --client-id "your_client_id" \
@@ -379,7 +380,7 @@ If `--token-url` is omitted, the server defaults to `https://<instance>/oauth_to
 ### API Key
 
 ```bash
-uvx mfa-servicenow-mcp \
+uvx --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "api_key" \
   --api-key "your_api_key"
