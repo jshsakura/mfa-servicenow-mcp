@@ -29,12 +29,7 @@ FLOW_SNAPSHOT_TABLE = "sys_hub_flow_snapshot"
 ACTION_V2_TABLE = "sys_hub_action_instance_v2"
 LOGIC_V2_TABLE = "sys_hub_flow_logic_instance_v2"
 SUBFLOW_V2_TABLE = "sys_hub_sub_flow_instance_v2"
-COMPONENT_TABLE = "sys_hub_flow_component"
 FLOW_CONTEXT_TABLE = "sys_flow_context"
-FLOW_INPUT_TABLE = "sys_hub_flow_input"
-FLOW_OUTPUT_TABLE = "sys_hub_flow_output"
-ACTION_INPUT_TABLE = "sys_hub_action_input"
-ACTION_OUTPUT_TABLE = "sys_hub_action_output"
 TRIGGER_TABLE = "sys_hub_trigger_instance"
 
 # ---------------------------------------------------------------------------
@@ -68,10 +63,6 @@ class GetFlowStructureParams(BaseModel):
     """Parameters for getting the full structure of a flow."""
 
     flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
-    include_variables: bool = Field(
-        False,
-        description="Also fetch input/output variables for each action (slower but more detailed)",
-    )
 
 
 class GetFlowExecutionsParams(BaseModel):
@@ -300,35 +291,10 @@ def get_flow_details(
         )
         triggers = trigger_result.get("result", [])
 
-        # Get input/output variables
-        inputs = _api_get(
-            auth_manager,
-            server_config,
-            FLOW_INPUT_TABLE,
-            {
-                "sysparm_query": f"model.id={flow_id}",
-                "sysparm_display_value": "true",
-                "sysparm_limit": 50,
-            },
-        ).get("result", [])
-
-        outputs = _api_get(
-            auth_manager,
-            server_config,
-            FLOW_OUTPUT_TABLE,
-            {
-                "sysparm_query": f"model.id={flow_id}",
-                "sysparm_display_value": "true",
-                "sysparm_limit": 50,
-            },
-        ).get("result", [])
-
         return {
             "success": True,
             "flow": flow,
             "triggers": triggers,
-            "inputs": inputs,
-            "outputs": outputs,
         }
     except requests.RequestException as e:
         logger.error(f"Error getting flow details: {e}")
@@ -464,37 +430,6 @@ def get_flow_structure(
 
         # Build tree
         tree = _build_component_tree(all_components)
-
-        # Step 3: Optionally fetch variables for each action
-        if p.include_variables and actions:
-            for action in actions:
-                aid = action["sys_id"]
-                try:
-                    inputs = _api_get(
-                        auth_manager,
-                        server_config,
-                        ACTION_INPUT_TABLE,
-                        {
-                            "sysparm_query": f"model.id={aid}",
-                            "sysparm_display_value": "true",
-                            "sysparm_limit": 30,
-                        },
-                    ).get("result", [])
-                    action["inputs"] = inputs
-
-                    outputs = _api_get(
-                        auth_manager,
-                        server_config,
-                        ACTION_OUTPUT_TABLE,
-                        {
-                            "sysparm_query": f"model.id={aid}",
-                            "sysparm_display_value": "true",
-                            "sysparm_limit": 30,
-                        },
-                    ).get("result", [])
-                    action["outputs"] = outputs
-                except Exception:
-                    pass  # Variable fetch is optional
 
         # Flat summary for quick reading
         flat_summary = []
