@@ -35,6 +35,13 @@ standard:
   - get_workflow_details
   - list_workflow_versions
   - get_workflow_activities
+  # Flow Designer (Read)
+  - list_flow_designers
+  - get_flow_designer_detail
+  - get_flow_designer_structure
+  - get_flow_designer_executions
+  - get_flow_designer_execution_detail
+  - get_flow_designer_triggers
   # Portal (Read)
   - list_portals
   - get_portal
@@ -94,6 +101,13 @@ portal_developer:
   - get_workflow_details
   - list_workflow_versions
   - get_workflow_activities
+  # Flow Designer (Read)
+  - list_flow_designers
+  - get_flow_designer_detail
+  - get_flow_designer_structure
+  - get_flow_designer_executions
+  - get_flow_designer_execution_detail
+  - get_flow_designer_triggers
   - list_portals
   - get_portal
   - list_pages
@@ -161,6 +175,13 @@ platform_developer:
   - get_workflow_details
   - list_workflow_versions
   - get_workflow_activities
+  # Flow Designer (Read)
+  - list_flow_designers
+  - get_flow_designer_detail
+  - get_flow_designer_structure
+  - get_flow_designer_executions
+  - get_flow_designer_execution_detail
+  - get_flow_designer_triggers
   - list_portals
   - get_portal
   - list_pages
@@ -244,6 +265,13 @@ service_desk:
   - get_workflow_details
   - list_workflow_versions
   - get_workflow_activities
+  # Flow Designer (Read)
+  - list_flow_designers
+  - get_flow_designer_detail
+  - get_flow_designer_structure
+  - get_flow_designer_executions
+  - get_flow_designer_execution_detail
+  - get_flow_designer_triggers
   - list_portals
   - get_portal
   - list_pages
@@ -303,6 +331,13 @@ full:
   - get_workflow_details
   - list_workflow_versions
   - get_workflow_activities
+  # Flow Designer (Read)
+  - list_flow_designers
+  - get_flow_designer_detail
+  - get_flow_designer_structure
+  - get_flow_designer_executions
+  - get_flow_designer_execution_detail
+  - get_flow_designer_triggers
   - list_portals
   - get_portal
   - list_pages
