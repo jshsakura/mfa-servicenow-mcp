@@ -255,13 +255,22 @@ class AuthManager:
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
 
-        # Eagerly restore browser session on startup:
-        # 1. Try disk cache first (fastest, no browser needed)
-        # 2. If expired/missing, try browser profile cookies (opens headless browser briefly)
-        # 3. If both fail, auto-trigger interactive login so user sees browser immediately
+        # Lazy browser auth: only load disk cache on startup (no browser).
+        # The actual browser login is deferred to the first tool call
+        # via get_headers(), avoiding an unwanted login window on MCP start.
         if self.config.type == AuthType.BROWSER:
-            self._eager_restore_browser_session()
-            self._start_keepalive()
+            self._load_session_from_disk()
+            if self._browser_cookie_header and not self._is_browser_session_expired():
+                logger.info("Startup: session restored from disk cache — ready.")
+                self._start_keepalive()
+            else:
+                if self._browser_cookie_header:
+                    self._browser_cookie_header = None
+                    self._browser_cookie_expires_at = None
+                logger.info(
+                    "Startup: no cached session. "
+                    "Browser login will be triggered on the first tool call."
+                )
 
     def _get_session_cache_path(self) -> str:
         """Get the path to the session cache file."""
@@ -360,76 +369,6 @@ class AuthManager:
             logger.info("Loaded browser session from disk: %s", self._session_cache_path)
         except Exception as exc:
             logger.warning("Failed to load browser session from disk: %s", exc)
-
-    def _eager_restore_browser_session(self) -> None:
-        """Eagerly restore browser session on startup.
-
-        Tries all available session sources in order of cost:
-        1. Disk cache (instant, no browser)
-        2. Browser profile cookies (brief headless browser open)
-        3. Auto interactive login (opens visible browser for MFA)
-
-        This ensures MCP is authenticated as soon as possible,
-        rather than waiting for the first tool call to discover auth is missing.
-        """
-        # Step 1: Try disk cache
-        self._load_session_from_disk()
-        if self._browser_cookie_header and not self._is_browser_session_expired():
-            logger.info("Startup: session restored from disk cache — ready.")
-            return
-
-        # Disk cache missing or expired — clear stale state
-        if self._browser_cookie_header:
-            logger.info("Startup: disk cache session expired, trying browser profile...")
-            self._browser_cookie_header = None
-            self._browser_cookie_expires_at = None
-
-        # Step 2: Try browser profile (user_data_dir)
-        if self.config.browser and self.config.browser.user_data_dir:
-            try:
-                if self._try_restore_browser_session(self.config.browser):
-                    logger.info("Startup: session restored from browser profile — ready.")
-                    return
-                logger.info("Startup: browser profile has no valid session cookies.")
-            except Exception as exc:
-                logger.warning("Startup: browser profile restore failed: %s", exc)
-
-        # Step 3: Auto-trigger interactive login in background thread
-        # so the browser window appears immediately on MCP start.
-        if self.config.browser:
-            logger.info(
-                "Startup: no valid session found. "
-                "Triggering automatic browser login for MFA/SSO..."
-            )
-            self._browser_login_in_progress = True
-            self._mark_browser_reauth_attempt()
-            try:
-                self._login_with_browser(self.config.browser, force_interactive=True)
-                self._browser_reauth_failure_count = 0
-                self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
-                self._browser_login_in_progress = False
-                logger.info("Startup: browser login completed — ready.")
-            except Exception as exc:
-                error_text = str(exc).lower()
-                if "still in progress" in error_text or "still be completing" in error_text:
-                    logger.info(
-                        "Startup: browser login still in progress (user completing MFA). "
-                        "MCP will serve requests once authentication completes."
-                    )
-                else:
-                    self._browser_login_in_progress = False
-                    self._browser_reauth_failure_count += 1
-                    self._browser_reauth_cooldown_seconds = min(
-                        self._browser_reauth_cooldown_base
-                        * (2**self._browser_reauth_failure_count),
-                        self._browser_reauth_cooldown_max,
-                    )
-                    logger.warning(
-                        "Startup: browser login failed: %s. "
-                        "Will retry on first tool call (cooldown=%ds).",
-                        exc,
-                        self._browser_reauth_cooldown_seconds,
-                    )
 
     def _start_keepalive(self) -> None:
         """Start a background thread that periodically pings ServiceNow
@@ -534,6 +473,8 @@ class AuthManager:
                     # Restore succeeded — reset failure state
                     self._browser_reauth_failure_count = 0
                     self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
+                    if not self._keepalive_thread:
+                        self._start_keepalive()
                     headers["Cookie"] = self._browser_cookie_header or ""
                     if self._browser_user_agent:
                         headers["User-Agent"] = self._browser_user_agent
@@ -571,6 +512,8 @@ class AuthManager:
                     self._browser_reauth_failure_count = 0
                     self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
                     self._browser_login_in_progress = False
+                    if not self._keepalive_thread:
+                        self._start_keepalive()
                 except Exception as exc:
                     error_text = str(exc).lower()
                     if "still in progress" in error_text or "still be completing" in error_text:
