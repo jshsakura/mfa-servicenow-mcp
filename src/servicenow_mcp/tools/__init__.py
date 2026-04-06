@@ -40,6 +40,18 @@ from servicenow_mcp.tools.changeset_tools import (
     update_changeset,
 )
 from servicenow_mcp.tools.epic_tools import create_epic, list_epics, update_epic
+from servicenow_mcp.tools.flow_designer_tools import get_flow_details as get_flow_designer_detail
+from servicenow_mcp.tools.flow_designer_tools import (
+    get_flow_execution_detail as get_flow_designer_execution_detail,
+)
+from servicenow_mcp.tools.flow_designer_tools import (
+    get_flow_executions as get_flow_designer_executions,
+)
+from servicenow_mcp.tools.flow_designer_tools import (
+    get_flow_structure as get_flow_designer_structure,
+)
+from servicenow_mcp.tools.flow_designer_tools import get_flow_triggers as get_flow_designer_triggers
+from servicenow_mcp.tools.flow_designer_tools import list_flows as list_flow_designers
 from servicenow_mcp.tools.incident_tools import (
     add_comment,
     create_incident,
@@ -177,6 +189,13 @@ __all__ = [
     "search_portal_regex_matches",
     "detect_angular_implicit_globals",
     "analyze_widget_performance",
+    # Flow Designer tools
+    "list_flow_designers",
+    "get_flow_designer_detail",
+    "get_flow_designer_structure",
+    "get_flow_designer_executions",
+    "get_flow_designer_execution_detail",
+    "get_flow_designer_triggers",
     # Future tools
     # "create_problem",
     # "update_problem",
