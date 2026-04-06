@@ -97,10 +97,10 @@ portal_developer:
   - get_change_request_details
   - list_changesets
   - get_changeset_details
-  - list_workflows
-  - get_workflow_details
-  - list_workflow_versions
-  - get_workflow_activities
+  - list_legacy_workflows
+  - get_legacy_workflow_details
+  - list_legacy_workflow_versions
+  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
@@ -171,10 +171,10 @@ platform_developer:
   - get_change_request_details
   - list_changesets
   - get_changeset_details
-  - list_workflows
-  - get_workflow_details
-  - list_workflow_versions
-  - get_workflow_activities
+  - list_legacy_workflows
+  - get_legacy_workflow_details
+  - list_legacy_workflow_versions
+  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
@@ -261,10 +261,10 @@ service_desk:
   - get_change_request_details
   - list_changesets
   - get_changeset_details
-  - list_workflows
-  - get_workflow_details
-  - list_workflow_versions
-  - get_workflow_activities
+  - list_legacy_workflows
+  - get_legacy_workflow_details
+  - list_legacy_workflow_versions
+  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
@@ -327,10 +327,10 @@ full:
   - get_change_request_details
   - list_changesets
   - get_changeset_details
-  - list_workflows
-  - get_workflow_details
-  - list_workflow_versions
-  - get_workflow_activities
+  - list_legacy_workflows
+  - get_legacy_workflow_details
+  - list_legacy_workflow_versions
+  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
