@@ -125,6 +125,20 @@ def _api_get(
     return response.json()
 
 
+def _api_get_raw(
+    auth_manager: AuthManager,
+    server_config: ServerConfig,
+    path: str,
+    params: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Make a GET request to an arbitrary ServiceNow REST API path."""
+    headers = auth_manager.get_headers()
+    url = f"{server_config.instance_url}{path}"
+    response = auth_manager.make_request("GET", url, headers=headers, params=params or {})
+    response.raise_for_status()
+    return response.json()
+
+
 def _get_snapshot_id(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -321,14 +335,37 @@ def get_flow_details(
         return {"success": False, "error": str(e)}
 
 
+def _try_flow_designer_api(
+    auth_manager: AuthManager,
+    server_config: ServerConfig,
+    flow_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Try the native Flow Designer REST API (/api/sn_flow/designer/flows/{id}).
+
+    Returns the full flow definition if available, None if the API is not present.
+    """
+    for api_path in [
+        f"/api/sn_flow/designer/flows/{flow_id}",
+        f"/api/sn_fd/designer/flows/{flow_id}",
+    ]:
+        try:
+            result = _api_get_raw(auth_manager, server_config, api_path)
+            if result and "result" in result:
+                return result
+        except requests.RequestException:
+            continue
+    return None
+
+
 @register_tool(
     name="get_flow_designer_structure",
     params=GetFlowStructureParams,
     description=(
         "Analyze the full structure of a Flow Designer flow. "
-        "Returns all actions (Ask For Approval, Update Record, Log, etc.), "
-        "flow logic (If/Else, For Each, etc.), and subflow calls in execution order "
-        "with nesting hierarchy. Essential for understanding flow logic and debugging."
+        "First tries the native Flow Designer API (/api/sn_flow/designer/) "
+        "for complete detail including conditions and variable mappings, "
+        "then falls back to Table API for basic structure. "
+        "Returns actions, flow logic, subflow calls in execution order with nesting."
     ),
     serialization="json",
     return_type=dict,
@@ -346,13 +383,33 @@ def get_flow_structure(
 
     flow_id = p.flow_id
 
+    # ------------------------------------------------------------------
+    # Strategy 1: Native Flow Designer API (full detail)
+    # ------------------------------------------------------------------
+    designer_result = _try_flow_designer_api(auth_manager, server_config, flow_id)
+    if designer_result:
+        return {
+            "success": True,
+            "source": "flow_designer_api",
+            "flow_id": flow_id,
+            "data": designer_result.get("result", designer_result),
+        }
+
+    # ------------------------------------------------------------------
+    # Strategy 2: Table API fallback (structure only)
+    # ------------------------------------------------------------------
     try:
         # Step 1: Find the published snapshot
         snapshot_id = _get_snapshot_id(auth_manager, server_config, flow_id)
         if not snapshot_id:
             return {
                 "success": False,
-                "error": f"No snapshot found for flow {flow_id}. The flow may not be published.",
+                "error": (
+                    f"No snapshot found for flow {flow_id}. "
+                    "The flow may not be published. "
+                    "Also, the native Flow Designer API (/api/sn_flow/designer/) "
+                    "was not available on this instance."
+                ),
             }
 
         # Step 2: Get all components via v2 tables using snapshot_id
@@ -457,11 +514,16 @@ def get_flow_structure(
 
         return {
             "success": True,
+            "source": "table_api_fallback",
             "flow_id": flow_id,
             "snapshot_id": snapshot_id,
             "total_actions": len(actions),
             "total_logic": len(logic_nodes),
             "total_subflows": len(subflows),
+            "note": (
+                "Retrieved via Table API. Conditions and variable mappings may be incomplete. "
+                "The native Flow Designer API was not available on this instance."
+            ),
             "flat_summary": flat_summary,
             "tree": tree,
         }
