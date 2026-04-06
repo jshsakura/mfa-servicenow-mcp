@@ -30,11 +30,11 @@ standard:
   # Changeset (Read)
   - list_changesets
   - get_changeset_details
-  # Workflow (Read)
-  - list_workflows
-  - get_workflow_details
-  - list_workflow_versions
-  - get_workflow_activities
+  # Legacy Workflow (Read)
+  - list_legacy_workflows
+  - get_legacy_workflow_details
+  - list_legacy_workflow_versions
+  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
@@ -211,15 +211,15 @@ platform_developer:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
-  # + Workflow writes
-  - create_workflow
-  - update_workflow
-  - activate_workflow
-  - deactivate_workflow
-  - add_workflow_activity
-  - update_workflow_activity
-  - delete_workflow_activity
-  - reorder_workflow_activities
+  # + Legacy Workflow writes
+  - create_legacy_workflow
+  - update_legacy_workflow
+  - activate_legacy_workflow
+  - deactivate_legacy_workflow
+  - add_legacy_workflow_activity
+  - update_legacy_workflow_activity
+  - delete_legacy_workflow_activity
+  - reorder_legacy_workflow_activities
   # + UI Policy writes
   - create_ui_policy
   - create_ui_policy_action
@@ -389,14 +389,14 @@ full:
   - add_file_to_changeset
   - commit_changeset
   - publish_changeset
-  - create_workflow
-  - update_workflow
-  - activate_workflow
-  - deactivate_workflow
-  - add_workflow_activity
-  - update_workflow_activity
-  - delete_workflow_activity
-  - reorder_workflow_activities
+  - create_legacy_workflow
+  - update_legacy_workflow
+  - activate_legacy_workflow
+  - deactivate_legacy_workflow
+  - add_legacy_workflow_activity
+  - update_legacy_workflow_activity
+  - delete_legacy_workflow_activity
+  - reorder_legacy_workflow_activities
   - update_portal_component
   - create_widget_instance
   - update_widget_instance
