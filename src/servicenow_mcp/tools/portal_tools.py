@@ -3,9 +3,11 @@ Service Portal development tools for the ServiceNow MCP server.
 Optimized for speed, token efficiency, and context safety.
 """
 
+import difflib
 import json
 import logging
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Set
 from urllib.parse import parse_qs, urlparse
@@ -67,9 +69,59 @@ class UpdatePortalComponentParams(BaseModel):
     )
 
 
+class AnalyzePortalComponentUpdateParams(UpdatePortalComponentParams):
+    """Parameters for analyzing a proposed portal component update."""
+
+
+class PreviewPortalComponentUpdateParams(UpdatePortalComponentParams):
+    """Parameters for previewing a proposed portal component update."""
+
+
+class CreatePortalComponentSnapshotParams(BaseModel):
+    """Parameters for exporting the current editable state of a portal component."""
+
+    table: str = Field(
+        ..., description="The table name (sp_widget, sp_angular_provider, sys_script_include)"
+    )
+    sys_id: str = Field(..., description="The sys_id of the component")
+    fields: List[str] | None = Field(
+        None,
+        description="Optional editable fields to snapshot. Defaults to all allowed editable fields for the table.",
+    )
+    output_dir: str | None = Field(
+        None,
+        description="Optional snapshot directory. Defaults to ./.servicenow_mcp/portal_component_snapshots/<instance>/",
+    )
+
+
+class UpdatePortalComponentFromSnapshotParams(BaseModel):
+    """Parameters for restoring a portal component from a saved local snapshot."""
+
+    snapshot_path: str = Field(
+        ..., description="Path to a saved portal component snapshot JSON file"
+    )
+
+
+class RoutePortalComponentEditParams(BaseModel):
+    """Parameters for shallow natural-language routing into the portal edit pipeline."""
+
+    instruction: str = Field(..., description="Short natural-language instruction")
+    table: str | None = Field(
+        None,
+        description="Optional target table (sp_widget, sp_angular_provider, sys_script_include)",
+    )
+    sys_id: str | None = Field(None, description="Optional target component sys_id")
+    update_data: Dict[str, str] | None = Field(
+        None, description="Optional explicit field updates for analyze/preview/apply routing"
+    )
+    snapshot_path: str | None = Field(
+        None, description="Optional snapshot path for rollback/restore routing"
+    )
+
+
 class DownloadPortalSourcesParams(BaseModel):
-    output_dir: str = Field(
-        ".", description="Output directory path. Defaults to current working directory"
+    output_dir: str | None = Field(
+        None, description="Output directory path. Defaults to current working directory"
     )
     scope: str | None = Field(
         None,
@@ -119,6 +171,352 @@ def _strip_metadata(record: Dict[str, Any], keep_fields: List[str]) -> Dict[str,
     return {k: v for k, v in record.items() if k in keep_fields or k == "sys_id" or k == "name"}
 
 
+def _normalize_portal_component_table(table: str) -> str:
+    normalized = table.strip()
+    if normalized not in PORTAL_COMPONENT_EDITABLE_FIELDS:
+        supported = ", ".join(sorted(PORTAL_COMPONENT_EDITABLE_FIELDS))
+        raise ValueError(f"Unsupported table '{table}'. Supported tables: {supported}")
+    return normalized
+
+
+def _validate_portal_component_update_data(
+    table: str, update_data: Dict[str, str]
+) -> Dict[str, str]:
+    if not update_data:
+        raise ValueError("update_data must include at least one field to modify")
+
+    normalized_table = _normalize_portal_component_table(table)
+    allowed_fields = PORTAL_COMPONENT_EDITABLE_FIELDS[normalized_table]
+    invalid_fields = sorted(field for field in update_data if field not in allowed_fields)
+    if invalid_fields:
+        allowed = ", ".join(sorted(allowed_fields))
+        raise ValueError(
+            f"Unsupported update fields for {normalized_table}: {', '.join(invalid_fields)}. "
+            f"Allowed fields: {allowed}"
+        )
+
+    normalized_data: Dict[str, str] = {}
+    for field_name, value in update_data.items():
+        if not isinstance(value, str):
+            raise ValueError(f"update_data['{field_name}'] must be a string")
+        normalized_data[field_name] = value
+
+    return normalized_data
+
+
+def _fetch_portal_component_record(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    sys_id: str,
+    fields: List[str],
+) -> Dict[str, Any]:
+    query_fields = list(dict.fromkeys([*fields, "name", "sys_id"]))
+    query_params = GenericQueryParams(
+        table=table,
+        query=f"sys_id={sys_id}",
+        fields=",".join(query_fields),
+        limit=1,
+        offset=0,
+        display_value=True,
+    )
+    response = sn_query(config, auth_manager, query_params)
+    if not response.get("success") or not response.get("results"):
+        raise ValueError(f"Component not found in {table} with sys_id {sys_id}")
+    return response["results"][0]
+
+
+def _summarize_text_preview(value: str, max_length: int | None = None) -> str:
+    if max_length is None:
+        max_length = MAX_PREVIEW_TEXT_LENGTH
+    if len(value) <= max_length:
+        return value
+    half = max_length // 2
+    return value[:half] + "\n... [TRUNCATED FOR CONTEXT SAFETY] ...\n" + value[-half:]
+
+
+def _build_diff_preview(before: str, after: str) -> str:
+    diff_lines = list(
+        difflib.unified_diff(
+            before.splitlines(),
+            after.splitlines(),
+            fromfile="current",
+            tofile="proposed",
+            lineterm="",
+            n=3,
+        )
+    )
+    if not diff_lines:
+        return ""
+    if len(diff_lines) > MAX_PREVIEW_DIFF_LINES:
+        diff_lines = diff_lines[:MAX_PREVIEW_DIFF_LINES] + [
+            "... [DIFF TRUNCATED FOR CONTEXT SAFETY]"
+        ]
+    return "\n".join(diff_lines)
+
+
+def _build_field_change_summary(
+    field_name: str, current_value: str, proposed_value: str
+) -> Dict[str, Any]:
+    changed = current_value != proposed_value
+    return {
+        "field": field_name,
+        "changed": changed,
+        "current_length": len(current_value),
+        "proposed_length": len(proposed_value),
+        "current_lines": len(current_value.splitlines()) if current_value else 0,
+        "proposed_lines": len(proposed_value.splitlines()) if proposed_value else 0,
+        "delta_length": len(proposed_value) - len(current_value),
+    }
+
+
+def _build_portal_update_risks(table: str, field_summaries: List[Dict[str, Any]]) -> List[str]:
+    risks: List[str] = []
+    changed_fields = [item for item in field_summaries if item["changed"]]
+    if not changed_fields:
+        return ["No effective change detected against the current record."]
+
+    if len(changed_fields) > 1:
+        risks.append(
+            "Multiple fields will be modified in one write; validate widget behavior after apply."
+        )
+
+    if table == "sp_widget" and any(
+        item["field"] in {"script", "client_script", "link"} for item in changed_fields
+    ):
+        risks.append(
+            "Widget script changes can affect runtime behavior immediately; validate client/server execution paths."
+        )
+
+    if any(abs(int(item["delta_length"])) > 2000 for item in changed_fields):
+        risks.append(
+            "A large content change was detected; export or inspect the full artifact before applying."
+        )
+
+    if any(item["field"] == "template" for item in changed_fields):
+        risks.append(
+            "Template changes should be checked for route bindings and Angular expression regressions."
+        )
+
+    if any(item["field"] == "css" for item in changed_fields):
+        risks.append("CSS changes can create broad visual regressions; verify selectors and scope.")
+
+    return risks
+
+
+def _classify_portal_update_risk(risks: List[str], changed_field_count: int) -> str:
+    if changed_field_count == 0:
+        return "low"
+    if changed_field_count == 1 and len(risks) <= 1:
+        return "low"
+    if changed_field_count <= 2 and len(risks) <= 3:
+        return "medium"
+    return "high"
+
+
+def _detect_portal_edit_action(instruction: str) -> str:
+    lower = instruction.lower()
+    if re.search(r"\b(rollback|roll back|restore|revert|undo)\b", lower):
+        return "rollback"
+    if re.search(r"\b(snapshot|backup|save current|save state)\b", lower):
+        return "snapshot"
+    if re.search(r"\b(preview|diff|show changes|what would change)\b", lower):
+        return "preview"
+    if re.search(r"\b(apply|update|modify|change|patch|fix|edit)\b", lower):
+        return "apply"
+    return "analyze"
+
+
+def _detect_portal_edit_fields(instruction: str) -> List[str]:
+    lower = instruction.lower()
+    field_aliases = [
+        ("client_script", ["client script", "client_script"]),
+        ("template", ["template", "html", "markup"]),
+        ("css", ["css", "style", "styles"]),
+        ("link", ["link script", "link"]),
+        ("script", ["server script", "script include script"]),
+    ]
+    detected: List[str] = []
+    for field_name, aliases in field_aliases:
+        if any(alias in lower for alias in aliases):
+            detected.append(field_name)
+    return detected
+
+
+def _build_portal_edit_router_plan(
+    action: str, params: RoutePortalComponentEditParams
+) -> Dict[str, Any]:
+    normalized_table = _normalize_portal_component_table(params.table) if params.table else None
+    normalized_update_data = (
+        _validate_portal_component_update_data(normalized_table, params.update_data)
+        if normalized_table and params.update_data
+        else None
+    )
+
+    if action == "rollback":
+        missing = [name for name, value in [("snapshot_path", params.snapshot_path)] if not value]
+        return {
+            "tool_name": "update_portal_component_from_snapshot",
+            "arguments": ({"snapshot_path": params.snapshot_path} if params.snapshot_path else {}),
+            "confirmation_required": True,
+            "missing_requirements": missing,
+        }
+
+    if action == "snapshot":
+        missing = [
+            name
+            for name, value in [("table", normalized_table), ("sys_id", params.sys_id)]
+            if not value
+        ]
+        suggested_fields = (
+            _detect_portal_edit_fields(params.instruction)
+            if normalized_table == WIDGET_TABLE
+            else []
+        )
+        snapshot_arguments: Dict[str, Any] = {}
+        if normalized_table:
+            snapshot_arguments["table"] = normalized_table
+        if params.sys_id:
+            snapshot_arguments["sys_id"] = params.sys_id
+        if suggested_fields:
+            snapshot_arguments["fields"] = suggested_fields
+        return {
+            "tool_name": "create_portal_component_snapshot",
+            "arguments": snapshot_arguments,
+            "confirmation_required": False,
+            "missing_requirements": missing,
+        }
+
+    tool_name = {
+        "preview": "preview_portal_component_update",
+        "apply": "update_portal_component",
+        "analyze": "analyze_portal_component_update",
+    }[action]
+    missing = [
+        name
+        for name, value in [
+            ("table", normalized_table),
+            ("sys_id", params.sys_id),
+            ("update_data", normalized_update_data),
+        ]
+        if not value
+    ]
+    tool_arguments: Dict[str, Any] = {}
+    if normalized_table:
+        tool_arguments["table"] = normalized_table
+    if params.sys_id:
+        tool_arguments["sys_id"] = params.sys_id
+    if normalized_update_data:
+        tool_arguments["update_data"] = normalized_update_data
+    return {
+        "tool_name": tool_name,
+        "arguments": tool_arguments,
+        "confirmation_required": action == "apply",
+        "missing_requirements": missing,
+    }
+
+
+def _build_portal_edit_next_call_example(plan: Dict[str, Any]) -> Dict[str, Any]:
+    example_arguments = dict(plan.get("arguments") or {})
+    for missing in plan.get("missing_requirements") or []:
+        example_arguments.setdefault(missing, f"<{missing}>")
+    if plan.get("confirmation_required"):
+        example_arguments["confirm"] = "approve"
+
+    return {
+        "tool_name": str(plan.get("tool_name") or ""),
+        "arguments": example_arguments,
+    }
+
+
+def _resolve_snapshot_root(config: ServerConfig, output_dir: str | None) -> Path:
+    if output_dir:
+        return Path(output_dir).expanduser().resolve()
+    instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+    return (Path.cwd() / SNAPSHOT_ROOT_DIRNAME / instance_name).expanduser().resolve()
+
+
+def _resolve_snapshot_fields(table: str, requested_fields: List[str] | None) -> List[str]:
+    normalized_table = _normalize_portal_component_table(table)
+    allowed_fields = PORTAL_COMPONENT_EDITABLE_FIELDS[normalized_table]
+    if requested_fields is None:
+        return sorted(allowed_fields)
+
+    invalid_fields = sorted(field for field in requested_fields if field not in allowed_fields)
+    if invalid_fields:
+        allowed = ", ".join(sorted(allowed_fields))
+        raise ValueError(
+            f"Unsupported snapshot fields for {normalized_table}: {', '.join(invalid_fields)}. Allowed fields: {allowed}"
+        )
+    return list(dict.fromkeys(requested_fields))
+
+
+def _build_snapshot_payload(
+    config: ServerConfig,
+    table: str,
+    sys_id: str,
+    record: Dict[str, Any],
+    fields: List[str],
+) -> Dict[str, Any]:
+    return {
+        "snapshot_version": 1,
+        "created_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "instance_url": config.instance_url,
+        "component": {
+            "table": table,
+            "sys_id": sys_id,
+            "name": str(record.get("name") or sys_id),
+        },
+        "fields": fields,
+        "values": {field_name: str(record.get(field_name) or "") for field_name in fields},
+    }
+
+
+def _write_portal_component_snapshot(
+    config: ServerConfig,
+    table: str,
+    sys_id: str,
+    record: Dict[str, Any],
+    fields: List[str],
+    output_dir: str | None = None,
+) -> Path:
+    root = _resolve_snapshot_root(config, output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    safe_name = _safe_name(str(record.get("name") or sys_id))
+    file_path = root / f"{_safe_name(table)}__{safe_name}__{_safe_name(sys_id)}__{timestamp}.json"
+    _write_json_file(file_path, _build_snapshot_payload(config, table, sys_id, record, fields))
+    return file_path
+
+
+def _read_portal_component_snapshot(snapshot_path: str) -> Dict[str, Any]:
+    path = Path(snapshot_path).expanduser().resolve()
+    if not path.exists():
+        raise ValueError(f"Snapshot file not found: {path}")
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    component = payload.get("component") or {}
+    values = payload.get("values") or {}
+    fields = payload.get("fields") or []
+    if (
+        not isinstance(component, dict)
+        or not isinstance(values, dict)
+        or not isinstance(fields, list)
+    ):
+        raise ValueError(f"Invalid snapshot format: {path}")
+
+    table = str(component.get("table") or "")
+    sys_id = str(component.get("sys_id") or "")
+    if not table or not sys_id:
+        raise ValueError(f"Invalid snapshot component metadata: {path}")
+
+    _resolve_snapshot_fields(table, [str(field) for field in fields])
+    for field_name, value in values.items():
+        if not isinstance(value, str):
+            raise ValueError(f"Snapshot value for '{field_name}' must be a string: {path}")
+    return payload
+
+
 SCRIPT_INCLUDE_REF_RE = re.compile(
     r"\bnew\s+(?:global\.)?((?:[A-Za-z_$][\w$]*\.)*[A-Za-z_$][\w$]*)\s*\("
 )
@@ -154,7 +552,10 @@ WIDGET_METADATA_FIELDS = [
     "controller_as",
 ]
 
-DEFAULT_REDIRECT_PATTERN = r"/[A-Za-z0-9_-]+\?id=[A-Za-z0-9_-]+"
+DEFAULT_REDIRECT_PATTERN = (
+    r"(?:/\$sp\.do\?id=[A-Za-z0-9_-]+(?:&[^'\"\s]+)*)"
+    r"|(?:/(?:sp|esc|[A-Za-z0-9_-]+)\?id=[A-Za-z0-9_-]+(?:&[^'\"\s]+)*)"
+)
 MAX_PORTAL_DOWNLOAD_WIDGETS = 100
 MAX_WIDGET_REVIEW_LIMIT = 100
 MAX_WIDGET_REVIEW_MATCHES = 100
@@ -163,6 +564,15 @@ MAX_ANGULAR_PROVIDER_SCAN_LIMIT = 100
 MAX_ANGULAR_IMPLICIT_GLOBAL_MATCHES = 100
 DEFAULT_ANGULAR_IMPLICIT_SNIPPET_LENGTH = 180
 MAX_COMPONENT_SCRIPT_CHARS = 12000
+MAX_PREVIEW_TEXT_LENGTH = 600
+MAX_PREVIEW_DIFF_LINES = 80
+SNAPSHOT_ROOT_DIRNAME = ".servicenow_mcp/portal_component_snapshots"
+
+PORTAL_COMPONENT_EDITABLE_FIELDS: Dict[str, Set[str]] = {
+    "sp_widget": {"template", "script", "client_script", "link", "css"},
+    "sp_angular_provider": {"script"},
+    "sys_script_include": {"script"},
+}
 
 KNOWN_GLOBAL_IDENTIFIERS = {
     "this",
@@ -548,6 +958,7 @@ def _extract_pattern_hits(
         start, end = match.span()
         line, column = _line_col_from_index(content, start)
         matched_text = match.group(0)
+        route_details = _extract_portal_route_details(matched_text)
         hits.append(
             {
                 "source_type": source_type,
@@ -559,9 +970,36 @@ def _extract_pattern_hits(
                 "column": column,
                 "match": matched_text,
                 "snippet": _slice_one_line_snippet(content, start, end, snippet_length),
+                **route_details,
             }
         )
     return hits
+
+
+def _extract_portal_route_details(matched_text: str) -> Dict[str, Any]:
+    if not matched_text.startswith("/"):
+        return {}
+
+    parsed = urlparse(matched_text)
+    if not parsed.path:
+        return {}
+
+    route_id = parse_qs(parsed.query).get("id", [None])[0]
+    path = parsed.path.lower()
+    if path == "/esc":
+        route_family = "employee_center"
+    elif path in {"/sp", "/$sp.do"}:
+        route_family = "service_portal"
+    else:
+        route_family = "custom_portal"
+
+    details: Dict[str, Any] = {
+        "route_family": route_family,
+        "route_path": parsed.path,
+    }
+    if route_id:
+        details["route_id"] = route_id
+    return details
 
 
 def _match_location(source_type: str, source_name: str, field_name: str) -> str:
@@ -589,6 +1027,8 @@ def _compact_matches(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "column": item.get("column"),
                 "snippet": item.get("snippet"),
                 "match": item.get("match"),
+                **({"route_family": item.get("route_family")} if item.get("route_family") else {}),
+                **({"route_id": item.get("route_id")} if item.get("route_id") else {}),
             }
         )
     return compact
@@ -1087,6 +1527,209 @@ def get_portal_component_code(
             result[f"_{field}_next_offset"] = end
 
     return result
+
+
+@register_tool(
+    "analyze_portal_component_update",
+    params=AnalyzePortalComponentUpdateParams,
+    description="Analyze a proposed portal component edit and return bounded risk and field-change summaries",
+    serialization="raw_dict",
+    return_type=dict,
+)
+def analyze_portal_component_update(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: AnalyzePortalComponentUpdateParams,
+) -> Dict[str, Any]:
+    normalized_table = _normalize_portal_component_table(params.table)
+    normalized_update_data = _validate_portal_component_update_data(
+        normalized_table, params.update_data
+    )
+    current_record = _fetch_portal_component_record(
+        config,
+        auth_manager,
+        normalized_table,
+        params.sys_id,
+        list(normalized_update_data.keys()),
+    )
+
+    field_summaries = [
+        _build_field_change_summary(
+            field_name,
+            str(current_record.get(field_name) or ""),
+            proposed_value,
+        )
+        for field_name, proposed_value in normalized_update_data.items()
+    ]
+    changed_field_count = sum(1 for item in field_summaries if item["changed"])
+    risks = _build_portal_update_risks(normalized_table, field_summaries)
+
+    return {
+        "success": True,
+        "component": {
+            "table": normalized_table,
+            "sys_id": params.sys_id,
+            "name": str(current_record.get("name") or params.sys_id),
+        },
+        "edit_scope": {
+            "requested_fields": list(normalized_update_data.keys()),
+            "changed_fields": [item["field"] for item in field_summaries if item["changed"]],
+            "unchanged_fields": [item["field"] for item in field_summaries if not item["changed"]],
+            "changed_field_count": changed_field_count,
+        },
+        "field_analysis": field_summaries,
+        "risk_level": _classify_portal_update_risk(risks, changed_field_count),
+        "risks": risks,
+        "recommended_flow": [
+            "Run preview_portal_component_update to inspect bounded before/after diff.",
+            "Apply with update_portal_component and confirm='approve' only after review.",
+            "Validate the affected widget/page after apply.",
+        ],
+        "safety_notice": "Analysis only. No changes were applied.",
+    }
+
+
+@register_tool(
+    "preview_portal_component_update",
+    params=PreviewPortalComponentUpdateParams,
+    description="Preview bounded before/after snippets and diff for a proposed portal component edit",
+    serialization="raw_dict",
+    return_type=dict,
+)
+def preview_portal_component_update(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: PreviewPortalComponentUpdateParams,
+) -> Dict[str, Any]:
+    normalized_table = _normalize_portal_component_table(params.table)
+    normalized_update_data = _validate_portal_component_update_data(
+        normalized_table, params.update_data
+    )
+    current_record = _fetch_portal_component_record(
+        config,
+        auth_manager,
+        normalized_table,
+        params.sys_id,
+        list(normalized_update_data.keys()),
+    )
+
+    preview_items: List[Dict[str, Any]] = []
+    for field_name, proposed_value in normalized_update_data.items():
+        current_value = str(current_record.get(field_name) or "")
+        preview_items.append(
+            {
+                **_build_field_change_summary(field_name, current_value, proposed_value),
+                "before_preview": _summarize_text_preview(current_value),
+                "after_preview": _summarize_text_preview(proposed_value),
+                "diff_preview": _build_diff_preview(current_value, proposed_value),
+            }
+        )
+
+    return {
+        "success": True,
+        "component": {
+            "table": normalized_table,
+            "sys_id": params.sys_id,
+            "name": str(current_record.get("name") or params.sys_id),
+        },
+        "preview": preview_items,
+        "validation_plan": [
+            "Review the bounded diff for each changed field.",
+            "Confirm the target table/sys_id still points to the intended component.",
+            "Apply only after review with confirm='approve'.",
+        ],
+        "safety_notice": "Preview only. Large values and diffs are intentionally truncated for context safety.",
+    }
+
+
+@register_tool(
+    "create_portal_component_snapshot",
+    params=CreatePortalComponentSnapshotParams,
+    description="Save the current editable state of a portal component to a local snapshot file for rollback or review",
+    serialization="raw_dict",
+    return_type=dict,
+)
+def create_portal_component_snapshot(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: CreatePortalComponentSnapshotParams,
+) -> Dict[str, Any]:
+    normalized_table = _normalize_portal_component_table(params.table)
+    snapshot_fields = _resolve_snapshot_fields(normalized_table, params.fields)
+    current_record = _fetch_portal_component_record(
+        config,
+        auth_manager,
+        normalized_table,
+        params.sys_id,
+        snapshot_fields,
+    )
+    snapshot_path = _write_portal_component_snapshot(
+        config,
+        normalized_table,
+        params.sys_id,
+        current_record,
+        snapshot_fields,
+        params.output_dir,
+    )
+
+    return {
+        "success": True,
+        "component": {
+            "table": normalized_table,
+            "sys_id": params.sys_id,
+            "name": str(current_record.get("name") or params.sys_id),
+        },
+        "snapshot": {
+            "path": str(snapshot_path),
+            "fields": snapshot_fields,
+        },
+        "safety_notice": "Snapshot saved locally. No remote changes were applied.",
+    }
+
+
+@register_tool(
+    "route_portal_component_edit",
+    params=RoutePortalComponentEditParams,
+    description="Shallow natural-language router that maps short portal edit instructions to bounded analyze/preview/apply/snapshot/rollback tools",
+    serialization="raw_dict",
+    return_type=dict,
+)
+def route_portal_component_edit(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: RoutePortalComponentEditParams,
+) -> Dict[str, Any]:
+    del config, auth_manager
+
+    instruction = params.instruction.strip()
+    action = _detect_portal_edit_action(instruction)
+    suggested_fields = _detect_portal_edit_fields(instruction)
+    plan = _build_portal_edit_router_plan(action, params)
+
+    target: Dict[str, Any] = {}
+    if params.table:
+        try:
+            target["table"] = _normalize_portal_component_table(params.table)
+        except ValueError:
+            target["table"] = params.table
+    if params.sys_id:
+        target["sys_id"] = params.sys_id
+    if params.snapshot_path:
+        target["snapshot_path"] = params.snapshot_path
+
+    return {
+        "success": True,
+        "instruction": instruction,
+        "detected_action": action,
+        "target": target,
+        "suggested_fields": suggested_fields,
+        "tool_plan": plan,
+        "recommended_next_call": _build_portal_edit_next_call_example(plan),
+        "safety_notice": (
+            "Routing only. This tool does not fetch, diff, or mutate remote data. "
+            "Apply and rollback still require explicit confirmation and complete arguments."
+        ),
+    }
 
 
 @register_tool(
@@ -1832,20 +2475,124 @@ def update_portal_component(
     config: ServerConfig, auth_manager: AuthManager, params: UpdatePortalComponentParams
 ) -> Dict[str, Any]:
     """Pinpoint update of specific portal component fields."""
+    normalized_table = _normalize_portal_component_table(params.table)
+    normalized_update_data = _validate_portal_component_update_data(
+        normalized_table, params.update_data
+    )
+    current_record = _fetch_portal_component_record(
+        config,
+        auth_manager,
+        normalized_table,
+        params.sys_id,
+        list(normalized_update_data.keys()),
+    )
+    effective_update_data = {
+        field_name: proposed_value
+        for field_name, proposed_value in normalized_update_data.items()
+        if str(current_record.get(field_name) or "") != proposed_value
+    }
+
+    if not effective_update_data:
+        return {
+            "message": "No changes applied",
+            "sys_id": params.sys_id,
+            "fields": list(normalized_update_data.keys()),
+            "validation": {
+                "skipped": True,
+                "reason": "Proposed values already match the current record.",
+            },
+        }
+
+    snapshot_path = _write_portal_component_snapshot(
+        config,
+        normalized_table,
+        params.sys_id,
+        current_record,
+        list(effective_update_data.keys()),
+    )
+
     instance_url = config.instance_url
-    url = f"{instance_url}/api/now/table/{params.table}/{params.sys_id}"
+    url = f"{instance_url}/api/now/table/{normalized_table}/{params.sys_id}"
 
     headers = auth_manager.get_headers()
-    response = auth_manager.make_request("PATCH", url, json=params.update_data, headers=headers)
+    response = auth_manager.make_request("PATCH", url, json=effective_update_data, headers=headers)
 
     if response.status_code >= 400:
         return {"error": f"Update failed: {response.text}", "status": response.status_code}
 
+    validated_record = _fetch_portal_component_record(
+        config,
+        auth_manager,
+        normalized_table,
+        params.sys_id,
+        list(effective_update_data.keys()),
+    )
+    verified_fields: List[str] = []
+    mismatched_fields: List[Dict[str, Any]] = []
+    for field_name, proposed_value in effective_update_data.items():
+        actual_value = str(validated_record.get(field_name) or "")
+        if actual_value == proposed_value:
+            verified_fields.append(field_name)
+        else:
+            mismatched_fields.append(
+                {
+                    "field": field_name,
+                    "expected_preview": _summarize_text_preview(proposed_value, 240),
+                    "actual_preview": _summarize_text_preview(actual_value, 240),
+                }
+            )
+
     return {
         "message": "Update successful",
         "sys_id": params.sys_id,
-        "fields": list(params.update_data.keys()),
+        "fields": list(effective_update_data.keys()),
+        "snapshot": {
+            "path": str(snapshot_path),
+            "fields": list(effective_update_data.keys()),
+        },
+        "validation": {
+            "verified_fields": verified_fields,
+            "mismatched_fields": mismatched_fields,
+            "post_update_name": str(validated_record.get("name") or params.sys_id),
+        },
     }
+
+
+@register_tool(
+    "update_portal_component_from_snapshot",
+    params=UpdatePortalComponentFromSnapshotParams,
+    description="Restore a portal component's editable fields from a previously saved local snapshot",
+    serialization="raw_dict",
+    return_type=dict,
+)
+def update_portal_component_from_snapshot(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: UpdatePortalComponentFromSnapshotParams,
+) -> Dict[str, Any]:
+    snapshot = _read_portal_component_snapshot(params.snapshot_path)
+    snapshot_instance_url = str(snapshot.get("instance_url") or "")
+    if snapshot_instance_url and snapshot_instance_url != config.instance_url:
+        raise ValueError(
+            "Snapshot instance_url does not match the current configured instance. "
+            f"Snapshot: {snapshot_instance_url}, current: {config.instance_url}"
+        )
+
+    component = snapshot["component"]
+    values = {str(key): str(value) for key, value in snapshot["values"].items()}
+    update_result = update_portal_component(
+        config,
+        auth_manager,
+        UpdatePortalComponentParams(
+            table=str(component["table"]),
+            sys_id=str(component["sys_id"]),
+            update_data=values,
+        ),
+    )
+    update_result["rollback"] = {
+        "restored_from_snapshot": str(Path(params.snapshot_path).expanduser().resolve()),
+    }
+    return update_result
 
 
 @register_tool(
@@ -1860,10 +2607,11 @@ def download_portal_sources(
     auth_manager: AuthManager,
     params: DownloadPortalSourcesParams,
 ) -> Dict[str, Any]:
-    if params.output_dir and params.output_dir != ".":
-        root = Path(params.output_dir).expanduser().resolve()
-    else:
-        root = Path.cwd().resolve()
+    root = (
+        Path(params.output_dir).expanduser().resolve()
+        if params.output_dir
+        else Path.cwd().expanduser().resolve()
+    )
     max_widgets = _clamp_download_widget_limit(params.max_widgets)
     warnings = _portal_scan_warnings(
         requested_max_widgets=params.max_widgets,
