@@ -1,0 +1,4 @@
+{
+  "client_script": "function onLoad() {\n  data.state = 'new';\n  return data.state;\n}",
+  "template": "<div class=\"benefits-new\">{{::data.state}}</div>"
+}
