@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 from pydantic import BaseModel
+import mcp.types as types
 
 import servicenow_mcp.server as server_module
 from servicenow_mcp.server import ServiceNowMCP
@@ -212,3 +213,34 @@ def test_call_tool_blocks_approve_tool_without_confirmation(
 
     with pytest.raises(ValueError, match="confirm='approve'"):
         asyncio.run(server._call_tool_impl("approve_change", {"change_id": "CHG0010001"}))
+
+
+def test_list_tools_caches_generated_schemas(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    server = _build_server(monkeypatch, tmp_path)
+    schema_calls = {"count": 0}
+
+    class CountingParams(BaseModel):
+        @classmethod
+        def model_json_schema(cls, *args, **kwargs):
+            schema_calls["count"] += 1
+            return {"type": "object", "properties": {}}
+
+    server.current_package_name = "approval_query_only"
+    server.enabled_tool_names = ["counted_tool"]
+    server.tool_definitions = {
+        "counted_tool": (
+            lambda _config, _auth_manager, _params: {},
+            CountingParams,
+            dict,
+            "counted",
+            "raw_dict",
+        )
+    }
+    server._tool_list_cache = None
+
+    first = asyncio.run(server._list_tools_impl())
+    second = asyncio.run(server._list_tools_impl())
+
+    assert any(isinstance(tool, types.Tool) and tool.name == "counted_tool" for tool in first)
+    assert any(isinstance(tool, types.Tool) and tool.name == "counted_tool" for tool in second)
+    assert schema_calls["count"] == 1
