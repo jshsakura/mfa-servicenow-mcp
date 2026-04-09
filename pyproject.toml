@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.3.9"
+version = "1.4.0"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -43,6 +43,8 @@ dev = [
     "mypy>=1.0.0",
     "ruff>=0.0.1",
     "pre-commit>=3.0.0",
+    "types-PyYAML>=6.0.12",
+    "types-requests>=2.32.0",
 ]
 [project.scripts]
 servicenow-mcp = "servicenow_mcp.cli:main"
