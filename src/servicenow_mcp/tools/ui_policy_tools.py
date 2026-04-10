@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -29,8 +30,7 @@ class CreateUIPolicyParams(BaseModel):
     short_description: str = Field(..., description="Short description of the UI policy")
     conditions: Optional[str] = Field(
         None,
-        description="Encoded query condition that triggers this policy "
-        "(e.g. 'priority=1^state=1')",
+        description="Encoded query condition that triggers this policy (e.g. 'priority=1^state=1')",
     )
     active: bool = Field(True, description="Whether the policy is active")
     global_policy: bool = Field(
@@ -126,6 +126,7 @@ def create_ui_policy(
             return {"success": False, "message": "Failed to create UI policy"}
 
         result = data["result"]
+        invalidate_query_cache(table="sys_ui_policy")
         return {
             "success": True,
             "message": f"Created UI policy: {result.get('short_description')}",
@@ -153,27 +154,26 @@ def create_ui_policy_action(
 ) -> Dict[str, Any]:
     """Create a UI policy action in ServiceNow."""
     # Verify parent UI policy exists
-    verify_url = f"{config.instance_url}/api/now/table/sys_ui_policy/{params.ui_policy}"
-    headers = auth_manager.get_headers()
-
     try:
-        verify_resp = auth_manager.make_request(
-            "GET",
-            verify_url,
-            params={"sysparm_fields": "sys_id,short_description,table"},
-            headers=headers,
-            timeout=30,
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_ui_policy",
+            query=f"sys_id={params.ui_policy}",
+            fields="sys_id,short_description,table",
+            limit=1,
+            offset=0,
+            display_value=False,
+            fail_silently=False,
         )
-        verify_resp.raise_for_status()
-        verify_data = verify_resp.json()
 
-        if "result" not in verify_data:
+        if not records:
             return {
                 "success": False,
                 "message": f"UI policy not found: {params.ui_policy}",
             }
 
-        parent_policy = verify_data["result"]
+        parent_policy = records[0]
         table = parent_policy.get("table")
 
     except Exception as e:
@@ -185,6 +185,7 @@ def create_ui_policy_action(
 
     # Create the action
     url = f"{config.instance_url}/api/now/table/sys_ui_policy_action"
+    headers = auth_manager.get_headers()
 
     body: Dict[str, Any] = {
         "ui_policy": params.ui_policy,
@@ -210,6 +211,7 @@ def create_ui_policy_action(
             return {"success": False, "message": "Failed to create UI policy action"}
 
         result = data["result"]
+        invalidate_query_cache(table="sys_ui_policy_action")
         return {
             "success": True,
             "message": f"Created UI policy action for field '{params.field}'",

@@ -1,0 +1,21 @@
+{
+  "message": "Update successful",
+  "sys_id": "widget-benefits-1",
+  "fields": [
+    "client_script",
+    "template"
+  ],
+  "validation": {
+    "verified_fields": [
+      "client_script"
+    ],
+    "mismatched_fields": [
+      {
+        "field": "template",
+        "expected_preview": "<div class=\"benefits-new\">{{::data.state}}</div>",
+        "actual_preview": "<div class=\"benefits-stale\">{{::data.state}}</div>"
+      }
+    ],
+    "post_update_name": "Benefits Widget"
+  }
+}

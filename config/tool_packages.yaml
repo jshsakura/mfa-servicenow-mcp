@@ -138,7 +138,12 @@ portal_developer:
   # Detection
   - detect_missing_profit_company_codes
   # + Portal writes
+  - route_portal_component_edit
+  - analyze_portal_component_update
+  - create_portal_component_snapshot
+  - preview_portal_component_update
   - update_portal_component
+  - update_portal_component_from_snapshot
   - create_widget_instance
   - update_widget_instance
   # + Script Include writes
@@ -400,6 +405,11 @@ full:
   - update_portal_component
   - create_widget_instance
   - update_widget_instance
+  - route_portal_component_edit
+  - analyze_portal_component_update
+  - create_portal_component_snapshot
+  - preview_portal_component_update
+  - update_portal_component_from_snapshot
   - create_script_include
   - update_script_include
   - delete_script_include

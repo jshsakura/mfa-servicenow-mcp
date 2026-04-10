@@ -1,7 +1,9 @@
 """Tests for portal developer productivity tools."""
 
+import json
 from unittest.mock import MagicMock
 
+from servicenow_mcp.tools.sn_api import invalidate_query_cache
 from servicenow_mcp.tools.portal_dev_tools import (
     GetDeveloperChangesParams,
     GetDeveloperDailySummaryParams,
@@ -32,6 +34,7 @@ def _mock_response(data, status=200, total_count=None):
     resp = MagicMock()
     resp.status_code = status
     resp.json.return_value = data
+    resp.content = json.dumps(data).encode("utf-8")
     resp.raise_for_status.return_value = None
     resp.headers = {}
     if total_count is not None:
@@ -89,6 +92,32 @@ class TestHelpers:
 
 
 class TestGetDeveloperChanges:
+    def test_repeated_fetch_reuses_shared_query_cache(self):
+        config = _make_config()
+        auth = _make_auth()
+        invalidate_query_cache()
+
+        widget_rows = [{"sys_id": "w1", "name": "Widget1", "sys_updated_on": "2026-03-31"}]
+        auth.make_request.side_effect = [
+            _mock_stats_response(1),
+            _mock_response({"result": widget_rows}, total_count=1),
+            _mock_stats_response(1),
+        ]
+
+        params = GetDeveloperChangesParams(
+            developer="admin@example.com",
+            source_types=["widget"],
+            limit_per_table=5,
+        )
+
+        first = get_developer_changes(config, auth, params)
+        second = get_developer_changes(config, auth, params)
+
+        assert first["success"] is True
+        assert second["success"] is True
+        assert first["results"]["widget"]["items"] == second["results"]["widget"]["items"]
+        assert auth.make_request.call_count == 3
+
     def test_count_only_mode(self):
         config = _make_config()
         auth = _make_auth()

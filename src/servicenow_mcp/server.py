@@ -8,6 +8,7 @@ import copy
 import json
 import logging
 import os
+from functools import lru_cache
 from typing import Any, Dict, List, Union
 
 import mcp.types as types
@@ -16,6 +17,7 @@ from mcp.server.lowlevel import Server
 from pydantic import ValidationError
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 
@@ -48,10 +50,36 @@ MUTATING_TOOL_PREFIXES = (
 CONFIRM_FIELD = "confirm"
 CONFIRM_VALUE = "approve"
 
+_TOOL_SCHEMA_CACHE: Dict[type[Any], Dict[str, Any]] = {}
+
+
+@lru_cache(maxsize=1)
+def _load_packaged_package_definitions() -> Dict[str, List[str]]:
+    """Load packaged tool definitions once for installed/default usage."""
+    from importlib.resources import files
+
+    pkg_file = files("servicenow_mcp.config").joinpath("tool_packages.yaml")
+    loaded_config = yaml.safe_load(pkg_file.read_text(encoding="utf-8"))
+    if not isinstance(loaded_config, dict):
+        raise ValueError(f"Expected dict package config, got {type(loaded_config)}")
+    return {str(k).lower(): v for k, v in loaded_config.items()}
+
+
+def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
+    """Cache Pydantic schema generation across server instances."""
+    cached_schema = _TOOL_SCHEMA_CACHE.get(params_model)
+    if cached_schema is None:
+        cached_schema = params_model.model_json_schema()
+        _TOOL_SCHEMA_CACHE[params_model] = cached_schema
+    return cached_schema
+
 
 def _compact_json(obj: Any) -> str:
-    """Dump *obj* to compact JSON with no indentation or extra whitespace."""
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    """Dump *obj* to compact JSON with no indentation or extra whitespace.
+
+    Uses orjson (via json_fast) when available for 2-4x faster serialization.
+    """
+    return json_fast.dumps(obj)
 
 
 def serialize_tool_output(result: Any, tool_name: str) -> str:
@@ -61,11 +89,18 @@ def serialize_tool_output(result: Any, tool_name: str) -> str:
     """
     try:
         if isinstance(result, str):
-            try:
-                parsed = json.loads(result)
-                return _compact_json(parsed)
-            except json.JSONDecodeError:
-                return result
+            # Fast path: if string looks like compact JSON already, return as-is.
+            # Avoids an expensive parse→re-serialize round-trip.
+            stripped = result.lstrip()
+            if stripped and stripped[0] in ('{', '['):
+                if ' : ' not in result and '\n' not in result:
+                    return result
+                # Has whitespace — re-compact it
+                try:
+                    return _compact_json(json_fast.loads(result))
+                except Exception:
+                    return result
+            return result
         elif isinstance(result, dict):
             return _compact_json(result)
         elif hasattr(result, "model_dump_json"):
@@ -109,17 +144,21 @@ class ServiceNowMCP:
             self.config = config
 
         self.auth_manager = AuthManager(self.config.auth, self.config.instance_url)
-        self.mcp_server = FastMCP("ServiceNow")  # Use low-level Server
+        self.mcp_server: Server = FastMCP("ServiceNow")  # Use low-level Server
         self.name = "ServiceNow"
 
         self.package_definitions: Dict[str, List[str]] = {}
         self.enabled_tool_names: List[str] = []
         self.current_package_name: str = "none"
+        self._tool_list_cache: List[types.Tool] | None = None
         self._load_package_config()
         self._determine_enabled_tools()
 
-        # Auto-discover all tool definitions via @register_tool decorators
-        self.tool_definitions = get_tool_definitions()
+        # Lazy-discover only the tool modules needed for the active package.
+        # Skips importing unused modules for faster startup.
+        self.tool_definitions = get_tool_definitions(
+            enabled_names=set(self.enabled_tool_names) if self.enabled_tool_names else None
+        )
 
         self._register_handlers()
         self._register_tools()
@@ -176,16 +215,11 @@ class ServiceNowMCP:
 
         # Priority 2: importlib.resources (works reliably in pip-installed packages)
         try:
-            from importlib.resources import files
-
-            pkg_file = files("servicenow_mcp.config").joinpath("tool_packages.yaml")
-            loaded_config = yaml.safe_load(pkg_file.read_text(encoding="utf-8"))
-            if isinstance(loaded_config, dict):
-                self.package_definitions = {str(k).lower(): v for k, v in loaded_config.items()}
-                logger.info(
-                    f"Successfully loaded {len(self.package_definitions)} package definitions via importlib.resources"
-                )
-                return
+            self.package_definitions = _load_packaged_package_definitions()
+            logger.info(
+                f"Successfully loaded {len(self.package_definitions)} package definitions via importlib.resources"
+            )
+            return
         except Exception:
             logger.debug("importlib.resources lookup failed, falling back to file paths")
 
@@ -287,6 +321,9 @@ class ServiceNowMCP:
 
     async def _list_tools_impl(self) -> List[types.Tool]:
         """Implementation for the list_tools MCP endpoint."""
+        if self._tool_list_cache is not None:
+            return list(self._tool_list_cache)
+
         tool_list: List[types.Tool] = []
 
         logger.info(
@@ -322,7 +359,7 @@ class ServiceNowMCP:
                     _serialization,
                 ) = definition
                 try:
-                    schema = params_model.model_json_schema()
+                    schema = _get_tool_schema(params_model)
                     if self._tool_requires_confirmation(tool_name):
                         schema = self._inject_confirmation_schema(schema)
                     tool_list.append(
@@ -338,6 +375,7 @@ class ServiceNowMCP:
                     )
 
         logger.debug(f"Listing {len(tool_list)} tools for package '{self.current_package_name}'.")
+        self._tool_list_cache = tool_list
         return tool_list
 
     async def _call_tool_impl(self, name: str, arguments: dict) -> list[types.TextContent]:

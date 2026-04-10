@@ -109,6 +109,7 @@ def apply_payload_safety(
 # ---------------------------------------------------------------------------
 
 _MAX_PARALLEL_PAGES = 4  # Concurrent page fetches (keep conservative for SN rate limits)
+_page_executor = ThreadPoolExecutor(max_workers=_MAX_PARALLEL_PAGES)
 
 # ---------------------------------------------------------------------------
 # Lightweight TTL cache for repeated identical queries within a session.
@@ -117,15 +118,29 @@ _MAX_PARALLEL_PAGES = 4  # Concurrent page fetches (keep conservative for SN rat
 
 import threading as _threading
 import time as _time
+from collections import OrderedDict as _OrderedDict
 
 _CACHE_TTL_SECONDS = 30
-_CACHE_MAX_ENTRIES = 128
-_query_cache: Dict[str, tuple[float, Any]] = {}
+_CACHE_MAX_ENTRIES = 256
+_query_cache: _OrderedDict[str, tuple[float, Any]] = _OrderedDict()
 _cache_lock = _threading.Lock()
 
 
-def _cache_key(table: str, query: str, fields: str, limit: int, offset: int) -> str:
-    return f"{table}|{query}|{fields}|{limit}|{offset}"
+def _cache_key(
+    table: str,
+    query: str,
+    fields: str,
+    limit: int,
+    offset: int,
+    *,
+    display_value: bool,
+    no_count: bool,
+    orderby: Optional[str],
+) -> str:
+    return (
+        f"{table}|{query}|{fields}|{limit}|{offset}|"
+        f"display={display_value}|no_count={no_count}|orderby={orderby or ''}"
+    )
 
 
 def _cache_get(key: str) -> Optional[Any]:
@@ -137,16 +152,42 @@ def _cache_get(key: str) -> Optional[Any]:
         if _time.monotonic() - ts > _CACHE_TTL_SECONDS:
             del _query_cache[key]
             return None
+        # Move to end so most-recently-used items stay at the tail
+        _query_cache.move_to_end(key)
         return value
 
 
 def _cache_put(key: str, value: Any) -> None:
     with _cache_lock:
-        # Evict oldest entries if over capacity
+        if key in _query_cache:
+            # Update existing entry and move to end
+            _query_cache[key] = (_time.monotonic(), value)
+            _query_cache.move_to_end(key)
+            return
+        # Evict oldest (first) entry — O(1) with OrderedDict
         if len(_query_cache) >= _CACHE_MAX_ENTRIES:
-            oldest_key = min(_query_cache, key=lambda k: _query_cache[k][0])
-            del _query_cache[oldest_key]
+            _query_cache.popitem(last=False)
         _query_cache[key] = (_time.monotonic(), value)
+
+
+def invalidate_query_cache(*, table: Optional[str] = None) -> int:
+    """Invalidate cached query pages.
+
+    When ``table`` is provided, only entries for that table are removed.
+    Otherwise the full in-memory query cache is cleared.
+    Returns the number of removed entries.
+    """
+    with _cache_lock:
+        if table is None:
+            removed = len(_query_cache)
+            _query_cache.clear()
+            return removed
+
+        prefix = f"{table}|"
+        keys_to_delete = [key for key in _query_cache if key.startswith(prefix)]
+        for key in keys_to_delete:
+            del _query_cache[key]
+        return len(keys_to_delete)
 
 
 def sn_query_page(
@@ -160,6 +201,8 @@ def sn_query_page(
     offset: int,
     display_value: bool = False,
     no_count: bool = False,
+    orderby: Optional[str] = None,
+    fail_silently: bool = True,
 ) -> tuple[List[Dict[str, Any]], Optional[int]]:
     """Fetch a single page from ServiceNow Table API.
 
@@ -177,7 +220,16 @@ def sn_query_page(
     Results are cached for ``_CACHE_TTL_SECONDS`` to avoid duplicate round-trips
     for identical queries within the same session.
     """
-    ck = _cache_key(table, query, fields, limit, offset)
+    ck = _cache_key(
+        table,
+        query,
+        fields,
+        limit,
+        offset,
+        display_value=display_value,
+        no_count=no_count,
+        orderby=orderby,
+    )
     cached = _cache_get(ck)
     if cached is not None:
         return cached  # type: ignore[return-value]
@@ -197,6 +249,9 @@ def sn_query_page(
         params["sysparm_query"] = query
     if fields:
         params["sysparm_fields"] = fields
+    if orderby:
+        key = "sysparm_orderby_desc" if orderby.startswith("-") else "sysparm_orderby"
+        params[key] = orderby[1:] if orderby.startswith("-") else orderby
     try:
         response = auth_manager.make_request(
             "GET",
@@ -216,6 +271,8 @@ def sn_query_page(
         _cache_put(ck, result)
         return result
     except Exception:
+        if not fail_silently:
+            raise
         return [], None
 
 
@@ -247,8 +304,6 @@ def sn_query_all(
     """
     size = max(10, min(page_size, 100))
     cap = max(1, max_records)
-    kw = dict(display_value=display_value)
-
     # --- First page (sequential, needs total count) ---
     first_fetch = min(size, cap)
     first_rows, total_count = sn_query_page(
@@ -259,7 +314,7 @@ def sn_query_all(
         fields=fields,
         limit=first_fetch,
         offset=0,
-        **kw,
+        display_value=display_value,
     )
     if not first_rows:
         return []
@@ -302,21 +357,20 @@ def sn_query_all(
                 limit=fetch,
                 offset=page_offset,
                 no_count=True,
-                **kw,
+                display_value=display_value,
             )
             return page_rows
 
-        # Parallel fetch of remaining pages
+        # Parallel fetch of remaining pages (reuse module-level executor)
         page_results: Dict[int, List[Dict[str, Any]]] = {}
-        with ThreadPoolExecutor(max_workers=_MAX_PARALLEL_PAGES) as pool:
-            future_map = {pool.submit(_fetch_page, off): off for off in offsets}
-            for future in as_completed(future_map):
-                page_offset = future_map[future]
-                try:
-                    page_results[page_offset] = future.result()
-                except Exception:
-                    logger.warning("Parallel page fetch failed at offset %s", page_offset)
-                    page_results[page_offset] = []
+        future_map = {_page_executor.submit(_fetch_page, off): off for off in offsets}
+        for future in as_completed(future_map):
+            page_offset = future_map[future]
+            try:
+                page_results[page_offset] = future.result()
+            except Exception:
+                logger.warning("Parallel page fetch failed at offset %s", page_offset)
+                page_results[page_offset] = []
 
         # Merge in offset order
         for off in sorted(page_results.keys()):
@@ -342,7 +396,7 @@ def sn_query_all(
             limit=fetch,
             offset=offset,
             no_count=True,
-            **kw,
+            display_value=display_value,
         )
         if not chunk:
             break
@@ -623,39 +677,24 @@ def sn_health(
 def sn_query(
     config: ServerConfig, auth_manager: AuthManager, params: GenericQueryParams
 ) -> Dict[str, Any]:
-    url = f"{config.instance_url}/api/now/table/{params.table}"
-
     safe_limit, safe_fields, safety_notice = apply_payload_safety(
         params.table, params.limit, params.fields
     )
 
-    query_params: Dict[str, Any] = {
-        "sysparm_limit": safe_limit,
-        "sysparm_offset": params.offset,
-        "sysparm_display_value": str(params.display_value).lower(),
-        "sysparm_exclude_reference_link": "true",
-        "sysparm_suppress_pagination_header": "false",  # Ensure X-Total-Count is returned
-    }
-    if params.query:
-        query_params["sysparm_query"] = params.query
-    if safe_fields:
-        query_params["sysparm_fields"] = safe_fields
-    if params.orderby:
-        key = "sysparm_orderby_desc" if params.orderby.startswith("-") else "sysparm_orderby"
-        query_params[key] = params.orderby[1:] if params.orderby.startswith("-") else params.orderby
-
     try:
-        response = auth_manager.make_request(
-            "GET",
-            url,
-            params=query_params,
-            timeout=config.timeout,
+        result, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table=params.table,
+            query=params.query or "",
+            fields=safe_fields or "",
+            limit=safe_limit,
+            offset=params.offset,
+            display_value=params.display_value,
+            no_count=False,
+            orderby=params.orderby,
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        total_count = response.headers.get("X-Total-Count")
-        data = _safe_json(response)
-        result = data.get("result", [])
 
         # Apply field-level and total-budget truncation for stability
         safe_result, budget_notice = truncate_results(result)
@@ -663,7 +702,7 @@ def sn_query(
         response_data: Dict[str, Any] = {
             "success": True,
             "table": params.table,
-            "total_count": int(total_count) if total_count else len(result),
+            "total_count": total_count if total_count is not None else len(result),
             "count": len(safe_result),
             "results": safe_result,
         }

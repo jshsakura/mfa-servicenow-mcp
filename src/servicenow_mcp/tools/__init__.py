@@ -79,8 +79,13 @@ from servicenow_mcp.tools.log_tools import (
 )
 from servicenow_mcp.tools.performance_tools import analyze_widget_performance
 from servicenow_mcp.tools.portal_tools import (
+    analyze_portal_component_update,
+    create_portal_component_snapshot,
     detect_angular_implicit_globals,
+    preview_portal_component_update,
+    route_portal_component_edit,
     search_portal_regex_matches,
+    update_portal_component_from_snapshot,
 )
 
 __all__ = [
@@ -188,6 +193,11 @@ __all__ = [
     "list_projects",
     "search_portal_regex_matches",
     "detect_angular_implicit_globals",
+    "analyze_portal_component_update",
+    "create_portal_component_snapshot",
+    "preview_portal_component_update",
+    "route_portal_component_edit",
+    "update_portal_component_from_snapshot",
     "analyze_widget_performance",
     # Flow Designer tools
     "list_flow_designers",

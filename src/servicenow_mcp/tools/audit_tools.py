@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
+from .sn_api import sn_query_page as _sn_query_page_shared
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
 
@@ -97,7 +98,7 @@ DEFAULT_RISK_PATTERNS: Dict[str, List[tuple]] = {
 
 # Fields to fetch from sys_update_xml
 UPDATE_XML_FIELDS = (
-    "sys_id,name,action,update_set,target_name,type," "sys_created_by,sys_updated_on,sys_updated_by"
+    "sys_id,name,action,update_set,target_name,type,sys_created_by,sys_updated_on,sys_updated_by"
 )
 
 # Tables whose code bodies we scan for risks
@@ -137,27 +138,24 @@ def _sn_get(
     limit: int = 200,
     offset: int = 0,
     orderby: Optional[str] = None,
+    *,
+    display_value: bool = True,
+    no_count: bool = False,
+    fail_silently: bool = False,
 ) -> tuple[List[Dict[str, Any]], Optional[int]]:
-    url = f"{config.instance_url}/api/now/table/{table}"
-    params: Dict[str, Any] = {
-        "sysparm_query": query,
-        "sysparm_fields": fields,
-        "sysparm_limit": limit,
-        "sysparm_offset": offset,
-        "sysparm_display_value": "true",
-        "sysparm_exclude_reference_link": "true",
-        "sysparm_suppress_pagination_header": "false",
-    }
-    if orderby:
-        if orderby.startswith("-"):
-            params["sysparm_orderby_desc"] = orderby[1:]
-        else:
-            params["sysparm_orderby"] = orderby
-    response = auth_manager.make_request("GET", url, params=params, timeout=config.timeout)
-    response.raise_for_status()
-    data = response.json()
-    total = response.headers.get("X-Total-Count")
-    return data.get("result", []), int(total) if total else None
+    return _sn_query_page_shared(
+        config,
+        auth_manager,
+        table=table,
+        query=query,
+        fields=fields,
+        limit=limit,
+        offset=offset,
+        orderby=orderby,
+        display_value=display_value,
+        no_count=no_count,
+        fail_silently=fail_silently,
+    )
 
 
 def _compact_record(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -200,7 +198,7 @@ def _compile_risk_patterns(
 
 
 def _scan_code(
-    code: str,
+    code: Optional[str],
     field_name: str,
     record_name: str,
     patterns: List[tuple],
@@ -359,18 +357,26 @@ def audit_pending_changes(
     if params.update_set:
         query_parts.append(f"update_set.name={_escape_query(params.update_set)}")
 
-    query = "^".join(query_parts) + "^ORDERBYDESCsys_updated_on"
+    query = "^".join(query_parts)
 
-    entries, total = _sn_get(
-        config,
-        auth_manager,
-        "sys_update_xml",
-        query,
-        UPDATE_XML_FIELDS,
-        limit=max_entries,
-        orderby="-sys_updated_on",
-    )
-    api_calls += 1
+    try:
+        entries, total = _sn_get(
+            config,
+            auth_manager,
+            "sys_update_xml",
+            query,
+            UPDATE_XML_FIELDS,
+            limit=max_entries,
+            orderby="-sys_updated_on",
+        )
+        api_calls += 1
+    except Exception as exc:
+        return {
+            "success": False,
+            "message": f"Failed to fetch pending changes: {exc}",
+            "developer": params.developer,
+            "date_range": {"from": date_from, "to": date_to},
+        }
 
     if not entries:
         return {
@@ -435,15 +441,21 @@ def audit_pending_changes(
             for chunk_start in range(0, len(name_list), MAX_IN_CHUNK):
                 chunk = name_list[chunk_start : chunk_start + MAX_IN_CHUNK]
                 in_query = "nameIN" + ",".join(_escape_query(n) for n in chunk)
-                records, _ = _sn_get(
-                    config,
-                    auth_manager,
-                    table_name,
-                    in_query,
-                    table_info["fields"],
-                    limit=len(chunk),
-                )
-                api_calls += 1
+                try:
+                    records, _ = _sn_get(
+                        config,
+                        auth_manager,
+                        table_name,
+                        in_query,
+                        table_info["fields"],
+                        limit=len(chunk),
+                        display_value=False,
+                        no_count=True,
+                    )
+                    api_calls += 1
+                except Exception as exc:
+                    logger.warning("Code fetch failed for %s chunk: %s", table_name, exc)
+                    continue
 
                 for rec in records:
                     rec_name = rec.get("name", rec.get("id", "unknown"))
@@ -485,11 +497,18 @@ def audit_pending_changes(
         if entry.get("name") == "sp_widget":
             widget_ids_in_set.add(entry.get("target_name", ""))
 
-    if widget_ids_in_set:
+    if params.scan_code and widget_ids_in_set:
         # Query M2M to find shared providers
         try:
+            widget_names_for_m2m = sorted(widget_ids_in_set)
+            m2m_truncated = len(widget_names_for_m2m) > MAX_IN_CHUNK
+            if m2m_truncated:
+                cross_refs["shared_provider_scan_truncated"] = True
+                cross_refs["shared_provider_scan_limit"] = MAX_IN_CHUNK
+                cross_refs["shared_provider_scan_total_widgets"] = len(widget_names_for_m2m)
+
             m2m_query = "sp_widget.nameIN" + ",".join(
-                _escape_query(n) for n in list(widget_ids_in_set)[:MAX_IN_CHUNK]
+                _escape_query(n) for n in widget_names_for_m2m[:MAX_IN_CHUNK]
             )
             m2m_records, _ = _sn_get(
                 config,
@@ -498,6 +517,8 @@ def audit_pending_changes(
                 m2m_query,
                 "sys_id,sp_widget,sp_angular_provider",
                 limit=200,
+                no_count=True,
+                fail_silently=True,
             )
             api_calls += 1
 
@@ -549,6 +570,11 @@ def audit_pending_changes(
         recommendations.append(
             f"INFO: {m2m_count} M2M dependency + {layout_count} layout records auto-included — "
             "these are typically pulled in by widget saves, verify they belong."
+        )
+    if cross_refs.get("shared_provider_scan_truncated"):
+        recommendations.append(
+            "INFO: Shared provider cross-reference scan was truncated to the first "
+            f"{MAX_IN_CHUNK} widgets for speed; expand the audit window if you need a full dependency map."
         )
 
     if not recommendations:

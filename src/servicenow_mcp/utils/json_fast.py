@@ -23,6 +23,7 @@ except ImportError:
         return _json.loads(data)
 
     def dumps(obj: Any, **kwargs: Any) -> str:  # type: ignore[misc]
+        kwargs.setdefault("separators", (",", ":"))
         return _json.dumps(obj, ensure_ascii=False, **kwargs)
 
     BACKEND = "json"

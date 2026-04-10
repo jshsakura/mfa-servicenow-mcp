@@ -285,9 +285,9 @@ def _fetch_widget_bundle(
         GenericQueryParams(
             table="sp_widget",
             query=query,
-            fields="sys_id,name,id,script,client_script,template",
+            fields="sys_id,name,id,script,client_script",
             limit=1,
-            display_value=True,
+            display_value=False,
         ),
     )
 
@@ -311,7 +311,7 @@ def _fetch_angular_providers(
             query=f"sp_widget={widget_sys_id}",
             fields="sp_angular_provider",
             limit=50,
-            display_value=True,
+            display_value=False,
         ),
     )
 
@@ -323,8 +323,10 @@ def _fetch_angular_providers(
         prov = m2m.get("sp_angular_provider", {})
         if isinstance(prov, dict):
             prov_id = prov.get("value")
-            if prov_id:
-                provider_refs.append(prov_id)
+        else:
+            prov_id = prov
+        if prov_id:
+            provider_refs.append(str(prov_id))
 
     if not provider_refs:
         return []
@@ -337,7 +339,7 @@ def _fetch_angular_providers(
             query=f"sys_idIN{','.join(provider_refs)}",
             fields="sys_id,name,script",
             limit=50,
-            display_value=True,
+            display_value=False,
         ),
     )
 

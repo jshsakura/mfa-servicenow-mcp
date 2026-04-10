@@ -1,0 +1,52 @@
+{
+  "success": true,
+  "component": {
+    "table": "sp_widget",
+    "sys_id": "widget-benefits-1",
+    "name": "Benefits Widget"
+  },
+  "edit_scope": {
+    "requested_fields": [
+      "client_script",
+      "template"
+    ],
+    "changed_fields": [
+      "client_script",
+      "template"
+    ],
+    "unchanged_fields": [],
+    "changed_field_count": 2
+  },
+  "field_analysis": [
+    {
+      "field": "client_script",
+      "changed": true,
+      "current_length": 64,
+      "proposed_length": 64,
+      "current_lines": 4,
+      "proposed_lines": 4,
+      "delta_length": 0
+    },
+    {
+      "field": "template",
+      "changed": true,
+      "current_length": 48,
+      "proposed_length": 48,
+      "current_lines": 1,
+      "proposed_lines": 1,
+      "delta_length": 0
+    }
+  ],
+  "risk_level": "medium",
+  "risks": [
+    "Multiple fields will be modified in one write; validate widget behavior after apply.",
+    "Widget script changes can affect runtime behavior immediately; validate client/server execution paths.",
+    "Template changes should be checked for route bindings and Angular expression regressions."
+  ],
+  "recommended_flow": [
+    "Run preview_portal_component_update to inspect bounded before/after diff.",
+    "Apply with update_portal_component and confirm='approve' only after review.",
+    "Validate the affected widget/page after apply."
+  ],
+  "safety_notice": "Analysis only. No changes were applied."
+}

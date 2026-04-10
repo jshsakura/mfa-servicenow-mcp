@@ -1,0 +1,16 @@
+{
+  "message": "Update successful",
+  "sys_id": "widget-benefits-1",
+  "fields": [
+    "client_script",
+    "template"
+  ],
+  "validation": {
+    "verified_fields": [
+      "client_script",
+      "template"
+    ],
+    "mismatched_fields": [],
+    "post_update_name": "Benefits Widget"
+  }
+}

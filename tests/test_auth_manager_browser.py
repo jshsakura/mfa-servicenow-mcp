@@ -181,6 +181,37 @@ def test_make_request_replaces_cookies_on_retry_after_401():
     assert mock_request.call_args_list[1].kwargs["cookies"] == {"NEW": "1"}
 
 
+def test_make_request_success_marks_browser_session_recently_valid():
+    manager = _make_browser_manager()
+    manager._browser_last_validated_at = None
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.headers = {}
+    success_response.url = "https://example.service-now.com/api/now/table/sys_user"
+
+    with patch.object(
+        manager,
+        "get_headers",
+        return_value={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Cookie": "OLD=1",
+        },
+    ):
+        with patch.object(manager._http_session, "request", return_value=success_response):
+            before = time.time()
+            manager.make_request(
+                "GET",
+                "https://example.service-now.com/api/now/table/sys_user",
+                timeout=10,
+                max_retries=1,
+            )
+
+    assert manager._browser_last_validated_at is not None
+    assert manager._browser_last_validated_at >= before
+
+
 class _FakeLocator:
     def __init__(self, exists: bool, target: Any, selector: str):
         self._exists = exists
