@@ -5,19 +5,17 @@ This module provides tools for managing changesets in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, Dict, List, Optional
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-logger = logging.getLogger(__name__)
+from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 
-# Type variable for Pydantic models
-T = TypeVar("T", bound=BaseModel)
+logger = logging.getLogger(__name__)
 
 
 class ListChangesetsParams(BaseModel):
@@ -85,119 +83,6 @@ class AddFileToChangesetParams(BaseModel):
     file_content: str = Field(..., description="Content of the file")
 
 
-def _unwrap_and_validate_params(
-    params: Union[Dict[str, Any], BaseModel],
-    model_class: Type[T],
-    required_fields: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    """
-    Unwrap and validate parameters.
-
-    Args:
-        params: The parameters to unwrap and validate. Can be a dictionary or a Pydantic model.
-        model_class: The Pydantic model class to validate against.
-        required_fields: List of fields that must be present.
-
-    Returns:
-        A dictionary with success status and validated parameters or error message.
-    """
-    try:
-        # Handle case where params is already a Pydantic model
-        if isinstance(params, BaseModel):
-            # If it's already the correct model class, use it directly
-            if isinstance(params, model_class):
-                model_instance = params
-            # Otherwise, convert to dict and create new instance
-            else:
-                model_instance = model_class(**params.dict())
-        # Handle dictionary case
-        else:
-            # Create model instance
-            model_instance = model_class(**params)
-
-        # Check required fields
-        if required_fields:
-            missing_fields = []
-            for field in required_fields:
-                if getattr(model_instance, field, None) is None:
-                    missing_fields.append(field)
-
-            if missing_fields:
-                return {
-                    "success": False,
-                    "message": f"Missing required fields: {', '.join(missing_fields)}",
-                }
-
-        return {
-            "success": True,
-            "params": model_instance,
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "message": f"Invalid parameters: {str(e)}",
-        }
-
-
-def _get_instance_url(auth_manager: AuthManager, server_config: ServerConfig) -> Optional[str]:
-    """
-    Get the instance URL from either auth_manager or server_config.
-
-    Args:
-        auth_manager: The authentication manager.
-        server_config: The server configuration.
-
-    Returns:
-        The instance URL or None if not found.
-    """
-    # Try to get instance_url from server_config
-    if hasattr(server_config, "instance_url"):
-        return server_config.instance_url
-
-    # Try to get instance_url from auth_manager
-    if hasattr(auth_manager, "instance_url"):
-        return auth_manager.instance_url
-
-    # If neither has instance_url, check if auth_manager is actually a ServerConfig
-    # and server_config is actually an AuthManager (parameters swapped)
-    if hasattr(server_config, "get_headers") and not hasattr(auth_manager, "get_headers"):
-        if hasattr(auth_manager, "instance_url"):
-            return auth_manager.instance_url
-
-    logger.error("Cannot find instance_url in either auth_manager or server_config")
-    return None
-
-
-def _get_headers(
-    auth_manager: AuthManager, server_config: ServerConfig
-) -> Optional[Dict[str, str]]:
-    """
-    Get the headers from either auth_manager or server_config.
-
-    Args:
-        auth_manager: The authentication manager.
-        server_config: The server configuration.
-
-    Returns:
-        The headers or None if not found.
-    """
-    # Try to get headers from auth_manager
-    if hasattr(auth_manager, "get_headers"):
-        return auth_manager.get_headers()
-
-    # Try to get headers from server_config
-    if hasattr(server_config, "get_headers"):
-        return server_config.get_headers()
-
-    # If neither has get_headers, check if auth_manager is actually a ServerConfig
-    # and server_config is actually an AuthManager (parameters swapped)
-    if hasattr(server_config, "get_headers") and not hasattr(auth_manager, "get_headers"):
-        return server_config.get_headers()
-
-    logger.error("Cannot find get_headers method in either auth_manager or server_config")
-    return None
-
-
 @register_tool(
     name="list_changesets",
     params=ListChangesetsParams,
@@ -206,110 +91,64 @@ def _get_headers(
     return_type=str,
 )
 def list_changesets(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Union[Dict[str, Any], ListChangesetsParams],
+    params: ListChangesetsParams,
 ) -> Dict[str, Any]:
-    """
-    List changesets from ServiceNow.
-
-    Args:
-        auth_manager: The authentication manager.
-        server_config: The server configuration.
-        params: The parameters for listing changesets. Can be a dictionary or a ListChangesetsParams object.
-
-    Returns:
-        A list of changesets.
-    """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(params, ListChangesetsParams)
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Build query parameters
-    query_params = {
-        "sysparm_limit": min(validated_params.limit, 100),
-        "sysparm_offset": validated_params.offset,
-    }
-
+    """List changesets from ServiceNow."""
     # Build sysparm_query
-    query_parts = []
+    query_parts: List[str] = []
 
-    if validated_params.state:
-        query_parts.append(f"state={validated_params.state}")
+    if params.state:
+        query_parts.append(f"state={params.state}")
 
-    if validated_params.application:
-        query_parts.append(f"application={validated_params.application}")
+    if params.application:
+        query_parts.append(f"application={params.application}")
 
-    if validated_params.developer:
-        query_parts.append(f"developer={validated_params.developer}")
+    if params.developer:
+        query_parts.append(f"developer={params.developer}")
 
-    if validated_params.timeframe:
-        if validated_params.timeframe == "recent":
+    if params.timeframe:
+        if params.timeframe == "recent":
             query_parts.append(
                 "sys_created_onONLast 7 days@javascript:gs.beginningOfLast7Days()@javascript:gs.endOfToday()"
             )
-        elif validated_params.timeframe == "last_week":
+        elif params.timeframe == "last_week":
             query_parts.append(
                 "sys_created_onONLast week@javascript:gs.beginningOfLastWeek()@javascript:gs.endOfLastWeek()"
             )
-        elif validated_params.timeframe == "last_month":
+        elif params.timeframe == "last_month":
             query_parts.append(
                 "sys_created_onONLast month@javascript:gs.beginningOfLastMonth()@javascript:gs.endOfLastMonth()"
             )
 
-    if validated_params.query:
-        query_parts.append(validated_params.query)
+    if params.query:
+        query_parts.append(params.query)
 
     query_string = "^".join(query_parts) if query_parts else ""
 
-    if validated_params.count_only:
-        from .sn_api import sn_count
-
-        # Determine the correct config and auth objects
-        config_obj = server_config if hasattr(server_config, "instance_url") else auth_manager
-        auth_obj = auth_manager if hasattr(auth_manager, "get_headers") else server_config
-        count = sn_count(config_obj, auth_obj, "sys_update_set", query_string)
+    if params.count_only:
+        count = sn_count(config, auth_manager, "sys_update_set", query_string)
         return {"success": True, "count": count}
 
-    if query_string:
-        query_params["sysparm_query"] = query_string
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/sys_update_set"
-
     try:
-        response = auth_manager.make_request("GET", url, params=query_params, headers=headers)
-        response.raise_for_status()
-
-        result = response.json()
+        records, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_update_set",
+            query=query_string,
+            fields="",
+            limit=params.limit if params.limit is not None else 10,
+            offset=params.offset if params.offset is not None else 0,
+        )
 
         return {
             "success": True,
-            "changesets": result.get("result", []),
-            "count": len(result.get("result", [])),
+            "changesets": records,
+            "count": len(records),
         }
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error listing changesets: {e}")
+    except Exception as e:
+        logger.error("Error listing changesets: %s", e)
         return {
             "success": False,
             "message": f"Error listing changesets: {str(e)}",
@@ -324,72 +163,39 @@ def list_changesets(
     return_type=str,
 )
 def get_changeset_details(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Union[Dict[str, Any], GetChangesetDetailsParams],
+    params: GetChangesetDetailsParams,
 ) -> Dict[str, Any]:
-    """
-    Get detailed information about a specific changeset.
-
-    Args:
-        auth_manager: The authentication manager.
-        server_config: The server configuration.
-        params: The parameters for getting changeset details. Can be a dictionary or a GetChangesetDetailsParams object.
-
-    Returns:
-        Detailed information about the changeset.
-    """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(
-        params, GetChangesetDetailsParams, required_fields=["changeset_id"]
-    )
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/sys_update_set/{validated_params.changeset_id}"
-
+    """Get detailed information about a specific changeset."""
     try:
-        response = auth_manager.make_request("GET", url, headers=headers)
-        response.raise_for_status()
-
-        result = response.json()
-
-        # Get the changeset details
-        changeset = result.get("result", {})
-
-        # Get the changes in this changeset
-        changes_url = f"{instance_url}/api/now/table/sys_update_xml"
-        changes_params = {
-            "sysparm_query": f"update_set={validated_params.changeset_id}",
-        }
-
-        changes_response = auth_manager.make_request(
-            "GET", changes_url, params=changes_params, headers=headers
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_update_set",
+            query=f"sys_id={params.changeset_id}",
+            fields="",
+            limit=1,
+            offset=0,
         )
-        changes_response.raise_for_status()
 
-        changes_result = changes_response.json()
-        changes = changes_result.get("result", [])
+        if not records:
+            return {
+                "success": False,
+                "message": f"Changeset not found: {params.changeset_id}",
+            }
+
+        changeset = records[0]
+
+        changes, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_update_xml",
+            query=f"update_set={params.changeset_id}",
+            fields="",
+            limit=100,
+            offset=0,
+        )
 
         return {
             "success": True,
@@ -397,8 +203,8 @@ def get_changeset_details(
             "changes": changes,
             "change_count": len(changes),
         }
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error getting changeset details: {e}")
+    except Exception as e:
+        logger.error("Error getting changeset details: %s", e)
         return {
             "success": False,
             "message": f"Error getting changeset details: {str(e)}",
@@ -413,78 +219,39 @@ def get_changeset_details(
     return_type=str,
 )
 def create_changeset(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Union[Dict[str, Any], CreateChangesetParams],
+    params: CreateChangesetParams,
 ) -> Dict[str, Any]:
-    """
-    Create a new changeset in ServiceNow.
-
-    Args:
-        auth_manager: The authentication manager.
-        server_config: The server configuration.
-        params: The parameters for creating a changeset. Can be a dictionary or a CreateChangesetParams object.
-
-    Returns:
-        The created changeset.
-    """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(
-        params, CreateChangesetParams, required_fields=["name", "application"]
-    )
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
-    # Prepare the request data
-    data = {
-        "name": validated_params.name,
-        "application": validated_params.application,
+    """Create a new changeset in ServiceNow."""
+    data: Dict[str, Any] = {
+        "name": params.name,
+        "application": params.application,
     }
 
-    # Add optional fields if provided
-    if validated_params.description:
-        data["description"] = validated_params.description
-    if validated_params.developer:
-        data["developer"] = validated_params.developer
+    if params.description:
+        data["description"] = params.description
+    if params.developer:
+        data["developer"] = params.developer
 
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Add Content-Type header
+    url = f"{config.api_url}/table/sys_update_set"
+    headers = auth_manager.get_headers()
     headers["Content-Type"] = "application/json"
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/sys_update_set"
 
     try:
         response = auth_manager.make_request("POST", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="sys_update_set")
 
         return {
             "success": True,
             "message": "Changeset created successfully",
             "changeset": result["result"],
         }
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error creating changeset: {e}")
+    except Exception as e:
+        logger.error("Error creating changeset: %s", e)
         return {
             "success": False,
             "message": f"Error creating changeset: {str(e)}",
@@ -499,86 +266,46 @@ def create_changeset(
     return_type=str,
 )
 def update_changeset(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Union[Dict[str, Any], UpdateChangesetParams],
+    params: UpdateChangesetParams,
 ) -> Dict[str, Any]:
-    """
-    Update an existing changeset in ServiceNow.
+    """Update an existing changeset in ServiceNow."""
+    data: Dict[str, Any] = {}
 
-    Args:
-        auth_manager: The authentication manager.
-        server_config: The server configuration.
-        params: The parameters for updating a changeset. Can be a dictionary or a UpdateChangesetParams object.
+    if params.name:
+        data["name"] = params.name
+    if params.description:
+        data["description"] = params.description
+    if params.state:
+        data["state"] = params.state
+    if params.developer:
+        data["developer"] = params.developer
 
-    Returns:
-        The updated changeset.
-    """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(
-        params, UpdateChangesetParams, required_fields=["changeset_id"]
-    )
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
-    # Prepare the request data
-    data = {}
-
-    # Add optional fields if provided
-    if validated_params.name:
-        data["name"] = validated_params.name
-    if validated_params.description:
-        data["description"] = validated_params.description
-    if validated_params.state:
-        data["state"] = validated_params.state
-    if validated_params.developer:
-        data["developer"] = validated_params.developer
-
-    # If no fields to update, return error
     if not data:
         return {
             "success": False,
             "message": "No fields to update",
         }
 
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Add Content-Type header
+    url = f"{config.api_url}/table/sys_update_set/{params.changeset_id}"
+    headers = auth_manager.get_headers()
     headers["Content-Type"] = "application/json"
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/sys_update_set/{validated_params.changeset_id}"
 
     try:
         response = auth_manager.make_request("PATCH", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="sys_update_set")
 
         return {
             "success": True,
             "message": "Changeset updated successfully",
             "changeset": result["result"],
         }
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error updating changeset: {e}")
+    except Exception as e:
+        logger.error("Error updating changeset: %s", e)
         return {
             "success": False,
             "message": f"Error updating changeset: {str(e)}",
@@ -593,75 +320,36 @@ def update_changeset(
     return_type=str,
 )
 def commit_changeset(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Union[Dict[str, Any], CommitChangesetParams],
+    params: CommitChangesetParams,
 ) -> Dict[str, Any]:
-    """
-    Commit a changeset in ServiceNow.
-
-    Args:
-        auth_manager: The authentication manager.
-        server_config: The server configuration.
-        params: The parameters for committing a changeset. Can be a dictionary or a CommitChangesetParams object.
-
-    Returns:
-        The committed changeset.
-    """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(
-        params, CommitChangesetParams, required_fields=["changeset_id"]
-    )
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
-    # Prepare the request data
-    data = {
+    """Commit a changeset in ServiceNow."""
+    data: Dict[str, Any] = {
         "state": "complete",
     }
 
-    # Add commit message if provided
-    if validated_params.commit_message:
-        data["description"] = validated_params.commit_message
+    if params.commit_message:
+        data["description"] = params.commit_message
 
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Add Content-Type header
+    url = f"{config.api_url}/table/sys_update_set/{params.changeset_id}"
+    headers = auth_manager.get_headers()
     headers["Content-Type"] = "application/json"
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/sys_update_set/{validated_params.changeset_id}"
 
     try:
         response = auth_manager.make_request("PATCH", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="sys_update_set")
 
         return {
             "success": True,
             "message": "Changeset committed successfully",
             "changeset": result["result"],
         }
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error committing changeset: {e}")
+    except Exception as e:
+        logger.error("Error committing changeset: %s", e)
         return {
             "success": False,
             "message": f"Error committing changeset: {str(e)}",
@@ -676,75 +364,36 @@ def commit_changeset(
     return_type=str,
 )
 def publish_changeset(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Union[Dict[str, Any], PublishChangesetParams],
+    params: PublishChangesetParams,
 ) -> Dict[str, Any]:
-    """
-    Publish a changeset in ServiceNow.
-
-    Args:
-        auth_manager: The authentication manager.
-        server_config: The server configuration.
-        params: The parameters for publishing a changeset. Can be a dictionary or a PublishChangesetParams object.
-
-    Returns:
-        The published changeset.
-    """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(
-        params, PublishChangesetParams, required_fields=["changeset_id"]
-    )
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Add Content-Type header
-    headers["Content-Type"] = "application/json"
-
-    # Prepare the request data for the publish action
-    data = {
+    """Publish a changeset in ServiceNow."""
+    data: Dict[str, Any] = {
         "state": "published",
     }
 
-    # Add publish notes if provided
-    if validated_params.publish_notes:
-        data["description"] = validated_params.publish_notes
+    if params.publish_notes:
+        data["description"] = params.publish_notes
 
-    # Make the API request
-    url = f"{instance_url}/api/now/table/sys_update_set/{validated_params.changeset_id}"
+    url = f"{config.api_url}/table/sys_update_set/{params.changeset_id}"
+    headers = auth_manager.get_headers()
+    headers["Content-Type"] = "application/json"
 
     try:
         response = auth_manager.make_request("PATCH", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="sys_update_set")
 
         return {
             "success": True,
             "message": "Changeset published successfully",
             "changeset": result["result"],
         }
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error publishing changeset: {e}")
+    except Exception as e:
+        logger.error("Error publishing changeset: %s", e)
         return {
             "success": False,
             "message": f"Error publishing changeset: {str(e)}",
@@ -759,76 +408,36 @@ def publish_changeset(
     return_type=str,
 )
 def add_file_to_changeset(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Union[Dict[str, Any], AddFileToChangesetParams],
+    params: AddFileToChangesetParams,
 ) -> Dict[str, Any]:
-    """
-    Add a file to a changeset in ServiceNow.
-
-    Args:
-        auth_manager: The authentication manager.
-        server_config: The server configuration.
-        params: The parameters for adding a file to a changeset. Can be a dictionary or a AddFileToChangesetParams object.
-
-    Returns:
-        The result of the add file operation.
-    """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(
-        params,
-        AddFileToChangesetParams,
-        required_fields=["changeset_id", "file_path", "file_content"],
-    )
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Add Content-Type header
-    headers["Content-Type"] = "application/json"
-
-    # Prepare the request data for adding a file
+    """Add a file to a changeset in ServiceNow."""
     data = {
-        "update_set": validated_params.changeset_id,
-        "name": validated_params.file_path,
-        "payload": validated_params.file_content,
+        "update_set": params.changeset_id,
+        "name": params.file_path,
+        "payload": params.file_content,
         "type": "file",
     }
 
-    # Make the API request
-    url = f"{instance_url}/api/now/table/sys_update_xml"
+    url = f"{config.api_url}/table/sys_update_xml"
+    headers = auth_manager.get_headers()
+    headers["Content-Type"] = "application/json"
 
     try:
         response = auth_manager.make_request("POST", url, json=data, headers=headers)
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="sys_update_xml")
 
         return {
             "success": True,
             "message": "File added to changeset successfully",
             "file": result["result"],
         }
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error adding file to changeset: {e}")
+    except Exception as e:
+        logger.error("Error adding file to changeset: %s", e)
         return {
             "success": False,
             "message": f"Error adding file to changeset: {str(e)}",

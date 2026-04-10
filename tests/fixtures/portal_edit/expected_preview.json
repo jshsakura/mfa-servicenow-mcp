@@ -1,0 +1,40 @@
+{
+  "success": true,
+  "component": {
+    "table": "sp_widget",
+    "sys_id": "widget-benefits-1",
+    "name": "Benefits Widget"
+  },
+  "preview": [
+    {
+      "field": "client_script",
+      "changed": true,
+      "current_length": 64,
+      "proposed_length": 64,
+      "current_lines": 4,
+      "proposed_lines": 4,
+      "delta_length": 0,
+      "before_preview": "function onLoad() {\n  data.state = 'old';\n  return data.state;\n}",
+      "after_preview": "function onLoad() {\n  data.state = 'new';\n  return data.state;\n}",
+      "diff_preview": "--- current\n+++ proposed\n@@ -1,4 +1,4 @@\n function onLoad() {\n-  data.state = 'old';\n+  data.state = 'new';\n   return data.state;\n }"
+    },
+    {
+      "field": "template",
+      "changed": true,
+      "current_length": 48,
+      "proposed_length": 48,
+      "current_lines": 1,
+      "proposed_lines": 1,
+      "delta_length": 0,
+      "before_preview": "<div class=\"benefits-old\">{{::data.state}}</div>",
+      "after_preview": "<div class=\"benefits-new\">{{::data.state}}</div>",
+      "diff_preview": "--- current\n+++ proposed\n@@ -1 +1 @@\n-<div class=\"benefits-old\">{{::data.state}}</div>\n+<div class=\"benefits-new\">{{::data.state}}</div>"
+    }
+  ],
+  "validation_plan": [
+    "Review the bounded diff for each changed field.",
+    "Confirm the target table/sys_id still points to the intended component.",
+    "Apply only after review with confirm='approve'."
+  ],
+  "safety_notice": "Preview only. Large values and diffs are intentionally truncated for context safety."
+}

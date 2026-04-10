@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Set
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import sn_query_all, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -405,37 +406,16 @@ def _fetch_records_paginated(
     page_size: int,
     max_records: int,
 ) -> List[Dict[str, Any]]:
-    records: List[Dict[str, Any]] = []
-    offset = 0
-
-    while len(records) < max_records:
-        fetch_size = min(page_size, max_records - len(records))
-        response = auth_manager.make_request(
-            "GET",
-            f"{config.instance_url}/api/now/table/{table}",
-            headers=auth_manager.get_headers(),
-            params={
-                "sysparm_query": query,
-                "sysparm_fields": ",".join(fields),
-                "sysparm_limit": fetch_size,
-                "sysparm_offset": offset,
-                "sysparm_display_value": "false",
-                "sysparm_exclude_reference_link": "true",
-                "sysparm_suppress_pagination_header": "true",
-            },
-            timeout=config.timeout,
-        )
-        response.raise_for_status()
-        rows = response.json().get("result", [])
-        if not rows:
-            break
-
-        records.extend(rows)
-        if len(rows) < fetch_size:
-            break
-        offset += fetch_size
-
-    return records
+    return sn_query_all(
+        config,
+        auth_manager,
+        table=table,
+        query=query or "",
+        fields=",".join(fields),
+        page_size=min(page_size, 100),
+        max_records=max_records,
+        display_value=False,
+    )
 
 
 def _normalize_table_candidate(candidate: str) -> str | None:
@@ -572,22 +552,18 @@ def _build_label_map(
     sorted_names = sorted(table_names)
     for chunk in _chunked(sorted_names, 50):
         encoded_names = ",".join(_escape_query_fragment(name) for name in chunk)
-        response = auth_manager.make_request(
-            "GET",
-            f"{config.instance_url}/api/now/table/sys_db_object",
-            headers=auth_manager.get_headers(),
-            params={
-                "sysparm_query": f"nameIN{encoded_names}",
-                "sysparm_fields": "name,label",
-                "sysparm_limit": 100,
-                "sysparm_display_value": "false",
-                "sysparm_exclude_reference_link": "true",
-                "sysparm_suppress_pagination_header": "true",
-            },
-            timeout=config.timeout,
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_db_object",
+            query=f"nameIN{encoded_names}",
+            fields="name,label",
+            limit=100,
+            offset=0,
+            display_value=False,
+            no_count=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-        rows = response.json().get("result", [])
         for row in rows:
             name = row.get("name")
             label = row.get("label")
@@ -629,22 +605,18 @@ def _make_request(
     fields: List[str],
     limit: int,
 ) -> List[Dict[str, Any]]:
-    response = auth_manager.make_request(
-        "GET",
-        f"{config.instance_url}/api/now/table/{table}",
-        headers=auth_manager.get_headers(),
-        params={
-            "sysparm_query": query,
-            "sysparm_fields": ",".join(fields),
-            "sysparm_limit": limit,
-            "sysparm_display_value": "true",
-            "sysparm_exclude_reference_link": "true",
-            "sysparm_suppress_pagination_header": "false",
-        },
-        timeout=config.timeout,
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=table,
+        query=query,
+        fields=",".join(fields),
+        limit=limit,
+        offset=0,
+        display_value=True,
+        fail_silently=False,
     )
-    response.raise_for_status()
-    return response.json().get("result", [])
+    return rows
 
 
 def _extract_match_fields(record: Dict[str, Any], fields: List[str], query: str) -> List[str]:

@@ -1,0 +1,6 @@
+{
+  "sys_id": "widget-benefits-1",
+  "name": "Benefits Widget",
+  "client_script": "function onLoad() {\n  data.state = 'old';\n  return data.state;\n}",
+  "template": "<div class=\"benefits-old\">{{::data.state}}</div>"
+}

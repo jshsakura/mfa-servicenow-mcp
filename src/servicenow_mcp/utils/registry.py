@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Global registry: tool_name -> (impl_func, ParamsModel, ReturnType, description, serialization)
 _TOOL_REGISTRY: Dict[str, Tuple[Callable, Type[Any], Type, str, str]] = {}
+_TOOLS_DISCOVERED = False
 
 
 def register_tool(
@@ -52,6 +53,11 @@ def discover_tools() -> Dict[str, Tuple[Callable, Type[Any], Type, str, str]]:
 
     Returns the populated registry dict.
     """
+    global _TOOLS_DISCOVERED
+
+    if _TOOLS_DISCOVERED:
+        return dict(_TOOL_REGISTRY)
+
     import servicenow_mcp.tools as tools_pkg
 
     for _importer, module_name, _is_pkg in pkgutil.iter_modules(tools_pkg.__path__):
@@ -61,6 +67,7 @@ def discover_tools() -> Dict[str, Tuple[Callable, Type[Any], Type, str, str]]:
         except Exception:
             logger.warning(f"Failed to import tool module: {full_name}", exc_info=True)
 
+    _TOOLS_DISCOVERED = True
     return dict(_TOOL_REGISTRY)
 
 

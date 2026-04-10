@@ -2,6 +2,7 @@
 Tests for the workflow management tools.
 """
 
+import json
 import unittest
 from unittest.mock import MagicMock
 
@@ -44,6 +45,12 @@ class TestWorkflowTools(unittest.TestCase):
             "Content-Type": "application/json",
         }
 
+    def _finalize_response(self, mock_response):
+        payload = mock_response.json.return_value
+        mock_response.content = json.dumps(payload).encode("utf-8")
+        mock_response.headers = getattr(mock_response, "headers", {}) or {}
+        mock_response.raise_for_status = MagicMock()
+
     def test_list_workflows_success(self):
         """Test listing workflows successfully."""
         # Mock the response
@@ -67,7 +74,7 @@ class TestWorkflowTools(unittest.TestCase):
             ]
         }
         mock_response.headers = {"X-Total-Count": "2"}
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
@@ -90,7 +97,7 @@ class TestWorkflowTools(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": []}
         mock_response.headers = {"X-Total-Count": "0"}
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
@@ -126,15 +133,18 @@ class TestWorkflowTools(unittest.TestCase):
         # Mock the response
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "result": {
-                "sys_id": "workflow123",
-                "name": "Incident Approval",
-                "description": "Workflow for incident approval",
-                "active": "true",
-                "table": "incident",
-            }
+            "result": [
+                {
+                    "sys_id": "workflow123",
+                    "name": "Incident Approval",
+                    "description": "Workflow for incident approval",
+                    "active": "true",
+                    "table": "incident",
+                }
+            ]
         }
-        mock_response.raise_for_status = MagicMock()
+        mock_response.headers = {"X-Total-Count": "1"}
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
@@ -185,7 +195,7 @@ class TestWorkflowTools(unittest.TestCase):
             ]
         }
         mock_response.headers = {"X-Total-Count": "2"}
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
@@ -217,7 +227,8 @@ class TestWorkflowTools(unittest.TestCase):
                 }
             ]
         }
-        version_response.raise_for_status = MagicMock()
+        version_response.headers = {"X-Total-Count": "1"}
+        self._finalize_response(version_response)
 
         activities_response = MagicMock()
         activities_response.json.return_value = {
@@ -238,7 +249,8 @@ class TestWorkflowTools(unittest.TestCase):
                 },
             ]
         }
-        activities_response.raise_for_status = MagicMock()
+        activities_response.headers = {"X-Total-Count": "2"}
+        self._finalize_response(activities_response)
 
         # Configure the mock to return different responses for sequential calls
         self.auth_manager.make_request.side_effect = [version_response, activities_response]
@@ -256,6 +268,24 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["version_id"], "version123")
         self.assertEqual(result["activities"][0]["sys_id"], "activity123")
         self.assertEqual(result["activities"][1]["sys_id"], "activity456")
+
+    def test_get_workflow_activities_returns_error_when_no_published_version(self):
+        """Test latest published version fallback when no versions exist."""
+        version_response = MagicMock()
+        version_response.json.return_value = {"result": []}
+        version_response.headers = {"X-Total-Count": "0"}
+        self._finalize_response(version_response)
+        self.auth_manager.make_request.return_value = version_response
+
+        result = get_workflow_activities(
+            self.auth_manager,
+            self.server_config,
+            {"workflow_id": "workflow123"},
+        )
+
+        self.assertIn("error", result)
+        self.assertIn("No published versions found", result["error"])
+        self.assertEqual(result["workflow_id"], "workflow123")
 
     def test_create_workflow_success(self):
         """Test creating a workflow successfully."""

@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import MagicMock
 
@@ -9,6 +10,14 @@ from servicenow_mcp.tools.workflow_tools import (
     list_workflows,
 )
 from servicenow_mcp.utils.config import ServerConfig
+
+
+def _finalize_response(mock_response):
+    """Set content bytes and headers so sn_query_page can parse the mock."""
+    payload = mock_response.json.return_value
+    mock_response.content = json.dumps(payload).encode("utf-8")
+    mock_response.headers = getattr(mock_response, "headers", {}) or {}
+    mock_response.raise_for_status = MagicMock()
 
 
 class TestWorkflowToolsParams(unittest.TestCase):
@@ -57,7 +66,7 @@ class TestWorkflowToolsParams(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": [{"sys_id": "123", "name": "Test Workflow"}]}
         mock_response.headers = {"X-Total-Count": "1"}
-        mock_response.raise_for_status = MagicMock()
+        _finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
@@ -74,7 +83,7 @@ class TestWorkflowToolsParams(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": [{"sys_id": "123", "name": "Test Workflow"}]}
         mock_response.headers = {"X-Total-Count": "1"}
-        mock_response.raise_for_status = MagicMock()
+        _finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function with swapped parameters
@@ -89,8 +98,9 @@ class TestWorkflowToolsParams(unittest.TestCase):
         """Test get_workflow_details with parameters in the correct order."""
         # Setup mock response
         mock_response = MagicMock()
-        mock_response.json.return_value = {"result": {"sys_id": "123", "name": "Test Workflow"}}
-        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"result": [{"sys_id": "123", "name": "Test Workflow"}]}
+        mock_response.headers = {"X-Total-Count": "1"}
+        _finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
@@ -104,8 +114,9 @@ class TestWorkflowToolsParams(unittest.TestCase):
         """Test get_workflow_details with parameters in the swapped order."""
         # Setup mock response
         mock_response = MagicMock()
-        mock_response.json.return_value = {"result": {"sys_id": "123", "name": "Test Workflow"}}
-        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"result": [{"sys_id": "123", "name": "Test Workflow"}]}
+        mock_response.headers = {"X-Total-Count": "1"}
+        _finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function with swapped parameters

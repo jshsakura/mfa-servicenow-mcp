@@ -8,7 +8,7 @@ Adding a new tool only requires:
 
 from typing import Any, Callable, Dict, Tuple, Type
 
-from servicenow_mcp.utils.registry import discover_tools
+from servicenow_mcp.utils.registry import discover_tools, discover_tools_lazy
 
 # Type aliases kept for backward compatibility
 ParamsModel = Type[Any]
@@ -21,10 +21,15 @@ ToolDefinition = Tuple[
 ]
 
 
-def get_tool_definitions() -> Dict[str, ToolDefinition]:
-    """Returns all registered ServiceNow tool definitions.
+def get_tool_definitions(
+    *, enabled_names: set[str] | None = None
+) -> Dict[str, ToolDefinition]:
+    """Returns registered ServiceNow tool definitions.
 
-    Tools register themselves via @register_tool when their modules are imported.
-    This function triggers that import via discover_tools() and returns the registry.
+    When *enabled_names* is provided, uses lazy discovery to import only the
+    modules that provide the requested tools — skipping unused modules for
+    faster startup.  Falls back to full discovery when ``enabled_names`` is None.
     """
+    if enabled_names is not None:
+        return discover_tools_lazy(enabled_names=enabled_names)
     return discover_tools()

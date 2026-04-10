@@ -4,8 +4,9 @@ Tests for the knowledge base tools.
 This module contains tests for the knowledge base tools in the ServiceNow MCP server.
 """
 
+import json
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 
@@ -52,7 +53,15 @@ class TestKnowledgeBaseTools(unittest.TestCase):
             "Content-Type": "application/json",
         }
 
-    def test_create_knowledge_base(self):
+    def _finalize_response(self, mock_response):
+        payload = mock_response.json.return_value
+        mock_response.content = json.dumps(payload).encode("utf-8")
+        mock_response.headers = {}
+        mock_response.raise_for_status = MagicMock()
+        return mock_response
+
+    @patch("servicenow_mcp.tools.knowledge_base.invalidate_query_cache")
+    def test_create_knowledge_base(self, mock_invalidate_query_cache):
         """Test creating a knowledge base."""
         # Mock response
         mock_response = MagicMock()
@@ -67,7 +76,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 "workflow_retire": "Knowledge - Instant Retire",
             }
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
@@ -93,8 +102,10 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.assertEqual("Test Description", call_args[1]["json"]["description"])
         self.assertEqual("admin", call_args[1]["json"]["owner"])
         self.assertEqual("it_managers", call_args[1]["json"]["kb_managers"])
+        mock_invalidate_query_cache.assert_called_once_with(table="kb_knowledge_base")
 
-    def test_create_category(self):
+    @patch("servicenow_mcp.tools.knowledge_base.invalidate_query_cache")
+    def test_create_category(self, mock_invalidate_query_cache):
         """Test creating a category."""
         # Mock response
         mock_response = MagicMock()
@@ -108,7 +119,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 "active": "true",
             }
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
@@ -134,8 +145,10 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.assertEqual("Test Category Description", call_args[1]["json"]["description"])
         self.assertEqual("kb001", call_args[1]["json"]["kb_knowledge_base"])
         self.assertEqual("true", call_args[1]["json"]["active"])
+        mock_invalidate_query_cache.assert_called_once_with(table="kb_category")
 
-    def test_create_article(self):
+    @patch("servicenow_mcp.tools.knowledge_base.invalidate_query_cache")
+    def test_create_article(self, mock_invalidate_query_cache):
         """Test creating a knowledge article."""
         # Mock response
         mock_response = MagicMock()
@@ -151,7 +164,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 "workflow_state": "draft",
             }
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
@@ -182,8 +195,10 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.assertEqual("cat001", call_args[1]["json"]["kb_category"])
         self.assertEqual("text", call_args[1]["json"]["article_type"])
         self.assertEqual("test,article,knowledge", call_args[1]["json"]["keywords"])
+        mock_invalidate_query_cache.assert_called_once_with(table="kb_knowledge")
 
-    def test_update_article(self):
+    @patch("servicenow_mcp.tools.knowledge_base.invalidate_query_cache")
+    def test_update_article(self, mock_invalidate_query_cache):
         """Test updating a knowledge article."""
         # Mock response
         mock_response = MagicMock()
@@ -197,7 +212,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 "workflow_state": "draft",
             }
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
@@ -224,8 +239,10 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.assertEqual("This is an updated article content", call_args[1]["json"]["text"])
         self.assertEqual("cat002", call_args[1]["json"]["kb_category"])
         self.assertEqual("updated,article,knowledge", call_args[1]["json"]["keywords"])
+        mock_invalidate_query_cache.assert_called_once_with(table="kb_knowledge")
 
-    def test_publish_article(self):
+    @patch("servicenow_mcp.tools.knowledge_base.invalidate_query_cache")
+    def test_publish_article(self, mock_invalidate_query_cache):
         """Test publishing a knowledge article."""
         # Mock response
         mock_response = MagicMock()
@@ -236,7 +253,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 "workflow_state": "published",
             }
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
@@ -255,6 +272,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.assertEqual("PATCH", call_args[0][0])
         self.assertEqual(f"{self.server_config.api_url}/table/kb_knowledge/art001", call_args[0][1])
         self.assertEqual("published", call_args[1]["json"]["workflow_state"])
+        mock_invalidate_query_cache.assert_called_once_with(table="kb_knowledge")
 
     def test_list_articles(self):
         """Test listing knowledge articles."""
@@ -282,7 +300,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 },
             ]
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
@@ -312,7 +330,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.assertEqual(f"{self.server_config.api_url}/table/kb_knowledge", call_args[0][1])
         self.assertEqual(10, call_args[1]["params"]["sysparm_limit"])
         self.assertEqual(0, call_args[1]["params"]["sysparm_offset"])
-        self.assertEqual("all", call_args[1]["params"]["sysparm_display_value"])
+        self.assertEqual("true", call_args[1]["params"]["sysparm_display_value"])
 
         # Verify the query syntax contains the correct pattern
         self.assertIn("sysparm_query", call_args[1]["params"])
@@ -340,7 +358,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 "view_count": "42",
             }
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
@@ -364,8 +382,10 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.auth_manager.make_request.assert_called_once()
         call_args = self.auth_manager.make_request.call_args
         self.assertEqual("GET", call_args[0][0])
-        self.assertEqual(f"{self.server_config.api_url}/table/kb_knowledge/art001", call_args[0][1])
+        self.assertEqual(f"{self.server_config.api_url}/table/kb_knowledge", call_args[0][1])
         self.assertEqual("true", call_args[1]["params"]["sysparm_display_value"])
+        self.assertEqual("sys_id=art001", call_args[1]["params"]["sysparm_query"])
+        self.assertEqual(1, call_args[1]["params"]["sysparm_limit"])
 
     def test_create_knowledge_base_error(self):
         """Test error handling when creating a knowledge base."""
@@ -384,8 +404,8 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         """Test getting a non-existent article."""
         # Mock empty response
         mock_response = MagicMock()
-        mock_response.json.return_value = {"result": {}}
-        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"result": []}
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
@@ -424,7 +444,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 },
             ]
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
@@ -484,7 +504,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 },
             ]
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the method
@@ -510,7 +530,7 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.assertEqual(f"{self.server_config.api_url}/table/kb_category", call_args[0][1])
         self.assertEqual(10, call_args[1]["params"]["sysparm_limit"])
         self.assertEqual(0, call_args[1]["params"]["sysparm_offset"])
-        self.assertEqual("all", call_args[1]["params"]["sysparm_display_value"])
+        self.assertEqual("true", call_args[1]["params"]["sysparm_display_value"])
 
         # Verify the query syntax contains the correct pattern
         self.assertIn("sysparm_query", call_args[1]["params"])

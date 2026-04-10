@@ -10,18 +10,18 @@ def test_workflow_tools_are_discovered_by_registry():
     registry = discover_tools()
 
     workflow_tools = [
-        "list_workflows",
-        "get_workflow_details",
-        "list_workflow_versions",
-        "get_workflow_activities",
-        "create_workflow",
-        "update_workflow",
-        "activate_workflow",
-        "deactivate_workflow",
-        "add_workflow_activity",
-        "update_workflow_activity",
-        "delete_workflow_activity",
-        "reorder_workflow_activities",
+        "list_legacy_workflows",
+        "get_legacy_workflow_details",
+        "list_legacy_workflow_versions",
+        "get_legacy_workflow_activities",
+        "create_legacy_workflow",
+        "update_legacy_workflow",
+        "activate_legacy_workflow",
+        "deactivate_legacy_workflow",
+        "add_legacy_workflow_activity",
+        "update_legacy_workflow_activity",
+        "delete_legacy_workflow_activity",
+        "reorder_legacy_workflow_activities",
     ]
 
     for tool_name in workflow_tools:
@@ -33,16 +33,16 @@ def test_workflow_tools_have_valid_params_and_description():
     registry = discover_tools()
 
     workflow_tools = [
-        "list_workflows",
-        "get_workflow_details",
-        "create_workflow",
-        "update_workflow",
+        "list_legacy_workflows",
+        "get_legacy_workflow_details",
+        "create_legacy_workflow",
+        "update_legacy_workflow",
     ]
 
     for tool_name in workflow_tools:
         impl_func, params_cls, ret_type, description, serialization = registry[tool_name]
         assert callable(impl_func), f"{tool_name}: impl must be callable"
-        assert hasattr(
-            params_cls, "model_json_schema"
-        ), f"{tool_name}: params must be Pydantic model"
+        assert hasattr(params_cls, "model_json_schema"), (
+            f"{tool_name}: params must be Pydantic model"
+        )
         assert len(description) > 10, f"{tool_name}: description too short"

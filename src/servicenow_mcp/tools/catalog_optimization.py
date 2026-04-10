@@ -13,10 +13,32 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
+
+
+def _fetch_catalog_items(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    query: str,
+    limit: int = 50,
+) -> List[Dict]:
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table="sc_cat_item",
+        query=query,
+        fields="sys_id,name,short_description,category",
+        limit=limit,
+        offset=0,
+        display_value=False,
+        fail_silently=False,
+    )
+    return rows if isinstance(rows, list) else []
 
 
 class OptimizationRecommendationsParams(BaseModel):
@@ -205,6 +227,7 @@ def update_catalog_item(
 
         response = auth_manager.make_request("PATCH", url, headers=headers, json=body)
         response.raise_for_status()
+        invalidate_query_cache(table="sc_cat_item")
 
         return {
             "success": True,
@@ -236,24 +259,10 @@ def _get_inactive_items(
         A list of inactive catalog items
     """
     try:
-        # Build the query
         query = "active=false"
         if category_id:
             query += f"^category={category_id}"
-
-        # Make the API request
-        url = f"{config.instance_url}/api/now/table/sc_cat_item"
-        headers = auth_manager.get_headers()
-        params = {
-            "sysparm_query": query,
-            "sysparm_fields": "sys_id,name,short_description,category",
-            "sysparm_limit": "50",
-        }
-
-        response = auth_manager.make_request("GET", url, headers=headers, params=params)
-        response.raise_for_status()
-
-        return response.json()["result"]
+        return _fetch_catalog_items(config, auth_manager, query=query)
 
     except Exception as e:
         logger.error(f"Error getting inactive items: {e}")
@@ -275,26 +284,10 @@ def _get_low_usage_items(
         A list of catalog items with low usage
     """
     try:
-        # Build the query
         query = "active=true"
         if category_id:
             query += f"^category={category_id}"
-
-        # Make the API request
-        url = f"{config.instance_url}/api/now/table/sc_cat_item"
-        headers = auth_manager.get_headers()
-        params = {
-            "sysparm_query": query,
-            "sysparm_fields": "sys_id,name,short_description,category",
-            "sysparm_limit": "50",
-        }
-
-        response = auth_manager.make_request("GET", url, headers=headers, params=params)
-        response.raise_for_status()
-
-        # In a real implementation, we would query the request table to get actual usage data
-        # For this example, we'll simulate low usage with random data
-        items = response.json()["result"]
+        items = _fetch_catalog_items(config, auth_manager, query=query)
 
         # Select a random subset of items to mark as low usage
         low_usage_items = random.sample(items, min(len(items), 5))
@@ -325,26 +318,10 @@ def _get_high_abandonment_items(
         A list of catalog items with high abandonment rates
     """
     try:
-        # Build the query
         query = "active=true"
         if category_id:
             query += f"^category={category_id}"
-
-        # Make the API request
-        url = f"{config.instance_url}/api/now/table/sc_cat_item"
-        headers = auth_manager.get_headers()
-        params = {
-            "sysparm_query": query,
-            "sysparm_fields": "sys_id,name,short_description,category",
-            "sysparm_limit": "50",
-        }
-
-        response = auth_manager.make_request("GET", url, headers=headers, params=params)
-        response.raise_for_status()
-
-        # In a real implementation, we would query the request table to get actual abandonment data
-        # For this example, we'll simulate high abandonment with random data
-        items = response.json()["result"]
+        items = _fetch_catalog_items(config, auth_manager, query=query)
 
         # Select a random subset of items to mark as high abandonment
         high_abandonment_items = random.sample(items, min(len(items), 5))
@@ -381,26 +358,10 @@ def _get_slow_fulfillment_items(
         A list of catalog items with slow fulfillment times
     """
     try:
-        # Build the query
         query = "active=true"
         if category_id:
             query += f"^category={category_id}"
-
-        # Make the API request
-        url = f"{config.instance_url}/api/now/table/sc_cat_item"
-        headers = auth_manager.get_headers()
-        params = {
-            "sysparm_query": query,
-            "sysparm_fields": "sys_id,name,short_description,category",
-            "sysparm_limit": "50",
-        }
-
-        response = auth_manager.make_request("GET", url, headers=headers, params=params)
-        response.raise_for_status()
-
-        # In a real implementation, we would query the request table to get actual fulfillment data
-        # For this example, we'll simulate slow fulfillment with random data
-        items = response.json()["result"]
+        items = _fetch_catalog_items(config, auth_manager, query=query)
 
         # Select a random subset of items to mark as slow fulfillment
         slow_fulfillment_items = random.sample(items, min(len(items), 5))
@@ -437,24 +398,10 @@ def _get_poor_description_items(
         A list of catalog items with poor description quality
     """
     try:
-        # Build the query
         query = "active=true"
         if category_id:
             query += f"^category={category_id}"
-
-        # Make the API request
-        url = f"{config.instance_url}/api/now/table/sc_cat_item"
-        headers = auth_manager.get_headers()
-        params = {
-            "sysparm_query": query,
-            "sysparm_fields": "sys_id,name,short_description,category",
-            "sysparm_limit": "50",
-        }
-
-        response = auth_manager.make_request("GET", url, headers=headers, params=params)
-        response.raise_for_status()
-
-        items = response.json()["result"]
+        items = _fetch_catalog_items(config, auth_manager, query=query)
         poor_description_items = []
 
         # Analyze each item's description quality

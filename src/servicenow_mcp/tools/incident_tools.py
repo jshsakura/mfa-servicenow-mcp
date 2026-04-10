@@ -7,12 +7,12 @@ This module provides tools for managing incidents in ServiceNow.
 import logging
 from typing import Optional
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
+from .sn_api import sn_query_page, sn_count, invalidate_query_cache
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ def _resolve_incident_sys_id(
 
         return result[0].get("sys_id"), None
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to find incident: {e}")
         return None, IncidentResponse(
             success=False,
@@ -183,6 +183,8 @@ def create_incident(
 
         result = response.json().get("result", {})
 
+        invalidate_query_cache(table="incident")
+
         return IncidentResponse(
             success=True,
             message="Incident created successfully",
@@ -190,7 +192,7 @@ def create_incident(
             incident_number=result.get("number"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to create incident: {e}")
         return IncidentResponse(
             success=False,
@@ -242,6 +244,8 @@ def update_incident(
 
         result = response.json().get("result", {})
 
+        invalidate_query_cache(table="incident")
+
         return IncidentResponse(
             success=True,
             message="Incident updated successfully",
@@ -249,7 +253,7 @@ def update_incident(
             incident_number=result.get("number"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to update incident: {e}")
         return IncidentResponse(
             success=False,
@@ -301,6 +305,8 @@ def add_comment(
 
         result = response.json().get("result", {})
 
+        invalidate_query_cache(table="incident")
+
         return IncidentResponse(
             success=True,
             message="Comment added successfully",
@@ -308,7 +314,7 @@ def add_comment(
             incident_number=result.get("number"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to add comment: {e}")
         return IncidentResponse(
             success=False,
@@ -365,6 +371,8 @@ def resolve_incident(
 
         result = response.json().get("result", {})
 
+        invalidate_query_cache(table="incident")
+
         return IncidentResponse(
             success=True,
             message="Incident resolved successfully",
@@ -372,7 +380,7 @@ def resolve_incident(
             incident_number=result.get("number"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to resolve incident: {e}")
         return IncidentResponse(
             success=False,
@@ -403,8 +411,6 @@ def list_incidents(
     Returns:
         Dictionary with list of incidents.
     """
-    api_url = f"{config.api_url}/table/incident"
-
     # Build filters
     filters = []
     if params.state:
@@ -419,37 +425,24 @@ def list_incidents(
     query_string = "^".join(filters) if filters else ""
 
     if params.count_only:
-        from .sn_api import sn_count
-
         count = sn_count(config, auth_manager, "incident", query_string)
         return {"success": True, "count": count}
 
-    # Build query parameters
-    query_params = {
-        "sysparm_limit": min(params.limit, 100),
-        "sysparm_offset": params.offset,
-        "sysparm_display_value": "true",
-        "sysparm_exclude_reference_link": "true",
-    }
-
-    if query_string:
-        query_params["sysparm_query"] = query_string
-
-    # Make request
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="incident",
+            query=query_string,
+            fields="sys_id,number,short_description,description,state,priority,assigned_to,category,subcategory,sys_created_on,sys_updated_on",
+            limit=params.limit,
+            offset=params.offset,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
 
-        data = response.json()
         incidents = []
-
-        for incident_data in data.get("result", []):
+        for incident_data in records:
             # Handle assigned_to field which could be a string or a dictionary
             assigned_to = incident_data.get("assigned_to")
             if isinstance(assigned_to, dict):
@@ -476,7 +469,7 @@ def list_incidents(
             "incidents": incidents,
         }
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to list incidents: {e}")
         return {"success": False, "message": f"Failed to list incidents: {str(e)}", "incidents": []}
 
@@ -504,37 +497,26 @@ def get_incident_by_number(
     Returns:
         Dictionary with the incident details.
     """
-    api_url = f"{config.api_url}/table/incident"
-
-    # Build query parameters
-    query_params = {
-        "sysparm_query": f"number={params.incident_number}",
-        "sysparm_limit": 1,
-        "sysparm_display_value": "true",
-        "sysparm_exclude_reference_link": "true",
-    }
-
-    # Make request
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="incident",
+            query=f"number={params.incident_number}",
+            fields="",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
 
-        data = response.json()
-        result = data.get("result", [])
-
-        if not result:
+        if not records:
             return {
                 "success": False,
                 "message": f"Incident not found: {params.incident_number}",
             }
 
-        incident_data = result[0]
+        incident_data = records[0]
         assigned_to = incident_data.get("assigned_to")
         if isinstance(assigned_to, dict):
             assigned_to = assigned_to.get("display_value")
@@ -559,7 +541,7 @@ def get_incident_by_number(
             "incident": incident,
         }
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to fetch incident: {e}")
         return {
             "success": False,
