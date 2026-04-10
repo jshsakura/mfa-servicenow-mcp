@@ -6,19 +6,16 @@ This module provides tools for managing stories in ServiceNow.
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type, TypeVar
+from typing import Any, Dict, List, Optional
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
-
-# Type variable for Pydantic models
-T = TypeVar("T", bound=BaseModel)
 
 
 class CreateStoryParams(BaseModel):
@@ -121,115 +118,6 @@ class DeleteStoryDependencyParams(BaseModel):
     dependency_id: str = Field(..., description="Sys_id of the dependency is required")
 
 
-def _unwrap_and_validate_params(
-    params: Any, model_class: Type[T], required_fields: Optional[List[str]] = None
-) -> Dict[str, Any]:
-    """
-    Helper function to unwrap and validate parameters.
-
-    Args:
-        params: The parameters to unwrap and validate.
-        model_class: The Pydantic model class to validate against.
-        required_fields: List of required field names.
-
-    Returns:
-        A tuple of (success, result) where result is either the validated parameters or an error message.
-    """
-    # Handle case where params might be wrapped in another dictionary
-    if (
-        isinstance(params, dict)
-        and len(params) == 1
-        and "params" in params
-        and isinstance(params["params"], dict)
-    ):
-        logger.warning("Detected params wrapped in a 'params' key. Unwrapping...")
-        params = params["params"]
-
-    # Handle case where params might be a Pydantic model object
-    if not isinstance(params, dict):
-        try:
-            # Try to convert to dict if it's a Pydantic model
-            logger.warning("Params is not a dictionary. Attempting to convert...")
-            params = params.dict() if hasattr(params, "dict") else dict(params)
-        except Exception as e:
-            logger.error(f"Failed to convert params to dictionary: {e}")
-            return {
-                "success": False,
-                "message": f"Invalid parameters format. Expected a dictionary, got {type(params).__name__}",
-            }
-
-    # Validate required parameters are present
-    if required_fields:
-        for field in required_fields:
-            if field not in params:
-                return {
-                    "success": False,
-                    "message": f"Missing required parameter '{field}'",
-                }
-
-    try:
-        # Validate parameters against the model
-        validated_params = model_class(**params)
-        return {
-            "success": True,
-            "params": validated_params,
-        }
-    except Exception as e:
-        logger.error(f"Error validating parameters: {e}")
-        return {
-            "success": False,
-            "message": f"Error validating parameters: {str(e)}",
-        }
-
-
-def _get_instance_url(auth_manager: AuthManager, server_config: ServerConfig) -> Optional[str]:
-    """
-    Helper function to get the instance URL from either server_config or auth_manager.
-
-    Args:
-        auth_manager: The authentication manager.
-        server_config: The server configuration.
-
-    Returns:
-        The instance URL if found, None otherwise.
-    """
-    if hasattr(server_config, "instance_url"):
-        return server_config.instance_url
-    elif hasattr(auth_manager, "instance_url"):
-        return auth_manager.instance_url
-    else:
-        logger.error("Cannot find instance_url in either server_config or auth_manager")
-        return None
-
-
-def _get_headers(auth_manager: Any, server_config: Any) -> Optional[Dict[str, str]]:
-    """
-    Helper function to get headers from either auth_manager or server_config.
-
-    Args:
-        auth_manager: The authentication manager or object passed as auth_manager.
-        server_config: The server configuration or object passed as server_config.
-
-    Returns:
-        The headers if found, None otherwise.
-    """
-    # Try to get headers from auth_manager
-    if hasattr(auth_manager, "get_headers"):
-        return auth_manager.get_headers()
-
-    # If auth_manager doesn't have get_headers, try server_config
-    if hasattr(server_config, "get_headers"):
-        return server_config.get_headers()
-
-    # If neither has get_headers, check if auth_manager is actually a ServerConfig
-    # and server_config is actually an AuthManager (parameters swapped)
-    if hasattr(server_config, "get_headers") and not hasattr(auth_manager, "get_headers"):
-        return server_config.get_headers()
-
-    logger.error("Cannot find get_headers method in either auth_manager or server_config")
-    return None
-
-
 @register_tool(
     name="create_story",
     params=CreateStoryParams,
@@ -238,90 +126,61 @@ def _get_headers(auth_manager: Any, server_config: Any) -> Optional[Dict[str, st
     return_type=str,
 )
 def create_story(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: CreateStoryParams,
 ) -> Dict[str, Any]:
     """
     Create a new story in ServiceNow.
 
     Args:
+        config: The server configuration.
         auth_manager: The authentication manager.
-        server_config: The server configuration.
         params: The parameters for creating the story.
 
     Returns:
         The created story.
     """
-
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(
-        params, CreateStoryParams, required_fields=["short_description", "acceptance_criteria"]
-    )
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
     # Prepare the request data
-    data = {
-        "short_description": validated_params.short_description,
-        "acceptance_criteria": validated_params.acceptance_criteria,
+    data: Dict[str, Any] = {
+        "short_description": params.short_description,
+        "acceptance_criteria": params.acceptance_criteria,
     }
 
     # Add optional fields if provided
-    if validated_params.description:
-        data["description"] = validated_params.description
-    if validated_params.state:
-        data["state"] = validated_params.state
-    if validated_params.assignment_group:
-        data["assignment_group"] = validated_params.assignment_group
-    if validated_params.story_points:
-        data["story_points"] = validated_params.story_points
-    if validated_params.assigned_to:
-        data["assigned_to"] = validated_params.assigned_to
-    if validated_params.epic:
-        data["epic"] = validated_params.epic
-    if validated_params.project:
-        data["project"] = validated_params.project
-    if validated_params.work_notes:
-        data["work_notes"] = validated_params.work_notes
+    if params.description:
+        data["description"] = params.description
+    if params.state:
+        data["state"] = params.state
+    if params.assignment_group:
+        data["assignment_group"] = params.assignment_group
+    if params.story_points:
+        data["story_points"] = params.story_points
+    if params.assigned_to:
+        data["assigned_to"] = params.assigned_to
+    if params.epic:
+        data["epic"] = params.epic
+    if params.project:
+        data["project"] = params.project
+    if params.work_notes:
+        data["work_notes"] = params.work_notes
 
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Add Content-Type header
-    headers["Content-Type"] = "application/json"
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/rm_story"
+    url = f"{config.instance_url}/api/now/table/rm_story"
 
     try:
-        response = auth_manager.make_request("POST", url, json=data, headers=headers)
+        response = auth_manager.make_request("POST", url, json=data)
         response.raise_for_status()
 
         result = response.json()
+
+        invalidate_query_cache(table="rm_story")
 
         return {
             "success": True,
             "message": "Story created successfully",
             "story": result["result"],
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error creating story: {e}")
         return {
             "success": False,
@@ -337,88 +196,62 @@ def create_story(
     return_type=str,
 )
 def update_story(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: UpdateStoryParams,
 ) -> Dict[str, Any]:
     """
     Update an existing story in ServiceNow.
 
     Args:
+        config: The server configuration.
         auth_manager: The authentication manager.
-        server_config: The server configuration.
         params: The parameters for updating the story.
 
     Returns:
         The updated story.
     """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(params, UpdateStoryParams, required_fields=["story_id"])
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
     # Prepare the request data
-    data = {}
+    data: Dict[str, Any] = {}
 
     # Add optional fields if provided
-    if validated_params.short_description:
-        data["short_description"] = validated_params.short_description
-    if validated_params.acceptance_criteria:
-        data["acceptance_criteria"] = validated_params.acceptance_criteria
-    if validated_params.description:
-        data["description"] = validated_params.description
-    if validated_params.state:
-        data["state"] = validated_params.state
-    if validated_params.assignment_group:
-        data["assignment_group"] = validated_params.assignment_group
-    if validated_params.story_points:
-        data["story_points"] = validated_params.story_points
-    if validated_params.epic:
-        data["epic"] = validated_params.epic
-    if validated_params.project:
-        data["project"] = validated_params.project
-    if validated_params.assigned_to:
-        data["assigned_to"] = validated_params.assigned_to
-    if validated_params.work_notes:
-        data["work_notes"] = validated_params.work_notes
+    if params.short_description:
+        data["short_description"] = params.short_description
+    if params.acceptance_criteria:
+        data["acceptance_criteria"] = params.acceptance_criteria
+    if params.description:
+        data["description"] = params.description
+    if params.state:
+        data["state"] = params.state
+    if params.assignment_group:
+        data["assignment_group"] = params.assignment_group
+    if params.story_points:
+        data["story_points"] = params.story_points
+    if params.epic:
+        data["epic"] = params.epic
+    if params.project:
+        data["project"] = params.project
+    if params.assigned_to:
+        data["assigned_to"] = params.assigned_to
+    if params.work_notes:
+        data["work_notes"] = params.work_notes
 
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Add Content-Type header
-    headers["Content-Type"] = "application/json"
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/rm_story/{validated_params.story_id}"
+    url = f"{config.instance_url}/api/now/table/rm_story/{params.story_id}"
 
     try:
-        response = auth_manager.make_request("PUT", url, json=data, headers=headers)
+        response = auth_manager.make_request("PUT", url, json=data)
         response.raise_for_status()
 
         result = response.json()
+
+        invalidate_query_cache(table="rm_story")
 
         return {
             "success": True,
             "message": "Story updated successfully",
             "story": result["result"],
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error updating story: {e}")
         return {
             "success": False,
@@ -434,97 +267,66 @@ def update_story(
     return_type=str,
 )
 def list_stories(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: ListStoriesParams,
 ) -> Dict[str, Any]:
     """
     List stories from ServiceNow.
 
     Args:
+        config: The server configuration.
         auth_manager: The authentication manager.
-        server_config: The server configuration.
         params: The parameters for listing stories.
 
     Returns:
         A list of stories.
     """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(params, ListStoriesParams)
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
     # Build the query
-    query_parts = []
+    query_parts: List[str] = []
 
-    if validated_params.state:
-        query_parts.append(f"state={validated_params.state}")
-    if validated_params.assignment_group:
-        query_parts.append(f"assignment_group={validated_params.assignment_group}")
+    if params.state:
+        query_parts.append(f"state={params.state}")
+    if params.assignment_group:
+        query_parts.append(f"assignment_group={params.assignment_group}")
 
     # Handle timeframe filtering
-    if validated_params.timeframe:
+    if params.timeframe:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if validated_params.timeframe == "upcoming":
+        if params.timeframe == "upcoming":
             query_parts.append(f"start_date>{now}")
-        elif validated_params.timeframe == "in-progress":
+        elif params.timeframe == "in-progress":
             query_parts.append(f"start_date<{now}^end_date>{now}")
-        elif validated_params.timeframe == "completed":
+        elif params.timeframe == "completed":
             query_parts.append(f"end_date<{now}")
 
     # Add any additional query string
-    if validated_params.query:
-        query_parts.append(validated_params.query)
+    if params.query:
+        query_parts.append(params.query)
 
     # Combine query parts
     query = "^".join(query_parts) if query_parts else ""
 
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/rm_story"
-
-    params = {
-        "sysparm_limit": min(validated_params.limit, 100),
-        "sysparm_offset": validated_params.offset,
-        "sysparm_query": query,
-        "sysparm_display_value": "true",
-    }
-
     try:
-        response = auth_manager.make_request("GET", url, headers=headers, params=params)
-        response.raise_for_status()
-
-        result = response.json()
-
-        # Handle the case where result["result"] is a list
-        stories = result.get("result", [])
-        count = len(stories)
+        rows, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table="rm_story",
+            query=query,
+            fields="sys_id,short_description,description,state,story_points,assigned_to,assignment_group,epic,project,acceptance_criteria,start_date,end_date,sys_created_on,sys_updated_on",
+            limit=min(params.limit or 10, 100),
+            offset=params.offset or 0,
+            display_value=True,
+            fail_silently=False,
+        )
 
         return {
             "success": True,
-            "stories": stories,
-            "count": count,
-            "total": count,  # Use count as total if total is not provided
+            "stories": rows,
+            "count": len(rows),
+            "total": total_count or len(rows),
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error listing stories: {e}")
         return {
             "success": False,
@@ -540,87 +342,56 @@ def list_stories(
     return_type=str,
 )
 def list_story_dependencies(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: ListStoryDependenciesParams,
 ) -> Dict[str, Any]:
     """
     List story dependencies from ServiceNow.
 
     Args:
+        config: The server configuration.
         auth_manager: The authentication manager.
-        server_config: The server configuration.
         params: The parameters for listing story dependencies.
 
     Returns:
         A list of story dependencies.
     """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(params, ListStoryDependenciesParams)
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
     # Build the query
-    query_parts = []
+    query_parts: List[str] = []
 
-    if validated_params.dependent_story:
-        query_parts.append(f"dependent_story={validated_params.dependent_story}")
-    if validated_params.prerequisite_story:
-        query_parts.append(f"prerequisite_story={validated_params.prerequisite_story}")
+    if params.dependent_story:
+        query_parts.append(f"dependent_story={params.dependent_story}")
+    if params.prerequisite_story:
+        query_parts.append(f"prerequisite_story={params.prerequisite_story}")
 
     # Add any additional query string
-    if validated_params.query:
-        query_parts.append(validated_params.query)
+    if params.query:
+        query_parts.append(params.query)
 
     # Combine query parts
     query = "^".join(query_parts) if query_parts else ""
 
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/m2m_story_dependencies"
-
-    params = {
-        "sysparm_limit": min(validated_params.limit, 100),
-        "sysparm_offset": validated_params.offset,
-        "sysparm_query": query,
-        "sysparm_display_value": "true",
-    }
-
     try:
-        response = auth_manager.make_request("GET", url, headers=headers, params=params)
-        response.raise_for_status()
-
-        result = response.json()
-
-        # Handle the case where result["result"] is a list
-        story_dependencies = result.get("result", [])
-        count = len(story_dependencies)
+        rows, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table="m2m_story_dependencies",
+            query=query,
+            fields="sys_id,dependent_story,prerequisite_story,sys_created_on,sys_updated_on",
+            limit=min(params.limit or 10, 100),
+            offset=params.offset or 0,
+            display_value=True,
+            fail_silently=False,
+        )
 
         return {
             "success": True,
-            "story_dependencies": story_dependencies,
-            "count": count,
-            "total": count,  # Use count as total if total is not provided
+            "story_dependencies": rows,
+            "count": len(rows),
+            "total": total_count or len(rows),
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error listing story dependencies: {e}")
         return {
             "success": False,
@@ -636,72 +407,42 @@ def list_story_dependencies(
     return_type=str,
 )
 def create_story_dependency(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: CreateStoryDependencyParams,
 ) -> Dict[str, Any]:
     """
     Create a dependency between two stories in ServiceNow.
 
     Args:
+        config: The server configuration.
         auth_manager: The authentication manager.
-        server_config: The server configuration.
         params: The parameters for creating a story dependency.
 
     Returns:
         The created story dependency.
     """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(
-        params,
-        CreateStoryDependencyParams,
-        required_fields=["dependent_story", "prerequisite_story"],
-    )
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
     # Prepare the request data
     data = {
-        "dependent_story": validated_params.dependent_story,
-        "prerequisite_story": validated_params.prerequisite_story,
+        "dependent_story": params.dependent_story,
+        "prerequisite_story": params.prerequisite_story,
     }
 
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Add Content-Type header
-    headers["Content-Type"] = "application/json"
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/m2m_story_dependencies"
+    url = f"{config.instance_url}/api/now/table/m2m_story_dependencies"
 
     try:
-        response = auth_manager.make_request("POST", url, json=data, headers=headers)
+        response = auth_manager.make_request("POST", url, json=data)
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="m2m_story_dependencies")
+
         return {
             "success": True,
             "message": "Story dependency created successfully",
             "story_dependency": result["result"],
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error creating story dependency: {e}")
         return {
             "success": False,
@@ -717,59 +458,34 @@ def create_story_dependency(
     return_type=str,
 )
 def delete_story_dependency(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: DeleteStoryDependencyParams,
 ) -> Dict[str, Any]:
     """
     Delete a story dependency in ServiceNow.
 
     Args:
+        config: The server configuration.
         auth_manager: The authentication manager.
-        server_config: The server configuration.
         params: The parameters for deleting a story dependency.
 
     Returns:
         The deleted story dependency.
     """
-    # Unwrap and validate parameters
-    result = _unwrap_and_validate_params(
-        params, DeleteStoryDependencyParams, required_fields=["dependency_id"]
-    )
-
-    if not result["success"]:
-        return result
-
-    validated_params = result["params"]
-
-    # Get the instance URL
-    instance_url = _get_instance_url(auth_manager, server_config)
-    if not instance_url:
-        return {
-            "success": False,
-            "message": "Cannot find instance_url in either server_config or auth_manager",
-        }
-
-    # Get the headers
-    headers = _get_headers(auth_manager, server_config)
-    if not headers:
-        return {
-            "success": False,
-            "message": "Cannot find get_headers method in either auth_manager or server_config",
-        }
-
-    # Make the API request
-    url = f"{instance_url}/api/now/table/m2m_story_dependencies/{validated_params.dependency_id}"
+    url = f"{config.instance_url}/api/now/table/m2m_story_dependencies/{params.dependency_id}"
 
     try:
-        response = auth_manager.make_request("DELETE", url, headers=headers)
+        response = auth_manager.make_request("DELETE", url)
         response.raise_for_status()
+
+        invalidate_query_cache(table="m2m_story_dependencies")
 
         return {
             "success": True,
             "message": "Story dependency deleted successfully",
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error deleting story dependency: {e}")
         return {
             "success": False,

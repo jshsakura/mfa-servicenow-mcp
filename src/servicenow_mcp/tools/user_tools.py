@@ -7,10 +7,10 @@ This module provides tools for managing users and groups in ServiceNow.
 import logging
 from typing import List, Optional
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -222,6 +222,8 @@ def create_user(
         if params.roles and result.get("sys_id"):
             assign_roles_to_user(config, auth_manager, result.get("sys_id"), params.roles)
 
+        invalidate_query_cache(table="sys_user")
+
         return UserResponse(
             success=True,
             message="User created successfully",
@@ -229,7 +231,7 @@ def create_user(
             user_name=result.get("user_name"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to create user: {e}")
         return UserResponse(
             success=False,
@@ -306,6 +308,8 @@ def update_user(
         if params.roles:
             assign_roles_to_user(config, auth_manager, params.user_id, params.roles)
 
+        invalidate_query_cache(table="sys_user")
+
         return UserResponse(
             success=True,
             message="User updated successfully",
@@ -313,7 +317,7 @@ def update_user(
             user_name=result.get("user_name"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to update user: {e}")
         return UserResponse(
             success=False,
@@ -344,40 +348,37 @@ def get_user(
     Returns:
         Dictionary containing user details.
     """
-    api_url = f"{config.api_url}/table/sys_user"
-    query_params = {}
+    query_string = ""
 
     # Build query parameters
     if params.user_id:
-        query_params["sysparm_query"] = f"sys_id={params.user_id}"
+        query_string = f"sys_id={params.user_id}"
     elif params.user_name:
-        query_params["sysparm_query"] = f"user_name={params.user_name}"
+        query_string = f"user_name={params.user_name}"
     elif params.email:
-        query_params["sysparm_query"] = f"email={params.email}"
+        query_string = f"email={params.email}"
     else:
         return {"success": False, "message": "At least one search parameter is required"}
 
-    query_params["sysparm_limit"] = "1"
-    query_params["sysparm_display_value"] = "true"
-
     # Make request
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        result, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_user",
+            query=query_string,
+            fields="",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        result = response.json().get("result", [])
         if not result:
             return {"success": False, "message": "User not found"}
 
         return {"success": True, "message": "User found", "user": result[0]}
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to get user: {e}")
         return {"success": False, "message": f"Failed to get user: {str(e)}"}
 
@@ -405,8 +406,6 @@ def list_users(
     Returns:
         Dictionary containing list of users.
     """
-    api_url = f"{config.api_url}/table/sys_user"
-
     # Build query
     query_parts = []
     if params.active is not None:
@@ -421,41 +420,32 @@ def list_users(
     query_string = "^".join(query_parts) if query_parts else ""
 
     if params.count_only:
-        from .sn_api import sn_count
-
         count = sn_count(config, auth_manager, "sys_user", query_string)
         return {"success": True, "count": count}
 
-    query_params = {
-        "sysparm_limit": str(min(params.limit, 100)),
-        "sysparm_offset": str(params.offset),
-        "sysparm_display_value": "true",
-    }
-
-    if query_string:
-        query_params["sysparm_query"] = query_string
-
     # Make request
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        result, total = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_user",
+            query=query_string,
+            fields="",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        result = response.json().get("result", [])
 
         return {
             "success": True,
             "message": f"Found {len(result)} users",
             "users": result,
             "count": len(result),
+            "total": total or 0,
         }
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to list users: {e}")
         return {"success": False, "message": f"Failed to list users: {str(e)}"}
 
@@ -483,13 +473,6 @@ def list_groups(
     Returns:
         Dictionary containing list of groups.
     """
-    api_url = f"{config.api_url}/table/sys_user_group"
-    query_params = {
-        "sysparm_limit": str(min(params.limit, 100)),
-        "sysparm_offset": str(params.offset),
-        "sysparm_display_value": "true",
-    }
-
     # Build query
     query_parts = []
     if params.active is not None:
@@ -499,30 +482,31 @@ def list_groups(
     if params.query:
         query_parts.append(f"^nameLIKE{params.query}^ORdescriptionLIKE{params.query}")
 
-    if query_parts:
-        query_params["sysparm_query"] = "^".join(query_parts)
+    query_string = "^".join(query_parts) if query_parts else ""
 
     # Make request
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        result, total = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_user_group",
+            query=query_string,
+            fields="",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        result = response.json().get("result", [])
 
         return {
             "success": True,
             "message": f"Found {len(result)} groups",
             "groups": result,
             "count": len(result),
+            "total": total or 0,
         }
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to list groups: {e}")
         return {"success": False, "message": f"Failed to list groups: {str(e)}"}
 
@@ -549,6 +533,7 @@ def assign_roles_to_user(
     api_url = f"{config.api_url}/table/sys_user_has_role"
 
     success = True
+    assigned_any = False
     for role in roles:
         # First check if the role exists
         role_id = get_role_id(config, auth_manager, role)
@@ -576,9 +561,13 @@ def assign_roles_to_user(
                 timeout=config.timeout,
             )
             response.raise_for_status()
-        except requests.RequestException as e:
+            assigned_any = True
+        except Exception as e:
             logger.error(f"Failed to assign role '{role}' to user: {e}")
             success = False
+
+    if assigned_any:
+        invalidate_query_cache(table="sys_user_has_role")
 
     return success
 
@@ -599,29 +588,24 @@ def get_role_id(
     Returns:
         sys_id of the role if found, None otherwise.
     """
-    api_url = f"{config.api_url}/table/sys_user_role"
-    query_params = {
-        "sysparm_query": f"name={role_name}",
-        "sysparm_limit": "1",
-    }
-
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        result, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_user_role",
+            query=f"name={role_name}",
+            fields="sys_id",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        result = response.json().get("result", [])
         if not result:
             return None
 
         return result[0].get("sys_id")
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to get role ID: {e}")
         return None
 
@@ -644,26 +628,21 @@ def check_user_has_role(
     Returns:
         Boolean indicating whether the user has the role.
     """
-    api_url = f"{config.api_url}/table/sys_user_has_role"
-    query_params = {
-        "sysparm_query": f"user={user_id}^role={role_id}",
-        "sysparm_limit": "1",
-    }
-
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        result, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_user_has_role",
+            query=f"user={user_id}^role={role_id}",
+            fields="sys_id",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        result = response.json().get("result", [])
         return len(result) > 0
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to check if user has role: {e}")
         return False
 
@@ -732,6 +711,8 @@ def create_group(
                 AddGroupMembersParams(group_id=group_id, members=params.members),
             )
 
+        invalidate_query_cache(table="sys_user_group")
+
         return GroupResponse(
             success=True,
             message="Group created successfully",
@@ -739,7 +720,7 @@ def create_group(
             group_name=result.get("name"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to create group: {e}")
         return GroupResponse(
             success=False,
@@ -801,6 +782,7 @@ def update_group(
         response.raise_for_status()
 
         result = response.json().get("result", {})
+        invalidate_query_cache(table="sys_user_group")
 
         return GroupResponse(
             success=True,
@@ -809,7 +791,7 @@ def update_group(
             group_name=result.get("name"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to update group: {e}")
         return GroupResponse(
             success=False,
@@ -875,7 +857,7 @@ def add_group_members(
                 timeout=config.timeout,
             )
             response.raise_for_status()
-        except requests.RequestException as e:
+        except Exception as e:
             logger.error(f"Failed to add member '{member}' to group: {e}")
             success = False
             failed_members.append(member)
@@ -884,6 +866,9 @@ def add_group_members(
         message = f"Some members could not be added to the group: {', '.join(failed_members)}"
     else:
         message = "All members added to the group successfully"
+
+    if success:
+        invalidate_query_cache(table="sys_user_grmember")
 
     return GroupResponse(
         success=success,
@@ -969,7 +954,7 @@ def remove_group_members(
             )
             response.raise_for_status()
 
-        except requests.RequestException as e:
+        except Exception as e:
             logger.error(f"Failed to remove member '{member}' from group: {e}")
             success = False
             failed_members.append(member)
@@ -978,6 +963,9 @@ def remove_group_members(
         message = f"Some members could not be removed from the group: {', '.join(failed_members)}"
     else:
         message = "All members removed from the group successfully"
+
+    if success:
+        invalidate_query_cache(table="sys_user_grmember")
 
     return GroupResponse(
         success=success,

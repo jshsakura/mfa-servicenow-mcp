@@ -7,12 +7,12 @@ This module provides tools for querying and viewing the service catalog in Servi
 import logging
 from typing import Any, Dict, List, Optional
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
+from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
 
@@ -121,40 +121,25 @@ def list_catalog_items(
     query_string = "^".join(filters) if filters else ""
 
     if params.count_only:
-        from .sn_api import sn_count
-
         count = sn_count(config, auth_manager, "sc_cat_item", query_string)
         return {"success": True, "count": count}
 
-    # Build the API URL
-    url = f"{config.instance_url}/api/now/table/sc_cat_item"
-
-    # Prepare query parameters
-    query_params = {
-        "sysparm_limit": min(params.limit, 100),
-        "sysparm_offset": params.offset,
-        "sysparm_display_value": "true",
-        "sysparm_exclude_reference_link": "true",
-    }
-
-    if query_string:
-        query_params["sysparm_query"] = query_string
-
-    # Make the API request
-    headers = auth_manager.get_headers()
-    headers["Accept"] = "application/json"
-
     try:
-        response = auth_manager.make_request("GET", url, headers=headers, params=query_params)
-        response.raise_for_status()
-
-        # Process the response
-        result = response.json()
-        items = result.get("result", [])
+        records, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table="sc_cat_item",
+            query=query_string,
+            fields="sys_id,name,short_description,category,price,picture,active,order",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+            fail_silently=False,
+        )
 
         # Format the response
         formatted_items = []
-        for item in items:
+        for item in records:
             formatted_items.append(
                 {
                     "sys_id": item.get("sys_id", ""),
@@ -177,7 +162,7 @@ def list_catalog_items(
             "offset": params.offset,
         }
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error listing catalog items: {str(e)}")
         return {
             "success": False,
@@ -214,33 +199,27 @@ def get_catalog_item(
     """
     logger.info(f"Getting service catalog item: {params.item_id}")
 
-    # Build the API URL
-    url = f"{config.instance_url}/api/now/table/sc_cat_item/{params.item_id}"
-
-    # Prepare query parameters
-    query_params = {
-        "sysparm_display_value": "true",
-        "sysparm_exclude_reference_link": "true",
-    }
-
-    # Make the API request
-    headers = auth_manager.get_headers()
-    headers["Accept"] = "application/json"
-
     try:
-        response = auth_manager.make_request("GET", url, headers=headers, params=query_params)
-        response.raise_for_status()
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sc_cat_item",
+            query=f"sys_id={params.item_id}",
+            fields="sys_id,name,short_description,description,category,price,picture,active,order,delivery_time,availability",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
+        )
 
-        # Process the response
-        result = response.json()
-        item = result.get("result", {})
-
-        if not item:
+        if not records:
             return CatalogResponse(
                 success=False,
                 message=f"Catalog item not found: {params.item_id}",
                 data=None,
             )
+
+        item = records[0]
 
         # Format the response
         formatted_item = {
@@ -264,7 +243,7 @@ def get_catalog_item(
             data=formatted_item,
         )
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error getting catalog item: {str(e)}")
         return CatalogResponse(
             success=False,
@@ -291,31 +270,21 @@ def get_catalog_item_variables(
     """
     logger.info(f"Getting variables for catalog item: {item_id}")
 
-    # Build the API URL
-    url = f"{config.instance_url}/api/now/table/item_option_new"
-
-    # Prepare query parameters
-    query_params = {
-        "sysparm_query": f"cat_item={item_id}^ORDERBYorder",
-        "sysparm_display_value": "true",
-        "sysparm_exclude_reference_link": "true",
-    }
-
-    # Make the API request
-    headers = auth_manager.get_headers()
-    headers["Accept"] = "application/json"
-
     try:
-        response = auth_manager.make_request("GET", url, headers=headers, params=query_params)
-        response.raise_for_status()
-
-        # Process the response
-        result = response.json()
-        variables = result.get("result", [])
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="item_option_new",
+            query=f"cat_item={item_id}^ORDERBYorder",
+            fields="sys_id,name,question_text,type,mandatory,default_value,help_text,order",
+            limit=100,
+            offset=0,
+            display_value=True,
+        )
 
         # Format the response
         formatted_variables = []
-        for variable in variables:
+        for variable in records:
             formatted_variables.append(
                 {
                     "sys_id": variable.get("sys_id", ""),
@@ -331,7 +300,7 @@ def get_catalog_item_variables(
 
         return formatted_variables
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error getting catalog item variables: {str(e)}")
         return []
 
@@ -361,17 +330,6 @@ def list_catalog_categories(
     """
     logger.info("Listing service catalog categories")
 
-    # Build the API URL
-    url = f"{config.instance_url}/api/now/table/sc_category"
-
-    # Prepare query parameters
-    query_params = {
-        "sysparm_limit": min(params.limit, 100),
-        "sysparm_offset": params.offset,
-        "sysparm_display_value": "true",
-        "sysparm_exclude_reference_link": "true",
-    }
-
     # Add filters
     filters = []
     if params.active:
@@ -379,24 +337,24 @@ def list_catalog_categories(
     if params.query:
         filters.append(f"titleLIKE{params.query}^ORdescriptionLIKE{params.query}")
 
-    if filters:
-        query_params["sysparm_query"] = "^".join(filters)
-
-    # Make the API request
-    headers = auth_manager.get_headers()
-    headers["Accept"] = "application/json"
+    query_string = "^".join(filters) if filters else ""
 
     try:
-        response = auth_manager.make_request("GET", url, headers=headers, params=query_params)
-        response.raise_for_status()
-
-        # Process the response
-        result = response.json()
-        categories = result.get("result", [])
+        records, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table="sc_category",
+            query=query_string,
+            fields="sys_id,title,description,parent,icon,active,order",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+            fail_silently=False,
+        )
 
         # Format the response
         formatted_categories = []
-        for category in categories:
+        for category in records:
             formatted_categories.append(
                 {
                     "sys_id": category.get("sys_id", ""),
@@ -418,7 +376,7 @@ def list_catalog_categories(
             "offset": params.offset,
         }
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error listing catalog categories: {str(e)}")
         return {
             "success": False,
@@ -498,13 +456,15 @@ def create_catalog_category(
             "order": category.get("order", ""),
         }
 
+        invalidate_query_cache(table="sc_category")
+
         return CatalogResponse(
             success=True,
             message=f"Created catalog category: {params.title}",
             data=formatted_category,
         )
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error creating catalog category: {str(e)}")
         return CatalogResponse(
             success=False,
@@ -580,13 +540,15 @@ def update_catalog_category(
             "order": category.get("order", ""),
         }
 
+        invalidate_query_cache(table="sc_category")
+
         return CatalogResponse(
             success=True,
             message=f"Updated catalog category: {params.category_id}",
             data=formatted_category,
         )
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error updating catalog category: {str(e)}")
         return CatalogResponse(
             success=False,
@@ -642,9 +604,12 @@ def move_catalog_items(
                 response = auth_manager.make_request("PATCH", item_url, headers=headers, json=body)
                 response.raise_for_status()
                 success_count += 1
-            except requests.exceptions.RequestException as e:
+            except Exception as e:
                 logger.error(f"Error moving catalog item {item_id}: {str(e)}")
                 failed_items.append({"item_id": item_id, "error": str(e)})
+
+        # Invalidate cache after all items processed
+        invalidate_query_cache(table="sc_cat_item")
 
         # Prepare the response
         if success_count == len(params.item_ids):

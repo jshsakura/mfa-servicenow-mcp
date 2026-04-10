@@ -5,12 +5,12 @@ This module provides tools for viewing and managing workflows in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, Dict, List, Optional, Type, TypeVar, Union, cast
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -197,7 +197,7 @@ def _get_auth_and_config(
             "Cannot find instance_url attribute in either auth_manager or server_config"
         )
 
-    return auth_manager, server_config
+    return cast(AuthManager, auth_manager), cast(ServerConfig, server_config)
 
 
 @register_tool(
@@ -247,39 +247,29 @@ def list_workflows(
     query_string = "^".join(query_parts) if query_parts else ""
 
     if params.get("count_only"):
-        from .sn_api import sn_count
-
         count = sn_count(server_config, auth_manager, "wf_workflow", query_string)
         return {"success": True, "count": count}
 
-    # Convert parameters to ServiceNow query format
-    query_params = {
-        "sysparm_limit": params.get("limit", 10),
-        "sysparm_offset": params.get("offset", 0),
-    }
-
-    if query_string:
-        query_params["sysparm_query"] = query_string
-
     # Make the API request
     try:
-        headers = auth_manager.get_headers()
-        url = f"{server_config.instance_url}/api/now/table/wf_workflow"
-
-        response = auth_manager.make_request("GET", url, headers=headers, params=query_params)
-        response.raise_for_status()
-
-        result = response.json()
+        rows, total = sn_query_page(
+            server_config,
+            auth_manager,
+            table="wf_workflow",
+            query=query_string,
+            fields="",
+            limit=params.get("limit", 10),
+            offset=params.get("offset", 0),
+            display_value=False,
+            fail_silently=False,
+        )
         return {
-            "workflows": result.get("result", []),
-            "count": len(result.get("result", [])),
-            "total": int(response.headers.get("X-Total-Count", 0)),
+            "workflows": rows,
+            "count": len(rows),
+            "total": total or 0,
         }
-    except requests.RequestException as e:
-        logger.error(f"Error listing workflows: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error listing workflows: {e}")
+        logger.error(f"Error listing workflows: {e}")
         return {"error": str(e)}
 
 
@@ -321,21 +311,26 @@ def get_workflow_details(
 
     # Make the API request
     try:
-        headers = auth_manager.get_headers()
-        url = f"{server_config.instance_url}/api/now/table/wf_workflow/{workflow_id}"
+        rows, _ = sn_query_page(
+            server_config,
+            auth_manager,
+            table="wf_workflow",
+            query=f"sys_id={workflow_id}",
+            fields="",
+            limit=1,
+            offset=0,
+            display_value=False,
+            fail_silently=False,
+        )
 
-        response = auth_manager.make_request("GET", url, headers=headers)
-        response.raise_for_status()
+        if not rows:
+            return {"error": f"Workflow {workflow_id} not found"}
 
-        result = response.json()
         return {
-            "workflow": result.get("result", {}),
+            "workflow": rows[0],
         }
-    except requests.RequestException as e:
-        logger.error(f"Error getting workflow details: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error getting workflow details: {e}")
+        logger.error(f"Error getting workflow details: {e}")
         return {"error": str(e)}
 
 
@@ -376,33 +371,26 @@ def list_workflow_versions(
     if not workflow_id:
         return {"error": "Workflow ID is required"}
 
-    # Convert parameters to ServiceNow query format
-    query_params = {
-        "sysparm_query": f"workflow={workflow_id}",
-        "sysparm_limit": params.get("limit", 10),
-        "sysparm_offset": params.get("offset", 0),
-    }
-
-    # Make the API request
     try:
-        headers = auth_manager.get_headers()
-        url = f"{server_config.instance_url}/api/now/table/wf_workflow_version"
-
-        response = auth_manager.make_request("GET", url, headers=headers, params=query_params)
-        response.raise_for_status()
-
-        result = response.json()
+        rows, total = sn_query_page(
+            server_config,
+            auth_manager,
+            table="wf_workflow_version",
+            query=f"workflow={workflow_id}",
+            fields="",
+            limit=params.get("limit", 10),
+            offset=params.get("offset", 0),
+            display_value=False,
+            fail_silently=False,
+        )
         return {
-            "versions": result.get("result", []),
-            "count": len(result.get("result", [])),
-            "total": int(response.headers.get("X-Total-Count", 0)),
+            "versions": rows,
+            "count": len(rows),
+            "total": total or 0,
             "workflow_id": workflow_id,
         }
-    except requests.RequestException as e:
-        logger.error(f"Error listing workflow versions: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error listing workflow versions: {e}")
+        logger.error(f"Error listing workflow versions: {e}")
         return {"error": str(e)}
 
 
@@ -448,21 +436,18 @@ def get_workflow_activities(
     # If no version specified, get the latest published version
     if not version_id:
         try:
-            headers = auth_manager.get_headers()
-            version_url = f"{server_config.instance_url}/api/now/table/wf_workflow_version"
-            version_params = {
-                "sysparm_query": f"workflow={workflow_id}^published=true",
-                "sysparm_limit": 1,
-                "sysparm_orderby": "version DESC",
-            }
-
-            version_response = auth_manager.make_request(
-                "GET", version_url, headers=headers, params=version_params
+            versions, _ = sn_query_page(
+                server_config,
+                auth_manager,
+                table="wf_workflow_version",
+                query=f"workflow={workflow_id}^published=true",
+                fields="",
+                limit=1,
+                offset=0,
+                orderby="-version",
+                display_value=False,
+                fail_silently=False,
             )
-            version_response.raise_for_status()
-
-            version_result = version_response.json()
-            versions = version_result.get("result", [])
 
             if not versions:
                 return {
@@ -471,39 +456,32 @@ def get_workflow_activities(
                 }
 
             version_id = versions[0]["sys_id"]
-        except requests.RequestException as e:
-            logger.error(f"Error getting workflow version: {e}")
-            return {"error": str(e)}
         except Exception as e:
-            logger.error(f"Unexpected error getting workflow version: {e}")
+            logger.error(f"Error getting workflow version: {e}")
             return {"error": str(e)}
 
     # Get activities for the version
     try:
-        headers = auth_manager.get_headers()
-        activities_url = f"{server_config.instance_url}/api/now/table/wf_activity"
-        activities_params = {
-            "sysparm_query": f"workflow_version={version_id}",
-            "sysparm_orderby": "order",
-        }
-
-        activities_response = auth_manager.make_request(
-            "GET", activities_url, headers=headers, params=activities_params
+        activities, _ = sn_query_page(
+            server_config,
+            auth_manager,
+            table="wf_activity",
+            query=f"workflow_version={version_id}",
+            fields="",
+            limit=100,
+            offset=0,
+            orderby="order",
+            display_value=False,
+            fail_silently=False,
         )
-        activities_response.raise_for_status()
-
-        activities_result = activities_response.json()
         return {
-            "activities": activities_result.get("result", []),
-            "count": len(activities_result.get("result", [])),
+            "activities": activities,
+            "count": len(activities),
             "workflow_id": workflow_id,
             "version_id": version_id,
         }
-    except requests.RequestException as e:
-        logger.error(f"Error getting workflow activities: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error getting workflow activities: {e}")
+        logger.error(f"Error getting workflow activities: {e}")
         return {"error": str(e)}
 
 
@@ -571,15 +549,13 @@ def create_workflow(
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="wf_workflow")
         return {
             "workflow": result.get("result", {}),
             "message": "Workflow created successfully",
         }
-    except requests.RequestException as e:
-        logger.error(f"Error creating workflow: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error creating workflow: {e}")
+        logger.error(f"Error creating workflow: {e}")
         return {"error": str(e)}
 
 
@@ -651,15 +627,13 @@ def update_workflow(
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="wf_workflow")
         return {
             "workflow": result.get("result", {}),
             "message": "Workflow updated successfully",
         }
-    except requests.RequestException as e:
-        logger.error(f"Error updating workflow: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error updating workflow: {e}")
+        logger.error(f"Error updating workflow: {e}")
         return {"error": str(e)}
 
 
@@ -714,15 +688,13 @@ def activate_workflow(
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="wf_workflow")
         return {
             "workflow": result.get("result", {}),
             "message": "Workflow activated successfully",
         }
-    except requests.RequestException as e:
-        logger.error(f"Error activating workflow: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error activating workflow: {e}")
+        logger.error(f"Error activating workflow: {e}")
         return {"error": str(e)}
 
 
@@ -777,15 +749,13 @@ def deactivate_workflow(
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="wf_workflow")
         return {
             "workflow": result.get("result", {}),
             "message": "Workflow deactivated successfully",
         }
-    except requests.RequestException as e:
-        logger.error(f"Error deactivating workflow: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error deactivating workflow: {e}")
+        logger.error(f"Error deactivating workflow: {e}")
         return {"error": str(e)}
 
 
@@ -856,15 +826,13 @@ def add_workflow_activity(
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="wf_activity")
         return {
             "activity": result.get("result", {}),
             "message": "Workflow activity added successfully",
         }
-    except requests.RequestException as e:
-        logger.error(f"Error adding workflow activity: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error adding workflow activity: {e}")
+        logger.error(f"Error adding workflow activity: {e}")
         return {"error": str(e)}
 
 
@@ -930,15 +898,13 @@ def update_workflow_activity(
         response.raise_for_status()
 
         result = response.json()
+        invalidate_query_cache(table="wf_activity")
         return {
             "activity": result.get("result", {}),
             "message": "Activity updated successfully",
         }
-    except requests.RequestException as e:
-        logger.error(f"Error updating workflow activity: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error updating workflow activity: {e}")
+        logger.error(f"Error updating workflow activity: {e}")
         return {"error": str(e)}
 
 
@@ -987,15 +953,13 @@ def delete_workflow_activity(
         response = auth_manager.make_request("DELETE", url, headers=headers)
         response.raise_for_status()
 
+        invalidate_query_cache(table="wf_activity")
         return {
             "message": "Activity deleted successfully",
             "activity_id": activity_id,
         }
-    except requests.RequestException as e:
-        logger.error(f"Error deleting workflow activity: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error deleting workflow activity: {e}")
+        logger.error(f"Error deleting workflow activity: {e}")
         return {"error": str(e)}
 
 
@@ -1063,7 +1027,7 @@ def reorder_workflow_activities(
                         "success": True,
                     }
                 )
-            except requests.RequestException as e:
+            except Exception as e:
                 logger.error(f"Error updating activity order: {e}")
                 results.append(
                     {
@@ -1073,6 +1037,7 @@ def reorder_workflow_activities(
                     }
                 )
 
+        invalidate_query_cache(table="wf_activity")
         return {
             "message": "Activities reordered",
             "workflow_id": workflow_id,
@@ -1121,13 +1086,11 @@ def delete_workflow(
         response = auth_manager.make_request("DELETE", url, headers=headers)
         response.raise_for_status()
 
+        invalidate_query_cache(table="wf_workflow")
         return {
             "message": f"Workflow {workflow_id} deleted successfully",
             "workflow_id": workflow_id,
         }
-    except requests.RequestException as e:
-        logger.error(f"Error deleting workflow: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.error(f"Unexpected error deleting workflow: {e}")
+        logger.error(f"Error deleting workflow: {e}")
         return {"error": str(e)}

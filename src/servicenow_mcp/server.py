@@ -17,6 +17,7 @@ from mcp.server.lowlevel import Server
 from pydantic import ValidationError
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 
@@ -74,8 +75,11 @@ def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
 
 
 def _compact_json(obj: Any) -> str:
-    """Dump *obj* to compact JSON with no indentation or extra whitespace."""
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    """Dump *obj* to compact JSON with no indentation or extra whitespace.
+
+    Uses orjson (via json_fast) when available for 2-4x faster serialization.
+    """
+    return json_fast.dumps(obj)
 
 
 def serialize_tool_output(result: Any, tool_name: str) -> str:
@@ -85,11 +89,18 @@ def serialize_tool_output(result: Any, tool_name: str) -> str:
     """
     try:
         if isinstance(result, str):
-            try:
-                parsed = json.loads(result)
-                return _compact_json(parsed)
-            except json.JSONDecodeError:
-                return result
+            # Fast path: if string looks like compact JSON already, return as-is.
+            # Avoids an expensive parse→re-serialize round-trip.
+            stripped = result.lstrip()
+            if stripped and stripped[0] in ('{', '['):
+                if ' : ' not in result and '\n' not in result:
+                    return result
+                # Has whitespace — re-compact it
+                try:
+                    return _compact_json(json_fast.loads(result))
+                except Exception:
+                    return result
+            return result
         elif isinstance(result, dict):
             return _compact_json(result)
         elif hasattr(result, "model_dump_json"):
@@ -143,8 +154,11 @@ class ServiceNowMCP:
         self._load_package_config()
         self._determine_enabled_tools()
 
-        # Auto-discover all tool definitions via @register_tool decorators
-        self.tool_definitions = get_tool_definitions()
+        # Lazy-discover only the tool modules needed for the active package.
+        # Skips importing unused modules for faster startup.
+        self.tool_definitions = get_tool_definitions(
+            enabled_names=set(self.enabled_tool_names) if self.enabled_tool_names else None
+        )
 
         self._register_handlers()
         self._register_tools()

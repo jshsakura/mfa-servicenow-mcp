@@ -243,7 +243,7 @@ class AuthManager:
         self._browser_last_reauth_attempt_at: Optional[float] = None
         self._browser_user_agent = None
         self._browser_session_token = None
-        self._browser_validation_interval_seconds = 30
+        self._browser_validation_interval_seconds = 120
         self._browser_last_login_at: Optional[float] = None
         self._browser_post_login_grace_seconds = 90
         self._browser_reauth_cooldown_seconds = 15  # Start short, back off on repeated failures
@@ -533,7 +533,7 @@ class AuthManager:
                             self._browser_reauth_cooldown_max,
                         )
                         logger.warning(
-                            "Browser re-auth failed (attempt #%d). " "Next retry cooldown: %ds",
+                            "Browser re-auth failed (attempt #%d). Next retry cooldown: %ds",
                             self._browser_reauth_failure_count,
                             self._browser_reauth_cooldown_seconds,
                         )
@@ -661,6 +661,15 @@ class AuthManager:
             return True
 
         return True
+
+    def _mark_browser_session_recently_valid(self) -> None:
+        """Treat a successful authenticated API response as proof that the
+        browser-backed session is still alive.
+
+        This avoids paying an additional validation probe on the next request
+        when the server already accepted the current cookie + user token pair.
+        """
+        self._browser_last_validated_at = time.time()
 
     def _probe_browser_api_with_cookie(
         self,
@@ -1427,6 +1436,13 @@ class AuthManager:
             elapsed_ms,
         )
 
+        if (
+            self.config.type == AuthType.BROWSER
+            and self._browser_cookie_header
+            and _response_indicates_authenticated_session(response)
+        ):
+            self._mark_browser_session_recently_valid()
+
         # Handle 401 Unauthorized - retry with fresh session for Browser Auth
         if response.status_code == 401 and max_retries > 0:
             if self.config.type == AuthType.BROWSER:
@@ -1470,6 +1486,10 @@ class AuthManager:
                     response.status_code,
                     retry_elapsed_ms,
                 )
+                if self._browser_cookie_header and _response_indicates_authenticated_session(
+                    response
+                ):
+                    self._mark_browser_session_recently_valid()
             else:
                 logger.warning(
                     f"Received 401 Unauthorized with {self.config.type.value} auth. "

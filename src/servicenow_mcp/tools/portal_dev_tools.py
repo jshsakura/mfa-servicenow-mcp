@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
+from .sn_api import sn_count as _sn_count_shared
+from .sn_api import sn_query_page as _sn_query_page_shared
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
 
@@ -112,17 +114,8 @@ def _sn_count(
     table: str,
     query: str,
 ) -> int:
-    """Aggregate COUNT — single lightweight API call, no record bodies."""
-    url = f"{config.instance_url}/api/now/stats/{table}"
-    params = {"sysparm_count": "true"}
-    if query:
-        params["sysparm_query"] = query
-    resp = auth_manager.make_request("GET", url, params=params, timeout=config.timeout)
-    resp.raise_for_status()
-    data = resp.json()
-    result = data.get("result", {})
-    stats = result.get("stats", result)
-    return int(stats.get("count", 0))
+    """Aggregate COUNT via shared helper."""
+    return _sn_count_shared(config, auth_manager, table=table, query=query)
 
 
 def _sn_get(
@@ -135,27 +128,20 @@ def _sn_get(
     offset: int = 0,
     orderby: Optional[str] = None,
 ) -> tuple[List[Dict[str, Any]], Optional[int]]:
-    """Lightweight ServiceNow table GET. Returns (results, total_count)."""
-    url = f"{config.instance_url}/api/now/table/{table}"
-    params: Dict[str, Any] = {
-        "sysparm_query": query,
-        "sysparm_fields": fields,
-        "sysparm_limit": limit,
-        "sysparm_offset": offset,
-        "sysparm_display_value": "true",
-        "sysparm_exclude_reference_link": "true",
-        "sysparm_suppress_pagination_header": "false",
-    }
-    if orderby:
-        if orderby.startswith("-"):
-            params["sysparm_orderby_desc"] = orderby[1:]
-        else:
-            params["sysparm_orderby"] = orderby
-    response = auth_manager.make_request("GET", url, params=params, timeout=config.timeout)
-    response.raise_for_status()
-    data = response.json()
-    total = response.headers.get("X-Total-Count")
-    return data.get("result", []), int(total) if total else None
+    """Lightweight ServiceNow table GET via shared cached page helper."""
+    return _sn_query_page_shared(
+        config,
+        auth_manager,
+        table=table,
+        query=query,
+        fields=fields,
+        limit=limit,
+        offset=offset,
+        orderby=orderby,
+        display_value=True,
+        no_count=False,
+        fail_silently=False,
+    )
 
 
 def _compact_record(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -552,7 +538,7 @@ class GetProviderDependencyMapParams(BaseModel):
     )
 
 
-def _extract_si_refs(script: str) -> List[str]:
+def _extract_si_refs(script: Optional[str]) -> List[str]:
     """Extract Script Include class name references from a script."""
     if not script:
         return []

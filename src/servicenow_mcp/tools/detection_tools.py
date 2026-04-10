@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
+from .sn_api import sn_count as _sn_count_shared
 from .sn_api import sn_query_all as _sn_query_all_shared
 
 logger = logging.getLogger(__name__)
@@ -165,8 +166,6 @@ def _assess_confidence(
     overlap = found_codes & required_codes
     if not overlap:
         return "low"
-    if has_direct_comparison and len(overlap) >= 2:
-        return "high"
     if has_direct_comparison and len(overlap) >= 1:
         return "high"
     if len(overlap) >= 1:
@@ -233,12 +232,7 @@ def _sn_count(
     table: str,
     query: str,
 ) -> int:
-    url = f"{config.instance_url}/api/now/stats/{table}"
-    params: Dict[str, str] = {"sysparm_count": "true"}
-    if query:
-        params["sysparm_query"] = query
-    resp = auth_manager.make_request("GET", url, params=params, timeout=config.timeout)
-    return int(resp.json().get("result", {}).get("stats", {}).get("count", 0))
+    return _sn_count_shared(config, auth_manager, table=table, query=query)
 
 
 def _as_ref_sys_id(value: Any) -> Optional[str]:
