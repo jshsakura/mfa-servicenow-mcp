@@ -7,10 +7,10 @@ This module provides tools for managing knowledge bases, categories, and article
 import logging
 from typing import Any, Dict, Optional
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -207,6 +207,7 @@ def create_knowledge_base(
         response.raise_for_status()
 
         result = response.json().get("result", {})
+        invalidate_query_cache(table="kb_knowledge_base")
 
         return KnowledgeBaseResponse(
             success=True,
@@ -215,7 +216,7 @@ def create_knowledge_base(
             kb_name=result.get("title"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to create knowledge base: {e}")
         return KnowledgeBaseResponse(
             success=False,
@@ -246,15 +247,6 @@ def list_knowledge_bases(
     Returns:
         Dictionary with list of knowledge bases and metadata.
     """
-    api_url = f"{config.api_url}/table/kb_knowledge_base"
-
-    # Build query parameters
-    query_params = {
-        "sysparm_limit": min(params.limit, 100),
-        "sysparm_offset": params.offset,
-        "sysparm_display_value": "true",
-    }
-
     # Build query string
     query_parts = []
     if params.active is not None:
@@ -262,36 +254,20 @@ def list_knowledge_bases(
     if params.query:
         query_parts.append(f"titleLIKE{params.query}^ORdescriptionLIKE{params.query}")
 
-    if query_parts:
-        query_params["sysparm_query"] = "^".join(query_parts)
+    query = "^".join(query_parts)
 
-    # Make request
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        result, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="kb_knowledge_base",
+            query=query,
+            fields="sys_id,title,description,owner,kb_managers,active,sys_created_on,sys_updated_on",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        # Get the JSON response
-        json_response = response.json()
-
-        # Safely extract the result
-        if isinstance(json_response, dict) and "result" in json_response:
-            result = json_response.get("result", [])
-        else:
-            logger.error("Unexpected response format: %s", json_response)
-            return {
-                "success": False,
-                "message": "Unexpected response format",
-                "knowledge_bases": [],
-                "count": 0,
-                "limit": params.limit,
-                "offset": params.offset,
-            }
 
         # Transform the results - create a simpler structure
         knowledge_bases = []
@@ -348,7 +324,7 @@ def list_knowledge_bases(
             "offset": params.offset,
         }
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to list knowledge bases: {e}")
         return {
             "success": False,
@@ -416,6 +392,7 @@ def create_category(
 
         result = response.json().get("result", {})
         logger.debug(f"Category creation response: {result}")
+        invalidate_query_cache(table="kb_category")
 
         # Log the specific fields to check the knowledge base assignment
         if "kb_knowledge_base" in result:
@@ -432,7 +409,7 @@ def create_category(
             category_name=result.get("label"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to create category: {e}")
         return CategoryResponse(
             success=False,
@@ -491,6 +468,7 @@ def create_article(
         response.raise_for_status()
 
         result = response.json().get("result", {})
+        invalidate_query_cache(table="kb_knowledge")
 
         return ArticleResponse(
             success=True,
@@ -500,7 +478,7 @@ def create_article(
             workflow_state=result.get("workflow_state"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to create article: {e}")
         return ArticleResponse(
             success=False,
@@ -559,6 +537,7 @@ def update_article(
         response.raise_for_status()
 
         result = response.json().get("result", {})
+        invalidate_query_cache(table="kb_knowledge")
 
         return ArticleResponse(
             success=True,
@@ -568,7 +547,7 @@ def update_article(
             workflow_state=result.get("workflow_state"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to update article: {e}")
         return ArticleResponse(
             success=False,
@@ -621,6 +600,7 @@ def publish_article(
         response.raise_for_status()
 
         result = response.json().get("result", {})
+        invalidate_query_cache(table="kb_knowledge")
 
         return ArticleResponse(
             success=True,
@@ -630,7 +610,7 @@ def publish_article(
             workflow_state=result.get("workflow_state"),
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to publish article: {e}")
         return ArticleResponse(
             success=False,
@@ -661,15 +641,6 @@ def list_articles(
     Returns:
         Dictionary with list of articles and metadata.
     """
-    api_url = f"{config.api_url}/table/kb_knowledge"
-
-    # Build query parameters
-    query_params = {
-        "sysparm_limit": min(params.limit, 100),
-        "sysparm_offset": params.offset,
-        "sysparm_display_value": "all",
-    }
-
     # Build query string
     query_parts = []
     if params.knowledge_base:
@@ -681,42 +652,21 @@ def list_articles(
     if params.query:
         query_parts.append(f"short_descriptionLIKE{params.query}^ORtextLIKE{params.query}")
 
-    if query_parts:
-        query_string = "^".join(query_parts)
-        logger.debug(f"Constructed article query string: {query_string}")
-        query_params["sysparm_query"] = query_string
+    query = "^".join(query_parts)
+    logger.debug("Constructed article query string: %s", query)
 
-    # Log the query parameters for debugging
-    logger.debug(f"Listing articles with query params: {query_params}")
-
-    # Make request
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        result, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="kb_knowledge",
+            query=query,
+            fields="sys_id,short_description,kb_knowledge_base,kb_category,workflow_state,sys_created_on,sys_updated_on",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        # Get the JSON response
-        json_response = response.json()
-        logger.debug(f"Article listing raw response: {json_response}")
-
-        # Safely extract the result
-        if isinstance(json_response, dict) and "result" in json_response:
-            result = json_response.get("result", [])
-        else:
-            logger.error("Unexpected response format: %s", json_response)
-            return {
-                "success": False,
-                "message": "Unexpected response format",
-                "articles": [],
-                "count": 0,
-                "limit": params.limit,
-                "offset": params.offset,
-            }
 
         # Transform the results
         articles = []
@@ -771,7 +721,7 @@ def list_articles(
             "offset": params.offset,
         }
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to list articles: {e}")
         return {
             "success": False,
@@ -806,36 +756,24 @@ def get_article(
     Returns:
         Dictionary with article details.
     """
-    api_url = f"{config.api_url}/table/kb_knowledge/{params.article_id}"
-
-    # Build query parameters
-    query_params = {
-        "sysparm_display_value": "true",
-    }
-
-    # Make request
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="kb_knowledge",
+            query=f"sys_id={params.article_id}",
+            fields="sys_id,short_description,text,kb_knowledge_base,kb_category,workflow_state,sys_created_on,sys_updated_on,author,keywords,article_type,view_count",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        # Get the JSON response
-        json_response = response.json()
-
-        # Safely extract the result
-        if isinstance(json_response, dict) and "result" in json_response:
-            result = json_response.get("result", {})
+        if isinstance(rows, list):
+            result = rows[0] if rows else {}
+        elif isinstance(rows, dict):
+            result = rows
         else:
-            logger.error("Unexpected response format: %s", json_response)
-            return {
-                "success": False,
-                "message": "Unexpected response format",
-            }
+            result = {}
 
         if not result or not isinstance(result, dict):
             return {
@@ -892,7 +830,7 @@ def get_article(
             "article": article,
         }
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to get article: {e}")
         return {
             "success": False,
@@ -923,15 +861,6 @@ def list_categories(
     Returns:
         Dictionary with list of categories and metadata.
     """
-    api_url = f"{config.api_url}/table/kb_category"
-
-    # Build query parameters
-    query_params = {
-        "sysparm_limit": min(params.limit, 100),
-        "sysparm_offset": params.offset,
-        "sysparm_display_value": "all",
-    }
-
     # Build query string
     query_parts = []
     if params.knowledge_base:
@@ -944,41 +873,21 @@ def list_categories(
     if params.query:
         query_parts.append(f"labelLIKE{params.query}^ORdescriptionLIKE{params.query}")
 
-    if query_parts:
-        query_string = "^".join(query_parts)
-        logger.debug(f"Constructed query string: {query_string}")
-        query_params["sysparm_query"] = query_string
+    query = "^".join(query_parts)
+    logger.debug("Constructed query string: %s", query)
 
-    # Log the query parameters for debugging
-    logger.debug(f"Listing categories with query params: {query_params}")
-
-    # Make request
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        result, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="kb_category",
+            query=query,
+            fields="sys_id,label,description,kb_knowledge_base,parent,active,sys_created_on,sys_updated_on",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        # Get the JSON response
-        json_response = response.json()
-
-        # Safely extract the result
-        if isinstance(json_response, dict) and "result" in json_response:
-            result = json_response.get("result", [])
-        else:
-            logger.error("Unexpected response format: %s", json_response)
-            return {
-                "success": False,
-                "message": "Unexpected response format",
-                "categories": [],
-                "count": 0,
-                "limit": params.limit,
-                "offset": params.offset,
-            }
 
         # Transform the results
         categories = []
@@ -1060,7 +969,7 @@ def list_categories(
             "offset": params.offset,
         }
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to list categories: {e}")
         return {
             "success": False,

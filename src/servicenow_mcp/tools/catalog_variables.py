@@ -7,10 +7,10 @@ This module provides tools for managing variables (form fields) in ServiceNow ca
 import logging
 from typing import Any, Dict, List, Optional
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -158,6 +158,7 @@ def create_catalog_item_variable(
         response.raise_for_status()
 
         result = response.json().get("result", {})
+        invalidate_query_cache(table="item_option_new")
 
         return CatalogItemVariableResponse(
             success=True,
@@ -166,7 +167,7 @@ def create_catalog_item_variable(
             details=result,
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to create catalog item variable: {e}")
         return CatalogItemVariableResponse(
             success=False,
@@ -197,46 +198,42 @@ def list_catalog_item_variables(
     Returns:
         Response with a list of variables for the catalog item.
     """
-    # Build query parameters
-    query_params: Dict[str, Any] = {
-        "sysparm_query": f"cat_item={params.catalog_item_id}^ORDERBYorder",
-    }
-
-    if params.limit:
-        query_params["sysparm_limit"] = min(params.limit, 100)
-    if params.offset:
-        query_params["sysparm_offset"] = params.offset
+    query = f"cat_item={params.catalog_item_id}"
+    limit = min(params.limit, 100) if params.limit else 100
+    offset = params.offset if params.offset else 0
 
     # Include all fields if detailed info is requested
     if params.include_details:
-        query_params["sysparm_display_value"] = "true"
-        query_params["sysparm_exclude_reference_link"] = "false"
+        fields = ""
+        display_value = True
     else:
-        query_params["sysparm_fields"] = "sys_id,name,type,question_text,order,mandatory"
+        fields = "sys_id,name,type,question_text,order,mandatory"
+        display_value = False
 
-    api_url = f"{config.instance_url}/api/now/table/item_option_new"
-
-    # Make request
     try:
-        response = auth_manager.make_request(
-            "GET",
-            api_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
+        result, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table="item_option_new",
+            query=query,
+            fields=fields,
+            limit=limit,
+            offset=offset,
+            display_value=display_value,
+            orderby="order",
+            fail_silently=False,
         )
-        response.raise_for_status()
 
-        result = response.json().get("result", [])
+        count = total_count if total_count is not None else len(result)
 
         return ListCatalogItemVariablesResponse(
             success=True,
             message=f"Retrieved {len(result)} variables for catalog item",
             variables=result,
-            count=len(result),
+            count=count,
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to list catalog item variables: {e}")
         return ListCatalogItemVariablesResponse(
             success=False,
@@ -314,6 +311,7 @@ def update_catalog_item_variable(
         response.raise_for_status()
 
         result = response.json().get("result", {})
+        invalidate_query_cache(table="item_option_new")
 
         return CatalogItemVariableResponse(
             success=True,
@@ -322,7 +320,7 @@ def update_catalog_item_variable(
             details=result,
         )
 
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Failed to update catalog item variable: {e}")
         return CatalogItemVariableResponse(
             success=False,

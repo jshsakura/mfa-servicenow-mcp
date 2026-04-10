@@ -1,5 +1,6 @@
 """Tests for audit_pending_changes tool."""
 
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -32,6 +33,7 @@ def _make_update_xml_response(entries, total=None):
     resp = MagicMock()
     resp.status_code = 200
     resp.json.return_value = {"result": entries}
+    resp.content = json.dumps({"result": entries}).encode("utf-8")
     resp.headers = {"X-Total-Count": str(total or len(entries))}
     resp.raise_for_status = MagicMock()
     return resp
@@ -42,6 +44,7 @@ def _make_code_response(records):
     resp = MagicMock()
     resp.status_code = 200
     resp.json.return_value = {"result": records}
+    resp.content = json.dumps({"result": records}).encode("utf-8")
     resp.headers = {"X-Total-Count": str(len(records))}
     resp.raise_for_status = MagicMock()
     return resp
@@ -368,3 +371,145 @@ class TestAuditPendingChanges:
         # The tool function caps at 500
         assert params.max_entries == 999  # Param accepts it
         # But the function will use min(999, 500) = 500
+
+    def test_initial_fetch_failure_returns_failure_dict(self):
+        config = _mock_config()
+        auth = _mock_auth()
+        auth.make_request.side_effect = RuntimeError("boom")
+
+        result = audit_pending_changes(
+            config,
+            auth,
+            AuditPendingChangesParams(developer="test@example.com"),
+        )
+
+        assert result["success"] is False
+        assert "Failed to fetch pending changes" in result["message"]
+
+    def test_code_fetch_uses_lightweight_query_params(self):
+        config = _mock_config()
+        auth = _mock_auth()
+
+        update_entries = [
+            {
+                "sys_id": "1",
+                "name": "sp_widget",
+                "action": "INSERT_OR_UPDATE",
+                "target_name": "myWidget",
+                "type": "Widget",
+                "update_set": "My Set",
+                "sys_updated_on": "2026-03-30",
+                "sys_updated_by": "test@example.com",
+                "sys_created_by": "test@example.com",
+            }
+        ]
+        auth.make_request.side_effect = [
+            _make_update_xml_response(update_entries, total=1),
+            _make_code_response(
+                [
+                    {
+                        "sys_id": "w1",
+                        "name": "myWidget",
+                        "id": "my-widget",
+                        "script": "console.log('x');",
+                        "client_script": "",
+                        "template": "",
+                        "css": "",
+                    }
+                ]
+            ),
+            _make_code_response([]),
+        ]
+
+        result = audit_pending_changes(
+            config,
+            auth,
+            AuditPendingChangesParams(developer="test@example.com"),
+        )
+
+        assert result["success"] is True
+        code_call = auth.make_request.call_args_list[1]
+        params = code_call.kwargs["params"]
+        assert params["sysparm_display_value"] == "false"
+        assert params["sysparm_no_count"] == "true"
+
+    def test_m2m_failure_is_non_fatal(self):
+        config = _mock_config()
+        auth = _mock_auth()
+
+        update_entries = [
+            {
+                "sys_id": "1",
+                "name": "sp_widget",
+                "action": "INSERT_OR_UPDATE",
+                "target_name": "myWidget",
+                "type": "Widget",
+                "update_set": "My Set",
+                "sys_updated_on": "2026-03-30",
+                "sys_updated_by": "test@example.com",
+                "sys_created_by": "test@example.com",
+            }
+        ]
+        auth.make_request.side_effect = [
+            _make_update_xml_response(update_entries, total=1),
+            _make_code_response(
+                [
+                    {
+                        "sys_id": "w1",
+                        "name": "myWidget",
+                        "id": "my-widget",
+                        "script": "",
+                        "client_script": "",
+                        "template": "",
+                        "css": "",
+                    }
+                ]
+            ),
+            RuntimeError("m2m down"),
+        ]
+
+        result = audit_pending_changes(
+            config,
+            auth,
+            AuditPendingChangesParams(developer="test@example.com"),
+        )
+
+        assert result["success"] is True
+        assert result["cross_references"]["shared_providers"] == []
+
+    def test_m2m_scan_reports_truncation_when_widget_set_exceeds_chunk_limit(self):
+        config = _mock_config()
+        auth = _mock_auth()
+
+        update_entries = []
+        for index in range(55):
+            update_entries.append(
+                {
+                    "sys_id": str(index),
+                    "name": "sp_widget",
+                    "action": "INSERT_OR_UPDATE",
+                    "target_name": f"widget_{index}",
+                    "type": "Widget",
+                    "update_set": "My Set",
+                    "sys_updated_on": "2026-03-30",
+                    "sys_updated_by": "test@example.com",
+                    "sys_created_by": "test@example.com",
+                }
+            )
+
+        auth.make_request.side_effect = [
+            _make_update_xml_response(update_entries, total=len(update_entries)),
+            _make_code_response([]),
+        ]
+
+        result = audit_pending_changes(
+            config,
+            auth,
+            AuditPendingChangesParams(developer="test@example.com"),
+        )
+
+        assert result["success"] is True
+        assert result["cross_references"]["shared_provider_scan_truncated"] is True
+        assert result["cross_references"]["shared_provider_scan_limit"] == 50
+        assert result["cross_references"]["shared_provider_scan_total_widgets"] == 55
+        assert any("truncated to the first 50 widgets" in rec for rec in result["recommendations"])

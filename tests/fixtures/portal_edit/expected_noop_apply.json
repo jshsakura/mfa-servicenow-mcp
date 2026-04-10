@@ -1,0 +1,12 @@
+{
+  "message": "No changes applied",
+  "sys_id": "widget-benefits-1",
+  "fields": [
+    "client_script",
+    "template"
+  ],
+  "validation": {
+    "skipped": true,
+    "reason": "Proposed values already match the current record."
+  }
+}

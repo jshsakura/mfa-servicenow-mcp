@@ -2,6 +2,7 @@
 Tests for user management tools.
 """
 
+import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -17,9 +18,12 @@ from servicenow_mcp.tools.user_tools import (
     UpdateGroupParams,
     UpdateUserParams,
     add_group_members,
+    assign_roles_to_user,
     create_group,
     create_user,
+    get_role_id,
     get_user,
+    check_user_has_role,
     list_groups,
     list_users,
     remove_group_members,
@@ -47,7 +51,14 @@ class TestUserTools(unittest.TestCase):
             "Authorization": "Basic YWRtaW46cGFzc3dvcmQ=",
         }
 
-    def test_create_user(self):
+    def _finalize_response(self, mock_response):
+        payload = mock_response.json.return_value
+        mock_response.content = json.dumps(payload).encode("utf-8")
+        mock_response.headers = getattr(mock_response, "headers", {}) or {}
+        mock_response.raise_for_status = MagicMock()
+
+    @patch("servicenow_mcp.tools.user_tools.invalidate_query_cache")
+    def test_create_user(self, mock_invalidate_query_cache):
         """Test create_user function."""
         # Configure mock
         mock_response = MagicMock()
@@ -89,8 +100,10 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(call_args[1]["json"]["email"], "alice@example.com")
         self.assertEqual(call_args[1]["json"]["department"], "Radiology")
         self.assertEqual(call_args[1]["json"]["title"], "Doctor")
+        mock_invalidate_query_cache.assert_called_once_with(table="sys_user")
 
-    def test_update_user(self):
+    @patch("servicenow_mcp.tools.user_tools.invalidate_query_cache")
+    def test_update_user(self, mock_invalidate_query_cache):
         """Test update_user function."""
         # Configure mock
         mock_response = MagicMock()
@@ -125,6 +138,7 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user/user123")
         self.assertEqual(call_args[1]["json"]["manager"], "user456")
         self.assertEqual(call_args[1]["json"]["title"], "Senior Doctor")
+        mock_invalidate_query_cache.assert_called_once_with(table="sys_user")
 
     def test_get_user(self):
         """Test get_user function."""
@@ -142,6 +156,7 @@ class TestUserTools(unittest.TestCase):
                 }
             ]
         }
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
@@ -163,6 +178,7 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(call_args[0][0], "GET")
         self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user")
         self.assertEqual(call_args[1]["params"]["sysparm_query"], "user_name=alice.radiology")
+        self.assertEqual(call_args[1]["params"]["sysparm_display_value"], "true")
 
     def test_list_users(self):
         """Test list_users function."""
@@ -181,6 +197,8 @@ class TestUserTools(unittest.TestCase):
                 },
             ]
         }
+        mock_response.headers = {"X-Total-Count": "2"}
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
@@ -203,8 +221,11 @@ class TestUserTools(unittest.TestCase):
         call_args = self.auth_manager.make_request.call_args
         self.assertEqual(call_args[0][0], "GET")
         self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user")
-        self.assertEqual(call_args[1]["params"]["sysparm_limit"], "10")
+        self.assertEqual(call_args[1]["params"]["sysparm_limit"], 10)
+        self.assertEqual(call_args[1]["params"]["sysparm_offset"], 0)
+        self.assertEqual(call_args[1]["params"]["sysparm_display_value"], "true")
         self.assertIn("department=Radiology", call_args[1]["params"]["sysparm_query"])
+        self.assertEqual(result["total"], 2)
 
     def test_list_groups(self):
         """Test list_groups function."""
@@ -229,6 +250,8 @@ class TestUserTools(unittest.TestCase):
                 },
             ]
         }
+        mock_response.headers = {"X-Total-Count": "2"}
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Create test params
@@ -254,15 +277,80 @@ class TestUserTools(unittest.TestCase):
         call_args = self.auth_manager.make_request.call_args
         self.assertEqual(call_args[0][0], "GET")
         self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user_group")
-        self.assertEqual(call_args[1]["params"]["sysparm_limit"], "10")
-        self.assertEqual(call_args[1]["params"]["sysparm_offset"], "0")
+        self.assertEqual(call_args[1]["params"]["sysparm_limit"], 10)
+        self.assertEqual(call_args[1]["params"]["sysparm_offset"], 0)
         self.assertEqual(call_args[1]["params"]["sysparm_display_value"], "true")
         self.assertIn("active=true", call_args[1]["params"]["sysparm_query"])
         self.assertIn("type=it", call_args[1]["params"]["sysparm_query"])
         self.assertIn("nameLIKE", call_args[1]["params"]["sysparm_query"])
         self.assertIn("descriptionLIKE", call_args[1]["params"]["sysparm_query"])
+        self.assertEqual(result["total"], 2)
 
-    def test_create_group(self):
+    def test_get_user_reuses_shared_query_cache(self):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "result": [
+                {
+                    "sys_id": "user123",
+                    "user_name": "alice.radiology",
+                    "email": "alice@example.com",
+                }
+            ]
+        }
+        mock_response.headers = {"X-Total-Count": "1"}
+        self._finalize_response(mock_response)
+        self.auth_manager.make_request.return_value = mock_response
+
+        params = GetUserParams(user_name="alice.radiology")
+
+        first = get_user(self.config, self.auth_manager, params)
+        second = get_user(self.config, self.auth_manager, params)
+
+        self.assertTrue(first["success"])
+        self.assertEqual(first, second)
+        self.assertEqual(self.auth_manager.make_request.call_count, 1)
+
+    def test_get_role_id_reuses_shared_query_cache(self):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"result": [{"sys_id": "role123"}]}
+        mock_response.headers = {"X-Total-Count": "1"}
+        self._finalize_response(mock_response)
+        self.auth_manager.make_request.return_value = mock_response
+
+        first = get_role_id(self.config, self.auth_manager, "itil")
+        second = get_role_id(self.config, self.auth_manager, "itil")
+
+        self.assertEqual(first, "role123")
+        self.assertEqual(second, "role123")
+        self.assertEqual(self.auth_manager.make_request.call_count, 1)
+
+    def test_check_user_has_role_reuses_shared_query_cache(self):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"result": [{"sys_id": "uhr123"}]}
+        mock_response.headers = {"X-Total-Count": "1"}
+        self._finalize_response(mock_response)
+        self.auth_manager.make_request.return_value = mock_response
+
+        first = check_user_has_role(self.config, self.auth_manager, "user123", "role123")
+        second = check_user_has_role(self.config, self.auth_manager, "user123", "role123")
+
+        self.assertTrue(first)
+        self.assertTrue(second)
+        self.assertEqual(self.auth_manager.make_request.call_count, 1)
+
+    def test_check_user_has_role_returns_false_when_empty(self):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"result": []}
+        mock_response.headers = {"X-Total-Count": "0"}
+        self._finalize_response(mock_response)
+        self.auth_manager.make_request.return_value = mock_response
+
+        result = check_user_has_role(self.config, self.auth_manager, "user123", "role123")
+
+        self.assertFalse(result)
+
+    @patch("servicenow_mcp.tools.user_tools.invalidate_query_cache")
+    def test_create_group(self, mock_invalidate_query_cache):
         """Test create_group function."""
         # Configure mock
         mock_response = MagicMock()
@@ -300,8 +388,10 @@ class TestUserTools(unittest.TestCase):
             call_args[1]["json"]["description"], "Group for biomedical engineering staff"
         )
         self.assertEqual(call_args[1]["json"]["manager"], "user456")
+        mock_invalidate_query_cache.assert_called_once_with(table="sys_user_group")
 
-    def test_update_group(self):
+    @patch("servicenow_mcp.tools.user_tools.invalidate_query_cache")
+    def test_update_group(self, mock_invalidate_query_cache):
         """Test update_group function."""
         # Configure mock
         mock_response = MagicMock()
@@ -339,9 +429,11 @@ class TestUserTools(unittest.TestCase):
             "Updated description for biomedical engineering group",
         )
         self.assertEqual(call_args[1]["json"]["manager"], "user789")
+        mock_invalidate_query_cache.assert_called_once_with(table="sys_user_group")
 
     @patch("servicenow_mcp.tools.user_tools.get_user")
-    def test_add_group_members(self, mock_get_user):
+    @patch("servicenow_mcp.tools.user_tools.invalidate_query_cache")
+    def test_add_group_members(self, mock_invalidate_query_cache, mock_get_user):
         """Test add_group_members function."""
         # Configure mock for make_request (POST to add member)
         mock_post_response = MagicMock()
@@ -377,9 +469,11 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(call_args[0][1], f"{self.config.api_url}/table/sys_user_grmember")
         self.assertEqual(call_args[1]["json"]["group"], "group123")
         self.assertEqual(call_args[1]["json"]["user"], "user123")
+        mock_invalidate_query_cache.assert_called_once_with(table="sys_user_grmember")
 
     @patch("servicenow_mcp.tools.user_tools.get_user")
-    def test_remove_group_members(self, mock_get_user):
+    @patch("servicenow_mcp.tools.user_tools.invalidate_query_cache")
+    def test_remove_group_members(self, mock_invalidate_query_cache, mock_get_user):
         """Test remove_group_members function."""
         # Configure mocks for make_request
         # First call: GET to find membership record
@@ -448,6 +542,34 @@ class TestUserTools(unittest.TestCase):
             delete_call_args[0][1],
             f"{self.config.api_url}/table/sys_user_grmember/member123",
         )
+        mock_invalidate_query_cache.assert_called_once_with(table="sys_user_grmember")
+
+    @patch("servicenow_mcp.tools.user_tools.check_user_has_role", return_value=False)
+    @patch("servicenow_mcp.tools.user_tools.get_role_id", return_value="role123")
+    @patch("servicenow_mcp.tools.user_tools.invalidate_query_cache")
+    def test_assign_roles_to_user_invalidates_role_cache(
+        self,
+        mock_invalidate_query_cache,
+        mock_get_role_id,
+        mock_check_user_has_role,
+    ):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        self.auth_manager.make_request.return_value = mock_response
+
+        result = assign_roles_to_user(
+            self.config,
+            self.auth_manager,
+            user_id="user123",
+            roles=["itil"],
+        )
+
+        self.assertTrue(result)
+        mock_get_role_id.assert_called_once_with(self.config, self.auth_manager, "itil")
+        mock_check_user_has_role.assert_called_once_with(
+            self.config, self.auth_manager, "user123", "role123"
+        )
+        mock_invalidate_query_cache.assert_called_once_with(table="sys_user_has_role")
 
 
 if __name__ == "__main__":

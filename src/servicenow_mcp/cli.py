@@ -11,6 +11,7 @@ import sys
 import urllib.request
 
 from .server import ServiceNowMCP
+from .version import __version__
 from .utils.config import (
     ApiKeyConfig,
     AuthConfig,
@@ -382,9 +383,7 @@ async def arun_server(server_instance):
 def _check_for_updates() -> None:
     """Check PyPI for a newer version and log a warning if available."""
     try:
-        from importlib.metadata import version as pkg_version
-
-        current = pkg_version(_PACKAGE_NAME)
+        current = __version__
         req = urllib.request.Request(_PYPI_URL, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=3) as resp:
             latest = json.loads(resp.read())["info"]["version"]

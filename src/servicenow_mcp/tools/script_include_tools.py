@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -130,43 +131,28 @@ def list_script_includes(
         query_string = "^".join(query_parts) if query_parts else ""
 
         if params.count_only:
-            from .sn_api import sn_count
-
             count = sn_count(config, auth_manager, "sys_script_include", query_string)
             return {"success": True, "count": count}
 
-        # Build the URL
-        url = f"{config.instance_url}/api/now/table/sys_script_include"
+        fields = "sys_id,name,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by"
 
-        # Build query parameters
-        query_params = {
-            "sysparm_limit": min(params.limit, 50),
-            "sysparm_offset": params.offset,
-            "sysparm_display_value": "true",
-            "sysparm_exclude_reference_link": "true",
-            "sysparm_fields": "sys_id,name,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by",
-        }
-
-        if query_string:
-            query_params["sysparm_query"] = query_string
-
-        # Make the request
-        headers = auth_manager.get_headers()
-
-        response = auth_manager.make_request(
-            "GET",
-            url,
-            params=query_params,
-            headers=headers,
-            timeout=30,
+        records, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_script_include",
+            query=query_string,
+            fields=fields,
+            limit=min(params.limit, 50),
+            offset=params.offset,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
 
-        # Parse the response
-        data = response.json()
         script_includes = []
 
-        for item in data.get("result", []):
+        for item in records:
+            created_by_raw = item.get("sys_created_by")
+            updated_by_raw = item.get("sys_updated_by")
             script_include = {
                 "sys_id": item.get("sys_id"),
                 "name": item.get("name"),
@@ -177,8 +163,12 @@ def list_script_includes(
                 "access": item.get("access"),
                 "created_on": item.get("sys_created_on"),
                 "updated_on": item.get("sys_updated_on"),
-                "created_by": item.get("sys_created_by", {}).get("display_value"),
-                "updated_by": item.get("sys_updated_by", {}).get("display_value"),
+                "created_by": created_by_raw.get("display_value")
+                if isinstance(created_by_raw, dict)
+                else None,
+                "updated_by": updated_by_raw.get("display_value")
+                if isinstance(updated_by_raw, dict)
+                else None,
             }
             script_includes.append(script_include)
 
@@ -226,55 +216,37 @@ def get_script_include(
         A dictionary containing the script include data.
     """
     try:
-        # Build query parameters
-        query_params = {
-            "sysparm_display_value": "true",
-            "sysparm_exclude_reference_link": "true",
-            "sysparm_fields": "sys_id,name,script,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by",
-        }
+        fields = "sys_id,name,script,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by"
 
         # Determine if we're querying by sys_id or name
         if params.script_include_id.startswith("sys_id:"):
             sys_id = params.script_include_id.replace("sys_id:", "")
-            url = f"{config.instance_url}/api/now/table/sys_script_include/{sys_id}"
+            query = f"sys_id={sys_id}"
         else:
-            # Query by name
-            url = f"{config.instance_url}/api/now/table/sys_script_include"
-            query_params["sysparm_query"] = f"name={params.script_include_id}"
+            query = f"name={params.script_include_id}"
 
-        # Make the request
-        headers = auth_manager.get_headers()
-
-        response = auth_manager.make_request(
-            "GET",
-            url,
-            params=query_params,
-            headers=headers,
-            timeout=30,
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_script_include",
+            query=query,
+            fields=fields,
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
 
-        # Parse the response
-        data = response.json()
-
-        if "result" not in data:
+        if not records:
             return {
                 "success": False,
                 "message": f"Script include not found: {params.script_include_id}",
             }
 
-        # Handle both single result and list of results
-        result = data["result"]
-        if isinstance(result, list):
-            if not result:
-                return {
-                    "success": False,
-                    "message": f"Script include not found: {params.script_include_id}",
-                }
-            item = result[0]
-        else:
-            item = result
+        item = records[0]
 
+        created_by_raw = item.get("sys_created_by")
+        updated_by_raw = item.get("sys_updated_by")
         script_include = {
             "sys_id": item.get("sys_id"),
             "name": item.get("name"),
@@ -286,8 +258,12 @@ def get_script_include(
             "access": item.get("access"),
             "created_on": item.get("sys_created_on"),
             "updated_on": item.get("sys_updated_on"),
-            "created_by": item.get("sys_created_by", {}).get("display_value"),
-            "updated_by": item.get("sys_updated_by", {}).get("display_value"),
+            "created_by": created_by_raw.get("display_value")
+            if isinstance(created_by_raw, dict)
+            else None,
+            "updated_by": updated_by_raw.get("display_value")
+            if isinstance(updated_by_raw, dict)
+            else None,
         }
 
         return {
@@ -367,6 +343,8 @@ def create_script_include(
             )
 
         result = data["result"]
+
+        invalidate_query_cache(table="sys_script_include")
 
         return ScriptIncludeResponse(
             success=True,
@@ -475,6 +453,8 @@ def update_script_include(
 
         result = data["result"]
 
+        invalidate_query_cache(table="sys_script_include")
+
         return ScriptIncludeResponse(
             success=True,
             message=f"Updated script include: {result.get('name')}",
@@ -540,6 +520,8 @@ def delete_script_include(
             timeout=30,
         )
         response.raise_for_status()
+
+        invalidate_query_cache(table="sys_script_include")
 
         return ScriptIncludeResponse(
             success=True,

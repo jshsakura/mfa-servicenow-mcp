@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .sn_api import GenericQueryParams, sn_query
+from .sn_api import GenericQueryParams, invalidate_query_cache, sn_query
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,15 @@ COLUMN_TABLE = "sp_column"
 # ---------------------------------------------------------------------------
 
 
+def _order_key(record: Dict[str, Any]) -> tuple[int, str]:
+    raw_order = record.get("order")
+    try:
+        order = int(str(raw_order))
+    except (TypeError, ValueError):
+        order = 0
+    return order, str(record.get("sys_id") or "")
+
+
 def _query(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -39,6 +48,9 @@ def _query(
     fields: str,
     limit: int = 20,
     offset: int = 0,
+    *,
+    display_value: bool = False,
+    orderby: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Thin wrapper around sn_query to reduce boilerplate."""
     params = GenericQueryParams(
@@ -47,7 +59,8 @@ def _query(
         fields=fields,
         limit=limit,
         offset=offset,
-        display_value=True,
+        orderby=orderby,
+        display_value=display_value,
     )
     return sn_query(config, auth_manager, params)
 
@@ -292,7 +305,6 @@ def _get_page_layout(
     config: ServerConfig, auth_manager: AuthManager, page_sys_id: str
 ) -> List[Dict[str, Any]]:
     """Build the container -> row -> column -> widget instance hierarchy for a page."""
-    # 1. Get containers
     container_resp = _query(
         config,
         auth_manager,
@@ -300,73 +312,111 @@ def _get_page_layout(
         f"sp_page={page_sys_id}",
         "sys_id,order,background_color,css_class",
         limit=50,
+        orderby="order",
     )
     containers = container_resp.get("results", [])
+    if not containers:
+        return []
+
+    container_ids = [str(c.get("sys_id") or "") for c in containers if c.get("sys_id")]
+    row_resp = _query(
+        config,
+        auth_manager,
+        ROW_TABLE,
+        f"sp_containerIN{','.join(container_ids)}",
+        "sys_id,sp_container,order,css_class",
+        limit=max(50, len(container_ids) * 10),
+        orderby="order",
+    )
+    rows = row_resp.get("results", [])
+
+    row_ids = [str(row.get("sys_id") or "") for row in rows if row.get("sys_id")]
+    col_resp = (
+        _query(
+            config,
+            auth_manager,
+            COLUMN_TABLE,
+            f"sp_rowIN{','.join(row_ids)}",
+            "sys_id,sp_row,order,size,css_class",
+            limit=max(20, len(row_ids) * 10),
+            orderby="order",
+        )
+        if row_ids
+        else {"results": []}
+    )
+    columns = col_resp.get("results", [])
+
+    column_ids = [str(col.get("sys_id") or "") for col in columns if col.get("sys_id")]
+    inst_resp = (
+        _query(
+            config,
+            auth_manager,
+            INSTANCE_TABLE,
+            f"sp_columnIN{','.join(column_ids)}",
+            "sys_id,sp_column,sp_widget,order,widget_parameters,css",
+            limit=max(20, len(column_ids) * 20),
+            orderby="order",
+        )
+        if column_ids
+        else {"results": []}
+    )
+    instances = inst_resp.get("results", [])
+    containers = sorted(containers, key=_order_key)
+    rows = sorted(rows, key=_order_key)
+    columns = sorted(columns, key=_order_key)
+    instances = sorted(instances, key=_order_key)
+
+    widgets_by_column: Dict[str, List[Dict[str, Any]]] = {}
+    for inst in instances:
+        column_id = str(inst.get("sp_column") or "")
+        if not column_id:
+            continue
+        widgets_by_column.setdefault(column_id, []).append(
+            {
+                "sys_id": inst.get("sys_id"),
+                "widget": inst.get("sp_widget"),
+                "order": inst.get("order"),
+            }
+        )
+
+    columns_by_row: Dict[str, List[Dict[str, Any]]] = {}
+    for col in columns:
+        row_id = str(col.get("sp_row") or "")
+        if not row_id:
+            continue
+        columns_by_row.setdefault(row_id, []).append(
+            {
+                "sys_id": col.get("sys_id"),
+                "order": col.get("order"),
+                "size": col.get("size"),
+                "css_class": col.get("css_class"),
+                "widgets": widgets_by_column.get(str(col.get("sys_id") or ""), []),
+            }
+        )
+
+    rows_by_container: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        container_id = str(row.get("sp_container") or "")
+        if not container_id:
+            continue
+        rows_by_container.setdefault(container_id, []).append(
+            {
+                "sys_id": row.get("sys_id"),
+                "order": row.get("order"),
+                "css_class": row.get("css_class"),
+                "columns": columns_by_row.get(str(row.get("sys_id") or ""), []),
+            }
+        )
 
     layout = []
     for c in containers:
+        container_id = str(c.get("sys_id") or "")
         container: Dict[str, Any] = {
             "sys_id": c.get("sys_id"),
             "order": c.get("order"),
             "css_class": c.get("css_class"),
-            "rows": [],
+            "rows": rows_by_container.get(container_id, []),
         }
-
-        # 2. Get rows in container
-        row_resp = _query(
-            config,
-            auth_manager,
-            ROW_TABLE,
-            f"sp_container={c['sys_id']}",
-            "sys_id,order,css_class",
-            limit=50,
-        )
-        for row in row_resp.get("results", []):
-            row_data: Dict[str, Any] = {
-                "sys_id": row.get("sys_id"),
-                "order": row.get("order"),
-                "css_class": row.get("css_class"),
-                "columns": [],
-            }
-
-            # 3. Get columns in row
-            col_resp = _query(
-                config,
-                auth_manager,
-                COLUMN_TABLE,
-                f"sp_row={row['sys_id']}",
-                "sys_id,order,size,css_class",
-                limit=20,
-            )
-            for col in col_resp.get("results", []):
-                col_data: Dict[str, Any] = {
-                    "sys_id": col.get("sys_id"),
-                    "order": col.get("order"),
-                    "size": col.get("size"),
-                    "css_class": col.get("css_class"),
-                    "widgets": [],
-                }
-
-                # 4. Get widget instances in column
-                inst_resp = _query(
-                    config,
-                    auth_manager,
-                    INSTANCE_TABLE,
-                    f"sp_column={col['sys_id']}",
-                    "sys_id,sp_widget,order,widget_parameters,css",
-                    limit=20,
-                )
-                for inst in inst_resp.get("results", []):
-                    col_data["widgets"].append(
-                        {
-                            "sys_id": inst.get("sys_id"),
-                            "widget": inst.get("sp_widget"),
-                            "order": inst.get("order"),
-                        }
-                    )
-
-                row_data["columns"].append(col_data)
-            container["rows"].append(row_data)
         layout.append(container)
 
     return layout
@@ -553,6 +603,7 @@ def create_widget_instance(
             return {"success": False, "message": "Failed to create widget instance"}
 
         result = data["result"]
+        invalidate_query_cache(table=INSTANCE_TABLE)
         return {
             "success": True,
             "message": "Created widget instance",
@@ -608,6 +659,7 @@ def update_widget_instance(
             return {"success": False, "message": "Failed to update widget instance"}
 
         result = data["result"]
+        invalidate_query_cache(table=INSTANCE_TABLE)
         return {
             "success": True,
             "message": f"Updated widget instance {params.instance_id}",

@@ -1,3 +1,4 @@
+import json
 from unittest.mock import MagicMock
 
 from servicenow_mcp.tools.source_tools import (
@@ -23,14 +24,29 @@ def _build_config() -> ServerConfig:
     )
 
 
+def _finalize_response(response: MagicMock) -> MagicMock:
+    payload = response.json.return_value
+    response.content = json.dumps(payload).encode("utf-8")
+    response.headers = getattr(response, "headers", {}) or {}
+    response.raise_for_status.return_value = None
+    return response
+
+
+def _response(result, *, total_count=None):
+    response = MagicMock()
+    response.json.return_value = {"result": result}
+    response.headers = {}
+    if total_count is not None:
+        response.headers["X-Total-Count"] = str(total_count)
+    return _finalize_response(response)
+
+
 def test_search_server_code_clamps_limit_and_returns_snippets():
     config = _build_config()
     auth_manager = MagicMock()
 
-    response = MagicMock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = {
-        "result": [
+    response = _response(
+        [
             {
                 "sys_id": "si-1",
                 "name": "CommitHelper",
@@ -41,8 +57,9 @@ def test_search_server_code_clamps_limit_and_returns_snippets():
                 "sys_updated_by": "admin",
                 "script": "function validateCommit() { gs.error('commit failed'); }",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
     auth_manager.make_request.return_value = response
 
     result = search_server_code(
@@ -68,14 +85,10 @@ def test_search_server_code_searches_multiple_types():
     config = _build_config()
     auth_manager = MagicMock()
 
-    si_response = MagicMock()
-    si_response.raise_for_status.return_value = None
-    si_response.json.return_value = {"result": []}
+    si_response = _response([], total_count=0)
 
-    widget_response = MagicMock()
-    widget_response.raise_for_status.return_value = None
-    widget_response.json.return_value = {
-        "result": [
+    widget_response = _response(
+        [
             {
                 "sys_id": "wid-1",
                 "name": "Approval Widget",
@@ -88,8 +101,9 @@ def test_search_server_code_searches_multiple_types():
                 "client_script": "c.showApproval = true;",
                 "css": "",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
     auth_manager.make_request.side_effect = [si_response, widget_response]
 
     result = search_server_code(
@@ -108,10 +122,8 @@ def test_get_metadata_source_resolves_widget_by_id_and_truncates_fields():
     config = _build_config()
     auth_manager = MagicMock()
 
-    response = MagicMock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = {
-        "result": [
+    response = _response(
+        [
             {
                 "sys_id": "wid-1",
                 "name": "Approval Widget",
@@ -124,8 +136,9 @@ def test_get_metadata_source_resolves_widget_by_id_and_truncates_fields():
                 "client_script": "function client() {}",
                 "css": ".a {}",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
     auth_manager.make_request.return_value = response
 
     result = get_metadata_source(
@@ -152,9 +165,7 @@ def test_get_metadata_source_returns_error_when_not_found():
     config = _build_config()
     auth_manager = MagicMock()
 
-    response = MagicMock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = {"result": []}
+    response = _response([], total_count=0)
     auth_manager.make_request.return_value = response
 
     result = get_metadata_source(
@@ -171,10 +182,8 @@ def test_search_server_code_supports_business_rule():
     config = _build_config()
     auth_manager = MagicMock()
 
-    response = MagicMock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = {
-        "result": [
+    response = _response(
+        [
             {
                 "sys_id": "br-1",
                 "name": "Validate Commit",
@@ -186,8 +195,9 @@ def test_search_server_code_supports_business_rule():
                 "sys_updated_by": "admin",
                 "script": "if (current.state.changes()) gs.error('commit blocked');",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
     auth_manager.make_request.return_value = response
 
     result = search_server_code(
@@ -206,10 +216,8 @@ def test_get_metadata_source_supports_ui_script_by_name():
     config = _build_config()
     auth_manager = MagicMock()
 
-    response = MagicMock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = {
-        "result": [
+    response = _response(
+        [
             {
                 "sys_id": "ui-1",
                 "name": "Portal Helpers",
@@ -220,8 +228,9 @@ def test_get_metadata_source_supports_ui_script_by_name():
                 "sys_updated_by": "admin",
                 "script": "function portalHelper(){return true;}",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
     auth_manager.make_request.return_value = response
 
     result = get_metadata_source(
@@ -239,10 +248,8 @@ def test_search_server_code_supports_update_xml():
     config = _build_config()
     auth_manager = MagicMock()
 
-    response = MagicMock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = {
-        "result": [
+    response = _response(
+        [
             {
                 "sys_id": "upd-1",
                 "name": "sys_script_include_123",
@@ -253,8 +260,9 @@ def test_search_server_code_supports_update_xml():
                 "sys_updated_by": "admin",
                 "payload": "<xml>commit helper update</xml>",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
     auth_manager.make_request.return_value = response
 
     result = search_server_code(
@@ -273,10 +281,8 @@ def test_search_server_code_reports_non_source_match_fields():
     config = _build_config()
     auth_manager = MagicMock()
 
-    response = MagicMock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = {
-        "result": [
+    response = _response(
+        [
             {
                 "sys_id": "upd-2",
                 "name": "sys_script_include_456",
@@ -287,8 +293,9 @@ def test_search_server_code_reports_non_source_match_fields():
                 "sys_updated_by": "admin",
                 "payload": "<xml>other</xml>",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
     auth_manager.make_request.return_value = response
 
     result = search_server_code(
@@ -305,9 +312,7 @@ def test_get_metadata_source_escapes_lookup_value():
     config = _build_config()
     auth_manager = MagicMock()
 
-    response = MagicMock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = {"result": []}
+    response = _response([], total_count=0)
     auth_manager.make_request.return_value = response
 
     get_metadata_source(
@@ -324,54 +329,50 @@ def test_extract_table_dependencies_scans_widget_br_and_linked_script_include():
     config = _build_config()
     auth_manager = MagicMock()
 
-    si_response = MagicMock()
-    si_response.raise_for_status.return_value = None
-    si_response.json.return_value = {
-        "result": [
+    si_response = _response(
+        [
             {
                 "sys_id": "si-1",
                 "name": "BpmOrderUtils",
                 "api_name": "x_bpm.BpmOrderUtils",
                 "script": "var gr = new GlideRecord('sc_req_item');",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
 
-    widget_response = MagicMock()
-    widget_response.raise_for_status.return_value = None
-    widget_response.json.return_value = {
-        "result": [
+    widget_response = _response(
+        [
             {
                 "sys_id": "wid-1",
                 "name": "BPM Summary",
                 "id": "bpm_summary",
                 "script": "var gr = new GlideRecord('task'); var util = new BpmOrderUtils();",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
 
-    br_response = MagicMock()
-    br_response.raise_for_status.return_value = None
-    br_response.json.return_value = {
-        "result": [
+    br_response = _response(
+        [
             {
                 "sys_id": "br-1",
                 "name": "BPM BR",
                 "collection": "incident",
                 "script": "var tableName = 'incident'; var gr = new GlideRecord(tableName);",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
 
-    db_object_response = MagicMock()
-    db_object_response.raise_for_status.return_value = None
-    db_object_response.json.return_value = {
-        "result": [
+    db_object_response = _response(
+        [
             {"name": "incident", "label": "Incident"},
             {"name": "sc_req_item", "label": "Requested Item"},
             {"name": "task", "label": "Task"},
-        ]
-    }
+        ],
+        total_count=3,
+    )
 
     auth_manager.make_request.side_effect = [
         si_response,
@@ -407,26 +408,21 @@ def test_extract_table_dependencies_can_skip_linked_script_includes():
     config = _build_config()
     auth_manager = MagicMock()
 
-    widget_response = MagicMock()
-    widget_response.raise_for_status.return_value = None
-    widget_response.json.return_value = {
-        "result": [
+    widget_response = _response(
+        [
             {
                 "sys_id": "wid-1",
                 "name": "BPM Summary",
                 "id": "bpm_summary",
                 "script": "var util = new BpmOrderUtils(); var gr = new GlideRecord('task');",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
 
-    br_response = MagicMock()
-    br_response.raise_for_status.return_value = None
-    br_response.json.return_value = {"result": []}
+    br_response = _response([], total_count=0)
 
-    db_object_response = MagicMock()
-    db_object_response.raise_for_status.return_value = None
-    db_object_response.json.return_value = {"result": [{"name": "task", "label": "Task"}]}
+    db_object_response = _response([{"name": "task", "label": "Task"}], total_count=1)
 
     auth_manager.make_request.side_effect = [widget_response, br_response, db_object_response]
 
@@ -450,55 +446,51 @@ def test_extract_table_dependencies_handles_br_collection_without_script_and_set
     config = _build_config()
     auth_manager = MagicMock()
 
-    si_response = MagicMock()
-    si_response.raise_for_status.return_value = None
-    si_response.json.return_value = {
-        "result": [
+    si_response = _response(
+        [
             {
                 "sys_id": "si-10",
                 "name": "OrderSI",
                 "api_name": "x_bpm.OrderSI",
                 "script": "var gr = new GlideRecord('sc_request');",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
 
-    widget_response = MagicMock()
-    widget_response.raise_for_status.return_value = None
-    widget_response.json.return_value = {
-        "result": [
+    widget_response = _response(
+        [
             {
                 "sys_id": "wid-10",
                 "name": "Order Widget",
                 "id": "order_widget",
                 "script": "var gr = new GlideRecord('task'); var gr2 = new GlideRecord(); gr2.setTableName('incident'); var si = new x_bpm.OrderSI();",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
 
-    br_response = MagicMock()
-    br_response.raise_for_status.return_value = None
-    br_response.json.return_value = {
-        "result": [
+    br_response = _response(
+        [
             {
                 "sys_id": "br-10",
                 "name": "BR no script",
                 "collection": "problem",
                 "script": None,
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
 
-    db_object_response = MagicMock()
-    db_object_response.raise_for_status.return_value = None
-    db_object_response.json.return_value = {
-        "result": [
+    db_object_response = _response(
+        [
             {"name": "incident", "label": "Incident"},
             {"name": "problem", "label": "Problem"},
             {"name": "sc_request", "label": "Request"},
             {"name": "task", "label": "Task"},
-        ]
-    }
+        ],
+        total_count=4,
+    )
 
     auth_manager.make_request.side_effect = [
         si_response,
@@ -522,10 +514,8 @@ def test_extract_widget_table_dependencies_returns_widget_and_linked_si_tables()
     config = _build_config()
     auth_manager = MagicMock()
 
-    widget_response = MagicMock()
-    widget_response.raise_for_status.return_value = None
-    widget_response.json.return_value = {
-        "result": [
+    widget_response = _response(
+        [
             {
                 "sys_id": "wid-1",
                 "name": "Order Widget",
@@ -533,30 +523,29 @@ def test_extract_widget_table_dependencies_returns_widget_and_linked_si_tables()
                 "sys_scope": "x_bpm",
                 "script": "var gr = new GlideRecord('task'); var si = new x_bpm.OrderSI();",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
 
-    si_lookup_response = MagicMock()
-    si_lookup_response.raise_for_status.return_value = None
-    si_lookup_response.json.return_value = {
-        "result": [
+    si_lookup_response = _response(
+        [
             {
                 "sys_id": "si-1",
                 "name": "OrderSI",
                 "api_name": "x_bpm.OrderSI",
                 "script": "var gr = new GlideRecord('sc_req_item');",
             }
-        ]
-    }
+        ],
+        total_count=1,
+    )
 
-    label_response = MagicMock()
-    label_response.raise_for_status.return_value = None
-    label_response.json.return_value = {
-        "result": [
+    label_response = _response(
+        [
             {"name": "task", "label": "Task"},
             {"name": "sc_req_item", "label": "Requested Item"},
-        ]
-    }
+        ],
+        total_count=2,
+    )
 
     auth_manager.make_request.side_effect = [widget_response, si_lookup_response, label_response]
 
@@ -577,9 +566,7 @@ def test_extract_widget_table_dependencies_returns_not_found_for_missing_widget(
     config = _build_config()
     auth_manager = MagicMock()
 
-    widget_response = MagicMock()
-    widget_response.raise_for_status.return_value = None
-    widget_response.json.return_value = {"result": []}
+    widget_response = _response([], total_count=0)
     auth_manager.make_request.return_value = widget_response
 
     result = extract_widget_table_dependencies(
@@ -590,3 +577,36 @@ def test_extract_widget_table_dependencies_returns_not_found_for_missing_widget(
 
     assert result["success"] is False
     assert "not found" in result["message"].lower()
+
+
+def test_get_metadata_source_reuses_shared_query_cache_for_identical_lookup():
+    config = _build_config()
+    auth_manager = MagicMock()
+
+    response = _response(
+        [
+            {
+                "sys_id": "wid-1",
+                "name": "Approval Widget",
+                "id": "approval_widget",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-03-25 13:00:00",
+                "sys_updated_by": "admin",
+                "template": "<div></div>",
+                "script": "function server() {}",
+                "client_script": "function client() {}",
+                "css": ".a {}",
+            }
+        ],
+        total_count=1,
+    )
+    auth_manager.make_request.return_value = response
+
+    params = GetMetadataSourceParams(source_type="widget", source_id="approval_widget")
+    first = get_metadata_source(config, auth_manager, params)
+    second = get_metadata_source(config, auth_manager, params)
+
+    assert first["success"] is True
+    assert second["success"] is True
+    assert first["metadata"] == second["metadata"]
+    assert auth_manager.make_request.call_count == 1

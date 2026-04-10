@@ -5,10 +5,10 @@ Safe, token-efficient log query tools for the ServiceNow MCP server.
 import logging
 from typing import Any, Dict, List, Optional
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -78,13 +78,6 @@ class GetBackgroundScriptLogsParams(BaseLogQueryParams):
     source: Optional[str] = Field(None, description="Filter by execution source")
 
 
-def _safe_json(response: requests.Response) -> Dict[str, Any]:
-    try:
-        return response.json()
-    except Exception:
-        return {"raw": response.text}
-
-
 def _clamp_limit(limit: int) -> int:
     return max(1, min(limit, MAX_LOG_LIMIT))
 
@@ -131,47 +124,40 @@ def _fetch_logs(
     query_parts: List[str],
     text_preview_length: int,
 ) -> Dict[str, Any]:
-    query_params: Dict[str, Any] = {
-        "sysparm_limit": _clamp_limit(limit),
-        "sysparm_offset": max(0, offset),
-        "sysparm_fields": fields,
-        "sysparm_display_value": "true",
-        "sysparm_exclude_reference_link": "true",
-        "sysparm_suppress_pagination_header": "false",
-        "sysparm_orderby_desc": "sys_created_on",
-    }
+    clamped_limit = _clamp_limit(limit)
+    safe_offset = max(0, offset)
 
     timeframe_part = _timeframe_query(timeframe)
+    all_parts: List[str] = []
     if timeframe_part:
-        query_parts.insert(0, timeframe_part)
-    if query_parts:
-        query_params["sysparm_query"] = "^".join(part for part in query_parts if part)
-
-    url = f"{config.instance_url}/api/now/table/{table}"
+        all_parts.append(timeframe_part)
+    all_parts.extend(part for part in query_parts if part)
+    query_str = "^".join(all_parts)
 
     try:
-        response = auth_manager.make_request(
-            "GET",
-            url,
-            params=query_params,
-            timeout=config.timeout,
+        rows, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=query_str,
+            fields=fields,
+            limit=clamped_limit,
+            offset=safe_offset,
+            display_value=True,
+            orderby="-sys_created_on",
+            fail_silently=False,
         )
-        response.raise_for_status()
-
-        data = _safe_json(response)
-        results = data.get("result", [])
-        total_count = response.headers.get("X-Total-Count")
 
         return {
             "success": True,
             "table": table,
-            "count": len(results),
-            "total_count": int(total_count) if total_count else len(results),
-            "limit_applied": query_params["sysparm_limit"],
+            "count": len(rows),
+            "total_count": total_count if total_count is not None else len(rows),
+            "limit_applied": clamped_limit,
             "fields": fields.split(","),
-            "results": _truncate_results(results, _clamp_text_length(text_preview_length)),
+            "results": _truncate_results(rows, _clamp_text_length(text_preview_length)),
         }
-    except requests.RequestException as exc:
+    except Exception as exc:
         logger.error("Error querying log table %s: %s", table, exc)
         return {
             "success": False,
