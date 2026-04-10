@@ -15,8 +15,8 @@ from servicenow_mcp.tools.portal_tools import (
     RoutePortalComponentEditParams,
     SearchPortalRegexMatchesParams,
     TracePortalRouteTargetsParams,
-    UpdatePortalComponentParams,
     UpdatePortalComponentFromSnapshotParams,
+    UpdatePortalComponentParams,
     analyze_portal_component_update,
     create_portal_component_snapshot,
     detect_angular_implicit_globals,
@@ -31,7 +31,6 @@ from servicenow_mcp.tools.portal_tools import (
     update_portal_component_from_snapshot,
 )
 from servicenow_mcp.utils.config import ServerConfig
-
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "portal_edit"
 

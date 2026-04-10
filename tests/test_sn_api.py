@@ -1,13 +1,12 @@
 from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.tools.sn_api import (
-    GenericQueryParams,
-    HealthCheckParams,
     _CACHE_MAX_ENTRIES,
     _CACHE_TTL_SECONDS,
+    GenericQueryParams,
+    HealthCheckParams,
     _cache_get,
     _cache_put,
-    _query_cache,
     invalidate_query_cache,
     sn_health,
     sn_query,
@@ -142,7 +141,7 @@ def test_cache_evicts_oldest_when_full():
     for i in range(_CACHE_MAX_ENTRIES):
         _cache_put(f"key_{i}", f"value_{i}")
     # All entries should be present
-    assert _cache_get(f"key_0") == "value_0"
+    assert _cache_get("key_0") == "value_0"
     assert _cache_get(f"key_{_CACHE_MAX_ENTRIES - 1}") == f"value_{_CACHE_MAX_ENTRIES - 1}"
 
     # Insert one more — oldest that wasn't recently accessed should be evicted.
@@ -160,6 +159,7 @@ def test_cache_ttl_expires_entries():
 
     # Simulate time advancing past TTL
     import time as _time
+
     with patch("servicenow_mcp.tools.sn_api._time") as mock_time:
         mock_time.monotonic.return_value = _time.monotonic() + _CACHE_TTL_SECONDS + 1
         assert _cache_get("ttl_key") is None  # expired

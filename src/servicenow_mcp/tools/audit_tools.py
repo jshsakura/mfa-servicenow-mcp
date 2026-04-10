@@ -19,9 +19,9 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
-from .sn_api import sn_query_page as _sn_query_page_shared
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
+from .sn_api import sn_query_page as _sn_query_page_shared
 
 logger = logging.getLogger(__name__)
 
