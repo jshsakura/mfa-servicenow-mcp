@@ -7,7 +7,6 @@ from servicenow_mcp.tools.incident_tools import (
     AddCommentParams,
     CreateIncidentParams,
     GetIncidentByNumberParams,
-    IncidentResponse,
     ListIncidentsParams,
     ResolveIncidentParams,
     UpdateIncidentParams,

@@ -6,10 +6,10 @@ Installed package metadata is used as a fallback outside the source tree.
 
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version as package_version
-from pathlib import Path
 import tomllib
-
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
+from pathlib import Path
 
 PACKAGE_NAME = "mfa-servicenow-mcp"
 

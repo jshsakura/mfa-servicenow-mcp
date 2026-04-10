@@ -1,8 +1,8 @@
 import asyncio
 
+import mcp.types as types
 import pytest
 from pydantic import BaseModel
-import mcp.types as types
 
 import servicenow_mcp.server as server_module
 from servicenow_mcp.server import ServiceNowMCP
