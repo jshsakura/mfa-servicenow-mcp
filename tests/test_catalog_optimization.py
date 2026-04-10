@@ -2,6 +2,7 @@
 Tests for the ServiceNow MCP catalog optimization tools.
 """
 
+import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -39,6 +40,12 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.auth_manager = MagicMock(spec=AuthManager)
         self.auth_manager.get_headers.return_value = {"Authorization": "Basic YWRtaW46cGFzc3dvcmQ="}
 
+    def _finalize_response(self, mock_response):
+        payload = mock_response.json.return_value
+        mock_response.content = json.dumps(payload).encode("utf-8")
+        mock_response.headers = getattr(mock_response, "headers", {}) or {}
+        mock_response.raise_for_status = MagicMock()
+
     def test_get_inactive_items(self):
         """Test getting inactive catalog items."""
         # Mock the response from ServiceNow
@@ -59,7 +66,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 },
             ]
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
@@ -89,7 +96,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 },
             ]
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function with a category filter
@@ -145,7 +152,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 },
             ]
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Mock the random sample to return the first two items
@@ -242,7 +249,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 },
             ]
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Mock the random sample to return all items
@@ -302,7 +309,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 },
             ]
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Call the function
@@ -470,7 +477,8 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertNotIn("slow_fulfillment", recommendation_types)
         self.assertNotIn("description_quality", recommendation_types)
 
-    def test_update_catalog_item(self):
+    @patch("servicenow_mcp.tools.catalog_optimization.invalidate_query_cache")
+    def test_update_catalog_item(self, mock_invalidate_query_cache):
         """Test updating a catalog item."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -486,7 +494,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 "order": "100",
             }
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Create the parameters
@@ -501,6 +509,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         # Verify the results
         self.assertTrue(result["success"])
         self.assertEqual(result["data"]["short_description"], "Updated laptop description")
+        mock_invalidate_query_cache.assert_called_once_with(table="sc_cat_item")
 
         # Verify the API call
         self.auth_manager.make_request.assert_called_once()
@@ -509,7 +518,8 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertEqual(args[1], "https://example.service-now.com/api/now/table/sc_cat_item/item1")
         self.assertEqual(kwargs["json"], {"short_description": "Updated laptop description"})
 
-    def test_update_catalog_item_multiple_fields(self):
+    @patch("servicenow_mcp.tools.catalog_optimization.invalidate_query_cache")
+    def test_update_catalog_item_multiple_fields(self, mock_invalidate_query_cache):
         """Test updating multiple fields of a catalog item."""
         # Mock the response from ServiceNow
         mock_response = MagicMock()
@@ -525,7 +535,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
                 "order": "100",
             }
         }
-        mock_response.raise_for_status = MagicMock()
+        self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
         # Create the parameters with multiple fields
@@ -544,6 +554,7 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertEqual(result["data"]["name"], "Updated Laptop")
         self.assertEqual(result["data"]["short_description"], "Updated laptop description")
         self.assertEqual(result["data"]["price"], "1099.99")
+        mock_invalidate_query_cache.assert_called_once_with(table="sc_cat_item")
 
         # Verify the API call
         self.auth_manager.make_request.assert_called_once()
@@ -579,6 +590,28 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("Error updating catalog item", result["message"])
         self.assertIsNone(result["data"])
+
+    def test_get_inactive_items_reuses_shared_query_cache(self):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "result": [
+                {
+                    "sys_id": "item1",
+                    "name": "Old Laptop",
+                    "short_description": "Outdated laptop model",
+                    "category": "hardware",
+                }
+            ]
+        }
+        mock_response.headers = {"X-Total-Count": "1"}
+        self._finalize_response(mock_response)
+        self.auth_manager.make_request.return_value = mock_response
+
+        first = _get_inactive_items(self.config, self.auth_manager)
+        second = _get_inactive_items(self.config, self.auth_manager)
+
+        self.assertEqual(first, second)
+        self.assertEqual(self.auth_manager.make_request.call_count, 1)
 
 
 if __name__ == "__main__":

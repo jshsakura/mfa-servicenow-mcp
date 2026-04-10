@@ -228,11 +228,24 @@ class TestGetPage:
                 ],
             },
             # rows in container
-            {"success": True, "results": [{"sys_id": "r-1", "order": "0", "css_class": ""}]},
+            {
+                "success": True,
+                "results": [
+                    {"sys_id": "r-1", "sp_container": "c-1", "order": "0", "css_class": ""}
+                ],
+            },
             # columns in row
             {
                 "success": True,
-                "results": [{"sys_id": "col-1", "order": "0", "size": "12", "css_class": ""}],
+                "results": [
+                    {
+                        "sys_id": "col-1",
+                        "sp_row": "r-1",
+                        "order": "0",
+                        "size": "12",
+                        "css_class": "",
+                    }
+                ],
             },
             # instances in column
             {
@@ -240,6 +253,7 @@ class TestGetPage:
                 "results": [
                     {
                         "sys_id": "inst-1",
+                        "sp_column": "col-1",
                         "sp_widget": "wid-1",
                         "order": "0",
                         "widget_parameters": "",
@@ -259,6 +273,95 @@ class TestGetPage:
         assert len(layout[0]["rows"][0]["columns"]) == 1
         assert len(layout[0]["rows"][0]["columns"][0]["widgets"]) == 1
         assert layout[0]["rows"][0]["columns"][0]["widgets"][0]["widget"] == "wid-1"
+
+    @patch("servicenow_mcp.tools.portal_management_tools.sn_query")
+    def test_with_layout_preserves_ordering(self, mock_sn_query, mock_config, mock_auth_manager):
+        mock_sn_query.side_effect = [
+            {
+                "success": True,
+                "results": [
+                    {
+                        "sys_id": "page-1",
+                        "id": "index",
+                        "title": "Homepage",
+                        "internal": "false",
+                        "public": "true",
+                        "draft": "false",
+                        "css": "",
+                        "sys_scope": "global",
+                    }
+                ],
+            },
+            {
+                "success": True,
+                "results": [
+                    {"sys_id": "c-2", "order": "2", "background_color": "", "css_class": ""},
+                    {"sys_id": "c-1", "order": "1", "background_color": "", "css_class": ""},
+                ],
+            },
+            {
+                "success": True,
+                "results": [
+                    {"sys_id": "r-2", "sp_container": "c-1", "order": "2", "css_class": ""},
+                    {"sys_id": "r-1", "sp_container": "c-1", "order": "1", "css_class": ""},
+                ],
+            },
+            {
+                "success": True,
+                "results": [
+                    {
+                        "sys_id": "col-2",
+                        "sp_row": "r-1",
+                        "order": "2",
+                        "size": "6",
+                        "css_class": "",
+                    },
+                    {
+                        "sys_id": "col-1",
+                        "sp_row": "r-1",
+                        "order": "1",
+                        "size": "6",
+                        "css_class": "",
+                    },
+                ],
+            },
+            {
+                "success": True,
+                "results": [
+                    {
+                        "sys_id": "inst-2",
+                        "sp_column": "col-1",
+                        "sp_widget": "wid-2",
+                        "order": "2",
+                        "widget_parameters": "",
+                        "css": "",
+                    },
+                    {
+                        "sys_id": "inst-1",
+                        "sp_column": "col-1",
+                        "sp_widget": "wid-1",
+                        "order": "1",
+                        "widget_parameters": "",
+                        "css": "",
+                    },
+                ],
+            },
+        ]
+
+        result = get_page(mock_config, mock_auth_manager, GetPageParams(page_id="index"))
+
+        assert result["success"] is True
+        layout = result["page"]["layout"]
+        assert [container["sys_id"] for container in layout] == ["c-1", "c-2"]
+        assert [row["sys_id"] for row in layout[0]["rows"]] == ["r-1", "r-2"]
+        assert [column["sys_id"] for column in layout[0]["rows"][0]["columns"]] == [
+            "col-1",
+            "col-2",
+        ]
+        assert [widget["sys_id"] for widget in layout[0]["rows"][0]["columns"][0]["widgets"]] == [
+            "inst-1",
+            "inst-2",
+        ]
 
     @patch("servicenow_mcp.tools.portal_management_tools.sn_query")
     def test_not_found(self, mock_sn_query, mock_config, mock_auth_manager):
@@ -351,7 +454,8 @@ class TestGetWidgetInstance:
 
 
 class TestCreateWidgetInstance:
-    def test_success(self, mock_config, mock_auth_manager):
+    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
+    def test_success(self, mock_invalidate, mock_config, mock_auth_manager):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
             "result": {"sys_id": "inst-new", "sp_widget": "wid-1", "sp_column": "col-1"}
@@ -364,6 +468,7 @@ class TestCreateWidgetInstance:
 
         assert result["success"] is True
         assert result["instance_id"] == "inst-new"
+        mock_invalidate.assert_called_once_with(table="sp_instance")
 
         call_args = mock_auth_manager.make_request.call_args
         assert call_args[0][0] == "POST"
@@ -371,7 +476,8 @@ class TestCreateWidgetInstance:
         assert body["sp_widget"] == "wid-1"
         assert body["sp_column"] == "col-1"
 
-    def test_with_options(self, mock_config, mock_auth_manager):
+    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
+    def test_with_options(self, mock_invalidate, mock_config, mock_auth_manager):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
             "result": {"sys_id": "inst-new", "sp_widget": "wid-1", "sp_column": "col-1"}
@@ -389,11 +495,13 @@ class TestCreateWidgetInstance:
         result = create_widget_instance(mock_config, mock_auth_manager, params)
 
         assert result["success"] is True
+        mock_invalidate.assert_called_once_with(table="sp_instance")
         body = mock_auth_manager.make_request.call_args[1]["json"]
         assert body["widget_parameters"] == '{"title":"Test"}'
         assert body["css"] == ".w { color: blue; }"
 
-    def test_error(self, mock_config, mock_auth_manager):
+    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
+    def test_error(self, mock_invalidate, mock_config, mock_auth_manager):
         mock_auth_manager.make_request.side_effect = Exception("Connection failed")
 
         params = CreateWidgetInstanceParams(sp_widget="wid-1", sp_column="col-1")
@@ -401,10 +509,12 @@ class TestCreateWidgetInstance:
 
         assert result["success"] is False
         assert "Connection failed" in result["message"]
+        mock_invalidate.assert_not_called()
 
 
 class TestUpdateWidgetInstance:
-    def test_success(self, mock_config, mock_auth_manager):
+    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
+    def test_success(self, mock_invalidate, mock_config, mock_auth_manager):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"result": {"sys_id": "inst-1"}}
         mock_resp.raise_for_status = MagicMock()
@@ -414,6 +524,7 @@ class TestUpdateWidgetInstance:
         result = update_widget_instance(mock_config, mock_auth_manager, params)
 
         assert result["success"] is True
+        mock_invalidate.assert_called_once_with(table="sp_instance")
         call_args = mock_auth_manager.make_request.call_args
         assert call_args[0][0] == "PATCH"
         assert call_args[1]["json"]["order"] == "5"
@@ -426,7 +537,8 @@ class TestUpdateWidgetInstance:
         assert "No changes" in result["message"]
         mock_auth_manager.make_request.assert_not_called()
 
-    def test_move_column(self, mock_config, mock_auth_manager):
+    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
+    def test_move_column(self, mock_invalidate, mock_config, mock_auth_manager):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"result": {"sys_id": "inst-1"}}
         mock_resp.raise_for_status = MagicMock()
@@ -436,10 +548,12 @@ class TestUpdateWidgetInstance:
         result = update_widget_instance(mock_config, mock_auth_manager, params)
 
         assert result["success"] is True
+        mock_invalidate.assert_called_once_with(table="sp_instance")
         body = mock_auth_manager.make_request.call_args[1]["json"]
         assert body["sp_column"] == "col-new"
 
-    def test_error(self, mock_config, mock_auth_manager):
+    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
+    def test_error(self, mock_invalidate, mock_config, mock_auth_manager):
         mock_auth_manager.make_request.side_effect = Exception("Timeout")
 
         params = UpdateWidgetInstanceParams(instance_id="inst-1", order=1)
@@ -447,6 +561,7 @@ class TestUpdateWidgetInstance:
 
         assert result["success"] is False
         assert "Timeout" in result["message"]
+        mock_invalidate.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

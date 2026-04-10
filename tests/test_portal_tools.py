@@ -123,6 +123,37 @@ def test_get_portal_component_code_pagination(mock_sn_query, mock_config, mock_a
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_get_widget_bundle_matches_widget_name(mock_sn_query, mock_config, mock_auth_manager):
+    mock_sn_query.side_effect = [
+        {
+            "success": True,
+            "results": [
+                {
+                    "name": "Budget Widget",
+                    "sys_id": "wid-123",
+                    "template": "<div></div>",
+                    "script": "",
+                    "client_script": "",
+                    "css": "",
+                    "id": "budget_widget",
+                }
+            ],
+        },
+        {"success": True, "results": []},
+    ]
+
+    result = get_widget_bundle(
+        mock_config,
+        mock_auth_manager,
+        GetWidgetBundleParams(widget_id="Budget Widget"),
+    )
+
+    assert result["widget"]["name"] == "Budget Widget"
+    first_params = mock_sn_query.call_args_list[0].args[2]
+    assert "ORname=Budget Widget" in first_params.query
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
 def test_get_portal_component_code_minified_fallback(mock_sn_query, mock_config, mock_auth_manager):
     # Minified code — no newlines
     large_script = ";".join([f"var x{i}={i}" for i in range(3000)])
@@ -251,7 +282,10 @@ def test_preview_portal_component_update_matches_fixture_contract(
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_update_portal_component_success(mock_sn_query, mock_config, mock_auth_manager):
+@patch("servicenow_mcp.tools.portal_tools.invalidate_query_cache")
+def test_update_portal_component_success(
+    mock_invalidate_query_cache, mock_sn_query, mock_config, mock_auth_manager
+):
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_auth_manager.make_request.return_value = mock_response
@@ -273,6 +307,7 @@ def test_update_portal_component_success(mock_sn_query, mock_config, mock_auth_m
 
     assert result["message"] == "Update successful"
     mock_auth_manager.make_request.assert_called_once()
+    mock_invalidate_query_cache.assert_called_once_with(table="sp_widget")
     assert result["validation"]["verified_fields"] == ["client_script"]
 
 
@@ -533,6 +568,15 @@ def test_route_portal_component_edit_routes_preview_request():
 
     assert result["detected_action"] == "preview"
     assert result["suggested_fields"] == ["client_script"]
+    assert result["workflow_rule"].startswith("Always follow 3 stages")
+    assert [stage["name"] for stage in result["three_stage_flow"]] == [
+        "identify",
+        "expand_related",
+        "deep_apply",
+    ]
+    assert result["three_stage_flow"][0]["status"] == "completed"
+    assert result["three_stage_flow"][1]["tool"]["tool_name"] == "get_portal_component_code"
+    assert result["three_stage_flow"][2]["tool"]["tool_name"] == "preview_portal_component_update"
     assert result["tool_plan"] == {
         "tool_name": "preview_portal_component_update",
         "arguments": {
@@ -564,6 +608,10 @@ def test_route_portal_component_edit_routes_rollback_request():
     )
 
     assert result["detected_action"] == "rollback"
+    assert (
+        result["three_stage_flow"][2]["tool"]["tool_name"]
+        == "update_portal_component_from_snapshot"
+    )
     assert result["tool_plan"] == {
         "tool_name": "update_portal_component_from_snapshot",
         "arguments": {"snapshot_path": "/tmp/widget_snapshot.json"},
@@ -591,6 +639,9 @@ def test_route_portal_component_edit_reports_missing_apply_inputs():
 
     assert result["detected_action"] == "apply"
     assert result["suggested_fields"] == ["template"]
+    assert result["three_stage_flow"][0]["status"] == "required"
+    assert result["three_stage_flow"][1]["status"] == "blocked"
+    assert result["three_stage_flow"][2]["status"] == "blocked"
     assert result["tool_plan"]["tool_name"] == "update_portal_component"
     assert result["tool_plan"]["confirmation_required"] is True
     assert result["tool_plan"]["missing_requirements"] == ["sys_id", "update_data"]
@@ -650,8 +701,8 @@ def test_portal_search_defaults_are_conservative():
 def test_portal_download_defaults_are_conservative():
     params = DownloadPortalSourcesParams()
 
-    assert params.include_linked_script_includes is False
-    assert params.include_linked_angular_providers is False
+    assert params.include_linked_script_includes is None
+    assert params.include_linked_angular_providers is None
     assert params.max_widgets == 25
     assert params.page_size == 50
 
@@ -688,19 +739,6 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
                 "css": ".a{}",
                 "option_schema": '{"type":"object"}',
                 "demo_data": '{"demo":true}',
-            }
-        ],
-        [
-            {
-                "element": "template",
-                "column_label": "Body HTML template",
-                "internal_type": "html_template",
-                "read_only": "false",
-                "mandatory": "false",
-                "max_length": "65000",
-                "choice": "0",
-                "reference": "",
-                "attributes": "",
             }
         ],
         [
@@ -755,6 +793,143 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
     assert (scope_root / "sp_widget" / "_map.json").exists()
     assert (scope_root / "sp_angular_provider" / "_map.json").exists()
     assert (scope_root / "sys_script_include" / "_map.json").exists()
+
+
+@patch("servicenow_mcp.tools.portal_tools._sn_query_all")
+def test_download_portal_sources_batches_targeted_widget_fetches(
+    mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
+):
+    mock_sn_query_all.side_effect = [
+        [
+            {
+                "sys_id": "wid-1",
+                "name": "Quotation Widget",
+                "id": "quotation_widget",
+                "sys_scope": "x_bpm",
+                "template": "<div>one</div>",
+                "script": "",
+                "client_script": "",
+                "link": "",
+                "css": "",
+                "option_schema": "",
+                "demo_data": "",
+            },
+            {
+                "sys_id": "wid-2",
+                "name": "Approval Widget",
+                "id": "approval_widget",
+                "sys_scope": "x_bpm",
+                "template": "<div>two</div>",
+                "script": "",
+                "client_script": "",
+                "link": "",
+                "css": "",
+                "option_schema": "",
+                "demo_data": "",
+            },
+        ],
+        [],
+        [],
+    ]
+
+    result = download_portal_sources(
+        mock_config,
+        mock_auth_manager,
+        DownloadPortalSourcesParams(
+            output_dir=str(tmp_path),
+            scope="x_bpm",
+            widget_ids=["wid-1", "approval_widget"],
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["summary"]["widgets"] == 2
+    assert result["summary"]["angular_providers"] == 0
+    assert result["summary"]["script_includes"] == 0
+    assert mock_sn_query_all.call_count == 2
+
+    first_call = mock_sn_query_all.call_args_list[0]
+    first_query = first_call.kwargs["query"]
+    assert "sys_id=wid-1" in first_query
+    assert "id=approval_widget" in first_query
+    assert "name=approval_widget" in first_query
+    assert mock_sn_query_all.call_args_list[0].kwargs["max_records"] >= 20
+
+    scope_root = tmp_path / "x_bpm" / "sp_widget"
+    assert (scope_root / "quotation_widget" / "_widget.json").exists()
+    assert (scope_root / "approval_widget" / "_widget.json").exists()
+
+
+@patch("servicenow_mcp.tools.portal_tools._fetch_linked_script_include_rows")
+@patch("servicenow_mcp.tools.portal_tools._sn_query_all")
+def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_components(
+    mock_sn_query_all,
+    mock_fetch_linked_script_include_rows,
+    mock_config,
+    mock_auth_manager,
+    tmp_path,
+):
+    mock_sn_query_all.side_effect = [
+        [
+            {
+                "sys_id": "wid-1",
+                "name": "Quotation Widget",
+                "id": "quotation_widget",
+                "sys_scope": "x_bpm",
+                "template": "<div>one</div>",
+                "script": "var si = new x_bpm.QuotationUtil();",
+                "client_script": "",
+                "link": "",
+                "css": "",
+                "option_schema": "",
+                "demo_data": "",
+            }
+        ],
+        [
+            {
+                "sp_widget": {"value": "wid-1"},
+                "sp_angular_provider": {"value": "prov-1"},
+            }
+        ],
+        [
+            {
+                "sys_id": "prov-1",
+                "name": "quotationService",
+                "script": "angular.module('x').factory('quotationService', function(){});",
+                "type": "factory",
+                "sys_scope": "x_bpm",
+            }
+        ],
+    ]
+    mock_fetch_linked_script_include_rows.return_value = [
+        {
+            "sys_id": "si-1",
+            "name": "QuotationUtil",
+            "api_name": "x_bpm.QuotationUtil",
+            "script": "var gr = new GlideRecord('task');",
+        }
+    ]
+
+    result = download_portal_sources(
+        mock_config,
+        mock_auth_manager,
+        DownloadPortalSourcesParams(
+            output_dir=str(tmp_path),
+            scope="x_bpm",
+            widget_ids=["quotation_widget"],
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["summary"]["widgets"] == 1
+    assert result["summary"]["angular_providers"] == 1
+    assert result["summary"]["script_includes"] == 1
+    assert mock_sn_query_all.call_count == 3
+
+    scope_root = tmp_path / "x_bpm"
+    assert (scope_root / "sp_angular_provider" / "quotationService.script.js").exists()
+    assert (scope_root / "sys_script_include" / "QuotationUtil.script.js").exists()
+    mock_fetch_linked_script_include_rows.assert_called_once()
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
@@ -954,6 +1129,10 @@ def test_search_portal_regex_matches_minimal_output_mode(
     assert result["scan_summary"]["output_mode"] == "minimal"
     assert len(result["matches"]) == 1
     assert set(result["matches"][0].keys()) == {"location", "line"}
+    assert (
+        mock_sn_query_all.call_args.kwargs["fields"]
+        == "sys_id,name,id,client_script,css,link,script,template"
+    )
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query_all")
@@ -1102,6 +1281,11 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
     assert trace["route_targets"][0]["page_id"] == "hopesinitplanbudgetmanhour"
     assert {"location", "line", "match"} <= set(trace["evidence"][0].keys())
     assert result["filters"]["effective_match_mode"] == "literal"
+    assert (
+        mock_sn_query_all.call_args_list[0].kwargs["fields"]
+        == "sys_id,name,id,client_script,link,script,template"
+    )
+    assert mock_sn_query_all.call_args_list[2].kwargs["fields"] == "sys_id,name,id,script"
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query_all")
@@ -1244,6 +1428,7 @@ def test_detect_angular_implicit_globals_minimal_mode_shape(
     assert result["success"] is True
     assert result["filters"]["output_mode"] == "minimal"
     assert set(result["findings"][0].keys()) == {"location", "line"}
+    assert mock_sn_query_all.call_args.kwargs["fields"] == "sys_id,name,id,script"
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")

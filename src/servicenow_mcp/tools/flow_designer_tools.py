@@ -11,12 +11,13 @@ Provides read-only tools for analyzing Flow Designer flows:
 import logging
 from typing import Any, Dict, List, Optional
 
-import requests
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
+
+from .sn_api import sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
 
@@ -102,52 +103,22 @@ class GetFlowTriggersParams(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _api_get(
-    auth_manager: AuthManager,
-    server_config: ServerConfig,
-    table: str,
-    params: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Make a GET request to the ServiceNow Table API."""
-    headers = auth_manager.get_headers()
-    url = f"{server_config.instance_url}/api/now/table/{table}"
-    response = auth_manager.make_request("GET", url, headers=headers, params=params or {})
-    response.raise_for_status()
-    return response.json()
-
-
-def _api_get_raw(
-    auth_manager: AuthManager,
-    server_config: ServerConfig,
-    path: str,
-    params: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Make a GET request to an arbitrary ServiceNow REST API path."""
-    headers = auth_manager.get_headers()
-    url = f"{server_config.instance_url}{path}"
-    response = auth_manager.make_request("GET", url, headers=headers, params=params or {})
-    response.raise_for_status()
-    return response.json()
-
-
 def _get_snapshot_id(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
     flow_id: str,
 ) -> Optional[str]:
     """Get the published snapshot sys_id for a flow."""
-    result = _api_get(
+    snapshots, _ = sn_query_page(
+        config,
         auth_manager,
-        server_config,
-        FLOW_SNAPSHOT_TABLE,
-        {
-            "sysparm_query": f"master_flow={flow_id}^ORsys_id={flow_id}",
-            "sysparm_fields": "sys_id,name,status",
-            "sysparm_limit": 5,
-            "sysparm_display_value": "true",
-        },
+        table=FLOW_SNAPSHOT_TABLE,
+        query=f"master_flow={flow_id}^ORsys_id={flow_id}",
+        fields="sys_id,name,status",
+        limit=5,
+        offset=0,
+        display_value=True,
     )
-    snapshots = result.get("result", [])
     # Prefer published snapshot
     for snap in snapshots:
         if snap.get("status") == "Published":
@@ -178,6 +149,31 @@ def _build_component_tree(components: List[Dict]) -> List[Dict]:
     return roots
 
 
+def _try_flow_designer_api(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    flow_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Try the native Flow Designer REST API (/api/sn_flow/designer/flows/{id}).
+
+    Returns the full flow definition if available, None if the API is not present.
+    """
+    for api_path in [
+        f"/api/sn_flow/designer/flows/{flow_id}",
+        f"/api/sn_fd/designer/flows/{flow_id}",
+    ]:
+        try:
+            url = f"{config.instance_url}{api_path}"
+            response = auth_manager.make_request("GET", url)
+            response.raise_for_status()
+            result = response.json()
+            if result and "result" in result:
+                return result
+        except Exception:
+            continue
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Tool Implementations
 # ---------------------------------------------------------------------------
@@ -194,53 +190,47 @@ def _build_component_tree(components: List[Dict]) -> List[Dict]:
     return_type=dict,
 )
 def list_flows(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: ListFlowsParams,
 ) -> Dict[str, Any]:
     """List Flow Designer flows."""
-    if isinstance(params, ListFlowsParams):
-        params = params.dict(exclude_none=True)
-
     query_parts: List[str] = []
-    if params.get("active") is not None:
-        query_parts.append(f"active={str(params['active']).lower()}")
-    if params.get("status"):
-        query_parts.append(f"status={params['status']}")
-    if params.get("name"):
-        query_parts.append(f"nameLIKE{params['name']}")
-    if params.get("scope"):
-        query_parts.append(f"sys_scopeLIKE{params['scope']}")
-    if params.get("query"):
-        query_parts.append(params["query"])
+    if params.active is not None:
+        query_parts.append(f"active={str(params.active).lower()}")
+    if params.status:
+        query_parts.append(f"status={params.status}")
+    if params.name:
+        query_parts.append(f"nameLIKE{params.name}")
+    if params.scope:
+        query_parts.append(f"sys_scopeLIKE{params.scope}")
+    if params.query:
+        query_parts.append(params.query)
 
     query_string = "^".join(query_parts) if query_parts else ""
 
-    if params.get("count_only"):
-        from .sn_api import sn_count
-
-        count = sn_count(server_config, auth_manager, FLOW_TABLE, query_string)
+    if params.count_only:
+        count = sn_count(config, auth_manager, FLOW_TABLE, query_string)
         return {"success": True, "count": count}
 
     try:
-        qp: Dict[str, Any] = {
-            "sysparm_limit": min(params.get("limit", 20), 100),
-            "sysparm_offset": params.get("offset", 0),
-            "sysparm_fields": "sys_id,name,status,active,trigger_type,sys_scope,sys_updated_on,sys_updated_by,description",
-            "sysparm_display_value": "true",
-        }
-        if query_string:
-            qp["sysparm_query"] = query_string
-
-        result = _api_get(auth_manager, server_config, FLOW_TABLE, qp)
-        flows = result.get("result", [])
+        flows, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_TABLE,
+            query=query_string,
+            fields="sys_id,name,status,active,trigger_type,sys_scope,sys_updated_on,sys_updated_by,description",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+        )
         return {
             "success": True,
             "flows": flows,
             "count": len(flows),
-            "total": int(result.get("result", [{}])[0].get("__total", 0) if flows else 0),
+            "total": total_count if total_count is not None else len(flows),
         }
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Error listing flows: {e}")
         return {"success": False, "error": str(e)}
 
@@ -256,71 +246,47 @@ def list_flows(
     return_type=dict,
 )
 def get_flow_details(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: GetFlowDetailsParams,
 ) -> Dict[str, Any]:
     """Get flow details by sys_id."""
-    if isinstance(params, GetFlowDetailsParams):
-        params = params.dict(exclude_none=True)
-
-    flow_id = params["flow_id"]
+    flow_id = params.flow_id
 
     try:
-        headers = auth_manager.get_headers()
-        url = f"{server_config.instance_url}/api/now/table/{FLOW_TABLE}/{flow_id}"
-        response = auth_manager.make_request(
-            "GET",
-            url,
-            headers=headers,
-            params={"sysparm_display_value": "true"},
+        flows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_TABLE,
+            query=f"sys_id={flow_id}",
+            fields="",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-        flow = response.json().get("result", {})
+        flow = flows[0] if flows else {}
 
         # Also get trigger info
-        trigger_result = _api_get(
+        triggers, _ = sn_query_page(
+            config,
             auth_manager,
-            server_config,
-            TRIGGER_TABLE,
-            {
-                "sysparm_query": f"flow={flow_id}",
-                "sysparm_display_value": "true",
-                "sysparm_limit": 5,
-            },
+            table=TRIGGER_TABLE,
+            query=f"flow={flow_id}",
+            fields="",
+            limit=5,
+            offset=0,
+            display_value=True,
         )
-        triggers = trigger_result.get("result", [])
 
         return {
             "success": True,
             "flow": flow,
             "triggers": triggers,
         }
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Error getting flow details: {e}")
         return {"success": False, "error": str(e)}
-
-
-def _try_flow_designer_api(
-    auth_manager: AuthManager,
-    server_config: ServerConfig,
-    flow_id: str,
-) -> Optional[Dict[str, Any]]:
-    """Try the native Flow Designer REST API (/api/sn_flow/designer/flows/{id}).
-
-    Returns the full flow definition if available, None if the API is not present.
-    """
-    for api_path in [
-        f"/api/sn_flow/designer/flows/{flow_id}",
-        f"/api/sn_fd/designer/flows/{flow_id}",
-    ]:
-        try:
-            result = _api_get_raw(auth_manager, server_config, api_path)
-            if result and "result" in result:
-                return result
-        except requests.RequestException:
-            continue
-    return None
 
 
 @register_tool(
@@ -337,22 +303,17 @@ def _try_flow_designer_api(
     return_type=dict,
 )
 def get_flow_structure(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: GetFlowStructureParams,
 ) -> Dict[str, Any]:
     """Get the full component tree of a flow."""
-    if isinstance(params, GetFlowStructureParams):
-        p = params
-    else:
-        p = GetFlowStructureParams(**params)
-
-    flow_id = p.flow_id
+    flow_id = params.flow_id
 
     # ------------------------------------------------------------------
     # Strategy 1: Native Flow Designer API (full detail)
     # ------------------------------------------------------------------
-    designer_result = _try_flow_designer_api(auth_manager, server_config, flow_id)
+    designer_result = _try_flow_designer_api(config, auth_manager, flow_id)
     if designer_result:
         return {
             "success": True,
@@ -366,7 +327,7 @@ def get_flow_structure(
     # ------------------------------------------------------------------
     try:
         # Step 1: Find the published snapshot
-        snapshot_id = _get_snapshot_id(auth_manager, server_config, flow_id)
+        snapshot_id = _get_snapshot_id(config, auth_manager, flow_id)
         if not snapshot_id:
             return {
                 "success": False,
@@ -379,48 +340,42 @@ def get_flow_structure(
             }
 
         # Step 2: Get all components via v2 tables using snapshot_id
-        actions_result = _api_get(
+        actions, _ = sn_query_page(
+            config,
             auth_manager,
-            server_config,
-            ACTION_V2_TABLE,
-            {
-                "sysparm_query": f"flow={snapshot_id}",
-                "sysparm_fields": "sys_id,name,order,action_type,position,nesting_parent,compilable_type",
-                "sysparm_display_value": "true",
-                "sysparm_limit": 100,
-            },
+            table=ACTION_V2_TABLE,
+            query=f"flow={snapshot_id}",
+            fields="sys_id,name,order,action_type,position,nesting_parent,compilable_type",
+            limit=100,
+            offset=0,
+            display_value=True,
         )
-        actions = actions_result.get("result", [])
         for a in actions:
             a["component_type"] = "action"
 
-        logic_result = _api_get(
+        logic_nodes, _ = sn_query_page(
+            config,
             auth_manager,
-            server_config,
-            LOGIC_V2_TABLE,
-            {
-                "sysparm_query": f"flow={snapshot_id}",
-                "sysparm_fields": "sys_id,name,order,type,position,nesting_parent,compilable_type",
-                "sysparm_display_value": "true",
-                "sysparm_limit": 100,
-            },
+            table=LOGIC_V2_TABLE,
+            query=f"flow={snapshot_id}",
+            fields="sys_id,name,order,type,position,nesting_parent,compilable_type",
+            limit=100,
+            offset=0,
+            display_value=True,
         )
-        logic_nodes = logic_result.get("result", [])
         for node in logic_nodes:
             node["component_type"] = "logic"
 
-        subflows_result = _api_get(
+        subflows, _ = sn_query_page(
+            config,
             auth_manager,
-            server_config,
-            SUBFLOW_V2_TABLE,
-            {
-                "sysparm_query": f"flow={snapshot_id}",
-                "sysparm_fields": "sys_id,name,order,position,nesting_parent,compilable_type",
-                "sysparm_display_value": "true",
-                "sysparm_limit": 100,
-            },
+            table=SUBFLOW_V2_TABLE,
+            query=f"flow={snapshot_id}",
+            fields="sys_id,name,order,position,nesting_parent,compilable_type",
+            limit=100,
+            offset=0,
+            display_value=True,
         )
-        subflows = subflows_result.get("result", [])
         for s in subflows:
             s["component_type"] = "subflow"
 
@@ -462,7 +417,7 @@ def get_flow_structure(
             "flat_summary": flat_summary,
             "tree": tree,
         }
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Error getting flow structure: {e}")
         return {"success": False, "error": str(e)}
 
@@ -479,51 +434,45 @@ def get_flow_structure(
     return_type=dict,
 )
 def get_flow_executions(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: GetFlowExecutionsParams,
 ) -> Dict[str, Any]:
     """Get flow execution history."""
-    if isinstance(params, GetFlowExecutionsParams):
-        params = params.dict(exclude_none=True)
-
     query_parts: List[str] = []
 
-    if params.get("flow_name"):
-        query_parts.append(f"nameLIKE{params['flow_name']}")
-    if params.get("flow_id"):
-        query_parts.append(f"flow={params['flow_id']}")
-    if params.get("state"):
-        query_parts.append(f"state={params['state']}")
-    if params.get("source_record"):
-        query_parts.append(f"source_recordLIKE{params['source_record']}")
-    if params.get("errors_only"):
+    if params.flow_name:
+        query_parts.append(f"nameLIKE{params.flow_name}")
+    if params.flow_id:
+        query_parts.append(f"flow={params.flow_id}")
+    if params.state:
+        query_parts.append(f"state={params.state}")
+    if params.source_record:
+        query_parts.append(f"source_recordLIKE{params.source_record}")
+    if params.errors_only:
         query_parts.append("stateINError,Cancelled^ORerror_messageISNOTEMPTY")
 
     query_string = "^".join(query_parts) if query_parts else ""
 
     try:
-        qp: Dict[str, Any] = {
-            "sysparm_limit": min(params.get("limit", 20), 100),
-            "sysparm_offset": params.get("offset", 0),
-            "sysparm_fields": "sys_id,name,state,error_message,error_state,sys_created_on,source_table,source_record,run_time,flow",
-            "sysparm_display_value": "true",
-            "sysparm_query": (
-                f"{query_string}^ORDERBYDESCsys_created_on"
-                if query_string
-                else "ORDERBYDESCsys_created_on"
-            ),
-        }
-
-        result = _api_get(auth_manager, server_config, FLOW_CONTEXT_TABLE, qp)
-        executions = result.get("result", [])
+        executions, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_CONTEXT_TABLE,
+            query=query_string,
+            fields="sys_id,name,state,error_message,error_state,sys_created_on,source_table,source_record,run_time,flow",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+            orderby="-sys_created_on",
+        )
 
         return {
             "success": True,
             "executions": executions,
             "count": len(executions),
         }
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Error getting flow executions: {e}")
         return {"success": False, "error": str(e)}
 
@@ -539,33 +488,32 @@ def get_flow_executions(
     return_type=dict,
 )
 def get_flow_execution_detail(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: GetFlowExecutionDetailParams,
 ) -> Dict[str, Any]:
     """Get detailed info for a single flow execution."""
-    if isinstance(params, GetFlowExecutionDetailParams):
-        params = params.dict(exclude_none=True)
-
-    context_id = params["context_id"]
+    context_id = params.context_id
 
     try:
-        headers = auth_manager.get_headers()
-        url = f"{server_config.instance_url}/api/now/table/{FLOW_CONTEXT_TABLE}/{context_id}"
-        response = auth_manager.make_request(
-            "GET",
-            url,
-            headers=headers,
-            params={"sysparm_display_value": "true"},
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_CONTEXT_TABLE,
+            query=f"sys_id={context_id}",
+            fields="",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
         )
-        response.raise_for_status()
-        context = response.json().get("result", {})
+        context = records[0] if records else {}
 
         return {
             "success": True,
             "execution": context,
         }
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Error getting flow execution detail: {e}")
         return {"success": False, "error": str(e)}
 
@@ -581,42 +529,38 @@ def get_flow_execution_detail(
     return_type=dict,
 )
 def get_flow_triggers(
+    config: ServerConfig,
     auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
+    params: GetFlowTriggersParams,
 ) -> Dict[str, Any]:
     """Get triggers for a flow."""
-    if isinstance(params, GetFlowTriggersParams):
-        params = params.dict(exclude_none=True)
-
-    flow_id = params["flow_id"]
+    flow_id = params.flow_id
 
     try:
         # Try both flow and snapshot
-        snapshot_id = _get_snapshot_id(auth_manager, server_config, flow_id)
+        snapshot_id = _get_snapshot_id(config, auth_manager, flow_id)
 
         query_parts = [f"flow={flow_id}"]
         if snapshot_id:
             query_parts.append(f"flow={snapshot_id}")
         query_string = "^OR".join(query_parts)
 
-        result = _api_get(
+        triggers, _ = sn_query_page(
+            config,
             auth_manager,
-            server_config,
-            TRIGGER_TABLE,
-            {
-                "sysparm_query": query_string,
-                "sysparm_display_value": "true",
-                "sysparm_limit": 20,
-            },
+            table=TRIGGER_TABLE,
+            query=query_string,
+            fields="",
+            limit=20,
+            offset=0,
+            display_value=True,
         )
-        triggers = result.get("result", [])
 
         return {
             "success": True,
             "triggers": triggers,
             "count": len(triggers),
         }
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Error getting flow triggers: {e}")
         return {"success": False, "error": str(e)}

@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .sn_api import GenericQueryParams, sn_query, sn_query_all
+from .sn_api import GenericQueryParams, invalidate_query_cache, sn_query, sn_query_all
 
 logger = logging.getLogger(__name__)
 
@@ -131,13 +131,13 @@ class DownloadPortalSourcesParams(BaseModel):
         None,
         description="Optional list of widget sys_id/id/name. If empty, exports all widgets in scope.",
     )
-    include_linked_script_includes: bool = Field(
-        False,
-        description="Include script includes referenced by exported widgets",
+    include_linked_script_includes: bool | None = Field(
+        None,
+        description="Include script includes referenced by exported widgets. Defaults to true for targeted widget export.",
     )
-    include_linked_angular_providers: bool = Field(
-        False,
-        description="Include angular providers linked via widget-provider M2M",
+    include_linked_angular_providers: bool | None = Field(
+        None,
+        description="Include angular providers linked via widget-provider M2M. Defaults to true for targeted widget export.",
     )
     include_widget_client_script: bool = Field(
         True,
@@ -218,7 +218,7 @@ def _fetch_portal_component_record(
         fields=",".join(query_fields),
         limit=1,
         offset=0,
-        display_value=True,
+        display_value=False,
     )
     response = sn_query(config, auth_manager, query_params)
     if not response.get("success") or not response.get("results"):
@@ -427,6 +427,80 @@ def _build_portal_edit_next_call_example(plan: Dict[str, Any]) -> Dict[str, Any]
         "tool_name": str(plan.get("tool_name") or ""),
         "arguments": example_arguments,
     }
+
+
+def _build_portal_edit_three_stage_flow(
+    *,
+    action: str,
+    params: RoutePortalComponentEditParams,
+    suggested_fields: List[str],
+    final_plan: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    fields = list(suggested_fields or ["template", "client_script"])
+    identify_tool_name = (
+        "trace_portal_route_targets"
+        if any(
+            token in params.instruction.lower()
+            for token in ["route", "page", "url", "redirect", "navigate"]
+        )
+        else "search_portal_regex_matches"
+    )
+    identify_arguments: Dict[str, Any] = {
+        "output_mode": "minimal",
+        "max_widgets": 10,
+    }
+    if params.table == WIDGET_TABLE and params.sys_id:
+        identify_arguments["widget_ids"] = [params.sys_id]
+    elif params.sys_id and params.table == ANGULAR_PROVIDER_TABLE:
+        identify_arguments["provider_ids"] = [params.sys_id]
+    else:
+        identify_arguments["regex"] = params.instruction
+
+    inspect_arguments: Dict[str, Any] = {
+        "table": params.table or "<table>",
+        "sys_id": params.sys_id or "<sys_id>",
+        "fields": fields,
+    }
+
+    stage_one_status = "completed" if params.table and params.sys_id else "required"
+    stage_two_status = "ready" if params.table and params.sys_id else "blocked"
+    stage_three_status = "ready" if not final_plan.get("missing_requirements") else "blocked"
+    if action == "apply":
+        stage_three_goal = "깊은 적용 전에 bounded analyze/preview로 바뀔 내용을 검토"
+    elif action == "rollback":
+        stage_three_goal = "검토가 끝난 snapshot 기준으로 안전하게 롤백"
+    else:
+        stage_three_goal = "필요할 때만 깊은 분석/미리보기/적용 단계로 진입"
+
+    return [
+        {
+            "stage": 1,
+            "name": "identify",
+            "goal": "빠르게 대상 위젯/라우트/컴포넌트를 식별한다",
+            "status": stage_one_status,
+            "tool": {
+                "tool_name": identify_tool_name,
+                "arguments": identify_arguments,
+            },
+        },
+        {
+            "stage": 2,
+            "name": "expand_related",
+            "goal": "대상 한 세트 기준으로 필요한 코드와 연관 컴포넌트만 좁게 확인한다",
+            "status": stage_two_status,
+            "tool": {
+                "tool_name": "get_portal_component_code",
+                "arguments": inspect_arguments,
+            },
+        },
+        {
+            "stage": 3,
+            "name": "deep_apply",
+            "goal": stage_three_goal,
+            "status": stage_three_status,
+            "tool": _build_portal_edit_next_call_example(final_plan),
+        },
+    ]
 
 
 def _resolve_snapshot_root(config: ServerConfig, output_dir: str | None) -> Path:
@@ -812,6 +886,176 @@ def _chunked(values: List[str], size: int) -> List[List[str]]:
     if size <= 0:
         return [values]
     return [values[i : i + size] for i in range(0, len(values), size)]
+
+
+def _dedupe_preserve_order_strings(values: List[str]) -> List[str]:
+    seen: Set[str] = set()
+    result: List[str] = []
+    for value in values:
+        token = value.strip()
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        result.append(token)
+    return result
+
+
+def _fetch_linked_script_include_rows(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    candidates: List[str],
+    page_size: int,
+    scope: str | None = None,
+    updated_by: str | None = None,
+    updated_after: str | None = None,
+    updated_before: str | None = None,
+) -> List[Dict[str, Any]]:
+    normalized_candidates = _dedupe_preserve_order_strings(candidates)
+    if not normalized_candidates:
+        return []
+
+    rows_by_sys_id: Dict[str, Dict[str, Any]] = {}
+    safe_updated_by = _escape_query(updated_by) if updated_by else ""
+
+    for chunk in _chunked(normalized_candidates, 20):
+        candidate_clauses: List[str] = []
+        for candidate in chunk:
+            safe_candidate = _escape_query(candidate)
+            candidate_clauses.extend(
+                [
+                    f"name={safe_candidate}",
+                    f"api_name={safe_candidate}",
+                    f"api_nameENDSWITH.{safe_candidate}",
+                ]
+            )
+
+        query_parts = ["(" + "^OR".join(candidate_clauses) + ")"]
+        if scope:
+            query_parts.append(f"sys_scope={_escape_query(scope)}")
+        if updated_by:
+            query_parts.append(f"sys_updated_by={safe_updated_by}")
+        if updated_after:
+            query_parts.append(f"sys_updated_on>={_escape_query(updated_after)}")
+        if updated_before:
+            query_parts.append(f"sys_updated_on<={_escape_query(updated_before)}")
+
+        rows = _sn_query_all(
+            config,
+            auth_manager,
+            table="sys_script_include",
+            query="^".join(query_parts),
+            fields="sys_id,name,api_name,script,sys_scope,sys_updated_by,sys_updated_on",
+            page_size=page_size,
+            max_records=max(20, len(chunk) * 5),
+        )
+        for row in rows:
+            sys_id = str(row.get("sys_id") or "")
+            if sys_id and sys_id not in rows_by_sys_id:
+                rows_by_sys_id[sys_id] = row
+
+    return list(rows_by_sys_id.values())
+
+
+def _fetch_targeted_widget_rows(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    widget_tokens: List[str],
+    widget_base_query: str,
+    widget_fields: str,
+    page_size: int,
+) -> List[Dict[str, Any]]:
+    normalized_tokens = _dedupe_preserve_order_strings(widget_tokens)
+    if not normalized_tokens:
+        return []
+
+    rows_by_sys_id: Dict[str, Dict[str, Any]] = {}
+    token_matches: Dict[str, List[str]] = {token: [] for token in normalized_tokens}
+
+    for chunk in _chunked(normalized_tokens, 20):
+        clauses: List[str] = []
+        for token in chunk:
+            safe_token = _escape_query(token)
+            clauses.extend(
+                [
+                    f"sys_id={safe_token}",
+                    f"id={safe_token}",
+                    f"name={safe_token}",
+                ]
+            )
+
+        query = "(" + "^OR".join(clauses) + ")"
+        if widget_base_query:
+            query += f"^{widget_base_query}"
+
+        rows = _sn_query_all(
+            config,
+            auth_manager,
+            table=WIDGET_TABLE,
+            query=query,
+            fields=widget_fields,
+            page_size=page_size,
+            max_records=max(len(chunk) * 3, 20),
+        )
+
+        for row in rows:
+            sys_id = str(row.get("sys_id") or "")
+            if not sys_id:
+                continue
+            rows_by_sys_id.setdefault(sys_id, row)
+
+            candidate_tokens = _dedupe_preserve_order_strings(
+                [
+                    str(row.get("sys_id") or ""),
+                    str(row.get("id") or ""),
+                    str(row.get("name") or ""),
+                ]
+            )
+            for candidate in candidate_tokens:
+                if candidate in token_matches and sys_id not in token_matches[candidate]:
+                    token_matches[candidate].append(sys_id)
+
+    ordered_rows: List[Dict[str, Any]] = []
+    seen_sys_ids: Set[str] = set()
+    for token in normalized_tokens:
+        for sys_id in token_matches.get(token, []):
+            if sys_id in seen_sys_ids:
+                continue
+            row = rows_by_sys_id.get(sys_id)
+            if row is None:
+                continue
+            ordered_rows.append(row)
+            seen_sys_ids.add(sys_id)
+
+    for sys_id, row in rows_by_sys_id.items():
+        if sys_id not in seen_sys_ids:
+            ordered_rows.append(row)
+
+    return ordered_rows
+
+
+def _download_widget_fields(
+    *,
+    include_widget_template: bool,
+    include_widget_server_script: bool,
+    include_widget_client_script: bool,
+    include_widget_link_script: bool,
+    include_widget_css: bool,
+    include_linked_script_includes: bool,
+) -> str:
+    fields = ["sys_id", "name", "id", "sys_scope", "option_schema", "demo_data"]
+    if include_widget_template:
+        fields.append("template")
+    if include_widget_server_script or include_linked_script_includes:
+        fields.append("script")
+    if include_widget_client_script or include_linked_script_includes:
+        fields.append("client_script")
+    if include_widget_link_script:
+        fields.append("link")
+    if include_widget_css:
+        fields.append("css")
+    return ",".join(_dedupe_preserve_order_strings(fields))
 
 
 def _as_ref_sys_id(value: Any) -> str | None:
@@ -1397,7 +1641,7 @@ def get_widget_bundle(
     Returns core code and metadata about dependencies.
     """
     # 1. Fetch the widget record
-    query = f"sys_id={params.widget_id}^ORid={params.widget_id}"
+    query = f"sys_id={params.widget_id}^ORid={params.widget_id}^ORname={params.widget_id}"
     widget_fields = ["name", "id", "template", "script", "client_script", "css", "sys_id"]
 
     query_params = GenericQueryParams(
@@ -1406,7 +1650,7 @@ def get_widget_bundle(
         fields=",".join(widget_fields),
         limit=1,
         offset=0,
-        display_value=True,
+        display_value=False,
     )
     response = sn_query(config, auth_manager, query_params)
 
@@ -1424,16 +1668,16 @@ def get_widget_bundle(
             fields="sp_angular_provider",
             limit=100,
             offset=0,
-            display_value=True,
+            display_value=False,
         )
         m2m_response = sn_query(config, auth_manager, m2m_query_params)
         providers_m2m = m2m_response.get("results", [])
 
-        provider_ids = [
-            p["sp_angular_provider"]["value"]
-            for p in providers_m2m
-            if isinstance(p.get("sp_angular_provider"), dict)
-        ]
+        provider_ids: List[str] = []
+        for provider_row in providers_m2m:
+            provider_id = _as_ref_sys_id(provider_row.get("sp_angular_provider"))
+            if provider_id:
+                provider_ids.append(provider_id)
 
         if provider_ids:
             prov_query_params = GenericQueryParams(
@@ -1442,7 +1686,7 @@ def get_widget_bundle(
                 fields="name,sys_id,type",
                 limit=100,
                 offset=0,
-                display_value=True,
+                display_value=False,
             )
             prov_response = sn_query(config, auth_manager, prov_query_params)
             bundle["angular_providers"] = [
@@ -1472,7 +1716,7 @@ def get_portal_component_code(
         fields=",".join(params.fields + ["name", "sys_id"]),
         limit=1,
         offset=0,
-        display_value=True,
+        display_value=False,
     )
     response = sn_query(config, auth_manager, query_params)
 
@@ -1705,6 +1949,12 @@ def route_portal_component_edit(
     action = _detect_portal_edit_action(instruction)
     suggested_fields = _detect_portal_edit_fields(instruction)
     plan = _build_portal_edit_router_plan(action, params)
+    three_stage_flow = _build_portal_edit_three_stage_flow(
+        action=action,
+        params=params,
+        suggested_fields=suggested_fields,
+        final_plan=plan,
+    )
 
     target: Dict[str, Any] = {}
     if params.table:
@@ -1723,6 +1973,8 @@ def route_portal_component_edit(
         "detected_action": action,
         "target": target,
         "suggested_fields": suggested_fields,
+        "workflow_rule": "Always follow 3 stages: identify quickly, expand only the related set, then deep analyze/preview/apply only when needed.",
+        "three_stage_flow": three_stage_flow,
         "tool_plan": plan,
         "recommended_next_call": _build_portal_edit_next_call_example(plan),
         "safety_notice": (
@@ -1811,7 +2063,7 @@ def search_portal_regex_matches(
 
     requested_widget_fields = set(params.include_widget_fields)
     # Only fetch heavy code fields that will actually be scanned
-    widget_fields = ["sys_id", "name", "id", "sys_updated_by", "sys_updated_on", "sys_scope"]
+    widget_fields = ["sys_id", "name", "id"]
     scannable_code_fields = {"template", "script", "client_script", "link", "css"}
     widget_fields.extend(sorted(requested_widget_fields & scannable_code_fields))
     # Always include script fields when linked SI expansion needs them for ref extraction
@@ -1912,7 +2164,7 @@ def search_portal_regex_matches(
                 auth_manager,
                 table=ANGULAR_PROVIDER_TABLE,
                 query=provider_query,
-                fields="sys_id,name,script,sys_updated_by,sys_updated_on",
+                fields="sys_id,name,script",
                 page_size=page_size,
                 max_records=1000,
             )
@@ -1944,35 +2196,21 @@ def search_portal_regex_matches(
         and script_include_candidates
         and len(matches) < max_matches
     ):
-        for candidate in sorted(script_include_candidates):
+        script_include_rows = _fetch_linked_script_include_rows(
+            config,
+            auth_manager,
+            candidates=sorted(script_include_candidates),
+            page_size=page_size,
+            scope=params.scope,
+            updated_by=params.updated_by if params.linked_components_updated_by_only else None,
+            updated_after=params.updated_after,
+            updated_before=params.updated_before,
+        )
+        script_include_scanned = len(script_include_rows)
+        for row in script_include_rows:
             remaining = max_matches - len(matches)
             if remaining <= 0:
                 break
-
-            safe_candidate = _escape_query(candidate)
-            query = f"name={safe_candidate}^ORapi_name={safe_candidate}^ORapi_nameENDSWITH.{safe_candidate}"
-            if params.scope:
-                query += f"^sys_scope={_escape_query(params.scope)}"
-            if params.linked_components_updated_by_only and params.updated_by:
-                query += f"^sys_updated_by={safe_updated_by}"
-            if params.updated_after:
-                query += f"^sys_updated_on>={_escape_query(params.updated_after)}"
-            if params.updated_before:
-                query += f"^sys_updated_on<={_escape_query(params.updated_before)}"
-
-            rows = _sn_query_all(
-                config,
-                auth_manager,
-                table="sys_script_include",
-                query=query,
-                fields="sys_id,name,api_name,script,sys_updated_by,sys_updated_on",
-                page_size=page_size,
-                max_records=1,
-            )
-            if not rows:
-                continue
-            script_include_scanned += 1
-            row = rows[0]
             content = str(row.get("script") or "")
             if not content:
                 continue
@@ -1980,7 +2218,9 @@ def search_portal_regex_matches(
                 _extract_pattern_hits(
                     source_type="script_include",
                     source_sys_id=str(row.get("sys_id") or ""),
-                    source_name=str(row.get("name") or candidate),
+                    source_name=str(
+                        row.get("name") or row.get("api_name") or row.get("sys_id") or ""
+                    ),
                     field_name="script",
                     content=content,
                     regex=regex,
@@ -2142,10 +2382,13 @@ def trace_portal_route_targets(
         )
 
     # Only fetch heavy code fields that will actually be scanned
-    widget_fields = ["sys_id", "name", "id", "sys_updated_by", "sys_updated_on", "sys_scope"]
+    widget_fields = ["sys_id", "name", "id"]
     trace_scannable_fields = {"template", "script", "client_script", "link"}
     requested_trace_fields = set(params.include_widget_fields)
-    widget_fields.extend(sorted(requested_trace_fields & trace_scannable_fields))
+    effective_widget_scan_fields = set(requested_trace_fields & trace_scannable_fields)
+    if params.include_linked_angular_providers:
+        effective_widget_scan_fields.add("template")
+    widget_fields.extend(sorted(effective_widget_scan_fields))
     widget_rows = _sn_query_all(
         config,
         auth_manager,
@@ -2195,7 +2438,7 @@ def trace_portal_route_targets(
                     auth_manager,
                     table=ANGULAR_PROVIDER_TABLE,
                     query=f"sys_idIN{','.join(chunk)}",
-                    fields="sys_id,name,id,script,sys_updated_by,sys_updated_on,sys_scope",
+                    fields="sys_id,name,id,script",
                     page_size=page_size,
                     max_records=1000,
                 )
@@ -2205,7 +2448,7 @@ def trace_portal_route_targets(
         str(row.get("sys_id") or ""): row for row in provider_rows if row.get("sys_id")
     }
 
-    requested_widget_fields = requested_trace_fields
+    requested_widget_fields = effective_widget_scan_fields
     traces: List[Dict[str, Any]] = []
     total_route_hits = 0
     widgets_with_hits = 0
@@ -2410,7 +2653,7 @@ def detect_angular_implicit_globals(
         auth_manager,
         table=ANGULAR_PROVIDER_TABLE,
         query=query,
-        fields="sys_id,name,id,script,sys_updated_by,sys_updated_on,sys_scope",
+        fields="sys_id,name,id,script",
         page_size=page_size,
         max_records=max_providers,
     )
@@ -2520,6 +2763,8 @@ def update_portal_component(
     if response.status_code >= 400:
         return {"error": f"Update failed: {response.text}", "status": response.status_code}
 
+    invalidate_query_cache(table=normalized_table)
+
     validated_record = _fetch_portal_component_record(
         config,
         auth_manager,
@@ -2613,17 +2858,28 @@ def download_portal_sources(
         else Path.cwd().expanduser().resolve()
     )
     max_widgets = _clamp_download_widget_limit(params.max_widgets)
+    targeted_widget_export = bool(params.widget_ids)
+    include_linked_script_includes = (
+        params.include_linked_script_includes
+        if params.include_linked_script_includes is not None
+        else targeted_widget_export
+    )
+    include_linked_angular_providers = (
+        params.include_linked_angular_providers
+        if params.include_linked_angular_providers is not None
+        else targeted_widget_export
+    )
     warnings = _portal_scan_warnings(
         requested_max_widgets=params.max_widgets,
         effective_max_widgets=max_widgets,
-        include_linked_script_includes=params.include_linked_script_includes,
-        include_linked_angular_providers=params.include_linked_angular_providers,
+        include_linked_script_includes=include_linked_script_includes,
+        include_linked_angular_providers=include_linked_angular_providers,
         widget_ids=params.widget_ids,
     )
     scope_name = _safe_name(params.scope or "global")
     scope_root = root / scope_name
     instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
-    g_ck = str(auth_manager.get_headers().get("X-UserToken", ""))
+    g_ck = str(getattr(auth_manager, "_browser_session_token", "") or "")
 
     _write_json_file(
         root / "_settings.json",
@@ -2638,26 +2894,25 @@ def download_portal_sources(
     widget_base_query = ""
     if params.scope:
         widget_base_query = f"sys_scope={_escape_query(params.scope)}"
-    widget_fields = "sys_id,name,id,sys_scope,template,script,client_script,link,css,option_schema,demo_data,roles,description,has_preview,public,docs,data_table,field_list,controller_as"
+    widget_fields = _download_widget_fields(
+        include_widget_template=params.include_widget_template,
+        include_widget_server_script=params.include_widget_server_script,
+        include_widget_client_script=params.include_widget_client_script,
+        include_widget_link_script=params.include_widget_link_script,
+        include_widget_css=params.include_widget_css,
+        include_linked_script_includes=include_linked_script_includes,
+    )
 
     widgets: List[Dict[str, Any]] = []
     if params.widget_ids:
-        for widget_id in params.widget_ids:
-            safe_widget_id = _escape_query(widget_id)
-            query = f"sys_id={safe_widget_id}^ORid={safe_widget_id}^ORname={safe_widget_id}"
-            if widget_base_query:
-                query += f"^{widget_base_query}"
-            rows = _sn_query_all(
-                config,
-                auth_manager,
-                table=WIDGET_TABLE,
-                query=query,
-                fields=widget_fields,
-                page_size=params.page_size,
-                max_records=1,
-            )
-            if rows:
-                widgets.append(rows[0])
+        widgets = _fetch_targeted_widget_rows(
+            config,
+            auth_manager,
+            widget_tokens=params.widget_ids,
+            widget_base_query=widget_base_query,
+            widget_fields=widget_fields,
+            page_size=params.page_size,
+        )
     else:
         widgets = _sn_query_all(
             config,
@@ -2674,23 +2929,7 @@ def download_portal_sources(
     script_include_candidates: List[str] = []
     scope_sys_ids: Dict[str, str] = {}
 
-    dictionary_rows = _sn_query_all(
-        config,
-        auth_manager,
-        table="sys_dictionary",
-        query=(
-            "name=sp_widget^elementIN"
-            + ",".join(_escape_query(field) for field in WIDGET_METADATA_FIELDS)
-        ),
-        fields="element,column_label,internal_type,read_only,mandatory,max_length,choice,reference,attributes",
-        page_size=params.page_size,
-        max_records=300,
-    )
-    dictionary_by_field = {
-        str(row.get("element")): row
-        for row in dictionary_rows
-        if isinstance(row.get("element"), str)
-    }
+    dictionary_by_field: Dict[str, Dict[str, Any]] = {}
 
     for widget in widgets:
         sys_id = str(widget.get("sys_id") or "")
@@ -2774,7 +3013,7 @@ def download_portal_sources(
 
     provider_map: Dict[str, str] = {}
     exported_providers: List[Dict[str, str]] = []
-    if params.include_linked_angular_providers and widgets:
+    if include_linked_angular_providers and widgets:
         widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
         m2m_ids: List[str] = []
         for sys_id_chunk in _chunked(widget_sys_ids, 100):
@@ -2818,28 +3057,16 @@ def download_portal_sources(
 
     si_map: Dict[str, str] = {}
     exported_script_includes: List[Dict[str, str]] = []
-    if params.include_linked_script_includes and script_include_candidates:
-        for candidate in script_include_candidates:
-            safe_candidate = _escape_query(candidate)
-            query = (
-                f"name={safe_candidate}^ORapi_name={safe_candidate}"
-                f"^ORapi_nameENDSWITH.{safe_candidate}"
-            )
-            if params.scope:
-                query += f"^sys_scope={_escape_query(params.scope)}"
-            rows = _sn_query_all(
-                config,
-                auth_manager,
-                table="sys_script_include",
-                query=query,
-                fields="sys_id,name,api_name,script,sys_scope",
-                page_size=params.page_size,
-                max_records=1,
-            )
-            if not rows:
-                continue
-            row = rows[0]
-            name = str(row.get("name") or candidate)
+    if include_linked_script_includes and script_include_candidates:
+        script_include_rows = _fetch_linked_script_include_rows(
+            config,
+            auth_manager,
+            candidates=script_include_candidates,
+            page_size=params.page_size,
+            scope=params.scope,
+        )
+        for row in script_include_rows:
+            name = str(row.get("name") or row.get("api_name") or row.get("sys_id") or "")
             sys_id = str(row.get("sys_id") or "")
             file_name = _safe_name(name)
             _write_text_file(
