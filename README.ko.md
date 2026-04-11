@@ -616,7 +616,7 @@ uv run mypy src/
 uv build
 ```
 
-> Windows 설치는 [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)를 확인하세요.
+> Windows: [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md) 참조
 
 ---
 
@@ -628,7 +628,6 @@ uv build
 - [변경 관리 가이드](docs/change_management.md) — 변경 요청 생명주기 및 승인
 - [워크플로우 관리](docs/workflow_management.md) — 레거시 워크플로우 및 Flow Designer 도구
 - [English README](./README.md)
-- [Windows 설치 가이드](./WINDOWS_INSTALL.md)
 
 ---
 

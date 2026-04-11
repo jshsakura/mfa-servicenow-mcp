@@ -621,7 +621,7 @@ uv run mypy src/
 uv build
 ```
 
-> For Windows-specific setup, see [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
+> Windows: see [Windows Installation Guide](./docs/WINDOWS_INSTALL.md)
 
 ---
 
@@ -633,7 +633,6 @@ uv build
 - [Change Management](docs/change_management.md) — Change request lifecycle and approval
 - [Workflow Management](docs/workflow_management.md) — Legacy workflow and Flow Designer tools
 - [Korean README](./README.ko.md)
-- [Windows Install Guide](./WINDOWS_INSTALL.md)
 
 ---
 
