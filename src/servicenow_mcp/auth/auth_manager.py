@@ -302,9 +302,7 @@ class AuthManager:
             "instance_url": self.instance_url,
         }
         # Quick content-hash check to skip redundant writes
-        content_hash = hash(
-            (data["cookie_header"], data["user_agent"], data["session_token"])
-        )
+        content_hash = hash((data["cookie_header"], data["user_agent"], data["session_token"]))
         if content_hash == self._session_disk_hash:
             return
         try:
