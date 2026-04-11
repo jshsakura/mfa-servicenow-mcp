@@ -11,8 +11,8 @@ from servicenow_mcp.tools.story_tools import (
     create_story,
     create_story_dependency,
     delete_story_dependency,
-    list_story_dependencies,
     list_stories,
+    list_story_dependencies,
     update_story,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig

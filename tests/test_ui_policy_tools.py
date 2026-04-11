@@ -5,7 +5,6 @@ This module contains tests for the UI policy tools in the ServiceNow MCP server.
 Uses sn_query_page for verification reads and invalidate_query_cache after writes.
 """
 
-import json
 import unittest
 from unittest.mock import MagicMock, patch
 

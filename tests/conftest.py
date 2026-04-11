@@ -5,18 +5,18 @@ Provides common mock objects (config, auth_manager, mock_response) used across
 """
 
 import json
+from unittest.mock import MagicMock
 
 import pytest
-from unittest.mock import MagicMock
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.sn_api import invalidate_query_cache
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
-
 # ---------------------------------------------------------------------------
 # Autouse: clear query cache between tests to prevent cross-test pollution
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _reset_query_cache():
@@ -29,6 +29,7 @@ def _reset_query_cache():
 # ---------------------------------------------------------------------------
 # Reusable fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def mock_config() -> ServerConfig:
@@ -56,6 +57,7 @@ def mock_auth(mock_config) -> MagicMock:
 # ---------------------------------------------------------------------------
 # Helper function (importable, not a fixture)
 # ---------------------------------------------------------------------------
+
 
 def make_mock_response(data, *, status_code=200, headers=None):
     """Create a mock ``requests.Response``-like object.
