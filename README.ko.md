@@ -622,14 +622,11 @@ uv build
 
 ## 상세 문서
 
-- [Tool Inventory](docs/TOOL_INVENTORY.md) — 카테고리별 전체 도구 레퍼런스
-- [서비스 카탈로그 가이드](docs/catalog.md)
-- [카탈로그 변수](docs/catalog_variables.md)
-- [변경 관리 가이드](docs/change_management.md)
-- [체인지셋 관리](docs/changeset_management.md)
-- [인시던트 관리](docs/incident_management.md)
-- [사용자 관리](docs/user_management.md)
-- [워크플로우 및 개발 도구](docs/workflow_management.md)
+- [도구 목록](docs/TOOL_INVENTORY.md) — 98개 도구 카테고리/패키지별 전체 목록
+- [Windows 설치 가이드](docs/WINDOWS_INSTALL.ko.md)
+- [서비스 카탈로그 가이드](docs/catalog.md) — 카탈로그 CRUD 및 최적화
+- [변경 관리 가이드](docs/change_management.md) — 변경 요청 생명주기 및 승인
+- [워크플로우 관리](docs/workflow_management.md) — 레거시 워크플로우 및 Flow Designer 도구
 - [English README](./README.md)
 - [Windows 설치 가이드](./WINDOWS_INSTALL.md)
 

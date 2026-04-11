@@ -627,14 +627,11 @@ uv build
 
 ## Documentation
 
-- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete tool reference by category
-- [Catalog Guide](docs/catalog.md)
-- [Catalog Variables](docs/catalog_variables.md)
-- [Change Management Guide](docs/change_management.md)
-- [Changeset Management](docs/changeset_management.md)
-- [Incident Management](docs/incident_management.md)
-- [User Management](docs/user_management.md)
-- [Workflow and Developer Tools](docs/workflow_management.md)
+- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 98 tools by category and package
+- [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
+- [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization
+- [Change Management](docs/change_management.md) — Change request lifecycle and approval
+- [Workflow Management](docs/workflow_management.md) — Legacy workflow and Flow Designer tools
 - [Korean README](./README.ko.md)
 - [Windows Install Guide](./WINDOWS_INSTALL.md)
 
