@@ -42,7 +42,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **86개 도구**, 5개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
+- **98개 도구**, 5개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
 - `confirm='approve'` 기반 안전한 수정 승인 정책
 - 페이로드 안전 제한, 필드별 절단, 총 응답 한도 (200K 문자)
 - 일시적 네트워크 오류 자동 재시도 (백오프)

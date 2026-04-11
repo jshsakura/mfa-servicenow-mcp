@@ -42,7 +42,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **86 tools** across 5 role-based packages — from read-only to full CRUD
+- **98 tools** across 5 role-based packages — from read-only to full CRUD
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
