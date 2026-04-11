@@ -2,7 +2,7 @@
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-MFA(다요소 인증) 및 SSO 환경을 위한 브라우저 인증 기반 ServiceNow MCP 서버입니다. Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, OpenAI Codex 같은 MCP 클라이언트에서 바로 사용할 수 있습니다.
+**MFA 우선** ServiceNow MCP 서버. MFA/SSO가 필수인 기업 환경을 위해 만들었습니다 — 실제 브라우저(Playwright)로 인증하므로 Okta, Entra ID, SAML 등 어떤 대화형 로그인이든 그대로 동작합니다. headless/Docker 환경에서는 API Key 인증도 지원합니다. Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, OpenAI Codex에서 바로 사용 가능합니다.
 
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
@@ -551,16 +551,15 @@ pip install "mfa-servicenow-mcp==1.5.0"
 
 Docker 이미지는 main 브랜치 푸시마다 `ghcr.io/jshsakura/mfa-servicenow-mcp`에 자동 배포됩니다.
 
-> **참고:** 브라우저 인증(MFA/SSO)은 GUI 브라우저가 필요하므로 컨테이너 안에서 사용할 수 없습니다. Docker 환경에서는 `basic`, `oauth`, 또는 `api_key` 인증을 사용하세요.
+> **참고:** 브라우저 인증(MFA/SSO)은 GUI 브라우저가 필요하므로 컨테이너 안에서 사용할 수 없습니다. MFA가 활성화된 ServiceNow 인스턴스는 Docker 환경에서 `api_key` 인증을 사용하세요.
 
-### 바로 실행
+### 바로 실행 (API Key)
 
 ```bash
 docker run -it --rm \
   -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-  -e SERVICENOW_AUTH_TYPE=basic \
-  -e SERVICENOW_USERNAME=admin \
-  -e SERVICENOW_PASSWORD=your-password \
+  -e SERVICENOW_AUTH_TYPE=api_key \
+  -e SERVICENOW_API_KEY=your-api-key \
   -e MCP_TOOL_PACKAGE=standard \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
@@ -577,21 +576,10 @@ docker run -p 8080:8080 \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
 
-### 사용 가능한 태그
-
-| 태그 | 설명 |
-|------|------|
-| `latest` | 최신 안정 버전 (linux/amd64, linux/arm64) |
-| `latest-playwright` | Playwright + Chromium 포함 (linux/amd64 전용) |
-
 ### 로컬 빌드
 
 ```bash
-# 기본 (basic/oauth/api_key 전용)
 docker build --target runtime -t servicenow-mcp .
-
-# Playwright 포함 (브라우저 인증, headless 전용)
-docker build --target runtime-playwright -t servicenow-mcp:playwright .
 ```
 
 ## 개발용 설치

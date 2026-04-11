@@ -77,50 +77,19 @@ ENV MCP_MODE=stdio
 ENTRYPOINT ["sh", "-c", "if [ \"$MCP_MODE\" = \"sse\" ]; then servicenow-mcp-sse --host=0.0.0.0 --port=8080; else servicenow-mcp; fi"]
 
 # ============================================
-# Stage 3: Runtime with Playwright (for Browser Auth)
-# ============================================
-FROM runtime AS runtime-playwright
-
-USER root
-
-# Install Playwright dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpango-1.0-0 \
-    libcairo2 \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-
-# Install Playwright and browsers
-RUN pip install playwright && playwright install chromium --with-deps
-
-USER appuser
-
-# ============================================
 # Usage:
-# 
-# Standard build (no Playwright):
-#   docker build --target runtime -t servicenow-mcp:latest .
 #
-# With Playwright (for Browser Auth):
-#   docker build --target runtime-playwright -t servicenow-mcp:playwright .
+# Build:
+#   docker build --target runtime -t mfa-servicenow-mcp .
 #
-# Run:
-#   docker run -p 8080:8080 \
+# Run (API Key auth — MFA instances require this for Docker):
+#   docker run -it --rm \
 #     -e SERVICENOW_INSTANCE_URL=https://instance.service-now.com \
-#     -e SERVICENOW_USERNAME=admin \
-#     -e SERVICENOW_PASSWORD=password \
-#     servicenow-mcp:latest
+#     -e SERVICENOW_AUTH_TYPE=api_key \
+#     -e SERVICENOW_API_KEY=your-api-key \
+#     mfa-servicenow-mcp
+#
+# For MFA/SSO browser auth, use uvx on a local machine instead:
+#   uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+#     --instance-url https://instance.service-now.com --auth-type browser
 # ============================================
