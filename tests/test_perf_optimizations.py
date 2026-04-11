@@ -90,9 +90,7 @@ class TestJsonFastMigration:
         mock_auth.get_headers.return_value = {"Authorization": "Basic ..."}
 
         # Mock get_script_include to return a client-callable SI
-        with patch(
-            "servicenow_mcp.tools.script_include_tools.get_script_include"
-        ) as mock_get:
+        with patch("servicenow_mcp.tools.script_include_tools.get_script_include") as mock_get:
             mock_get.return_value = {
                 "success": True,
                 "message": "Found",
@@ -138,9 +136,7 @@ class TestJsonFastMigration:
         mock_auth = MagicMock()
         mock_auth.get_headers.return_value = {"Authorization": "Basic ..."}
 
-        with patch(
-            "servicenow_mcp.tools.script_include_tools.get_script_include"
-        ) as mock_get:
+        with patch("servicenow_mcp.tools.script_include_tools.get_script_include") as mock_get:
             mock_get.return_value = {
                 "success": True,
                 "message": "Found",
@@ -681,8 +677,14 @@ class TestTupleCacheKeys:
         from servicenow_mcp.tools.sn_api import _cache_key
 
         key = _cache_key(
-            "incident", "active=true", "sys_id,name", 20, 0,
-            display_value=True, no_count=False, orderby="number",
+            "incident",
+            "active=true",
+            "sys_id,name",
+            20,
+            0,
+            display_value=True,
+            no_count=False,
+            orderby="number",
         )
         assert isinstance(key, tuple)
         assert key[0] == "incident"
@@ -692,12 +694,22 @@ class TestTupleCacheKeys:
         """Different parameters must produce different keys."""
         from servicenow_mcp.tools.sn_api import _cache_key
 
-        key1 = _cache_key("incident", "a=1", "sys_id", 10, 0,
-                          display_value=True, no_count=False, orderby=None)
-        key2 = _cache_key("incident", "a=1", "sys_id", 10, 0,
-                          display_value=False, no_count=False, orderby=None)
-        key3 = _cache_key("incident", "a=1", "sys_id", 10, 0,
-                          display_value=True, no_count=False, orderby="-number")
+        key1 = _cache_key(
+            "incident", "a=1", "sys_id", 10, 0, display_value=True, no_count=False, orderby=None
+        )
+        key2 = _cache_key(
+            "incident", "a=1", "sys_id", 10, 0, display_value=False, no_count=False, orderby=None
+        )
+        key3 = _cache_key(
+            "incident",
+            "a=1",
+            "sys_id",
+            10,
+            0,
+            display_value=True,
+            no_count=False,
+            orderby="-number",
+        )
         assert key1 != key2
         assert key1 != key3
 
@@ -711,10 +723,12 @@ class TestTupleCacheKeys:
         )
 
         invalidate_query_cache()
-        k_inc = _cache_key("incident", "", "sys_id", 10, 0,
-                           display_value=False, no_count=False, orderby=None)
-        k_task = _cache_key("task", "", "sys_id", 10, 0,
-                            display_value=False, no_count=False, orderby=None)
+        k_inc = _cache_key(
+            "incident", "", "sys_id", 10, 0, display_value=False, no_count=False, orderby=None
+        )
+        k_task = _cache_key(
+            "task", "", "sys_id", 10, 0, display_value=False, no_count=False, orderby=None
+        )
         _cache_put(k_inc, "incident_data")
         _cache_put(k_task, "task_data")
 
@@ -858,6 +872,7 @@ class TestSessionDiskDedup:
 
         # Tiny delay to ensure mtime would change if written
         import time
+
         time.sleep(0.01)
 
         # Second save with same content — must skip
