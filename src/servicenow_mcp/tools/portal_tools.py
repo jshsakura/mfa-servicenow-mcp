@@ -921,15 +921,25 @@ def _parallel_chunked_query(
     if len(chunks) == 1:
         query = query_template.format(ids=",".join(chunks[0]))
         return sn_query_all(
-            config, auth_manager, table=table, query=query,
-            fields=fields, page_size=page_size, max_records=max_records,
+            config,
+            auth_manager,
+            table=table,
+            query=query,
+            fields=fields,
+            page_size=page_size,
+            max_records=max_records,
         )
 
     def _fetch(chunk: List[str]) -> List[Dict[str, Any]]:
         query = query_template.format(ids=",".join(chunk))
         return sn_query_all(
-            config, auth_manager, table=table, query=query,
-            fields=fields, page_size=page_size, max_records=max_records,
+            config,
+            auth_manager,
+            table=table,
+            query=query,
+            fields=fields,
+            page_size=page_size,
+            max_records=max_records,
         )
 
     rows: List[Dict[str, Any]] = []
@@ -2194,7 +2204,8 @@ def search_portal_regex_matches(
                 [_escape_query(v) for v in chunk] for chunk in _chunked(widget_ids, 100)
             ]
             relation_rows = _parallel_chunked_query(
-                config, auth_manager,
+                config,
+                auth_manager,
                 table=ANGULAR_PROVIDER_M2M_TABLE,
                 chunks=escaped_chunks,
                 query_template="sp_widgetIN{ids}",
@@ -2470,7 +2481,8 @@ def trace_portal_route_targets(
             [_escape_query(v) for v in chunk] for chunk in _chunked(widget_sys_ids, 100)
         ]
         relation_rows = _parallel_chunked_query(
-            config, auth_manager,
+            config,
+            auth_manager,
             table=ANGULAR_PROVIDER_M2M_TABLE,
             chunks=escaped_chunks,
             query_template="sp_widgetIN{ids}",
@@ -2490,7 +2502,8 @@ def trace_portal_route_targets(
     provider_rows: List[Dict[str, Any]] = []
     if all_provider_ids:
         provider_rows = _parallel_chunked_query(
-            config, auth_manager,
+            config,
+            auth_manager,
             table=ANGULAR_PROVIDER_TABLE,
             chunks=_chunked(all_provider_ids, 100),
             query_template="sys_idIN{ids}",
