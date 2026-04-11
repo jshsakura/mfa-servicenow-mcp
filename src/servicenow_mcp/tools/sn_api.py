@@ -122,7 +122,10 @@ from collections import OrderedDict as _OrderedDict
 
 _CACHE_TTL_SECONDS = 30
 _CACHE_MAX_ENTRIES = 256
-_query_cache: _OrderedDict[str, tuple[float, Any]] = _OrderedDict()
+
+# Cache key is a tuple — cheaper to hash than an equivalent f-string.
+_CacheKey = tuple  # (table, query, fields, limit, offset, display_value, no_count, orderby)
+_query_cache: _OrderedDict[_CacheKey, tuple[float, Any]] = _OrderedDict()
 _cache_lock = _threading.Lock()
 
 
@@ -136,11 +139,8 @@ def _cache_key(
     display_value: bool,
     no_count: bool,
     orderby: Optional[str],
-) -> str:
-    return (
-        f"{table}|{query}|{fields}|{limit}|{offset}|"
-        f"display={display_value}|no_count={no_count}|orderby={orderby or ''}"
-    )
+) -> _CacheKey:
+    return (table, query, fields, limit, offset, display_value, no_count, orderby)
 
 
 def _cache_get(key: str) -> Optional[Any]:
@@ -183,8 +183,7 @@ def invalidate_query_cache(*, table: Optional[str] = None) -> int:
             _query_cache.clear()
             return removed
 
-        prefix = f"{table}|"
-        keys_to_delete = [key for key in _query_cache if key.startswith(prefix)]
+        keys_to_delete = [key for key in _query_cache if key[0] == table]
         for key in keys_to_delete:
             del _query_cache[key]
         return len(keys_to_delete)

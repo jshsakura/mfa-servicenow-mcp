@@ -41,7 +41,7 @@ If you are on Windows, ensure your PowerShell execution policy allows script exe
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-For a step-by-step Windows setup guide, see [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
+For a step-by-step Windows setup guide, see [docs/WINDOWS_INSTALL.md](./docs/WINDOWS_INSTALL.md).
 
 ## Quick Start
 
@@ -197,25 +197,20 @@ When using `auth-type: browser`, you **must** include `--with playwright` to ens
 
 #### OpenAI Codex
 
-Add this to `codex.json` or pass via CLI:
+Add this to your `agents.toml` (usually `~/.codex/agents.toml` or `.codex/agents.toml` in your project root):
 
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false",
-        "--tool-package", "standard"
-      ]
-    }
-  }
-}
+```toml
+[mcp_servers.servicenow]
+command = "uvx"
+args = [
+  "--with", "playwright",
+  "--from", "mfa-servicenow-mcp",
+  "servicenow-mcp",
+  "--instance-url", "https://your-instance.service-now.com",
+  "--auth-type", "browser",
+  "--browser-headless", "false",
+  "--tool-package", "standard",
+]
 ```
 
 ### 2. Run Directly From a Terminal
@@ -275,7 +270,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 Playwright is only needed for browser auth. Basic, OAuth, and API Key auth work without it.
 
-> Windows users can also use [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
+> Windows users can also use [docs/WINDOWS_INSTALL.md](./docs/WINDOWS_INSTALL.md).
 
 ## Features
 
@@ -285,6 +280,7 @@ Playwright is only needed for browser auth. Basic, OAuth, and API Key auth work 
 - Transient network error retry with backoff
 - Tool packages for standard users, service desk, portal developers, and platform developers
 - Developer productivity tools: activity tracking, uncommitted changes, dependency mapping, daily summary
+- Performance: orjson serialization, parallel pagination, batch API, LRU cache, lazy tool discovery (see [Performance Optimizations](#performance-optimizations))
 - Full coverage of core ServiceNow artifact tables (see below)
 
 ### Supported ServiceNow Tables
@@ -392,15 +388,15 @@ Default header: `X-ServiceNow-API-Key`
 
 Set `MCP_TOOL_PACKAGE` to choose a specific tool set. Default: `standard`
 
-All packages except `none` include the full set of read-only tools (48 tools). Higher packages add write capabilities for their domain.
+All packages except `none` include the full set of read-only tools (55 tools). Higher packages add write capabilities for their domain.
 
 | Package | Tools | Description |
 | :--- | :--- | :--- |
-| `standard` | 48 | **(Default)** Read-only safe mode. All query/analysis tools across every domain. |
-| `portal_developer` | 58 | standard + portal/widget updates, script include writes, changeset commit/publish |
-| `platform_developer` | 71 | standard + workflow CRUD, UI policy, incident/change management writes |
-| `service_desk` | 52 | standard + incident create/update/resolve/comment |
-| `full` | 86 | All write operations across every domain |
+| `standard` | 55 | **(Default)** Read-only safe mode. All query/analysis tools across every domain. |
+| `portal_developer` | 70 | standard + portal/widget updates, script include writes, changeset commit/publish |
+| `platform_developer` | 78 | standard + workflow CRUD, UI policy, incident/change management writes |
+| `service_desk` | 59 | standard + incident create/update/resolve/comment |
+| `full` | 98 | All write operations across every domain |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
@@ -468,6 +464,36 @@ Example LLM-friendly route trace:
 }
 ```
 
+## Performance Optimizations
+
+The server includes several layers of performance optimization to minimize latency and token usage.
+
+### Serialization
+
+- **orjson backend**: All JSON serialization uses `json_fast` (orjson when available, stdlib fallback). 2-4x faster than stdlib `json` for both loads and dumps.
+- **Compact output**: Tool responses are serialized without indentation or extra whitespace, saving 20-30% tokens per response.
+- **Double-parse avoidance**: `serialize_tool_output` detects already-compact JSON strings and skips re-serialization.
+
+### Caching
+
+- **OrderedDict LRU cache**: Query results are cached with O(1) eviction using `OrderedDict.popitem()`. 256 max entries, 30-second TTL, thread-safe.
+- **Tool schema cache**: Pydantic `model_json_schema()` output is cached per model type, avoiding repeated schema generation.
+- **Lazy tool discovery**: Only tool modules required by the active `MCP_TOOL_PACKAGE` are imported at startup. Unused modules are skipped entirely.
+
+### Network
+
+- **HTTP session pooling**: Persistent `requests.Session` with 20-connection pool, TCP keep-alive, TLS session resumption, and gzip/deflate compression.
+- **Parallel pagination**: `sn_query_all` fetches the first page sequentially for total count, then retrieves remaining pages concurrently via `ThreadPoolExecutor` (up to 4 workers).
+- **Dynamic page sizing**: When remaining records fit in a single page (<=100), the page size is enlarged to avoid extra round-trips.
+- **Batch API**: `sn_batch` combines multiple REST sub-requests into a single `/api/now/batch` POST, with automatic chunking at the 150-request limit.
+- **Parallel chunked M2M queries**: Widget-to-provider M2M lookups split into 100-ID chunks are executed concurrently rather than sequentially.
+
+### Schema & Startup
+
+- **Shallow-copy schema injection**: Confirmation schema (`confirm='approve'`) is injected via lightweight dict copy instead of `copy.deepcopy`, reducing `list_tools` overhead.
+- **No-count optimization**: Subsequent pagination pages use `sysparm_no_count=true` to skip server-side total count computation.
+- **Payload safety**: Heavy tables (`sp_widget`, `sys_script`, etc.) have automatic field clamping and limit restrictions to prevent context window overflow.
+
 ## Developer Setup
 
 If you want to modify the source locally:
@@ -481,10 +507,12 @@ uv pip install -e ".[browser,dev]"
 uv run playwright install chromium
 ```
 
-> Windows setup: [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md)
+> Windows setup: [docs/WINDOWS_INSTALL.md](./docs/WINDOWS_INSTALL.md)
 
 ## Documentation
 
+- [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
+- [Tool Inventory](docs/TOOL_INVENTORY.md)
 - [Catalog Guide](docs/catalog.md)
 - [Change Management Guide](docs/change_management.md)
 - [Workflow and Developer Tools](docs/workflow_management.md)

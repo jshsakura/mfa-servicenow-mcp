@@ -4,7 +4,6 @@ Script Include tools for the ServiceNow MCP server.
 This module provides tools for managing script includes in ServiceNow.
 """
 
-import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -12,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
+from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -606,8 +606,8 @@ def execute_script_include(
         # Try to parse as JSON first, fall back to text
         response_text = response.text
         try:
-            result_data = json.loads(response_text)
-        except (json.JSONDecodeError, ValueError):
+            result_data = json_fast.loads(response_text)
+        except (ValueError, TypeError):
             result_data = response_text
 
         return {
