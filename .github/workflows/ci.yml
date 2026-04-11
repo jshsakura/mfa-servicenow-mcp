@@ -157,21 +157,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Extract metadata for Docker (Playwright)
-        id: meta_playwright
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,format=short,prefix=sha-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-          flavor: |
-            suffix=-playwright,onlatest=true
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -184,19 +169,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
-
-      - name: Build Playwright variant
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          target: runtime-playwright
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta_playwright.outputs.tags }}
-          labels: ${{ steps.meta_playwright.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
 
   # ============================================
   # Security Scan

@@ -15,6 +15,7 @@ Design principles (inherited from portal_dev_tools):
 
 import logging
 import re
+from concurrent.futures import as_completed
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, Field
@@ -22,6 +23,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
+from .sn_api import _page_executor
 from .sn_api import sn_count as _sn_count_shared
 from .sn_api import sn_query_all as _sn_query_all_shared
 
@@ -615,12 +617,16 @@ def detect_missing_profit_company_codes(
     # -----------------------------------------------------------------------
     providers_scanned = 0
     if params.include_angular_providers and widget_ids_for_m2m and len(findings) < max_matches:
-        # Lookup provider sys_ids via M2M
+        # Lookup provider sys_ids via M2M (parallel chunks)
         provider_ids: Set[str] = set()
         chunk_size = 100
-        for i in range(0, len(widget_ids_for_m2m), chunk_size):
-            chunk = widget_ids_for_m2m[i : i + chunk_size]
-            m2m_rows = _sn_query_all(
+        chunks = [
+            widget_ids_for_m2m[i : i + chunk_size]
+            for i in range(0, len(widget_ids_for_m2m), chunk_size)
+        ]
+
+        def _fetch_m2m(chunk: List[str]) -> List[Dict[str, Any]]:
+            return _sn_query_all(
                 config,
                 auth_manager,
                 table=ANGULAR_PROVIDER_M2M_TABLE,
@@ -629,10 +635,21 @@ def detect_missing_profit_company_codes(
                 page_size=page_size,
                 max_records=1000,
             )
-            for row in m2m_rows:
-                pid = _as_ref_sys_id(row.get("sp_angular_provider"))
-                if pid:
-                    provider_ids.add(pid)
+
+        if len(chunks) == 1:
+            m2m_rows = _fetch_m2m(chunks[0])
+        else:
+            m2m_rows = []
+            futures = {_page_executor.submit(_fetch_m2m, c): c for c in chunks}
+            for future in as_completed(futures):
+                try:
+                    m2m_rows.extend(future.result())
+                except Exception:
+                    logger.warning("Parallel M2M chunk query failed")
+        for row in m2m_rows:
+            pid = _as_ref_sys_id(row.get("sp_angular_provider"))
+            if pid:
+                provider_ids.add(pid)
 
         if provider_ids:
             provider_query = f"sys_idIN{','.join(sorted(provider_ids))}"
