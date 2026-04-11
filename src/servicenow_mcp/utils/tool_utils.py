@@ -21,9 +21,7 @@ ToolDefinition = Tuple[
 ]
 
 
-def get_tool_definitions(
-    *, enabled_names: set[str] | None = None
-) -> Dict[str, ToolDefinition]:
+def get_tool_definitions(*, enabled_names: set[str] | None = None) -> Dict[str, ToolDefinition]:
     """Returns registered ServiceNow tool definitions.
 
     When *enabled_names* is provided, uses lazy discovery to import only the

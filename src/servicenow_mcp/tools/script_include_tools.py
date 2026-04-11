@@ -163,12 +163,16 @@ def list_script_includes(
                 "access": item.get("access"),
                 "created_on": item.get("sys_created_on"),
                 "updated_on": item.get("sys_updated_on"),
-                "created_by": created_by_raw.get("display_value")
-                if isinstance(created_by_raw, dict)
-                else None,
-                "updated_by": updated_by_raw.get("display_value")
-                if isinstance(updated_by_raw, dict)
-                else None,
+                "created_by": (
+                    created_by_raw.get("display_value")
+                    if isinstance(created_by_raw, dict)
+                    else None
+                ),
+                "updated_by": (
+                    updated_by_raw.get("display_value")
+                    if isinstance(updated_by_raw, dict)
+                    else None
+                ),
             }
             script_includes.append(script_include)
 
@@ -258,12 +262,12 @@ def get_script_include(
             "access": item.get("access"),
             "created_on": item.get("sys_created_on"),
             "updated_on": item.get("sys_updated_on"),
-            "created_by": created_by_raw.get("display_value")
-            if isinstance(created_by_raw, dict)
-            else None,
-            "updated_by": updated_by_raw.get("display_value")
-            if isinstance(updated_by_raw, dict)
-            else None,
+            "created_by": (
+                created_by_raw.get("display_value") if isinstance(created_by_raw, dict) else None
+            ),
+            "updated_by": (
+                updated_by_raw.get("display_value") if isinstance(updated_by_raw, dict) else None
+            ),
         }
 
         return {

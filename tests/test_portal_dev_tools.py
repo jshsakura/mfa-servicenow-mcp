@@ -3,7 +3,6 @@
 import json
 from unittest.mock import MagicMock
 
-from servicenow_mcp.tools.sn_api import invalidate_query_cache
 from servicenow_mcp.tools.portal_dev_tools import (
     GetDeveloperChangesParams,
     GetDeveloperDailySummaryParams,
@@ -17,6 +16,7 @@ from servicenow_mcp.tools.portal_dev_tools import (
     get_provider_dependency_map,
     get_uncommitted_changes,
 )
+from servicenow_mcp.tools.sn_api import invalidate_query_cache
 
 
 def _make_config():

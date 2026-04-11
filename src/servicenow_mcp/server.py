@@ -90,8 +90,8 @@ def serialize_tool_output(result: Any, tool_name: str) -> str:
             # Fast path: if string looks like compact JSON already, return as-is.
             # Avoids an expensive parse→re-serialize round-trip.
             stripped = result.lstrip()
-            if stripped and stripped[0] in ('{', '['):
-                if ' : ' not in result and '\n' not in result:
+            if stripped and stripped[0] in ("{", "["):
+                if " : " not in result and "\n" not in result:
                     return result
                 # Has whitespace — re-compact it
                 try:

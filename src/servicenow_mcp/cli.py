@@ -11,7 +11,6 @@ import sys
 import urllib.request
 
 from .server import ServiceNowMCP
-from .version import __version__
 from .utils.config import (
     ApiKeyConfig,
     AuthConfig,
@@ -21,6 +20,7 @@ from .utils.config import (
     OAuthConfig,
     ServerConfig,
 )
+from .version import __version__
 
 # Configure logging
 logging.basicConfig(

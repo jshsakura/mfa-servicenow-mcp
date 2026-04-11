@@ -335,7 +335,7 @@ class TestListCatalogCategories(unittest.TestCase):
         mock_qp.return_value = ([], 0)
 
         params = ListCatalogCategoriesParams(limit=10, offset=0, active=False)
-        result = list_catalog_categories(self.config, self.auth_manager, params)
+        list_catalog_categories(self.config, self.auth_manager, params)
 
         call_kwargs = mock_qp.call_args[1]
         self.assertEqual(call_kwargs["query"], "")
