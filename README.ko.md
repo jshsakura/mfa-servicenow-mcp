@@ -582,9 +582,7 @@ docker run -p 8080:8080 \
 | 태그 | 설명 |
 |------|------|
 | `latest` | 최신 안정 버전 (linux/amd64, linux/arm64) |
-| `vX.Y.Z` | 특정 버전 |
 | `latest-playwright` | Playwright + Chromium 포함 (linux/amd64 전용) |
-| `sha-xxxxxxx` | 특정 커밋 빌드 |
 
 ### 로컬 빌드
 
