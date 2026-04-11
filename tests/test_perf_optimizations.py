@@ -200,8 +200,7 @@ class TestJsonFastMigration:
         mock_auth = MagicMock()
         mock_auth.get_headers.return_value = {}
 
-        resource = ChangesetResource(mock_config, mock_auth)
-        # We can't easily call async methods here, but we can verify the import
+        ChangesetResource(mock_config, mock_auth)  # verify instantiation works
         import servicenow_mcp.resources.changesets as mod
 
         assert hasattr(mod, "json_fast")
@@ -573,7 +572,9 @@ class TestNoStdlibJsonLeaks:
         source = open(mod.__file__).read()
         lines = source.split("\n")
         direct_imports = [
-            l for l in lines if l.strip().startswith("import json") and "json_fast" not in l
+            line
+            for line in lines
+            if line.strip().startswith("import json") and "json_fast" not in line
         ]
         assert len(direct_imports) == 0, f"Found stdlib json import: {direct_imports}"
 
@@ -584,7 +585,9 @@ class TestNoStdlibJsonLeaks:
         source = open(mod.__file__).read()
         lines = source.split("\n")
         direct_imports = [
-            l for l in lines if l.strip().startswith("import json") and "json_fast" not in l
+            line
+            for line in lines
+            if line.strip().startswith("import json") and "json_fast" not in line
         ]
         assert len(direct_imports) == 0, f"Found stdlib json import: {direct_imports}"
 
@@ -595,7 +598,9 @@ class TestNoStdlibJsonLeaks:
         source = open(mod.__file__).read()
         lines = source.split("\n")
         direct_imports = [
-            l for l in lines if l.strip().startswith("import json") and "json_fast" not in l
+            line
+            for line in lines
+            if line.strip().startswith("import json") and "json_fast" not in line
         ]
         assert len(direct_imports) == 0, f"Found stdlib json import: {direct_imports}"
 
@@ -605,7 +610,7 @@ class TestNoStdlibJsonLeaks:
 
         source = open(mod.__file__).read()
         lines = source.split("\n")
-        copy_imports = [l for l in lines if l.strip().startswith("import copy")]
+        copy_imports = [line for line in lines if line.strip().startswith("import copy")]
         assert len(copy_imports) == 0, f"Found copy import: {copy_imports}"
 
 
