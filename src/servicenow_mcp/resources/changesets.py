@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import requests
-
-from servicenow_mcp.utils import json_fast
 from pydantic import BaseModel
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 
 RequestParams = dict[str, str | int]
