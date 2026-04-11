@@ -42,7 +42,7 @@ def test_workflow_tools_have_valid_params_and_description():
     for tool_name in workflow_tools:
         impl_func, params_cls, ret_type, description, serialization = registry[tool_name]
         assert callable(impl_func), f"{tool_name}: impl must be callable"
-        assert hasattr(params_cls, "model_json_schema"), (
-            f"{tool_name}: params must be Pydantic model"
-        )
+        assert hasattr(
+            params_cls, "model_json_schema"
+        ), f"{tool_name}: params must be Pydantic model"
         assert len(description) > 10, f"{tool_name}: description too short"

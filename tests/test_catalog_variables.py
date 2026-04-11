@@ -262,7 +262,7 @@ class TestListCatalogItemVariables(unittest.TestCase):
             catalog_item_id="item123",
             limit=500,
         )
-        result = list_catalog_item_variables(self.config, self.auth_manager, params)
+        list_catalog_item_variables(self.config, self.auth_manager, params)
 
         call_kwargs = mock_qp.call_args[1]
         self.assertEqual(call_kwargs["limit"], 100)

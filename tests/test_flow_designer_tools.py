@@ -1,6 +1,5 @@
 """Tests for flow_designer_tools.py — shared query helper migration."""
 
-import json
 import unittest
 from unittest.mock import MagicMock, patch
 
