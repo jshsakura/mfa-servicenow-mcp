@@ -12,12 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from servicenow_mcp.utils.config import (
-    AuthConfig,
-    AuthType,
-    BasicAuthConfig,
-    ServerConfig,
-)
+from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
 
 @pytest.fixture
@@ -107,9 +102,7 @@ class TestJsonFastMigration:
             resp.raise_for_status = MagicMock()
             mock_auth.make_request.return_value = resp
 
-            from servicenow_mcp.tools.script_include_tools import (
-                ExecuteScriptIncludeParams,
-            )
+            from servicenow_mcp.tools.script_include_tools import ExecuteScriptIncludeParams
 
             result = execute_script_include(
                 mock_config,
@@ -716,8 +709,8 @@ class TestTupleCacheKeys:
     def test_invalidate_by_table_works_with_tuple_keys(self):
         """invalidate_query_cache(table=...) must match tuple keys by first element."""
         from servicenow_mcp.tools.sn_api import (
-            _cache_key,
             _cache_get,
+            _cache_key,
             _cache_put,
             invalidate_query_cache,
         )
@@ -748,13 +741,14 @@ class TestPrecompiledPortalRegex:
 
     def test_regex_patterns_are_compiled(self):
         """Module-level regex patterns must be compiled re.Pattern objects."""
+        import re as _re
+
         from servicenow_mcp.tools.portal_tools import (
             _RE_APPLY,
             _RE_PREVIEW,
             _RE_ROLLBACK,
             _RE_SNAPSHOT,
         )
-        import re as _re
 
         assert isinstance(_RE_ROLLBACK, _re.Pattern)
         assert isinstance(_RE_SNAPSHOT, _re.Pattern)
@@ -828,6 +822,7 @@ class TestBasicAuthHeaderCache:
     def test_basic_auth_header_value_correct(self):
         """Cached header must produce the correct base64 encoding."""
         import base64
+
         from servicenow_mcp.auth.auth_manager import AuthManager
         from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig
 
