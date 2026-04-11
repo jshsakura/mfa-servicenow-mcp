@@ -4,9 +4,18 @@
 
 ServiceNow MCP server with browser-based authentication for MFA/SSO environments. Designed for direct use from MCP clients such as Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, and OpenAI Codex.
 
-[![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
+[![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
+[![CI](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml)
+[![Docker](https://img.shields.io/badge/ghcr.io-mfa--servicenow--mcp-blue?logo=docker)](https://ghcr.io/jshsakura/mfa-servicenow-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+```bash
+# Install and run (one-liner)
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser"
+```
 
 ---
 
@@ -21,6 +30,7 @@ ServiceNow MCP server with browser-based authentication for MFA/SSO environments
 - [CLI Reference](#cli-reference)
 - [Keeping Up to Date (PyPI)](#keeping-up-to-date-pypi)
 - [Safety Policy](#safety-policy)
+- [Docker](#docker)
 - [Developer Setup](#developer-setup)
 - [Documentation](#documentation)
 - [Related Projects](#related-projects-and-acknowledgements)
@@ -541,6 +551,55 @@ The server includes several layers of performance optimization to minimize laten
 - **Shallow-copy schema injection**: Confirmation schema (`confirm='approve'`) is injected via lightweight dict copy instead of `copy.deepcopy`, reducing `list_tools` overhead.
 - **No-count optimization**: Subsequent pagination pages use `sysparm_no_count=true` to skip server-side total count computation.
 - **Payload safety**: Heavy tables (`sp_widget`, `sys_script`, etc.) have automatic field clamping and limit restrictions to prevent context window overflow.
+
+## Docker
+
+Docker images are published to `ghcr.io/jshsakura/mfa-servicenow-mcp` on every main branch push.
+
+> **Note:** Browser auth (MFA/SSO) requires a GUI browser and does not work inside containers. Use `basic`, `oauth`, or `api_key` auth for Docker deployments.
+
+### Quick Run
+
+```bash
+docker run -it --rm \
+  -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
+  -e SERVICENOW_AUTH_TYPE=basic \
+  -e SERVICENOW_USERNAME=admin \
+  -e SERVICENOW_PASSWORD=your-password \
+  -e MCP_TOOL_PACKAGE=standard \
+  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
+```
+
+### SSE Mode (HTTP Server)
+
+```bash
+docker run -p 8080:8080 \
+  -e MCP_MODE=sse \
+  -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
+  -e SERVICENOW_AUTH_TYPE=api_key \
+  -e SERVICENOW_API_KEY=your-api-key \
+  -e MCP_TOOL_PACKAGE=standard \
+  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
+```
+
+### Available Tags
+
+| Tag | Description |
+|-----|-------------|
+| `latest` | Latest stable (linux/amd64, linux/arm64) |
+| `vX.Y.Z` | Specific version |
+| `latest-playwright` | Includes Playwright + Chromium (linux/amd64 only) |
+| `sha-xxxxxxx` | Specific commit build |
+
+### Build Locally
+
+```bash
+# Standard (basic/oauth/api_key only)
+docker build --target runtime -t servicenow-mcp .
+
+# With Playwright (browser auth capable, headless only)
+docker build --target runtime-playwright -t servicenow-mcp:playwright .
+```
 
 ## Developer Setup
 
