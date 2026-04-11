@@ -4,9 +4,9 @@ Optimized for speed, token efficiency, and context safety.
 """
 
 import difflib
-import json
 import logging
 import re
+from concurrent.futures import as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Set
@@ -15,9 +15,16 @@ from urllib.parse import parse_qs, urlparse
 from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
+from ..utils import json_fast
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .sn_api import GenericQueryParams, invalidate_query_cache, sn_query, sn_query_all
+from .sn_api import (
+    GenericQueryParams,
+    _page_executor,
+    invalidate_query_cache,
+    sn_query,
+    sn_query_all,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -314,15 +321,20 @@ def _classify_portal_update_risk(risks: List[str], changed_field_count: int) -> 
     return "high"
 
 
+_RE_ROLLBACK = re.compile(r"\b(rollback|roll back|restore|revert|undo)\b", re.IGNORECASE)
+_RE_SNAPSHOT = re.compile(r"\b(snapshot|backup|save current|save state)\b", re.IGNORECASE)
+_RE_PREVIEW = re.compile(r"\b(preview|diff|show changes|what would change)\b", re.IGNORECASE)
+_RE_APPLY = re.compile(r"\b(apply|update|modify|change|patch|fix|edit)\b", re.IGNORECASE)
+
+
 def _detect_portal_edit_action(instruction: str) -> str:
-    lower = instruction.lower()
-    if re.search(r"\b(rollback|roll back|restore|revert|undo)\b", lower):
+    if _RE_ROLLBACK.search(instruction):
         return "rollback"
-    if re.search(r"\b(snapshot|backup|save current|save state)\b", lower):
+    if _RE_SNAPSHOT.search(instruction):
         return "snapshot"
-    if re.search(r"\b(preview|diff|show changes|what would change)\b", lower):
+    if _RE_PREVIEW.search(instruction):
         return "preview"
-    if re.search(r"\b(apply|update|modify|change|patch|fix|edit)\b", lower):
+    if _RE_APPLY.search(instruction):
         return "apply"
     return "analyze"
 
@@ -568,7 +580,7 @@ def _read_portal_component_snapshot(snapshot_path: str) -> Dict[str, Any]:
     if not path.exists():
         raise ValueError(f"Snapshot file not found: {path}")
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = json_fast.loads(path.read_text(encoding="utf-8"))
     component = payload.get("component") or {}
     values = payload.get("values") or {}
     fields = payload.get("fields") or []
@@ -886,6 +898,48 @@ def _chunked(values: List[str], size: int) -> List[List[str]]:
     if size <= 0:
         return [values]
     return [values[i : i + size] for i in range(0, len(values), size)]
+
+
+def _parallel_chunked_query(
+    config: "ServerConfig",
+    auth_manager: "AuthManager",
+    *,
+    table: str,
+    chunks: List[List[str]],
+    query_template: str,
+    fields: str,
+    page_size: int,
+    max_records: int,
+) -> List[Dict[str, Any]]:
+    """Execute chunked sn_query_all calls in parallel via the shared executor.
+
+    *query_template* must contain ``{ids}`` which is replaced with a
+    comma-joined list of IDs for each chunk.
+    """
+    if not chunks:
+        return []
+    if len(chunks) == 1:
+        query = query_template.format(ids=",".join(chunks[0]))
+        return sn_query_all(
+            config, auth_manager, table=table, query=query,
+            fields=fields, page_size=page_size, max_records=max_records,
+        )
+
+    def _fetch(chunk: List[str]) -> List[Dict[str, Any]]:
+        query = query_template.format(ids=",".join(chunk))
+        return sn_query_all(
+            config, auth_manager, table=table, query=query,
+            fields=fields, page_size=page_size, max_records=max_records,
+        )
+
+    rows: List[Dict[str, Any]] = []
+    futures = {_page_executor.submit(_fetch, c): c for c in chunks}
+    for future in as_completed(futures):
+        try:
+            rows.extend(future.result())
+        except Exception:
+            logger.warning("Parallel chunk query failed for table %s", table)
+    return rows
 
 
 def _dedupe_preserve_order_strings(values: List[str]) -> List[str]:
@@ -1511,7 +1565,7 @@ def _write_text_file(path: Path, content: str) -> None:
 
 def _write_json_file(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(json_fast.dumps(payload), encoding="utf-8")
 
 
 def _as_display_text(value: Any) -> str:
@@ -1620,8 +1674,8 @@ def _json_or_raw_string(value: Any) -> Any:
         trimmed = value.strip()
         if trimmed.startswith("{") or trimmed.startswith("["):
             try:
-                return json.loads(trimmed)
-            except json.JSONDecodeError:
+                return json_fast.loads(trimmed)
+            except (ValueError, TypeError):
                 return value
     return value
 
@@ -2136,20 +2190,22 @@ def search_portal_regex_matches(
 
         # M2M lookup from widgets (only when no direct provider_ids and widgets exist)
         if not params.provider_ids and params.include_linked_angular_providers and widget_ids:
-            for chunk in _chunked(widget_ids, 100):
-                relation_rows = _sn_query_all(
-                    config,
-                    auth_manager,
-                    table=ANGULAR_PROVIDER_M2M_TABLE,
-                    query=f"sp_widgetIN{','.join(_escape_query(value) for value in chunk)}",
-                    fields="sp_angular_provider",
-                    page_size=page_size,
-                    max_records=1000,
-                )
-                for row in relation_rows:
-                    provider_id = _as_ref_sys_id(row.get("sp_angular_provider"))
-                    if provider_id:
-                        provider_ids.add(provider_id)
+            escaped_chunks = [
+                [_escape_query(v) for v in chunk] for chunk in _chunked(widget_ids, 100)
+            ]
+            relation_rows = _parallel_chunked_query(
+                config, auth_manager,
+                table=ANGULAR_PROVIDER_M2M_TABLE,
+                chunks=escaped_chunks,
+                query_template="sp_widgetIN{ids}",
+                fields="sp_angular_provider",
+                page_size=page_size,
+                max_records=1000,
+            )
+            for row in relation_rows:
+                provider_id = _as_ref_sys_id(row.get("sp_angular_provider"))
+                if provider_id:
+                    provider_ids.add(provider_id)
 
         if provider_ids:
             provider_query = f"sys_idIN{','.join(sorted(provider_ids))}"
@@ -2410,39 +2466,38 @@ def trace_portal_route_targets(
 
     widget_provider_map: Dict[str, List[str]] = {}
     if params.include_linked_angular_providers and widget_sys_ids:
-        for chunk in _chunked(widget_sys_ids, 100):
-            relation_rows = _sn_query_all(
-                config,
-                auth_manager,
-                table=ANGULAR_PROVIDER_M2M_TABLE,
-                query=f"sp_widgetIN{','.join(_escape_query(value) for value in chunk)}",
-                fields="sp_widget,sp_angular_provider",
-                page_size=page_size,
-                max_records=1000,
-            )
-            for row in relation_rows:
-                widget_sys_id = _as_ref_sys_id(row.get("sp_widget"))
-                provider_sys_id = _as_ref_sys_id(row.get("sp_angular_provider"))
-                if widget_sys_id and provider_sys_id:
-                    widget_provider_map.setdefault(widget_sys_id, [])
-                    if provider_sys_id not in widget_provider_map[widget_sys_id]:
-                        widget_provider_map[widget_sys_id].append(provider_sys_id)
+        escaped_chunks = [
+            [_escape_query(v) for v in chunk] for chunk in _chunked(widget_sys_ids, 100)
+        ]
+        relation_rows = _parallel_chunked_query(
+            config, auth_manager,
+            table=ANGULAR_PROVIDER_M2M_TABLE,
+            chunks=escaped_chunks,
+            query_template="sp_widgetIN{ids}",
+            fields="sp_widget,sp_angular_provider",
+            page_size=page_size,
+            max_records=1000,
+        )
+        for row in relation_rows:
+            widget_sys_id = _as_ref_sys_id(row.get("sp_widget"))
+            provider_sys_id = _as_ref_sys_id(row.get("sp_angular_provider"))
+            if widget_sys_id and provider_sys_id:
+                widget_provider_map.setdefault(widget_sys_id, [])
+                if provider_sys_id not in widget_provider_map[widget_sys_id]:
+                    widget_provider_map[widget_sys_id].append(provider_sys_id)
 
     all_provider_ids = sorted({pid for values in widget_provider_map.values() for pid in values})
     provider_rows: List[Dict[str, Any]] = []
     if all_provider_ids:
-        for chunk in _chunked(all_provider_ids, 100):
-            provider_rows.extend(
-                _sn_query_all(
-                    config,
-                    auth_manager,
-                    table=ANGULAR_PROVIDER_TABLE,
-                    query=f"sys_idIN{','.join(chunk)}",
-                    fields="sys_id,name,id,script",
-                    page_size=page_size,
-                    max_records=1000,
-                )
-            )
+        provider_rows = _parallel_chunked_query(
+            config, auth_manager,
+            table=ANGULAR_PROVIDER_TABLE,
+            chunks=_chunked(all_provider_ids, 100),
+            query_template="sys_idIN{ids}",
+            fields="sys_id,name,id,script",
+            page_size=page_size,
+            max_records=1000,
+        )
 
     providers_by_id = {
         str(row.get("sys_id") or ""): row for row in provider_rows if row.get("sys_id")

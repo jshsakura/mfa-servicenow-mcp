@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
-
 import requests
+
+from servicenow_mcp.utils import json_fast
 from pydantic import BaseModel
 
 from servicenow_mcp.auth.auth_manager import AuthManager
@@ -50,7 +50,7 @@ class ScriptIncludeResource:
                 raise requests.RequestException(f"HTTP {response.status_code}")
             return response.text
         except requests.RequestException as exc:
-            return json.dumps({"error": f"Error listing script includes: {exc}"})
+            return json_fast.dumps({"error": f"Error listing script includes: {exc}"})
 
     async def get_script_include(self, identifier: str) -> str:
         try:
@@ -70,4 +70,4 @@ class ScriptIncludeResource:
                 raise requests.RequestException(f"HTTP {response.status_code}")
             return response.text
         except requests.RequestException as exc:
-            return json.dumps({"error": f"Error getting script include: {exc}"})
+            return json_fast.dumps({"error": f"Error getting script include: {exc}"})
