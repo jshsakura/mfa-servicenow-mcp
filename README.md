@@ -2,7 +2,7 @@
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-ServiceNow MCP server with browser-based authentication for MFA/SSO environments. Designed for direct use from MCP clients such as Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, and OpenAI Codex.
+**MFA-first** ServiceNow MCP server. Built for enterprises where MFA/SSO is mandatory — authenticates via real browser (Playwright) so Okta, Entra ID, SAML, and any interactive login just works. Also supports API Key for headless/Docker environments. Designed for Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, and OpenAI Codex.
 
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
@@ -556,16 +556,15 @@ The server includes several layers of performance optimization to minimize laten
 
 Docker images are published to `ghcr.io/jshsakura/mfa-servicenow-mcp` on every main branch push.
 
-> **Note:** Browser auth (MFA/SSO) requires a GUI browser and does not work inside containers. Use `basic`, `oauth`, or `api_key` auth for Docker deployments.
+> **Note:** Browser auth (MFA/SSO) requires a GUI browser and does not work inside containers. ServiceNow instances with MFA enabled should use `api_key` auth for Docker deployments.
 
-### Quick Run
+### Quick Run (API Key)
 
 ```bash
 docker run -it --rm \
   -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-  -e SERVICENOW_AUTH_TYPE=basic \
-  -e SERVICENOW_USERNAME=admin \
-  -e SERVICENOW_PASSWORD=your-password \
+  -e SERVICENOW_AUTH_TYPE=api_key \
+  -e SERVICENOW_API_KEY=your-api-key \
   -e MCP_TOOL_PACKAGE=standard \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
@@ -582,21 +581,10 @@ docker run -p 8080:8080 \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
 
-### Available Tags
-
-| Tag | Description |
-|-----|-------------|
-| `latest` | Latest stable (linux/amd64, linux/arm64) |
-| `latest-playwright` | Includes Playwright + Chromium (linux/amd64 only) |
-
 ### Build Locally
 
 ```bash
-# Standard (basic/oauth/api_key only)
 docker build --target runtime -t servicenow-mcp .
-
-# With Playwright (browser auth capable, headless only)
-docker build --target runtime-playwright -t servicenow-mcp:playwright .
 ```
 
 ## Developer Setup
