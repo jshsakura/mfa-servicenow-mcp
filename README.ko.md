@@ -4,9 +4,18 @@
 
 MFA(다요소 인증) 및 SSO 환경을 위한 브라우저 인증 기반 ServiceNow MCP 서버입니다. Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, OpenAI Codex 같은 MCP 클라이언트에서 바로 사용할 수 있습니다.
 
-[![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
+[![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
+[![CI](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml)
+[![Docker](https://img.shields.io/badge/ghcr.io-mfa--servicenow--mcp-blue?logo=docker)](https://ghcr.io/jshsakura/mfa-servicenow-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+```bash
+# 설치 없이 바로 실행 (한 줄)
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser"
+```
 
 ---
 
@@ -21,6 +30,7 @@ MFA(다요소 인증) 및 SSO 환경을 위한 브라우저 인증 기반 Servic
 - [CLI 레퍼런스](#cli-레퍼런스)
 - [최신 버전 유지 (PyPI)](#최신-버전-유지-pypi)
 - [보안 정책](#보안-정책)
+- [Docker](#docker)
 - [개발용 설치](#개발용-설치)
 - [상세 문서](#상세-문서)
 - [관련 프로젝트 및 참고](#관련-프로젝트-및-참고)
@@ -536,6 +546,55 @@ pip install "mfa-servicenow-mcp==1.5.0"
 - **얕은 복사 스키마 주입**: 확인 스키마(`confirm='approve'`)를 `copy.deepcopy` 대신 경량 dict 복사로 주입하여 `list_tools` 오버헤드 감소.
 - **카운트 생략 최적화**: 후속 페이지네이션 페이지에서 `sysparm_no_count=true`를 사용하여 서버 측 전체 개수 계산 생략.
 - **페이로드 안전 장치**: 무거운 테이블(`sp_widget`, `sys_script` 등)에 자동 필드 클램핑과 제한 적용으로 컨텍스트 윈도우 오버플로 방지.
+
+## Docker
+
+Docker 이미지는 main 브랜치 푸시마다 `ghcr.io/jshsakura/mfa-servicenow-mcp`에 자동 배포됩니다.
+
+> **참고:** 브라우저 인증(MFA/SSO)은 GUI 브라우저가 필요하므로 컨테이너 안에서 사용할 수 없습니다. Docker 환경에서는 `basic`, `oauth`, 또는 `api_key` 인증을 사용하세요.
+
+### 바로 실행
+
+```bash
+docker run -it --rm \
+  -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
+  -e SERVICENOW_AUTH_TYPE=basic \
+  -e SERVICENOW_USERNAME=admin \
+  -e SERVICENOW_PASSWORD=your-password \
+  -e MCP_TOOL_PACKAGE=standard \
+  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
+```
+
+### SSE 모드 (HTTP 서버)
+
+```bash
+docker run -p 8080:8080 \
+  -e MCP_MODE=sse \
+  -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
+  -e SERVICENOW_AUTH_TYPE=api_key \
+  -e SERVICENOW_API_KEY=your-api-key \
+  -e MCP_TOOL_PACKAGE=standard \
+  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
+```
+
+### 사용 가능한 태그
+
+| 태그 | 설명 |
+|------|------|
+| `latest` | 최신 안정 버전 (linux/amd64, linux/arm64) |
+| `vX.Y.Z` | 특정 버전 |
+| `latest-playwright` | Playwright + Chromium 포함 (linux/amd64 전용) |
+| `sha-xxxxxxx` | 특정 커밋 빌드 |
+
+### 로컬 빌드
+
+```bash
+# 기본 (basic/oauth/api_key 전용)
+docker build --target runtime -t servicenow-mcp .
+
+# Playwright 포함 (브라우저 인증, headless 전용)
+docker build --target runtime-playwright -t servicenow-mcp:playwright .
+```
 
 ## 개발용 설치
 
