@@ -587,9 +587,7 @@ docker run -p 8080:8080 \
 | Tag | Description |
 |-----|-------------|
 | `latest` | Latest stable (linux/amd64, linux/arm64) |
-| `vX.Y.Z` | Specific version |
 | `latest-playwright` | Includes Playwright + Chromium (linux/amd64 only) |
-| `sha-xxxxxxx` | Specific commit build |
 
 ### Build Locally
 
