@@ -2,11 +2,20 @@
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-ServiceNow MCP server with browser-based authentication for MFA/SSO environments. Designed for direct use from MCP clients such as Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, and OpenAI Codex.
+**MFA-first** ServiceNow MCP server. Built for enterprises where MFA/SSO is mandatory — authenticates via real browser (Playwright) so Okta, Entra ID, SAML, and any interactive login just works. Also supports API Key for headless/Docker environments. Designed for Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, and OpenAI Codex.
 
-[![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
+[![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
+[![CI](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml)
+[![Docker](https://img.shields.io/badge/ghcr.io-mfa--servicenow--mcp-blue?logo=docker)](https://ghcr.io/jshsakura/mfa-servicenow-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+```bash
+# Install and run (one-liner)
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser"
+```
 
 ---
 
@@ -21,6 +30,7 @@ ServiceNow MCP server with browser-based authentication for MFA/SSO environments
 - [CLI Reference](#cli-reference)
 - [Keeping Up to Date (PyPI)](#keeping-up-to-date-pypi)
 - [Safety Policy](#safety-policy)
+- [Docker](#docker)
 - [Developer Setup](#developer-setup)
 - [Documentation](#documentation)
 - [Related Projects](#related-projects-and-acknowledgements)
@@ -100,7 +110,7 @@ If you are on Windows, ensure your PowerShell execution policy allows script exe
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-For a step-by-step Windows setup guide, see [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
+For a step-by-step Windows setup guide, see [docs/WINDOWS_INSTALL.md](./docs/WINDOWS_INSTALL.md).
 
 ---
 
@@ -368,7 +378,7 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 
 Set `MCP_TOOL_PACKAGE` to choose a specific tool set. Default: `standard`
 
-All packages except `none` include the full set of read-only tools (48 tools). Higher packages add write capabilities for their domain.
+All packages except `none` include the full set of read-only tools (55 tools). Higher packages add write capabilities for their domain.
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
@@ -512,6 +522,71 @@ Pattern matching modes:
 
 ---
 
+## Performance Optimizations
+
+The server includes several layers of performance optimization to minimize latency and token usage.
+
+### Serialization
+
+- **orjson backend**: All JSON serialization uses `json_fast` (orjson when available, stdlib fallback). 2-4x faster than stdlib `json` for both loads and dumps.
+- **Compact output**: Tool responses are serialized without indentation or extra whitespace, saving 20-30% tokens per response.
+- **Double-parse avoidance**: `serialize_tool_output` detects already-compact JSON strings and skips re-serialization.
+
+### Caching
+
+- **OrderedDict LRU cache**: Query results are cached with O(1) eviction using `OrderedDict.popitem()`. 256 max entries, 30-second TTL, thread-safe.
+- **Tool schema cache**: Pydantic `model_json_schema()` output is cached per model type, avoiding repeated schema generation.
+- **Lazy tool discovery**: Only tool modules required by the active `MCP_TOOL_PACKAGE` are imported at startup. Unused modules are skipped entirely.
+
+### Network
+
+- **HTTP session pooling**: Persistent `requests.Session` with 20-connection pool, TCP keep-alive, TLS session resumption, and gzip/deflate compression.
+- **Parallel pagination**: `sn_query_all` fetches the first page sequentially for total count, then retrieves remaining pages concurrently via `ThreadPoolExecutor` (up to 4 workers).
+- **Dynamic page sizing**: When remaining records fit in a single page (<=100), the page size is enlarged to avoid extra round-trips.
+- **Batch API**: `sn_batch` combines multiple REST sub-requests into a single `/api/now/batch` POST, with automatic chunking at the 150-request limit.
+- **Parallel chunked M2M queries**: Widget-to-provider M2M lookups split into 100-ID chunks are executed concurrently rather than sequentially.
+
+### Schema & Startup
+
+- **Shallow-copy schema injection**: Confirmation schema (`confirm='approve'`) is injected via lightweight dict copy instead of `copy.deepcopy`, reducing `list_tools` overhead.
+- **No-count optimization**: Subsequent pagination pages use `sysparm_no_count=true` to skip server-side total count computation.
+- **Payload safety**: Heavy tables (`sp_widget`, `sys_script`, etc.) have automatic field clamping and limit restrictions to prevent context window overflow.
+
+## Docker
+
+Docker images are published to `ghcr.io/jshsakura/mfa-servicenow-mcp` on every main branch push.
+
+> **Note:** Browser auth (MFA/SSO) requires a GUI browser and does not work inside containers. ServiceNow instances with MFA enabled should use `api_key` auth for Docker deployments.
+
+### Quick Run (API Key)
+
+```bash
+docker run -it --rm \
+  -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
+  -e SERVICENOW_AUTH_TYPE=api_key \
+  -e SERVICENOW_API_KEY=your-api-key \
+  -e MCP_TOOL_PACKAGE=standard \
+  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
+```
+
+### SSE Mode (HTTP Server)
+
+```bash
+docker run -p 8080:8080 \
+  -e MCP_MODE=sse \
+  -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
+  -e SERVICENOW_AUTH_TYPE=api_key \
+  -e SERVICENOW_API_KEY=your-api-key \
+  -e MCP_TOOL_PACKAGE=standard \
+  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
+```
+
+### Build Locally
+
+```bash
+docker build --target runtime -t servicenow-mcp .
+```
+
 ## Developer Setup
 
 If you want to modify the source locally:
@@ -546,22 +621,18 @@ uv run mypy src/
 uv build
 ```
 
-> For Windows-specific setup, see [WINDOWS_INSTALL.md](./WINDOWS_INSTALL.md).
+> Windows: see [Windows Installation Guide](./docs/WINDOWS_INSTALL.md)
 
 ---
 
 ## Documentation
 
-- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete tool reference by category
-- [Catalog Guide](docs/catalog.md)
-- [Catalog Variables](docs/catalog_variables.md)
-- [Change Management Guide](docs/change_management.md)
-- [Changeset Management](docs/changeset_management.md)
-- [Incident Management](docs/incident_management.md)
-- [User Management](docs/user_management.md)
-- [Workflow and Developer Tools](docs/workflow_management.md)
+- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 98 tools by category and package
+- [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
+- [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization
+- [Change Management](docs/change_management.md) — Change request lifecycle and approval
+- [Workflow Management](docs/workflow_management.md) — Legacy workflow and Flow Designer tools
 - [Korean README](./README.ko.md)
-- [Windows Install Guide](./WINDOWS_INSTALL.md)
 
 ---
 
