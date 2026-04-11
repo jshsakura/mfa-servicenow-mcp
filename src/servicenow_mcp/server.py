@@ -4,8 +4,6 @@ ServiceNow MCP Server
 This module provides the main implementation of the ServiceNow MCP server.
 """
 
-import copy
-import json
 import logging
 import os
 from functools import lru_cache
@@ -299,8 +297,10 @@ class ServiceNowMCP:
 
     @staticmethod
     def _inject_confirmation_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
-        schema_with_confirm = copy.deepcopy(schema)
-        properties = schema_with_confirm.setdefault("properties", {})
+        # Shallow copy top-level and only the mutable sub-keys we modify,
+        # avoiding an expensive copy.deepcopy of the entire Pydantic schema.
+        schema_with_confirm = {**schema}
+        properties = {**schema.get("properties", {})}
         properties[CONFIRM_FIELD] = {
             "type": "string",
             "enum": [CONFIRM_VALUE],
@@ -308,9 +308,11 @@ class ServiceNowMCP:
                 "Required only for operations that modify data. Pass 'approve' to confirm intent."
             ),
         }
-        required = schema_with_confirm.setdefault("required", [])
+        schema_with_confirm["properties"] = properties
+        required = list(schema.get("required", []))
         if CONFIRM_FIELD not in required:
             required.append(CONFIRM_FIELD)
+        schema_with_confirm["required"] = required
         return schema_with_confirm
 
     @staticmethod
@@ -402,7 +404,7 @@ class ServiceNowMCP:
                     "Tool 'list_tool_packages' is not available in the 'none' package."
                 )
             result_dict = self._list_tool_packages_impl()
-            serialized_string = json.dumps(result_dict, indent=2)
+            serialized_string = json_fast.dumps(result_dict)
             # Return a list with a TextContent object
             return [types.TextContent(type="text", text=serialized_string)]
 
@@ -500,7 +502,7 @@ class ServiceNowMCP:
                 }
             else:
                 error_result = {"success": False, "error": error_str, "tool": name}
-            serialized_string = json.dumps(error_result, indent=2)
+            serialized_string = json_fast.dumps(error_result)
             return [types.TextContent(type="text", text=serialized_string)]
 
         # Serialize the result to a string (preferably JSON) using the helper

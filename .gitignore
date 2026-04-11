@@ -69,3 +69,4 @@ _last_error.json
 scopes.json
 x_bpm/
 .tmp*/
+.servicenow_mcp/

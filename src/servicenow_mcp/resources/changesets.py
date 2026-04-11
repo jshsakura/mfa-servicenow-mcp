@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
-
 import requests
 from pydantic import BaseModel
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 
 RequestParams = dict[str, str | int]
@@ -49,7 +48,7 @@ class ChangesetResource:
             response.raise_for_status()
             return response.text
         except requests.exceptions.RequestException as exc:
-            return json.dumps({"error": str(exc)})
+            return json_fast.dumps({"error": str(exc)})
 
     async def get_changeset(self, changeset_id: str) -> str:
         try:
@@ -69,7 +68,7 @@ class ChangesetResource:
             changes_response.raise_for_status()
             changes = changes_response.json().get("result", [])
 
-            return json.dumps(
+            return json_fast.dumps(
                 {
                     "changeset": changeset,
                     "changes": changes,
@@ -77,4 +76,4 @@ class ChangesetResource:
                 }
             )
         except requests.exceptions.RequestException as exc:
-            return json.dumps({"error": str(exc)})
+            return json_fast.dumps({"error": str(exc)})
