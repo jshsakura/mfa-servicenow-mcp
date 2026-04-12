@@ -20,7 +20,6 @@ from servicenow_mcp.tools.sync_tools import (
     _write_sync_meta,
     diff_local_component,
     update_remote_from_local,
-    WIDGET_FILE_FIELD_MAP,
 )
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -88,9 +87,7 @@ def download_root(tmp_path):
     (prov_dir / "myService.script.js").write_text(
         "angular.module('x').factory('myService',function(){});", encoding="utf-8"
     )
-    (prov_dir / "_map.json").write_text(
-        json.dumps({"myService": "prov-1"}), encoding="utf-8"
-    )
+    (prov_dir / "_map.json").write_text(json.dumps({"myService": "prov-1"}), encoding="utf-8")
     (prov_dir / "_sync_meta.json").write_text(
         json.dumps(
             {
@@ -107,12 +104,8 @@ def download_root(tmp_path):
     # Script Include
     si_dir = scope / "sys_script_include"
     si_dir.mkdir(parents=True)
-    (si_dir / "MyUtil.script.js").write_text(
-        "var gr = new GlideRecord('task');", encoding="utf-8"
-    )
-    (si_dir / "_map.json").write_text(
-        json.dumps({"MyUtil": "si-1"}), encoding="utf-8"
-    )
+    (si_dir / "MyUtil.script.js").write_text("var gr = new GlideRecord('task');", encoding="utf-8")
+    (si_dir / "_map.json").write_text(json.dumps({"MyUtil": "si-1"}), encoding="utf-8")
     (si_dir / "_sync_meta.json").write_text(
         json.dumps(
             {
@@ -314,9 +307,7 @@ class TestDiffLocalComponent:
         assert "2025-01-15" in result["conflict_warning"]
 
     @patch("servicenow_mcp.tools.sync_tools._batch_fetch_updated_on")
-    def test_diff_directory_mode_scan(
-        self, mock_batch, mock_config, mock_auth, download_root
-    ):
+    def test_diff_directory_mode_scan(self, mock_batch, mock_config, mock_auth, download_root):
         mock_batch.return_value = {
             "wid-1": "2025-01-10 10:00:00",
             "prov-1": "2025-01-10 10:00:00",
@@ -443,9 +434,7 @@ class TestUpdateRemoteFromLocal:
         mock_update.assert_called_once()
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
-    def test_push_conflict_rejected(
-        self, mock_fetch, mock_config, mock_auth, download_root
-    ):
+    def test_push_conflict_rejected(self, mock_fetch, mock_config, mock_auth, download_root):
         mock_fetch.return_value = {
             "sys_id": "wid-1",
             "name": "my-widget",
@@ -496,9 +485,7 @@ class TestUpdateRemoteFromLocal:
         mock_update.assert_called_once()
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
-    def test_push_no_changes_detected(
-        self, mock_fetch, mock_config, mock_auth, download_root
-    ):
+    def test_push_no_changes_detected(self, mock_fetch, mock_config, mock_auth, download_root):
         mock_fetch.return_value = {
             "sys_id": "wid-1",
             "name": "my-widget",

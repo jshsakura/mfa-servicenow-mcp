@@ -8,7 +8,7 @@ import difflib
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 
 from pydantic import BaseModel, Field
 
@@ -17,10 +17,8 @@ from ..utils import json_fast
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
 from .portal_tools import (
-    PORTAL_COMPONENT_EDITABLE_FIELDS,
     UpdatePortalComponentParams,
     _fetch_portal_component_record,
-    _normalize_portal_component_table,
     _safe_name,
     _write_portal_component_snapshot,
     update_portal_component,
@@ -232,9 +230,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         map_data = _read_map_json(table_dir)
         sys_id = map_data.get(folder_name)
         if not sys_id:
-            raise ValueError(
-                f"Widget '{folder_name}' not found in {table_dir / '_map.json'}"
-            )
+            raise ValueError(f"Widget '{folder_name}' not found in {table_dir / '_map.json'}")
         scope_root = table_dir.parent
         settings = _find_settings_json(scope_root)
         return _ResolvedComponent(
@@ -258,9 +254,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         map_data = _read_map_json(table_dir)
         sys_id = _reverse_lookup_map(map_data, component_name)
         if not sys_id:
-            raise ValueError(
-                f"Component '{component_name}' not found in {table_dir / '_map.json'}"
-            )
+            raise ValueError(f"Component '{component_name}' not found in {table_dir / '_map.json'}")
         original_name = _reverse_lookup_name(map_data, component_name)
         scope_root = table_dir.parent
         settings = _find_settings_json(scope_root)
@@ -391,9 +385,7 @@ def _scan_download_root(
                 if table_name == "sp_widget":
                     folder = table_dir / _safe_name(name)
                     local_files = [
-                        str(folder / fn)
-                        for fn in WIDGET_FILE_FIELD_MAP
-                        if (folder / fn).exists()
+                        str(folder / fn) for fn in WIDGET_FILE_FIELD_MAP if (folder / fn).exists()
                     ]
                 else:
                     safe = _safe_name(name)
@@ -539,9 +531,7 @@ def diff_local_component(
             )
         )
         if len(diff_lines) > MAX_DIFF_LINES:
-            diff_lines = diff_lines[:MAX_DIFF_LINES] + [
-                "... [DIFF TRUNCATED FOR CONTEXT SAFETY]"
-            ]
+            diff_lines = diff_lines[:MAX_DIFF_LINES] + ["... [DIFF TRUNCATED FOR CONTEXT SAFETY]"]
 
         diffs.append(
             {

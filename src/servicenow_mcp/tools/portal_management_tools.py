@@ -137,8 +137,13 @@ def get_portal(
 
     fields = "sys_id,title,url_suffix,homepage,theme,css,default_,logo,sp_rectangle"
     response = _query(
-        config, auth_manager, PORTAL_TABLE, query, fields,
-        limit=min(params.limit, 50), offset=params.offset,
+        config,
+        auth_manager,
+        PORTAL_TABLE,
+        query,
+        fields,
+        limit=min(params.limit, 50),
+        offset=params.offset,
     )
     if not response.get("success"):
         return {"success": False, "message": response.get("message", "Query failed"), "portals": []}
@@ -218,10 +223,13 @@ def get_page(
     if params.query:
         query_parts.append(f"titleLIKE{params.query}")
     response = _query(
-        config, auth_manager, PAGE_TABLE,
+        config,
+        auth_manager,
+        PAGE_TABLE,
         "^".join(query_parts) if query_parts else "",
         "sys_id,id,title,internal,public,draft,sys_scope",
-        limit=min(params.limit, 100), offset=params.offset,
+        limit=min(params.limit, 100),
+        offset=params.offset,
     )
     if not response.get("success"):
         return {"success": False, "message": response.get("message", "Query failed"), "pages": []}
@@ -424,8 +432,12 @@ def get_widget_instance(
     if params.instance_id:
         fields = "sys_id,sp_widget,sp_column,order,widget_parameters,css,sys_scope"
         response = _query(
-            config, auth_manager, INSTANCE_TABLE,
-            f"sys_id={params.instance_id}", fields, limit=1,
+            config,
+            auth_manager,
+            INSTANCE_TABLE,
+            f"sys_id={params.instance_id}",
+            fields,
+            limit=1,
         )
         if not response.get("success") or not response.get("results"):
             return {"success": False, "message": f"Widget instance not found: {params.instance_id}"}
@@ -451,13 +463,20 @@ def get_widget_instance(
         query_parts.append(f"sp_column.sp_row.sp_container.sp_page={params.page_id}")
 
     response = _query(
-        config, auth_manager, INSTANCE_TABLE,
+        config,
+        auth_manager,
+        INSTANCE_TABLE,
         "^".join(query_parts) if query_parts else "",
         "sys_id,sp_widget,sp_column,order,css",
-        limit=min(params.limit, 100), offset=params.offset,
+        limit=min(params.limit, 100),
+        offset=params.offset,
     )
     if not response.get("success"):
-        return {"success": False, "message": response.get("message", "Query failed"), "instances": []}
+        return {
+            "success": False,
+            "message": response.get("message", "Query failed"),
+            "instances": [],
+        }
 
     instances = [
         {
