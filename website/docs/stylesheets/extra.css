@@ -107,6 +107,15 @@
   fill: var(--header-icon) !important;
   color: var(--header-icon) !important;
 }
+/* Palette toggle snackbar / label */
+.md-typeset .md-banner,
+form.md-header__option label,
+[data-md-color-scheme] .md-option label,
+.md-dialog {
+  background: var(--card-bg) !important;
+  color: var(--hero-text) !important;
+  border: 1px solid var(--border-color) !important;
+}
 /* Palette toggle (dark/light switch) */
 .md-header .md-header__button[data-md-color-scheme] {
   color: var(--header-icon) !important;
