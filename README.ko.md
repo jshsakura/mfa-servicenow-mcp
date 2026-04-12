@@ -8,7 +8,7 @@
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![CI](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-mfa--servicenow--mcp-blue?logo=docker)](https://ghcr.io/jshsakura/mfa-servicenow-mcp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ```bash
 # 설치 없이 바로 실행 (한 줄)
@@ -157,6 +157,8 @@ servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-typ
         "--browser-headless", "false"
       ],
       "env": {
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -190,6 +192,8 @@ claude mcp add servicenow -- \
         "--browser-headless", "false"
       ],
       "env": {
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -297,9 +301,13 @@ args = [
   "--instance-url", "https://your-instance.service-now.com",
   "--auth-type", "browser",
   "--browser-headless", "false",
+  "--browser-username", "your.username",
+  "--browser-password", "your-password",
   "--tool-package", "standard",
 ]
 ```
+
+> Windows에서는 설정 파일에 비밀번호를 넣지 말고 `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD`를 시스템 환경변수로 설정하세요.
 
 ---
 
@@ -696,4 +704,4 @@ uv build
 
 ## 라이선스
 
-MIT License
+Apache License 2.0
