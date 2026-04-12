@@ -15,9 +15,9 @@ hide:
       <span class="gradient-text">Give it a gun.</span>
     </h1>
     <p class="hero-subtitle">
-      Stop treating your AI like a chatbot.<br>
-      Equip it with MCP &amp; Skills to actually execute tasks inside ServiceNow.<br>
-      Talk is cheap; action is automated.
+      Equip your LLM with high-caliber MCP Skills to hunt down bottlenecks<br>
+      and execute precise ServiceNow tasks.<br>
+      Tactical analysis, heavy-duty support.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
