@@ -11,12 +11,12 @@ hide:
   <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
-      MFA-First<br>
-      <span class="gradient-text">ServiceNow MCP</span>
+      Your AI Couldn't Log In.<br>
+      <span class="gradient-text">Now It Can.</span>
     </h1>
     <p class="hero-subtitle">
-      Browser auth for Okta / Entra ID / SAML.
-      No credentials in config. No token rotation. It just works.
+      Give your AI agent a real ServiceNow session — MFA and all.
+      No workarounds. No credentials to manage. Just run it.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
