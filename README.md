@@ -106,176 +106,21 @@ A browser window opens on the first tool call for MFA/SSO login. Chromium is aut
 
 ## MCP Client Configuration
 
-### Claude Desktop
+Set `your-instance`, `your.username`, `your-password` to your actual values.
 
-Add to `claude_desktop_config.json`:
+| Client | Config File | Format |
+|--------|------------|--------|
+| Claude Desktop | `claude_desktop_config.json` | JSON (`mcpServers`) |
+| Claude Code | `.mcp.json` or `claude mcp add` | JSON / CLI |
+| OpenCode | `opencode.json` | JSON (`mcp`, uses `environment`) |
+| OpenAI Codex | `.codex/agents.toml` | TOML |
+| AntiGravity | `mcp_config.json` | JSON (`mcpServers`) |
+| Gemini / Vertex AI | project config | JSON (`mcp`) |
+| Docker | — | Environment variables |
 
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ],
-      "env": {
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
+Copy-paste configs for each client: **[Client Setup Guide](docs/CLIENT_SETUP.md)**
 
-### Claude Code
-
-```bash
-claude mcp add servicenow -- \
-  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
-```
-
-Or add to `.mcp.json` in your project root:
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ],
-      "env": {
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-### OpenCode
-
-Config file: `opencode.json` in your project root.
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "enabled": true,
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "SERVICENOW_BROWSER_TIMEOUT": "120",
-        "SERVICENOW_BROWSER_SESSION_TTL": "30",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-> OpenCode uses `environment` (not `env`) and supports the `$schema` field.
-> `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` are optional — they prefill the browser login form for MFA/SSO. Set these as system environment variables on Windows to avoid putting credentials in config files.
-
-### Gemini / Vertex AI
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
-    }
-  }
-}
-```
-
-### AntiGravity
-
-AntiGravity Editor uses a Claude Desktop-style `mcpServers` config. Edit via the agent panel: **three dots (...)** -> **Manage MCP Servers** -> **View raw config**.
-
-- **macOS / Linux:** `~/.gemini/antigravity/mcp_config.json`
-- **Windows:** `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-> After saving, click **Refresh** in the AntiGravity MCP management view.
-
-### OpenAI Codex
-
-Add to `agents.toml` (usually `~/.codex/agents.toml` or `.codex/agents.toml` in your project root):
-
-```toml
-[mcp_servers.servicenow]
-command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-  "--instance-url", "https://your-instance.service-now.com",
-  "--auth-type", "browser",
-  "--browser-headless", "false",
-  "--browser-username", "your.username",
-  "--browser-password", "your-password",
-  "--tool-package", "standard",
-]
-```
-
-> On Windows, set `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` as system environment variables instead of putting credentials in the config file.
-```
+> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional — they prefill the MFA login form. On Windows, set these as system environment variables.
 
 ---
 
@@ -580,38 +425,17 @@ For the full skill reference, see [skills/SKILL.md](skills/SKILL.md).
 
 ## Docker
 
-Docker images are published to `ghcr.io/jshsakura/mfa-servicenow-mcp` on every main branch push.
-
-> **Note:** Browser auth (MFA/SSO) requires a GUI browser and does not work inside containers. ServiceNow instances with MFA enabled should use `api_key` auth for Docker deployments.
-
-### Quick Run (API Key)
+API Key auth only (MFA browser auth requires GUI, not available in containers).
 
 ```bash
 docker run -it --rm \
   -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
   -e SERVICENOW_AUTH_TYPE=api_key \
   -e SERVICENOW_API_KEY=your-api-key \
-  -e MCP_TOOL_PACKAGE=standard \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
 
-### SSE Mode (HTTP Server)
-
-```bash
-docker run -p 8080:8080 \
-  -e MCP_MODE=sse \
-  -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-  -e SERVICENOW_AUTH_TYPE=api_key \
-  -e SERVICENOW_API_KEY=your-api-key \
-  -e MCP_TOOL_PACKAGE=standard \
-  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
-```
-
-### Build Locally
-
-```bash
-docker build --target runtime -t servicenow-mcp .
-```
+See [Client Setup Guide](docs/CLIENT_SETUP.md#docker-api-key-only) for SSE mode and local build options.
 
 ## Developer Setup
 
@@ -653,6 +477,7 @@ uv build
 
 ## Documentation
 
+- [Client Setup Guide](docs/CLIENT_SETUP.md) — Copy-paste configs for every MCP client
 - [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 98 tools by category and package
 - [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
 - [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization
