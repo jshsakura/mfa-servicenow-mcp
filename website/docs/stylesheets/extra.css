@@ -107,25 +107,16 @@
   fill: var(--header-icon) !important;
   color: var(--header-icon) !important;
 }
-/* Palette toggle snackbar / dialog — force theme-aware */
-[data-md-component="dialog"],
-div.md-dialog,
-div.md-dialog.md-dialog--active,
-.md-dialog__inner,
-.md-banner {
+/* Palette toggle snackbar / dialog — override Material variables */
+.md-dialog {
+  --md-default-fg-color: var(--card-bg) !important;
   background-color: var(--card-bg) !important;
-  color: var(--hero-text) !important;
-  box-shadow: 0 4px 16px rgba(0,0,0,.12) !important;
   border: 1px solid var(--border-color) !important;
   border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12) !important;
 }
-.md-dialog__inner.md-typeset {
-  color: var(--hero-text) !important;
-}
-[data-md-component="dialog"] a,
-[data-md-component="dialog"] button,
-.md-banner a,
-.md-banner button {
+.md-dialog__inner {
+  --md-default-bg-color: var(--hero-text) !important;
   color: var(--hero-text) !important;
 }
 /* Palette toggle (dark/light switch) */
