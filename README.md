@@ -377,7 +377,19 @@ servicenow-mcp-skills opencode
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 ```
 
-Skills are downloaded from this repository and placed in your project's LLM-specific directory (e.g., `.claude/commands/servicenow/`). The LLM auto-discovers them on next startup.
+The installer downloads 20 skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
+
+| Client | Install Path | Auto-Discovery |
+|--------|-------------|----------------|
+| Claude Code | `.claude/commands/servicenow/` | `/servicenow` slash commands appear on next startup |
+| OpenAI Codex | `.codex/skills/servicenow/` | Skills loaded on next agent session |
+| OpenCode | `.opencode/skills/servicenow/` | Skills loaded on next session |
+
+**How it works:** Each skill is a standalone Markdown file with YAML frontmatter (metadata) and pipeline instructions. The LLM client reads these files from the install path and exposes them as callable commands or skill triggers.
+
+**Update:** Re-run the same install command — it replaces all existing skill files (clean install, no merge).
+
+**Remove:** Delete the install directory (e.g., `rm -rf .claude/commands/servicenow/`).
 
 ### Skill Categories
 
