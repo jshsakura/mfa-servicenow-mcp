@@ -177,3 +177,18 @@
 .hero-terminal-success {
   color: #27c93f;
 }
+
+.hero-terminal-thinking {
+  color: #717cb4;
+  font-style: italic;
+  font-size: 0.85rem;
+  padding-left: 20px;
+  display: block;
+}
+
+.hero-terminal-tool {
+  color: #ffcb6b;
+  padding-left: 20px;
+  font-size: 0.85rem;
+  display: block;
+}
