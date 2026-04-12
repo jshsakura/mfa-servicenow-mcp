@@ -53,6 +53,14 @@
 .md-header .md-header__button svg, .md-header .md-source svg {
   fill: #fafafa !important;
 }
+.md-header .md-tooltip, .md-header .md-source__fact--version {
+  color: #fafafa !important;
+}
+.md-tooltip {
+  background: #18181b !important;
+  color: #fafafa !important;
+  border: 1px solid #3f3f46 !important;
+}
 .md-header__button.md-logo img {
   height: 26px;
   width: auto;
