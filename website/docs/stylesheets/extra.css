@@ -127,28 +127,17 @@ body.landing .md-footer { margin-top: 0; }
 .hero-section {
   position: relative;
   width: 100%;
-  min-height: 540px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   overflow: hidden;
-}
-.hero-bg-img {
-  position: absolute;
-  inset: 0;
-  background: url("../assets/images/banner.jpg") center 30% / cover no-repeat;
-}
-.hero-overlay {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(0,0,0,.65) 0%, rgba(0,0,0,.25) 25%, rgba(0,0,0,.05) 45%, rgba(0,0,0,.05) 60%, rgba(0,0,0,.3) 80%, rgba(0,0,0,.7) 100%);
+  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 40%, #16213e 100%);
 }
 .hero-content {
   position: relative;
   z-index: 2;
   text-align: center;
-  padding: 40px 24px 24px;
+  padding: 64px 24px 56px;
   max-width: 800px;
 }
 
@@ -160,7 +149,7 @@ body.landing .md-footer { margin-top: 0; }
   line-height: 1.08;
   color: #fff !important;
   margin: 0 0 20px;
-  text-shadow: 0 2px 16px rgba(0,0,0,.5), 0 4px 32px rgba(0,0,0,.3);
+  text-shadow: none;
 }
 .hero-title .gradient-text {
   background: linear-gradient(135deg, #a5b4fc, #c084fc, #f472b6);
@@ -178,25 +167,10 @@ body.landing .md-footer { margin-top: 0; }
   margin: 0 auto 28px;
   line-height: 1.7;
   font-weight: 400;
-  text-shadow: 0 2px 12px rgba(0,0,0,.6), 0 0 40px rgba(0,0,0,.3);
+  text-shadow: none;
 }
 @media (max-width: 480px) {
   .hero-subtitle { font-size: .95rem; max-width: 100%; }
-}
-
-/* Gandalf quote */
-.hero-quote {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: .95rem;
-  color: #e4e4e7;
-  height: 3.4em;
-  line-height: 1.7;
-  margin-bottom: 28px;
-  letter-spacing: .01em;
-  text-shadow: 0 2px 12px rgba(0,0,0,.7), 0 0 40px rgba(0,0,0,.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 /* Buttons */
@@ -618,8 +592,7 @@ pre.install-code .c { color: var(--code-comment); }
   .content-wrap { padding: 0 24px; }
   .steps-grid { grid-template-columns: 1fr; }
   .hero-stats { gap: 28px; padding: 32px 0; }
-  .hero-section { min-height: 420px; }
-  .hero-content { padding: 24px 20px 16px; }
+  .hero-content { padding: 48px 20px 40px; }
   .hero-terminal { margin-top: -32px; }
   .hero-terminal-body { min-height: 380px; font-size: .72rem; padding: 16px 20px; }
 }
