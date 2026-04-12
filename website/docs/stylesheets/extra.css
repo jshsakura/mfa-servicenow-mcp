@@ -458,6 +458,12 @@ pre.install-code .c { color: var(--code-comment); }
   grid-template-columns: repeat(3, 1fr);
   gap: 20px;
 }
+.skill-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
 .step-card {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
