@@ -1,93 +1,89 @@
 ---
 name: mfa-servicenow-skills
-version: 1.0.0
+version: 2.0.0
 author: jshsakura
-description: MFA-first ServiceNow skills — portal-specialized workflow recipes for AI agents, built on 98 MCP tools
-tags:
-  - servicenow
-  - mfa
-  - portal
-  - skills
-  - mcp
+description: Portal-specialized ServiceNow skills — LLM execution blueprints with safety gates, sub-agent delegation, and context optimization
 ---
 
 # MFA ServiceNow Skills
 
-Workflow recipes that teach AI agents how to perform multi-step ServiceNow tasks. Each skill combines multiple MCP tools into a structured procedure.
+Execution blueprints for AI agents working with ServiceNow portals. Not documentation — these are **pipelines** with mandatory safety gates, sub-agent delegation hints, and exact tool calls.
 
-**MCP = Tools (what you can do). Skills = Recipes (how to do it well).**
+## Why Skills (vs raw tools)
 
-## Skill Format
+| | Tools Only | Skills + Tools |
+|---|---|---|
+| Safety | LLM decides (운빨) | Gates enforced (snapshot→preview→apply) |
+| Tokens | Source dumps in context | Delegate to sub-agent, summary only |
+| Accuracy | LLM guesses tool order | Verified pipeline |
+| Rollback | Might forget | Snapshot mandatory |
 
-Each skill is a `SKILL.md` file with YAML frontmatter and markdown body:
+## Skill Metadata
 
 ```yaml
----
-name: skill-name
-version: 1.0.0
-description: One-line description
-author: jshsakura
-tags: [category, relevant, tags]
-platforms: [claude-code, claude-desktop, any]
-tools:
-  mcp:
-    - tool_name_1
-    - tool_name_2
-complexity: beginner | intermediate | advanced
-estimated_time: X-Y minutes
----
-
-# Skill Title
-## Overview — when to use
-## Prerequisites — roles, packages
-## Procedure — step-by-step with tool calls
-## Tips — practical advice
+context_cost: low|medium|high    # Token budget hint
+safety_level: none|confirm|staged # Gate enforcement level
+delegatable: true|false           # Can run in sub-agent
+required_input: what user must provide
+output: summary|report|diff|data|status|files|action
 ```
 
-## Available Skills
+## Skill Index
 
-### Portal (6 skills)
+### analyze/ — Understand before you touch
 
-| Skill | Description | Complexity |
-|-------|-------------|------------|
-| [widget-analysis](portal/widget-analysis/SKILL.md) | Analyze widget dependency tree | Beginner |
-| [widget-patching](portal/widget-patching/SKILL.md) | Safe snapshot-preview-apply edit workflow | Intermediate |
-| [portal-diagnosis](portal/portal-diagnosis/SKILL.md) | Full portal health check | Intermediate |
-| [route-tracing](portal/route-tracing/SKILL.md) | Map navigation routes, find dead links | Beginner |
-| [source-download](portal/source-download/SKILL.md) | Export sources to local files | Beginner |
-| [code-detection](portal/code-detection/SKILL.md) | Find missing conditional branches | Intermediate |
+| Skill | Cost | Delegatable | Trigger Examples |
+|-------|------|-------------|-----------------|
+| [widget-analysis](analyze/widget-analysis.md) | medium | yes | "위젯 분석", "what does this widget do" |
+| [portal-diagnosis](analyze/portal-diagnosis.md) | high | yes | "포탈 진단", "portal health check" |
+| [provider-audit](analyze/provider-audit.md) | medium | yes | "프로바이더 감사", "find unused providers" |
+| [dependency-analysis](analyze/dependency-analysis.md) | medium | yes | "지워도 돼?", "what depends on this" |
+| [code-detection](analyze/code-detection.md) | medium | yes | "누락된 조건", "missing branches" |
+| [esc-page-audit](analyze/esc-page-audit.md) | high | yes | "ESC 구조", "audit ESC" |
 
-### Development (4 skills)
+### fix/ — Modify with safety gates
 
-| Skill | Description | Complexity |
-|-------|-------------|------------|
-| [script-include-management](development/script-include-management/SKILL.md) | Script include CRUD + GlideAjax execution | Beginner |
-| [code-review](development/code-review/SKILL.md) | Search and audit server-side code | Intermediate |
-| [changeset-workflow](development/changeset-workflow/SKILL.md) | Update set create → commit → publish | Intermediate |
-| [dependency-analysis](development/dependency-analysis/SKILL.md) | Map artifact dependencies | Intermediate |
+| Skill | Cost | Safety | Trigger Examples |
+|-------|------|--------|-----------------|
+| [widget-patching](fix/widget-patching.md) | medium | **staged** | "코드 수정", "fix widget" |
+| [widget-debugging](fix/widget-debugging.md) | high | none | "위젯이 안 돼", "debug widget" |
+| [code-review](fix/code-review.md) | medium | none | "보안 검사", "code review" |
 
-### ITSM (3 skills)
+### manage/ — CRUD and operations
 
-| Skill | Description | Complexity |
-|-------|-------------|------------|
-| [incident-triage](itsm/incident-triage/SKILL.md) | Classify, prioritize, and route incidents | Beginner |
-| [change-lifecycle](itsm/change-lifecycle/SKILL.md) | Change request full lifecycle | Intermediate |
-| [knowledge-authoring](itsm/knowledge-authoring/SKILL.md) | Create and publish KB articles | Beginner |
+| Skill | Cost | Safety | Trigger Examples |
+|-------|------|--------|-----------------|
+| [page-management](manage/page-management.md) | low | confirm | "위젯 배치", "page layout" |
+| [script-include-management](manage/script-include-management.md) | low | confirm | "SI 보여줘", "execute GlideAjax" |
+| [source-download](manage/source-download.md) | high | none | "소스 내보내기", "download sources" |
+| [changeset-workflow](manage/changeset-workflow.md) | low | **staged** | "체인지셋 커밋", "publish" |
 
-### Admin (3 skills)
+### deploy/ — Release and operations
 
-| Skill | Description | Complexity |
-|-------|-------------|------------|
-| [health-check](admin/health-check/SKILL.md) | Instance connectivity and auth verification | Beginner |
-| [schema-discovery](admin/schema-discovery/SKILL.md) | Explore tables and field definitions | Beginner |
-| [developer-activity](admin/developer-activity/SKILL.md) | Track developer changes and uncommitted work | Beginner |
+| Skill | Cost | Safety | Trigger Examples |
+|-------|------|--------|-----------------|
+| [change-lifecycle](deploy/change-lifecycle.md) | low | **staged** | "변경 요청", "approve change" |
+| [incident-triage](deploy/incident-triage.md) | low | confirm | "인시던트 분류", "triage" |
 
-## Differences from Other Skill Libraries
+### explore/ — Discover and navigate
 
-This library is designed specifically for the `mfa-servicenow-mcp` tool set:
+| Skill | Cost | Delegatable | Trigger Examples |
+|-------|------|-------------|-----------------|
+| [health-check](explore/health-check.md) | low | no | "연결 확인", "health check" |
+| [schema-discovery](explore/schema-discovery.md) | low | yes | "테이블 찾기", "show fields" |
+| [route-tracing](explore/route-tracing.md) | medium | yes | "어디로 이동", "find dead links" |
+| [esc-catalog-flow](explore/esc-catalog-flow.md) | high | yes | "ESC 카탈로그", "catalog flow" |
 
-- **MFA-first**: Skills assume browser-based MFA authentication as the primary auth mode
-- **Portal-specialized**: 6 out of 16 skills focus on Service Portal development — the deepest coverage available
-- **Real tool references**: Every `Tool:` block uses actual MCP tool names and parameters, not generic placeholders
-- **End-to-end workflows**: Skills chain tools together (e.g., detect → snapshot → patch → verify → commit)
-- **Safety built-in**: Write operations always include `confirm: "approve"` and snapshot/rollback guidance
+## Workflow Chains
+
+### Bug Fix Pipeline
+`explore/health-check` → `fix/widget-debugging` → `analyze/widget-analysis` → `fix/widget-patching` → `manage/changeset-workflow`
+
+### Code Audit Pipeline
+`analyze/portal-diagnosis` → `analyze/provider-audit` → `analyze/code-detection` → `fix/code-review`
+
+### New Feature Pipeline
+`analyze/widget-analysis` → `analyze/dependency-analysis` → `fix/widget-patching` → `manage/changeset-workflow` → `deploy/change-lifecycle`
+
+### ESC Customization Pipeline
+`analyze/esc-page-audit` → `explore/esc-catalog-flow` → `analyze/widget-analysis` → `fix/widget-patching`
