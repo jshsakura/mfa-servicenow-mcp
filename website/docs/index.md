@@ -126,6 +126,175 @@ servicenow-mcp \
         </div>
       </div>
     </div>
+
+    <div style="margin-top:56px;">
+      <span class="section-label">MCP client config</span>
+      <h2 class="section-title">Connect your AI agent</h2>
+      <p class="section-desc">
+        Paste the config for your client. All use the same MCP server — only the format differs.
+      </p>
+    </div>
+    <div class="install-block">
+      <div class="install-tabs" id="mcp-tabs">
+        <button class="install-tab active" data-target="mcp-claude-desktop">Claude Desktop</button>
+        <button class="install-tab" data-target="mcp-claude-code">Claude Code</button>
+        <button class="install-tab" data-target="mcp-codex">Codex</button>
+        <button class="install-tab" data-target="mcp-opencode">OpenCode</button>
+        <button class="install-tab" data-target="mcp-gemini">Gemini</button>
+        <button class="install-tab" data-target="mcp-antigravity">AntiGravity</button>
+      </div>
+      <div class="install-panels" id="mcp-panels">
+        <div class="install-panel active" id="mcp-claude-desktop">
+          <div class="install-code-block">
+            <div class="install-code-header">
+              <span class="install-code-label">claude_desktop_config.json</span>
+              <button class="install-copy-btn" aria-label="Copy">Copy</button>
+            </div>
+            <pre class="install-code"><code>{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp",
+        "--instance-url", "https://YOUR_INSTANCE.service-now.com",
+        "--auth-type", "browser"
+      ],
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}</code></pre>
+          </div>
+        </div>
+        <div class="install-panel" id="mcp-claude-code">
+          <div class="install-code-block">
+            <div class="install-code-header">
+              <span class="install-code-label">.mcp.json (project root) or CLI</span>
+              <button class="install-copy-btn" aria-label="Copy">Copy</button>
+            </div>
+            <pre class="install-code"><code><span class="c">// Option A: CLI one-liner</span>
+claude mcp add servicenow -- \
+  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://YOUR_INSTANCE.service-now.com" \
+  --auth-type "browser"
+
+<span class="c">// Option B: .mcp.json in project root</span>
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp",
+        "--instance-url", "https://YOUR_INSTANCE.service-now.com",
+        "--auth-type", "browser"
+      ],
+      "env": { "MCP_TOOL_PACKAGE": "standard" }
+    }
+  }
+}</code></pre>
+          </div>
+        </div>
+        <div class="install-panel" id="mcp-codex">
+          <div class="install-code-block">
+            <div class="install-code-header">
+              <span class="install-code-label">~/.codex/agents.toml</span>
+              <button class="install-copy-btn" aria-label="Copy">Copy</button>
+            </div>
+            <pre class="install-code"><code>[mcp_servers.servicenow]
+command = "uvx"
+args = [
+  "--with", "playwright",
+  "--from", "mfa-servicenow-mcp",
+  "servicenow-mcp",
+  "--instance-url", "https://YOUR_INSTANCE.service-now.com",
+  "--auth-type", "browser",
+  "--tool-package", "standard",
+]</code></pre>
+          </div>
+        </div>
+        <div class="install-panel" id="mcp-opencode">
+          <div class="install-code-block">
+            <div class="install-code-header">
+              <span class="install-code-label">opencode.json</span>
+              <button class="install-copy-btn" aria-label="Copy">Copy</button>
+            </div>
+            <pre class="install-code"><code>{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx", "--with", "playwright",
+        "--from", "mfa-servicenow-mcp", "servicenow-mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://YOUR_INSTANCE.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}</code></pre>
+          </div>
+        </div>
+        <div class="install-panel" id="mcp-gemini">
+          <div class="install-code-block">
+            <div class="install-code-header">
+              <span class="install-code-label">Gemini / Vertex AI config</span>
+              <button class="install-copy-btn" aria-label="Copy">Copy</button>
+            </div>
+            <pre class="install-code"><code>{
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx", "--with", "playwright",
+        "--from", "mfa-servicenow-mcp", "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://YOUR_INSTANCE.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "MCP_TOOL_PACKAGE": "standard"
+      },
+      "enabled": true
+    }
+  }
+}</code></pre>
+          </div>
+        </div>
+        <div class="install-panel" id="mcp-antigravity">
+          <div class="install-code-block">
+            <div class="install-code-header">
+              <span class="install-code-label">~/.gemini/antigravity/mcp_config.json</span>
+              <button class="install-copy-btn" aria-label="Copy">Copy</button>
+            </div>
+            <pre class="install-code"><code>{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://YOUR_INSTANCE.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -300,20 +469,25 @@ servicenow-mcp \
   typeQuote();
 })();
 
+// --- Tabs: scoped per .install-block so multiple tab groups work independently ---
 (function(){
-  document.querySelectorAll(".install-tab").forEach(function(tab){
-    tab.addEventListener("click",function(){
-      document.querySelectorAll(".install-tab").forEach(function(t){t.classList.remove("active");});
-      tab.classList.add("active");
-      document.querySelectorAll(".install-panel").forEach(function(p){p.classList.remove("active");});
-      var t=document.getElementById(tab.getAttribute("data-target"));
-      if(t) t.classList.add("active");
+  document.querySelectorAll(".install-block").forEach(function(block){
+    var tabs=block.querySelectorAll(".install-tab");
+    var panels=block.querySelectorAll(".install-panel");
+    tabs.forEach(function(tab){
+      tab.addEventListener("click",function(){
+        tabs.forEach(function(t){t.classList.remove("active");});
+        tab.classList.add("active");
+        panels.forEach(function(p){p.classList.remove("active");});
+        var t=document.getElementById(tab.getAttribute("data-target"));
+        if(t) t.classList.add("active");
+      });
     });
   });
   document.querySelectorAll(".install-copy-btn").forEach(function(btn){
     btn.addEventListener("click",function(){
       var code=btn.closest(".install-code-block").querySelector("code");
-      var text=code.textContent.replace(/^#.*$/gm,"").replace(/\n{2,}/g,"\n").trim();
+      var text=code.textContent.replace(/^\/\/.*$/gm,"").replace(/^#.*$/gm,"").replace(/\n{2,}/g,"\n").trim();
       navigator.clipboard.writeText(text).then(function(){
         btn.textContent="Copied!";setTimeout(function(){btn.textContent="Copy";},2000);
       });
