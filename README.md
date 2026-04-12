@@ -1,6 +1,6 @@
 # MFA ServiceNow MCP
 
-[English](./README.md) | [한국어](./README.ko.md) | [**Website**](https://jshsakura.github.io/mfa-servicenow-mcp/)
+[English](./README.md) | [한국어](./README.ko.md) | [**GitHub Pages**](https://jshsakura.github.io/mfa-servicenow-mcp/)
 
 MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so Okta, Entra ID, SAML, and any MFA/SSO login just works. Also supports API Key for headless/Docker environments.
 
@@ -9,7 +9,7 @@ MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so 
 [![CI](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-mfa--servicenow--mcp-blue?logo=docker)](https://ghcr.io/jshsakura/mfa-servicenow-mcp)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Website](https://img.shields.io/badge/website-GitHub%20Pages-blue?logo=github)](https://jshsakura.github.io/mfa-servicenow-mcp/)
+[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-live-blue?logo=github)](https://jshsakura.github.io/mfa-servicenow-mcp/)
 
 ```bash
 # One command — MFA/SSO browser login, works on macOS/Linux/Windows
