@@ -24,57 +24,57 @@ class CreateUserParams(BaseModel):
     first_name: str = Field(..., description="First name of the user")
     last_name: str = Field(..., description="Last name of the user")
     email: str = Field(..., description="Email address of the user")
-    title: Optional[str] = Field(None, description="Job title of the user")
-    department: Optional[str] = Field(None, description="Department the user belongs to")
-    manager: Optional[str] = Field(None, description="Manager of the user (sys_id or username)")
-    roles: Optional[List[str]] = Field(None, description="Roles to assign to the user")
-    phone: Optional[str] = Field(None, description="Phone number of the user")
-    mobile_phone: Optional[str] = Field(None, description="Mobile phone number of the user")
-    location: Optional[str] = Field(None, description="Location of the user")
-    password: Optional[str] = Field(None, description="Password for the user account")
-    active: Optional[bool] = Field(True, description="Whether the user account is active")
+    title: Optional[str] = Field(default=None, description="Job title of the user")
+    department: Optional[str] = Field(default=None, description="Department the user belongs to")
+    manager: Optional[str] = Field(default=None, description="Manager of the user (sys_id or username)")
+    roles: Optional[List[str]] = Field(default=None, description="Roles to assign to the user")
+    phone: Optional[str] = Field(default=None, description="Phone number of the user")
+    mobile_phone: Optional[str] = Field(default=None, description="Mobile phone number of the user")
+    location: Optional[str] = Field(default=None, description="Location of the user")
+    password: Optional[str] = Field(default=None, description="Password for the user account")
+    active: Optional[bool] = Field(default=True, description="Whether the user account is active")
 
 
 class UpdateUserParams(BaseModel):
     """Parameters for updating a user."""
 
     user_id: str = Field(..., description="User ID or sys_id to update")
-    user_name: Optional[str] = Field(None, description="Username for the user")
-    first_name: Optional[str] = Field(None, description="First name of the user")
-    last_name: Optional[str] = Field(None, description="Last name of the user")
-    email: Optional[str] = Field(None, description="Email address of the user")
-    title: Optional[str] = Field(None, description="Job title of the user")
-    department: Optional[str] = Field(None, description="Department the user belongs to")
-    manager: Optional[str] = Field(None, description="Manager of the user (sys_id or username)")
-    roles: Optional[List[str]] = Field(None, description="Roles to assign to the user")
-    phone: Optional[str] = Field(None, description="Phone number of the user")
-    mobile_phone: Optional[str] = Field(None, description="Mobile phone number of the user")
-    location: Optional[str] = Field(None, description="Location of the user")
-    password: Optional[str] = Field(None, description="Password for the user account")
-    active: Optional[bool] = Field(None, description="Whether the user account is active")
+    user_name: Optional[str] = Field(default=None, description="Username for the user")
+    first_name: Optional[str] = Field(default=None, description="First name of the user")
+    last_name: Optional[str] = Field(default=None, description="Last name of the user")
+    email: Optional[str] = Field(default=None, description="Email address of the user")
+    title: Optional[str] = Field(default=None, description="Job title of the user")
+    department: Optional[str] = Field(default=None, description="Department the user belongs to")
+    manager: Optional[str] = Field(default=None, description="Manager of the user (sys_id or username)")
+    roles: Optional[List[str]] = Field(default=None, description="Roles to assign to the user")
+    phone: Optional[str] = Field(default=None, description="Phone number of the user")
+    mobile_phone: Optional[str] = Field(default=None, description="Mobile phone number of the user")
+    location: Optional[str] = Field(default=None, description="Location of the user")
+    password: Optional[str] = Field(default=None, description="Password for the user account")
+    active: Optional[bool] = Field(default=None, description="Whether the user account is active")
 
 
 class GetUserParams(BaseModel):
     """Parameters for getting a user."""
 
-    user_id: Optional[str] = Field(None, description="User ID or sys_id")
-    user_name: Optional[str] = Field(None, description="Username of the user")
-    email: Optional[str] = Field(None, description="Email address of the user")
+    user_id: Optional[str] = Field(default=None, description="User ID or sys_id")
+    user_name: Optional[str] = Field(default=None, description="Username of the user")
+    email: Optional[str] = Field(default=None, description="Email address of the user")
 
 
 class ListUsersParams(BaseModel):
     """Parameters for listing users."""
 
-    limit: int = Field(10, description="Maximum number of users to return")
-    offset: int = Field(0, description="Offset for pagination")
-    active: Optional[bool] = Field(None, description="Filter by active status")
-    department: Optional[str] = Field(None, description="Filter by department")
+    limit: int = Field(default=10, description="Maximum number of users to return")
+    offset: int = Field(default=0, description="Offset for pagination")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    department: Optional[str] = Field(default=None, description="Filter by department")
     query: Optional[str] = Field(
-        None,
+        default=None,
         description="Case-insensitive search term that matches against name, username, or email fields. Uses ServiceNow's LIKE operator for partial matching.",
     )
     count_only: bool = Field(
-        False,
+        default=False,
         description="Return count only without fetching records. Uses lightweight Aggregate API.",
     )
 
@@ -83,28 +83,28 @@ class CreateGroupParams(BaseModel):
     """Parameters for creating a group."""
 
     name: str = Field(..., description="Name of the group")
-    description: Optional[str] = Field(None, description="Description of the group")
-    manager: Optional[str] = Field(None, description="Manager of the group (sys_id or username)")
-    parent: Optional[str] = Field(None, description="Parent group (sys_id or name)")
-    type: Optional[str] = Field(None, description="Type of the group")
-    email: Optional[str] = Field(None, description="Email address for the group")
+    description: Optional[str] = Field(default=None, description="Description of the group")
+    manager: Optional[str] = Field(default=None, description="Manager of the group (sys_id or username)")
+    parent: Optional[str] = Field(default=None, description="Parent group (sys_id or name)")
+    type: Optional[str] = Field(default=None, description="Type of the group")
+    email: Optional[str] = Field(default=None, description="Email address for the group")
     members: Optional[List[str]] = Field(
-        None, description="List of user sys_ids or usernames to add as members"
+        default=None, description="List of user sys_ids or usernames to add as members"
     )
-    active: Optional[bool] = Field(True, description="Whether the group is active")
+    active: Optional[bool] = Field(default=True, description="Whether the group is active")
 
 
 class UpdateGroupParams(BaseModel):
     """Parameters for updating a group."""
 
     group_id: str = Field(..., description="Group ID or sys_id to update")
-    name: Optional[str] = Field(None, description="Name of the group")
-    description: Optional[str] = Field(None, description="Description of the group")
-    manager: Optional[str] = Field(None, description="Manager of the group (sys_id or username)")
-    parent: Optional[str] = Field(None, description="Parent group (sys_id or name)")
-    type: Optional[str] = Field(None, description="Type of the group")
-    email: Optional[str] = Field(None, description="Email address for the group")
-    active: Optional[bool] = Field(None, description="Whether the group is active")
+    name: Optional[str] = Field(default=None, description="Name of the group")
+    description: Optional[str] = Field(default=None, description="Description of the group")
+    manager: Optional[str] = Field(default=None, description="Manager of the group (sys_id or username)")
+    parent: Optional[str] = Field(default=None, description="Parent group (sys_id or name)")
+    type: Optional[str] = Field(default=None, description="Type of the group")
+    email: Optional[str] = Field(default=None, description="Email address for the group")
+    active: Optional[bool] = Field(default=None, description="Whether the group is active")
 
 
 class AddGroupMembersParams(BaseModel):
@@ -112,7 +112,7 @@ class AddGroupMembersParams(BaseModel):
 
     group_id: str = Field(..., description="Group ID or sys_id")
     members: List[str] = Field(
-        ..., description="List of user sys_ids or usernames to add as members"
+       default= ..., description="List of user sys_ids or usernames to add as members"
     )
 
 
@@ -121,21 +121,21 @@ class RemoveGroupMembersParams(BaseModel):
 
     group_id: str = Field(..., description="Group ID or sys_id")
     members: List[str] = Field(
-        ..., description="List of user sys_ids or usernames to remove as members"
+       default= ..., description="List of user sys_ids or usernames to remove as members"
     )
 
 
 class ListGroupsParams(BaseModel):
     """Parameters for listing groups."""
 
-    limit: int = Field(10, description="Maximum number of groups to return")
-    offset: int = Field(0, description="Offset for pagination")
-    active: Optional[bool] = Field(None, description="Filter by active status")
+    limit: int = Field(default=10, description="Maximum number of groups to return")
+    offset: int = Field(default=0, description="Offset for pagination")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
     query: Optional[str] = Field(
-        None,
+        default=None,
         description="Case-insensitive search term that matches against group name or description fields. Uses ServiceNow's LIKE operator for partial matching.",
     )
-    type: Optional[str] = Field(None, description="Filter by group type")
+    type: Optional[str] = Field(default=None, description="Filter by group type")
 
 
 class UserResponse(BaseModel):
@@ -143,8 +143,8 @@ class UserResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    user_id: Optional[str] = Field(None, description="ID of the affected user")
-    user_name: Optional[str] = Field(None, description="Username of the affected user")
+    user_id: Optional[str] = Field(default=None, description="ID of the affected user")
+    user_name: Optional[str] = Field(default=None, description="Username of the affected user")
 
 
 class GroupResponse(BaseModel):
@@ -152,8 +152,8 @@ class GroupResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    group_id: Optional[str] = Field(None, description="ID of the affected group")
-    group_name: Optional[str] = Field(None, description="Name of the affected group")
+    group_id: Optional[str] = Field(default=None, description="ID of the affected group")
+    group_name: Optional[str] = Field(default=None, description="Name of the affected group")
 
 
 @register_tool(

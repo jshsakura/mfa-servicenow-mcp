@@ -340,52 +340,52 @@ class DetectMissingCodesParams(BaseModel):
     """Parameters for the missing-code detector."""
 
     scope: Optional[str] = Field(
-        None,
+        default=None,
         description="App scope filter (sys_scope). Example: x_company_bpm",
     )
     widget_prefix: Optional[str] = Field(
-        None,
+        default=None,
         description="Widget id/name prefix to filter. Example: hopes (matches nameLIKEhopes^ORidLIKEhopes)",
     )
     widget_ids: Optional[List[str]] = Field(
-        None,
+        default=None,
         description="Explicit widget sys_id/id/name list. Overrides widget_prefix when provided.",
     )
     required_codes: List[str] = Field(
-        ...,
+       default= ...,
         description='Code values that MUST all appear together in branch logic. Example: ["2400", "5K00", "2J00"]',
     )
     target_field_patterns: List[str] = Field(
-        ["profit_company_code", "c.data.profit_company_code", "data.profit_company_code"],
+        default=["profit_company_code", "c.data.profit_company_code", "data.profit_company_code"],
         description="Field name patterns to look for in source code. All variations that reference the same field.",
     )
     include_widget_client_script: bool = Field(
-        True,
+        default=True,
         description="Scan widget client_script field",
     )
     include_widget_server_script: bool = Field(
-        True,
+        default=True,
         description="Scan widget server script field",
     )
     include_angular_providers: bool = Field(
-        False,
+        default=False,
         description="Expand scan to Angular providers linked to matched widgets (adds M2M queries)",
     )
     max_widgets: int = Field(
-        25,
+        default=25,
         description=f"Maximum widgets to scan (clamped to {MAX_DETECT_WIDGETS})",
     )
     max_matches: int = Field(
-        50,
+        default=50,
         description=f"Maximum findings to return (clamped to {MAX_DETECT_MATCHES})",
     )
-    page_size: int = Field(50, description="Pagination size for API queries (10..100)")
+    page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
     snippet_length: int = Field(
-        DEFAULT_SNIPPET_LENGTH,
+        default=DEFAULT_SNIPPET_LENGTH,
         description="Maximum snippet length per finding",
     )
     output_mode: str = Field(
-        "compact",
+        default="compact",
         description="Output detail level: minimal | compact | full",
     )
 

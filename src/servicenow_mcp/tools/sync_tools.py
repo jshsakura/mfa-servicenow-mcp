@@ -50,7 +50,7 @@ class DiffLocalComponentParams(BaseModel):
     """Parameters for diffing local source files against remote ServiceNow."""
 
     path: str = Field(
-        ...,
+       default= ...,
         description=(
             "Path to a local file, widget directory, or download root directory. "
             "File/widget dir: returns detailed unified diff. "
@@ -58,7 +58,7 @@ class DiffLocalComponentParams(BaseModel):
         ),
     )
     context_lines: int = Field(
-        3,
+        default=3,
         description="Number of context lines in unified diff output (default 3)",
     )
 
@@ -67,15 +67,15 @@ class PushLocalComponentParams(BaseModel):
     """Parameters for pushing local file changes to ServiceNow."""
 
     path: str = Field(
-        ...,
+       default= ...,
         description="Path to a local file (e.g. script.js) or widget directory to push",
     )
     force: bool = Field(
-        False,
+        default=False,
         description="Force push even if remote is newer than local download. Default false.",
     )
     skip_snapshot: bool = Field(
-        False,
+        default=False,
         description="Skip pre-push snapshot creation. Default false (snapshot is always created).",
     )
 
@@ -221,7 +221,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         folder_name = parent.name
         table_dir = grandparent
         filename = path.name
-        field_name = WIDGET_FILE_FIELD_MAP.get(filename)
+        field_name = WIDGET_FILE_FIELD_MAP.get(filename)  # type: ignore[assignment]
         if not field_name:
             raise ValueError(
                 f"Unknown widget file '{filename}'. "

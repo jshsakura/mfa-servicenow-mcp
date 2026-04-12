@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="50%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+  </defs>
+  <!-- Shield body -->
+  <path d="M256 28L60 132v148c0 116.5 83.5 225.2 196 252 112.5-26.8 196-135.5 196-252V132L256 28z" fill="url(#g)"/>
+  <!-- Inner shield highlight -->
+  <path d="M256 60L88 150v118c0 100.8 72 194.8 168 218V60z" fill="white" opacity="0.08"/>
+  <!-- Lock body -->
+  <rect x="196" y="248" width="120" height="100" rx="12" fill="white"/>
+  <!-- Lock shackle -->
+  <path d="M216 248v-40c0-22.1 17.9-40 40-40s40 17.9 40 40v40" stroke="white" stroke-width="20" fill="none" stroke-linecap="round"/>
+  <!-- Keyhole -->
+  <circle cx="256" cy="290" r="16" fill="url(#g)"/>
+  <rect x="252" y="298" width="8" height="24" rx="4" fill="url(#g)"/>
+</svg>

@@ -22,54 +22,54 @@ class CreateProjectParams(BaseModel):
     """Parameters for creating a project."""
 
     short_description: str = Field(..., description="Project name of the project")
-    description: Optional[str] = Field(None, description="Detailed description of the project")
-    status: Optional[str] = Field(None, description="Status of the project (green, yellow, red)")
+    description: Optional[str] = Field(default=None, description="Detailed description of the project")
+    status: Optional[str] = Field(default=None, description="Status of the project (green, yellow, red)")
     state: Optional[str] = Field(
-        None,
+        default=None,
         description="State of project (-5 is Pending,1 is Open, 2 is Work in progress, 3 is Closed Complete, 4 is Closed Incomplete, 5 is Closed Skipped)",
     )
-    project_manager: Optional[str] = Field(None, description="Project manager for the project")
+    project_manager: Optional[str] = Field(default=None, description="Project manager for the project")
     percentage_complete: Optional[int] = Field(
-        None, description="Percentage complete for the project"
+        default=None, description="Percentage complete for the project"
     )
-    assignment_group: Optional[str] = Field(None, description="Group assigned to the project")
-    assigned_to: Optional[str] = Field(None, description="User assigned to the project")
-    start_date: Optional[str] = Field(None, description="Start date for the project")
-    end_date: Optional[str] = Field(None, description="End date for the project")
+    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the project")
+    assigned_to: Optional[str] = Field(default=None, description="User assigned to the project")
+    start_date: Optional[str] = Field(default=None, description="Start date for the project")
+    end_date: Optional[str] = Field(default=None, description="End date for the project")
 
 
 class UpdateProjectParams(BaseModel):
     """Parameters for updating a project."""
 
     project_id: str = Field(..., description="Project ID or sys_id")
-    short_description: Optional[str] = Field(None, description="Project name of the project")
-    description: Optional[str] = Field(None, description="Detailed description of the project")
-    status: Optional[str] = Field(None, description="Status of the project (green, yellow, red)")
+    short_description: Optional[str] = Field(default=None, description="Project name of the project")
+    description: Optional[str] = Field(default=None, description="Detailed description of the project")
+    status: Optional[str] = Field(default=None, description="Status of the project (green, yellow, red)")
     state: Optional[str] = Field(
-        None,
+        default=None,
         description="State of project (-5 is Pending,1 is Open, 2 is Work in progress, 3 is Closed Complete, 4 is Closed Incomplete, 5 is Closed Skipped)",
     )
-    project_manager: Optional[str] = Field(None, description="Project manager for the project")
+    project_manager: Optional[str] = Field(default=None, description="Project manager for the project")
     percentage_complete: Optional[int] = Field(
-        None, description="Percentage complete for the project"
+        default=None, description="Percentage complete for the project"
     )
-    assignment_group: Optional[str] = Field(None, description="Group assigned to the project")
-    assigned_to: Optional[str] = Field(None, description="User assigned to the project")
-    start_date: Optional[str] = Field(None, description="Start date for the project")
-    end_date: Optional[str] = Field(None, description="End date for the project")
+    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the project")
+    assigned_to: Optional[str] = Field(default=None, description="User assigned to the project")
+    start_date: Optional[str] = Field(default=None, description="Start date for the project")
+    end_date: Optional[str] = Field(default=None, description="End date for the project")
 
 
 class ListProjectsParams(BaseModel):
     """Parameters for listing projects."""
 
-    limit: Optional[int] = Field(10, description="Maximum number of records to return")
-    offset: Optional[int] = Field(0, description="Offset to start from")
-    state: Optional[str] = Field(None, description="Filter by state")
-    assignment_group: Optional[str] = Field(None, description="Filter by assignment group")
+    limit: Optional[int] = Field(default=10, description="Maximum number of records to return")
+    offset: Optional[int] = Field(default=0, description="Offset to start from")
+    state: Optional[str] = Field(default=None, description="Filter by state")
+    assignment_group: Optional[str] = Field(default=None, description="Filter by assignment group")
     timeframe: Optional[str] = Field(
-        None, description="Filter by timeframe (upcoming, in-progress, completed)"
+        default=None, description="Filter by timeframe (upcoming, in-progress, completed)"
     )
-    query: Optional[str] = Field(None, description="Additional query string")
+    query: Optional[str] = Field(default=None, description="Additional query string")
 
 
 @register_tool(

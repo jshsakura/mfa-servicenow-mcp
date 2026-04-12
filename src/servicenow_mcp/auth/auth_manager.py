@@ -255,7 +255,7 @@ class AuthManager:
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
         self._cached_basic_auth_header: Optional[str] = None
-        self._session_disk_hash: Optional[str] = None  # Track disk content to skip redundant writes
+        self._session_disk_hash: Optional[int] = None  # Track disk content to skip redundant writes
 
         # Lazy browser auth: only load disk cache on startup (no browser).
         # The actual browser login is deferred to the first tool call
@@ -819,7 +819,7 @@ class AuthManager:
                     self._browser_session_token = None
                 cookies = context.cookies()
                 cookie_header = self._build_instance_cookie_header(
-                    cookies, instance_url, instance_host
+                    cookies, instance_url, instance_host  # type: ignore[arg-type]
                 )
                 context.close()
         except Exception as exc:
@@ -1123,11 +1123,11 @@ class AuthManager:
                 idp_cookies = [
                     cookie
                     for cookie in existing_cookies
-                    if not self._is_instance_cookie(cookie, instance_host)
+                    if not self._is_instance_cookie(cookie, instance_host)  # type: ignore[arg-type]
                 ]
                 context.clear_cookies()
                 if idp_cookies:
-                    context.add_cookies(idp_cookies)
+                    context.add_cookies(idp_cookies)  # type: ignore[arg-type]
 
             page.goto(login_url, timeout=timeout_ms, wait_until="load")
 
@@ -1139,7 +1139,7 @@ class AuthManager:
                 for frame in page.frames:
                     if frame is page.main_frame:
                         continue
-                    targets.append(frame)
+                    targets.append(frame)  # type: ignore[arg-type]
 
                 matched_any_selector = False
                 submitted_login = False
@@ -1227,7 +1227,7 @@ class AuthManager:
                 # cookies on parent domains that may not be returned for a single URL filter.
                 current_cookies = context.cookies()
                 cookie_header = self._build_instance_cookie_header(
-                    current_cookies, instance_url, instance_host
+                    current_cookies, instance_url, instance_host  # type: ignore[arg-type]
                 )
                 if cookie_header:
                     cookie_names = _extract_cookie_names(cookie_header)
@@ -1349,7 +1349,7 @@ class AuthManager:
             if not cookies:
                 raise ValueError("Browser login succeeded but no cookies were captured")
 
-            cookie_header = self._build_instance_cookie_header(cookies, instance_url, instance_host)
+            cookie_header = self._build_instance_cookie_header(cookies, instance_url, instance_host)  # type: ignore[arg-type]
             if not cookie_header:
                 raise ValueError("No instance-scoped secure cookies captured after login")
             self._browser_cookie_header = cookie_header

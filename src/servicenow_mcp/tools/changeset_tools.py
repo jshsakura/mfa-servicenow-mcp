@@ -22,20 +22,20 @@ class GetChangesetDetailsParams(BaseModel):
     """Parameters for getting changeset details or listing changesets."""
 
     changeset_id: Optional[str] = Field(
-        None,
+        default=None,
         description="Changeset ID or sys_id. If provided, returns detail for that single update set with its entries.",
     )
-    limit: Optional[int] = Field(10, description="Maximum number of records to return (list mode)")
-    offset: Optional[int] = Field(0, description="Offset to start from (list mode)")
-    state: Optional[str] = Field(None, description="Filter by state (list mode)")
-    application: Optional[str] = Field(None, description="Filter by application (list mode)")
-    developer: Optional[str] = Field(None, description="Filter by developer (list mode)")
+    limit: Optional[int] = Field(default=10, description="Maximum number of records to return (list mode)")
+    offset: Optional[int] = Field(default=0, description="Offset to start from (list mode)")
+    state: Optional[str] = Field(default=None, description="Filter by state (list mode)")
+    application: Optional[str] = Field(default=None, description="Filter by application (list mode)")
+    developer: Optional[str] = Field(default=None, description="Filter by developer (list mode)")
     timeframe: Optional[str] = Field(
-        None, description="Filter by timeframe (recent, last_week, last_month) (list mode)"
+        default=None, description="Filter by timeframe (recent, last_week, last_month) (list mode)"
     )
-    query: Optional[str] = Field(None, description="Additional query string (list mode)")
+    query: Optional[str] = Field(default=None, description="Additional query string (list mode)")
     count_only: bool = Field(
-        False,
+        default=False,
         description="Return count only without fetching records. Uses lightweight Aggregate API. (list mode)",
     )
 
@@ -44,33 +44,33 @@ class CreateChangesetParams(BaseModel):
     """Parameters for creating a changeset."""
 
     name: str = Field(..., description="Name of the changeset")
-    description: Optional[str] = Field(None, description="Description of the changeset")
+    description: Optional[str] = Field(default=None, description="Description of the changeset")
     application: str = Field(..., description="Application the changeset belongs to")
-    developer: Optional[str] = Field(None, description="Developer responsible for the changeset")
+    developer: Optional[str] = Field(default=None, description="Developer responsible for the changeset")
 
 
 class UpdateChangesetParams(BaseModel):
     """Parameters for updating a changeset."""
 
     changeset_id: str = Field(..., description="Changeset ID or sys_id")
-    name: Optional[str] = Field(None, description="Name of the changeset")
-    description: Optional[str] = Field(None, description="Description of the changeset")
-    state: Optional[str] = Field(None, description="State of the changeset")
-    developer: Optional[str] = Field(None, description="Developer responsible for the changeset")
+    name: Optional[str] = Field(default=None, description="Name of the changeset")
+    description: Optional[str] = Field(default=None, description="Description of the changeset")
+    state: Optional[str] = Field(default=None, description="State of the changeset")
+    developer: Optional[str] = Field(default=None, description="Developer responsible for the changeset")
 
 
 class CommitChangesetParams(BaseModel):
     """Parameters for committing a changeset."""
 
     changeset_id: str = Field(..., description="Changeset ID or sys_id")
-    commit_message: Optional[str] = Field(None, description="Commit message")
+    commit_message: Optional[str] = Field(default=None, description="Commit message")
 
 
 class PublishChangesetParams(BaseModel):
     """Parameters for publishing a changeset."""
 
     changeset_id: str = Field(..., description="Changeset ID or sys_id")
-    publish_notes: Optional[str] = Field(None, description="Notes for publishing")
+    publish_notes: Optional[str] = Field(default=None, description="Notes for publishing")
 
 
 class AddFileToChangesetParams(BaseModel):
