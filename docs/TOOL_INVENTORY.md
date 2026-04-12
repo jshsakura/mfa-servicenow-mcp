@@ -82,28 +82,26 @@ Active tools: **89** | Registered in code: **127** | Removed from packages: **38
 | `list_catalog_item_variables` | R | List variable definitions for a catalog item. Returns type, order, mandatory fla... | full, platform_developer, portal_developer, service_desk, standard |
 | `update_catalog_item_variable` | W | Partial update of a catalog item variable by sys_id. Supports label, order, mand... | full |
 
-### Change Management (8)
+### Change Management (7)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
+| `get_change_request_details` | R | Get a single change request by sys_id/number, or list with filters. Provide chan... | full, platform_developer, portal_developer, service_desk, standard |
 | `add_change_task` | W | Create a change_task under a change request. Requires change_id and short_descri... | full |
 | `approve_change` | W | Approve a change request and transition its state to implement. Requires change_... | full |
 | `create_change_request` | W | Create a change request. Requires short_description and type (normal/standard/em... | full |
-| `get_change_request_details` | R | Fetch a single change request by sys_id or number. Returns full details includin... | full, platform_developer, portal_developer, service_desk, standard |
-| `list_change_requests` | R | Search change requests with filters for state, type, assignment group, and timef... | full, platform_developer, portal_developer, service_desk, standard |
 | `reject_change` | W | Reject a change request and transition its state to canceled. Requires change_id... | full |
 | `submit_change_for_approval` | W | Transition a change request to assess state and create an approval record. Requi... | full, platform_developer |
 | `update_change_request` | W | Update a change request by sys_id. Supports state, description, risk, impact, da... | full, platform_developer |
 
-### Changeset (7)
+### Changeset (6)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
+| `get_changeset_details` | R | Get a single update set by sys_id with entries, or list update sets with filters... | full, platform_developer, portal_developer, service_desk, standard |
 | `add_file_to_changeset` | W | Attach a record (file path + content) to an update set.... | full, platform_developer, portal_developer |
 | `commit_changeset` | W | Finalize an update set by marking it complete. Prevents further edits.... | full, platform_developer, portal_developer |
 | `create_changeset` | W | Create a new update set. Returns the new sys_id on success.... | full, platform_developer, portal_developer |
-| `get_changeset_details` | R | Retrieve a single update set with its entries and metadata by sys_id.... | full, platform_developer, portal_developer, service_desk, standard |
-| `list_changesets` | R | List update sets filtered by state/developer/app. Returns name, state, and scope... | full, platform_developer, portal_developer, service_desk, standard |
 | `publish_changeset` | W | Deploy a committed update set to the target instance.... | full, platform_developer, portal_developer |
 | `update_changeset` | W | Update an existing update set's name, description, state, or developer.... | full, platform_developer, portal_developer |
 
@@ -141,13 +139,13 @@ Active tools: **89** | Registered in code: **127** | Removed from packages: **38
 | `get_flow_designer_detail` | R | Get flow metadata. Use include_structure=true for action/logic/subflow tree, inc... | full, platform_developer, portal_developer, service_desk, standard |
 | `get_flow_designer_executions` | R | Get execution history or single execution detail (provide context_id). Filter by... | full, platform_developer, portal_developer, service_desk, standard |
 
-### Incident (6)
+### Incident (5)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
+| `get_incident_by_number` | R | Get a single incident by number, or list incidents with filters. Provide inciden... | full, platform_developer, portal_developer, service_desk, standard |
 | `add_comment` | W | Add a work note (internal) or customer-visible comment to an incident by sys_id ... | full, service_desk |
 | `create_incident` | W | Create a new incident (short_description required). Returns sys_id and INC numbe... | full, service_desk |
-| `get_incident_by_number` | R | Get a single incident by number, or list incidents with filters. Provide inciden... | full, platform_developer, portal_developer, service_desk, standard |
 | `resolve_incident` | W | Set incident state to Resolved with resolution_code and close_notes. Use update_... | full, platform_developer, service_desk |
 | `update_incident` | W | Update an incident by sys_id or INC number with partial field changes. Accepts a... | full, platform_developer, service_desk |
 
@@ -228,17 +226,14 @@ Active tools: **89** | Registered in code: **127** | Removed from packages: **38
 | `update_portal_component` | W | Update specific code fields (HTML, CSS, or script) of a widget, provider, or scr... | full, portal_developer |
 | `update_portal_component_from_snapshot` | W | Restore a portal component's editable fields from a previously saved local snaps... | full, portal_developer |
 
-### Portal Management (8)
+### Portal Management (5)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
+| `get_portal` | R | Get a single portal by sys_id/URL suffix, or list all portals. Provide portal_id... | full, platform_developer, portal_developer, service_desk, standard |
+| `get_page` | R | Get a single page by sys_id/URL path with layout, or list all pages. Provide pag... | full, platform_developer, portal_developer, service_desk, standard |
+| `get_widget_instance` | R | Get a single widget instance by sys_id, or list instances by page/widget filter.... | full, platform_developer, portal_developer, service_desk, standard |
 | `create_widget_instance` | W | Place a widget on a page column. Specify widget sys_id, target column, order, an... | full, portal_developer |
-| `get_page` | R | Get a page by sys_id or URL path. Optionally includes full container/row/column/... | full, platform_developer, portal_developer, service_desk, standard |
-| `get_portal` | R | Get a single portal by sys_id or URL suffix. Returns full config including theme... | full, platform_developer, portal_developer, service_desk, standard |
-| `get_widget_instance` | R | Get a single widget instance with its placement, parameters, and CSS overrides.... | full, platform_developer, portal_developer, service_desk, standard |
-| `list_pages` | R | List portal pages with title, URL path, and visibility flags. Filterable by titl... | full, platform_developer, portal_developer, service_desk, standard |
-| `list_portals` | R | List portals with title, URL suffix, theme, and homepage references. Filterable ... | full, platform_developer, portal_developer, service_desk, standard |
-| `list_widget_instances` | R | List widget placements on pages with column and order info. Filter by page or wi... | full, platform_developer, portal_developer, service_desk, standard |
 | `update_widget_instance` | W | Move, reorder, or update options/CSS of an existing widget instance on a page.... | full, portal_developer |
 
 ### Script Include (6)
