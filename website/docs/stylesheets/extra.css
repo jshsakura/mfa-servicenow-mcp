@@ -172,7 +172,6 @@ body.landing .md-footer { margin-top: 0; }
 .hero-section .md-button--primary:hover {
   background: #e4e4e7 !important;
   border-color: #e4e4e7 !important;
-  transform: translateY(-1px);
 }
 .hero-section .md-button--ghost {
   background: rgba(255,255,255,.08) !important;
@@ -183,7 +182,6 @@ body.landing .md-footer { margin-top: 0; }
 .hero-section .md-button--ghost:hover {
   background: rgba(255,255,255,.15) !important;
   border-color: rgba(255,255,255,.35) !important;
-  transform: translateY(-1px);
 }
 
 /* ============================================================
@@ -454,7 +452,6 @@ pre.install-code .c { color: var(--code-comment); }
 }
 .step-card:hover {
   border-color: var(--accent);
-  transform: translateY(-2px);
   box-shadow: 0 8px 20px rgba(99,102,241,.07);
 }
 [data-md-color-scheme="slate"] .step-card:hover {
@@ -510,7 +507,6 @@ pre.install-code .c { color: var(--code-comment); }
 .grid.cards > ul > li:hover {
   border-color: var(--accent) !important;
   background: var(--card-hover) !important;
-  transform: translateY(-2px);
   box-shadow: 0 8px 20px rgba(99,102,241,.07) !important;
 }
 [data-md-color-scheme="slate"] .grid.cards > ul > li:hover {
@@ -579,7 +575,6 @@ pre.install-code .c { color: var(--code-comment); }
 .md-button--primary:hover {
   background: var(--btn-hover) !important;
   border-color: var(--btn-hover) !important;
-  transform: translateY(-1px);
 }
 
 /* ============================================================
