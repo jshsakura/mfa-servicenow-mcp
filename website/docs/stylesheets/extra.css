@@ -135,7 +135,7 @@ body.landing .md-footer { margin-top: 0; }
 .hero-bg-img {
   position: absolute;
   inset: 0;
-  background: url("../assets/images/banner.jpg") center 75% / cover no-repeat;
+  background: url("../assets/images/banner.jpg") center center / cover no-repeat;
 }
 .hero-overlay {
   position: absolute;
@@ -146,7 +146,7 @@ body.landing .md-footer { margin-top: 0; }
   position: relative;
   z-index: 2;
   text-align: center;
-  padding: 48px 24px 40px;
+  padding: 72px 24px 64px;
   max-width: 800px;
 }
 
@@ -157,7 +157,7 @@ body.landing .md-footer { margin-top: 0; }
   letter-spacing: -.04em;
   line-height: 1.08;
   color: #fff !important;
-  margin: 0 0 16px;
+  margin: 0 0 28px;
   text-shadow: 0 2px 12px rgba(0,0,0,.5);
 }
 .hero-title .gradient-text {
