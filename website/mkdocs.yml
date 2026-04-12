@@ -60,9 +60,14 @@ markdown_extensions:
   - toc:
       permalink: true
 
+# Hooks to rewrite language links for MkDocs site
+hooks:
+  - hooks/rewrite_links.py
+
 # Navigation structure - mapping to existing docs
 nav:
   - Home: index.md
+  - 한국어: ko.md
   - Getting Started:
       - Client Setup: docs/CLIENT_SETUP.md
       - Windows Installation: docs/WINDOWS_INSTALL.md
