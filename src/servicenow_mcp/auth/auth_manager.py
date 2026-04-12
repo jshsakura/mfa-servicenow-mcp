@@ -255,12 +255,13 @@ class AuthManager:
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
         self._cached_basic_auth_header: Optional[str] = None
-        self._session_disk_hash: Optional[str] = None  # Track disk content to skip redundant writes
+        self._session_disk_hash: Optional[int] = None  # Track disk content to skip redundant writes
 
         # Lazy browser auth: only load disk cache on startup (no browser).
         # The actual browser login is deferred to the first tool call
         # via get_headers(), avoiding an unwanted login window on MCP start.
         if self.config.type == AuthType.BROWSER:
+            self._ensure_playwright_ready()
             self._load_session_from_disk()
             if self._browser_cookie_header and not self._is_browser_session_expired():
                 logger.info("Startup: session restored from disk cache — ready.")
@@ -273,6 +274,68 @@ class AuthManager:
                     "Startup: no cached session. "
                     "Browser login will be triggered on the first tool call."
                 )
+
+    # ------------------------------------------------------------------
+    # Playwright pre-flight check
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _ensure_playwright_ready() -> None:
+        """Verify Playwright is importable and has a working Chromium binary.
+
+        Called once during ``__init__`` when auth type is ``browser``.
+
+        In a ``uvx`` environment the playwright *package* is expected to be
+        provided via ``uvx --with playwright …``.  If it is missing we
+        surface a clear error telling the user to add ``--with playwright``.
+
+        The Chromium *browser binary* is a separate download.  If it is
+        missing or version-mismatched we run ``playwright install chromium``
+        automatically.
+        """
+        import shutil
+        import subprocess
+        import sys
+
+        # 1. Ensure the Python package is importable.
+        try:
+            from playwright.sync_api import sync_playwright  # noqa: F401
+        except ImportError:
+            raise RuntimeError(
+                "Playwright package is required for browser authentication but is not installed.\n"
+                "• uvx:  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp …\n"
+                "• pip:  pip install playwright && playwright install chromium\n"
+                "• dev:  uv pip install -e '.[browser]'"
+            ) from None
+
+        # 2. Ensure the Chromium browser binary is present.
+        # Quick probe: try launching Chromium headless.  If the binary is
+        # missing or version-mismatched Playwright raises a clear error.
+        need_install = False
+        try:
+            from playwright.sync_api import sync_playwright
+
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=True)
+                browser.close()
+        except Exception as exc:
+            exc_msg = str(exc).lower()
+            if "executable doesn't exist" in exc_msg or "browser" in exc_msg:
+                need_install = True
+            else:
+                logger.debug("Playwright probe raised non-binary error: %s", exc)
+
+        if need_install:
+            logger.info("Chromium browser binary missing — installing via playwright install …")
+            # Prefer the playwright CLI on PATH (works inside uvx venvs),
+            # fall back to ``python -m playwright``.
+            pw_cli = shutil.which("playwright")
+            if pw_cli:
+                cmd = [pw_cli, "install", "chromium"]
+            else:
+                cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+            subprocess.check_call(cmd, timeout=300)
+            logger.info("Chromium browser binary installed successfully.")
 
     def _get_session_cache_path(self) -> str:
         """Get the path to the session cache file."""
@@ -756,7 +819,9 @@ class AuthManager:
                     self._browser_session_token = None
                 cookies = context.cookies()
                 cookie_header = self._build_instance_cookie_header(
-                    cookies, instance_url, instance_host
+                    cookies,  # type: ignore[arg-type]
+                    instance_url,
+                    instance_host,
                 )
                 context.close()
         except Exception as exc:
@@ -1060,11 +1125,11 @@ class AuthManager:
                 idp_cookies = [
                     cookie
                     for cookie in existing_cookies
-                    if not self._is_instance_cookie(cookie, instance_host)
+                    if not self._is_instance_cookie(cookie, instance_host)  # type: ignore[arg-type]
                 ]
                 context.clear_cookies()
                 if idp_cookies:
-                    context.add_cookies(idp_cookies)
+                    context.add_cookies(idp_cookies)  # type: ignore[arg-type]
 
             page.goto(login_url, timeout=timeout_ms, wait_until="load")
 
@@ -1076,7 +1141,7 @@ class AuthManager:
                 for frame in page.frames:
                     if frame is page.main_frame:
                         continue
-                    targets.append(frame)
+                    targets.append(frame)  # type: ignore[arg-type]
 
                 matched_any_selector = False
                 submitted_login = False
@@ -1164,7 +1229,9 @@ class AuthManager:
                 # cookies on parent domains that may not be returned for a single URL filter.
                 current_cookies = context.cookies()
                 cookie_header = self._build_instance_cookie_header(
-                    current_cookies, instance_url, instance_host
+                    current_cookies,  # type: ignore[arg-type]
+                    instance_url,
+                    instance_host,
                 )
                 if cookie_header:
                     cookie_names = _extract_cookie_names(cookie_header)
@@ -1286,7 +1353,7 @@ class AuthManager:
             if not cookies:
                 raise ValueError("Browser login succeeded but no cookies were captured")
 
-            cookie_header = self._build_instance_cookie_header(cookies, instance_url, instance_host)
+            cookie_header = self._build_instance_cookie_header(cookies, instance_url, instance_host)  # type: ignore[arg-type]
             if not cookie_header:
                 raise ValueError("No instance-scoped secure cookies captured after login")
             self._browser_cookie_header = cookie_header

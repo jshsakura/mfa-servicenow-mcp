@@ -22,19 +22,19 @@ class CreateEpicParams(BaseModel):
     """Parameters for creating an epic."""
 
     short_description: str = Field(..., description="Short description of the epic")
-    description: Optional[str] = Field(None, description="Detailed description of the epic")
+    description: Optional[str] = Field(default=None, description="Detailed description of the epic")
     priority: Optional[str] = Field(
-        None,
+        default=None,
         description="Priority of epic (1 is Critical, 2 is High, 3 is Moderate, 4 is Low, 5 is Planning)",
     )
     state: Optional[str] = Field(
-        None,
+        default=None,
         description="State of story (-6 is Draft,1 is Ready,2 is Work in progress, 3 is Complete, 4 is Cancelled)",
     )
-    assignment_group: Optional[str] = Field(None, description="Group assigned to the epic")
-    assigned_to: Optional[str] = Field(None, description="User assigned to the epic")
+    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the epic")
+    assigned_to: Optional[str] = Field(default=None, description="User assigned to the epic")
     work_notes: Optional[str] = Field(
-        None,
+        default=None,
         description="Work notes to add to the epic. Used for adding notes and comments to an epic",
     )
 
@@ -43,20 +43,22 @@ class UpdateEpicParams(BaseModel):
     """Parameters for updating an epic."""
 
     epic_id: str = Field(..., description="Epic ID or sys_id")
-    short_description: Optional[str] = Field(None, description="Short description of the epic")
-    description: Optional[str] = Field(None, description="Detailed description of the epic")
+    short_description: Optional[str] = Field(
+        default=None, description="Short description of the epic"
+    )
+    description: Optional[str] = Field(default=None, description="Detailed description of the epic")
     priority: Optional[str] = Field(
-        None,
+        default=None,
         description="Priority of epic (1 is Critical, 2 is High, 3 is Moderate, 4 is Low, 5 is Planning)",
     )
     state: Optional[str] = Field(
-        None,
+        default=None,
         description="State of story (-6 is Draft,1 is Ready,2 is Work in progress, 3 is Complete, 4 is Cancelled)",
     )
-    assignment_group: Optional[str] = Field(None, description="Group assigned to the epic")
-    assigned_to: Optional[str] = Field(None, description="User assigned to the epic")
+    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the epic")
+    assigned_to: Optional[str] = Field(default=None, description="User assigned to the epic")
     work_notes: Optional[str] = Field(
-        None,
+        default=None,
         description="Work notes to add to the epic. Used for adding notes and comments to an epic",
     )
 
@@ -64,14 +66,14 @@ class UpdateEpicParams(BaseModel):
 class ListEpicsParams(BaseModel):
     """Parameters for listing epics."""
 
-    limit: Optional[int] = Field(10, description="Maximum number of records to return")
-    offset: Optional[int] = Field(0, description="Offset to start from")
-    priority: Optional[str] = Field(None, description="Filter by priority")
-    assignment_group: Optional[str] = Field(None, description="Filter by assignment group")
+    limit: Optional[int] = Field(default=10, description="Maximum number of records to return")
+    offset: Optional[int] = Field(default=0, description="Offset to start from")
+    priority: Optional[str] = Field(default=None, description="Filter by priority")
+    assignment_group: Optional[str] = Field(default=None, description="Filter by assignment group")
     timeframe: Optional[str] = Field(
-        None, description="Filter by timeframe (upcoming, in-progress, completed)"
+        default=None, description="Filter by timeframe (upcoming, in-progress, completed)"
     )
-    query: Optional[str] = Field(None, description="Additional query string")
+    query: Optional[str] = Field(default=None, description="Additional query string")
 
 
 @register_tool(

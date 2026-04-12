@@ -41,61 +41,59 @@ TRIGGER_TABLE = "sys_hub_trigger_instance"
 class ListFlowsParams(BaseModel):
     """Parameters for listing Flow Designer flows."""
 
-    limit: int = Field(20, description="Maximum number of records (max 100)")
-    offset: int = Field(0, description="Pagination offset")
-    active: Optional[bool] = Field(None, description="Filter by active status")
-    status: Optional[str] = Field(None, description="Filter by status: Draft, Published, etc.")
-    name: Optional[str] = Field(None, description="Filter by name (contains)")
-    scope: Optional[str] = Field(None, description="Filter by application scope name")
-    query: Optional[str] = Field(None, description="Additional encoded query")
+    limit: int = Field(default=20, description="Maximum number of records (max 100)")
+    offset: int = Field(default=0, description="Pagination offset")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    status: Optional[str] = Field(
+        default=None, description="Filter by status: Draft, Published, etc."
+    )
+    name: Optional[str] = Field(default=None, description="Filter by name (contains)")
+    scope: Optional[str] = Field(default=None, description="Filter by application scope name")
+    query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(
-        False,
+        default=False,
         description="Return count only without fetching records.",
     )
 
 
 class GetFlowDetailsParams(BaseModel):
-    """Parameters for getting flow details."""
+    """Parameters for getting flow details with optional structure and triggers."""
 
     flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
-
-
-class GetFlowStructureParams(BaseModel):
-    """Parameters for getting the full structure of a flow."""
-
-    flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
+    include_structure: bool = Field(
+        default=False,
+        description="Include flow structure (actions, logic, subflows with nesting tree)",
+    )
+    include_triggers: bool = Field(
+        default=False,
+        description="Include trigger configuration (what events start this flow)",
+    )
 
 
 class GetFlowExecutionsParams(BaseModel):
-    """Parameters for getting flow execution history."""
+    """Parameters for getting flow execution history or a single execution detail."""
 
-    flow_name: Optional[str] = Field(None, description="Flow name to search (contains match)")
-    flow_id: Optional[str] = Field(None, description="Flow sys_id to filter executions")
+    context_id: Optional[str] = Field(
+        default=None,
+        description="If provided, return single execution detail by sys_id from sys_flow_context. Other filters are ignored.",
+    )
+    flow_name: Optional[str] = Field(
+        default=None, description="Flow name to search (contains match)"
+    )
+    flow_id: Optional[str] = Field(default=None, description="Flow sys_id to filter executions")
     state: Optional[str] = Field(
-        None,
+        default=None,
         description="Filter by state: Complete, Waiting, Error, Cancelled, In Progress",
     )
     source_record: Optional[str] = Field(
-        None, description="Filter by source record display value (contains)"
+        default=None, description="Filter by source record display value (contains)"
     )
-    limit: int = Field(20, description="Maximum number of records (max 100)")
-    offset: int = Field(0, description="Pagination offset")
+    limit: int = Field(default=20, description="Maximum number of records (max 100)")
+    offset: int = Field(default=0, description="Pagination offset")
     errors_only: bool = Field(
-        False,
+        default=False,
         description="Only return executions with errors",
     )
-
-
-class GetFlowExecutionDetailParams(BaseModel):
-    """Parameters for getting a single flow execution detail."""
-
-    context_id: str = Field(..., description="sys_id from sys_flow_context")
-
-
-class GetFlowTriggersParams(BaseModel):
-    """Parameters for getting flow triggers."""
-
-    flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
 
 
 # ---------------------------------------------------------------------------
@@ -239,8 +237,9 @@ def list_flows(
     name="get_flow_designer_detail",
     params=GetFlowDetailsParams,
     description=(
-        "Get detailed information about a single Flow Designer flow "
-        "including metadata, trigger type, scope, and description."
+        "Get detailed information about a single Flow Designer flow. "
+        "Returns metadata by default. Use include_structure=true for "
+        "action/logic/subflow tree, include_triggers=true for trigger config."
     ),
     serialization="json",
     return_type=dict,
@@ -250,7 +249,7 @@ def get_flow_details(
     auth_manager: AuthManager,
     params: GetFlowDetailsParams,
 ) -> Dict[str, Any]:
-    """Get flow details by sys_id."""
+    """Get flow details by sys_id, optionally including structure and triggers."""
     flow_id = params.flow_id
 
     try:
@@ -267,48 +266,26 @@ def get_flow_details(
         )
         flow = flows[0] if flows else {}
 
-        # Also get trigger info
-        triggers, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=TRIGGER_TABLE,
-            query=f"flow={flow_id}",
-            fields="",
-            limit=5,
-            offset=0,
-            display_value=True,
-        )
+        result: Dict[str, Any] = {"success": True, "flow": flow}
 
-        return {
-            "success": True,
-            "flow": flow,
-            "triggers": triggers,
-        }
+        if params.include_triggers:
+            result["triggers"] = _fetch_flow_triggers(config, auth_manager, flow_id)
+
+        if params.include_structure:
+            result["structure"] = _fetch_flow_structure(config, auth_manager, flow_id)
+
+        return result
     except Exception as e:
         logger.error(f"Error getting flow details: {e}")
         return {"success": False, "error": str(e)}
 
 
-@register_tool(
-    name="get_flow_designer_structure",
-    params=GetFlowStructureParams,
-    description=(
-        "Analyze the full structure of a Flow Designer flow. "
-        "First tries the native Flow Designer API (/api/sn_flow/designer/) "
-        "for complete detail including conditions and variable mappings, "
-        "then falls back to Table API for basic structure. "
-        "Returns actions, flow logic, subflow calls in execution order with nesting."
-    ),
-    serialization="json",
-    return_type=dict,
-)
-def get_flow_structure(
+def _fetch_flow_structure(
     config: ServerConfig,
     auth_manager: AuthManager,
-    params: GetFlowStructureParams,
+    flow_id: str,
 ) -> Dict[str, Any]:
-    """Get the full component tree of a flow."""
-    flow_id = params.flow_id
+    """Get the full component tree of a flow (internal helper)."""
 
     # ------------------------------------------------------------------
     # Strategy 1: Native Flow Designer API (full detail)
@@ -426,9 +403,9 @@ def get_flow_structure(
     name="get_flow_designer_executions",
     params=GetFlowExecutionsParams,
     description=(
-        "Get execution history for Flow Designer flows from sys_flow_context. "
-        "Filter by flow name, state (Complete/Waiting/Error/Cancelled), "
-        "source record, or errors only. Shows run time, error messages, and state."
+        "Get flow execution history or a single execution detail. "
+        "Provide context_id for single execution detail. "
+        "Otherwise filter by flow name, state, source record, or errors only."
     ),
     serialization="json",
     return_type=dict,
@@ -438,9 +415,32 @@ def get_flow_executions(
     auth_manager: AuthManager,
     params: GetFlowExecutionsParams,
 ) -> Dict[str, Any]:
-    """Get flow execution history."""
-    query_parts: List[str] = []
+    """Get flow execution history, or single execution detail if context_id given."""
 
+    # Single execution detail mode
+    if params.context_id:
+        try:
+            records, _ = sn_query_page(
+                config,
+                auth_manager,
+                table=FLOW_CONTEXT_TABLE,
+                query=f"sys_id={params.context_id}",
+                fields="",
+                limit=1,
+                offset=0,
+                display_value=True,
+                fail_silently=False,
+            )
+            return {
+                "success": True,
+                "execution": records[0] if records else {},
+            }
+        except Exception as e:
+            logger.error(f"Error getting flow execution detail: {e}")
+            return {"success": False, "error": str(e)}
+
+    # List mode
+    query_parts: List[str] = []
     if params.flow_name:
         query_parts.append(f"nameLIKE{params.flow_name}")
     if params.flow_id:
@@ -477,90 +477,27 @@ def get_flow_executions(
         return {"success": False, "error": str(e)}
 
 
-@register_tool(
-    name="get_flow_designer_execution_detail",
-    params=GetFlowExecutionDetailParams,
-    description=(
-        "Get detailed information about a single flow execution including "
-        "plan data, runtime, error details, and source record context."
-    ),
-    serialization="json",
-    return_type=dict,
-)
-def get_flow_execution_detail(
+def _fetch_flow_triggers(
     config: ServerConfig,
     auth_manager: AuthManager,
-    params: GetFlowExecutionDetailParams,
-) -> Dict[str, Any]:
-    """Get detailed info for a single flow execution."""
-    context_id = params.context_id
+    flow_id: str,
+) -> List[Dict[str, Any]]:
+    """Get triggers for a flow (internal helper). Returns list of trigger records."""
+    snapshot_id = _get_snapshot_id(config, auth_manager, flow_id)
 
-    try:
-        records, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=FLOW_CONTEXT_TABLE,
-            query=f"sys_id={context_id}",
-            fields="",
-            limit=1,
-            offset=0,
-            display_value=True,
-            fail_silently=False,
-        )
-        context = records[0] if records else {}
+    query_parts = [f"flow={flow_id}"]
+    if snapshot_id:
+        query_parts.append(f"flow={snapshot_id}")
+    query_string = "^OR".join(query_parts)
 
-        return {
-            "success": True,
-            "execution": context,
-        }
-    except Exception as e:
-        logger.error(f"Error getting flow execution detail: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@register_tool(
-    name="get_flow_designer_triggers",
-    params=GetFlowTriggersParams,
-    description=(
-        "Get trigger configuration for a Flow Designer flow. "
-        "Shows what events/conditions start the flow (record created, updated, scheduled, etc.)."
-    ),
-    serialization="json",
-    return_type=dict,
-)
-def get_flow_triggers(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetFlowTriggersParams,
-) -> Dict[str, Any]:
-    """Get triggers for a flow."""
-    flow_id = params.flow_id
-
-    try:
-        # Try both flow and snapshot
-        snapshot_id = _get_snapshot_id(config, auth_manager, flow_id)
-
-        query_parts = [f"flow={flow_id}"]
-        if snapshot_id:
-            query_parts.append(f"flow={snapshot_id}")
-        query_string = "^OR".join(query_parts)
-
-        triggers, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=TRIGGER_TABLE,
-            query=query_string,
-            fields="",
-            limit=20,
-            offset=0,
-            display_value=True,
-        )
-
-        return {
-            "success": True,
-            "triggers": triggers,
-            "count": len(triggers),
-        }
-    except Exception as e:
-        logger.error(f"Error getting flow triggers: {e}")
-        return {"success": False, "error": str(e)}
+    triggers, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=TRIGGER_TABLE,
+        query=query_string,
+        fields="",
+        limit=20,
+        offset=0,
+        display_value=True,
+    )
+    return triggers

@@ -22,34 +22,46 @@ class CreateIncidentParams(BaseModel):
     """Parameters for creating an incident."""
 
     short_description: str = Field(..., description="Short description of the incident")
-    description: Optional[str] = Field(None, description="Detailed description of the incident")
-    caller_id: Optional[str] = Field(None, description="User who reported the incident")
-    category: Optional[str] = Field(None, description="Category of the incident")
-    subcategory: Optional[str] = Field(None, description="Subcategory of the incident")
-    priority: Optional[str] = Field(None, description="Priority of the incident")
-    impact: Optional[str] = Field(None, description="Impact of the incident")
-    urgency: Optional[str] = Field(None, description="Urgency of the incident")
-    assigned_to: Optional[str] = Field(None, description="User assigned to the incident")
-    assignment_group: Optional[str] = Field(None, description="Group assigned to the incident")
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the incident"
+    )
+    caller_id: Optional[str] = Field(default=None, description="User who reported the incident")
+    category: Optional[str] = Field(default=None, description="Category of the incident")
+    subcategory: Optional[str] = Field(default=None, description="Subcategory of the incident")
+    priority: Optional[str] = Field(default=None, description="Priority of the incident")
+    impact: Optional[str] = Field(default=None, description="Impact of the incident")
+    urgency: Optional[str] = Field(default=None, description="Urgency of the incident")
+    assigned_to: Optional[str] = Field(default=None, description="User assigned to the incident")
+    assignment_group: Optional[str] = Field(
+        default=None, description="Group assigned to the incident"
+    )
 
 
 class UpdateIncidentParams(BaseModel):
     """Parameters for updating an incident."""
 
     incident_id: str = Field(..., description="Incident ID or sys_id")
-    short_description: Optional[str] = Field(None, description="Short description of the incident")
-    description: Optional[str] = Field(None, description="Detailed description of the incident")
-    state: Optional[str] = Field(None, description="State of the incident")
-    category: Optional[str] = Field(None, description="Category of the incident")
-    subcategory: Optional[str] = Field(None, description="Subcategory of the incident")
-    priority: Optional[str] = Field(None, description="Priority of the incident")
-    impact: Optional[str] = Field(None, description="Impact of the incident")
-    urgency: Optional[str] = Field(None, description="Urgency of the incident")
-    assigned_to: Optional[str] = Field(None, description="User assigned to the incident")
-    assignment_group: Optional[str] = Field(None, description="Group assigned to the incident")
-    work_notes: Optional[str] = Field(None, description="Work notes to add to the incident")
-    close_notes: Optional[str] = Field(None, description="Close notes to add to the incident")
-    close_code: Optional[str] = Field(None, description="Close code for the incident")
+    short_description: Optional[str] = Field(
+        default=None, description="Short description of the incident"
+    )
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the incident"
+    )
+    state: Optional[str] = Field(default=None, description="State of the incident")
+    category: Optional[str] = Field(default=None, description="Category of the incident")
+    subcategory: Optional[str] = Field(default=None, description="Subcategory of the incident")
+    priority: Optional[str] = Field(default=None, description="Priority of the incident")
+    impact: Optional[str] = Field(default=None, description="Impact of the incident")
+    urgency: Optional[str] = Field(default=None, description="Urgency of the incident")
+    assigned_to: Optional[str] = Field(default=None, description="User assigned to the incident")
+    assignment_group: Optional[str] = Field(
+        default=None, description="Group assigned to the incident"
+    )
+    work_notes: Optional[str] = Field(default=None, description="Work notes to add to the incident")
+    close_notes: Optional[str] = Field(
+        default=None, description="Close notes to add to the incident"
+    )
+    close_code: Optional[str] = Field(default=None, description="Close code for the incident")
 
 
 class AddCommentParams(BaseModel):
@@ -57,7 +69,7 @@ class AddCommentParams(BaseModel):
 
     incident_id: str = Field(..., description="Incident ID or sys_id")
     comment: str = Field(..., description="Comment to add to the incident")
-    is_work_note: bool = Field(False, description="Whether the comment is a work note")
+    is_work_note: bool = Field(default=False, description="Whether the comment is a work note")
 
 
 class ResolveIncidentParams(BaseModel):
@@ -68,25 +80,25 @@ class ResolveIncidentParams(BaseModel):
     resolution_notes: str = Field(..., description="Resolution notes for the incident")
 
 
-class ListIncidentsParams(BaseModel):
-    """Parameters for listing incidents."""
-
-    limit: int = Field(10, description="Maximum number of incidents to return")
-    offset: int = Field(0, description="Offset for pagination")
-    state: Optional[str] = Field(None, description="Filter by incident state")
-    assigned_to: Optional[str] = Field(None, description="Filter by assigned user")
-    category: Optional[str] = Field(None, description="Filter by category")
-    query: Optional[str] = Field(None, description="Search query for incidents")
-    count_only: bool = Field(
-        False,
-        description="Return count only without fetching records. Uses lightweight Aggregate API.",
-    )
-
-
 class GetIncidentByNumberParams(BaseModel):
-    """Parameters for fetching an incident by its number."""
+    """Parameters for fetching an incident by number, or listing incidents with filters."""
 
-    incident_number: str = Field(..., description="The number of the incident to fetch")
+    incident_number: Optional[str] = Field(
+        default=None,
+        description="The number of the incident to fetch. If provided, returns full details for that single incident.",
+    )
+    limit: int = Field(default=10, description="Maximum number of incidents to return (list mode)")
+    offset: int = Field(default=0, description="Offset for pagination (list mode)")
+    state: Optional[str] = Field(default=None, description="Filter by incident state (list mode)")
+    assigned_to: Optional[str] = Field(
+        default=None, description="Filter by assigned user (list mode)"
+    )
+    category: Optional[str] = Field(default=None, description="Filter by category (list mode)")
+    query: Optional[str] = Field(default=None, description="Search query for incidents (list mode)")
+    count_only: bool = Field(
+        default=False,
+        description="Return count only without fetching records. Uses lightweight Aggregate API. (list mode)",
+    )
 
 
 class IncidentResponse(BaseModel):
@@ -94,8 +106,10 @@ class IncidentResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    incident_id: Optional[str] = Field(None, description="ID of the affected incident")
-    incident_number: Optional[str] = Field(None, description="Number of the affected incident")
+    incident_id: Optional[str] = Field(default=None, description="ID of the affected incident")
+    incident_number: Optional[str] = Field(
+        default=None, description="Number of the affected incident"
+    )
 
 
 def _resolve_incident_sys_id(
@@ -390,29 +404,83 @@ def resolve_incident(
 
 
 @register_tool(
-    "list_incidents",
-    params=ListIncidentsParams,
-    description="List incidents with state/category/assignee filters. Returns summary fields only — use get_incident_by_number for full details.",
-    serialization="json",
+    "get_incident_by_number",
+    params=GetIncidentByNumberParams,
+    description="Get a single incident by number, or list incidents with filters. Provide incident_number for detail.",
+    serialization="json_dict",
     return_type=str,
 )
-def list_incidents(
+def get_incident_by_number(
     config: ServerConfig,
     auth_manager: AuthManager,
-    params: ListIncidentsParams,
+    params: GetIncidentByNumberParams,
 ) -> dict:
     """
-    List incidents from ServiceNow.
+    Fetch a single incident by number (detail mode) or list incidents with
+    filters (list mode).
 
     Args:
         config: Server configuration.
         auth_manager: Authentication manager.
-        params: Parameters for listing incidents.
+        params: Parameters — supply incident_number for detail, omit for list.
 
     Returns:
-        Dictionary with list of incidents.
+        Dictionary with the incident details or a list of incidents.
     """
-    # Build filters
+    # ── Detail mode: single incident lookup ──────────────────────────
+    if params.incident_number:
+        try:
+            records, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="incident",
+                query=f"number={params.incident_number}",
+                fields="",
+                limit=1,
+                offset=0,
+                display_value=True,
+                fail_silently=False,
+            )
+
+            if not records:
+                return {
+                    "success": False,
+                    "message": f"Incident not found: {params.incident_number}",
+                }
+
+            incident_data = records[0]
+            assigned_to = incident_data.get("assigned_to")
+            if isinstance(assigned_to, dict):
+                assigned_to = assigned_to.get("display_value")
+
+            incident = {
+                "sys_id": incident_data.get("sys_id"),
+                "number": incident_data.get("number"),
+                "short_description": incident_data.get("short_description"),
+                "description": incident_data.get("description"),
+                "state": incident_data.get("state"),
+                "priority": incident_data.get("priority"),
+                "assigned_to": assigned_to,
+                "category": incident_data.get("category"),
+                "subcategory": incident_data.get("subcategory"),
+                "created_on": incident_data.get("sys_created_on"),
+                "updated_on": incident_data.get("sys_updated_on"),
+            }
+
+            return {
+                "success": True,
+                "message": f"Incident {params.incident_number} found",
+                "incident": incident,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to fetch incident: {e}")
+            return {
+                "success": False,
+                "message": f"Failed to fetch incident: {str(e)}",
+            }
+
+    # ── List mode: filtered incident list ────────────────────────────
     filters = []
     if params.state:
         filters.append(f"state={params.state}")
@@ -473,78 +541,3 @@ def list_incidents(
     except Exception as e:
         logger.error(f"Failed to list incidents: {e}")
         return {"success": False, "message": f"Failed to list incidents: {str(e)}", "incidents": []}
-
-
-@register_tool(
-    "get_incident_by_number",
-    params=GetIncidentByNumberParams,
-    description="Fetch a single incident by INC number with full field details including timestamps and assignment info.",
-    serialization="json_dict",
-    return_type=str,
-)
-def get_incident_by_number(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetIncidentByNumberParams,
-) -> dict:
-    """
-    Fetch a single incident from ServiceNow by its number.
-
-    Args:
-        config: Server configuration.
-        auth_manager: Authentication manager.
-        params: Parameters for fetching the incident.
-
-    Returns:
-        Dictionary with the incident details.
-    """
-    try:
-        records, _ = sn_query_page(
-            config,
-            auth_manager,
-            table="incident",
-            query=f"number={params.incident_number}",
-            fields="",
-            limit=1,
-            offset=0,
-            display_value=True,
-            fail_silently=False,
-        )
-
-        if not records:
-            return {
-                "success": False,
-                "message": f"Incident not found: {params.incident_number}",
-            }
-
-        incident_data = records[0]
-        assigned_to = incident_data.get("assigned_to")
-        if isinstance(assigned_to, dict):
-            assigned_to = assigned_to.get("display_value")
-
-        incident = {
-            "sys_id": incident_data.get("sys_id"),
-            "number": incident_data.get("number"),
-            "short_description": incident_data.get("short_description"),
-            "description": incident_data.get("description"),
-            "state": incident_data.get("state"),
-            "priority": incident_data.get("priority"),
-            "assigned_to": assigned_to,
-            "category": incident_data.get("category"),
-            "subcategory": incident_data.get("subcategory"),
-            "created_on": incident_data.get("sys_created_on"),
-            "updated_on": incident_data.get("sys_updated_on"),
-        }
-
-        return {
-            "success": True,
-            "message": f"Incident {params.incident_number} found",
-            "incident": incident,
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to fetch incident: {e}")
-        return {
-            "success": False,
-            "message": f"Failed to fetch incident: {str(e)}",
-        }

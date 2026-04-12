@@ -1,20 +1,21 @@
-# ServiceNow MCP Server
+# MFA ServiceNow MCP
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-**MFA-first** ServiceNow MCP server. Built for enterprises where MFA/SSO is mandatory — authenticates via real browser (Playwright) so Okta, Entra ID, SAML, and any interactive login just works. Also supports API Key for headless/Docker environments. Designed for Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, and OpenAI Codex.
+MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so Okta, Entra ID, SAML, and any MFA/SSO login just works. Also supports API Key for headless/Docker environments.
 
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![CI](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-mfa--servicenow--mcp-blue?logo=docker)](https://ghcr.io/jshsakura/mfa-servicenow-mcp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ```bash
-# Install and run (one-liner)
+# One command — MFA/SSO browser login, works on macOS/Linux/Windows
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
+  --auth-type "browser" \
+  --browser-headless "false"
 ```
 
 ---
@@ -28,8 +29,9 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 - [Authentication](#authentication)
 - [Tool Packages](#tool-packages)
 - [CLI Reference](#cli-reference)
-- [Keeping Up to Date (PyPI)](#keeping-up-to-date-pypi)
+- [Keeping Up to Date](#keeping-up-to-date)
 - [Safety Policy](#safety-policy)
+- [Skills](#skills)
 - [Docker](#docker)
 - [Developer Setup](#developer-setup)
 - [Documentation](#documentation)
@@ -42,7 +44,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **86 tools** across 5 role-based packages — from read-only to full CRUD
+- **89 tools** across 5 role-based packages — from read-only to full CRUD
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
@@ -71,11 +73,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ## Prerequisites
 
-Before registering the server, ensure your environment is ready.
-
-### 1. Install `uv` (Required)
-
-This project is optimized for [uv](https://astral.sh/uv), the fast Python package manager.
+Install [uv](https://astral.sh/uv) — it handles Python, packages, and execution in one tool.
 
 - **macOS / Linux:**
   ```bash
@@ -86,39 +84,16 @@ This project is optimized for [uv](https://astral.sh/uv), the fast Python packag
   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
   ```
 
-After installation, restart your terminal and verify:
+Restart your terminal after installation. That's it — no Python install, no pip, no venv needed.
 
-```bash
-uv --version
-```
-
-### 2. Install Browser Binary (Required for `browser` auth)
-
-If you plan to use `auth-type: browser` (MFA/SSO), you must install the Chromium browser binary:
-
-```bash
-uvx playwright install chromium
-```
-
-> This only needs to be done once. The binary is shared across all uvx runs.
-
-### 3. Windows Specifics
-
-If you are on Windows, ensure your PowerShell execution policy allows script execution:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-For a step-by-step Windows setup guide, see [docs/WINDOWS_INSTALL.md](./docs/WINDOWS_INSTALL.md).
+> Chromium for MFA/SSO browser login is installed automatically on first use.
+> Windows users: see [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for details.
 
 ---
 
 ## Quick Start
 
-Most users do **not** need to clone this repository. If you have `uv`, you can register the server directly in your MCP client.
-
-### Run from terminal (one-liner)
+No clone needed. One command — works on macOS, Linux, and Windows:
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
@@ -127,181 +102,27 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --browser-headless "false"
 ```
 
-### Install as a persistent local command
-
-```bash
-uv tool install mfa-servicenow-mcp
-servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
-```
+A browser window opens on the first tool call for Okta/Entra ID/SAML/MFA login. Chromium is auto-installed if missing. Session persists after login — no need to re-authenticate every time.
 
 ---
 
 ## MCP Client Configuration
 
-### Claude Desktop
+Each project can connect to a different ServiceNow instance. Set the config in your **project directory** so each project has its own instance URL and credentials.
 
-Add to `claude_desktop_config.json`:
+| Client | Config File | Format |
+|--------|------------|--------|
+| Claude Desktop | `claude_desktop_config.json` | JSON (`mcpServers`) |
+| Claude Code | `.mcp.json` or `claude mcp add` | JSON / CLI |
+| OpenCode | `opencode.json` | JSON (`mcp`, uses `environment`) |
+| OpenAI Codex | `.codex/agents.toml` | TOML |
+| AntiGravity | `mcp_config.json` | JSON (`mcpServers`) |
+| Gemini / Vertex AI | project config | JSON (`mcp`) |
+| Docker | — | Environment variables |
 
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ],
-      "env": {
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
+Copy-paste configs for each client: **[Client Setup Guide](docs/CLIENT_SETUP.md)**
 
-### Claude Code
-
-```bash
-claude mcp add servicenow -- \
-  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
-```
-
-Or add to `.mcp.json` in your project root:
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ],
-      "env": {
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-### OpenCode / Gemini / Vertex AI
-
-#### Run with `uvx`
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
-    }
-  }
-}
-```
-
-#### Run from a checked-out source tree
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uv", "run", "--project", "/absolute/path/to/mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
-    }
-  }
-}
-```
-
-> `SERVICENOW_BROWSER_USERNAME` and `SERVICENOW_BROWSER_PASSWORD` are optional but help prefill the browser login form in MFA/SSO flows.
-
-### AntiGravity
-
-AntiGravity Editor uses a Claude Desktop-style `mcpServers` config. Edit via the agent panel: **three dots (...)** -> **Manage MCP Servers** -> **View raw config**.
-
-- **macOS / Linux:** `~/.gemini/antigravity/mcp_config.json`
-- **Windows:** `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-> After saving, click **Refresh** in the AntiGravity MCP management view.
-
-### OpenAI Codex
-
-Add to `codex.json` or pass via CLI:
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false",
-        "--tool-package", "standard"
-      ]
-    }
-  }
-}
-```
+> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional — they prefill the MFA login form. On Windows, set these as system environment variables.
 
 ---
 
@@ -309,23 +130,14 @@ Add to `codex.json` or pass via CLI:
 
 Choose the auth mode based on your ServiceNow environment.
 
-### Browser Auth (MFA/SSO)
+### Browser Auth (MFA/SSO) — Default
 
-Use this for Okta, Entra ID, SAML, MFA, or any interactive SSO flow.
-
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
-```
-
-Optional browser-related flags:
+The [Quick Start](#quick-start) command uses browser auth. Optional flags:
 
 | Flag | Env Variable | Default | Description |
 |------|-------------|---------|-------------|
-| `--browser-username` | `SERVICENOW_BROWSER_USERNAME` | — | Prefill login form username |
-| `--browser-password` | `SERVICENOW_BROWSER_PASSWORD` | — | Prefill login form password |
+| `--browser-username` | `SERVICENOW_USERNAME` | — | Prefill login form username |
+| `--browser-password` | `SERVICENOW_PASSWORD` | — | Prefill login form password |
 | `--browser-headless` | `SERVICENOW_BROWSER_HEADLESS` | `false` | Run browser without GUI |
 | `--browser-timeout` | `SERVICENOW_BROWSER_TIMEOUT` | `120` | Login timeout in seconds |
 | `--browser-session-ttl` | `SERVICENOW_BROWSER_SESSION_TTL` | `30` | Session TTL in minutes |
@@ -382,11 +194,11 @@ All packages except `none` include the full set of read-only tools (55 tools). H
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `standard` | 48 | **(Default)** Read-only safe mode. All query/analysis tools across every domain. |
-| `service_desk` | 52 | standard + incident create/update/resolve/comment |
-| `portal_developer` | 58 | standard + portal/widget updates, script include writes, changeset commit/publish |
-| `platform_developer` | 71 | standard + workflow CRUD, UI policy, incident/change management writes |
-| `full` | 86 | All write operations across every domain |
+| `standard` | 45 | **(Default)** Read-only safe mode. All query/analysis tools across every domain. |
+| `service_desk` | 49 | standard + incident create/update/resolve/comment |
+| `portal_developer` | 61 | standard + portal/widget updates, script include writes, changeset commit/publish |
+| `platform_developer` | 69 | standard + workflow CRUD, UI policy, incident/change management writes |
+| `full` | 89 | All write operations across every domain |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
@@ -438,28 +250,14 @@ For the complete tool list by category, see [Tool Inventory](docs/TOOL_INVENTORY
 
 ---
 
-## Keeping Up to Date (PyPI)
+## Keeping Up to Date
 
-This project is published to [PyPI](https://pypi.org/project/mfa-servicenow-mcp/) and follows semantic versioning. New releases are automatically published via GitHub Actions when a version tag (`v*`) is pushed.
+`uvx` automatically uses the latest cached version. In most cases, updates happen without any action.
 
-### How `uvx` handles versions
-
-`uvx` **caches** the installed package. It does **not** automatically pull the latest version on every run. To ensure you're on the latest:
+To force the latest PyPI release immediately:
 
 ```bash
-# Check current version
-uvx --from mfa-servicenow-mcp servicenow-mcp --version
-
-# Force refresh to latest PyPI release
 uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
-```
-
-### `uv tool` upgrade
-
-If you installed via `uv tool install`:
-
-```bash
-uv tool upgrade mfa-servicenow-mcp
 ```
 
 ### pip upgrade
@@ -552,40 +350,83 @@ The server includes several layers of performance optimization to minimize laten
 - **No-count optimization**: Subsequent pagination pages use `sysparm_no_count=true` to skip server-side total count computation.
 - **Payload safety**: Heavy tables (`sp_widget`, `sys_script`, etc.) have automatic field clamping and limit restrictions to prevent context window overflow.
 
+## Skills
+
+Skills are LLM execution blueprints that turn raw MCP tools into verified pipelines with safety gates, sub-agent delegation, and context optimization.
+
+| | Tools Only | Skills + Tools |
+|---|---|---|
+| Safety | LLM decides | Gates enforced (snapshot → preview → apply) |
+| Tokens | Source dumps in context | Delegate to sub-agent, summary only |
+| Accuracy | LLM guesses tool order | Verified pipeline |
+| Rollback | Might forget | Snapshot mandatory |
+
+### Install Skills
+
+```bash
+# Claude Code
+servicenow-mcp-skills claude
+
+# OpenAI Codex
+servicenow-mcp-skills codex
+
+# OpenCode
+servicenow-mcp-skills opencode
+
+# Or with uvx (no install needed)
+uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
+```
+
+The installer downloads 20 skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
+
+| Client | Install Path | Auto-Discovery |
+|--------|-------------|----------------|
+| Claude Code | `.claude/commands/servicenow/` | `/servicenow` slash commands appear on next startup |
+| OpenAI Codex | `.codex/skills/servicenow/` | Skills loaded on next agent session |
+| OpenCode | `.opencode/skills/servicenow/` | Skills loaded on next session |
+
+**How it works:** Each skill is a standalone Markdown file with YAML frontmatter (metadata) and pipeline instructions. The LLM client reads these files from the install path and exposes them as callable commands or skill triggers.
+
+**Update:** Re-run the same install command — it replaces all existing skill files (clean install, no merge).
+
+**Remove:** Delete the install directory (e.g., `rm -rf .claude/commands/servicenow/`).
+
+### Skill Categories
+
+| Category | Skills | Purpose |
+|----------|--------|---------|
+| `analyze/` | 6 | Widget analysis, portal diagnosis, provider audit, dependency mapping, code detection, ESC audit |
+| `fix/` | 3 | Widget patching (staged gates), debugging, code review |
+| `manage/` | 5 | Page layout, script includes, source export, changeset workflow, local sync |
+| `deploy/` | 2 | Change request lifecycle, incident triage |
+| `explore/` | 4 | Health check, schema discovery, route tracing, ESC catalog flow |
+
+### Skill Metadata
+
+Each skill includes metadata that helps LLMs optimize execution:
+
+```yaml
+context_cost: low|medium|high    # → high = delegate to sub-agent
+safety_level: none|confirm|staged # → staged = mandatory snapshot/preview/apply
+delegatable: true|false           # → can run in sub-agent to save context
+triggers: ["위젯 분석", "analyze widget"]  # → LLM trigger matching
+```
+
+For the full skill reference, see [skills/SKILL.md](skills/SKILL.md).
+
 ## Docker
 
-Docker images are published to `ghcr.io/jshsakura/mfa-servicenow-mcp` on every main branch push.
-
-> **Note:** Browser auth (MFA/SSO) requires a GUI browser and does not work inside containers. ServiceNow instances with MFA enabled should use `api_key` auth for Docker deployments.
-
-### Quick Run (API Key)
+API Key auth only (MFA browser auth requires GUI, not available in containers).
 
 ```bash
 docker run -it --rm \
   -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
   -e SERVICENOW_AUTH_TYPE=api_key \
   -e SERVICENOW_API_KEY=your-api-key \
-  -e MCP_TOOL_PACKAGE=standard \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
 
-### SSE Mode (HTTP Server)
-
-```bash
-docker run -p 8080:8080 \
-  -e MCP_MODE=sse \
-  -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-  -e SERVICENOW_AUTH_TYPE=api_key \
-  -e SERVICENOW_API_KEY=your-api-key \
-  -e MCP_TOOL_PACKAGE=standard \
-  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
-```
-
-### Build Locally
-
-```bash
-docker build --target runtime -t servicenow-mcp .
-```
+See [Client Setup Guide](docs/CLIENT_SETUP.md#docker-api-key-only) for SSE mode and local build options.
 
 ## Developer Setup
 
@@ -627,7 +468,8 @@ uv build
 
 ## Documentation
 
-- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 98 tools by category and package
+- [Client Setup Guide](docs/CLIENT_SETUP.md) — Copy-paste configs for every MCP client
+- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 89 tools by category and package
 - [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
 - [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization
 - [Change Management](docs/change_management.md) — Change request lifecycle and approval
@@ -646,4 +488,4 @@ uv build
 
 ## License
 
-MIT License
+Apache License 2.0

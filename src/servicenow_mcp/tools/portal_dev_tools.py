@@ -166,42 +166,42 @@ def _compact_record(row: Dict[str, Any]) -> Dict[str, Any]:
 
 class GetDeveloperChangesParams(BaseModel):
     developer: str = Field(
-        ...,
+        default=...,
         description="Developer username (sys_updated_by value). Example: admin@example.com",
     )
     scope: Optional[str] = Field(
-        None,
+        default=None,
         description="Optional app scope filter (sys_scope). Example: x_company_bpm",
     )
     source_types: List[str] = Field(
-        ["widget", "angular_provider", "script_include"],
+        default=["widget", "angular_provider", "script_include"],
         description=(
             "Source types to scan. Allowed: widget, angular_provider, "
             "script_include, ui_script, business_rule"
         ),
     )
     updated_after: Optional[str] = Field(
-        None,
+        default=None,
         description="Lower bound for sys_updated_on (YYYY-MM-DD or datetime). Example: 2026-03-01",
     )
     updated_before: Optional[str] = Field(
-        None,
+        default=None,
         description="Upper bound for sys_updated_on (YYYY-MM-DD or datetime)",
     )
     filter_by: str = Field(
-        "updated_by",
+        default="updated_by",
         description="Filter mode: updated_by (default) or created_by",
     )
     limit_per_table: int = Field(
-        20,
+        default=20,
         description=f"Max records per source type (max {MAX_DEVELOPER_CHANGES_PER_TABLE}). Default 20.",
     )
     count_only: bool = Field(
-        False,
+        default=False,
         description="When true, returns counts per table without fetching records (fast preview).",
     )
     orderby: str = Field(
-        "-sys_updated_on",
+        default="-sys_updated_on",
         description="Order by field. Default: -sys_updated_on (newest first)",
     )
 
@@ -324,27 +324,27 @@ def get_developer_changes(
 
 class GetUncommittedChangesParams(BaseModel):
     developer: Optional[str] = Field(
-        None,
+        default=None,
         description="Developer username (sys_updated_by on update set). Example: admin@example.com",
     )
     scope: Optional[str] = Field(
-        None,
+        default=None,
         description="Optional app scope filter (application). Example: x_company_bpm",
     )
     update_set_name: Optional[str] = Field(
-        None,
+        default=None,
         description="Optional update set name filter (LIKE match)",
     )
     source_types: List[str] = Field(
-        ["widget", "angular_provider", "script_include"],
+        default=["widget", "angular_provider", "script_include"],
         description="Filter update XML entries by these table types only",
     )
     limit: int = Field(
-        50,
+        default=50,
         description=f"Max update XML entries to return (max {MAX_UNCOMMITTED_RECORDS}). Default 50.",
     )
     count_only: bool = Field(
-        False,
+        default=False,
         description="When true, returns update set counts and entry count estimate without fetching details.",
     )
 
@@ -517,23 +517,23 @@ def get_uncommitted_changes(
 
 class GetProviderDependencyMapParams(BaseModel):
     widget_ids: Optional[List[str]] = Field(
-        None,
+        default=None,
         description="Widget sys_id, id, or name values to map. Strongly recommended for targeted queries.",
     )
     scope: Optional[str] = Field(
-        None,
+        default=None,
         description="App scope filter (sys_scope). Example: x_company_bpm",
     )
     developer: Optional[str] = Field(
-        None,
+        default=None,
         description="Developer filter (sys_updated_by). Example: admin@example.com",
     )
     include_script_include_refs: bool = Field(
-        True,
+        default=True,
         description="Extract Script Include references (new ClassName()) from provider/widget server scripts",
     )
     max_widgets: int = Field(
-        10,
+        default=10,
         description=f"Max widgets to process (max {MAX_DEPENDENCY_WIDGETS}). Default 10.",
     )
 
@@ -898,27 +898,27 @@ def _extract_script_profile(content: str) -> Dict[str, Any]:
 
 class GetDeveloperDailySummaryParams(BaseModel):
     developer: str = Field(
-        ...,
+        default=...,
         description="Developer username (sys_updated_by). Example: admin@example.com",
     )
     date: str = Field(
-        ...,
+        default=...,
         description="Target date (YYYY-MM-DD). Example: 2026-03-31",
     )
     scope: Optional[str] = Field(
-        None,
+        default=None,
         description="Optional app scope filter (sys_scope). Example: x_company_bpm",
     )
     source_types: List[str] = Field(
-        ["widget", "angular_provider", "script_include"],
+        default=["widget", "angular_provider", "script_include"],
         description="Portal source types to include in summary",
     )
     include_update_sets: bool = Field(
-        True,
+        default=True,
         description="Include list of update sets touched on that date",
     )
     include_details: bool = Field(
-        True,
+        default=True,
         description=(
             "When true, fetch source fields to extract line counts, function names, "
             "and field presence. Script bodies are parsed then discarded (not returned). "
@@ -926,7 +926,7 @@ class GetDeveloperDailySummaryParams(BaseModel):
         ),
     )
     output_format: str = Field(
-        "jira",
+        default="jira",
         description="Output format: jira (markdown table), plain (flat list), structured (JSON)",
     )
 

@@ -31,51 +31,53 @@ BACKGROUND_LOG_FIELDS = (
 
 class BaseLogQueryParams(BaseModel):
     limit: int = Field(
-        DEFAULT_LOG_LIMIT,
+        default=DEFAULT_LOG_LIMIT,
         description=f"Maximum number of records to return. Clamped to {MAX_LOG_LIMIT}.",
     )
-    offset: int = Field(0, description="Pagination offset")
+    offset: int = Field(default=0, description="Pagination offset")
     timeframe: str = Field(
-        "last_24h",
+        default="last_24h",
         description="Relative time filter: last_hour, last_24h, last_7d, all",
     )
     contains: Optional[str] = Field(
-        None, description="Text filter applied to the main message/value field"
+        default=None, description="Text filter applied to the main message/value field"
     )
     query: Optional[str] = Field(
-        None, description="Additional encoded query. Safety limits still apply."
+        default=None, description="Additional encoded query. Safety limits still apply."
     )
     max_text_length: int = Field(
-        DEFAULT_TEXT_PREVIEW,
+        default=DEFAULT_TEXT_PREVIEW,
         description=f"Maximum length for large text fields. Clamped to {MAX_TEXT_PREVIEW}.",
     )
 
 
 class GetSystemLogsParams(BaseLogQueryParams):
-    level: Optional[str] = Field(None, description="Filter by log level")
-    source: Optional[str] = Field(None, description="Filter by source (LIKE match)")
+    level: Optional[str] = Field(default=None, description="Filter by log level")
+    source: Optional[str] = Field(default=None, description="Filter by source (LIKE match)")
 
 
 class GetJournalEntriesParams(BaseLogQueryParams):
-    table: Optional[str] = Field(None, description="Filter by target table name")
-    record_sys_id: Optional[str] = Field(None, description="Filter by target record sys_id")
-    field_name: Optional[str] = Field(None, description="Filter by journal field name")
-    created_by: Optional[str] = Field(None, description="Filter by creator")
+    table: Optional[str] = Field(default=None, description="Filter by target table name")
+    record_sys_id: Optional[str] = Field(default=None, description="Filter by target record sys_id")
+    field_name: Optional[str] = Field(default=None, description="Filter by journal field name")
+    created_by: Optional[str] = Field(default=None, description="Filter by creator")
 
 
 class GetTransactionLogsParams(BaseLogQueryParams):
-    url_contains: Optional[str] = Field(None, description="Filter by request URL (LIKE match)")
-    response_status: Optional[str] = Field(None, description="Filter by response status")
-    min_response_time_ms: Optional[int] = Field(
-        None, description="Only include requests slower than this threshold"
+    url_contains: Optional[str] = Field(
+        default=None, description="Filter by request URL (LIKE match)"
     )
-    created_by: Optional[str] = Field(None, description="Filter by creator")
+    response_status: Optional[str] = Field(default=None, description="Filter by response status")
+    min_response_time_ms: Optional[int] = Field(
+        default=None, description="Only include requests slower than this threshold"
+    )
+    created_by: Optional[str] = Field(default=None, description="Filter by creator")
 
 
 class GetBackgroundScriptLogsParams(BaseLogQueryParams):
-    name: Optional[str] = Field(None, description="Filter by execution name (LIKE match)")
-    state: Optional[str] = Field(None, description="Filter by execution state")
-    source: Optional[str] = Field(None, description="Filter by execution source")
+    name: Optional[str] = Field(default=None, description="Filter by execution name (LIKE match)")
+    state: Optional[str] = Field(default=None, description="Filter by execution state")
+    source: Optional[str] = Field(default=None, description="Filter by execution source")
 
 
 def _clamp_limit(limit: int) -> int:
