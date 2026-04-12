@@ -64,7 +64,9 @@ class GetJournalEntriesParams(BaseLogQueryParams):
 
 
 class GetTransactionLogsParams(BaseLogQueryParams):
-    url_contains: Optional[str] = Field(default=None, description="Filter by request URL (LIKE match)")
+    url_contains: Optional[str] = Field(
+        default=None, description="Filter by request URL (LIKE match)"
+    )
     response_status: Optional[str] = Field(default=None, description="Filter by response status")
     min_response_time_ms: Optional[int] = Field(
         default=None, description="Only include requests slower than this threshold"

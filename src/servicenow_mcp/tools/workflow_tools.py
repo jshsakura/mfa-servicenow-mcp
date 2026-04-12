@@ -96,7 +96,7 @@ class AddWorkflowActivityParams(BaseModel):
     name: str = Field(..., description="Name of the activity")
     description: Optional[str] = Field(default=None, description="Description of the activity")
     activity_type: str = Field(
-       default= ..., description="Type of activity (e.g., 'approval', 'task', 'notification')"
+        default=..., description="Type of activity (e.g., 'approval', 'task', 'notification')"
     )
     attributes: Optional[Dict[str, Any]] = Field(
         default=None, description="Additional attributes for the activity"

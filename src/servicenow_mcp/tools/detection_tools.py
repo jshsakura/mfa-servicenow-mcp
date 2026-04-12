@@ -352,7 +352,7 @@ class DetectMissingCodesParams(BaseModel):
         description="Explicit widget sys_id/id/name list. Overrides widget_prefix when provided.",
     )
     required_codes: List[str] = Field(
-       default= ...,
+        default=...,
         description='Code values that MUST all appear together in branch logic. Example: ["2400", "5K00", "2J00"]',
     )
     target_field_patterns: List[str] = Field(

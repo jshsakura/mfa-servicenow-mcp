@@ -48,11 +48,13 @@ class GetPortalComponentParams(BaseModel):
     """Parameters for fetching specific portal component code."""
 
     table: str = Field(
-       default= ..., description="The table name (sp_widget, sp_angular_provider, sys_script_include)"
+        default=...,
+        description="The table name (sp_widget, sp_angular_provider, sys_script_include)",
     )
     sys_id: str = Field(..., description="The sys_id of the component")
     fields: List[str] = Field(
-        default=["template", "script", "client_script", "css"], description="Specific code fields to fetch"
+        default=["template", "script", "client_script", "css"],
+        description="Specific code fields to fetch",
     )
     script_offset: int = Field(
         default=0,
@@ -68,11 +70,12 @@ class UpdatePortalComponentParams(BaseModel):
     """Parameters for updating portal component code."""
 
     table: str = Field(
-       default= ..., description="The table name (sp_widget, sp_angular_provider, sys_script_include)"
+        default=...,
+        description="The table name (sp_widget, sp_angular_provider, sys_script_include)",
     )
     sys_id: str = Field(..., description="The sys_id of the component")
     update_data: Dict[str, str] = Field(
-       default= ..., description="Field-value pairs to update (e.g. {'client_script': '...'})"
+        default=..., description="Field-value pairs to update (e.g. {'client_script': '...'})"
     )
 
 
@@ -88,7 +91,8 @@ class CreatePortalComponentSnapshotParams(BaseModel):
     """Parameters for exporting the current editable state of a portal component."""
 
     table: str = Field(
-       default= ..., description="The table name (sp_widget, sp_angular_provider, sys_script_include)"
+        default=...,
+        description="The table name (sp_widget, sp_angular_provider, sys_script_include)",
     )
     sys_id: str = Field(..., description="The sys_id of the component")
     fields: List[str] | None = Field(
@@ -105,7 +109,7 @@ class UpdatePortalComponentFromSnapshotParams(BaseModel):
     """Parameters for restoring a portal component from a saved local snapshot."""
 
     snapshot_path: str = Field(
-       default= ..., description="Path to a saved portal component snapshot JSON file"
+        default=..., description="Path to a saved portal component snapshot JSON file"
     )
 
 
@@ -119,7 +123,8 @@ class RoutePortalComponentEditParams(BaseModel):
     )
     sys_id: str | None = Field(default=None, description="Optional target component sys_id")
     update_data: Dict[str, str] | None = Field(
-        default=None, description="Optional explicit field updates for analyze/preview/apply routing"
+        default=None,
+        description="Optional explicit field updates for analyze/preview/apply routing",
     )
     snapshot_path: str | None = Field(
         default=None, description="Optional snapshot path for rollback/restore routing"

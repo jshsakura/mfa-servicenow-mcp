@@ -104,7 +104,9 @@ class GetPortalParams(BaseModel):
     )
     limit: int = Field(default=20, description="Maximum portals to return in list mode (max 50)")
     offset: int = Field(default=0, description="Pagination offset for list mode")
-    query: Optional[str] = Field(default=None, description="Filter by title (LIKE match) in list mode")
+    query: Optional[str] = Field(
+        default=None, description="Filter by title (LIKE match) in list mode"
+    )
     count_only: bool = Field(default=False, description="Return count only (list mode)")
 
 
@@ -205,11 +207,14 @@ class GetPageParams(BaseModel):
         description="sys_id or URL path (id). If provided, returns single page detail with layout. Otherwise lists pages.",
     )
     include_layout: bool = Field(
-        default=True, description="Include container/row/column/widget layout tree (detail mode only)"
+        default=True,
+        description="Include container/row/column/widget layout tree (detail mode only)",
     )
     limit: int = Field(default=20, description="Maximum pages to return in list mode (max 100)")
     offset: int = Field(default=0, description="Pagination offset for list mode")
-    query: Optional[str] = Field(default=None, description="Filter by title (LIKE match) in list mode")
+    query: Optional[str] = Field(
+        default=None, description="Filter by title (LIKE match) in list mode"
+    )
 
 
 @register_tool(
@@ -453,7 +458,9 @@ class UpdateWidgetInstanceParams(BaseModel):
 
     instance_id: str = Field(..., description="sys_id of the widget instance")
     order: Optional[int] = Field(default=None, description="Display order within the column")
-    sp_column: Optional[str] = Field(default=None, description="Move to a different column (sys_id)")
+    sp_column: Optional[str] = Field(
+        default=None, description="Move to a different column (sys_id)"
+    )
     widget_parameters: Optional[str] = Field(
         default=None, description="JSON string of widget instance options"
     )

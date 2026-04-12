@@ -420,9 +420,7 @@ def _ensure_playwright_browser(args) -> None:
             )
             logger.info("Chromium installed successfully.")
         except Exception as exc:
-            logger.warning(
-                f"Auto-install failed: {exc}. " "Run manually: playwright install chromium"
-            )
+            logger.warning(f"Auto-install failed: {exc}. Run manually: playwright install chromium")
 
 
 def main():

@@ -43,7 +43,9 @@ class UpdateEpicParams(BaseModel):
     """Parameters for updating an epic."""
 
     epic_id: str = Field(..., description="Epic ID or sys_id")
-    short_description: Optional[str] = Field(default=None, description="Short description of the epic")
+    short_description: Optional[str] = Field(
+        default=None, description="Short description of the epic"
+    )
     description: Optional[str] = Field(default=None, description="Detailed description of the epic")
     priority: Optional[str] = Field(
         default=None,

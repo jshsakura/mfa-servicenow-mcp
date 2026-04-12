@@ -22,17 +22,24 @@ class CreateScrumTaskParams(BaseModel):
     """Parameters for creating a scrum task."""
 
     story: str = Field(
-       default= ..., description="Short description of the story. It requires the System ID of the story."
+        default=...,
+        description="Short description of the story. It requires the System ID of the story.",
     )
     short_description: str = Field(..., description="Short description of the scrum task")
     priority: Optional[str] = Field(
         default=None,
         description="Priority of scrum task (1 is Critical, 2 is High, 3 is Moderate, 4 is Low)",
     )
-    planned_hours: Optional[int] = Field(default=None, description="Planned hours for the scrum task")
-    remaining_hours: Optional[int] = Field(default=None, description="Remaining hours for the scrum task")
+    planned_hours: Optional[int] = Field(
+        default=None, description="Planned hours for the scrum task"
+    )
+    remaining_hours: Optional[int] = Field(
+        default=None, description="Remaining hours for the scrum task"
+    )
     hours: Optional[int] = Field(default=None, description="Actual Hours for the scrum task")
-    description: Optional[str] = Field(default=None, description="Detailed description of the scrum task")
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the scrum task"
+    )
     type: Optional[str] = Field(
         default=None,
         description="Type of scrum task (1 is Analysis, 2 is Coding, 3 is Documentation, 4 is Testing)",
@@ -41,9 +48,13 @@ class CreateScrumTaskParams(BaseModel):
         default=None,
         description="State of scrum task (-6 is Draft,1 is Ready, 2 is Work in progress, 3 is Complete, 4 is Cancelled)",
     )
-    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the scrum task")
+    assignment_group: Optional[str] = Field(
+        default=None, description="Group assigned to the scrum task"
+    )
     assigned_to: Optional[str] = Field(default=None, description="User assigned to the scrum task")
-    work_notes: Optional[str] = Field(default=None, description="Work notes to add to the scrum task")
+    work_notes: Optional[str] = Field(
+        default=None, description="Work notes to add to the scrum task"
+    )
 
 
 class UpdateScrumTaskParams(BaseModel):
@@ -57,10 +68,16 @@ class UpdateScrumTaskParams(BaseModel):
         default=None,
         description="Priority of scrum task (1 is Critical, 2 is High, 3 is Moderate, 4 is Low)",
     )
-    planned_hours: Optional[int] = Field(default=None, description="Planned hours for the scrum task")
-    remaining_hours: Optional[int] = Field(default=None, description="Remaining hours for the scrum task")
+    planned_hours: Optional[int] = Field(
+        default=None, description="Planned hours for the scrum task"
+    )
+    remaining_hours: Optional[int] = Field(
+        default=None, description="Remaining hours for the scrum task"
+    )
     hours: Optional[int] = Field(default=None, description="Actual Hours for the scrum task")
-    description: Optional[str] = Field(default=None, description="Detailed description of the scrum task")
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the scrum task"
+    )
     type: Optional[str] = Field(
         default=None,
         description="Type of scrum task (1 is Analysis, 2 is Coding, 3 is Documentation, 4 is Testing)",
@@ -69,9 +86,13 @@ class UpdateScrumTaskParams(BaseModel):
         default=None,
         description="State of scrum task (-6 is Draft,1 is Ready, 2 is Work in progress, 3 is Complete, 4 is Cancelled)",
     )
-    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the scrum task")
+    assignment_group: Optional[str] = Field(
+        default=None, description="Group assigned to the scrum task"
+    )
     assigned_to: Optional[str] = Field(default=None, description="User assigned to the scrum task")
-    work_notes: Optional[str] = Field(default=None, description="Work notes to add to the scrum task")
+    work_notes: Optional[str] = Field(
+        default=None, description="Work notes to add to the scrum task"
+    )
 
 
 class ListScrumTasksParams(BaseModel):

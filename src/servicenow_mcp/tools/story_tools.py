@@ -23,7 +23,9 @@ class CreateStoryParams(BaseModel):
 
     short_description: str = Field(..., description="Short description of the story")
     acceptance_criteria: str = Field(..., description="Acceptance criteria for the story")
-    description: Optional[str] = Field(default=None, description="Detailed description of the story")
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the story"
+    )
     state: Optional[str] = Field(
         default=None,
         description="State of story (-6 is Draft,-7 is Ready for Testing,-8 is Testing,1 is Ready, 2 is Work in progress, 3 is Complete, 4 is Cancelled)",
@@ -32,7 +34,8 @@ class CreateStoryParams(BaseModel):
     story_points: Optional[int] = Field(default=10, description="Points value for the story")
     assigned_to: Optional[str] = Field(default=None, description="User assigned to the story")
     epic: Optional[str] = Field(
-        default=None, description="Epic that the story belongs to. It requires the System ID of the epic."
+        default=None,
+        description="Epic that the story belongs to. It requires the System ID of the epic.",
     )
     project: Optional[str] = Field(
         default=None,
@@ -48,14 +51,18 @@ class UpdateStoryParams(BaseModel):
     """Parameters for updating a story."""
 
     story_id: str = Field(
-       default= ...,
+        default=...,
         description="Story IDNumber or sys_id. You will need to fetch the story to get the sys_id if you only have the story number",
     )
-    short_description: Optional[str] = Field(default=None, description="Short description of the story")
+    short_description: Optional[str] = Field(
+        default=None, description="Short description of the story"
+    )
     acceptance_criteria: Optional[str] = Field(
         default=None, description="Acceptance criteria for the story"
     )
-    description: Optional[str] = Field(default=None, description="Detailed description of the story")
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the story"
+    )
     state: Optional[str] = Field(
         default=None,
         description="State of story (-6 is Draft,-7 is Ready for Testing,-8 is Testing,1 is Ready, 2 is Work in progress, 3 is Complete, 4 is Cancelled)",
@@ -64,7 +71,8 @@ class UpdateStoryParams(BaseModel):
     story_points: Optional[int] = Field(default=None, description="Points value for the story")
     assigned_to: Optional[str] = Field(default=None, description="User assigned to the story")
     epic: Optional[str] = Field(
-        default=None, description="Epic that the story belongs to. It requires the System ID of the epic."
+        default=None,
+        description="Epic that the story belongs to. It requires the System ID of the epic.",
     )
     project: Optional[str] = Field(
         default=None,
@@ -108,7 +116,7 @@ class CreateStoryDependencyParams(BaseModel):
 
     dependent_story: str = Field(..., description="Sys_id of the dependent story is required")
     prerequisite_story: str = Field(
-       default= ..., description="Sys_id that this story depends on is required"
+        default=..., description="Sys_id that this story depends on is required"
     )
 
 

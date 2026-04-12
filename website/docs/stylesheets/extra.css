@@ -249,7 +249,7 @@ body.landing .md-footer { margin-top: 0; }
   font-size: .8rem;
   line-height: 1.8;
   color: #d4d4d8;
-  height: 380px;
+  min-height: 420px;
   overflow: hidden;
 }
 
@@ -587,7 +587,7 @@ pre.install-code .c { color: var(--code-comment); }
   .hero-section { min-height: 440px; }
   .hero-content { padding: 80px 20px 64px; }
   .hero-terminal { margin-top: -32px; }
-  .hero-terminal-body { height: 340px; font-size: .72rem; padding: 16px 20px; }
+  .hero-terminal-body { min-height: 380px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
   .content-wrap { padding: 0 16px; }

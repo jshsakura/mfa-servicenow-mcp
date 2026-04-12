@@ -250,16 +250,19 @@ class SearchServerCodeParams(BaseModel):
         description="One of: all, script_include, widget, business_rule, client_script, ui_action, ui_script, ui_page, scripted_rest, fix_script, update_xml",
     )
     limit: int = Field(
-        default=5, description=f"Maximum number of total matches to return. Clamped to {MAX_SEARCH_LIMIT}."
+        default=5,
+        description=f"Maximum number of total matches to return. Clamped to {MAX_SEARCH_LIMIT}.",
     )
     scope: str | None = Field(default=None, description="Optional scope filter")
     updated_by: str | None = Field(default=None, description="Optional updated_by filter")
-    max_snippet_length: int = Field(default=300, description="Maximum snippet size returned for each match")
+    max_snippet_length: int = Field(
+        default=300, description="Maximum snippet size returned for each match"
+    )
 
 
 class GetMetadataSourceParams(BaseModel):
     source_type: str = Field(
-       default= ...,
+        default=...,
         description="One of: script_include, widget, business_rule, client_script, ui_action, ui_script, ui_page, scripted_rest, fix_script, update_xml",
     )
     source_id: str = Field(..., description="sys_id, name, or logical identifier")

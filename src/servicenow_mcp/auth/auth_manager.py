@@ -819,7 +819,9 @@ class AuthManager:
                     self._browser_session_token = None
                 cookies = context.cookies()
                 cookie_header = self._build_instance_cookie_header(
-                    cookies, instance_url, instance_host  # type: ignore[arg-type]
+                    cookies,  # type: ignore[arg-type]
+                    instance_url,
+                    instance_host,
                 )
                 context.close()
         except Exception as exc:
@@ -1227,7 +1229,9 @@ class AuthManager:
                 # cookies on parent domains that may not be returned for a single URL filter.
                 current_cookies = context.cookies()
                 cookie_header = self._build_instance_cookie_header(
-                    current_cookies, instance_url, instance_host  # type: ignore[arg-type]
+                    current_cookies,  # type: ignore[arg-type]
+                    instance_url,
+                    instance_host,
                 )
                 if cookie_header:
                     cookie_names = _extract_cookie_names(cookie_header)

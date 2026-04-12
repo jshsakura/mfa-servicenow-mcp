@@ -26,7 +26,9 @@ class CreateUserParams(BaseModel):
     email: str = Field(..., description="Email address of the user")
     title: Optional[str] = Field(default=None, description="Job title of the user")
     department: Optional[str] = Field(default=None, description="Department the user belongs to")
-    manager: Optional[str] = Field(default=None, description="Manager of the user (sys_id or username)")
+    manager: Optional[str] = Field(
+        default=None, description="Manager of the user (sys_id or username)"
+    )
     roles: Optional[List[str]] = Field(default=None, description="Roles to assign to the user")
     phone: Optional[str] = Field(default=None, description="Phone number of the user")
     mobile_phone: Optional[str] = Field(default=None, description="Mobile phone number of the user")
@@ -45,7 +47,9 @@ class UpdateUserParams(BaseModel):
     email: Optional[str] = Field(default=None, description="Email address of the user")
     title: Optional[str] = Field(default=None, description="Job title of the user")
     department: Optional[str] = Field(default=None, description="Department the user belongs to")
-    manager: Optional[str] = Field(default=None, description="Manager of the user (sys_id or username)")
+    manager: Optional[str] = Field(
+        default=None, description="Manager of the user (sys_id or username)"
+    )
     roles: Optional[List[str]] = Field(default=None, description="Roles to assign to the user")
     phone: Optional[str] = Field(default=None, description="Phone number of the user")
     mobile_phone: Optional[str] = Field(default=None, description="Mobile phone number of the user")
@@ -84,7 +88,9 @@ class CreateGroupParams(BaseModel):
 
     name: str = Field(..., description="Name of the group")
     description: Optional[str] = Field(default=None, description="Description of the group")
-    manager: Optional[str] = Field(default=None, description="Manager of the group (sys_id or username)")
+    manager: Optional[str] = Field(
+        default=None, description="Manager of the group (sys_id or username)"
+    )
     parent: Optional[str] = Field(default=None, description="Parent group (sys_id or name)")
     type: Optional[str] = Field(default=None, description="Type of the group")
     email: Optional[str] = Field(default=None, description="Email address for the group")
@@ -100,7 +106,9 @@ class UpdateGroupParams(BaseModel):
     group_id: str = Field(..., description="Group ID or sys_id to update")
     name: Optional[str] = Field(default=None, description="Name of the group")
     description: Optional[str] = Field(default=None, description="Description of the group")
-    manager: Optional[str] = Field(default=None, description="Manager of the group (sys_id or username)")
+    manager: Optional[str] = Field(
+        default=None, description="Manager of the group (sys_id or username)"
+    )
     parent: Optional[str] = Field(default=None, description="Parent group (sys_id or name)")
     type: Optional[str] = Field(default=None, description="Type of the group")
     email: Optional[str] = Field(default=None, description="Email address for the group")
@@ -112,7 +120,7 @@ class AddGroupMembersParams(BaseModel):
 
     group_id: str = Field(..., description="Group ID or sys_id")
     members: List[str] = Field(
-       default= ..., description="List of user sys_ids or usernames to add as members"
+        default=..., description="List of user sys_ids or usernames to add as members"
     )
 
 
@@ -121,7 +129,7 @@ class RemoveGroupMembersParams(BaseModel):
 
     group_id: str = Field(..., description="Group ID or sys_id")
     members: List[str] = Field(
-       default= ..., description="List of user sys_ids or usernames to remove as members"
+        default=..., description="List of user sys_ids or usernames to remove as members"
     )
 
 
