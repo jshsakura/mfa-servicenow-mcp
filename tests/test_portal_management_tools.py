@@ -258,9 +258,7 @@ class TestGetPage:
             # widget metadata (bulk resolve)
             {
                 "success": True,
-                "results": [
-                    {"sys_id": "wid-1", "id": "my_widget", "name": "My Widget"}
-                ],
+                "results": [{"sys_id": "wid-1", "id": "my_widget", "name": "My Widget"}],
             },
         ]
 
