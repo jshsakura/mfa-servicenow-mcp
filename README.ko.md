@@ -106,175 +106,21 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ## MCP 클라이언트 설정
 
-### Claude Desktop
+`your-instance`, `your.username`, `your-password`를 실제 값으로 바꾸세요.
 
-`claude_desktop_config.json`에 아래처럼 넣으면 됩니다.
+| 클라이언트 | 설정 파일 | 포맷 |
+|-----------|----------|------|
+| Claude Desktop | `claude_desktop_config.json` | JSON (`mcpServers`) |
+| Claude Code | `.mcp.json` 또는 `claude mcp add` | JSON / CLI |
+| OpenCode | `opencode.json` | JSON (`mcp`, `environment` 사용) |
+| OpenAI Codex | `.codex/agents.toml` | TOML |
+| AntiGravity | `mcp_config.json` | JSON (`mcpServers`) |
+| Gemini / Vertex AI | 프로젝트 설정 | JSON (`mcp`) |
+| Docker | — | 환경변수 |
 
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ],
-      "env": {
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
+클라이언트별 복사 붙여넣기 설정: **[클라이언트 설정 가이드](docs/CLIENT_SETUP.md)**
 
-### Claude Code
-
-```bash
-claude mcp add servicenow -- \
-  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
-```
-
-또는 프로젝트 루트의 `.mcp.json`에 추가:
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ],
-      "env": {
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-### OpenCode
-
-설정 파일: 프로젝트 루트의 `opencode.json`
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "enabled": true,
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "SERVICENOW_BROWSER_TIMEOUT": "120",
-        "SERVICENOW_BROWSER_SESSION_TTL": "30",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-> OpenCode는 `env`가 아닌 `environment`를 사용하며 `$schema` 필드를 지원합니다.
-> `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD`는 선택 — 브라우저 로그인 폼을 미리 채웁니다. Windows에서는 설정 파일에 비밀번호를 넣지 말고 시스템 환경변수로 설정하세요.
-
-### Gemini / Vertex AI
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
-    }
-  }
-}
-```
-
-### AntiGravity
-
-AntiGravity Editor는 Claude Desktop 스타일의 `mcpServers` 설정을 사용합니다. 에디터 우측 에이전트 패널 상단의 **점 세 개(...)** -> **Manage MCP Servers** -> **View raw config**를 눌러 설정 파일을 편집할 수 있습니다.
-
-- **macOS / Linux:** `~/.gemini/antigravity/mcp_config.json`
-- **Windows:** `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-> 설정을 저장한 후 AntiGravity의 MCP 관리 화면에서 **Refresh**를 눌러주세요.
-
-### OpenAI Codex
-
-`agents.toml` 파일에 추가합니다 (보통 `~/.codex/agents.toml` 또는 프로젝트 루트의 `.codex/agents.toml`):
-
-```toml
-[mcp_servers.servicenow]
-command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-  "--instance-url", "https://your-instance.service-now.com",
-  "--auth-type", "browser",
-  "--browser-headless", "false",
-  "--browser-username", "your.username",
-  "--browser-password", "your-password",
-  "--tool-package", "standard",
-]
-```
-
-> Windows에서는 설정 파일에 비밀번호를 넣지 말고 `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD`를 시스템 환경변수로 설정하세요.
+> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택 — MFA 로그인 폼을 미리 채웁니다. Windows에서는 시스템 환경변수로 설정하세요.
 
 ---
 
@@ -579,38 +425,17 @@ triggers: ["위젯 분석", "analyze widget"]  # → LLM 트리거 매칭
 
 ## Docker
 
-Docker 이미지는 main 브랜치 푸시마다 `ghcr.io/jshsakura/mfa-servicenow-mcp`에 자동 배포됩니다.
-
-> **참고:** 브라우저 인증(MFA/SSO)은 GUI 브라우저가 필요하므로 컨테이너 안에서 사용할 수 없습니다. MFA가 활성화된 ServiceNow 인스턴스는 Docker 환경에서 `api_key` 인증을 사용하세요.
-
-### 바로 실행 (API Key)
+API Key 인증만 가능 (MFA 브라우저 인증은 GUI가 필요하므로 컨테이너 불가).
 
 ```bash
 docker run -it --rm \
   -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
   -e SERVICENOW_AUTH_TYPE=api_key \
   -e SERVICENOW_API_KEY=your-api-key \
-  -e MCP_TOOL_PACKAGE=standard \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
 
-### SSE 모드 (HTTP 서버)
-
-```bash
-docker run -p 8080:8080 \
-  -e MCP_MODE=sse \
-  -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-  -e SERVICENOW_AUTH_TYPE=api_key \
-  -e SERVICENOW_API_KEY=your-api-key \
-  -e MCP_TOOL_PACKAGE=standard \
-  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
-```
-
-### 로컬 빌드
-
-```bash
-docker build --target runtime -t servicenow-mcp .
-```
+SSE 모드 및 로컬 빌드 방법: [클라이언트 설정 가이드](docs/CLIENT_SETUP.md#docker-api-key-only)
 
 ## 개발용 설치
 
@@ -652,6 +477,7 @@ uv build
 
 ## 상세 문서
 
+- [클라이언트 설정 가이드](docs/CLIENT_SETUP.md) — 클라이언트별 복사 붙여넣기 설정
 - [도구 목록](docs/TOOL_INVENTORY.md) — 98개 도구 카테고리/패키지별 전체 목록
 - [Windows 설치 가이드](docs/WINDOWS_INSTALL.ko.md)
 - [서비스 카탈로그 가이드](docs/catalog.md) — 카탈로그 CRUD 및 최적화
