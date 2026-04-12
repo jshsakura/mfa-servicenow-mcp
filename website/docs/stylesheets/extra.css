@@ -135,7 +135,7 @@ body.landing .md-footer { margin-top: 0; }
 .hero-bg-img {
   position: absolute;
   inset: 0;
-  background: url("../assets/images/banner.jpg") center 25% / cover no-repeat;
+  background: url("../assets/images/banner.jpg") center 75% / cover no-repeat;
 }
 .hero-overlay {
   position: absolute;
