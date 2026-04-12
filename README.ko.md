@@ -1,8 +1,8 @@
-# ServiceNow MCP Server
+# MFA ServiceNow MCP
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-**MFA 우선** ServiceNow MCP 서버. MFA/SSO가 필수인 기업 환경을 위해 만들었습니다 — 실제 브라우저(Playwright)로 인증하므로 Okta, Entra ID, SAML 등 어떤 대화형 로그인이든 그대로 동작합니다. headless/Docker 환경에서는 API Key 인증도 지원합니다. Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, OpenAI Codex에서 바로 사용 가능합니다.
+MFA 우선 ServiceNow MCP 서버. 실제 브라우저(Playwright)로 인증하므로 Okta, Entra ID, SAML 등 어떤 MFA/SSO 로그인이든 그대로 동작합니다. headless/Docker 환경에서는 API Key 인증도 지원합니다.
 
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
