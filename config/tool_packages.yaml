@@ -33,15 +33,10 @@ standard:
   # Legacy Workflow (Read)
   - list_legacy_workflows
   - get_legacy_workflow_details
-  - list_legacy_workflow_versions
-  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
-  - get_flow_designer_structure
   - get_flow_designer_executions
-  - get_flow_designer_execution_detail
-  - get_flow_designer_triggers
   # Portal (Read)
   - list_portals
   - get_portal
@@ -101,15 +96,10 @@ portal_developer:
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
-  - list_legacy_workflow_versions
-  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
-  - get_flow_designer_structure
   - get_flow_designer_executions
-  - get_flow_designer_execution_detail
-  - get_flow_designer_triggers
   - list_portals
   - get_portal
   - list_pages
@@ -184,15 +174,10 @@ platform_developer:
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
-  - list_legacy_workflow_versions
-  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
-  - get_flow_designer_structure
   - get_flow_designer_executions
-  - get_flow_designer_execution_detail
-  - get_flow_designer_triggers
   - list_portals
   - get_portal
   - list_pages
@@ -278,15 +263,10 @@ service_desk:
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
-  - list_legacy_workflow_versions
-  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
-  - get_flow_designer_structure
   - get_flow_designer_executions
-  - get_flow_designer_execution_detail
-  - get_flow_designer_triggers
   - list_portals
   - get_portal
   - list_pages
@@ -346,15 +326,10 @@ full:
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
-  - list_legacy_workflow_versions
-  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
-  - get_flow_designer_structure
   - get_flow_designer_executions
-  - get_flow_designer_execution_detail
-  - get_flow_designer_triggers
   - list_portals
   - get_portal
   - list_pages

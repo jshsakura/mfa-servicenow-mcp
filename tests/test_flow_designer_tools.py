@@ -6,16 +6,12 @@ from unittest.mock import MagicMock, patch
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.flow_designer_tools import (
     GetFlowDetailsParams,
-    GetFlowExecutionDetailParams,
     GetFlowExecutionsParams,
-    GetFlowStructureParams,
-    GetFlowTriggersParams,
     ListFlowsParams,
+    _fetch_flow_structure,
+    _fetch_flow_triggers,
     get_flow_details,
-    get_flow_execution_detail,
     get_flow_executions,
-    get_flow_structure,
-    get_flow_triggers,
     list_flows,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
@@ -160,14 +156,7 @@ class TestFlowDesignerTools(unittest.TestCase):
                 "trigger_type": "Record",
             }
         ]
-        trigger_data = [
-            {
-                "sys_id": "t1",
-                "name": "Record Trigger",
-                "flow": "abc123",
-            }
-        ]
-        mock_qp.side_effect = [(flow_data, 1), (trigger_data, 1)]
+        mock_qp.return_value = (flow_data, 1)
 
         result = get_flow_details(
             self.config,
@@ -177,16 +166,25 @@ class TestFlowDesignerTools(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(result["flow"]["sys_id"], "abc123")
+        # Without include_triggers, triggers should not be in response
+        self.assertNotIn("triggers", result)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._fetch_flow_triggers")
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_flow_details_with_triggers(self, mock_qp, mock_triggers):
+        flow_data = [{"sys_id": "abc123", "name": "Test Flow"}]
+        mock_qp.return_value = (flow_data, 1)
+        mock_triggers.return_value = [{"sys_id": "t1", "name": "Record Trigger"}]
+
+        result = get_flow_details(
+            self.config,
+            self.auth_manager,
+            GetFlowDetailsParams(flow_id="abc123", include_triggers=True),
+        )
+
+        self.assertTrue(result["success"])
         self.assertEqual(len(result["triggers"]), 1)
-        self.assertEqual(mock_qp.call_count, 2)
-
-        first_call = mock_qp.call_args_list[0][1]
-        self.assertEqual(first_call["table"], "sys_hub_flow")
-        self.assertEqual(first_call["query"], "sys_id=abc123")
-
-        second_call = mock_qp.call_args_list[1][1]
-        self.assertEqual(second_call["table"], "sys_hub_trigger_instance")
-        self.assertEqual(second_call["query"], "flow=abc123")
+        mock_triggers.assert_called_once()
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_get_flow_details_not_found(self, mock_qp):
@@ -226,10 +224,9 @@ class TestFlowDesignerTools(unittest.TestCase):
             }
         }
 
-        result = get_flow_structure(
+        result = _fetch_flow_structure(
             self.config,
-            self.auth_manager,
-            GetFlowStructureParams(flow_id="flow1"),
+            self.auth_manager, "flow1",
         )
 
         self.assertTrue(result["success"])
@@ -266,10 +263,9 @@ class TestFlowDesignerTools(unittest.TestCase):
             (subflow_data, 1),
         ]
 
-        result = get_flow_structure(
+        result = _fetch_flow_structure(
             self.config,
-            self.auth_manager,
-            GetFlowStructureParams(flow_id="flow1"),
+            self.auth_manager, "flow1",
         )
 
         self.assertTrue(result["success"])
@@ -293,10 +289,9 @@ class TestFlowDesignerTools(unittest.TestCase):
         mock_designer_api.return_value = None
         mock_qp.return_value = ([], 0)
 
-        result = get_flow_structure(
+        result = _fetch_flow_structure(
             self.config,
-            self.auth_manager,
-            GetFlowStructureParams(flow_id="flow_no_snap"),
+            self.auth_manager, "flow_no_snap",
         )
 
         self.assertFalse(result["success"])
@@ -318,10 +313,9 @@ class TestFlowDesignerTools(unittest.TestCase):
             ([], 0),
         ]
 
-        result = get_flow_structure(
+        result = _fetch_flow_structure(
             self.config,
-            self.auth_manager,
-            GetFlowStructureParams(flow_id="flow1"),
+            self.auth_manager, "flow1",
         )
 
         self.assertTrue(result["success"])
@@ -356,10 +350,9 @@ class TestFlowDesignerTools(unittest.TestCase):
             ([], 0),
         ]
 
-        result = get_flow_structure(
+        result = _fetch_flow_structure(
             self.config,
-            self.auth_manager,
-            GetFlowStructureParams(flow_id="flow1"),
+            self.auth_manager, "flow1",
         )
 
         self.assertTrue(result["success"])
@@ -373,10 +366,9 @@ class TestFlowDesignerTools(unittest.TestCase):
         mock_designer_api.return_value = None
         mock_qp.side_effect = RuntimeError("Connection failed")
 
-        result = get_flow_structure(
+        result = _fetch_flow_structure(
             self.config,
-            self.auth_manager,
-            GetFlowStructureParams(flow_id="flow1"),
+            self.auth_manager, "flow1",
         )
 
         self.assertFalse(result["success"])
@@ -498,10 +490,10 @@ class TestFlowDesignerTools(unittest.TestCase):
         ]
         mock_qp.return_value = (detail_data, 1)
 
-        result = get_flow_execution_detail(
+        result = get_flow_executions(
             self.config,
             self.auth_manager,
-            GetFlowExecutionDetailParams(context_id="ctx_detail1"),
+            GetFlowExecutionsParams(context_id="ctx_detail1"),
         )
 
         self.assertTrue(result["success"])
@@ -516,10 +508,10 @@ class TestFlowDesignerTools(unittest.TestCase):
     def test_get_flow_execution_detail_not_found(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        result = get_flow_execution_detail(
+        result = get_flow_executions(
             self.config,
             self.auth_manager,
-            GetFlowExecutionDetailParams(context_id="nonexistent"),
+            GetFlowExecutionsParams(context_id="nonexistent"),
         )
 
         self.assertTrue(result["success"])
@@ -529,10 +521,10 @@ class TestFlowDesignerTools(unittest.TestCase):
     def test_get_flow_execution_detail_error(self, mock_qp):
         mock_qp.side_effect = RuntimeError("Not found")
 
-        result = get_flow_execution_detail(
+        result = get_flow_executions(
             self.config,
             self.auth_manager,
-            GetFlowExecutionDetailParams(context_id="ctx1"),
+            GetFlowExecutionsParams(context_id="ctx1"),
         )
 
         self.assertFalse(result["success"])
@@ -557,15 +549,12 @@ class TestFlowDesignerTools(unittest.TestCase):
         ]
         mock_qp.side_effect = [(snapshot_data, 1), (trigger_data, 2)]
 
-        result = get_flow_triggers(
+        triggers = _fetch_flow_triggers(
             self.config,
-            self.auth_manager,
-            GetFlowTriggersParams(flow_id="flow1"),
+            self.auth_manager, "flow1",
         )
 
-        self.assertTrue(result["success"])
-        self.assertEqual(len(result["triggers"]), 2)
-        self.assertEqual(result["count"], 2)
+        self.assertEqual(len(triggers), 2)
 
         trigger_call = mock_qp.call_args_list[1][1]
         self.assertEqual(trigger_call["table"], "sys_hub_trigger_instance")
@@ -577,28 +566,14 @@ class TestFlowDesignerTools(unittest.TestCase):
     def test_get_flow_triggers_no_snapshot(self, mock_qp):
         mock_qp.side_effect = [([], 0), ([], 0)]
 
-        result = get_flow_triggers(
+        triggers = _fetch_flow_triggers(
             self.config,
-            self.auth_manager,
-            GetFlowTriggersParams(flow_id="flow1"),
+            self.auth_manager, "flow1",
         )
 
-        self.assertTrue(result["success"])
+        self.assertEqual(triggers, [])
         trigger_query = mock_qp.call_args_list[1][1]["query"]
         self.assertEqual(trigger_query, "flow=flow1")
-
-    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
-    def test_get_flow_triggers_error(self, mock_qp):
-        mock_qp.side_effect = RuntimeError("Connection lost")
-
-        result = get_flow_triggers(
-            self.config,
-            self.auth_manager,
-            GetFlowTriggersParams(flow_id="flow1"),
-        )
-
-        self.assertFalse(result["success"])
-        self.assertIn("Connection lost", result["error"])
 
     # -- _try_flow_designer_api direct tests ---------------------------------
 
