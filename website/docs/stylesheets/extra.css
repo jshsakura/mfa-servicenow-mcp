@@ -19,7 +19,7 @@
   --gradient-mid: #8b5cf6;
   --gradient-end: #ec4899;
   --code-bg: #0f0f12;
-  --dot-color: rgba(0,0,0,.06);
+  --dot-color: rgba(0,0,0,.08);
   --md-primary-fg-color: #18181b;
 }
 [data-md-color-scheme="slate"] {
@@ -35,7 +35,7 @@
   --accent: #818cf8;
   --accent-bg: rgba(129,140,248,.1);
   --code-bg: #0c0c0e;
-  --dot-color: rgba(255,255,255,.04);
+  --dot-color: rgba(255,255,255,.06);
   --md-primary-fg-color: #fafafa;
 }
 
@@ -70,10 +70,10 @@ body.landing .md-content,
 body.landing .md-container {
   background: var(--page-bg) !important;
 }
-/* Dot grid only on content area below the hero banner */
-body.landing .content-wrap {
-  background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px);
-  background-size: 24px 24px;
+/* Dot grid on entire page below header */
+body.landing .md-main {
+  background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px) !important;
+  background-size: 24px 24px !important;
 }
 body.landing .md-grid { max-width: 100% !important; padding: 0 !important; }
 body.landing .md-main { margin-top: 0 !important; padding-top: 0 !important; }
