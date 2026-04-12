@@ -127,8 +127,13 @@ def get_portal(
             },
         }
 
-    # List mode
-    query = f"titleLIKE{params.query}" if params.query else ""
+    # List mode — search both title and url_suffix so callers can find
+    # portals by suffix (e.g. "ybpm") without a separate detail call.
+    query = (
+        f"titleLIKE{params.query}^ORurl_suffixLIKE{params.query}"
+        if params.query
+        else ""
+    )
     if params.count_only:
         from .sn_api import sn_count
 
@@ -218,10 +223,11 @@ def get_page(
             page["layout"] = _get_page_layout(config, auth_manager, r["sys_id"])
         return {"success": True, "page": page}
 
-    # List mode
+    # List mode — search both title and id (URL path) so callers can find
+    # pages like "jobwfmngt" without knowing the sys_id upfront.
     query_parts = []
     if params.query:
-        query_parts.append(f"titleLIKE{params.query}")
+        query_parts.append(f"titleLIKE{params.query}^ORidLIKE{params.query}")
     response = _query(
         config,
         auth_manager,
@@ -309,6 +315,33 @@ def _get_page_layout(
         else {"results": []}
     )
     instances = inst_resp.get("results", [])
+
+    # ------------------------------------------------------------------
+    # Resolve widget names/IDs in a single bulk query so callers don't
+    # need N extra get_widget_bundle / get_metadata_source round-trips.
+    # ------------------------------------------------------------------
+    widget_ref_ids = list(
+        {
+            str(inst.get("sp_widget") or "")
+            for inst in instances
+            if inst.get("sp_widget")
+        }
+    )
+    widget_meta: Dict[str, Dict[str, str]] = {}
+    if widget_ref_ids:
+        widget_resp = _query(
+            config,
+            auth_manager,
+            "sp_widget",
+            f"sys_idIN{','.join(widget_ref_ids)}",
+            "sys_id,id,name",
+            limit=max(20, len(widget_ref_ids)),
+        )
+        for w in widget_resp.get("results", []):
+            wid = str(w.get("sys_id") or "")
+            if wid:
+                widget_meta[wid] = {"id": w.get("id", ""), "name": w.get("name", "")}
+
     containers = sorted(containers, key=_order_key)
     rows = sorted(rows, key=_order_key)
     columns = sorted(columns, key=_order_key)
@@ -319,13 +352,20 @@ def _get_page_layout(
         column_id = str(inst.get("sp_column") or "")
         if not column_id:
             continue
-        widgets_by_column.setdefault(column_id, []).append(
-            {
-                "sys_id": inst.get("sys_id"),
-                "widget": inst.get("sp_widget"),
-                "order": inst.get("order"),
-            }
-        )
+        widget_ref = str(inst.get("sp_widget") or "")
+        meta = widget_meta.get(widget_ref, {})
+        widget_entry: Dict[str, Any] = {
+            "sys_id": inst.get("sys_id"),
+            "widget": widget_ref,
+            "widget_id": meta.get("id", ""),
+            "widget_name": meta.get("name", ""),
+            "order": inst.get("order"),
+        }
+        # Include widget_parameters when present (avoids extra get_widget_instance calls)
+        params_val = inst.get("widget_parameters")
+        if params_val:
+            widget_entry["widget_parameters"] = params_val
+        widgets_by_column.setdefault(column_id, []).append(widget_entry)
 
     columns_by_row: Dict[str, List[Dict[str, Any]]] = {}
     for col in columns:
