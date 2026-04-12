@@ -1,6 +1,6 @@
 # Windows 설치 가이드
 
-파이썬을 직접 설치할 필요 없습니다. `uv`가 알아서 처리합니다.
+파이썬이나 Playwright를 직접 설치할 필요 없습니다. `uv`가 파이썬, 패키지, Chromium 브라우저 엔진까지 전부 자동으로 설치합니다.
 
 ---
 
@@ -26,22 +26,18 @@ uv --version
 
 ---
 
-## 2단계: 브라우저 엔진 설치
+## 2단계: MCP 서버 실행
 
-MFA/SSO 인증을 위해 Chromium 브라우저 엔진이 필요합니다:
+명령어 한 줄이면 됩니다 — Chromium은 처음 실행 시 자동 설치됩니다:
 
 ```powershell
-uvx playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
+  --instance-url "https://your-instance.service-now.com" `
+  --auth-type "browser" `
+  --browser-headless "false"
 ```
 
-설치가 잘 되었는지 확인:
-```powershell
-uvx playwright --version
-```
-
-> 이 명령어는 시스템 크롬과 무관한 별도 바이너리를 설치합니다.
-> Chromium은 `%APPDATA%\ms-playwright`에 저장됩니다.
-> "uvx를 찾을 수 없음" 오류 → 1단계에서 PowerShell을 재시작했는지 확인.
+첫 번째 도구 호출 시 브라우저 창이 열리고 MFA/SSO 로그인(Okta, Entra ID, SAML)을 진행합니다. 인증 완료 후 브라우저가 자동으로 닫히고 세션이 유지됩니다.
 
 ---
 
@@ -90,6 +86,52 @@ claude mcp add servicenow -- uvx --with playwright --from mfa-servicenow-mcp ser
 claude mcp list
 ```
 
+### OpenAI Codex
+
+설정 파일 위치: `%USERPROFILE%\.codex\agents.toml` 또는 프로젝트 루트의 `.codex\agents.toml`
+
+> 파일이나 폴더가 없으면 새로 만드세요.
+
+```toml
+[mcp_servers.servicenow]
+command = "uvx"
+args = [
+  "--with", "playwright",
+  "--from", "mfa-servicenow-mcp",
+  "servicenow-mcp",
+  "--instance-url", "https://your-instance.service-now.com",
+  "--auth-type", "browser",
+  "--browser-headless", "false",
+  "--tool-package", "standard",
+]
+```
+
+### OpenCode
+
+설정 파일 위치: 프로젝트 루트의 `opencode.json`
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx", "--with", "playwright",
+        "--from", "mfa-servicenow-mcp", "servicenow-mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
 ### AntiGravity
 
 설정 파일 위치: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
@@ -119,29 +161,46 @@ claude mcp list
 
 > 설정 저장 후 AntiGravity에서 **Refresh**를 눌러야 적용됩니다.
 
-### OpenAI Codex
+---
 
-설정 파일 위치: `%USERPROFILE%\.codex\agents.toml` 또는 프로젝트 루트의 `.codex\agents.toml`
+## 4단계: 스킬 설치 (선택사항)
 
-> 파일이나 폴더가 없으면 새로 만드세요.
+스킬은 AI 실행 블루프린트입니다 — 안전 게이트가 포함된 검증된 파이프라인으로, MCP 도구를 신뢰할 수 있는 워크플로우로 전환합니다. 5개 카테고리에 20개 스킬을 제공합니다.
 
-```toml
-[mcp_servers.servicenow]
-command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-  "--instance-url", "https://your-instance.service-now.com",
-  "--auth-type", "browser",
-  "--browser-headless", "false",
-  "--tool-package", "standard",
-]
+```powershell
+# Claude Code
+servicenow-mcp-skills claude
+
+# OpenAI Codex
+servicenow-mcp-skills codex
+
+# OpenCode
+servicenow-mcp-skills opencode
+
+# 또는 uvx로 바로 실행 (설치 불필요)
+uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 ```
+
+| 클라이언트 | 설치 경로 | 자동 인식 |
+|-----------|----------|----------|
+| Claude Code | `.claude\commands\servicenow\` | 재시작 시 `/servicenow` 슬래시 명령으로 표시 |
+| OpenAI Codex | `.codex\skills\servicenow\` | 다음 에이전트 세션에서 자동 로드 |
+| OpenCode | `.opencode\skills\servicenow\` | 다음 세션에서 자동 로드 |
+
+| 카테고리 | 스킬 수 | 용도 |
+|---------|---------|------|
+| `analyze/` | 6 | 위젯 분석, 포탈 진단, 의존성 매핑, 코드 탐지 |
+| `fix/` | 3 | 위젯 패칭 (단계별 안전 게이트), 디버깅, 코드 리뷰 |
+| `manage/` | 5 | 페이지 레이아웃, 스크립트 인클루드, 소스 내보내기, 체인지셋 워크플로우 |
+| `deploy/` | 2 | 변경 요청 라이프사이클, 인시던트 트리아지 |
+| `explore/` | 4 | 헬스체크, 스키마 탐색, 라우트 추적, ESC 카탈로그 흐름 |
+
+**업데이트:** 같은 설치 명령어를 다시 실행하면 모든 스킬 파일이 업데이트됩니다.
+**삭제:** 설치 디렉터리를 삭제하세요 (예: `Remove-Item -Recurse .claude\commands\servicenow\`).
 
 ---
 
-## 4단계: 동작 확인
+## 5단계: 동작 확인
 
 1. MCP 클라이언트를 **완전히 종료 후 재시작**합니다 (트레이 아이콘도 닫기).
 2. 첫 번째 도구 호출 시 브라우저 창이 뜹니다 (서버 시작 시점이 아님).
@@ -150,7 +209,7 @@ args = [
 
 확인 방법: 클라이언트에서 `sn_health` 도구를 호출해 보세요.
 
-> 브라우저가 안 뜨면 2단계(Chromium 설치)를 다시 확인하세요.
+> 브라우저가 안 뜨면 Chromium이 자동 설치되었는지 확인하세요. 수동 설치: `uvx playwright install chromium`
 
 ---
 
@@ -216,11 +275,7 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 혹시 시스템 Python과 충돌하면 `uv`를 삭제 후 재설치해 보세요.
 
 ### "브라우저가 열리지 않습니다"
-→ Chromium이 설치되었는지 확인:
-```powershell
-uvx playwright --version
-```
-→ 안 되면 다시 설치:
+→ Chromium은 처음 실행 시 자동 설치됩니다. 실패하면 수동 설치:
 ```powershell
 uvx playwright install chromium
 ```
