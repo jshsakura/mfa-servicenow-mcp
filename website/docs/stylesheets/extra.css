@@ -76,6 +76,7 @@ body.landing .content-wrap {
   background-size: 24px 24px;
 }
 body.landing .md-grid { max-width: 100% !important; padding: 0 !important; }
+body.landing .md-main { margin-top: 0 !important; padding-top: 0 !important; }
 body.landing .md-main__inner { margin-top: 0; max-width: 100% !important; padding: 0 !important; }
 body.landing .md-content { max-width: 100% !important; background: transparent !important; }
 body.landing .md-content__inner { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
@@ -113,38 +114,11 @@ body.landing .md-footer { margin-top: 0; }
   position: relative;
   z-index: 2;
   text-align: center;
-  padding: 100px 24px 80px;
+  padding: 80px 24px 72px;
   max-width: 800px;
 }
 
-/* Badge */
-.hero-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 16px;
-  border-radius: 100px;
-  background: rgba(255,255,255,.1);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,.18);
-  color: #e4e4e7;
-  font-size: .78rem;
-  font-weight: 600;
-  letter-spacing: .03em;
-  margin-bottom: 28px;
-}
-.badge-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: #34d399;
-  animation: pulse-dot 2s ease-in-out infinite;
-}
-@keyframes pulse-dot {
-  0%,100% { opacity: 1; }
-  50% { opacity: .35; }
-}
-
-/* Title */
+/* Title — all white on hero banner */
 .hero-title {
   font-size: clamp(2.4rem, 5.5vw, 4rem);
   font-weight: 800;
@@ -152,22 +126,18 @@ body.landing .md-footer { margin-top: 0; }
   line-height: 1.08;
   color: #fff;
   margin: 0 0 20px;
-}
-.hero-title .gradient-text {
-  background: linear-gradient(135deg, #a5b4fc, #c084fc, #f472b6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  text-shadow: 0 2px 12px rgba(0,0,0,.4);
 }
 
 /* Subtitle */
 .hero-subtitle {
   font-size: 1.1rem;
-  color: #d4d4d8;
+  color: #e4e4e7;
   max-width: 520px;
   margin: 0 auto 36px;
   line-height: 1.7;
   font-weight: 400;
+  text-shadow: 0 1px 6px rgba(0,0,0,.3);
 }
 
 /* Gandalf quote */
@@ -282,7 +252,7 @@ body.landing .md-footer { margin-top: 0; }
   font-size: .8rem;
   line-height: 1.8;
   color: #d4d4d8;
-  height: 320px;
+  height: 380px;
   overflow: hidden;
 }
 
@@ -318,9 +288,8 @@ body.landing .md-footer { margin-top: 0; }
   display: flex;
   justify-content: center;
   gap: 48px;
-  margin: 48px 0;
+  margin: 48px 0 0;
   padding: 40px 0;
-  border-bottom: 1px solid var(--border-color);
   flex-wrap: wrap;
 }
 .hero-stat { text-align: center; }
@@ -412,38 +381,37 @@ body.landing .md-footer { margin-top: 0; }
 
 .install-code-block {
   background: var(--code-bg);
-  border: 1px solid #27272a;
+  border: 1px solid var(--border-color);
   border-radius: 0 0 10px 10px;
   overflow: hidden;
 }
-[data-md-color-scheme="slate"] .install-code-block { border-color: #3f3f46; }
 
 .install-code-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 8px 16px;
-  background: #18181b;
-  border-bottom: 1px solid #27272a;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border-color);
 }
 .install-code-label {
   font-size: .72rem;
-  color: #52525b;
+  color: var(--hero-sub);
   font-weight: 500;
 }
 .install-copy-btn {
   padding: 3px 12px;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--border-color);
   border-radius: 5px;
   background: transparent;
-  color: #a1a1aa;
+  color: var(--hero-sub);
   font-size: .72rem;
   font-weight: 600;
   cursor: pointer;
   transition: all .15s;
   font-family: inherit;
 }
-.install-copy-btn:hover { background: #27272a; color: #fafafa; }
+.install-copy-btn:hover { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 
 pre.install-code {
   margin: 0 !important;
@@ -461,7 +429,11 @@ pre.install-code code {
   border: none !important;
   padding: 0 !important;
 }
-pre.install-code .c { color: #52525b; }
+/* Light mode: dark text on light code bg */
+:root { --code-text: #e4e4e7; --code-comment: #52525b; }
+[data-md-color-scheme="default"] .install-code-block { background: #1e1e2e; }
+pre.install-code code { color: var(--code-text) !important; }
+pre.install-code .c { color: var(--code-comment); }
 
 /* ============================================================
    STEPS
@@ -618,7 +590,7 @@ pre.install-code .c { color: #52525b; }
   .hero-section { min-height: 440px; }
   .hero-content { padding: 80px 20px 64px; }
   .hero-terminal { margin-top: -32px; }
-  .hero-terminal-body { height: 280px; font-size: .72rem; padding: 16px 20px; }
+  .hero-terminal-body { height: 340px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
   .content-wrap { padding: 0 16px; }
