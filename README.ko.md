@@ -29,7 +29,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 - [인증 방법](#인증-방법)
 - [도구 패키지](#도구-패키지)
 - [CLI 레퍼런스](#cli-레퍼런스)
-- [최신 버전 유지 (PyPI)](#최신-버전-유지-pypi)
+- [최신 버전 유지](#최신-버전-유지)
 - [보안 정책](#보안-정책)
 - [스킬](#스킬)
 - [Docker](#docker)
@@ -250,57 +250,15 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 ---
 
-## 최신 버전 유지 (PyPI)
+## 최신 버전 유지
 
-이 프로젝트는 [PyPI](https://pypi.org/project/mfa-servicenow-mcp/)에 배포되며 시맨틱 버전을 따릅니다. 버전 태그(`v*`)가 push되면 GitHub Actions를 통해 자동 배포됩니다.
+`uvx`는 캐시된 최신 버전을 자동으로 사용합니다. 대부분의 경우 별도 업데이트가 필요 없습니다.
 
-### `uvx`의 버전 동작 방식
-
-`uvx`는 패키지를 **캐시**합니다. 실행할 때마다 자동으로 최신 버전을 가져오는 것은 **아닙니다**. 최신 버전을 확실히 받으려면:
+최신 PyPI 릴리스를 즉시 강제하려면:
 
 ```bash
-# 현재 버전 확인
-uvx --from mfa-servicenow-mcp servicenow-mcp --version
-
-# 최신 PyPI 릴리스로 강제 갱신
 uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 ```
-
-### `uv tool` 업그레이드
-
-`uv tool install`로 설치한 경우:
-
-```bash
-uv tool upgrade mfa-servicenow-mcp
-```
-
-### pip 업그레이드
-
-```bash
-pip install --upgrade mfa-servicenow-mcp
-```
-
-### 특정 버전 고정
-
-안정성을 위해 특정 버전이 필요한 경우:
-
-```bash
-# uvx에서 버전 고정
-uvx --from "mfa-servicenow-mcp==1.5.0" servicenow-mcp --version
-
-# uv tool에서 버전 고정
-uv tool install "mfa-servicenow-mcp==1.5.0"
-
-# pip에서 버전 고정
-pip install "mfa-servicenow-mcp==1.5.0"
-```
-
-### 버전 릴리스 프로세스
-
-1. 버전은 `pyproject.toml`의 `version = "x.y.z"`에서 관리
-2. `main` 브랜치에 push하면 CI가 해당 버전의 git 태그 `v{version}`을 자동 생성
-3. 태그 push가 PyPI 배포와 GitHub Release 생성을 트리거
-4. Docker 이미지 (standard + playwright 변형)가 `amd64`, `arm64`용으로 빌드
 
 ---
 
