@@ -15,8 +15,8 @@ hide:
       for <span class="gradient-text">AI Agents</span>
     </h1>
     <p class="hero-subtitle">
-      The MFA-first MCP server that gives your AI agents secure,
-      high-performance access to ServiceNow — no credentials shared.
+      Real browser login for Okta, Entra ID, SAML, and any MFA/SSO.
+      No passwords in config files — your AI agents inherit a live session.
     </p>
     <div class="hero-quote" id="hero-gandalf-quote"></div>
     <div class="hero-buttons">
@@ -51,7 +51,7 @@ hide:
     <span class="section-label">Quick install</span>
     <h2 class="section-title">Copy, paste, run</h2>
     <p class="section-desc">
-      Pick your OS. One command installs the server and opens a browser for MFA login.
+      Pick your OS. A real Chromium browser opens for MFA/SSO login — Okta, Entra ID, SAML all work out of the box.
     </p>
     <div class="install-block">
       <div class="install-tabs">
@@ -66,9 +66,11 @@ hide:
             <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-<span class="c"># Run the MCP server (auto-installs dependencies)</span>
+<span class="c"># Run with MFA browser login (Okta, Entra ID, SAML supported)</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url https://YOUR_INSTANCE.service-now.com</code></pre>
+  --instance-url "https://YOUR_INSTANCE.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="install-win">
@@ -76,20 +78,24 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
             <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-<span class="c"># Run the MCP server (auto-installs dependencies)</span>
+<span class="c"># Run with MFA browser login (Okta, Entra ID, SAML supported)</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
-  --instance-url https://YOUR_INSTANCE.service-now.com</code></pre>
+  --instance-url "https://YOUR_INSTANCE.service-now.com" `
+  --auth-type "browser" `
+  --browser-headless "false"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="install-pip">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># Install with pip + browser support</span>
+            <pre class="install-code"><code><span class="c"># Install with pip + browser auth support</span>
 pip install "mfa-servicenow-mcp[browser]"
 playwright install chromium
 
-<span class="c"># Run the MCP server</span>
+<span class="c"># Run with MFA browser login</span>
 servicenow-mcp \
-  --instance-url https://YOUR_INSTANCE.service-now.com</code></pre>
+  --instance-url "https://YOUR_INSTANCE.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="install-dev">
@@ -100,9 +106,11 @@ cd mfa-servicenow-mcp
 uv pip install -e ".[browser]"
 playwright install chromium
 
-<span class="c"># Run the MCP server</span>
+<span class="c"># Run with MFA browser login</span>
 servicenow-mcp \
-  --instance-url https://YOUR_INSTANCE.service-now.com</code></pre>
+  --instance-url "https://YOUR_INSTANCE.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"</code></pre>
           </div>
         </div>
       </div>
