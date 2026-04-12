@@ -158,11 +158,7 @@ def get_portal(
 
     # List mode — search both title and url_suffix so callers can find
     # portals by suffix (e.g. "sp") without a separate detail call.
-    query = (
-        f"titleLIKE{params.query}^ORurl_suffixLIKE{params.query}"
-        if params.query
-        else ""
-    )
+    query = f"titleLIKE{params.query}^ORurl_suffixLIKE{params.query}" if params.query else ""
     if params.count_only:
         from .sn_api import sn_count
 
@@ -494,9 +490,7 @@ def get_widget_instance(
             return {"success": False, "message": f"Widget instance not found: {params.instance_id}"}
         r = response["results"][0]
         # Resolve widget name in one extra query
-        widget_meta = _resolve_widget_names(
-            config, auth_manager, [str(r.get("sp_widget") or "")]
-        )
+        widget_meta = _resolve_widget_names(config, auth_manager, [str(r.get("sp_widget") or "")])
         meta = widget_meta.get(str(r.get("sp_widget") or ""), {})
         return {
             "success": True,
