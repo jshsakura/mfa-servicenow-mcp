@@ -8,7 +8,7 @@ social:
 
 <meta property="og:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
 <meta property="og:title" content="MFA ServiceNow MCP — Don't script your AI. Arm it.">
-<meta property="og:description" content="Equip your AI with high-caliber MCP Skills to hunt down bottlenecks, execute with surgical precision, and turn manual toil into strategic fire.">
+<meta property="og:description" content="Tell your AI what you need in plain language. MCP Skills handle the rest — analysis, execution, and everything in between.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
 
@@ -23,9 +23,9 @@ social:
       <span class="gradient-text">Arm it.</span>
     </h1>
     <p class="hero-subtitle">
-      Equip your AI with high-caliber MCP Skills<br>
-      to hunt down bottlenecks, execute with surgical precision,<br>
-      and turn manual toil into strategic fire.
+      Tell your AI what you need in plain language.<br>
+      MCP Skills handle the rest — analysis, execution,<br>
+      and everything in between.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
