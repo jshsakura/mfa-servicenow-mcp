@@ -16,7 +16,7 @@ hide:
     </h1>
     <p class="hero-subtitle">
       Give your AI agent a real ServiceNow session.<br>
-      MFA and all. No workarounds. Just run it.
+      Safe tools, practical skills, and MFA that just works.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
