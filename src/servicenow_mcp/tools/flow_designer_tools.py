@@ -41,15 +41,15 @@ TRIGGER_TABLE = "sys_hub_trigger_instance"
 class ListFlowsParams(BaseModel):
     """Parameters for listing Flow Designer flows."""
 
-    limit: int = Field(20, description="Maximum number of records (max 100)")
-    offset: int = Field(0, description="Pagination offset")
-    active: Optional[bool] = Field(None, description="Filter by active status")
-    status: Optional[str] = Field(None, description="Filter by status: Draft, Published, etc.")
-    name: Optional[str] = Field(None, description="Filter by name (contains)")
-    scope: Optional[str] = Field(None, description="Filter by application scope name")
-    query: Optional[str] = Field(None, description="Additional encoded query")
+    limit: int = Field(default=20, description="Maximum number of records (max 100)")
+    offset: int = Field(default=0, description="Pagination offset")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    status: Optional[str] = Field(default=None, description="Filter by status: Draft, Published, etc.")
+    name: Optional[str] = Field(default=None, description="Filter by name (contains)")
+    scope: Optional[str] = Field(default=None, description="Filter by application scope name")
+    query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(
-        False,
+        default=False,
         description="Return count only without fetching records.",
     )
 
@@ -59,11 +59,11 @@ class GetFlowDetailsParams(BaseModel):
 
     flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
     include_structure: bool = Field(
-        False,
+        default=False,
         description="Include flow structure (actions, logic, subflows with nesting tree)",
     )
     include_triggers: bool = Field(
-        False,
+        default=False,
         description="Include trigger configuration (what events start this flow)",
     )
 
@@ -72,22 +72,22 @@ class GetFlowExecutionsParams(BaseModel):
     """Parameters for getting flow execution history or a single execution detail."""
 
     context_id: Optional[str] = Field(
-        None,
+        default=None,
         description="If provided, return single execution detail by sys_id from sys_flow_context. Other filters are ignored.",
     )
-    flow_name: Optional[str] = Field(None, description="Flow name to search (contains match)")
-    flow_id: Optional[str] = Field(None, description="Flow sys_id to filter executions")
+    flow_name: Optional[str] = Field(default=None, description="Flow name to search (contains match)")
+    flow_id: Optional[str] = Field(default=None, description="Flow sys_id to filter executions")
     state: Optional[str] = Field(
-        None,
+        default=None,
         description="Filter by state: Complete, Waiting, Error, Cancelled, In Progress",
     )
     source_record: Optional[str] = Field(
-        None, description="Filter by source record display value (contains)"
+        default=None, description="Filter by source record display value (contains)"
     )
-    limit: int = Field(20, description="Maximum number of records (max 100)")
-    offset: int = Field(0, description="Pagination offset")
+    limit: int = Field(default=20, description="Maximum number of records (max 100)")
+    offset: int = Field(default=0, description="Pagination offset")
     errors_only: bool = Field(
-        False,
+        default=False,
         description="Only return executions with errors",
     )
 

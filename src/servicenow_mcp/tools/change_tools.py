@@ -24,16 +24,16 @@ class CreateChangeRequestParams(BaseModel):
 
     short_description: str = Field(..., description="Short description of the change request")
     description: Optional[str] = Field(
-        None, description="Detailed description of the change request"
+        default=None, description="Detailed description of the change request"
     )
     type: str = Field(..., description="Type of change (normal, standard, emergency)")
-    risk: Optional[str] = Field(None, description="Risk level of the change")
-    impact: Optional[str] = Field(None, description="Impact of the change")
-    category: Optional[str] = Field(None, description="Category of the change")
-    requested_by: Optional[str] = Field(None, description="User who requested the change")
-    assignment_group: Optional[str] = Field(None, description="Group assigned to the change")
-    start_date: Optional[str] = Field(None, description="Planned start date (YYYY-MM-DD HH:MM:SS)")
-    end_date: Optional[str] = Field(None, description="Planned end date (YYYY-MM-DD HH:MM:SS)")
+    risk: Optional[str] = Field(default=None, description="Risk level of the change")
+    impact: Optional[str] = Field(default=None, description="Impact of the change")
+    category: Optional[str] = Field(default=None, description="Category of the change")
+    requested_by: Optional[str] = Field(default=None, description="User who requested the change")
+    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the change")
+    start_date: Optional[str] = Field(default=None, description="Planned start date (YYYY-MM-DD HH:MM:SS)")
+    end_date: Optional[str] = Field(default=None, description="Planned end date (YYYY-MM-DD HH:MM:SS)")
 
 
 class UpdateChangeRequestParams(BaseModel):
@@ -41,44 +41,44 @@ class UpdateChangeRequestParams(BaseModel):
 
     change_id: str = Field(..., description="Change request ID or sys_id")
     short_description: Optional[str] = Field(
-        None, description="Short description of the change request"
+        default=None, description="Short description of the change request"
     )
     description: Optional[str] = Field(
-        None, description="Detailed description of the change request"
+        default=None, description="Detailed description of the change request"
     )
-    state: Optional[str] = Field(None, description="State of the change request")
-    risk: Optional[str] = Field(None, description="Risk level of the change")
-    impact: Optional[str] = Field(None, description="Impact of the change")
-    category: Optional[str] = Field(None, description="Category of the change")
-    assignment_group: Optional[str] = Field(None, description="Group assigned to the change")
-    start_date: Optional[str] = Field(None, description="Planned start date (YYYY-MM-DD HH:MM:SS)")
-    end_date: Optional[str] = Field(None, description="Planned end date (YYYY-MM-DD HH:MM:SS)")
-    work_notes: Optional[str] = Field(None, description="Work notes to add to the change request")
+    state: Optional[str] = Field(default=None, description="State of the change request")
+    risk: Optional[str] = Field(default=None, description="Risk level of the change")
+    impact: Optional[str] = Field(default=None, description="Impact of the change")
+    category: Optional[str] = Field(default=None, description="Category of the change")
+    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the change")
+    start_date: Optional[str] = Field(default=None, description="Planned start date (YYYY-MM-DD HH:MM:SS)")
+    end_date: Optional[str] = Field(default=None, description="Planned end date (YYYY-MM-DD HH:MM:SS)")
+    work_notes: Optional[str] = Field(default=None, description="Work notes to add to the change request")
 
 
 class GetChangeRequestDetailsParams(BaseModel):
     """Parameters for getting change request details or listing change requests."""
 
     change_id: Optional[str] = Field(
-        None,
+        default=None,
         description="Change request ID or sys_id. If provided, returns full details for that single change request.",
     )
-    limit: Optional[int] = Field(10, description="Maximum number of records to return (list mode)")
-    offset: Optional[int] = Field(0, description="Offset to start from (list mode)")
-    state: Optional[str] = Field(None, description="Filter by state (list mode)")
+    limit: Optional[int] = Field(default=10, description="Maximum number of records to return (list mode)")
+    offset: Optional[int] = Field(default=0, description="Offset to start from (list mode)")
+    state: Optional[str] = Field(default=None, description="Filter by state (list mode)")
     type: Optional[str] = Field(
-        None, description="Filter by type (normal, standard, emergency) (list mode)"
+        default=None, description="Filter by type (normal, standard, emergency) (list mode)"
     )
-    category: Optional[str] = Field(None, description="Filter by category (list mode)")
+    category: Optional[str] = Field(default=None, description="Filter by category (list mode)")
     assignment_group: Optional[str] = Field(
-        None, description="Filter by assignment group (list mode)"
+        default=None, description="Filter by assignment group (list mode)"
     )
     timeframe: Optional[str] = Field(
-        None, description="Filter by timeframe (upcoming, in-progress, completed) (list mode)"
+        default=None, description="Filter by timeframe (upcoming, in-progress, completed) (list mode)"
     )
-    query: Optional[str] = Field(None, description="Additional query string (list mode)")
+    query: Optional[str] = Field(default=None, description="Additional query string (list mode)")
     count_only: bool = Field(
-        False,
+        default=False,
         description="Return count only without fetching records. Uses lightweight Aggregate API. (list mode)",
     )
 
@@ -88,13 +88,13 @@ class AddChangeTaskParams(BaseModel):
 
     change_id: str = Field(..., description="Change request ID or sys_id")
     short_description: str = Field(..., description="Short description of the task")
-    description: Optional[str] = Field(None, description="Detailed description of the task")
-    assigned_to: Optional[str] = Field(None, description="User assigned to the task")
+    description: Optional[str] = Field(default=None, description="Detailed description of the task")
+    assigned_to: Optional[str] = Field(default=None, description="User assigned to the task")
     planned_start_date: Optional[str] = Field(
-        None, description="Planned start date (YYYY-MM-DD HH:MM:SS)"
+        default=None, description="Planned start date (YYYY-MM-DD HH:MM:SS)"
     )
     planned_end_date: Optional[str] = Field(
-        None, description="Planned end date (YYYY-MM-DD HH:MM:SS)"
+        default=None, description="Planned end date (YYYY-MM-DD HH:MM:SS)"
     )
 
 
@@ -102,22 +102,22 @@ class SubmitChangeForApprovalParams(BaseModel):
     """Parameters for submitting a change request for approval."""
 
     change_id: str = Field(..., description="Change request ID or sys_id")
-    approval_comments: Optional[str] = Field(None, description="Comments for the approval request")
+    approval_comments: Optional[str] = Field(default=None, description="Comments for the approval request")
 
 
 class ApproveChangeParams(BaseModel):
     """Parameters for approving a change request."""
 
     change_id: str = Field(..., description="Change request ID or sys_id")
-    approver_id: Optional[str] = Field(None, description="ID of the approver")
-    approval_comments: Optional[str] = Field(None, description="Comments for the approval")
+    approver_id: Optional[str] = Field(default=None, description="ID of the approver")
+    approval_comments: Optional[str] = Field(default=None, description="Comments for the approval")
 
 
 class RejectChangeParams(BaseModel):
     """Parameters for rejecting a change request."""
 
     change_id: str = Field(..., description="Change request ID or sys_id")
-    approver_id: Optional[str] = Field(None, description="ID of the approver")
+    approver_id: Optional[str] = Field(default=None, description="ID of the approver")
     rejection_reason: str = Field(..., description="Reason for rejection")
 
 

@@ -23,13 +23,13 @@ T = TypeVar("T", bound=BaseModel)
 class ListWorkflowsParams(BaseModel):
     """Parameters for listing workflows."""
 
-    limit: Optional[int] = Field(10, description="Maximum number of records to return")
-    offset: Optional[int] = Field(0, description="Offset to start from")
-    active: Optional[bool] = Field(None, description="Filter by active status")
-    name: Optional[str] = Field(None, description="Filter by name (contains)")
-    query: Optional[str] = Field(None, description="Additional query string")
+    limit: Optional[int] = Field(default=10, description="Maximum number of records to return")
+    offset: Optional[int] = Field(default=0, description="Offset to start from")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    name: Optional[str] = Field(default=None, description="Filter by name (contains)")
+    query: Optional[str] = Field(default=None, description="Additional query string")
     count_only: bool = Field(
-        False,
+        default=False,
         description="Return count only without fetching records. Uses lightweight Aggregate API.",
     )
 
@@ -39,15 +39,15 @@ class GetWorkflowDetailsParams(BaseModel):
 
     workflow_id: str = Field(..., description="Workflow ID or sys_id")
     include_versions: bool = Field(
-        False,
+        default=False,
         description="Include version history for this workflow",
     )
     include_activities: bool = Field(
-        False,
+        default=False,
         description="Include ordered activity list. Uses latest published version unless version_id is specified.",
     )
     version_id: Optional[str] = Field(
-        None,
+        default=None,
         description="Specific version sys_id to fetch activities for (only used with include_activities=true)",
     )
 
@@ -56,11 +56,11 @@ class CreateWorkflowParams(BaseModel):
     """Parameters for creating a new workflow."""
 
     name: str = Field(..., description="Name of the workflow")
-    description: Optional[str] = Field(None, description="Description of the workflow")
-    table: Optional[str] = Field(None, description="Table the workflow applies to")
-    active: Optional[bool] = Field(True, description="Whether the workflow is active")
+    description: Optional[str] = Field(default=None, description="Description of the workflow")
+    table: Optional[str] = Field(default=None, description="Table the workflow applies to")
+    active: Optional[bool] = Field(default=True, description="Whether the workflow is active")
     attributes: Optional[Dict[str, Any]] = Field(
-        None, description="Additional attributes for the workflow"
+        default=None, description="Additional attributes for the workflow"
     )
 
 
@@ -68,12 +68,12 @@ class UpdateWorkflowParams(BaseModel):
     """Parameters for updating a workflow."""
 
     workflow_id: str = Field(..., description="Workflow ID or sys_id")
-    name: Optional[str] = Field(None, description="Name of the workflow")
-    description: Optional[str] = Field(None, description="Description of the workflow")
-    table: Optional[str] = Field(None, description="Table the workflow applies to")
-    active: Optional[bool] = Field(None, description="Whether the workflow is active")
+    name: Optional[str] = Field(default=None, description="Name of the workflow")
+    description: Optional[str] = Field(default=None, description="Description of the workflow")
+    table: Optional[str] = Field(default=None, description="Table the workflow applies to")
+    active: Optional[bool] = Field(default=None, description="Whether the workflow is active")
     attributes: Optional[Dict[str, Any]] = Field(
-        None, description="Additional attributes for the workflow"
+        default=None, description="Additional attributes for the workflow"
     )
 
 
@@ -94,12 +94,12 @@ class AddWorkflowActivityParams(BaseModel):
 
     workflow_version_id: str = Field(..., description="Workflow version ID")
     name: str = Field(..., description="Name of the activity")
-    description: Optional[str] = Field(None, description="Description of the activity")
+    description: Optional[str] = Field(default=None, description="Description of the activity")
     activity_type: str = Field(
-        ..., description="Type of activity (e.g., 'approval', 'task', 'notification')"
+       default= ..., description="Type of activity (e.g., 'approval', 'task', 'notification')"
     )
     attributes: Optional[Dict[str, Any]] = Field(
-        None, description="Additional attributes for the activity"
+        default=None, description="Additional attributes for the activity"
     )
 
 
@@ -107,10 +107,10 @@ class UpdateWorkflowActivityParams(BaseModel):
     """Parameters for updating a workflow activity."""
 
     activity_id: str = Field(..., description="Activity ID or sys_id")
-    name: Optional[str] = Field(None, description="Name of the activity")
-    description: Optional[str] = Field(None, description="Description of the activity")
+    name: Optional[str] = Field(default=None, description="Name of the activity")
+    description: Optional[str] = Field(default=None, description="Description of the activity")
     attributes: Optional[Dict[str, Any]] = Field(
-        None, description="Additional attributes for the activity"
+        default=None, description="Additional attributes for the activity"
     )
 
 

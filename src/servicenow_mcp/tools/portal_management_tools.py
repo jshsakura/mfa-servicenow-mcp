@@ -99,13 +99,13 @@ class GetPortalParams(BaseModel):
     """Parameters for listing portals or getting a single portal."""
 
     portal_id: Optional[str] = Field(
-        None,
+        default=None,
         description="sys_id or url_suffix. If provided, returns single portal detail. Otherwise lists all portals.",
     )
-    limit: int = Field(20, description="Maximum portals to return in list mode (max 50)")
-    offset: int = Field(0, description="Pagination offset for list mode")
-    query: Optional[str] = Field(None, description="Filter by title (LIKE match) in list mode")
-    count_only: bool = Field(False, description="Return count only (list mode)")
+    limit: int = Field(default=20, description="Maximum portals to return in list mode (max 50)")
+    offset: int = Field(default=0, description="Pagination offset for list mode")
+    query: Optional[str] = Field(default=None, description="Filter by title (LIKE match) in list mode")
+    count_only: bool = Field(default=False, description="Return count only (list mode)")
 
 
 @register_tool(
@@ -201,15 +201,15 @@ class GetPageParams(BaseModel):
     """Parameters for listing pages or getting a single page."""
 
     page_id: Optional[str] = Field(
-        None,
+        default=None,
         description="sys_id or URL path (id). If provided, returns single page detail with layout. Otherwise lists pages.",
     )
     include_layout: bool = Field(
-        True, description="Include container/row/column/widget layout tree (detail mode only)"
+        default=True, description="Include container/row/column/widget layout tree (detail mode only)"
     )
-    limit: int = Field(20, description="Maximum pages to return in list mode (max 100)")
-    offset: int = Field(0, description="Pagination offset for list mode")
-    query: Optional[str] = Field(None, description="Filter by title (LIKE match) in list mode")
+    limit: int = Field(default=20, description="Maximum pages to return in list mode (max 100)")
+    offset: int = Field(default=0, description="Pagination offset for list mode")
+    query: Optional[str] = Field(default=None, description="Filter by title (LIKE match) in list mode")
 
 
 @register_tool(
@@ -425,15 +425,15 @@ class GetWidgetInstanceParams(BaseModel):
     """Parameters for getting a widget instance or listing instances."""
 
     instance_id: Optional[str] = Field(
-        None,
+        default=None,
         description="sys_id of the widget instance. If provided, returns detail. Otherwise lists instances.",
     )
-    page_id: Optional[str] = Field(None, description="Filter by page sys_id (list mode)")
+    page_id: Optional[str] = Field(default=None, description="Filter by page sys_id (list mode)")
     widget_id: Optional[str] = Field(
-        None, description="Filter by widget sys_id — find all placements (list mode)"
+        default=None, description="Filter by widget sys_id — find all placements (list mode)"
     )
-    limit: int = Field(20, description="Maximum instances to return in list mode (max 100)")
-    offset: int = Field(0, description="Pagination offset for list mode")
+    limit: int = Field(default=20, description="Maximum instances to return in list mode (max 100)")
+    offset: int = Field(default=0, description="Pagination offset for list mode")
 
 
 class CreateWidgetInstanceParams(BaseModel):
@@ -441,23 +441,23 @@ class CreateWidgetInstanceParams(BaseModel):
 
     sp_widget: str = Field(..., description="sys_id of the widget to place")
     sp_column: str = Field(..., description="sys_id of the target column")
-    order: int = Field(0, description="Display order within the column")
+    order: int = Field(default=0, description="Display order within the column")
     widget_parameters: Optional[str] = Field(
-        None, description="JSON string of widget instance options"
+        default=None, description="JSON string of widget instance options"
     )
-    css: Optional[str] = Field(None, description="Instance-level CSS overrides")
+    css: Optional[str] = Field(default=None, description="Instance-level CSS overrides")
 
 
 class UpdateWidgetInstanceParams(BaseModel):
     """Parameters for updating a widget instance."""
 
     instance_id: str = Field(..., description="sys_id of the widget instance")
-    order: Optional[int] = Field(None, description="Display order within the column")
-    sp_column: Optional[str] = Field(None, description="Move to a different column (sys_id)")
+    order: Optional[int] = Field(default=None, description="Display order within the column")
+    sp_column: Optional[str] = Field(default=None, description="Move to a different column (sys_id)")
     widget_parameters: Optional[str] = Field(
-        None, description="JSON string of widget instance options"
+        default=None, description="JSON string of widget instance options"
     )
-    css: Optional[str] = Field(None, description="Instance-level CSS overrides")
+    css: Optional[str] = Field(default=None, description="Instance-level CSS overrides")
 
 
 @register_tool(
