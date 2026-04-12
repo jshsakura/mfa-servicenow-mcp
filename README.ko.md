@@ -194,11 +194,11 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
-| `standard` | 48 | **(기본값)** 읽기 전용 safe mode. 전 도메인 조회/분석 도구 포함 |
-| `service_desk` | 52 | standard + 인시던트 생성/처리/해결/코멘트 |
-| `portal_developer` | 58 | standard + 포탈/위젯 수정, Script Include 수정, 체인지셋 커밋/퍼블리시 |
-| `platform_developer` | 71 | standard + 워크플로우 CRUD, UI Policy, 인시던트/변경관리 수정 |
-| `full` | 86 | 전 도메인 수정/삭제 가능 |
+| `standard` | 55 | **(기본값)** 읽기 전용 safe mode. 전 도메인 조회/분석 도구 포함 |
+| `service_desk` | 59 | standard + 인시던트 생성/처리/해결/코멘트 |
+| `portal_developer` | 70 | standard + 포탈/위젯 수정, Script Include 수정, 체인지셋 커밋/퍼블리시 |
+| `platform_developer` | 78 | standard + 워크플로우 CRUD, UI Policy, 인시던트/변경관리 수정 |
+| `full` | 98 | 전 도메인 수정/삭제 가능 |
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 

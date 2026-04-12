@@ -194,11 +194,11 @@ All packages except `none` include the full set of read-only tools (55 tools). H
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `standard` | 48 | **(Default)** Read-only safe mode. All query/analysis tools across every domain. |
-| `service_desk` | 52 | standard + incident create/update/resolve/comment |
-| `portal_developer` | 58 | standard + portal/widget updates, script include writes, changeset commit/publish |
-| `platform_developer` | 71 | standard + workflow CRUD, UI policy, incident/change management writes |
-| `full` | 86 | All write operations across every domain |
+| `standard` | 55 | **(Default)** Read-only safe mode. All query/analysis tools across every domain. |
+| `service_desk` | 59 | standard + incident create/update/resolve/comment |
+| `portal_developer` | 70 | standard + portal/widget updates, script include writes, changeset commit/publish |
+| `platform_developer` | 78 | standard + workflow CRUD, UI policy, incident/change management writes |
+| `full` | 98 | All write operations across every domain |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
