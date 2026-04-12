@@ -1,0 +1,84 @@
+site_name: MFA ServiceNow MCP
+site_description: MFA-first ServiceNow MCP server for LLMs (Claude, OpenAI, etc.)
+site_author: jshsakura
+site_url: https://jshsakura.github.io/servicenow/
+
+theme:
+  name: material
+  language: en
+  palette:
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+
+repo_name: jshsakura/mfa-servicenow-mcp
+repo_url: https://github.com/jshsakura/mfa-servicenow-mcp
+edit_uri: edit/main/docs/
+
+# Extensions to make the content look professional
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: [".."] # To allow including README.md from root
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+
+# Navigation structure - mapping to existing docs
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Quick Start: index.md#quick-start
+      - Prerequisites: index.md#prerequisites
+      - Client Setup: docs/CLIENT_SETUP.md
+      - Windows Installation: docs/WINDOWS_INSTALL.md
+  - Features & Tools:
+      - Tool Inventory: docs/TOOL_INVENTORY.md
+      - Authentication: index.md#authentication
+      - Tool Packages: index.md#tool-packages
+      - Performance: index.md#performance-optimizations
+  - Guides:
+      - Service Catalog: docs/catalog.md
+      - Change Management: docs/change_management.md
+      - Workflow & Flow Designer: docs/workflow_management.md
+  - Skills:
+      - Skill System: index.md#skills
+  - Advanced:
+      - Docker: index.md#docker
+      - Developer Setup: index.md#developer-setup

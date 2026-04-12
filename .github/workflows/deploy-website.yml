@@ -1,0 +1,42 @@
+name: Deploy Website to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'README.ko.md'
+      - '.github/workflows/deploy-website.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for git-revision-date-localized plugin if needed
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r website/requirements.txt
+
+      - name: Build and Deploy
+        working-directory: website
+        run: |
+          # The symbolic link might not work in CI if not handled correctly.
+          # Let's recreate it or just copy for the build step to be safe.
+          rm -rf docs/docs
+          cp -r ../docs docs/docs
+          mkdocs gh-deploy --force --clean --verbose
