@@ -22,7 +22,9 @@ class CreateIncidentParams(BaseModel):
     """Parameters for creating an incident."""
 
     short_description: str = Field(..., description="Short description of the incident")
-    description: Optional[str] = Field(default=None, description="Detailed description of the incident")
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the incident"
+    )
     caller_id: Optional[str] = Field(default=None, description="User who reported the incident")
     category: Optional[str] = Field(default=None, description="Category of the incident")
     subcategory: Optional[str] = Field(default=None, description="Subcategory of the incident")
@@ -30,15 +32,21 @@ class CreateIncidentParams(BaseModel):
     impact: Optional[str] = Field(default=None, description="Impact of the incident")
     urgency: Optional[str] = Field(default=None, description="Urgency of the incident")
     assigned_to: Optional[str] = Field(default=None, description="User assigned to the incident")
-    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the incident")
+    assignment_group: Optional[str] = Field(
+        default=None, description="Group assigned to the incident"
+    )
 
 
 class UpdateIncidentParams(BaseModel):
     """Parameters for updating an incident."""
 
     incident_id: str = Field(..., description="Incident ID or sys_id")
-    short_description: Optional[str] = Field(default=None, description="Short description of the incident")
-    description: Optional[str] = Field(default=None, description="Detailed description of the incident")
+    short_description: Optional[str] = Field(
+        default=None, description="Short description of the incident"
+    )
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the incident"
+    )
     state: Optional[str] = Field(default=None, description="State of the incident")
     category: Optional[str] = Field(default=None, description="Category of the incident")
     subcategory: Optional[str] = Field(default=None, description="Subcategory of the incident")
@@ -46,9 +54,13 @@ class UpdateIncidentParams(BaseModel):
     impact: Optional[str] = Field(default=None, description="Impact of the incident")
     urgency: Optional[str] = Field(default=None, description="Urgency of the incident")
     assigned_to: Optional[str] = Field(default=None, description="User assigned to the incident")
-    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the incident")
+    assignment_group: Optional[str] = Field(
+        default=None, description="Group assigned to the incident"
+    )
     work_notes: Optional[str] = Field(default=None, description="Work notes to add to the incident")
-    close_notes: Optional[str] = Field(default=None, description="Close notes to add to the incident")
+    close_notes: Optional[str] = Field(
+        default=None, description="Close notes to add to the incident"
+    )
     close_code: Optional[str] = Field(default=None, description="Close code for the incident")
 
 
@@ -78,7 +90,9 @@ class GetIncidentByNumberParams(BaseModel):
     limit: int = Field(default=10, description="Maximum number of incidents to return (list mode)")
     offset: int = Field(default=0, description="Offset for pagination (list mode)")
     state: Optional[str] = Field(default=None, description="Filter by incident state (list mode)")
-    assigned_to: Optional[str] = Field(default=None, description="Filter by assigned user (list mode)")
+    assigned_to: Optional[str] = Field(
+        default=None, description="Filter by assigned user (list mode)"
+    )
     category: Optional[str] = Field(default=None, description="Filter by category (list mode)")
     query: Optional[str] = Field(default=None, description="Search query for incidents (list mode)")
     count_only: bool = Field(
@@ -93,7 +107,9 @@ class IncidentResponse(BaseModel):
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
     incident_id: Optional[str] = Field(default=None, description="ID of the affected incident")
-    incident_number: Optional[str] = Field(default=None, description="Number of the affected incident")
+    incident_number: Optional[str] = Field(
+        default=None, description="Number of the affected incident"
+    )
 
 
 def _resolve_incident_sys_id(

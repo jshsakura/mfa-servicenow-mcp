@@ -23,11 +23,13 @@ class CreateCatalogItemVariableParams(BaseModel):
     catalog_item_id: str = Field(..., description="The sys_id of the catalog item")
     name: str = Field(..., description="The name of the variable (internal name)")
     type: str = Field(
-       default= ..., description="The type of variable (e.g., string, integer, boolean, reference)"
+        default=..., description="The type of variable (e.g., string, integer, boolean, reference)"
     )
     label: str = Field(..., description="The display label for the variable")
     mandatory: bool = Field(default=False, description="Whether the variable is required")
-    help_text: Optional[str] = Field(default=None, description="Help text to display with the variable")
+    help_text: Optional[str] = Field(
+        default=None, description="Help text to display with the variable"
+    )
     default_value: Optional[str] = Field(default=None, description="Default value for the variable")
     description: Optional[str] = Field(default=None, description="Description of the variable")
     order: Optional[int] = Field(default=None, description="Display order of the variable")
@@ -81,7 +83,9 @@ class UpdateCatalogItemVariableParams(BaseModel):
     variable_id: str = Field(..., description="The sys_id of the variable to update")
     label: Optional[str] = Field(default=None, description="The display label for the variable")
     mandatory: Optional[bool] = Field(default=None, description="Whether the variable is required")
-    help_text: Optional[str] = Field(default=None, description="Help text to display with the variable")
+    help_text: Optional[str] = Field(
+        default=None, description="Help text to display with the variable"
+    )
     default_value: Optional[str] = Field(default=None, description="Default value for the variable")
     description: Optional[str] = Field(default=None, description="Description of the variable")
     order: Optional[int] = Field(default=None, description="Display order of the variable")

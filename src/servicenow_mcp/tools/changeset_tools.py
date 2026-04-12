@@ -25,10 +25,14 @@ class GetChangesetDetailsParams(BaseModel):
         default=None,
         description="Changeset ID or sys_id. If provided, returns detail for that single update set with its entries.",
     )
-    limit: Optional[int] = Field(default=10, description="Maximum number of records to return (list mode)")
+    limit: Optional[int] = Field(
+        default=10, description="Maximum number of records to return (list mode)"
+    )
     offset: Optional[int] = Field(default=0, description="Offset to start from (list mode)")
     state: Optional[str] = Field(default=None, description="Filter by state (list mode)")
-    application: Optional[str] = Field(default=None, description="Filter by application (list mode)")
+    application: Optional[str] = Field(
+        default=None, description="Filter by application (list mode)"
+    )
     developer: Optional[str] = Field(default=None, description="Filter by developer (list mode)")
     timeframe: Optional[str] = Field(
         default=None, description="Filter by timeframe (recent, last_week, last_month) (list mode)"
@@ -46,7 +50,9 @@ class CreateChangesetParams(BaseModel):
     name: str = Field(..., description="Name of the changeset")
     description: Optional[str] = Field(default=None, description="Description of the changeset")
     application: str = Field(..., description="Application the changeset belongs to")
-    developer: Optional[str] = Field(default=None, description="Developer responsible for the changeset")
+    developer: Optional[str] = Field(
+        default=None, description="Developer responsible for the changeset"
+    )
 
 
 class UpdateChangesetParams(BaseModel):
@@ -56,7 +62,9 @@ class UpdateChangesetParams(BaseModel):
     name: Optional[str] = Field(default=None, description="Name of the changeset")
     description: Optional[str] = Field(default=None, description="Description of the changeset")
     state: Optional[str] = Field(default=None, description="State of the changeset")
-    developer: Optional[str] = Field(default=None, description="Developer responsible for the changeset")
+    developer: Optional[str] = Field(
+        default=None, description="Developer responsible for the changeset"
+    )
 
 
 class CommitChangesetParams(BaseModel):

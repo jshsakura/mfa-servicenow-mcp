@@ -31,9 +31,15 @@ class CreateChangeRequestParams(BaseModel):
     impact: Optional[str] = Field(default=None, description="Impact of the change")
     category: Optional[str] = Field(default=None, description="Category of the change")
     requested_by: Optional[str] = Field(default=None, description="User who requested the change")
-    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the change")
-    start_date: Optional[str] = Field(default=None, description="Planned start date (YYYY-MM-DD HH:MM:SS)")
-    end_date: Optional[str] = Field(default=None, description="Planned end date (YYYY-MM-DD HH:MM:SS)")
+    assignment_group: Optional[str] = Field(
+        default=None, description="Group assigned to the change"
+    )
+    start_date: Optional[str] = Field(
+        default=None, description="Planned start date (YYYY-MM-DD HH:MM:SS)"
+    )
+    end_date: Optional[str] = Field(
+        default=None, description="Planned end date (YYYY-MM-DD HH:MM:SS)"
+    )
 
 
 class UpdateChangeRequestParams(BaseModel):
@@ -50,10 +56,18 @@ class UpdateChangeRequestParams(BaseModel):
     risk: Optional[str] = Field(default=None, description="Risk level of the change")
     impact: Optional[str] = Field(default=None, description="Impact of the change")
     category: Optional[str] = Field(default=None, description="Category of the change")
-    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the change")
-    start_date: Optional[str] = Field(default=None, description="Planned start date (YYYY-MM-DD HH:MM:SS)")
-    end_date: Optional[str] = Field(default=None, description="Planned end date (YYYY-MM-DD HH:MM:SS)")
-    work_notes: Optional[str] = Field(default=None, description="Work notes to add to the change request")
+    assignment_group: Optional[str] = Field(
+        default=None, description="Group assigned to the change"
+    )
+    start_date: Optional[str] = Field(
+        default=None, description="Planned start date (YYYY-MM-DD HH:MM:SS)"
+    )
+    end_date: Optional[str] = Field(
+        default=None, description="Planned end date (YYYY-MM-DD HH:MM:SS)"
+    )
+    work_notes: Optional[str] = Field(
+        default=None, description="Work notes to add to the change request"
+    )
 
 
 class GetChangeRequestDetailsParams(BaseModel):
@@ -63,7 +77,9 @@ class GetChangeRequestDetailsParams(BaseModel):
         default=None,
         description="Change request ID or sys_id. If provided, returns full details for that single change request.",
     )
-    limit: Optional[int] = Field(default=10, description="Maximum number of records to return (list mode)")
+    limit: Optional[int] = Field(
+        default=10, description="Maximum number of records to return (list mode)"
+    )
     offset: Optional[int] = Field(default=0, description="Offset to start from (list mode)")
     state: Optional[str] = Field(default=None, description="Filter by state (list mode)")
     type: Optional[str] = Field(
@@ -74,7 +90,8 @@ class GetChangeRequestDetailsParams(BaseModel):
         default=None, description="Filter by assignment group (list mode)"
     )
     timeframe: Optional[str] = Field(
-        default=None, description="Filter by timeframe (upcoming, in-progress, completed) (list mode)"
+        default=None,
+        description="Filter by timeframe (upcoming, in-progress, completed) (list mode)",
     )
     query: Optional[str] = Field(default=None, description="Additional query string (list mode)")
     count_only: bool = Field(
@@ -102,7 +119,9 @@ class SubmitChangeForApprovalParams(BaseModel):
     """Parameters for submitting a change request for approval."""
 
     change_id: str = Field(..., description="Change request ID or sys_id")
-    approval_comments: Optional[str] = Field(default=None, description="Comments for the approval request")
+    approval_comments: Optional[str] = Field(
+        default=None, description="Comments for the approval request"
+    )
 
 
 class ApproveChangeParams(BaseModel):

@@ -44,7 +44,9 @@ class ListFlowsParams(BaseModel):
     limit: int = Field(default=20, description="Maximum number of records (max 100)")
     offset: int = Field(default=0, description="Pagination offset")
     active: Optional[bool] = Field(default=None, description="Filter by active status")
-    status: Optional[str] = Field(default=None, description="Filter by status: Draft, Published, etc.")
+    status: Optional[str] = Field(
+        default=None, description="Filter by status: Draft, Published, etc."
+    )
     name: Optional[str] = Field(default=None, description="Filter by name (contains)")
     scope: Optional[str] = Field(default=None, description="Filter by application scope name")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
@@ -75,7 +77,9 @@ class GetFlowExecutionsParams(BaseModel):
         default=None,
         description="If provided, return single execution detail by sys_id from sys_flow_context. Other filters are ignored.",
     )
-    flow_name: Optional[str] = Field(default=None, description="Flow name to search (contains match)")
+    flow_name: Optional[str] = Field(
+        default=None, description="Flow name to search (contains match)"
+    )
     flow_id: Optional[str] = Field(default=None, description="Flow sys_id to filter executions")
     state: Optional[str] = Field(
         default=None,

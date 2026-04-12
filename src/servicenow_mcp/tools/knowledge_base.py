@@ -21,9 +21,13 @@ class CreateKnowledgeBaseParams(BaseModel):
     """Parameters for creating a knowledge base."""
 
     title: str = Field(..., description="Title of the knowledge base")
-    description: Optional[str] = Field(default=None, description="Description of the knowledge base")
+    description: Optional[str] = Field(
+        default=None, description="Description of the knowledge base"
+    )
     owner: Optional[str] = Field(default=None, description="The specified admin user or group")
-    managers: Optional[str] = Field(default=None, description="Users who can manage this knowledge base")
+    managers: Optional[str] = Field(
+        default=None, description="Users who can manage this knowledge base"
+    )
     publish_workflow: Optional[str] = Field(
         default="Knowledge - Instant Publish", description="Publication workflow"
     )
@@ -63,7 +67,7 @@ class CreateArticleParams(BaseModel):
 
     title: str = Field(..., description="Title of the article")
     text: str = Field(
-       default= ...,
+        default=...,
         description="The main body text for the article. Field supports html formatting and wiki markup based on the article_type. HTML is the default.",
     )
     short_description: str = Field(..., description="Short description of the article")
@@ -94,7 +98,9 @@ class PublishArticleParams(BaseModel):
     """Parameters for publishing a knowledge article."""
 
     article_id: str = Field(..., description="ID of the article to publish")
-    workflow_state: Optional[str] = Field(default="published", description="The workflow state to set")
+    workflow_state: Optional[str] = Field(
+        default="published", description="The workflow state to set"
+    )
     workflow_version: Optional[str] = Field(default=None, description="The workflow version to use")
 
 
@@ -140,7 +146,9 @@ class ArticleResponse(BaseModel):
     message: str = Field(..., description="Message describing the result")
     article_id: Optional[str] = Field(default=None, description="ID of the affected article")
     article_title: Optional[str] = Field(default=None, description="Title of the affected article")
-    workflow_state: Optional[str] = Field(default=None, description="Current workflow state of the article")
+    workflow_state: Optional[str] = Field(
+        default=None, description="Current workflow state of the article"
+    )
 
 
 class ListCategoriesParams(BaseModel):

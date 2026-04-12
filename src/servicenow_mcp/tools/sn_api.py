@@ -512,7 +512,7 @@ class HealthCheckParams(BaseModel):
 
 class GenericQueryParams(BaseModel):
     table: str = Field(
-       default= ...,
+        default=...,
         description=(
             "Target table name for general record lookup (e.g., incident, kb_knowledge). "
             "For portal/widget/provider source analysis, prefer specialized portal tools instead of raw table reads. "
@@ -532,7 +532,9 @@ class GenericQueryParams(BaseModel):
         ),
     )
     limit: int = Field(default=20, description="Max records (max 100). Default 20.")
-    offset: int = Field(default=0, description="Pagination offset. Use with total_count to iterate.")
+    offset: int = Field(
+        default=0, description="Pagination offset. Use with total_count to iterate."
+    )
     orderby: Optional[str] = Field(
         default=None, description="Order by field, supports -field for desc"
     )
