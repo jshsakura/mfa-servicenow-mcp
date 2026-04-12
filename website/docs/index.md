@@ -2,7 +2,15 @@
 hide:
   - navigation
   - toc
+social:
+  cards: false
 ---
+
+<meta property="og:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
+<meta property="og:title" content="MFA ServiceNow MCP — Stop giving your LLM a script. Give it a gun.">
+<meta property="og:description" content="Equip your LLM with high-caliber MCP Skills to hunt down bottlenecks, execute with surgical precision, and turn manual toil into strategic fire.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
 
 <script>document.body.classList.add("landing");</script>
 
