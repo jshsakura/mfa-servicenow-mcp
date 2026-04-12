@@ -11,12 +11,13 @@ hide:
   <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
-      Secure ServiceNow<br>
-      for <span class="gradient-text">AI Agents</span>
+      Stop giving your LLM a script.<br>
+      <span class="gradient-text">Give it a gun.</span>
     </h1>
     <p class="hero-subtitle">
-      Give your AI agent a real ServiceNow session.<br>
-      Safe tools, practical skills, and MFA that just works.
+      Stop treating your AI like a chatbot.<br>
+      Equip it with MCP &amp; Skills to actually execute tasks inside ServiceNow.<br>
+      Talk is cheap; action is automated.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
