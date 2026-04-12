@@ -50,8 +50,12 @@
   color: #fafafa !important;
   opacity: 1 !important;
 }
-.md-header .md-header__button svg, .md-header .md-source svg {
+.md-header .md-header__button svg,
+.md-header .md-source svg,
+.md-header .md-search__icon svg,
+.md-header [data-md-toggle="search"] svg {
   fill: #fafafa !important;
+  color: #fafafa !important;
 }
 .md-header .md-tooltip, .md-header .md-source__fact--version {
   color: #fafafa !important;
@@ -69,9 +73,13 @@
 body.landing .md-header__topic:nth-child(2) {
   display: none !important;
 }
-/* Prevent hamburger overlap with title on mobile */
+/* Mobile nav drawer — ensure readable colors */
 @media (max-width: 76.1875em) {
   .md-header__title { padding-left: 0; }
+  .md-nav--primary .md-nav__item a,
+  .md-nav--primary .md-nav__title {
+    color: var(--hero-text) !important;
+  }
 }
 [data-md-color-scheme="slate"] .md-header {
   background: rgba(9,9,11,.9) !important;
@@ -102,7 +110,10 @@ body.landing .md-main__inner { margin-top: 0; max-width: 100% !important; paddin
 body.landing .md-content { max-width: 100% !important; background: transparent !important; }
 body.landing .md-content__inner { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
 body.landing .md-content__inner::before { display: none !important; }
-body.landing .md-sidebar { display: none; }
+/* Hide desktop sidebar only — keep mobile drawer functional */
+@media (min-width: 76.25em) {
+  body.landing .md-sidebar { display: none; }
+}
 body.landing .md-footer { margin-top: 0; }
 
 /* ============================================================
