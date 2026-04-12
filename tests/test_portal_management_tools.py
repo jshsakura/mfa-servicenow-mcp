@@ -255,6 +255,13 @@ class TestGetPage:
                     }
                 ],
             },
+            # widget metadata (bulk resolve)
+            {
+                "success": True,
+                "results": [
+                    {"sys_id": "wid-1", "id": "my_widget", "name": "My Widget"}
+                ],
+            },
         ]
 
         params = GetPageParams(page_id="index", include_layout=True)
@@ -266,7 +273,10 @@ class TestGetPage:
         assert len(layout[0]["rows"]) == 1
         assert len(layout[0]["rows"][0]["columns"]) == 1
         assert len(layout[0]["rows"][0]["columns"][0]["widgets"]) == 1
-        assert layout[0]["rows"][0]["columns"][0]["widgets"][0]["widget"] == "wid-1"
+        w = layout[0]["rows"][0]["columns"][0]["widgets"][0]
+        assert w["widget"] == "wid-1"
+        assert w["widget_id"] == "my_widget"
+        assert w["widget_name"] == "My Widget"
 
     @patch("servicenow_mcp.tools.portal_management_tools.sn_query")
     def test_with_layout_preserves_ordering(self, mock_sn_query, mock_config, mock_auth_manager):
@@ -338,6 +348,14 @@ class TestGetPage:
                         "widget_parameters": "",
                         "css": "",
                     },
+                ],
+            },
+            # widget metadata (bulk resolve)
+            {
+                "success": True,
+                "results": [
+                    {"sys_id": "wid-1", "id": "widget_one", "name": "Widget One"},
+                    {"sys_id": "wid-2", "id": "widget_two", "name": "Widget Two"},
                 ],
             },
         ]
