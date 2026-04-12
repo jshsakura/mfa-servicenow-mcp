@@ -11,12 +11,12 @@ hide:
   <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
-      Secure ServiceNow<br>
-      for <span class="gradient-text">AI Agents</span>
+      ServiceNow<br>
+      <span class="gradient-text">MCP Server</span>
     </h1>
     <p class="hero-subtitle">
-      Real browser login for Okta, Entra ID, SAML, and any MFA/SSO.
-      No passwords in config files — your AI agents inherit a live session.
+      MFA login that just works. 89 tools. 20 skills.
+      One command to connect your AI agent to ServiceNow.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
