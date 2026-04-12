@@ -61,8 +61,9 @@
   color: #fafafa !important;
   border: 1px solid #3f3f46 !important;
 }
-.md-header__button.md-logo {
-  display: none !important;
+.md-header__button.md-logo img {
+  height: 24px;
+  width: auto;
 }
 /* Hide "Home" breadcrumb text next to site title */
 body.landing .md-header__topic:nth-child(2) {
