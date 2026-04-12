@@ -49,28 +49,7 @@ hide:
   <div class="hero-terminal-body" id="hero-typed-terminal"></div>
 </div>
 
-<div class="hero-stats">
-  <div class="hero-stat">
-    <span class="hero-stat-value">89+</span>
-    <span class="hero-stat-label">MCP Tools</span>
-  </div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">MFA</span>
-    <span class="hero-stat-label">Native Support</span>
-  </div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">6</span>
-    <span class="hero-stat-label">Skill Packages</span>
-  </div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">0</span>
-    <span class="hero-stat-label">Credentials Shared</span>
-  </div>
-</div>
-
-<hr class="section-divider">
-
-<div class="section" id="install">
+<div class="section" id="install" style="padding-top:48px;">
   <div class="section-inner">
     <span class="section-label">Quick install</span>
     <h2 class="section-title">Copy, paste, run</h2>
@@ -147,6 +126,25 @@ servicenow-mcp \
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<div class="hero-stats">
+  <div class="hero-stat">
+    <span class="hero-stat-value">89+</span>
+    <span class="hero-stat-label">MCP Tools</span>
+  </div>
+  <div class="hero-stat">
+    <span class="hero-stat-value">MFA</span>
+    <span class="hero-stat-label">Native Support</span>
+  </div>
+  <div class="hero-stat">
+    <span class="hero-stat-value">6</span>
+    <span class="hero-stat-label">Skill Packages</span>
+  </div>
+  <div class="hero-stat">
+    <span class="hero-stat-value">0</span>
+    <span class="hero-stat-label">Credentials Shared</span>
   </div>
 </div>
 
