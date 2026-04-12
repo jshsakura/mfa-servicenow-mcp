@@ -15,8 +15,8 @@ hide:
       <span class="gradient-text">Now It Can.</span>
     </h1>
     <p class="hero-subtitle">
-      Give your AI agent a real ServiceNow session — MFA and all.
-      No workarounds. No credentials to manage. Just run it.
+      Give your AI agent a real ServiceNow session.<br>
+      MFA and all. No workarounds. Just run it.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
