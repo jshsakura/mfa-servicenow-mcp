@@ -64,6 +64,10 @@
 .md-header__button.md-logo {
   display: none !important;
 }
+/* Hide "Home" breadcrumb text next to site title */
+body.landing .md-header__topic:nth-child(2) {
+  display: none !important;
+}
 /* Prevent hamburger overlap with title on mobile */
 @media (max-width: 76.1875em) {
   .md-header__title { padding-left: 0; }
