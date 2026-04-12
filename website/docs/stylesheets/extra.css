@@ -410,6 +410,14 @@ pre.install-code code {
 /* Light mode: dark text on light code bg */
 :root { --code-text: #e4e4e7; --code-comment: #52525b; }
 [data-md-color-scheme="default"] .install-code-block { background: #1e1e2e; }
+
+/* Force Material copy button visible on dark code blocks */
+.install-code-block .md-clipboard {
+  color: #a1a1aa !important;
+}
+.install-code-block .md-clipboard:hover {
+  color: #fafafa !important;
+}
 pre.install-code code { color: var(--code-text) !important; }
 pre.install-code .c { color: var(--code-comment); }
 
