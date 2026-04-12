@@ -25,7 +25,6 @@ from servicenow_mcp.tools.change_tools import (
     approve_change,
     create_change_request,
     get_change_request_details,
-    list_change_requests,
     reject_change,
     submit_change_for_approval,
     update_change_request,
@@ -35,7 +34,6 @@ from servicenow_mcp.tools.changeset_tools import (
     commit_changeset,
     create_changeset,
     get_changeset_details,
-    list_changesets,
     publish_changeset,
     update_changeset,
 )
@@ -49,7 +47,6 @@ from servicenow_mcp.tools.incident_tools import (
     add_comment,
     create_incident,
     get_incident_by_number,
-    list_incidents,
     resolve_incident,
     update_incident,
 )
@@ -87,7 +84,6 @@ __all__ = [
     "update_incident",
     "add_comment",
     "resolve_incident",
-    "list_incidents",
     "get_incident_by_number",
     # Log tools
     "get_system_logs",
@@ -112,7 +108,6 @@ __all__ = [
     # Change management tools
     "create_change_request",
     "update_change_request",
-    "list_change_requests",
     "get_change_request_details",
     "add_change_task",
     "submit_change_for_approval",
@@ -132,7 +127,6 @@ __all__ = [
     "delete_legacy_workflow_activity",
     "reorder_legacy_workflow_activities",
     # Changeset tools
-    "list_changesets",
     "get_changeset_details",
     "create_changeset",
     "update_changeset",

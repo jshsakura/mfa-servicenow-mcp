@@ -7,8 +7,8 @@ delegatable: true
 required_input: scope or portal_id
 output: report
 tools:
-  - list_portals
-  - list_pages
+  - get_portal
+  - get_page
   - search_portal_regex_matches
   - detect_angular_implicit_globals
   - get_provider_dependency_map
@@ -27,7 +27,7 @@ You are running a comprehensive portal health check. DELEGATE to sub-agent recom
 
 ## Pipeline
 
-1. CALL list_portals(limit=10)
+1. CALL get_portal(limit=10)
    - IF scope given → filter by scope
    - IF portal_id given → use directly
 
@@ -64,7 +64,7 @@ You are running a comprehensive portal health check. DELEGATE to sub-agent recom
 
 ## ON ERROR
 
-- "0 findings everywhere" → either clean portal or wrong scope. CALL list_portals to verify.
+- "0 findings everywhere" → either clean portal or wrong scope. CALL get_portal to verify.
 - Timeout on large scan → reduce max_widgets to 25
 
 ## DELEGATE hint

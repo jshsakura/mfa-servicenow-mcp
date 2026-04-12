@@ -11,7 +11,6 @@ from servicenow_mcp.tools.change_tools import (
     ApproveChangeParams,
     CreateChangeRequestParams,
     GetChangeRequestDetailsParams,
-    ListChangeRequestsParams,
     RejectChangeParams,
     SubmitChangeForApprovalParams,
     UpdateChangeRequestParams,
@@ -19,7 +18,6 @@ from servicenow_mcp.tools.change_tools import (
     approve_change,
     create_change_request,
     get_change_request_details,
-    list_change_requests,
     reject_change,
     submit_change_for_approval,
     update_change_request,
@@ -49,7 +47,7 @@ class TestChangeTools(unittest.TestCase):
         return mock_response
 
     # ------------------------------------------------------------------ #
-    # list_change_requests
+    # get_change_request_details – list mode (no change_id)
     # ------------------------------------------------------------------ #
 
     @patch("servicenow_mcp.tools.change_tools.sn_query_page")
@@ -58,8 +56,8 @@ class TestChangeTools(unittest.TestCase):
             [{"sys_id": "ch1", "number": "CHG001"}],
             1,
         )
-        params = ListChangeRequestsParams()
-        result = list_change_requests(self.config, self.auth_manager, params)
+        params = GetChangeRequestDetailsParams()
+        result = get_change_request_details(self.config, self.auth_manager, params)
 
         self.assertTrue(result["success"])
         self.assertEqual(len(result["change_requests"]), 1)
@@ -81,14 +79,14 @@ class TestChangeTools(unittest.TestCase):
             [{"sys_id": "ch1", "state": "open", "type": "normal"}],
             1,
         )
-        params = ListChangeRequestsParams(
+        params = GetChangeRequestDetailsParams(
             state="open",
             type="normal",
             category="Hardware",
             assignment_group="IT Support",
             query="short_description=Test",
         )
-        result = list_change_requests(self.config, self.auth_manager, params)
+        result = get_change_request_details(self.config, self.auth_manager, params)
 
         self.assertTrue(result["success"])
         call_kwargs = mock_query_page.call_args
@@ -104,8 +102,8 @@ class TestChangeTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.change_tools.sn_query_page")
     def test_list_change_requests_timeframe_upcoming(self, mock_query_page):
         mock_query_page.return_value = ([], 0)
-        params = ListChangeRequestsParams(timeframe="upcoming")
-        list_change_requests(self.config, self.auth_manager, params)
+        params = GetChangeRequestDetailsParams(timeframe="upcoming")
+        get_change_request_details(self.config, self.auth_manager, params)
 
         call_kwargs = mock_query_page.call_args
         query = call_kwargs.kwargs.get("query", "")
@@ -114,8 +112,8 @@ class TestChangeTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.change_tools.sn_query_page")
     def test_list_change_requests_timeframe_in_progress(self, mock_query_page):
         mock_query_page.return_value = ([], 0)
-        params = ListChangeRequestsParams(timeframe="in-progress")
-        list_change_requests(self.config, self.auth_manager, params)
+        params = GetChangeRequestDetailsParams(timeframe="in-progress")
+        get_change_request_details(self.config, self.auth_manager, params)
 
         call_kwargs = mock_query_page.call_args
         query = call_kwargs.kwargs.get("query", "")
@@ -125,8 +123,8 @@ class TestChangeTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.change_tools.sn_query_page")
     def test_list_change_requests_timeframe_completed(self, mock_query_page):
         mock_query_page.return_value = ([], 0)
-        params = ListChangeRequestsParams(timeframe="completed")
-        list_change_requests(self.config, self.auth_manager, params)
+        params = GetChangeRequestDetailsParams(timeframe="completed")
+        get_change_request_details(self.config, self.auth_manager, params)
 
         call_kwargs = mock_query_page.call_args
         query = call_kwargs.kwargs.get("query", "")
@@ -135,8 +133,8 @@ class TestChangeTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.change_tools.sn_count")
     def test_list_change_requests_count_only(self, mock_count):
         mock_count.return_value = 42
-        params = ListChangeRequestsParams(count_only=True)
-        result = list_change_requests(self.config, self.auth_manager, params)
+        params = GetChangeRequestDetailsParams(count_only=True)
+        result = get_change_request_details(self.config, self.auth_manager, params)
 
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 42)
@@ -150,8 +148,8 @@ class TestChangeTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.change_tools.sn_query_page")
     def test_list_change_requests_error(self, mock_query_page):
         mock_query_page.side_effect = Exception("Network error")
-        params = ListChangeRequestsParams()
-        result = list_change_requests(self.config, self.auth_manager, params)
+        params = GetChangeRequestDetailsParams()
+        result = get_change_request_details(self.config, self.auth_manager, params)
 
         self.assertFalse(result["success"])
         self.assertIn("Error listing change requests", result["message"])

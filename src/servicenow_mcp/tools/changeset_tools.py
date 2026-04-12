@@ -18,28 +18,23 @@ from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 logger = logging.getLogger(__name__)
 
 
-class ListChangesetsParams(BaseModel):
-    """Parameters for listing changesets."""
+class GetChangesetDetailsParams(BaseModel):
+    """Parameters for getting changeset details or listing changesets."""
 
-    limit: Optional[int] = Field(10, description="Maximum number of records to return")
-    offset: Optional[int] = Field(0, description="Offset to start from")
-    state: Optional[str] = Field(None, description="Filter by state")
-    application: Optional[str] = Field(None, description="Filter by application")
-    developer: Optional[str] = Field(None, description="Filter by developer")
+    changeset_id: Optional[str] = Field(None, description="Changeset ID or sys_id. If provided, returns detail for that single update set with its entries.")
+    limit: Optional[int] = Field(10, description="Maximum number of records to return (list mode)")
+    offset: Optional[int] = Field(0, description="Offset to start from (list mode)")
+    state: Optional[str] = Field(None, description="Filter by state (list mode)")
+    application: Optional[str] = Field(None, description="Filter by application (list mode)")
+    developer: Optional[str] = Field(None, description="Filter by developer (list mode)")
     timeframe: Optional[str] = Field(
-        None, description="Filter by timeframe (recent, last_week, last_month)"
+        None, description="Filter by timeframe (recent, last_week, last_month) (list mode)"
     )
-    query: Optional[str] = Field(None, description="Additional query string")
+    query: Optional[str] = Field(None, description="Additional query string (list mode)")
     count_only: bool = Field(
         False,
-        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+        description="Return count only without fetching records. Uses lightweight Aggregate API. (list mode)",
     )
-
-
-class GetChangesetDetailsParams(BaseModel):
-    """Parameters for getting changeset details."""
-
-    changeset_id: str = Field(..., description="Changeset ID or sys_id")
 
 
 class CreateChangesetParams(BaseModel):
@@ -84,19 +79,63 @@ class AddFileToChangesetParams(BaseModel):
 
 
 @register_tool(
-    name="list_changesets",
-    params=ListChangesetsParams,
-    description="List update sets filtered by state/developer/app. Returns name, state, and scope summary.",
+    name="get_changeset_details",
+    params=GetChangesetDetailsParams,
+    description="Get a single update set by sys_id with entries, or list update sets with filters.",
     serialization="json",
     return_type=str,
 )
-def list_changesets(
+def get_changeset_details(
     config: ServerConfig,
     auth_manager: AuthManager,
-    params: ListChangesetsParams,
+    params: GetChangesetDetailsParams,
 ) -> Dict[str, Any]:
-    """List changesets from ServiceNow."""
-    # Build sysparm_query
+    """Get detailed information about a specific changeset, or list changesets."""
+    # Detail mode: single changeset with entries
+    if params.changeset_id:
+        try:
+            records, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="sys_update_set",
+                query=f"sys_id={params.changeset_id}",
+                fields="",
+                limit=1,
+                offset=0,
+            )
+
+            if not records:
+                return {
+                    "success": False,
+                    "message": f"Changeset not found: {params.changeset_id}",
+                }
+
+            changeset = records[0]
+
+            changes, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="sys_update_xml",
+                query=f"update_set={params.changeset_id}",
+                fields="",
+                limit=100,
+                offset=0,
+            )
+
+            return {
+                "success": True,
+                "changeset": changeset,
+                "changes": changes,
+                "change_count": len(changes),
+            }
+        except Exception as e:
+            logger.error("Error getting changeset details: %s", e)
+            return {
+                "success": False,
+                "message": f"Error getting changeset details: {str(e)}",
+            }
+
+    # List mode: filter and return multiple changesets
     query_parts: List[str] = []
 
     if params.state:
@@ -152,62 +191,6 @@ def list_changesets(
         return {
             "success": False,
             "message": f"Error listing changesets: {str(e)}",
-        }
-
-
-@register_tool(
-    name="get_changeset_details",
-    params=GetChangesetDetailsParams,
-    description="Retrieve a single update set with its entries and metadata by sys_id.",
-    serialization="json",
-    return_type=str,
-)
-def get_changeset_details(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetChangesetDetailsParams,
-) -> Dict[str, Any]:
-    """Get detailed information about a specific changeset."""
-    try:
-        records, _ = sn_query_page(
-            config,
-            auth_manager,
-            table="sys_update_set",
-            query=f"sys_id={params.changeset_id}",
-            fields="",
-            limit=1,
-            offset=0,
-        )
-
-        if not records:
-            return {
-                "success": False,
-                "message": f"Changeset not found: {params.changeset_id}",
-            }
-
-        changeset = records[0]
-
-        changes, _ = sn_query_page(
-            config,
-            auth_manager,
-            table="sys_update_xml",
-            query=f"update_set={params.changeset_id}",
-            fields="",
-            limit=100,
-            offset=0,
-        )
-
-        return {
-            "success": True,
-            "changeset": changeset,
-            "changes": changes,
-            "change_count": len(changes),
-        }
-    except Exception as e:
-        logger.error("Error getting changeset details: %s", e)
-        return {
-            "success": False,
-            "message": f"Error getting changeset details: {str(e)}",
         }
 
 

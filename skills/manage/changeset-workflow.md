@@ -7,7 +7,7 @@ delegatable: false
 required_input: changeset name or sys_id
 output: status
 tools:
-  - list_changesets
+  - get_changeset_details
   - create_changeset
   - get_changeset_details
   - commit_changeset
@@ -54,7 +54,7 @@ IF "퍼블리시" or "publish":
   → ONLY on confirm: CALL publish_changeset(changeset_id=INPUT, confirm="approve")
 
 IF "목록" or "list":
-  CALL list_changesets(state="in progress", limit=10)
+  CALL get_changeset_details(state="in progress", limit=10)
 
 ## ON ERROR
 

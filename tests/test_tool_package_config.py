@@ -59,11 +59,11 @@ def test_local_sync_tools_in_correct_packages():
     assert "update_remote_from_local" not in config["service_desk"]
 
 
-def test_full_package_is_95_tools():
+def test_full_package_is_89_tools():
     config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
     config = yaml.safe_load(config_path.read_text())
 
-    assert len(config["full"]) == 95, f"full package should have exactly 95 tools, got {len(config['full'])}"
+    assert len(config["full"]) == 89, f"full package should have exactly 89 tools, got {len(config['full'])}"
 
 
 def test_consolidated_tools_replaced_old_ones():
@@ -84,6 +84,12 @@ def test_consolidated_tools_replaced_old_ones():
         "get_flow_designer_execution_detail",
         "list_legacy_workflow_versions",
         "get_legacy_workflow_activities",
+        "list_portals",
+        "list_pages",
+        "list_widget_instances",
+        "list_incidents",
+        "list_change_requests",
+        "list_changesets",
     ]
     for tool in removed:
         for pkg_name, pkg_tools in config.items():
