@@ -61,9 +61,8 @@
   color: #fafafa !important;
   border: 1px solid #3f3f46 !important;
 }
-.md-header__button.md-logo img {
-  height: 26px;
-  width: auto;
+.md-header__button.md-logo {
+  display: none !important;
 }
 [data-md-color-scheme="slate"] .md-header {
   background: rgba(9,9,11,.9) !important;
