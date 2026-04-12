@@ -66,8 +66,25 @@
 }
 
 /* ============================================================
-   MINIMAL GLOBAL OVERRIDES — let Material handle the rest
+   HEADER — white/dark translucent, primary:indigo kept for dialog
    ============================================================ */
+.md-header {
+  background: rgba(255,255,255,.95) !important;
+  box-shadow: 0 1px 0 rgba(0,0,0,.06);
+}
+.md-header * { color: #18181b !important; }
+.md-header svg { fill: #3f3f46 !important; }
+[data-md-color-scheme="slate"] .md-header {
+  background: rgba(9,9,11,.95) !important;
+  box-shadow: 0 1px 0 rgba(255,255,255,.06);
+}
+[data-md-color-scheme="slate"] .md-header * { color: #fafafa !important; }
+[data-md-color-scheme="slate"] .md-header svg { fill: #a1a1aa !important; }
+
+/* Tabs bar */
+.md-tabs { background: rgba(255,255,255,.95) !important; }
+[data-md-color-scheme="slate"] .md-tabs { background: rgba(9,9,11,.95) !important; }
+
 .md-header__button.md-logo img { height: 24px; width: auto; }
 .md-dialog { border-radius: 8px !important; }
 
