@@ -72,11 +72,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ## Prerequisites
 
-Before registering the server, ensure your environment is ready.
-
-### 1. Install `uv` (Required)
-
-This project is optimized for [uv](https://astral.sh/uv), the fast Python package manager.
+Install [uv](https://astral.sh/uv) — it handles Python, packages, and execution in one tool.
 
 - **macOS / Linux:**
   ```bash
@@ -87,53 +83,24 @@ This project is optimized for [uv](https://astral.sh/uv), the fast Python packag
   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
   ```
 
-After installation, restart your terminal and verify:
+Restart your terminal after installation. That's it — no Python install, no pip, no venv needed.
 
-```bash
-uv --version
-```
-
-### 2. Install Browser Binary (Required for `browser` auth)
-
-If you plan to use `auth-type: browser` (MFA/SSO), you must install the Chromium browser binary:
-
-```bash
-uvx playwright install chromium
-```
-
-> This only needs to be done once. The binary is shared across all uvx runs.
-
-### 3. Windows Specifics
-
-If you are on Windows, ensure your PowerShell execution policy allows script execution:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-For a step-by-step Windows setup guide, see [docs/WINDOWS_INSTALL.md](./docs/WINDOWS_INSTALL.md).
+> Chromium for MFA/SSO browser login is installed automatically on first use.
+> Windows users: see [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for details.
 
 ---
 
 ## Quick Start
 
-Most users do **not** need to clone this repository. If you have `uv`, you can register the server directly in your MCP client.
-
-### Run from terminal (one-liner)
+No clone needed. One command:
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
+  --auth-type "browser"
 ```
 
-### Install as a persistent local command
-
-```bash
-uv tool install mfa-servicenow-mcp
-servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
-```
+A browser window opens on the first tool call for MFA/SSO login. Chromium is auto-installed if missing.
 
 ---
 
