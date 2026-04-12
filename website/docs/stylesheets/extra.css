@@ -116,7 +116,7 @@ body.landing .md-footer { margin-top: 0; }
   max-width: 800px;
 }
 
-/* Title — all white on hero banner */
+/* Title */
 .hero-title {
   font-size: clamp(2.4rem, 5.5vw, 4rem);
   font-weight: 800;
@@ -124,7 +124,14 @@ body.landing .md-footer { margin-top: 0; }
   line-height: 1.08;
   color: #fff;
   margin: 0 0 20px;
-  text-shadow: 0 2px 12px rgba(0,0,0,.4);
+  text-shadow: 0 2px 16px rgba(0,0,0,.5), 0 4px 32px rgba(0,0,0,.3);
+}
+.hero-title .gradient-text {
+  background: linear-gradient(135deg, #a5b4fc, #c084fc, #f472b6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 2px 8px rgba(139,92,246,.4));
 }
 
 /* Subtitle */
