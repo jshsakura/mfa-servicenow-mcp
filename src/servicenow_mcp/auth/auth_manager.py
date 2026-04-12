@@ -306,7 +306,7 @@ class AuthManager:
                 "• uvx:  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp …\n"
                 "• pip:  pip install playwright && playwright install chromium\n"
                 "• dev:  uv pip install -e '.[browser]'"
-            )
+            ) from None
 
         # 2. Ensure the Chromium browser binary is present.
         # Quick probe: try launching Chromium headless.  If the binary is

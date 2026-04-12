@@ -4,8 +4,6 @@ Runs after markdown rendering (including pymdownx.snippets) so that
 links inside --8<-- included files are also rewritten.
 """
 
-import re
-
 
 def on_page_content(html, page, config, files, **kwargs):
     """Rewrite ./README.md and ./README.ko.md hrefs to MkDocs site paths."""
