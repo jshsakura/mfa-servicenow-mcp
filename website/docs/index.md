@@ -273,28 +273,21 @@ args = [
         <button class="install-tab active" data-target="skill-claude">Claude Code</button>
         <button class="install-tab" data-target="skill-codex">Codex</button>
         <button class="install-tab" data-target="skill-opencode">OpenCode</button>
-        <button class="install-tab" data-target="skill-uvx">uvx (any)</button>
       </div>
       <div class="install-panels" id="skill-panels">
         <div class="install-panel active" id="skill-claude">
           <div class="install-code-block">
-            <pre class="install-code"><code>servicenow-mcp-skills claude</code></pre>
+            <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude</code></pre>
           </div>
         </div>
         <div class="install-panel" id="skill-codex">
           <div class="install-code-block">
-            <pre class="install-code"><code>servicenow-mcp-skills codex</code></pre>
+            <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills codex</code></pre>
           </div>
         </div>
         <div class="install-panel" id="skill-opencode">
           <div class="install-code-block">
-            <pre class="install-code"><code>servicenow-mcp-skills opencode</code></pre>
-          </div>
-        </div>
-        <div class="install-panel" id="skill-uvx">
-          <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># No install needed — runs directly</span>
-uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude</code></pre>
+            <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills opencode</code></pre>
           </div>
         </div>
       </div>
