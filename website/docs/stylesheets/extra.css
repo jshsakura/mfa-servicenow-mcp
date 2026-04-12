@@ -154,10 +154,14 @@ body.landing .md-footer { margin-top: 0; }
   font-family: 'JetBrains Mono', monospace;
   font-size: .95rem;
   color: #e4e4e7;
-  min-height: 1.6em;
+  height: 3.4em;
+  line-height: 1.7;
   margin-bottom: 28px;
   letter-spacing: .01em;
   text-shadow: 0 2px 12px rgba(0,0,0,.7), 0 0 40px rgba(0,0,0,.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Buttons */
