@@ -7,14 +7,12 @@ from servicenow_mcp.tools.incident_tools import (
     AddCommentParams,
     CreateIncidentParams,
     GetIncidentByNumberParams,
-    ListIncidentsParams,
     ResolveIncidentParams,
     UpdateIncidentParams,
     _resolve_incident_sys_id,
     add_comment,
     create_incident,
     get_incident_by_number,
-    list_incidents,
     resolve_incident,
     update_incident,
 )
@@ -39,7 +37,7 @@ class TestIncidentTools(unittest.TestCase):
         resp.content = json.dumps(json_body).encode("utf-8")
         return resp
 
-    # --- list_incidents ---
+    # --- get_incident_by_number (list mode) ---
 
     @patch("servicenow_mcp.tools.incident_tools.sn_query_page")
     def test_list_incidents_basic(self, mock_query_page):
@@ -61,8 +59,8 @@ class TestIncidentTools(unittest.TestCase):
             ],
             1,
         )
-        params = ListIncidentsParams()
-        result = list_incidents(self.config, self.auth_manager, params)
+        params = GetIncidentByNumberParams()
+        result = get_incident_by_number(self.config, self.auth_manager, params)
         self.assertTrue(result["success"])
         self.assertEqual(len(result["incidents"]), 1)
         self.assertEqual(result["incidents"][0]["number"], "INC001")
@@ -81,10 +79,10 @@ class TestIncidentTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.incident_tools.sn_query_page")
     def test_list_incidents_with_filters(self, mock_query_page):
         mock_query_page.return_value = ([], 0)
-        params = ListIncidentsParams(
+        params = GetIncidentByNumberParams(
             state="1", category="Software", assigned_to="admin", query="error"
         )
-        result = list_incidents(self.config, self.auth_manager, params)
+        result = get_incident_by_number(self.config, self.auth_manager, params)
         self.assertTrue(result["success"])
         expected_query = (
             "state=1^assigned_to=admin^category=Software"
@@ -105,8 +103,8 @@ class TestIncidentTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.incident_tools.sn_count")
     def test_list_incidents_count_only(self, mock_count):
         mock_count.return_value = 42
-        params = ListIncidentsParams(count_only=True, state="1")
-        result = list_incidents(self.config, self.auth_manager, params)
+        params = GetIncidentByNumberParams(count_only=True, state="1")
+        result = get_incident_by_number(self.config, self.auth_manager, params)
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 42)
         mock_count.assert_called_once_with(self.config, self.auth_manager, "incident", "state=1")
@@ -114,8 +112,8 @@ class TestIncidentTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.incident_tools.sn_query_page")
     def test_list_incidents_empty(self, mock_query_page):
         mock_query_page.return_value = ([], 0)
-        params = ListIncidentsParams()
-        result = list_incidents(self.config, self.auth_manager, params)
+        params = GetIncidentByNumberParams()
+        result = get_incident_by_number(self.config, self.auth_manager, params)
         self.assertTrue(result["success"])
         self.assertEqual(result["incidents"], [])
         self.assertEqual(result["message"], "Found 0 incidents")
@@ -123,8 +121,8 @@ class TestIncidentTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.incident_tools.sn_query_page")
     def test_list_incidents_error(self, mock_query_page):
         mock_query_page.side_effect = Exception("Network error")
-        params = ListIncidentsParams()
-        result = list_incidents(self.config, self.auth_manager, params)
+        params = GetIncidentByNumberParams()
+        result = get_incident_by_number(self.config, self.auth_manager, params)
         self.assertFalse(result["success"])
         self.assertIn("Network error", result["message"])
         self.assertEqual(result["incidents"], [])
@@ -149,8 +147,8 @@ class TestIncidentTools(unittest.TestCase):
             ],
             1,
         )
-        params = ListIncidentsParams()
-        result = list_incidents(self.config, self.auth_manager, params)
+        params = GetIncidentByNumberParams()
+        result = get_incident_by_number(self.config, self.auth_manager, params)
         self.assertTrue(result["success"])
         self.assertEqual(result["incidents"][0]["assigned_to"], "Jane Doe")
 

@@ -44,7 +44,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **95 tools** across 5 role-based packages — from read-only to full CRUD
+- **89 tools** across 5 role-based packages — from read-only to full CRUD
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
@@ -194,11 +194,11 @@ All packages except `none` include the full set of read-only tools (55 tools). H
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `standard` | 51 | **(Default)** Read-only safe mode. All query/analysis tools across every domain. |
-| `service_desk` | 55 | standard + incident create/update/resolve/comment |
-| `portal_developer` | 67 | standard + portal/widget updates, script include writes, changeset commit/publish |
-| `platform_developer` | 75 | standard + workflow CRUD, UI policy, incident/change management writes |
-| `full` | 95 | All write operations across every domain |
+| `standard` | 45 | **(Default)** Read-only safe mode. All query/analysis tools across every domain. |
+| `service_desk` | 49 | standard + incident create/update/resolve/comment |
+| `portal_developer` | 61 | standard + portal/widget updates, script include writes, changeset commit/publish |
+| `platform_developer` | 69 | standard + workflow CRUD, UI policy, incident/change management writes |
+| `full` | 89 | All write operations across every domain |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
@@ -457,7 +457,7 @@ uv build
 ## Documentation
 
 - [Client Setup Guide](docs/CLIENT_SETUP.md) — Copy-paste configs for every MCP client
-- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 95 tools by category and package
+- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 89 tools by category and package
 - [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
 - [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization
 - [Change Management](docs/change_management.md) — Change request lifecycle and approval

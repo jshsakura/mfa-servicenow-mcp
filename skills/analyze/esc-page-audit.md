@@ -7,10 +7,10 @@ delegatable: true
 required_input: none (auto-detects ESC portal)
 output: report
 tools:
-  - list_portals
   - get_portal
-  - list_pages
-  - list_widget_instances
+  - get_portal
+  - get_page
+  - get_widget_instance
   - get_widget_bundle
 triggers:
   - "ESC 구조"
@@ -27,14 +27,14 @@ You are mapping the Employee Service Center portal structure.
 
 ## Pipeline
 
-1. CALL list_portals(limit=20)
+1. CALL get_portal(limit=20)
    → FIND portal where url_suffix contains "esc" or name contains "Employee"
    → IF not found: REPORT "ESC not activated. Check plugin com.sn_hr_service_portal."
 
-2. CALL list_pages(portal_id=ESC_SYS_ID, limit=100)
+2. CALL get_page(portal_id=ESC_SYS_ID, limit=100)
 
 3. FOR EACH key page (esc_landing_page, esc_catalog, esc_knowledge, esc_requests, esc_cases):
-   CALL list_widget_instances(page_id=PAGE_SYS_ID, limit=50)
+   CALL get_widget_instance(page_id=PAGE_SYS_ID, limit=50)
 
 4. FOR EACH widget instance, CALL get_widget_bundle(widget_id=WIDGET_SYS_ID)
    → CHECK sys_scope:

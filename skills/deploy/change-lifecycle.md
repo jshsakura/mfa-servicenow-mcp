@@ -10,7 +10,7 @@ tools:
   - create_change_request
   - update_change_request
   - get_change_request_details
-  - list_change_requests
+  - get_change_request_details
   - add_change_task
   - submit_change_for_approval
   - approve_change
@@ -60,7 +60,7 @@ IF "상태" or "check status":
   CALL get_change_request_details(change_id=INPUT)
 
 IF "목록" or "list":
-  CALL list_change_requests(state=INPUT_STATE, limit=20)
+  CALL get_change_request_details(state=INPUT_STATE, limit=20)
 
 ## ON ERROR
 

@@ -70,122 +70,91 @@ def _query(
 # ---------------------------------------------------------------------------
 
 
-class ListPortalsParams(BaseModel):
-    """Parameters for listing portal instances."""
-
-    limit: int = Field(20, description="Maximum portals to return (max 50)")
-    offset: int = Field(0, description="Pagination offset")
-    query: Optional[str] = Field(None, description="Filter by title (LIKE match)")
-    count_only: bool = Field(
-        False,
-        description="Return count only without fetching records. Uses lightweight Aggregate API.",
-    )
-
-
 class GetPortalParams(BaseModel):
-    """Parameters for getting a portal instance."""
+    """Parameters for listing portals or getting a single portal."""
 
-    portal_id: str = Field(..., description="sys_id or url_suffix of the portal")
-
-
-@register_tool(
-    name="list_portals",
-    params=ListPortalsParams,
-    description="List portals with title, URL suffix, theme, and homepage references. Filterable by title.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def list_portals(
-    config: ServerConfig, auth_manager: AuthManager, params: ListPortalsParams
-) -> Dict[str, Any]:
-    """List Service Portal instances."""
-    query = ""
-    if params.query:
-        query = f"titleLIKE{params.query}"
-
-    if params.count_only:
-        from .sn_api import sn_count
-
-        count = sn_count(config, auth_manager, "sp_portal", query)
-        return {"success": True, "count": count}
-
-    fields = "sys_id,title,url_suffix,homepage,theme,css,default_,logo,sp_rectangle"
-
-    response = _query(
-        config,
-        auth_manager,
-        PORTAL_TABLE,
-        query,
-        fields,
-        limit=min(params.limit, 50),
-        offset=params.offset,
+    portal_id: Optional[str] = Field(
+        None,
+        description="sys_id or url_suffix. If provided, returns single portal detail. Otherwise lists all portals.",
     )
-
-    if not response.get("success"):
-        return {"success": False, "message": response.get("message", "Query failed"), "portals": []}
-
-    portals = []
-    for r in response.get("results", []):
-        portals.append(
-            {
-                "sys_id": r.get("sys_id"),
-                "title": r.get("title"),
-                "url_suffix": r.get("url_suffix"),
-                "homepage": r.get("homepage"),
-                "theme": r.get("theme"),
-                "is_default": r.get("default_") == "true",
-            }
-        )
-
-    return {
-        "success": True,
-        "message": f"Found {len(portals)} portal(s)",
-        "portals": portals,
-        "total": response.get("total_count"),
-    }
+    limit: int = Field(20, description="Maximum portals to return in list mode (max 50)")
+    offset: int = Field(0, description="Pagination offset for list mode")
+    query: Optional[str] = Field(None, description="Filter by title (LIKE match) in list mode")
+    count_only: bool = Field(False, description="Return count only (list mode)")
 
 
 @register_tool(
     name="get_portal",
     params=GetPortalParams,
-    description="Get a single portal by sys_id or URL suffix. Returns full config including theme, KB, catalog, and login page.",
+    description=(
+        "Get a single portal by sys_id/URL suffix, or list all portals. "
+        "Provide portal_id for detail, omit for list mode."
+    ),
     serialization="raw_dict",
     return_type=dict,
 )
 def get_portal(
     config: ServerConfig, auth_manager: AuthManager, params: GetPortalParams
 ) -> Dict[str, Any]:
-    """Get a Service Portal instance by sys_id or url_suffix."""
-    fields = (
-        "sys_id,title,url_suffix,homepage,theme,css,default_,"
-        "logo,quick_start_config,kb_knowledge_base,"
-        "catalog,sc_catalog,login_page,notfound_page,sys_scope"
+    """Get or list Service Portal instances."""
+    # Detail mode
+    if params.portal_id:
+        fields = (
+            "sys_id,title,url_suffix,homepage,theme,css,default_,"
+            "logo,quick_start_config,kb_knowledge_base,"
+            "catalog,sc_catalog,login_page,notfound_page,sys_scope"
+        )
+        query = f"sys_id={params.portal_id}^ORurl_suffix={params.portal_id}"
+        response = _query(config, auth_manager, PORTAL_TABLE, query, fields, limit=1)
+        if not response.get("success") or not response.get("results"):
+            return {"success": False, "message": f"Portal not found: {params.portal_id}"}
+        r = response["results"][0]
+        return {
+            "success": True,
+            "portal": {
+                "sys_id": r.get("sys_id"),
+                "title": r.get("title"),
+                "url_suffix": r.get("url_suffix"),
+                "homepage": r.get("homepage"),
+                "theme": r.get("theme"),
+                "is_default": r.get("default_") == "true",
+                "css": r.get("css"),
+                "kb_knowledge_base": r.get("kb_knowledge_base"),
+                "catalog": r.get("catalog") or r.get("sc_catalog"),
+                "login_page": r.get("login_page"),
+                "notfound_page": r.get("notfound_page"),
+                "scope": r.get("sys_scope"),
+            },
+        }
+
+    # List mode
+    query = f"titleLIKE{params.query}" if params.query else ""
+    if params.count_only:
+        from .sn_api import sn_count
+
+        count = sn_count(config, auth_manager, PORTAL_TABLE, query)
+        return {"success": True, "count": count}
+
+    fields = "sys_id,title,url_suffix,homepage,theme,css,default_,logo,sp_rectangle"
+    response = _query(
+        config, auth_manager, PORTAL_TABLE, query, fields,
+        limit=min(params.limit, 50), offset=params.offset,
     )
-    query = f"sys_id={params.portal_id}^ORurl_suffix={params.portal_id}"
+    if not response.get("success"):
+        return {"success": False, "message": response.get("message", "Query failed"), "portals": []}
 
-    response = _query(config, auth_manager, PORTAL_TABLE, query, fields, limit=1)
-
-    if not response.get("success") or not response.get("results"):
-        return {"success": False, "message": f"Portal not found: {params.portal_id}"}
-
-    r = response["results"][0]
-    return {
-        "success": True,
-        "portal": {
+    portals = [
+        {
             "sys_id": r.get("sys_id"),
             "title": r.get("title"),
             "url_suffix": r.get("url_suffix"),
             "homepage": r.get("homepage"),
             "theme": r.get("theme"),
             "is_default": r.get("default_") == "true",
-            "css": r.get("css"),
-            "kb_knowledge_base": r.get("kb_knowledge_base"),
-            "catalog": r.get("catalog") or r.get("sc_catalog"),
-            "login_page": r.get("login_page"),
-            "notfound_page": r.get("notfound_page"),
-            "scope": r.get("sys_scope"),
-        },
-    }
+        }
+        for r in response.get("results", [])
+    ]
+    return {"success": True, "portals": portals, "total": response.get("total_count")}
 
 
 # ---------------------------------------------------------------------------
@@ -193,112 +162,83 @@ def get_portal(
 # ---------------------------------------------------------------------------
 
 
-class ListPagesParams(BaseModel):
-    """Parameters for listing portal pages."""
-
-    limit: int = Field(20, description="Maximum pages to return (max 100)")
-    offset: int = Field(0, description="Pagination offset")
-    query: Optional[str] = Field(None, description="Filter by title (LIKE match)")
-    portal_id: Optional[str] = Field(
-        None, description="Filter pages belonging to a specific portal (sys_id)"
-    )
-
-
 class GetPageParams(BaseModel):
-    """Parameters for getting a portal page with layout structure."""
+    """Parameters for listing pages or getting a single page."""
 
-    page_id: str = Field(..., description="sys_id or id (URL path) of the page")
+    page_id: Optional[str] = Field(
+        None,
+        description="sys_id or URL path (id). If provided, returns single page detail with layout. Otherwise lists pages.",
+    )
     include_layout: bool = Field(
-        True, description="Include container/row/column/widget instance hierarchy"
+        True, description="Include container/row/column/widget layout tree (detail mode only)"
     )
-
-
-@register_tool(
-    name="list_pages",
-    params=ListPagesParams,
-    description="List portal pages with title, URL path, and visibility flags. Filterable by title or portal.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def list_pages(
-    config: ServerConfig, auth_manager: AuthManager, params: ListPagesParams
-) -> Dict[str, Any]:
-    """List Service Portal pages."""
-    fields = "sys_id,id,title,internal,public,draft,sys_scope"
-    query_parts = []
-    if params.query:
-        query_parts.append(f"titleLIKE{params.query}")
-
-    response = _query(
-        config,
-        auth_manager,
-        PAGE_TABLE,
-        "^".join(query_parts) if query_parts else "",
-        fields,
-        limit=min(params.limit, 100),
-        offset=params.offset,
-    )
-
-    if not response.get("success"):
-        return {"success": False, "message": response.get("message", "Query failed"), "pages": []}
-
-    pages = []
-    for r in response.get("results", []):
-        pages.append(
-            {
-                "sys_id": r.get("sys_id"),
-                "id": r.get("id"),
-                "title": r.get("title"),
-                "internal": r.get("internal") == "true",
-                "public": r.get("public") == "true",
-                "draft": r.get("draft") == "true",
-                "scope": r.get("sys_scope"),
-            }
-        )
-
-    return {
-        "success": True,
-        "message": f"Found {len(pages)} page(s)",
-        "pages": pages,
-        "total": response.get("total_count"),
-    }
+    limit: int = Field(20, description="Maximum pages to return in list mode (max 100)")
+    offset: int = Field(0, description="Pagination offset for list mode")
+    query: Optional[str] = Field(None, description="Filter by title (LIKE match) in list mode")
 
 
 @register_tool(
     name="get_page",
     params=GetPageParams,
-    description="Get a page by sys_id or URL path. Optionally includes full container/row/column/widget layout tree.",
+    description=(
+        "Get a single page by sys_id/URL path with layout tree, or list all pages. "
+        "Provide page_id for detail, omit for list mode."
+    ),
     serialization="raw_dict",
     return_type=dict,
 )
 def get_page(
     config: ServerConfig, auth_manager: AuthManager, params: GetPageParams
 ) -> Dict[str, Any]:
-    """Get a portal page with optional layout structure."""
-    fields = "sys_id,id,title,internal,public,draft,css,sys_scope"
-    query = f"sys_id={params.page_id}^ORid={params.page_id}"
+    """Get or list Service Portal pages."""
+    # Detail mode
+    if params.page_id:
+        fields = "sys_id,id,title,internal,public,draft,css,sys_scope"
+        query = f"sys_id={params.page_id}^ORid={params.page_id}"
+        response = _query(config, auth_manager, PAGE_TABLE, query, fields, limit=1)
+        if not response.get("success") or not response.get("results"):
+            return {"success": False, "message": f"Page not found: {params.page_id}"}
+        r = response["results"][0]
+        page: Dict[str, Any] = {
+            "sys_id": r.get("sys_id"),
+            "id": r.get("id"),
+            "title": r.get("title"),
+            "internal": r.get("internal") == "true",
+            "public": r.get("public") == "true",
+            "draft": r.get("draft") == "true",
+            "css": r.get("css"),
+            "scope": r.get("sys_scope"),
+        }
+        if params.include_layout:
+            page["layout"] = _get_page_layout(config, auth_manager, r["sys_id"])
+        return {"success": True, "page": page}
 
-    response = _query(config, auth_manager, PAGE_TABLE, query, fields, limit=1)
+    # List mode
+    query_parts = []
+    if params.query:
+        query_parts.append(f"titleLIKE{params.query}")
+    response = _query(
+        config, auth_manager, PAGE_TABLE,
+        "^".join(query_parts) if query_parts else "",
+        "sys_id,id,title,internal,public,draft,sys_scope",
+        limit=min(params.limit, 100), offset=params.offset,
+    )
+    if not response.get("success"):
+        return {"success": False, "message": response.get("message", "Query failed"), "pages": []}
 
-    if not response.get("success") or not response.get("results"):
-        return {"success": False, "message": f"Page not found: {params.page_id}"}
-
-    r = response["results"][0]
-    page: Dict[str, Any] = {
-        "sys_id": r.get("sys_id"),
-        "id": r.get("id"),
-        "title": r.get("title"),
-        "internal": r.get("internal") == "true",
-        "public": r.get("public") == "true",
-        "draft": r.get("draft") == "true",
-        "css": r.get("css"),
-        "scope": r.get("sys_scope"),
-    }
-
-    if params.include_layout:
-        page["layout"] = _get_page_layout(config, auth_manager, r["sys_id"])
-
-    return {"success": True, "page": page}
+    pages = [
+        {
+            "sys_id": r.get("sys_id"),
+            "id": r.get("id"),
+            "title": r.get("title"),
+            "internal": r.get("internal") == "true",
+            "public": r.get("public") == "true",
+            "draft": r.get("draft") == "true",
+            "scope": r.get("sys_scope"),
+        }
+        for r in response.get("results", [])
+    ]
+    return {"success": True, "pages": pages, "total": response.get("total_count")}
 
 
 def _get_page_layout(
@@ -427,21 +367,19 @@ def _get_page_layout(
 # ---------------------------------------------------------------------------
 
 
-class ListWidgetInstancesParams(BaseModel):
-    """Parameters for listing widget instances."""
-
-    page_id: Optional[str] = Field(None, description="Filter by page sys_id")
-    widget_id: Optional[str] = Field(
-        None, description="Filter by widget sys_id (find all placements of a widget)"
-    )
-    limit: int = Field(20, description="Maximum instances to return (max 100)")
-    offset: int = Field(0, description="Pagination offset")
-
-
 class GetWidgetInstanceParams(BaseModel):
-    """Parameters for getting a widget instance."""
+    """Parameters for getting a widget instance or listing instances."""
 
-    instance_id: str = Field(..., description="sys_id of the widget instance")
+    instance_id: Optional[str] = Field(
+        None,
+        description="sys_id of the widget instance. If provided, returns detail. Otherwise lists instances.",
+    )
+    page_id: Optional[str] = Field(None, description="Filter by page sys_id (list mode)")
+    widget_id: Optional[str] = Field(
+        None, description="Filter by widget sys_id — find all placements (list mode)"
+    )
+    limit: int = Field(20, description="Maximum instances to return in list mode (max 100)")
+    offset: int = Field(0, description="Pagination offset for list mode")
 
 
 class CreateWidgetInstanceParams(BaseModel):
@@ -469,98 +407,68 @@ class UpdateWidgetInstanceParams(BaseModel):
 
 
 @register_tool(
-    name="list_widget_instances",
-    params=ListWidgetInstancesParams,
-    description="List widget placements on pages with column and order info. Filter by page or widget sys_id.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def list_widget_instances(
-    config: ServerConfig, auth_manager: AuthManager, params: ListWidgetInstancesParams
-) -> Dict[str, Any]:
-    """List widget instances with placement info."""
-    fields = "sys_id,sp_widget,sp_column,order,css"
-    query_parts = []
-    if params.widget_id:
-        query_parts.append(f"sp_widget={params.widget_id}")
-    if params.page_id:
-        # Join through column -> row -> container -> page
-        query_parts.append(f"sp_column.sp_row.sp_container.sp_page={params.page_id}")
-
-    response = _query(
-        config,
-        auth_manager,
-        INSTANCE_TABLE,
-        "^".join(query_parts) if query_parts else "",
-        fields,
-        limit=min(params.limit, 100),
-        offset=params.offset,
-    )
-
-    if not response.get("success"):
-        return {
-            "success": False,
-            "message": response.get("message", "Query failed"),
-            "instances": [],
-        }
-
-    instances = []
-    for r in response.get("results", []):
-        instances.append(
-            {
-                "sys_id": r.get("sys_id"),
-                "widget": r.get("sp_widget"),
-                "column": r.get("sp_column"),
-                "order": r.get("order"),
-            }
-        )
-
-    return {
-        "success": True,
-        "message": f"Found {len(instances)} widget instance(s)",
-        "instances": instances,
-        "total": response.get("total_count"),
-    }
-
-
-@register_tool(
     name="get_widget_instance",
     params=GetWidgetInstanceParams,
-    description="Get a single widget instance with its placement, parameters, and CSS overrides.",
+    description=(
+        "Get a single widget instance by sys_id, or list instances filtered by page/widget. "
+        "Provide instance_id for detail, omit for list mode."
+    ),
     serialization="raw_dict",
     return_type=dict,
 )
 def get_widget_instance(
     config: ServerConfig, auth_manager: AuthManager, params: GetWidgetInstanceParams
 ) -> Dict[str, Any]:
-    """Get a single widget instance with full details."""
-    fields = "sys_id,sp_widget,sp_column,order,widget_parameters,css,sys_scope"
+    """Get or list widget instances."""
+    # Detail mode
+    if params.instance_id:
+        fields = "sys_id,sp_widget,sp_column,order,widget_parameters,css,sys_scope"
+        response = _query(
+            config, auth_manager, INSTANCE_TABLE,
+            f"sys_id={params.instance_id}", fields, limit=1,
+        )
+        if not response.get("success") or not response.get("results"):
+            return {"success": False, "message": f"Widget instance not found: {params.instance_id}"}
+        r = response["results"][0]
+        return {
+            "success": True,
+            "instance": {
+                "sys_id": r.get("sys_id"),
+                "widget": r.get("sp_widget"),
+                "column": r.get("sp_column"),
+                "order": r.get("order"),
+                "widget_parameters": r.get("widget_parameters"),
+                "css": r.get("css"),
+                "scope": r.get("sys_scope"),
+            },
+        }
+
+    # List mode
+    query_parts = []
+    if params.widget_id:
+        query_parts.append(f"sp_widget={params.widget_id}")
+    if params.page_id:
+        query_parts.append(f"sp_column.sp_row.sp_container.sp_page={params.page_id}")
 
     response = _query(
-        config,
-        auth_manager,
-        INSTANCE_TABLE,
-        f"sys_id={params.instance_id}",
-        fields,
-        limit=1,
+        config, auth_manager, INSTANCE_TABLE,
+        "^".join(query_parts) if query_parts else "",
+        "sys_id,sp_widget,sp_column,order,css",
+        limit=min(params.limit, 100), offset=params.offset,
     )
+    if not response.get("success"):
+        return {"success": False, "message": response.get("message", "Query failed"), "instances": []}
 
-    if not response.get("success") or not response.get("results"):
-        return {"success": False, "message": f"Widget instance not found: {params.instance_id}"}
-
-    r = response["results"][0]
-    return {
-        "success": True,
-        "instance": {
+    instances = [
+        {
             "sys_id": r.get("sys_id"),
             "widget": r.get("sp_widget"),
             "column": r.get("sp_column"),
             "order": r.get("order"),
-            "widget_parameters": r.get("widget_parameters"),
-            "css": r.get("css"),
-            "scope": r.get("sys_scope"),
-        },
-    }
+        }
+        for r in response.get("results", [])
+    ]
+    return {"success": True, "instances": instances, "total": response.get("total_count")}
 
 
 @register_tool(

@@ -7,11 +7,11 @@ delegatable: false
 required_input: page_id or portal_id
 output: data
 tools:
-  - list_portals
   - get_portal
-  - list_pages
+  - get_portal
   - get_page
-  - list_widget_instances
+  - get_page
+  - get_widget_instance
   - get_widget_instance
   - create_widget_instance
   - update_widget_instance
@@ -33,13 +33,13 @@ You are managing portal page layouts and widget instances.
 ## Pipeline
 
 IF "페이지 목록" or "list pages":
-  1. CALL list_portals(limit=10)
-  2. CALL list_pages(portal_id=SELECTED, limit=50)
+  1. CALL get_portal(limit=10)
+  2. CALL get_page(portal_id=SELECTED, limit=50)
   → RETURN page list with IDs
 
 IF "레이아웃 확인" or "page layout":
   1. CALL get_page(page_id=INPUT)
-  2. CALL list_widget_instances(page_id=INPUT, limit=50)
+  2. CALL get_widget_instance(page_id=INPUT, limit=50)
   → RETURN: page info + widget instances with positions
 
 IF "위젯 배치" or "add widget":
@@ -62,7 +62,7 @@ IF "옵션 변경" or "update options":
 ## ON ERROR
 
 - "Widget not found" → verify widget sys_id with get_widget_bundle
-- "Page not found" → verify with list_pages
+- "Page not found" → verify with get_page
 - Empty instances → normal for new pages
 
 ## DELEGATE hint
