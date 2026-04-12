@@ -30,6 +30,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 - [CLI Reference](#cli-reference)
 - [Keeping Up to Date (PyPI)](#keeping-up-to-date-pypi)
 - [Safety Policy](#safety-policy)
+- [Skills](#skills)
 - [Docker](#docker)
 - [Developer Setup](#developer-setup)
 - [Documentation](#documentation)
@@ -551,6 +552,58 @@ The server includes several layers of performance optimization to minimize laten
 - **Shallow-copy schema injection**: Confirmation schema (`confirm='approve'`) is injected via lightweight dict copy instead of `copy.deepcopy`, reducing `list_tools` overhead.
 - **No-count optimization**: Subsequent pagination pages use `sysparm_no_count=true` to skip server-side total count computation.
 - **Payload safety**: Heavy tables (`sp_widget`, `sys_script`, etc.) have automatic field clamping and limit restrictions to prevent context window overflow.
+
+## Skills
+
+Skills are LLM execution blueprints that turn raw MCP tools into verified pipelines with safety gates, sub-agent delegation, and context optimization.
+
+| | Tools Only | Skills + Tools |
+|---|---|---|
+| Safety | LLM decides | Gates enforced (snapshot → preview → apply) |
+| Tokens | Source dumps in context | Delegate to sub-agent, summary only |
+| Accuracy | LLM guesses tool order | Verified pipeline |
+| Rollback | Might forget | Snapshot mandatory |
+
+### Install Skills
+
+```bash
+# Claude Code
+servicenow-mcp-skills claude
+
+# OpenAI Codex
+servicenow-mcp-skills codex
+
+# OpenCode
+servicenow-mcp-skills opencode
+
+# Or with uvx (no install needed)
+uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
+```
+
+Skills are downloaded from this repository and placed in your project's LLM-specific directory (e.g., `.claude/commands/servicenow/`). The LLM auto-discovers them on next startup.
+
+### Skill Categories
+
+| Category | Skills | Purpose |
+|----------|--------|---------|
+| `analyze/` | 6 | Widget analysis, portal diagnosis, provider audit, dependency mapping, code detection, ESC audit |
+| `fix/` | 3 | Widget patching (staged gates), debugging, code review |
+| `manage/` | 4 | Page layout, script includes, source export, changeset workflow |
+| `deploy/` | 2 | Change request lifecycle, incident triage |
+| `explore/` | 4 | Health check, schema discovery, route tracing, ESC catalog flow |
+
+### Skill Metadata
+
+Each skill includes metadata that helps LLMs optimize execution:
+
+```yaml
+context_cost: low|medium|high    # → high = delegate to sub-agent
+safety_level: none|confirm|staged # → staged = mandatory snapshot/preview/apply
+delegatable: true|false           # → can run in sub-agent to save context
+triggers: ["위젯 분석", "analyze widget"]  # → LLM trigger matching
+```
+
+For the full skill reference, see [skills/SKILL.md](skills/SKILL.md).
 
 ## Docker
 
