@@ -61,22 +61,25 @@
   box-shadow: 0 1px 0 rgba(255,255,255,.06);
 }
 
-/* --- Base — blow out all Material theme width limits --- */
-.md-main__inner { margin-top: 0; }
-.md-grid { max-width: 100% !important; }
-.md-main__inner { max-width: 100% !important; }
-.md-content {
-  max-width: 100% !important;
-  background: var(--page-bg);
-  background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px);
-  background-size: 24px 24px;
+/* --- Base — nuke width limits & full-bleed background (HOME ONLY) --- */
+/* .landing is added to <body> by inline JS on index.md */
+body.landing,
+body.landing .md-main,
+body.landing .md-main__inner,
+body.landing .md-content,
+body.landing .md-container {
+  background: var(--page-bg) !important;
 }
-.md-content__inner {
-  padding: 0 !important;
-  max-width: 100% !important;
-  margin: 0 !important;
+body.landing {
+  background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px) !important;
+  background-size: 24px 24px !important;
 }
-.md-sidebar { display: none; }
+body.landing .md-grid { max-width: 100% !important; padding: 0 !important; }
+body.landing .md-main__inner { margin-top: 0; max-width: 100% !important; padding: 0 !important; }
+body.landing .md-content { max-width: 100% !important; background: transparent !important; }
+body.landing .md-content__inner { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
+body.landing .md-sidebar { display: none; }
+body.landing .md-footer { margin-top: 0; }
 
 /* ============================================================
    HERO — full-width banner image with text overlay
