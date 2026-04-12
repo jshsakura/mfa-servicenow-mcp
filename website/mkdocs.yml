@@ -6,6 +6,13 @@ site_url: https://jshsakura.github.io/mfa-servicenow-mcp/
 theme:
   name: material
   language: en
+  font:
+    text: Inter
+    code: Roboto Mono
+  icon:
+    logo: material/shield-lock-outline
+    repo: fontawesome/brands/github
+  favicon: assets/favicon.png
   palette:
     # Palette toggle for light mode
     - media: "(prefers-color-scheme: light)"
@@ -28,11 +35,25 @@ theme:
     - navigation.sections
     - navigation.top
     - navigation.indexes
+    - navigation.tracking
     - search.suggest
     - search.highlight
     - search.share
     - content.code.copy
     - content.code.annotate
+    - content.tooltips
+    - content.tabs.link
+
+extra_css:
+  - stylesheets/extra.css
+
+# Plugins for enhanced beauty and functionality
+plugins:
+  - search
+  - social:
+      cards_layout: obsidian
+      cards_font: Roboto
+      description_max_length: 160
 
 repo_name: jshsakura/mfa-servicenow-mcp
 repo_url: https://github.com/jshsakura/mfa-servicenow-mcp
