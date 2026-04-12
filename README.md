@@ -215,8 +215,8 @@ Config file: `opencode.json` in your project root.
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "SERVICENOW_BROWSER_TIMEOUT": "120",
         "SERVICENOW_BROWSER_SESSION_TTL": "30",
         "MCP_TOOL_PACKAGE": "standard"
@@ -227,7 +227,7 @@ Config file: `opencode.json` in your project root.
 ```
 
 > OpenCode uses `environment` (not `env`) and supports the `$schema` field.
-> `SERVICENOW_BROWSER_USERNAME` and `SERVICENOW_BROWSER_PASSWORD` are optional — they prefill the login form for MFA/SSO.
+> `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` are optional — they prefill the browser login form for MFA/SSO. Set these as system environment variables on Windows to avoid putting credentials in config files.
 
 ### Gemini / Vertex AI
 
@@ -272,8 +272,8 @@ AntiGravity Editor uses a Claude Desktop-style `mcpServers` config. Edit via the
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -327,8 +327,8 @@ Optional browser-related flags:
 
 | Flag | Env Variable | Default | Description |
 |------|-------------|---------|-------------|
-| `--browser-username` | `SERVICENOW_BROWSER_USERNAME` | — | Prefill login form username |
-| `--browser-password` | `SERVICENOW_BROWSER_PASSWORD` | — | Prefill login form password |
+| `--browser-username` | `SERVICENOW_USERNAME` | — | Prefill login form username |
+| `--browser-password` | `SERVICENOW_PASSWORD` | — | Prefill login form password |
 | `--browser-headless` | `SERVICENOW_BROWSER_HEADLESS` | `false` | Run browser without GUI |
 | `--browser-timeout` | `SERVICENOW_BROWSER_TIMEOUT` | `120` | Login timeout in seconds |
 | `--browser-session-ttl` | `SERVICENOW_BROWSER_SESSION_TTL` | `30` | Session TTL in minutes |
