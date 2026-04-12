@@ -51,9 +51,8 @@ extra_css:
 plugins:
   - search
   - social:
-      cards_layout: obsidian
-      cards_font: Roboto
-      description_max_length: 160
+      cards_layout_options:
+        font_family: Roboto
 
 repo_name: jshsakura/mfa-servicenow-mcp
 repo_url: https://github.com/jshsakura/mfa-servicenow-mcp
