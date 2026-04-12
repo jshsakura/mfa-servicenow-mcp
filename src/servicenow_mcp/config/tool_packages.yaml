@@ -16,7 +16,6 @@ standard:
   - sn_discover
   - sn_nl
   # Incident (Read)
-  - list_incidents
   - get_incident_by_number
   # Catalog (Read)
   - list_catalog_items
@@ -25,7 +24,6 @@ standard:
   - list_catalog_item_variables
   - get_optimization_recommendations
   # Change Management (Read)
-  - list_change_requests
   - get_change_request_details
   # Changeset (Read)
   - list_changesets
@@ -86,14 +84,12 @@ portal_developer:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
   - list_changesets
   - get_changeset_details
@@ -165,14 +161,12 @@ platform_developer:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
   - list_changesets
   - get_changeset_details
@@ -255,14 +249,12 @@ service_desk:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
   - list_changesets
   - get_changeset_details
@@ -321,14 +313,12 @@ full:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
   - list_changesets
   - get_changeset_details

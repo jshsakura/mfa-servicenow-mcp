@@ -16,7 +16,6 @@ standard:
   - sn_discover
   - sn_nl
   # Incident (Read)
-  - list_incidents
   - get_incident_by_number
   # Catalog (Read)
   - list_catalog_items
@@ -25,10 +24,8 @@ standard:
   - list_catalog_item_variables
   - get_optimization_recommendations
   # Change Management (Read)
-  - list_change_requests
   - get_change_request_details
   # Changeset (Read)
-  - list_changesets
   - get_changeset_details
   # Legacy Workflow (Read)
   - list_legacy_workflows
@@ -38,14 +35,11 @@ standard:
   - get_flow_designer_detail
   - get_flow_designer_executions
   # Portal (Read)
-  - list_portals
   - get_portal
-  - list_pages
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
-  - list_widget_instances
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
@@ -83,16 +77,13 @@ portal_developer:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
-  - list_changesets
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
@@ -100,14 +91,11 @@ portal_developer:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
-  - list_portals
   - get_portal
-  - list_pages
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
-  - list_widget_instances
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
@@ -161,16 +149,13 @@ platform_developer:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
-  - list_changesets
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
@@ -178,14 +163,11 @@ platform_developer:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
-  - list_portals
   - get_portal
-  - list_pages
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
-  - list_widget_instances
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
@@ -250,16 +232,13 @@ service_desk:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
-  - list_changesets
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
@@ -267,14 +246,11 @@ service_desk:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
-  - list_portals
   - get_portal
-  - list_pages
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
-  - list_widget_instances
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
@@ -313,16 +289,13 @@ full:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
-  - list_changesets
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
@@ -330,14 +303,11 @@ full:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
-  - list_portals
   - get_portal
-  - list_pages
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
-  - list_widget_instances
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets

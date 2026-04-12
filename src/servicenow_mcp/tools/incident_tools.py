@@ -68,25 +68,23 @@ class ResolveIncidentParams(BaseModel):
     resolution_notes: str = Field(..., description="Resolution notes for the incident")
 
 
-class ListIncidentsParams(BaseModel):
-    """Parameters for listing incidents."""
+class GetIncidentByNumberParams(BaseModel):
+    """Parameters for fetching an incident by number, or listing incidents with filters."""
 
-    limit: int = Field(10, description="Maximum number of incidents to return")
-    offset: int = Field(0, description="Offset for pagination")
-    state: Optional[str] = Field(None, description="Filter by incident state")
-    assigned_to: Optional[str] = Field(None, description="Filter by assigned user")
-    category: Optional[str] = Field(None, description="Filter by category")
-    query: Optional[str] = Field(None, description="Search query for incidents")
+    incident_number: Optional[str] = Field(
+        None,
+        description="The number of the incident to fetch. If provided, returns full details for that single incident.",
+    )
+    limit: int = Field(10, description="Maximum number of incidents to return (list mode)")
+    offset: int = Field(0, description="Offset for pagination (list mode)")
+    state: Optional[str] = Field(None, description="Filter by incident state (list mode)")
+    assigned_to: Optional[str] = Field(None, description="Filter by assigned user (list mode)")
+    category: Optional[str] = Field(None, description="Filter by category (list mode)")
+    query: Optional[str] = Field(None, description="Search query for incidents (list mode)")
     count_only: bool = Field(
         False,
-        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+        description="Return count only without fetching records. Uses lightweight Aggregate API. (list mode)",
     )
-
-
-class GetIncidentByNumberParams(BaseModel):
-    """Parameters for fetching an incident by its number."""
-
-    incident_number: str = Field(..., description="The number of the incident to fetch")
 
 
 class IncidentResponse(BaseModel):
@@ -390,29 +388,83 @@ def resolve_incident(
 
 
 @register_tool(
-    "list_incidents",
-    params=ListIncidentsParams,
-    description="List incidents with state/category/assignee filters. Returns summary fields only — use get_incident_by_number for full details.",
-    serialization="json",
+    "get_incident_by_number",
+    params=GetIncidentByNumberParams,
+    description="Get a single incident by number, or list incidents with filters. Provide incident_number for detail.",
+    serialization="json_dict",
     return_type=str,
 )
-def list_incidents(
+def get_incident_by_number(
     config: ServerConfig,
     auth_manager: AuthManager,
-    params: ListIncidentsParams,
+    params: GetIncidentByNumberParams,
 ) -> dict:
     """
-    List incidents from ServiceNow.
+    Fetch a single incident by number (detail mode) or list incidents with
+    filters (list mode).
 
     Args:
         config: Server configuration.
         auth_manager: Authentication manager.
-        params: Parameters for listing incidents.
+        params: Parameters — supply incident_number for detail, omit for list.
 
     Returns:
-        Dictionary with list of incidents.
+        Dictionary with the incident details or a list of incidents.
     """
-    # Build filters
+    # ── Detail mode: single incident lookup ──────────────────────────
+    if params.incident_number:
+        try:
+            records, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="incident",
+                query=f"number={params.incident_number}",
+                fields="",
+                limit=1,
+                offset=0,
+                display_value=True,
+                fail_silently=False,
+            )
+
+            if not records:
+                return {
+                    "success": False,
+                    "message": f"Incident not found: {params.incident_number}",
+                }
+
+            incident_data = records[0]
+            assigned_to = incident_data.get("assigned_to")
+            if isinstance(assigned_to, dict):
+                assigned_to = assigned_to.get("display_value")
+
+            incident = {
+                "sys_id": incident_data.get("sys_id"),
+                "number": incident_data.get("number"),
+                "short_description": incident_data.get("short_description"),
+                "description": incident_data.get("description"),
+                "state": incident_data.get("state"),
+                "priority": incident_data.get("priority"),
+                "assigned_to": assigned_to,
+                "category": incident_data.get("category"),
+                "subcategory": incident_data.get("subcategory"),
+                "created_on": incident_data.get("sys_created_on"),
+                "updated_on": incident_data.get("sys_updated_on"),
+            }
+
+            return {
+                "success": True,
+                "message": f"Incident {params.incident_number} found",
+                "incident": incident,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to fetch incident: {e}")
+            return {
+                "success": False,
+                "message": f"Failed to fetch incident: {str(e)}",
+            }
+
+    # ── List mode: filtered incident list ────────────────────────────
     filters = []
     if params.state:
         filters.append(f"state={params.state}")
@@ -473,78 +525,3 @@ def list_incidents(
     except Exception as e:
         logger.error(f"Failed to list incidents: {e}")
         return {"success": False, "message": f"Failed to list incidents: {str(e)}", "incidents": []}
-
-
-@register_tool(
-    "get_incident_by_number",
-    params=GetIncidentByNumberParams,
-    description="Fetch a single incident by INC number with full field details including timestamps and assignment info.",
-    serialization="json_dict",
-    return_type=str,
-)
-def get_incident_by_number(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetIncidentByNumberParams,
-) -> dict:
-    """
-    Fetch a single incident from ServiceNow by its number.
-
-    Args:
-        config: Server configuration.
-        auth_manager: Authentication manager.
-        params: Parameters for fetching the incident.
-
-    Returns:
-        Dictionary with the incident details.
-    """
-    try:
-        records, _ = sn_query_page(
-            config,
-            auth_manager,
-            table="incident",
-            query=f"number={params.incident_number}",
-            fields="",
-            limit=1,
-            offset=0,
-            display_value=True,
-            fail_silently=False,
-        )
-
-        if not records:
-            return {
-                "success": False,
-                "message": f"Incident not found: {params.incident_number}",
-            }
-
-        incident_data = records[0]
-        assigned_to = incident_data.get("assigned_to")
-        if isinstance(assigned_to, dict):
-            assigned_to = assigned_to.get("display_value")
-
-        incident = {
-            "sys_id": incident_data.get("sys_id"),
-            "number": incident_data.get("number"),
-            "short_description": incident_data.get("short_description"),
-            "description": incident_data.get("description"),
-            "state": incident_data.get("state"),
-            "priority": incident_data.get("priority"),
-            "assigned_to": assigned_to,
-            "category": incident_data.get("category"),
-            "subcategory": incident_data.get("subcategory"),
-            "created_on": incident_data.get("sys_created_on"),
-            "updated_on": incident_data.get("sys_updated_on"),
-        }
-
-        return {
-            "success": True,
-            "message": f"Incident {params.incident_number} found",
-            "incident": incident,
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to fetch incident: {e}")
-        return {
-            "success": False,
-            "message": f"Failed to fetch incident: {str(e)}",
-        }

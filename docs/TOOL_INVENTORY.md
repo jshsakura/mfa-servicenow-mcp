@@ -1,17 +1,17 @@
 # ServiceNow MCP - Tool Inventory
 
-Active tools: **95** | Registered in code: **133** | Removed from packages: **38**
+Active tools: **89** | Registered in code: **127** | Removed from packages: **38**
 
 ## Package Summary
 
 | Package | Tools | Default | Description |
 |---------|-------|---------|-------------|
 | `none` | 0 |  | Disabled |
-| `standard` | 51 | Y | Read-only safe mode |
-| `portal_developer` | 67 |  | Portal/Widget development |
-| `platform_developer` | 75 |  | Backend/Workflow development |
-| `service_desk` | 55 |  | Incident operations |
-| `full` | 95 |  | All capabilities |
+| `standard` | 45 | Y | Read-only safe mode |
+| `portal_developer` | 61 |  | Portal/Widget development |
+| `platform_developer` | 69 |  | Backend/Workflow development |
+| `service_desk` | 49 |  | Incident operations |
+| `full` | 89 |  | All capabilities |
 
 ## Tools by Category
 
@@ -147,8 +147,7 @@ Active tools: **95** | Registered in code: **133** | Removed from packages: **38
 |------|-----|-------------|----------|
 | `add_comment` | W | Add a work note (internal) or customer-visible comment to an incident by sys_id ... | full, service_desk |
 | `create_incident` | W | Create a new incident (short_description required). Returns sys_id and INC numbe... | full, service_desk |
-| `get_incident_by_number` | R | Fetch a single incident by INC number with full field details including timestam... | full, platform_developer, portal_developer, service_desk, standard |
-| `list_incidents` | R | List incidents with state/category/assignee filters. Returns summary fields only... | full, platform_developer, portal_developer, service_desk, standard |
+| `get_incident_by_number` | R | Get a single incident by number, or list incidents with filters. Provide inciden... | full, platform_developer, portal_developer, service_desk, standard |
 | `resolve_incident` | W | Set incident state to Resolved with resolution_code and close_notes. Use update_... | full, platform_developer, service_desk |
 | `update_incident` | W | Update an incident by sys_id or INC number with partial field changes. Accepts a... | full, platform_developer, service_desk |
 

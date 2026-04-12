@@ -7,9 +7,9 @@ delegatable: true
 required_input: catalog_item_id (optional, traces full flow if omitted)
 output: report
 tools:
-  - list_portals
-  - list_pages
-  - list_widget_instances
+  - get_portal
+  - get_page
+  - get_widget_instance
   - get_widget_bundle
   - trace_portal_route_targets
   - list_catalog_items
@@ -37,14 +37,14 @@ User → esc_catalog page → selects item → esc_cat_item page → fills varia
 
 ## Pipeline
 
-1. CALL list_portals(limit=20)
+1. CALL get_portal(limit=20)
    → FIND ESC portal (url_suffix contains "esc")
    → IF not found: REPORT "ESC not activated"
 
-2. CALL list_pages(portal_id=ESC_SYS_ID, limit=100)
+2. CALL get_page(portal_id=ESC_SYS_ID, limit=100)
    → FIND: esc_catalog, esc_cat_item pages
 
-3. CALL list_widget_instances(page_id=CATALOG_PAGE_SYS_ID, limit=20)
+3. CALL get_widget_instance(page_id=CATALOG_PAGE_SYS_ID, limit=20)
    → IDENTIFY catalog browse widget
 
 4. CALL get_widget_bundle(widget_id=BROWSE_WIDGET, include_providers=true)

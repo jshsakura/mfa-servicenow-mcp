@@ -9,7 +9,7 @@ output: data
 tools:
   - trace_portal_route_targets
   - search_portal_regex_matches
-  - list_pages
+  - get_page
 triggers:
   - "어디로 이동"
   - "데드 링크"
@@ -36,7 +36,7 @@ IF specific widget:
 IF find dead links:
   1. CALL trace_portal_route_targets(scope=INPUT, max_widgets=50, output_mode="minimal")
   2. CALL search_portal_regex_matches(regex="\\?id=[a-zA-Z_-]+", scope=INPUT, source_types=["widget","angular_provider"], include_widget_fields=["template","client_script"])
-  3. CALL list_pages(portal_id=PORTAL_SYS_ID, limit=100)
+  3. CALL get_page(portal_id=PORTAL_SYS_ID, limit=100)
   4. COMPARE: targets vs actual pages
      → any target not in page list = DEAD LINK
   → RETURN: dead links with source location
@@ -48,7 +48,7 @@ IF map entire portal:
 ## ON ERROR
 
 - 0 targets → widget has no navigation (normal for display-only)
-- All look dead → wrong portal selected, verify with list_portals
+- All look dead → wrong portal selected, verify with get_portal
 
 ## DELEGATE hint
 

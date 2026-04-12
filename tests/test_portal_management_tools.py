@@ -8,17 +8,11 @@ from servicenow_mcp.tools.portal_management_tools import (
     GetPageParams,
     GetPortalParams,
     GetWidgetInstanceParams,
-    ListPagesParams,
-    ListPortalsParams,
-    ListWidgetInstancesParams,
     UpdateWidgetInstanceParams,
     create_widget_instance,
     get_page,
     get_portal,
     get_widget_instance,
-    list_pages,
-    list_portals,
-    list_widget_instances,
     update_widget_instance,
 )
 from servicenow_mcp.utils.config import ServerConfig
@@ -62,8 +56,8 @@ class TestListPortals:
             "total_count": 1,
         }
 
-        params = ListPortalsParams(limit=10)
-        result = list_portals(mock_config, mock_auth_manager, params)
+        params = GetPortalParams(limit=10)
+        result = get_portal(mock_config, mock_auth_manager, params)
 
         assert result["success"] is True
         assert len(result["portals"]) == 1
@@ -74,8 +68,8 @@ class TestListPortals:
     def test_with_query_filter(self, mock_sn_query, mock_config, mock_auth_manager):
         mock_sn_query.return_value = {"success": True, "results": [], "total_count": 0}
 
-        params = ListPortalsParams(query="Service")
-        list_portals(mock_config, mock_auth_manager, params)
+        params = GetPortalParams(query="Service")
+        get_portal(mock_config, mock_auth_manager, params)
 
         call_args = mock_sn_query.call_args[0][2]
         assert "titleLIKEService" in call_args.query
@@ -84,8 +78,8 @@ class TestListPortals:
     def test_query_failure(self, mock_sn_query, mock_config, mock_auth_manager):
         mock_sn_query.return_value = {"success": False, "message": "Error"}
 
-        params = ListPortalsParams()
-        result = list_portals(mock_config, mock_auth_manager, params)
+        params = GetPortalParams()
+        result = get_portal(mock_config, mock_auth_manager, params)
 
         assert result["success"] is False
         assert result["portals"] == []
@@ -156,8 +150,8 @@ class TestListPages:
             "total_count": 1,
         }
 
-        params = ListPagesParams(limit=10)
-        result = list_pages(mock_config, mock_auth_manager, params)
+        params = GetPageParams(limit=10)
+        result = get_page(mock_config, mock_auth_manager, params)
 
         assert result["success"] is True
         assert len(result["pages"]) == 1
@@ -168,8 +162,8 @@ class TestListPages:
     def test_with_title_filter(self, mock_sn_query, mock_config, mock_auth_manager):
         mock_sn_query.return_value = {"success": True, "results": [], "total_count": 0}
 
-        params = ListPagesParams(query="Home")
-        list_pages(mock_config, mock_auth_manager, params)
+        params = GetPageParams(query="Home")
+        get_page(mock_config, mock_auth_manager, params)
 
         call_args = mock_sn_query.call_args[0][2]
         assert "titleLIKEHome" in call_args.query
@@ -402,8 +396,8 @@ class TestListWidgetInstances:
             "total_count": 2,
         }
 
-        params = ListWidgetInstancesParams(widget_id="wid-1")
-        result = list_widget_instances(mock_config, mock_auth_manager, params)
+        params = GetWidgetInstanceParams(widget_id="wid-1")
+        result = get_widget_instance(mock_config, mock_auth_manager, params)
 
         assert result["success"] is True
         assert len(result["instances"]) == 2
@@ -412,8 +406,8 @@ class TestListWidgetInstances:
     def test_by_page(self, mock_sn_query, mock_config, mock_auth_manager):
         mock_sn_query.return_value = {"success": True, "results": [], "total_count": 0}
 
-        params = ListWidgetInstancesParams(page_id="page-1")
-        list_widget_instances(mock_config, mock_auth_manager, params)
+        params = GetWidgetInstanceParams(page_id="page-1")
+        get_widget_instance(mock_config, mock_auth_manager, params)
 
         call_args = mock_sn_query.call_args[0][2]
         assert "sp_column.sp_row.sp_container.sp_page=page-1" in call_args.query
@@ -570,14 +564,11 @@ class TestUpdateWidgetInstance:
 
 
 class TestParamValidation:
-    def test_list_portals_defaults(self):
-        p = ListPortalsParams()
+    def test_get_portal_defaults_to_list_mode(self):
+        p = GetPortalParams()
+        assert p.portal_id is None
         assert p.limit == 20
         assert p.offset == 0
-
-    def test_get_portal_required(self):
-        with pytest.raises(ValidationError):
-            GetPortalParams()
 
     def test_get_page_defaults(self):
         p = GetPageParams(page_id="test")

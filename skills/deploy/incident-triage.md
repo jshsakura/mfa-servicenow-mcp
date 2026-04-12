@@ -7,7 +7,6 @@ delegatable: false
 required_input: incident number or query
 output: action
 tools:
-  - list_incidents
   - get_incident_by_number
   - update_incident
   - add_comment
@@ -32,7 +31,7 @@ IF "몇 개" or "count":
   → RETURN count
 
 IF "목록" or "list unassigned":
-  CALL list_incidents(query="active=true^assigned_toISEMPTY^priority<=2", limit=20)
+  CALL get_incident_by_number(query="active=true^assigned_toISEMPTY^priority<=2", limit=20)
   → RETURN list sorted by priority
 
 IF "분석" or "analyze specific":

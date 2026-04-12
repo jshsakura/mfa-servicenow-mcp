@@ -56,29 +56,24 @@ class UpdateChangeRequestParams(BaseModel):
     work_notes: Optional[str] = Field(None, description="Work notes to add to the change request")
 
 
-class ListChangeRequestsParams(BaseModel):
-    """Parameters for listing change requests."""
+class GetChangeRequestDetailsParams(BaseModel):
+    """Parameters for getting change request details or listing change requests."""
 
-    limit: Optional[int] = Field(10, description="Maximum number of records to return")
-    offset: Optional[int] = Field(0, description="Offset to start from")
-    state: Optional[str] = Field(None, description="Filter by state")
-    type: Optional[str] = Field(None, description="Filter by type (normal, standard, emergency)")
-    category: Optional[str] = Field(None, description="Filter by category")
-    assignment_group: Optional[str] = Field(None, description="Filter by assignment group")
+    change_id: Optional[str] = Field(None, description="Change request ID or sys_id. If provided, returns full details for that single change request.")
+    limit: Optional[int] = Field(10, description="Maximum number of records to return (list mode)")
+    offset: Optional[int] = Field(0, description="Offset to start from (list mode)")
+    state: Optional[str] = Field(None, description="Filter by state (list mode)")
+    type: Optional[str] = Field(None, description="Filter by type (normal, standard, emergency) (list mode)")
+    category: Optional[str] = Field(None, description="Filter by category (list mode)")
+    assignment_group: Optional[str] = Field(None, description="Filter by assignment group (list mode)")
     timeframe: Optional[str] = Field(
-        None, description="Filter by timeframe (upcoming, in-progress, completed)"
+        None, description="Filter by timeframe (upcoming, in-progress, completed) (list mode)"
     )
-    query: Optional[str] = Field(None, description="Additional query string")
+    query: Optional[str] = Field(None, description="Additional query string (list mode)")
     count_only: bool = Field(
         False,
-        description="Return count only without fetching records. Uses lightweight Aggregate API.",
+        description="Return count only without fetching records. Uses lightweight Aggregate API. (list mode)",
     )
-
-
-class GetChangeRequestDetailsParams(BaseModel):
-    """Parameters for getting change request details."""
-
-    change_id: str = Field(..., description="Change request ID or sys_id")
 
 
 class AddChangeTaskParams(BaseModel):
@@ -239,79 +234,9 @@ def update_change_request(
 
 
 @register_tool(
-    name="list_change_requests",
-    params=ListChangeRequestsParams,
-    description="Search change requests with filters for state, type, assignment group, and timeframe. Returns summary list.",
-    serialization="json",
-    return_type=str,
-)
-def list_change_requests(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: ListChangeRequestsParams,
-) -> Dict[str, Any]:
-    """List change requests from ServiceNow."""
-    query_parts: List[str] = []
-
-    if params.state:
-        query_parts.append(f"state={params.state}")
-    if params.type:
-        query_parts.append(f"type={params.type}")
-    if params.category:
-        query_parts.append(f"category={params.category}")
-    if params.assignment_group:
-        query_parts.append(f"assignment_group={params.assignment_group}")
-
-    # Handle timeframe filtering
-    if params.timeframe:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if params.timeframe == "upcoming":
-            query_parts.append(f"start_date>{now}")
-        elif params.timeframe == "in-progress":
-            query_parts.append(f"start_date<{now}^end_date>{now}")
-        elif params.timeframe == "completed":
-            query_parts.append(f"end_date<{now}")
-
-    # Add any additional query string
-    if params.query:
-        query_parts.append(params.query)
-
-    query = "^".join(query_parts) if query_parts else ""
-
-    if params.count_only:
-        count = sn_count(config, auth_manager, "change_request", query)
-        return {"success": True, "count": count}
-
-    try:
-        rows, total = sn_query_page(
-            config,
-            auth_manager,
-            table="change_request",
-            query=query,
-            fields="",
-            limit=min(params.limit or 10, 100),
-            offset=params.offset or 0,
-            display_value=True,
-        )
-
-        return {
-            "success": True,
-            "change_requests": rows,
-            "count": len(rows),
-            "total": total if total is not None else len(rows),
-        }
-    except Exception as e:
-        logger.error(f"Error listing change requests: {e}")
-        return {
-            "success": False,
-            "message": f"Error listing change requests: {str(e)}",
-        }
-
-
-@register_tool(
     name="get_change_request_details",
     params=GetChangeRequestDetailsParams,
-    description="Fetch a single change request by sys_id or number. Returns full details including associated tasks.",
+    description="Get a single change request by sys_id/number, or list change requests with filters.",
     serialization="json",
     return_type=str,
 )
@@ -320,48 +245,107 @@ def get_change_request_details(
     auth_manager: AuthManager,
     params: GetChangeRequestDetailsParams,
 ) -> Dict[str, Any]:
-    """Get details of a change request from ServiceNow."""
-    try:
-        rows, _ = sn_query_page(
-            config,
-            auth_manager,
-            table="change_request",
-            query=f"sys_id={params.change_id}",
-            fields="",
-            limit=1,
-            offset=0,
-            display_value=True,
-        )
+    """Get details of a single change request or list change requests from ServiceNow."""
+    if params.change_id:
+        # Detail mode: fetch a single change request by sys_id/number
+        try:
+            rows, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="change_request",
+                query=f"sys_id={params.change_id}",
+                fields="",
+                limit=1,
+                offset=0,
+                display_value=True,
+            )
 
-        if not rows:
+            if not rows:
+                return {
+                    "success": False,
+                    "message": f"Change request {params.change_id} not found",
+                }
+
+            # Get tasks associated with this change request
+            tasks, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="change_task",
+                query=f"change_request={params.change_id}",
+                fields="",
+                limit=100,
+                offset=0,
+                display_value=True,
+            )
+
+            return {
+                "success": True,
+                "change_request": rows[0],
+                "tasks": tasks,
+            }
+        except Exception as e:
+            logger.error(f"Error getting change request details: {e}")
             return {
                 "success": False,
-                "message": f"Change request {params.change_id} not found",
+                "message": f"Error getting change request details: {str(e)}",
             }
+    else:
+        # List mode: search change requests with filters
+        query_parts: List[str] = []
 
-        # Get tasks associated with this change request
-        tasks, _ = sn_query_page(
-            config,
-            auth_manager,
-            table="change_task",
-            query=f"change_request={params.change_id}",
-            fields="",
-            limit=100,
-            offset=0,
-            display_value=True,
-        )
+        if params.state:
+            query_parts.append(f"state={params.state}")
+        if params.type:
+            query_parts.append(f"type={params.type}")
+        if params.category:
+            query_parts.append(f"category={params.category}")
+        if params.assignment_group:
+            query_parts.append(f"assignment_group={params.assignment_group}")
 
-        return {
-            "success": True,
-            "change_request": rows[0],
-            "tasks": tasks,
-        }
-    except Exception as e:
-        logger.error(f"Error getting change request details: {e}")
-        return {
-            "success": False,
-            "message": f"Error getting change request details: {str(e)}",
-        }
+        # Handle timeframe filtering
+        if params.timeframe:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if params.timeframe == "upcoming":
+                query_parts.append(f"start_date>{now}")
+            elif params.timeframe == "in-progress":
+                query_parts.append(f"start_date<{now}^end_date>{now}")
+            elif params.timeframe == "completed":
+                query_parts.append(f"end_date<{now}")
+
+        # Add any additional query string
+        if params.query:
+            query_parts.append(params.query)
+
+        query = "^".join(query_parts) if query_parts else ""
+
+        if params.count_only:
+            count = sn_count(config, auth_manager, "change_request", query)
+            return {"success": True, "count": count}
+
+        try:
+            rows, total = sn_query_page(
+                config,
+                auth_manager,
+                table="change_request",
+                query=query,
+                fields="",
+                limit=min(params.limit or 10, 100),
+                offset=params.offset or 0,
+                display_value=True,
+            )
+
+            return {
+                "success": True,
+                "change_requests": rows,
+                "count": len(rows),
+                "total": total if total is not None else len(rows),
+            }
+        except Exception as e:
+            logger.error(f"Error listing change requests: {e}")
+            return {
+                "success": False,
+                "message": f"Error listing change requests: {str(e)}",
+            }
 
 
 @register_tool(
