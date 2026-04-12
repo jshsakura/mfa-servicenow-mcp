@@ -1108,7 +1108,7 @@ def _download_widget_fields(
     include_widget_css: bool,
     include_linked_script_includes: bool,
 ) -> str:
-    fields = ["sys_id", "name", "id", "sys_scope", "option_schema", "demo_data"]
+    fields = ["sys_id", "name", "id", "sys_scope", "option_schema", "demo_data", "sys_updated_on"]
     if include_widget_template:
         fields.append("template")
     if include_widget_server_script or include_linked_script_includes:
@@ -3078,8 +3078,20 @@ def download_portal_sources(
         exported_widgets.append({"sys_id": sys_id, "id": widget_id, "name": widget_name})
 
     _write_json_file(scope_root / "sp_widget" / "_map.json", widget_map)
+    _now_iso = datetime.now(UTC).isoformat()
+    _widget_sync_meta: Dict[str, Dict[str, str]] = {}
+    for widget in widgets:
+        _wid = str(widget.get("id") or widget.get("name") or widget.get("sys_id") or "")
+        if _wid:
+            _widget_sync_meta[_wid] = {
+                "sys_id": str(widget.get("sys_id") or ""),
+                "sys_updated_on": str(widget.get("sys_updated_on") or ""),
+                "downloaded_at": _now_iso,
+            }
+    _write_json_file(scope_root / "sp_widget" / "_sync_meta.json", _widget_sync_meta)
 
     provider_map: Dict[str, str] = {}
+    _provider_sync_meta: Dict[str, Dict[str, str]] = {}
     exported_providers: List[Dict[str, str]] = []
     if include_linked_angular_providers and widgets:
         widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
@@ -3105,7 +3117,7 @@ def download_portal_sources(
                 auth_manager,
                 table=ANGULAR_PROVIDER_TABLE,
                 query=f"sys_idIN{','.join(m2m_ids)}",
-                fields="sys_id,name,script,type,sys_scope",
+                fields="sys_id,name,script,type,sys_scope,sys_updated_on",
                 page_size=params.page_size,
                 max_records=1000,
             )
@@ -3119,11 +3131,20 @@ def download_portal_sources(
                 )
                 if name:
                     provider_map[name] = sys_id
+                    _provider_sync_meta[name] = {
+                        "sys_id": sys_id,
+                        "sys_updated_on": str(provider.get("sys_updated_on") or ""),
+                        "downloaded_at": _now_iso,
+                    }
                 exported_providers.append({"name": name, "sys_id": sys_id})
 
     _write_json_file(scope_root / "sp_angular_provider" / "_map.json", provider_map)
+    _write_json_file(
+        scope_root / "sp_angular_provider" / "_sync_meta.json", _provider_sync_meta
+    )
 
     si_map: Dict[str, str] = {}
+    _si_sync_meta: Dict[str, Dict[str, str]] = {}
     exported_script_includes: List[Dict[str, str]] = []
     if include_linked_script_includes and script_include_candidates:
         script_include_rows = _fetch_linked_script_include_rows(
@@ -3142,6 +3163,11 @@ def download_portal_sources(
                 str(row.get("script") or ""),
             )
             si_map[name] = sys_id
+            _si_sync_meta[name] = {
+                "sys_id": sys_id,
+                "sys_updated_on": str(row.get("sys_updated_on") or ""),
+                "downloaded_at": _now_iso,
+            }
             exported_script_includes.append(
                 {
                     "name": name,
@@ -3151,6 +3177,7 @@ def download_portal_sources(
             )
 
     _write_json_file(scope_root / "sys_script_include" / "_map.json", si_map)
+    _write_json_file(scope_root / "sys_script_include" / "_sync_meta.json", _si_sync_meta)
     _write_json_file(root / "scopes.json", scope_sys_ids)
 
     return {
