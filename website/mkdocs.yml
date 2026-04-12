@@ -9,8 +9,8 @@ theme:
   font:
     text: Inter
     code: JetBrains Mono
+  logo: assets/favicon.png
   icon:
-    logo: material/shield-lock-outline
     repo: fontawesome/brands/github
   favicon: assets/favicon.png
   palette:
