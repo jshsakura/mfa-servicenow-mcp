@@ -29,7 +29,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 - [Authentication](#authentication)
 - [Tool Packages](#tool-packages)
 - [CLI Reference](#cli-reference)
-- [Keeping Up to Date (PyPI)](#keeping-up-to-date-pypi)
+- [Keeping Up to Date](#keeping-up-to-date)
 - [Safety Policy](#safety-policy)
 - [Skills](#skills)
 - [Docker](#docker)
@@ -250,28 +250,14 @@ For the complete tool list by category, see [Tool Inventory](docs/TOOL_INVENTORY
 
 ---
 
-## Keeping Up to Date (PyPI)
+## Keeping Up to Date
 
-This project is published to [PyPI](https://pypi.org/project/mfa-servicenow-mcp/) and follows semantic versioning. New releases are automatically published via GitHub Actions when a version tag (`v*`) is pushed.
+`uvx` automatically uses the latest cached version. In most cases, updates happen without any action.
 
-### How `uvx` handles versions
-
-`uvx` **caches** the installed package. It does **not** automatically pull the latest version on every run. To ensure you're on the latest:
+To force the latest PyPI release immediately:
 
 ```bash
-# Check current version
-uvx --from mfa-servicenow-mcp servicenow-mcp --version
-
-# Force refresh to latest PyPI release
 uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
-```
-
-### `uv tool` upgrade
-
-If you installed via `uv tool install`:
-
-```bash
-uv tool upgrade mfa-servicenow-mcp
 ```
 
 ### pip upgrade
