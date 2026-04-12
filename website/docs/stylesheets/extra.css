@@ -70,9 +70,10 @@ body.landing .md-content,
 body.landing .md-container {
   background: var(--page-bg) !important;
 }
-body.landing {
-  background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px) !important;
-  background-size: 24px 24px !important;
+/* Dot grid only on content area below the hero banner */
+body.landing .content-wrap {
+  background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 body.landing .md-grid { max-width: 100% !important; padding: 0 !important; }
 body.landing .md-main__inner { margin-top: 0; max-width: 100% !important; padding: 0 !important; }
@@ -214,9 +215,12 @@ body.landing .md-footer { margin-top: 0; }
    CONTENT WRAP — max-width container for everything below hero
    ============================================================ */
 .content-wrap {
-  max-width: 1200px;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 0 48px;
+  padding: 0 calc((100% - 1200px) / 2 + 48px);
+}
+@media (max-width: 1296px) {
+  .content-wrap { padding: 0 48px; }
 }
 
 /* ============================================================
