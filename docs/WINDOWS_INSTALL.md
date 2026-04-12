@@ -1,6 +1,6 @@
 # Windows Installation Guide
 
-No need to install Python manually. `uv` handles everything.
+No need to install Python or Playwright manually. `uv` handles everything — Python, packages, and the Chromium browser engine are all installed automatically on first run.
 
 ---
 
@@ -26,22 +26,18 @@ uv --version
 
 ---
 
-## Step 2: Install Browser Engine
+## Step 2: Run the MCP Server
 
-A Chromium browser engine is required for MFA/SSO authentication:
+One command — Chromium is auto-installed if missing:
 
 ```powershell
-uvx playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
+  --instance-url "https://your-instance.service-now.com" `
+  --auth-type "browser" `
+  --browser-headless "false"
 ```
 
-Verify installation:
-```powershell
-uvx playwright --version
-```
-
-> This installs a standalone binary, independent of your system Chrome.
-> Chromium is stored in `%APPDATA%\ms-playwright`.
-> "uvx not found" error → check that you restarted PowerShell in Step 1.
+A browser window opens on the first tool call for MFA/SSO login (Okta, Entra ID, SAML). After authentication, the browser closes automatically and the session persists.
 
 ---
 
@@ -90,6 +86,52 @@ Verify:
 claude mcp list
 ```
 
+### OpenAI Codex
+
+Config file location: `%USERPROFILE%\.codex\agents.toml` or `.codex\agents.toml` in your project root.
+
+> Create the file and folder if they don't exist.
+
+```toml
+[mcp_servers.servicenow]
+command = "uvx"
+args = [
+  "--with", "playwright",
+  "--from", "mfa-servicenow-mcp",
+  "servicenow-mcp",
+  "--instance-url", "https://your-instance.service-now.com",
+  "--auth-type", "browser",
+  "--browser-headless", "false",
+  "--tool-package", "standard",
+]
+```
+
+### OpenCode
+
+Config file location: `opencode.json` in your project root.
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx", "--with", "playwright",
+        "--from", "mfa-servicenow-mcp", "servicenow-mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
 ### AntiGravity
 
 Config file location: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
@@ -119,29 +161,46 @@ Config file location: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
 
 > Save the config, then click **Refresh** in AntiGravity.
 
-### OpenAI Codex
+---
 
-Config file location: `%USERPROFILE%\.codex\agents.toml` or `.codex\agents.toml` in your project root.
+## Step 4: Install Skills (Optional)
 
-> Create the file and folder if they don't exist.
+Skills are AI execution blueprints — verified pipelines with safety gates that turn raw MCP tools into reliable workflows. 20 skills across 5 categories.
 
-```toml
-[mcp_servers.servicenow]
-command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-  "--instance-url", "https://your-instance.service-now.com",
-  "--auth-type", "browser",
-  "--browser-headless", "false",
-  "--tool-package", "standard",
-]
+```powershell
+# Claude Code
+servicenow-mcp-skills claude
+
+# OpenAI Codex
+servicenow-mcp-skills codex
+
+# OpenCode
+servicenow-mcp-skills opencode
+
+# Or with uvx (no install needed)
+uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 ```
+
+| Client | Install Path | Auto-Discovery |
+|--------|-------------|----------------|
+| Claude Code | `.claude\commands\servicenow\` | `/servicenow` slash commands appear on next startup |
+| OpenAI Codex | `.codex\skills\servicenow\` | Skills loaded on next agent session |
+| OpenCode | `.opencode\skills\servicenow\` | Skills loaded on next session |
+
+| Category | Skills | Purpose |
+|----------|--------|---------|
+| `analyze/` | 6 | Widget analysis, portal diagnosis, dependency mapping, code detection |
+| `fix/` | 3 | Widget patching (staged safety gates), debugging, code review |
+| `manage/` | 5 | Page layout, script includes, source export, changeset workflow |
+| `deploy/` | 2 | Change request lifecycle, incident triage |
+| `explore/` | 4 | Health check, schema discovery, route tracing, ESC catalog flow |
+
+**Update:** Re-run the same install command to update all skill files.
+**Remove:** Delete the install directory (e.g., `Remove-Item -Recurse .claude\commands\servicenow\`).
 
 ---
 
-## Step 4: Verify
+## Step 5: Verify
 
 1. **Fully quit and restart** your MCP client (close the tray icon too).
 2. The browser window opens on the first tool call (not on server start).
@@ -150,7 +209,7 @@ args = [
 
 Test: call the `sn_health` tool from your client.
 
-> If the browser doesn't open, re-check Step 2 (Chromium installation).
+> If the browser doesn't open, check that Chromium was installed automatically. You can force-install it with: `uvx playwright install chromium`
 
 ---
 
@@ -216,11 +275,7 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 If there's a conflict with system Python, uninstall and reinstall `uv`.
 
 ### "Browser won't open"
-→ Check if Chromium is installed:
-```powershell
-uvx playwright --version
-```
-→ If not, reinstall:
+→ Chromium is auto-installed on first run. If it fails, install manually:
 ```powershell
 uvx playwright install chromium
 ```
