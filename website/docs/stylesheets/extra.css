@@ -108,19 +108,25 @@
   color: var(--header-icon) !important;
 }
 /* Palette toggle snackbar / dialog — force theme-aware */
-.md-dialog,
+[data-md-component="dialog"],
+div.md-dialog,
+div.md-dialog.md-dialog--active,
 .md-dialog__inner,
-.md-banner,
-.md-banner__inner {
+.md-banner {
   background-color: var(--card-bg) !important;
   color: var(--hero-text) !important;
-  border-color: var(--border-color) !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 8px !important;
 }
-.md-dialog a,
-.md-dialog button,
+.md-dialog__inner.md-typeset {
+  color: var(--hero-text) !important;
+}
+[data-md-component="dialog"] a,
+[data-md-component="dialog"] button,
 .md-banner a,
 .md-banner button {
-  color: var(--accent) !important;
+  color: var(--hero-text) !important;
 }
 /* Palette toggle (dark/light switch) */
 .md-header .md-header__button[data-md-color-scheme] {
