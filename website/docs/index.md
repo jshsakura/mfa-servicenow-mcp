@@ -12,7 +12,7 @@ hide:
   <div class="hero-content">
     <h1 class="hero-title">
       Secure ServiceNow<br>
-      for AI Agents
+      for <span class="gradient-text">AI Agents</span>
     </h1>
     <p class="hero-subtitle">
       The MFA-first MCP server that gives your AI agents secure,
