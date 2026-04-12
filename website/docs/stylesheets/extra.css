@@ -19,7 +19,7 @@
   --gradient-mid: #8b5cf6;
   --gradient-end: #ec4899;
   --code-bg: #0f0f12;
-  --dot-color: rgba(0,0,0,.08);
+  --grid-color: rgba(0,0,0,.06);
   --md-primary-fg-color: #18181b;
 }
 [data-md-color-scheme="slate"] {
@@ -35,7 +35,7 @@
   --accent: #818cf8;
   --accent-bg: rgba(129,140,248,.1);
   --code-bg: #0c0c0e;
-  --dot-color: rgba(255,255,255,.06);
+  --grid-color: rgba(255,255,255,.05);
   --md-primary-fg-color: #fafafa;
 }
 
@@ -64,6 +64,10 @@
 .md-header__button.md-logo {
   display: none !important;
 }
+/* Prevent hamburger overlap with title on mobile */
+@media (max-width: 76.1875em) {
+  .md-header__title { padding-left: 0; }
+}
 [data-md-color-scheme="slate"] .md-header {
   background: rgba(9,9,11,.9) !important;
   box-shadow: 0 1px 0 rgba(255,255,255,.06);
@@ -78,10 +82,12 @@ body.landing .md-content,
 body.landing .md-container {
   background: var(--page-bg) !important;
 }
-/* Dot grid on entire page below header */
+/* Grid lines on entire page below header */
 body.landing .md-main {
-  background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px) !important;
-  background-size: 24px 24px !important;
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px) !important;
+  background-size: 40px 40px !important;
 }
 body.landing .md-grid { max-width: 100% !important; padding: 0 !important; }
 body.landing .md-main { margin-top: 0 !important; padding-top: 0 !important; }
