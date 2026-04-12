@@ -1,17 +1,17 @@
 # ServiceNow MCP - Tool Inventory
 
-Active tools: **100** | Registered in code: **138** | Removed from packages: **38**
+Active tools: **95** | Registered in code: **133** | Removed from packages: **38**
 
 ## Package Summary
 
 | Package | Tools | Default | Description |
 |---------|-------|---------|-------------|
 | `none` | 0 |  | Disabled |
-| `standard` | 56 | Y | Read-only safe mode |
-| `portal_developer` | 72 |  | Portal/Widget development |
-| `platform_developer` | 80 |  | Backend/Workflow development |
-| `service_desk` | 60 |  | Incident operations |
-| `full` | 100 |  | All capabilities |
+| `standard` | 51 | Y | Read-only safe mode |
+| `portal_developer` | 67 |  | Portal/Widget development |
+| `platform_developer` | 75 |  | Backend/Workflow development |
+| `service_desk` | 55 |  | Incident operations |
+| `full` | 95 |  | All capabilities |
 
 ## Tools by Category
 
@@ -133,16 +133,13 @@ Active tools: **100** | Registered in code: **138** | Removed from packages: **3
 | `get_repo_recent_commits` | R | List recent commits with author and optional changed file lists... | *(none)* |
 | `get_repo_working_tree_status` | R | Inspect working tree status including staged, unstaged, and untracked files... | *(none)* |
 
-### Flow Designer (6)
+### Flow Designer (3)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `get_flow_designer_detail` | R | Get detailed information about a single Flow Designer flow including metadata, t... | full, platform_developer, portal_developer, service_desk, standard |
-| `get_flow_designer_execution_detail` | R | Get detailed information about a single flow execution including plan data, runt... | full, platform_developer, portal_developer, service_desk, standard |
-| `get_flow_designer_executions` | R | Get execution history for Flow Designer flows from sys_flow_context. Filter by f... | full, platform_developer, portal_developer, service_desk, standard |
-| `get_flow_designer_structure` | R | Analyze the full structure of a Flow Designer flow. First tries the native Flow ... | full, platform_developer, portal_developer, service_desk, standard |
-| `get_flow_designer_triggers` | R | Get trigger configuration for a Flow Designer flow. Shows what events/conditions... | full, platform_developer, portal_developer, service_desk, standard |
 | `list_flow_designers` | R | List Flow Designer flows with optional filters. Returns flow name, status, activ... | full, platform_developer, portal_developer, service_desk, standard |
+| `get_flow_designer_detail` | R | Get flow metadata. Use include_structure=true for action/logic/subflow tree, inc... | full, platform_developer, portal_developer, service_desk, standard |
+| `get_flow_designer_executions` | R | Get execution history or single execution detail (provide context_id). Filter by... | full, platform_developer, portal_developer, service_desk, standard |
 
 ### Incident (6)
 
@@ -169,19 +166,17 @@ Active tools: **100** | Registered in code: **138** | Removed from packages: **3
 | `publish_article` | W | Publish a knowledge article... | *(none)* |
 | `update_article` | W | Update an existing knowledge article... | *(none)* |
 
-### Legacy Workflow (12)
+### Legacy Workflow (10)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
+| `list_legacy_workflows` | R | List workflows with optional filters by name, table, or active status. Returns s... | full, platform_developer, portal_developer, service_desk, standard |
+| `get_legacy_workflow_details` | R | Get workflow metadata. Use include_versions=true for version history, include_act... | full, platform_developer, portal_developer, service_desk, standard |
 | `activate_legacy_workflow` | W | Set a workflow to active state by sys_id. Returns updated workflow record.... | full, platform_developer |
 | `add_legacy_workflow_activity` | W | Add an activity (approval, task, notification, etc.) to a workflow version.... | full, platform_developer |
 | `create_legacy_workflow` | W | Create a workflow with name, table, description, and active flag. Returns create... | full, platform_developer |
 | `deactivate_legacy_workflow` | W | Set a workflow to inactive state by sys_id. Returns updated workflow record.... | full, platform_developer |
 | `delete_legacy_workflow_activity` | W | Remove an activity from a workflow by activity sys_id. Irreversible.... | full, platform_developer |
-| `get_legacy_workflow_activities` | R | Get ordered activity list for a workflow version. Defaults to latest published v... | full, platform_developer, portal_developer, service_desk, standard |
-| `get_legacy_workflow_details` | R | Get a single workflow by sys_id with full configuration and metadata.... | full, platform_developer, portal_developer, service_desk, standard |
-| `list_legacy_workflow_versions` | R | List version history for a workflow. Returns version records with publish status... | full, platform_developer, portal_developer, service_desk, standard |
-| `list_legacy_workflows` | R | List workflows with optional filters by name, table, or active status. Returns s... | full, platform_developer, portal_developer, service_desk, standard |
 | `reorder_legacy_workflow_activities` | W | Reorder workflow activities by providing activity sys_ids in desired sequence.... | full, platform_developer |
 | `update_legacy_workflow` | W | Update workflow name, description, table, or active status by sys_id.... | full, platform_developer |
 | `update_legacy_workflow_activity` | W | Update activity name, description, or attributes by activity sys_id.... | full, platform_developer |

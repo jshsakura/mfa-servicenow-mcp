@@ -10,14 +10,14 @@ import requests
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.workflow_tools import (
+    _fetch_workflow_activities,
+    _fetch_workflow_versions,
     activate_workflow,
     add_workflow_activity,
     create_workflow,
     deactivate_workflow,
     delete_workflow_activity,
-    get_workflow_activities,
     get_workflow_details,
-    list_workflow_versions,
     list_workflows,
     reorder_workflow_activities,
     update_workflow,
@@ -201,20 +201,27 @@ class TestWorkflowTools(unittest.TestCase):
         # Call the function
         params = {
             "workflow_id": "workflow123",
-            "limit": 10,
+            "include_versions": True,
         }
-        result = list_workflow_versions(self.auth_manager, self.server_config, params)
+        result = get_workflow_details(self.auth_manager, self.server_config, params)
 
-        # Verify the result
+        # Verify the result — versions are nested in the response
+        self.assertIn("versions", result)
         self.assertEqual(len(result["versions"]), 2)
-        self.assertEqual(result["count"], 2)
-        self.assertEqual(result["total"], 2)
         self.assertEqual(result["versions"][0]["sys_id"], "version123")
         self.assertEqual(result["versions"][1]["sys_id"], "version456")
 
     def test_get_workflow_activities_success(self):
         """Test getting workflow activities successfully."""
-        # Mock the responses for version query and activities query
+        # First call: workflow details
+        workflow_response = MagicMock()
+        workflow_response.json.return_value = {
+            "result": [{"sys_id": "workflow123", "name": "Test WF"}]
+        }
+        workflow_response.headers = {"X-Total-Count": "1"}
+        self._finalize_response(workflow_response)
+
+        # Second call: version query
         version_response = MagicMock()
         version_response.json.return_value = {
             "result": [
@@ -230,6 +237,7 @@ class TestWorkflowTools(unittest.TestCase):
         version_response.headers = {"X-Total-Count": "1"}
         self._finalize_response(version_response)
 
+        # Third call: activities query
         activities_response = MagicMock()
         activities_response.json.return_value = {
             "result": [
@@ -252,40 +260,50 @@ class TestWorkflowTools(unittest.TestCase):
         activities_response.headers = {"X-Total-Count": "2"}
         self._finalize_response(activities_response)
 
-        # Configure the mock to return different responses for sequential calls
-        self.auth_manager.make_request.side_effect = [version_response, activities_response]
+        self.auth_manager.make_request.side_effect = [
+            workflow_response, version_response, activities_response
+        ]
 
         # Call the function
         params = {
             "workflow_id": "workflow123",
+            "include_activities": True,
         }
-        result = get_workflow_activities(self.auth_manager, self.server_config, params)
+        result = get_workflow_details(self.auth_manager, self.server_config, params)
 
-        # Verify the result
+        # Verify the result — activities are nested in the response
         self.assertEqual(len(result["activities"]), 2)
-        self.assertEqual(result["count"], 2)
-        self.assertEqual(result["workflow_id"], "workflow123")
+        self.assertEqual(result["activity_count"], 2)
         self.assertEqual(result["version_id"], "version123")
         self.assertEqual(result["activities"][0]["sys_id"], "activity123")
         self.assertEqual(result["activities"][1]["sys_id"], "activity456")
 
     def test_get_workflow_activities_returns_error_when_no_published_version(self):
         """Test latest published version fallback when no versions exist."""
+        # First call: workflow details (found)
+        workflow_response = MagicMock()
+        workflow_response.json.return_value = {
+            "result": [{"sys_id": "workflow123", "name": "Test WF"}]
+        }
+        workflow_response.headers = {"X-Total-Count": "1"}
+        self._finalize_response(workflow_response)
+
+        # Second call: version query (empty — no published versions)
         version_response = MagicMock()
         version_response.json.return_value = {"result": []}
         version_response.headers = {"X-Total-Count": "0"}
         self._finalize_response(version_response)
-        self.auth_manager.make_request.return_value = version_response
 
-        result = get_workflow_activities(
+        self.auth_manager.make_request.side_effect = [workflow_response, version_response]
+
+        result = get_workflow_details(
             self.auth_manager,
             self.server_config,
-            {"workflow_id": "workflow123"},
+            {"workflow_id": "workflow123", "include_activities": True},
         )
 
-        self.assertIn("error", result)
-        self.assertIn("No published versions found", result["error"])
-        self.assertEqual(result["workflow_id"], "workflow123")
+        self.assertIn("activities_error", result)
+        self.assertIn("No published versions found", result["activities_error"])
 
     def test_create_workflow_success(self):
         """Test creating a workflow successfully."""
