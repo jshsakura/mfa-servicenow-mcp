@@ -11,10 +11,11 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ```bash
-# Install and run (one-liner)
+# One command — MFA/SSO browser login, works on macOS/Linux/Windows
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
+  --auth-type "browser" \
+  --browser-headless "false"
 ```
 
 ---
@@ -92,21 +93,22 @@ Restart your terminal after installation. That's it — no Python install, no pi
 
 ## Quick Start
 
-No clone needed. One command:
+No clone needed. One command — works on macOS, Linux, and Windows:
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
+  --auth-type "browser" \
+  --browser-headless "false"
 ```
 
-A browser window opens on the first tool call for MFA/SSO login. Chromium is auto-installed if missing.
+A browser window opens on the first tool call for Okta/Entra ID/SAML/MFA login. Chromium is auto-installed if missing. Session persists after login — no need to re-authenticate every time.
 
 ---
 
 ## MCP Client Configuration
 
-Set `your-instance`, `your.username`, `your-password` to your actual values.
+Each project can connect to a different ServiceNow instance. Set the config in your **project directory** so each project has its own instance URL and credentials.
 
 | Client | Config File | Format |
 |--------|------------|--------|
@@ -128,18 +130,9 @@ Copy-paste configs for each client: **[Client Setup Guide](docs/CLIENT_SETUP.md)
 
 Choose the auth mode based on your ServiceNow environment.
 
-### Browser Auth (MFA/SSO)
+### Browser Auth (MFA/SSO) — Default
 
-Use this for Okta, Entra ID, SAML, MFA, or any interactive SSO flow.
-
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
-```
-
-Optional browser-related flags:
+The [Quick Start](#quick-start) command uses browser auth. Optional flags:
 
 | Flag | Env Variable | Default | Description |
 |------|-------------|---------|-------------|

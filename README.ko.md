@@ -11,10 +11,11 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ```bash
-# 설치 없이 바로 실행 (한 줄)
+# 한 줄로 MFA/SSO 브라우저 인증 — macOS/Linux/Windows
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
+  --auth-type "browser" \
+  --browser-headless "false"
 ```
 
 ---
@@ -92,21 +93,22 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ## 바로 쓰기
 
-클론 필요 없습니다. 한 줄로:
+클론 필요 없습니다. 한 줄 — macOS, Linux, Windows 전부 동작:
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
+  --auth-type "browser" \
+  --browser-headless "false"
 ```
 
-첫 도구 호출 시 브라우저 창이 열려 MFA/SSO 로그인을 합니다. Chromium이 없으면 자동 설치됩니다.
+첫 도구 호출 시 Okta/Entra ID/SAML/MFA 브라우저 로그인 창이 뜹니다. Chromium 자동 설치. 세션은 유지되어 매번 재로그인할 필요 없습니다.
 
 ---
 
 ## MCP 클라이언트 설정
 
-`your-instance`, `your.username`, `your-password`를 실제 값으로 바꾸세요.
+프로젝트마다 다른 ServiceNow 인스턴스에 접속할 수 있습니다. **프로젝트 디렉토리**에 설정 파일을 두세요.
 
 | 클라이언트 | 설정 파일 | 포맷 |
 |-----------|----------|------|
@@ -128,18 +130,9 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ServiceNow 환경에 맞는 인증 방식을 선택하세요.
 
-### 브라우저 인증 (MFA/SSO)
+### 브라우저 인증 (MFA/SSO) — 기본
 
-Okta, Entra ID, SAML, MFA 같은 대화형 로그인 환경에 적합합니다.
-
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
-```
-
-브라우저 관련 옵션:
+[바로 쓰기](#바로-쓰기)의 명령어가 브라우저 인증입니다. 추가 옵션:
 
 | 플래그 | 환경변수 | 기본값 | 설명 |
 |------|---------|--------|------|
