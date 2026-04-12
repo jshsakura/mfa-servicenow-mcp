@@ -197,9 +197,39 @@ Or add to `.mcp.json` in your project root:
 }
 ```
 
-### OpenCode / Gemini / Vertex AI
+### OpenCode
 
-#### Run with `uvx`
+Config file: `opencode.json` in your project root.
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_USERNAME": "your.username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "SERVICENOW_BROWSER_TIMEOUT": "120",
+        "SERVICENOW_BROWSER_SESSION_TTL": "30",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+> OpenCode uses `environment` (not `env`) and supports the `$schema` field.
+> `SERVICENOW_BROWSER_USERNAME` and `SERVICENOW_BROWSER_PASSWORD` are optional — they prefill the login form for MFA/SSO.
+
+### Gemini / Vertex AI
 
 ```json
 {
@@ -213,8 +243,6 @@ Or add to `.mcp.json` in your project root:
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       },
       "enabled": true
@@ -222,32 +250,6 @@ Or add to `.mcp.json` in your project root:
   }
 }
 ```
-
-#### Run from a checked-out source tree
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uv", "run", "--project", "/absolute/path/to/mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
-    }
-  }
-}
-```
-
-> `SERVICENOW_BROWSER_USERNAME` and `SERVICENOW_BROWSER_PASSWORD` are optional but help prefill the browser login form in MFA/SSO flows.
 
 ### AntiGravity
 
