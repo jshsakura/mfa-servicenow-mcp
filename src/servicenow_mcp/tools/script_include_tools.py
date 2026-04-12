@@ -21,13 +21,15 @@ logger = logging.getLogger(__name__)
 class ListScriptIncludesParams(BaseModel):
     """Parameters for listing script includes."""
 
-    limit: int = Field(10, description="Maximum number of script includes to return")
-    offset: int = Field(0, description="Offset for pagination")
-    active: Optional[bool] = Field(None, description="Filter by active status")
-    client_callable: Optional[bool] = Field(None, description="Filter by client callable status")
-    query: Optional[str] = Field(None, description="Search query for script includes")
+    limit: int = Field(default=10, description="Maximum number of script includes to return")
+    offset: int = Field(default=0, description="Offset for pagination")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    client_callable: Optional[bool] = Field(
+        default=None, description="Filter by client callable status"
+    )
+    query: Optional[str] = Field(default=None, description="Search query for script includes")
     count_only: bool = Field(
-        False,
+        default=False,
         description="Return count only without fetching records. Uses lightweight Aggregate API.",
     )
 
@@ -43,36 +45,40 @@ class CreateScriptIncludeParams(BaseModel):
 
     name: str = Field(..., description="Name of the script include")
     script: str = Field(..., description="Script content")
-    description: Optional[str] = Field(None, description="Description of the script include")
-    api_name: Optional[str] = Field(None, description="API name of the script include")
-    client_callable: bool = Field(
-        False, description="Whether the script include is client callable"
+    description: Optional[str] = Field(
+        default=None, description="Description of the script include"
     )
-    active: bool = Field(True, description="Whether the script include is active")
-    access: str = Field("package_private", description="Access level of the script include")
+    api_name: Optional[str] = Field(default=None, description="API name of the script include")
+    client_callable: bool = Field(
+        default=False, description="Whether the script include is client callable"
+    )
+    active: bool = Field(default=True, description="Whether the script include is active")
+    access: str = Field(default="package_private", description="Access level of the script include")
 
 
 class UpdateScriptIncludeParams(BaseModel):
     """Parameters for updating a script include."""
 
     script_include_id: str = Field(..., description="Script include ID or name")
-    script: Optional[str] = Field(None, description="Script content")
-    description: Optional[str] = Field(None, description="Description of the script include")
-    api_name: Optional[str] = Field(None, description="API name of the script include")
-    client_callable: Optional[bool] = Field(
-        None, description="Whether the script include is client callable"
+    script: Optional[str] = Field(default=None, description="Script content")
+    description: Optional[str] = Field(
+        default=None, description="Description of the script include"
     )
-    active: Optional[bool] = Field(None, description="Whether the script include is active")
-    access: Optional[str] = Field(None, description="Access level of the script include")
+    api_name: Optional[str] = Field(default=None, description="API name of the script include")
+    client_callable: Optional[bool] = Field(
+        default=None, description="Whether the script include is client callable"
+    )
+    active: Optional[bool] = Field(default=None, description="Whether the script include is active")
+    access: Optional[str] = Field(default=None, description="Access level of the script include")
 
 
 class ExecuteScriptIncludeParams(BaseModel):
     """Parameters for executing a client-callable script include."""
 
     name: str = Field(..., description="Name of the script include to execute")
-    method: str = Field("execute", description="Method name to invoke (default: execute)")
+    method: str = Field(default="execute", description="Method name to invoke (default: execute)")
     params: Optional[Dict[str, str]] = Field(
-        None, description="Key-value parameters to pass to the script include"
+        default=None, description="Key-value parameters to pass to the script include"
     )
 
 
@@ -87,9 +93,11 @@ class ScriptIncludeResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    script_include_id: Optional[str] = Field(None, description="ID of the affected script include")
+    script_include_id: Optional[str] = Field(
+        default=None, description="ID of the affected script include"
+    )
     script_include_name: Optional[str] = Field(
-        None, description="Name of the affected script include"
+        default=None, description="Name of the affected script include"
     )
 
 

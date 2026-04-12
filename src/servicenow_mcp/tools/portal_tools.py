@@ -40,7 +40,7 @@ class GetWidgetBundleParams(BaseModel):
 
     widget_id: str = Field(..., description="The sys_id or name of the widget")
     include_providers: bool = Field(
-        True, description="Whether to include list of associated Angular Providers"
+        default=True, description="Whether to include list of associated Angular Providers"
     )
 
 
@@ -48,18 +48,20 @@ class GetPortalComponentParams(BaseModel):
     """Parameters for fetching specific portal component code."""
 
     table: str = Field(
-        ..., description="The table name (sp_widget, sp_angular_provider, sys_script_include)"
+        default=...,
+        description="The table name (sp_widget, sp_angular_provider, sys_script_include)",
     )
     sys_id: str = Field(..., description="The sys_id of the component")
     fields: List[str] = Field(
-        ["template", "script", "client_script", "css"], description="Specific code fields to fetch"
+        default=["template", "script", "client_script", "css"],
+        description="Specific code fields to fetch",
     )
     script_offset: int = Field(
-        0,
+        default=0,
         description="Character offset to start reading script fields from. Use for paginating large scripts.",
     )
     script_max_length: int = Field(
-        8000,
+        default=8000,
         description="Maximum characters to return per script field (default 8000, clamped to 12000). Use with script_offset to paginate.",
     )
 
@@ -68,11 +70,12 @@ class UpdatePortalComponentParams(BaseModel):
     """Parameters for updating portal component code."""
 
     table: str = Field(
-        ..., description="The table name (sp_widget, sp_angular_provider, sys_script_include)"
+        default=...,
+        description="The table name (sp_widget, sp_angular_provider, sys_script_include)",
     )
     sys_id: str = Field(..., description="The sys_id of the component")
     update_data: Dict[str, str] = Field(
-        ..., description="Field-value pairs to update (e.g. {'client_script': '...'})"
+        default=..., description="Field-value pairs to update (e.g. {'client_script': '...'})"
     )
 
 
@@ -88,15 +91,16 @@ class CreatePortalComponentSnapshotParams(BaseModel):
     """Parameters for exporting the current editable state of a portal component."""
 
     table: str = Field(
-        ..., description="The table name (sp_widget, sp_angular_provider, sys_script_include)"
+        default=...,
+        description="The table name (sp_widget, sp_angular_provider, sys_script_include)",
     )
     sys_id: str = Field(..., description="The sys_id of the component")
     fields: List[str] | None = Field(
-        None,
+        default=None,
         description="Optional editable fields to snapshot. Defaults to all allowed editable fields for the table.",
     )
     output_dir: str | None = Field(
-        None,
+        default=None,
         description="Optional snapshot directory. Defaults to ./.servicenow_mcp/portal_component_snapshots/<instance>/",
     )
 
@@ -105,7 +109,7 @@ class UpdatePortalComponentFromSnapshotParams(BaseModel):
     """Parameters for restoring a portal component from a saved local snapshot."""
 
     snapshot_path: str = Field(
-        ..., description="Path to a saved portal component snapshot JSON file"
+        default=..., description="Path to a saved portal component snapshot JSON file"
     )
 
 
@@ -114,63 +118,64 @@ class RoutePortalComponentEditParams(BaseModel):
 
     instruction: str = Field(..., description="Short natural-language instruction")
     table: str | None = Field(
-        None,
+        default=None,
         description="Optional target table (sp_widget, sp_angular_provider, sys_script_include)",
     )
-    sys_id: str | None = Field(None, description="Optional target component sys_id")
+    sys_id: str | None = Field(default=None, description="Optional target component sys_id")
     update_data: Dict[str, str] | None = Field(
-        None, description="Optional explicit field updates for analyze/preview/apply routing"
+        default=None,
+        description="Optional explicit field updates for analyze/preview/apply routing",
     )
     snapshot_path: str | None = Field(
-        None, description="Optional snapshot path for rollback/restore routing"
+        default=None, description="Optional snapshot path for rollback/restore routing"
     )
 
 
 class DownloadPortalSourcesParams(BaseModel):
     output_dir: str | None = Field(
-        None, description="Output directory path. Defaults to current working directory"
+        default=None, description="Output directory path. Defaults to current working directory"
     )
     scope: str | None = Field(
-        None,
+        default=None,
         description="Optional app scope filter (sys_scope). Example: x_company_bpm",
     )
     widget_ids: List[str] | None = Field(
-        None,
+        default=None,
         description="Optional list of widget sys_id/id/name. If empty, exports all widgets in scope.",
     )
     include_linked_script_includes: bool | None = Field(
-        None,
+        default=None,
         description="Include script includes referenced by exported widgets. Defaults to true for targeted widget export.",
     )
     include_linked_angular_providers: bool | None = Field(
-        None,
+        default=None,
         description="Include angular providers linked via widget-provider M2M. Defaults to true for targeted widget export.",
     )
     include_widget_client_script: bool = Field(
-        True,
+        default=True,
         description="Include widget client_script.js output",
     )
     include_widget_server_script: bool = Field(
-        True,
+        default=True,
         description="Include widget script.js output",
     )
     include_widget_link_script: bool = Field(
-        True,
+        default=True,
         description="Include widget link.js output",
     )
     include_widget_template: bool = Field(
-        True,
+        default=True,
         description="Include widget template.html output",
     )
     include_widget_css: bool = Field(
-        True,
+        default=True,
         description="Include widget css.scss output",
     )
     max_widgets: int = Field(
-        25,
+        default=25,
         description="Maximum widgets to export (default 25, clamped to 100)",
     )
-    page_size: int = Field(50, description="Pagination size for API queries (10..100)")
+    page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
 
 
 def _strip_metadata(record: Dict[str, Any], keep_fields: List[str]) -> Dict[str, Any]:
@@ -704,172 +709,172 @@ IMPLICIT_ASSIGNMENT_RE = re.compile(r"(?<![.\w$])([A-Za-z_$][\w$]*)\s*([+\-*/%]?
 
 class SearchPortalRegexMatchesParams(BaseModel):
     regex: str = Field(
-        DEFAULT_REDIRECT_PATTERN,
+        default=DEFAULT_REDIRECT_PATTERN,
         description=(
             "Pattern to find in source code. In auto mode (default), plain strings are treated literally and regex-looking patterns stay regex."
         ),
     )
     match_mode: str = Field(
-        "auto",
+        default="auto",
         description="Pattern mode: auto | literal | regex. Use auto for LLM-friendly matching without manual escaping.",
     )
     updated_by: str | None = Field(
-        None,
+        default=None,
         description="Optional updater filter (sys_updated_by). Example: admin@example.com",
     )
     scope: str | None = Field(
-        None,
+        default=None,
         description="Optional app scope filter (sys_scope). Example: x_company_bpm",
     )
     widget_ids: List[str] | None = Field(
-        None,
+        default=None,
         description="Optional widget id/sys_id/name filters. If provided, scan only these widgets.",
     )
     provider_ids: List[str] | None = Field(
-        None,
+        default=None,
         description="Optional angular provider sys_id/name filters. If provided, scan these providers directly (bypasses widget→M2M lookup).",
     )
     source_types: List[str] = Field(
-        ["widget"],
+        default=["widget"],
         description="Source types to include. Allowed: widget, script_include, angular_provider",
     )
     updated_after: str | None = Field(
-        None,
+        default=None,
         description="Optional lower bound for sys_updated_on (YYYY-MM-DD or datetime)",
     )
     updated_before: str | None = Field(
-        None,
+        default=None,
         description="Optional upper bound for sys_updated_on (YYYY-MM-DD or datetime)",
     )
     include_linked_script_includes: bool = Field(
-        False,
+        default=False,
         description="Expand scan to script includes referenced by matched widgets",
     )
     include_linked_angular_providers: bool = Field(
-        False,
+        default=False,
         description="Expand scan to angular providers linked to matched widgets",
     )
     linked_components_updated_by_only: bool = Field(
-        False,
+        default=False,
         description="When true, linked Script Includes/Providers are filtered by same updated_by",
     )
     include_widget_fields: List[str] = Field(
-        ["template", "script", "client_script", "link", "css"],
+        default=["template", "script", "client_script", "link", "css"],
         description="Widget fields to scan for pattern",
     )
     max_widgets: int = Field(
-        25,
+        default=25,
         description=f"Maximum widgets to scan after filter. Clamped to {MAX_WIDGET_REVIEW_LIMIT}.",
     )
-    page_size: int = Field(50, description="Pagination size for API queries (10..100)")
+    page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
     max_matches: int = Field(
-        25,
+        default=25,
         description=f"Maximum total matches to return. Clamped to {MAX_WIDGET_REVIEW_MATCHES}.",
     )
     snippet_length: int = Field(
-        DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH,
+        default=DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH,
         description="Maximum one-line snippet length per match",
     )
     compact_output: bool = Field(
-        True,
+        default=True,
         description="Return compact output (location, line, snippet) to minimize tokens",
     )
     output_mode: str | None = Field(
-        None,
+        default=None,
         description="Optional output shape override: minimal | compact | full",
     )
 
 
 class TracePortalRouteTargetsParams(BaseModel):
     regex: str = Field(
-        DEFAULT_REDIRECT_PATTERN,
+        default=DEFAULT_REDIRECT_PATTERN,
         description=(
             "Pattern for the route/target to trace. In auto mode (default), plain strings are treated literally and regex-looking patterns stay regex."
         ),
     )
     match_mode: str = Field(
-        "auto",
+        default="auto",
         description="Pattern mode: auto | literal | regex. Use auto for LLM-friendly matching without manual escaping.",
     )
     updated_by: str | None = Field(
-        None,
+        default=None,
         description="Optional updater filter (sys_updated_by). Example: admin@example.com",
     )
     scope: str | None = Field(
-        None,
+        default=None,
         description="Optional app scope filter (sys_scope). Example: x_company_bpm",
     )
     widget_ids: List[str] | None = Field(
-        None,
+        default=None,
         description="Optional widget id/sys_id/name filters. If provided, only these widgets are traced.",
     )
     provider_ids: List[str] | None = Field(
-        None,
+        default=None,
         description="Optional provider id/sys_id/name filters. When provided, linked widgets are resolved first.",
     )
     include_linked_angular_providers: bool = Field(
-        True,
+        default=True,
         description="Expand each widget trace to linked Angular Providers before scanning for route matches.",
     )
     include_widget_fields: List[str] = Field(
-        ["template", "script", "client_script", "link"],
+        default=["template", "script", "client_script", "link"],
         description="Widget fields to inspect for route matches or click-handler clues.",
     )
     max_widgets: int = Field(
-        10,
+        default=10,
         description=f"Maximum widgets to analyze after filters. Clamped to {MAX_WIDGET_REVIEW_LIMIT}.",
     )
-    page_size: int = Field(50, description="Pagination size for API queries (10..100)")
+    page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
     max_traces: int = Field(
-        25,
+        default=25,
         description=f"Maximum widget trace rows to return. Clamped to {MAX_WIDGET_REVIEW_MATCHES}.",
     )
     snippet_length: int = Field(
-        DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH,
+        default=DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH,
         description="Maximum one-line evidence snippet length per match",
     )
     output_mode: str = Field(
-        "minimal",
+        default="minimal",
         description="Output shape: minimal | compact | full",
     )
 
 
 class DetectAngularImplicitGlobalsParams(BaseModel):
     updated_by: str | None = Field(
-        None,
+        default=None,
         description="Optional updater filter (sys_updated_by). Example: admin@example.com",
     )
     scope: str | None = Field(
-        None,
+        default=None,
         description="Optional app scope filter (sys_scope). Example: x_company_bpm",
     )
     provider_ids: List[str] | None = Field(
-        None,
+        default=None,
         description="Optional provider id/sys_id/name filters. If provided, scan only these providers.",
     )
     updated_after: str | None = Field(
-        None,
+        default=None,
         description="Optional lower bound for sys_updated_on (YYYY-MM-DD or datetime)",
     )
     updated_before: str | None = Field(
-        None,
+        default=None,
         description="Optional upper bound for sys_updated_on (YYYY-MM-DD or datetime)",
     )
     max_providers: int = Field(
-        25,
+        default=25,
         description=f"Maximum providers to scan after filter. Clamped to {MAX_ANGULAR_PROVIDER_SCAN_LIMIT}.",
     )
-    page_size: int = Field(50, description="Pagination size for API queries (10..100)")
+    page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
     max_matches: int = Field(
-        25,
+        default=25,
         description=f"Maximum total findings to return. Clamped to {MAX_ANGULAR_IMPLICIT_GLOBAL_MATCHES}.",
     )
     snippet_length: int = Field(
-        DEFAULT_ANGULAR_IMPLICIT_SNIPPET_LENGTH,
+        default=DEFAULT_ANGULAR_IMPLICIT_SNIPPET_LENGTH,
         description="Maximum one-line snippet length per finding",
     )
     output_mode: str = Field(
-        "minimal",
+        default="minimal",
         description="Output shape: minimal | compact | full",
     )
 
@@ -1086,10 +1091,10 @@ def _fetch_targeted_widget_rows(
         for sys_id in token_matches.get(token, []):
             if sys_id in seen_sys_ids:
                 continue
-            row = rows_by_sys_id.get(sys_id)
-            if row is None:
+            matched_row = rows_by_sys_id.get(sys_id)
+            if matched_row is None:
                 continue
-            ordered_rows.append(row)
+            ordered_rows.append(matched_row)
             seen_sys_ids.add(sys_id)
 
     for sys_id, row in rows_by_sys_id.items():
@@ -1108,7 +1113,7 @@ def _download_widget_fields(
     include_widget_css: bool,
     include_linked_script_includes: bool,
 ) -> str:
-    fields = ["sys_id", "name", "id", "sys_scope", "option_schema", "demo_data"]
+    fields = ["sys_id", "name", "id", "sys_scope", "option_schema", "demo_data", "sys_updated_on"]
     if include_widget_template:
         fields.append("template")
     if include_widget_server_script or include_linked_script_includes:
@@ -3078,8 +3083,20 @@ def download_portal_sources(
         exported_widgets.append({"sys_id": sys_id, "id": widget_id, "name": widget_name})
 
     _write_json_file(scope_root / "sp_widget" / "_map.json", widget_map)
+    _now_iso = datetime.now(UTC).isoformat()
+    _widget_sync_meta: Dict[str, Dict[str, str]] = {}
+    for widget in widgets:
+        _wid = str(widget.get("id") or widget.get("name") or widget.get("sys_id") or "")
+        if _wid:
+            _widget_sync_meta[_wid] = {
+                "sys_id": str(widget.get("sys_id") or ""),
+                "sys_updated_on": str(widget.get("sys_updated_on") or ""),
+                "downloaded_at": _now_iso,
+            }
+    _write_json_file(scope_root / "sp_widget" / "_sync_meta.json", _widget_sync_meta)
 
     provider_map: Dict[str, str] = {}
+    _provider_sync_meta: Dict[str, Dict[str, str]] = {}
     exported_providers: List[Dict[str, str]] = []
     if include_linked_angular_providers and widgets:
         widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
@@ -3105,7 +3122,7 @@ def download_portal_sources(
                 auth_manager,
                 table=ANGULAR_PROVIDER_TABLE,
                 query=f"sys_idIN{','.join(m2m_ids)}",
-                fields="sys_id,name,script,type,sys_scope",
+                fields="sys_id,name,script,type,sys_scope,sys_updated_on",
                 page_size=params.page_size,
                 max_records=1000,
             )
@@ -3119,11 +3136,18 @@ def download_portal_sources(
                 )
                 if name:
                     provider_map[name] = sys_id
+                    _provider_sync_meta[name] = {
+                        "sys_id": sys_id,
+                        "sys_updated_on": str(provider.get("sys_updated_on") or ""),
+                        "downloaded_at": _now_iso,
+                    }
                 exported_providers.append({"name": name, "sys_id": sys_id})
 
     _write_json_file(scope_root / "sp_angular_provider" / "_map.json", provider_map)
+    _write_json_file(scope_root / "sp_angular_provider" / "_sync_meta.json", _provider_sync_meta)
 
     si_map: Dict[str, str] = {}
+    _si_sync_meta: Dict[str, Dict[str, str]] = {}
     exported_script_includes: List[Dict[str, str]] = []
     if include_linked_script_includes and script_include_candidates:
         script_include_rows = _fetch_linked_script_include_rows(
@@ -3142,6 +3166,11 @@ def download_portal_sources(
                 str(row.get("script") or ""),
             )
             si_map[name] = sys_id
+            _si_sync_meta[name] = {
+                "sys_id": sys_id,
+                "sys_updated_on": str(row.get("sys_updated_on") or ""),
+                "downloaded_at": _now_iso,
+            }
             exported_script_includes.append(
                 {
                     "name": name,
@@ -3151,6 +3180,7 @@ def download_portal_sources(
             )
 
     _write_json_file(scope_root / "sys_script_include" / "_map.json", si_map)
+    _write_json_file(scope_root / "sys_script_include" / "_sync_meta.json", _si_sync_meta)
     _write_json_file(root / "scopes.json", scope_sys_ids)
 
     return {

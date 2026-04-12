@@ -1,20 +1,21 @@
-# ServiceNow MCP Server
+# MFA ServiceNow MCP
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-**MFA 우선** ServiceNow MCP 서버. MFA/SSO가 필수인 기업 환경을 위해 만들었습니다 — 실제 브라우저(Playwright)로 인증하므로 Okta, Entra ID, SAML 등 어떤 대화형 로그인이든 그대로 동작합니다. headless/Docker 환경에서는 API Key 인증도 지원합니다. Claude Desktop, Claude Code, OpenCode, Gemini Code Assist, AntiGravity, OpenAI Codex에서 바로 사용 가능합니다.
+MFA 우선 ServiceNow MCP 서버. 실제 브라우저(Playwright)로 인증하므로 Okta, Entra ID, SAML 등 어떤 MFA/SSO 로그인이든 그대로 동작합니다. headless/Docker 환경에서는 API Key 인증도 지원합니다.
 
 [![PyPI version](https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![CI](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-mfa--servicenow--mcp-blue?logo=docker)](https://ghcr.io/jshsakura/mfa-servicenow-mcp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ```bash
-# 설치 없이 바로 실행 (한 줄)
+# 한 줄로 MFA/SSO 브라우저 인증 — macOS/Linux/Windows
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
+  --auth-type "browser" \
+  --browser-headless "false"
 ```
 
 ---
@@ -28,8 +29,9 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 - [인증 방법](#인증-방법)
 - [도구 패키지](#도구-패키지)
 - [CLI 레퍼런스](#cli-레퍼런스)
-- [최신 버전 유지 (PyPI)](#최신-버전-유지-pypi)
+- [최신 버전 유지](#최신-버전-유지)
 - [보안 정책](#보안-정책)
+- [스킬](#스킬)
 - [Docker](#docker)
 - [개발용 설치](#개발용-설치)
 - [상세 문서](#상세-문서)
@@ -42,7 +44,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **86개 도구**, 5개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
+- **89개 도구**, 5개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
 - `confirm='approve'` 기반 안전한 수정 승인 정책
 - 페이로드 안전 제한, 필드별 절단, 총 응답 한도 (200K 문자)
 - 일시적 네트워크 오류 자동 재시도 (백오프)
@@ -71,11 +73,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ## 필수 준비 사항
 
-서버를 등록하기 전에 아래 도구들이 설치되어 있는지 확인하세요.
-
-### 1. `uv` 설치 (필수)
-
-이 프로젝트는 [uv](https://astral.sh/uv)에 최적화되어 있습니다.
+[uv](https://astral.sh/uv)를 설치하세요 — Python, 패키지, 실행을 한번에 처리합니다.
 
 - **macOS / Linux:**
   ```bash
@@ -86,39 +84,16 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
   ```
 
-설치 후 터미널을 재시작하고 확인합니다:
+설치 후 터미널을 재시작하면 끝입니다. Python 설치, pip, venv 전부 필요 없습니다.
 
-```bash
-uv --version
-```
-
-### 2. 브라우저 바이너리 설치 (`browser` 인증 필수)
-
-MFA/SSO 환경에서 `auth-type: browser`를 사용하려면 로컬 시스템에 Chromium 브라우저 바이너리가 설치되어 있어야 합니다:
-
-```bash
-uvx playwright install chromium
-```
-
-> 최초 1회만 실행하면 됩니다. 바이너리는 모든 uvx 실행에서 공유됩니다.
-
-### 3. Windows 전용 팁
-
-Windows 사용자는 PowerShell에서 스크립트 실행 권한이 허용되어 있어야 합니다:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-상세한 Windows 설치 가이드는 [docs/WINDOWS_INSTALL.ko.md](./docs/WINDOWS_INSTALL.ko.md)에서 확인하세요.
+> MFA/SSO 브라우저 로그인용 Chromium은 첫 사용 시 자동 설치됩니다.
+> Windows 사용자: [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
 ---
 
 ## 바로 쓰기
 
-대부분의 사용자는 Git으로 소스를 받을 필요가 **없습니다**. [uv](https://astral.sh/uv)만 있으면 MCP 클라이언트 설정에 바로 넣어 쓸 수 있습니다.
-
-### 터미널에서 바로 실행 (한 줄)
+클론 필요 없습니다. 한 줄 — macOS, Linux, Windows 전부 동작:
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
@@ -127,176 +102,27 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --browser-headless "false"
 ```
 
-### 로컬에 설치해서 계속 쓰기
-
-```bash
-uv tool install mfa-servicenow-mcp
-servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
-```
+첫 도구 호출 시 Okta/Entra ID/SAML/MFA 브라우저 로그인 창이 뜹니다. Chromium 자동 설치. 세션은 유지되어 매번 재로그인할 필요 없습니다.
 
 ---
 
 ## MCP 클라이언트 설정
 
-### Claude Desktop
+프로젝트마다 다른 ServiceNow 인스턴스에 접속할 수 있습니다. **프로젝트 디렉토리**에 설정 파일을 두세요.
 
-`claude_desktop_config.json`에 아래처럼 넣으면 됩니다.
+| 클라이언트 | 설정 파일 | 포맷 |
+|-----------|----------|------|
+| Claude Desktop | `claude_desktop_config.json` | JSON (`mcpServers`) |
+| Claude Code | `.mcp.json` 또는 `claude mcp add` | JSON / CLI |
+| OpenCode | `opencode.json` | JSON (`mcp`, `environment` 사용) |
+| OpenAI Codex | `.codex/agents.toml` | TOML |
+| AntiGravity | `mcp_config.json` | JSON (`mcpServers`) |
+| Gemini / Vertex AI | 프로젝트 설정 | JSON (`mcp`) |
+| Docker | — | 환경변수 |
 
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ],
-      "env": {
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
+클라이언트별 복사 붙여넣기 설정: **[클라이언트 설정 가이드](docs/CLIENT_SETUP.md)**
 
-### Claude Code
-
-```bash
-claude mcp add servicenow -- \
-  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
-```
-
-또는 프로젝트 루트의 `.mcp.json`에 추가:
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ],
-      "env": {
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-### OpenCode / Gemini / Vertex AI
-
-#### `uvx`로 실행
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
-    }
-  }
-}
-```
-
-#### 체크아웃한 소스에서 바로 실행
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uv", "run", "--project", "/absolute/path/to/mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
-    }
-  }
-}
-```
-
-> `SERVICENOW_BROWSER_USERNAME`, `SERVICENOW_BROWSER_PASSWORD`는 필수는 아니지만, MFA/SSO 로그인 화면에 계정을 미리 채우고 싶을 때 유용합니다.
-
-### AntiGravity
-
-AntiGravity Editor는 Claude Desktop 스타일의 `mcpServers` 설정을 사용합니다. 에디터 우측 에이전트 패널 상단의 **점 세 개(...)** -> **Manage MCP Servers** -> **View raw config**를 눌러 설정 파일을 편집할 수 있습니다.
-
-- **macOS / Linux:** `~/.gemini/antigravity/mcp_config.json`
-- **Windows:** `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-> 설정을 저장한 후 AntiGravity의 MCP 관리 화면에서 **Refresh**를 눌러주세요.
-
-### OpenAI Codex
-
-`agents.toml` 파일에 추가합니다 (보통 `~/.codex/agents.toml` 또는 프로젝트 루트의 `.codex/agents.toml`):
-
-```toml
-[mcp_servers.servicenow]
-command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-  "--instance-url", "https://your-instance.service-now.com",
-  "--auth-type", "browser",
-  "--browser-headless", "false",
-  "--tool-package", "standard",
-]
-```
+> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택 — MFA 로그인 폼을 미리 채웁니다. Windows에서는 시스템 환경변수로 설정하세요.
 
 ---
 
@@ -304,23 +130,14 @@ args = [
 
 ServiceNow 환경에 맞는 인증 방식을 선택하세요.
 
-### 브라우저 인증 (MFA/SSO)
+### 브라우저 인증 (MFA/SSO) — 기본
 
-Okta, Entra ID, SAML, MFA 같은 대화형 로그인 환경에 적합합니다.
-
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
-```
-
-브라우저 관련 옵션:
+[바로 쓰기](#바로-쓰기)의 명령어가 브라우저 인증입니다. 추가 옵션:
 
 | 플래그 | 환경변수 | 기본값 | 설명 |
 |------|---------|--------|------|
-| `--browser-username` | `SERVICENOW_BROWSER_USERNAME` | — | 로그인 폼 사용자명 미리 채우기 |
-| `--browser-password` | `SERVICENOW_BROWSER_PASSWORD` | — | 로그인 폼 비밀번호 미리 채우기 |
+| `--browser-username` | `SERVICENOW_USERNAME` | — | 로그인 폼 사용자명 미리 채우기 |
+| `--browser-password` | `SERVICENOW_PASSWORD` | — | 로그인 폼 비밀번호 미리 채우기 |
 | `--browser-headless` | `SERVICENOW_BROWSER_HEADLESS` | `false` | GUI 없이 브라우저 실행 |
 | `--browser-timeout` | `SERVICENOW_BROWSER_TIMEOUT` | `120` | 로그인 타임아웃 (초) |
 | `--browser-session-ttl` | `SERVICENOW_BROWSER_SESSION_TTL` | `30` | 세션 TTL (분) |
@@ -377,11 +194,11 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
-| `standard` | 48 | **(기본값)** 읽기 전용 safe mode. 전 도메인 조회/분석 도구 포함 |
-| `service_desk` | 52 | standard + 인시던트 생성/처리/해결/코멘트 |
-| `portal_developer` | 58 | standard + 포탈/위젯 수정, Script Include 수정, 체인지셋 커밋/퍼블리시 |
-| `platform_developer` | 71 | standard + 워크플로우 CRUD, UI Policy, 인시던트/변경관리 수정 |
-| `full` | 86 | 전 도메인 수정/삭제 가능 |
+| `standard` | 45 | **(기본값)** 읽기 전용 safe mode. 전 도메인 조회/분석 도구 포함 |
+| `service_desk` | 49 | standard + 인시던트 생성/처리/해결/코멘트 |
+| `portal_developer` | 61 | standard + 포탈/위젯 수정, Script Include 수정, 체인지셋 커밋/퍼블리시 |
+| `platform_developer` | 69 | standard + 워크플로우 CRUD, UI Policy, 인시던트/변경관리 수정 |
+| `full` | 89 | 전 도메인 수정/삭제 가능 |
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 
@@ -433,57 +250,15 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 ---
 
-## 최신 버전 유지 (PyPI)
+## 최신 버전 유지
 
-이 프로젝트는 [PyPI](https://pypi.org/project/mfa-servicenow-mcp/)에 배포되며 시맨틱 버전을 따릅니다. 버전 태그(`v*`)가 push되면 GitHub Actions를 통해 자동 배포됩니다.
+`uvx`는 캐시된 최신 버전을 자동으로 사용합니다. 대부분의 경우 별도 업데이트가 필요 없습니다.
 
-### `uvx`의 버전 동작 방식
-
-`uvx`는 패키지를 **캐시**합니다. 실행할 때마다 자동으로 최신 버전을 가져오는 것은 **아닙니다**. 최신 버전을 확실히 받으려면:
+최신 PyPI 릴리스를 즉시 강제하려면:
 
 ```bash
-# 현재 버전 확인
-uvx --from mfa-servicenow-mcp servicenow-mcp --version
-
-# 최신 PyPI 릴리스로 강제 갱신
 uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 ```
-
-### `uv tool` 업그레이드
-
-`uv tool install`로 설치한 경우:
-
-```bash
-uv tool upgrade mfa-servicenow-mcp
-```
-
-### pip 업그레이드
-
-```bash
-pip install --upgrade mfa-servicenow-mcp
-```
-
-### 특정 버전 고정
-
-안정성을 위해 특정 버전이 필요한 경우:
-
-```bash
-# uvx에서 버전 고정
-uvx --from "mfa-servicenow-mcp==1.5.0" servicenow-mcp --version
-
-# uv tool에서 버전 고정
-uv tool install "mfa-servicenow-mcp==1.5.0"
-
-# pip에서 버전 고정
-pip install "mfa-servicenow-mcp==1.5.0"
-```
-
-### 버전 릴리스 프로세스
-
-1. 버전은 `pyproject.toml`의 `version = "x.y.z"`에서 관리
-2. `main` 브랜치에 push하면 CI가 해당 버전의 git 태그 `v{version}`을 자동 생성
-3. 태그 push가 PyPI 배포와 GitHub Release 생성을 트리거
-4. Docker 이미지 (standard + playwright 변형)가 `amd64`, `arm64`용으로 빌드
 
 ---
 
@@ -547,40 +322,83 @@ pip install "mfa-servicenow-mcp==1.5.0"
 - **카운트 생략 최적화**: 후속 페이지네이션 페이지에서 `sysparm_no_count=true`를 사용하여 서버 측 전체 개수 계산 생략.
 - **페이로드 안전 장치**: 무거운 테이블(`sp_widget`, `sys_script` 등)에 자동 필드 클램핑과 제한 적용으로 컨텍스트 윈도우 오버플로 방지.
 
+## 스킬
+
+스킬은 MCP 도구를 검증된 파이프라인으로 조합하는 LLM 실행 명세서입니다. 안전 게이트, 서브에이전트 위임, 컨텍스트 최적화를 포함합니다.
+
+| | 도구만 | 스킬 + 도구 |
+|---|---|---|
+| 안전성 | LLM 판단 (운빨) | 게이트 강제 (스냅샷 → 프리뷰 → 적용) |
+| 토큰 | 소스 전문 컨텍스트 | 서브에이전트 위임, 요약만 반환 |
+| 정확도 | 도구 순서 추측 | 검증된 파이프라인 |
+| 롤백 | 까먹으면 끝 | 스냅샷 필수 |
+
+### 스킬 설치
+
+```bash
+# Claude Code
+servicenow-mcp-skills claude
+
+# OpenAI Codex
+servicenow-mcp-skills codex
+
+# OpenCode
+servicenow-mcp-skills opencode
+
+# uvx로 설치 없이 바로 실행
+uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
+```
+
+이 저장소의 `skills/` 디렉토리에서 20개 스킬 파일을 다운로드해 프로젝트 로컬 LLM 디렉토리에 설치합니다. 인증이나 별도 설정은 필요 없습니다.
+
+| 클라이언트 | 설치 경로 | 자동 인식 |
+|-----------|----------|----------|
+| Claude Code | `.claude/commands/servicenow/` | 다음 시작 시 `/servicenow` 슬래시 명령으로 노출 |
+| OpenAI Codex | `.codex/skills/servicenow/` | 다음 에이전트 세션에서 로드 |
+| OpenCode | `.opencode/skills/servicenow/` | 다음 세션에서 로드 |
+
+**동작 원리:** 각 스킬은 YAML 프론트매터(메타데이터) + 파이프라인 지시문으로 구성된 독립 Markdown 파일입니다. LLM 클라이언트가 설치 경로에서 이 파일을 읽어 호출 가능한 명령이나 스킬 트리거로 노출합니다.
+
+**업데이트:** 동일한 설치 명령을 다시 실행하면 기존 파일을 모두 교체합니다 (클린 설치).
+
+**삭제:** 설치 디렉토리를 삭제하면 됩니다 (예: `rm -rf .claude/commands/servicenow/`).
+
+### 스킬 카테고리
+
+| 카테고리 | 스킬 수 | 용도 |
+|----------|---------|------|
+| `analyze/` | 6 | 위젯 분석, 포탈 진단, 프로바이더 감사, 의존성 매핑, 코드 감지, ESC 감사 |
+| `fix/` | 3 | 위젯 패치 (단계별 게이트), 디버깅, 코드 리뷰 |
+| `manage/` | 5 | 페이지 레이아웃, SI 관리, 소스 내보내기, 체인지셋, 로컬 동기화 |
+| `deploy/` | 2 | 변경 요청 생명주기, 인시던트 분류 |
+| `explore/` | 4 | 헬스 체크, 스키마 탐색, 라우트 추적, ESC 카탈로그 흐름 |
+
+### 스킬 메타데이터
+
+각 스킬에는 LLM이 실행을 최적화하는 데 쓰는 메타데이터가 포함됩니다:
+
+```yaml
+context_cost: low|medium|high    # → high = 서브에이전트 위임
+safety_level: none|confirm|staged # → staged = 스냅샷/프리뷰/적용 필수
+delegatable: true|false           # → 서브에이전트 실행 가능 여부
+triggers: ["위젯 분석", "analyze widget"]  # → LLM 트리거 매칭
+```
+
+전체 스킬 레퍼런스는 [skills/SKILL.md](skills/SKILL.md)를 참조하세요.
+
 ## Docker
 
-Docker 이미지는 main 브랜치 푸시마다 `ghcr.io/jshsakura/mfa-servicenow-mcp`에 자동 배포됩니다.
-
-> **참고:** 브라우저 인증(MFA/SSO)은 GUI 브라우저가 필요하므로 컨테이너 안에서 사용할 수 없습니다. MFA가 활성화된 ServiceNow 인스턴스는 Docker 환경에서 `api_key` 인증을 사용하세요.
-
-### 바로 실행 (API Key)
+API Key 인증만 가능 (MFA 브라우저 인증은 GUI가 필요하므로 컨테이너 불가).
 
 ```bash
 docker run -it --rm \
   -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
   -e SERVICENOW_AUTH_TYPE=api_key \
   -e SERVICENOW_API_KEY=your-api-key \
-  -e MCP_TOOL_PACKAGE=standard \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
 
-### SSE 모드 (HTTP 서버)
-
-```bash
-docker run -p 8080:8080 \
-  -e MCP_MODE=sse \
-  -e SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-  -e SERVICENOW_AUTH_TYPE=api_key \
-  -e SERVICENOW_API_KEY=your-api-key \
-  -e MCP_TOOL_PACKAGE=standard \
-  ghcr.io/jshsakura/mfa-servicenow-mcp:latest
-```
-
-### 로컬 빌드
-
-```bash
-docker build --target runtime -t servicenow-mcp .
-```
+SSE 모드 및 로컬 빌드 방법: [클라이언트 설정 가이드](docs/CLIENT_SETUP.md#docker-api-key-only)
 
 ## 개발용 설치
 
@@ -622,7 +440,8 @@ uv build
 
 ## 상세 문서
 
-- [도구 목록](docs/TOOL_INVENTORY.md) — 98개 도구 카테고리/패키지별 전체 목록
+- [클라이언트 설정 가이드](docs/CLIENT_SETUP.md) — 클라이언트별 복사 붙여넣기 설정
+- [도구 목록](docs/TOOL_INVENTORY.md) — 89개 도구 카테고리/패키지별 전체 목록
 - [Windows 설치 가이드](docs/WINDOWS_INSTALL.ko.md)
 - [서비스 카탈로그 가이드](docs/catalog.md) — 카탈로그 CRUD 및 최적화
 - [변경 관리 가이드](docs/change_management.md) — 변경 요청 생명주기 및 승인
@@ -641,4 +460,4 @@ uv build
 
 ## 라이선스
 
-MIT License
+Apache License 2.0

@@ -116,19 +116,27 @@ class AnalyzeWidgetPerformanceParams(BaseModel):
 
     widget_id: str = Field(..., description="Widget sys_id, id, or name to analyze")
     page_id: Optional[str] = Field(
-        None, description="Optional page id to correlate with transaction logs"
+        default=None, description="Optional page id to correlate with transaction logs"
     )
     min_response_time_ms: int = Field(
-        3000, description="Minimum response time threshold in milliseconds"
+        default=3000, description="Minimum response time threshold in milliseconds"
     )
-    timeframe: str = Field("last_7d", description="Time window: last_hour, last_24h, last_7d")
-    analysis_depth: str = Field("standard", description="Analysis depth: quick, standard, deep")
+    timeframe: str = Field(
+        default="last_7d", description="Time window: last_hour, last_24h, last_7d"
+    )
+    analysis_depth: str = Field(
+        default="standard", description="Analysis depth: quick, standard, deep"
+    )
     include_auto_fix_suggestions: bool = Field(
-        True, description="Include auto-fix suggestions where applicable"
+        default=True, description="Include auto-fix suggestions where applicable"
     )
-    include_script_includes: bool = Field(True, description="Analyze linked script includes")
-    include_angular_providers: bool = Field(True, description="Analyze linked Angular providers")
-    max_script_length: int = Field(8000, description="Maximum script length to analyze")
+    include_script_includes: bool = Field(
+        default=True, description="Analyze linked script includes"
+    )
+    include_angular_providers: bool = Field(
+        default=True, description="Analyze linked Angular providers"
+    )
+    max_script_length: int = Field(default=8000, description="Maximum script length to analyze")
 
 
 class PatternMatch(BaseModel):

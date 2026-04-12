@@ -21,13 +21,13 @@ logger = logging.getLogger(__name__)
 class ListCatalogItemsParams(BaseModel):
     """Parameters for listing service catalog items."""
 
-    limit: int = Field(10, description="Maximum number of catalog items to return")
-    offset: int = Field(0, description="Offset for pagination")
-    category: Optional[str] = Field(None, description="Filter by category")
-    query: Optional[str] = Field(None, description="Search query for catalog items")
-    active: bool = Field(True, description="Whether to only return active catalog items")
+    limit: int = Field(default=10, description="Maximum number of catalog items to return")
+    offset: int = Field(default=0, description="Offset for pagination")
+    category: Optional[str] = Field(default=None, description="Filter by category")
+    query: Optional[str] = Field(default=None, description="Search query for catalog items")
+    active: bool = Field(default=True, description="Whether to only return active catalog items")
     count_only: bool = Field(
-        False,
+        default=False,
         description="Return count only without fetching records. Uses lightweight Aggregate API.",
     )
 
@@ -41,10 +41,10 @@ class GetCatalogItemParams(BaseModel):
 class ListCatalogCategoriesParams(BaseModel):
     """Parameters for listing service catalog categories."""
 
-    limit: int = Field(10, description="Maximum number of categories to return")
-    offset: int = Field(0, description="Offset for pagination")
-    query: Optional[str] = Field(None, description="Search query for categories")
-    active: bool = Field(True, description="Whether to only return active categories")
+    limit: int = Field(default=10, description="Maximum number of categories to return")
+    offset: int = Field(default=0, description="Offset for pagination")
+    query: Optional[str] = Field(default=None, description="Search query for categories")
+    active: bool = Field(default=True, description="Whether to only return active categories")
 
 
 class CatalogResponse(BaseModel):
@@ -52,30 +52,30 @@ class CatalogResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    data: Optional[Dict[str, Any]] = Field(None, description="Response data")
+    data: Optional[Dict[str, Any]] = Field(default=None, description="Response data")
 
 
 class CreateCatalogCategoryParams(BaseModel):
     """Parameters for creating a new service catalog category."""
 
     title: str = Field(..., description="Title of the category")
-    description: Optional[str] = Field(None, description="Description of the category")
-    parent: Optional[str] = Field(None, description="Parent category sys_id")
-    icon: Optional[str] = Field(None, description="Icon for the category")
-    active: bool = Field(True, description="Whether the category is active")
-    order: Optional[int] = Field(None, description="Order of the category")
+    description: Optional[str] = Field(default=None, description="Description of the category")
+    parent: Optional[str] = Field(default=None, description="Parent category sys_id")
+    icon: Optional[str] = Field(default=None, description="Icon for the category")
+    active: bool = Field(default=True, description="Whether the category is active")
+    order: Optional[int] = Field(default=None, description="Order of the category")
 
 
 class UpdateCatalogCategoryParams(BaseModel):
     """Parameters for updating a service catalog category."""
 
     category_id: str = Field(..., description="Category ID or sys_id")
-    title: Optional[str] = Field(None, description="Title of the category")
-    description: Optional[str] = Field(None, description="Description of the category")
-    parent: Optional[str] = Field(None, description="Parent category sys_id")
-    icon: Optional[str] = Field(None, description="Icon for the category")
-    active: Optional[bool] = Field(None, description="Whether the category is active")
-    order: Optional[int] = Field(None, description="Order of the category")
+    title: Optional[str] = Field(default=None, description="Title of the category")
+    description: Optional[str] = Field(default=None, description="Description of the category")
+    parent: Optional[str] = Field(default=None, description="Parent category sys_id")
+    icon: Optional[str] = Field(default=None, description="Icon for the category")
+    active: Optional[bool] = Field(default=None, description="Whether the category is active")
+    order: Optional[int] = Field(default=None, description="Order of the category")
 
 
 class MoveCatalogItemsParams(BaseModel):

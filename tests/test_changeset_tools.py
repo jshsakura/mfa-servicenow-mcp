@@ -13,14 +13,12 @@ from servicenow_mcp.tools.changeset_tools import (
     CommitChangesetParams,
     CreateChangesetParams,
     GetChangesetDetailsParams,
-    ListChangesetsParams,
     PublishChangesetParams,
     UpdateChangesetParams,
     add_file_to_changeset,
     commit_changeset,
     create_changeset,
     get_changeset_details,
-    list_changesets,
     publish_changeset,
     update_changeset,
 )
@@ -50,7 +48,7 @@ class TestChangesetTools(unittest.TestCase):
         resp.content = b""
         return resp
 
-    # --- list_changesets ---
+    # --- get_changeset_details (list mode) ---
 
     @patch("servicenow_mcp.tools.changeset_tools.sn_query_page")
     def test_list_changesets_basic(self, mock_query_page):
@@ -65,8 +63,8 @@ class TestChangesetTools(unittest.TestCase):
             1,
         )
 
-        params = ListChangesetsParams(limit=10, offset=0)
-        result = list_changesets(self.config, self.auth_manager, params)
+        params = GetChangesetDetailsParams(limit=10, offset=0)
+        result = get_changeset_details(self.config, self.auth_manager, params)
 
         self.assertTrue(result["success"])
         self.assertEqual(len(result["changesets"]), 1)
@@ -85,8 +83,8 @@ class TestChangesetTools(unittest.TestCase):
     def test_list_changesets_with_state_filter(self, mock_query_page):
         mock_query_page.return_value = ([], 0)
 
-        params = ListChangesetsParams(state="in_progress")
-        list_changesets(self.config, self.auth_manager, params)
+        params = GetChangesetDetailsParams(state="in_progress")
+        get_changeset_details(self.config, self.auth_manager, params)
 
         call_kwargs = mock_query_page.call_args
         self.assertEqual(call_kwargs[1]["query"], "state=in_progress")
@@ -95,8 +93,8 @@ class TestChangesetTools(unittest.TestCase):
     def test_list_changesets_with_timeframe_recent(self, mock_query_page):
         mock_query_page.return_value = ([], 0)
 
-        params = ListChangesetsParams(timeframe="recent")
-        list_changesets(self.config, self.auth_manager, params)
+        params = GetChangesetDetailsParams(timeframe="recent")
+        get_changeset_details(self.config, self.auth_manager, params)
 
         call_kwargs = mock_query_page.call_args
         query = call_kwargs[1]["query"]
@@ -106,8 +104,8 @@ class TestChangesetTools(unittest.TestCase):
     def test_list_changesets_with_timeframe_last_week(self, mock_query_page):
         mock_query_page.return_value = ([], 0)
 
-        params = ListChangesetsParams(timeframe="last_week")
-        list_changesets(self.config, self.auth_manager, params)
+        params = GetChangesetDetailsParams(timeframe="last_week")
+        get_changeset_details(self.config, self.auth_manager, params)
 
         call_kwargs = mock_query_page.call_args
         query = call_kwargs[1]["query"]
@@ -117,8 +115,8 @@ class TestChangesetTools(unittest.TestCase):
     def test_list_changesets_with_timeframe_last_month(self, mock_query_page):
         mock_query_page.return_value = ([], 0)
 
-        params = ListChangesetsParams(timeframe="last_month")
-        list_changesets(self.config, self.auth_manager, params)
+        params = GetChangesetDetailsParams(timeframe="last_month")
+        get_changeset_details(self.config, self.auth_manager, params)
 
         call_kwargs = mock_query_page.call_args
         query = call_kwargs[1]["query"]
@@ -128,8 +126,8 @@ class TestChangesetTools(unittest.TestCase):
     def test_list_changesets_count_only(self, mock_count):
         mock_count.return_value = 42
 
-        params = ListChangesetsParams(count_only=True, state="in_progress")
-        result = list_changesets(self.config, self.auth_manager, params)
+        params = GetChangesetDetailsParams(count_only=True, state="in_progress")
+        result = get_changeset_details(self.config, self.auth_manager, params)
 
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 42)
@@ -141,8 +139,8 @@ class TestChangesetTools(unittest.TestCase):
     def test_list_changesets_error(self, mock_query_page):
         mock_query_page.side_effect = Exception("Network error")
 
-        params = ListChangesetsParams()
-        result = list_changesets(self.config, self.auth_manager, params)
+        params = GetChangesetDetailsParams()
+        result = get_changeset_details(self.config, self.auth_manager, params)
 
         self.assertFalse(result["success"])
         self.assertIn("Network error", result["message"])
@@ -151,10 +149,10 @@ class TestChangesetTools(unittest.TestCase):
     def test_list_changesets_combined_filters(self, mock_query_page):
         mock_query_page.return_value = ([], 0)
 
-        params = ListChangesetsParams(
+        params = GetChangesetDetailsParams(
             state="in_progress", application="Test App", developer="test.user"
         )
-        list_changesets(self.config, self.auth_manager, params)
+        get_changeset_details(self.config, self.auth_manager, params)
 
         call_kwargs = mock_query_page.call_args
         query = call_kwargs[1]["query"]
@@ -468,8 +466,8 @@ class TestChangesetTools(unittest.TestCase):
 class TestChangesetToolsParams(unittest.TestCase):
     """Tests for the changeset tools parameter classes."""
 
-    def test_list_changesets_params(self):
-        params = ListChangesetsParams(
+    def test_get_changeset_details_params_list_mode(self):
+        params = GetChangesetDetailsParams(
             limit=20,
             offset=10,
             state="in_progress",
@@ -478,6 +476,7 @@ class TestChangesetToolsParams(unittest.TestCase):
             timeframe="recent",
             query="name=test",
         )
+        self.assertIsNone(params.changeset_id)
         self.assertEqual(params.limit, 20)
         self.assertEqual(params.offset, 10)
         self.assertEqual(params.state, "in_progress")
@@ -486,14 +485,15 @@ class TestChangesetToolsParams(unittest.TestCase):
         self.assertEqual(params.timeframe, "recent")
         self.assertEqual(params.query, "name=test")
 
-    def test_list_changesets_params_defaults(self):
-        params = ListChangesetsParams()
+    def test_get_changeset_details_params_defaults(self):
+        params = GetChangesetDetailsParams()
+        self.assertIsNone(params.changeset_id)
         self.assertEqual(params.limit, 10)
         self.assertEqual(params.offset, 0)
         self.assertIsNone(params.state)
         self.assertFalse(params.count_only)
 
-    def test_get_changeset_details_params(self):
+    def test_get_changeset_details_params_detail_mode(self):
         params = GetChangesetDetailsParams(changeset_id="123")
         self.assertEqual(params.changeset_id, "123")
 
