@@ -7,6 +7,8 @@ hide:
 <script>document.body.classList.add("landing");</script>
 
 <div class="hero-section">
+  <div class="hero-bg-img"></div>
+  <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
       Secure ServiceNow<br>
