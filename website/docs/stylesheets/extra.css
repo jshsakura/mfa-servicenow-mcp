@@ -107,6 +107,19 @@
   fill: var(--header-icon) !important;
   color: var(--header-icon) !important;
 }
+/* Palette toggle (dark/light switch) */
+.md-header .md-header__button[data-md-color-scheme] {
+  color: var(--header-icon) !important;
+}
+.md-header .md-header__button:hover,
+.md-header .md-header__button:focus {
+  color: var(--header-text) !important;
+  opacity: 1 !important;
+}
+.md-header .md-header__button:hover svg,
+.md-header .md-header__button:focus svg {
+  fill: var(--header-text) !important;
+}
 .md-tooltip {
   background: var(--tooltip-bg) !important;
   color: var(--tooltip-text) !important;
