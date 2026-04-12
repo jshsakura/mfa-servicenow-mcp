@@ -107,17 +107,15 @@
   fill: var(--header-icon) !important;
   color: var(--header-icon) !important;
 }
-/* Palette toggle snackbar / dialog — override Material variables */
+/* Palette toggle snackbar — always dark bg, white text */
 .md-dialog {
-  --md-default-fg-color: var(--card-bg) !important;
-  background-color: var(--card-bg) !important;
-  border: 1px solid var(--border-color) !important;
+  background-color: #18181b !important;
   border-radius: 8px !important;
-  box-shadow: 0 4px 16px rgba(0,0,0,.12) !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,.2) !important;
 }
-.md-dialog__inner {
-  --md-default-bg-color: var(--hero-text) !important;
-  color: var(--hero-text) !important;
+.md-dialog__inner,
+.md-dialog__inner * {
+  color: #fafafa !important;
 }
 /* Palette toggle (dark/light switch) */
 .md-header .md-header__button[data-md-color-scheme] {
