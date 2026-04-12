@@ -1,6 +1,6 @@
 # MFA ServiceNow MCP
 
-[English](./README.md) | [한국어](./README.ko.md) | [**GitHub Pages**](https://jshsakura.github.io/mfa-servicenow-mcp/)
+🌐 [English](./README.md) | 🇰🇷 [한국어](./README.ko.md) | 🚀 [**GitHub Pages**](https://jshsakura.github.io/mfa-servicenow-mcp/)
 
 MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so Okta, Entra ID, SAML, and any MFA/SSO login just works. Also supports API Key for headless/Docker environments.
 
