@@ -7,8 +7,8 @@ social:
 ---
 
 <meta property="og:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
-<meta property="og:title" content="MFA ServiceNow MCP — Stop giving your LLM a script. Give it a gun.">
-<meta property="og:description" content="Equip your LLM with high-caliber MCP Skills to hunt down bottlenecks, execute with surgical precision, and turn manual toil into strategic fire.">
+<meta property="og:title" content="MFA ServiceNow MCP — Don't script your AI. Arm it.">
+<meta property="og:description" content="Equip your AI with high-caliber MCP Skills to hunt down bottlenecks, execute with surgical precision, and turn manual toil into strategic fire.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
 
@@ -19,11 +19,11 @@ social:
   <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
-      Stop giving your LLM a script.<br>
-      <span class="gradient-text">Give it a gun.</span>
+      Don't script your AI.<br>
+      <span class="gradient-text">Arm it.</span>
     </h1>
     <p class="hero-subtitle">
-      Equip your LLM with high-caliber MCP Skills<br>
+      Equip your AI with high-caliber MCP Skills<br>
       to hunt down bottlenecks, execute with surgical precision,<br>
       and turn manual toil into strategic fire.
     </p>
