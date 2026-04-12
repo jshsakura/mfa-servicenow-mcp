@@ -112,7 +112,7 @@ class GetPortalParams(BaseModel):
     name="get_portal",
     params=GetPortalParams,
     description=(
-        "Look up a Service Portal by name, URL suffix (e.g. 'ybpm', 'sp'), or sys_id. "
+        "Look up a Service Portal by name, URL suffix (e.g. 'sp', 'csm'), or sys_id. "
         "Returns portal config including homepage, theme, and linked pages with display names. "
         "Omit portal_id to list all portals."
     ),
@@ -157,7 +157,7 @@ def get_portal(
         }
 
     # List mode — search both title and url_suffix so callers can find
-    # portals by suffix (e.g. "ybpm") without a separate detail call.
+    # portals by suffix (e.g. "sp") without a separate detail call.
     query = (
         f"titleLIKE{params.query}^ORurl_suffixLIKE{params.query}"
         if params.query
@@ -220,7 +220,7 @@ class GetPageParams(BaseModel):
     name="get_page",
     params=GetPageParams,
     description=(
-        "Look up a Service Portal page by URL path (e.g. 'jobwfmngt'), title, or sys_id. "
+        "Look up a Service Portal page by URL path (e.g. 'index', 'form'), title, or sys_id. "
         "Returns page properties and full layout tree with widget names/IDs resolved — "
         "no extra calls needed. Omit page_id to search/list pages."
     ),
@@ -254,7 +254,7 @@ def get_page(
         return {"success": True, "page": page}
 
     # List mode — search both title and id (URL path) so callers can find
-    # pages like "jobwfmngt" without knowing the sys_id upfront.
+    # pages like "index" without knowing the sys_id upfront.
     query_parts = []
     if params.query:
         query_parts.append(f"titleLIKE{params.query}^ORidLIKE{params.query}")
