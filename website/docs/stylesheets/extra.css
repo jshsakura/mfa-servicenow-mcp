@@ -1,0 +1,83 @@
+/* Modern Landing Page Styles */
+:root {
+  --md-primary-fg-color: #3f51b5;
+  --md-primary-fg-color--transparent: rgba(63, 81, 181, 0.07);
+}
+
+/* Hero Section */
+.md-main__inner {
+  margin-top: 0;
+}
+
+.hero-container {
+  padding: 100px 20px;
+  background: linear-gradient(135deg, #f5f7ff 0%, #ffffff 100%);
+  border-radius: 0 0 50px 50px;
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+[data-md-color-scheme="slate"] .hero-container {
+  background: linear-gradient(135deg, #1a1e2e 0%, #0f111a 100%);
+}
+
+.hero-title {
+  font-size: 3.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  background: linear-gradient(90deg, #3f51b5, #00bcd4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 20px;
+}
+
+.hero-subtitle {
+  font-size: 1.4rem;
+  color: #666;
+  max-width: 800px;
+  margin: 0 auto 40px;
+}
+
+[data-md-color-scheme="slate"] .hero-subtitle {
+  color: #b0b8d1;
+}
+
+/* Glassmorphism Cards */
+.grid.cards > div, .grid.cards > a {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(10px);
+  border-radius: 20px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05) !important;
+  transition: transform 0.3s ease, box-shadow 0.3s ease !important;
+  padding: 30px !important;
+}
+
+[data-md-color-scheme="slate"] .grid.cards > div, 
+[data-md-color-scheme="slate"] .grid.cards > a {
+  background: rgba(30, 35, 50, 0.6) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2) !important;
+}
+
+.grid.cards > div:hover, .grid.cards > a:hover {
+  transform: translateY(-10px);
+  box-shadow: 0 20px 40px rgba(63, 81, 181, 0.15) !important;
+}
+
+/* Button Styling */
+.md-button--primary {
+  background-color: #3f51b5 !important;
+  border-color: #3f51b5 !important;
+  border-radius: 12px !important;
+  padding: 12px 30px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 15px rgba(63, 81, 181, 0.3);
+}
+
+.md-button--primary:hover {
+  background-color: #303f9f !important;
+  transform: scale(1.05);
+}
+
+/* Hide sidebar/toc on home only via mkdocs.yml (using page tags) */
