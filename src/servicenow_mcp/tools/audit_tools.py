@@ -270,50 +270,50 @@ class AuditPendingChangesParams(BaseModel):
     """Parameters for auditing pending update set changes."""
 
     developer: str = Field(
-        ...,
+        default=...,
         description="Developer username (sys_updated_by). Example: admin@example.com",
     )
     date_from: Optional[str] = Field(
-        None,
+        default=None,
         description="Start date (YYYY-MM-DD). Defaults to 7 days ago.",
     )
     date_to: Optional[str] = Field(
-        None,
+        default=None,
         description="End date (YYYY-MM-DD). Defaults to today.",
     )
     exclude_pattern: Optional[str] = Field(
-        None,
+        default=None,
         description=(
             "Exclude entries whose target_name matches this substring "
             "(case-insensitive). Example: 'hopes'"
         ),
     )
     scope: Optional[str] = Field(
-        None,
+        default=None,
         description="App scope filter (application name). Example: x_company_bpm",
     )
     update_set: Optional[str] = Field(
-        None,
+        default=None,
         description="Filter to specific update set name. Example: 'My Feature v2'",
     )
     custom_risk_patterns: Optional[List[str]] = Field(
-        None,
+        default=None,
         description="Additional regex patterns to scan for. Auto-classified as medium severity.",
     )
     max_entries: int = Field(
-        200,
+        default=200,
         description="Maximum update_xml entries to process (max 500).",
     )
     include_code_snippets: bool = Field(
-        False,
+        default=False,
         description="Include code snippets around risk matches. Default false for token efficiency.",
     )
     snippet_chars: int = Field(
-        100,
+        default=100,
         description="Max snippet length when include_code_snippets=true.",
     )
     scan_code: bool = Field(
-        True,
+        default=True,
         description="Fetch and scan code bodies for risk patterns. Set false for inventory-only mode.",
     )
 

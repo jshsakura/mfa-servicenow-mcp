@@ -29,27 +29,27 @@ class CreateUIPolicyParams(BaseModel):
     table: str = Field(..., description="Target table name (e.g. 'incident', 'sc_req_item')")
     short_description: str = Field(..., description="Short description of the UI policy")
     conditions: Optional[str] = Field(
-        None,
+        default=None,
         description="Encoded query condition that triggers this policy (e.g. 'priority=1^state=1')",
     )
-    active: bool = Field(True, description="Whether the policy is active")
+    active: bool = Field(default=True, description="Whether the policy is active")
     global_policy: bool = Field(
-        True,
+        default=True,
         description="If true, applies to all views. If false, specify view_name.",
     )
     view_name: Optional[str] = Field(
-        None, description="Specific view name when global_policy is false"
+        default=None, description="Specific view name when global_policy is false"
     )
-    on_load: bool = Field(True, description="Execute when the form loads")
+    on_load: bool = Field(default=True, description="Execute when the form loads")
     reverse_if_false: bool = Field(
-        True, description="Reverse actions when conditions are no longer met"
+        default=True, description="Reverse actions when conditions are no longer met"
     )
-    order: int = Field(100, description="Execution order (lower runs first)")
+    order: int = Field(default=100, description="Execution order (lower runs first)")
     script_true: Optional[str] = Field(
-        None, description="Script to run when conditions are true (advanced)"
+        default=None, description="Script to run when conditions are true (advanced)"
     )
     script_false: Optional[str] = Field(
-        None, description="Script to run when conditions are false (advanced)"
+        default=None, description="Script to run when conditions are false (advanced)"
     )
 
 
@@ -59,19 +59,19 @@ class CreateUIPolicyActionParams(BaseModel):
     ui_policy: str = Field(..., description="sys_id of the parent UI policy")
     field: str = Field(..., description="Field name to control (e.g. 'category', 'assigned_to')")
     visible: Optional[str] = Field(
-        None,
+        default=None,
         description="Field visibility: 'true' (show), 'false' (hide), or empty (ignore)",
     )
     mandatory: Optional[str] = Field(
-        None,
+        default=None,
         description="Field mandatory: 'true' (required), 'false' (optional), or empty (ignore)",
     )
     disabled: Optional[str] = Field(
-        None,
+        default=None,
         description="Field read-only: 'true' (read-only), 'false' (editable), or empty (ignore)",
     )
     cleared: Optional[str] = Field(
-        None,
+        default=None,
         description="Clear field value: 'true' (clear), 'false' (keep), or empty (ignore)",
     )
 

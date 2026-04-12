@@ -16,7 +16,6 @@ standard:
   - sn_discover
   - sn_nl
   # Incident (Read)
-  - list_incidents
   - get_incident_by_number
   # Catalog (Read)
   - list_catalog_items
@@ -25,32 +24,22 @@ standard:
   - list_catalog_item_variables
   - get_optimization_recommendations
   # Change Management (Read)
-  - list_change_requests
   - get_change_request_details
   # Changeset (Read)
-  - list_changesets
   - get_changeset_details
   # Legacy Workflow (Read)
   - list_legacy_workflows
   - get_legacy_workflow_details
-  - list_legacy_workflow_versions
-  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
-  - get_flow_designer_structure
   - get_flow_designer_executions
-  - get_flow_designer_execution_detail
-  - get_flow_designer_triggers
   # Portal (Read)
-  - list_portals
   - get_portal
-  - list_pages
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
-  - list_widget_instances
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
@@ -76,6 +65,8 @@ standard:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
+  # Local Sync (Read)
+  - diff_local_component
 
 # --- Portal Developer: standard + portal/changeset/script writes ---
 portal_developer:
@@ -86,36 +77,25 @@ portal_developer:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
-  - list_changesets
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
-  - list_legacy_workflow_versions
-  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
-  - get_flow_designer_structure
   - get_flow_designer_executions
-  - get_flow_designer_execution_detail
-  - get_flow_designer_triggers
-  - list_portals
   - get_portal
-  - list_pages
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
-  - list_widget_instances
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
@@ -137,6 +117,8 @@ portal_developer:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
+  # Local Sync (Read)
+  - diff_local_component
   # + Portal writes
   - route_portal_component_edit
   - analyze_portal_component_update
@@ -155,6 +137,8 @@ portal_developer:
   - add_file_to_changeset
   - commit_changeset
   - publish_changeset
+  # + Local Sync writes
+  - update_remote_from_local
 
 # --- Platform Developer: standard + workflow/incident/change/script writes ---
 platform_developer:
@@ -165,36 +149,25 @@ platform_developer:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
-  - list_changesets
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
-  - list_legacy_workflow_versions
-  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
-  - get_flow_designer_structure
   - get_flow_designer_executions
-  - get_flow_designer_execution_detail
-  - get_flow_designer_triggers
-  - list_portals
   - get_portal
-  - list_pages
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
-  - list_widget_instances
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
@@ -216,6 +189,8 @@ platform_developer:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
+  # Local Sync (Read)
+  - diff_local_component
   # + Legacy Workflow writes
   - create_legacy_workflow
   - update_legacy_workflow
@@ -245,6 +220,8 @@ platform_developer:
   - add_file_to_changeset
   - commit_changeset
   - publish_changeset
+  # + Local Sync writes
+  - update_remote_from_local
 
 # --- Service Desk: standard + incident writes ---
 service_desk:
@@ -255,36 +232,25 @@ service_desk:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
-  - list_changesets
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
-  - list_legacy_workflow_versions
-  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
-  - get_flow_designer_structure
   - get_flow_designer_executions
-  - get_flow_designer_execution_detail
-  - get_flow_designer_triggers
-  - list_portals
   - get_portal
-  - list_pages
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
-  - list_widget_instances
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
@@ -306,6 +272,8 @@ service_desk:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
+  # Local Sync (Read)
+  - diff_local_component
   # + Incident writes
   - create_incident
   - update_incident
@@ -321,36 +289,25 @@ full:
   - sn_schema
   - sn_discover
   - sn_nl
-  - list_incidents
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
   - get_optimization_recommendations
-  - list_change_requests
   - get_change_request_details
-  - list_changesets
   - get_changeset_details
   - list_legacy_workflows
   - get_legacy_workflow_details
-  - list_legacy_workflow_versions
-  - get_legacy_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
-  - get_flow_designer_structure
   - get_flow_designer_executions
-  - get_flow_designer_execution_detail
-  - get_flow_designer_triggers
-  - list_portals
   - get_portal
-  - list_pages
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
-  - list_widget_instances
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
@@ -372,6 +329,8 @@ full:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
+  # Local Sync (Read)
+  - diff_local_component
   # + All writes
   - create_incident
   - update_incident
@@ -416,3 +375,5 @@ full:
   - execute_script_include
   - create_ui_policy
   - create_ui_policy_action
+  # + Local Sync writes
+  - update_remote_from_local

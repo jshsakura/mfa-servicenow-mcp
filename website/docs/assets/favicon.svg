@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Shield -->
+  <path d="M256 36L72 140v132c0 110 78 212 184 240 106-28 184-130 184-240V140L256 36z"
+        fill="#27272a" stroke="#52525b" stroke-width="8"/>
+  <!-- Inner shield bevel -->
+  <path d="M256 68L100 156v112c0 94 66 182 156 206V68z"
+        fill="#3f3f46" opacity=".35"/>
+  <!-- Lock body -->
+  <rect x="200" y="252" width="112" height="96" rx="14" fill="#fafafa"/>
+  <!-- Lock shackle -->
+  <path d="M220 252v-36c0-19.9 16.1-36 36-36s36 16.1 36 36v36"
+        stroke="#fafafa" stroke-width="18" fill="none" stroke-linecap="round"/>
+  <!-- Keyhole circle -->
+  <circle cx="256" cy="292" r="14" fill="#27272a"/>
+  <!-- Keyhole stem -->
+  <rect x="252" y="300" width="8" height="22" rx="4" fill="#27272a"/>
+</svg>

@@ -23,23 +23,25 @@ class CreateCatalogItemVariableParams(BaseModel):
     catalog_item_id: str = Field(..., description="The sys_id of the catalog item")
     name: str = Field(..., description="The name of the variable (internal name)")
     type: str = Field(
-        ..., description="The type of variable (e.g., string, integer, boolean, reference)"
+        default=..., description="The type of variable (e.g., string, integer, boolean, reference)"
     )
     label: str = Field(..., description="The display label for the variable")
-    mandatory: bool = Field(False, description="Whether the variable is required")
-    help_text: Optional[str] = Field(None, description="Help text to display with the variable")
-    default_value: Optional[str] = Field(None, description="Default value for the variable")
-    description: Optional[str] = Field(None, description="Description of the variable")
-    order: Optional[int] = Field(None, description="Display order of the variable")
+    mandatory: bool = Field(default=False, description="Whether the variable is required")
+    help_text: Optional[str] = Field(
+        default=None, description="Help text to display with the variable"
+    )
+    default_value: Optional[str] = Field(default=None, description="Default value for the variable")
+    description: Optional[str] = Field(default=None, description="Description of the variable")
+    order: Optional[int] = Field(default=None, description="Display order of the variable")
     reference_table: Optional[str] = Field(
-        None, description="For reference fields, the table to reference"
+        default=None, description="For reference fields, the table to reference"
     )
     reference_qualifier: Optional[str] = Field(
-        None, description="For reference fields, the query to filter reference options"
+        default=None, description="For reference fields, the query to filter reference options"
     )
-    max_length: Optional[int] = Field(None, description="Maximum length for string fields")
-    min: Optional[int] = Field(None, description="Minimum value for numeric fields")
-    max: Optional[int] = Field(None, description="Maximum value for numeric fields")
+    max_length: Optional[int] = Field(default=None, description="Maximum length for string fields")
+    min: Optional[int] = Field(default=None, description="Minimum value for numeric fields")
+    max: Optional[int] = Field(default=None, description="Maximum value for numeric fields")
 
 
 class CatalogItemVariableResponse(BaseModel):
@@ -48,10 +50,10 @@ class CatalogItemVariableResponse(BaseModel):
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
     variable_id: Optional[str] = Field(
-        None, description="The sys_id of the created/updated variable"
+        default=None, description="The sys_id of the created/updated variable"
     )
     details: Optional[Dict[str, Any]] = Field(
-        None, description="Additional details about the variable"
+        default=None, description="Additional details about the variable"
     )
 
 
@@ -60,10 +62,10 @@ class ListCatalogItemVariablesParams(BaseModel):
 
     catalog_item_id: str = Field(..., description="The sys_id of the catalog item")
     include_details: bool = Field(
-        True, description="Whether to include detailed information about each variable"
+        default=True, description="Whether to include detailed information about each variable"
     )
-    limit: Optional[int] = Field(None, description="Maximum number of variables to return")
-    offset: Optional[int] = Field(None, description="Offset for pagination")
+    limit: Optional[int] = Field(default=None, description="Maximum number of variables to return")
+    offset: Optional[int] = Field(default=None, description="Offset for pagination")
 
 
 class ListCatalogItemVariablesResponse(BaseModel):
@@ -71,26 +73,28 @@ class ListCatalogItemVariablesResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    variables: List[Dict[str, Any]] = Field([], description="List of variables")
-    count: int = Field(0, description="Total number of variables found")
+    variables: List[Dict[str, Any]] = Field(default=[], description="List of variables")
+    count: int = Field(default=0, description="Total number of variables found")
 
 
 class UpdateCatalogItemVariableParams(BaseModel):
     """Parameters for updating a catalog item variable."""
 
     variable_id: str = Field(..., description="The sys_id of the variable to update")
-    label: Optional[str] = Field(None, description="The display label for the variable")
-    mandatory: Optional[bool] = Field(None, description="Whether the variable is required")
-    help_text: Optional[str] = Field(None, description="Help text to display with the variable")
-    default_value: Optional[str] = Field(None, description="Default value for the variable")
-    description: Optional[str] = Field(None, description="Description of the variable")
-    order: Optional[int] = Field(None, description="Display order of the variable")
-    reference_qualifier: Optional[str] = Field(
-        None, description="For reference fields, the query to filter reference options"
+    label: Optional[str] = Field(default=None, description="The display label for the variable")
+    mandatory: Optional[bool] = Field(default=None, description="Whether the variable is required")
+    help_text: Optional[str] = Field(
+        default=None, description="Help text to display with the variable"
     )
-    max_length: Optional[int] = Field(None, description="Maximum length for string fields")
-    min: Optional[int] = Field(None, description="Minimum value for numeric fields")
-    max: Optional[int] = Field(None, description="Maximum value for numeric fields")
+    default_value: Optional[str] = Field(default=None, description="Default value for the variable")
+    description: Optional[str] = Field(default=None, description="Description of the variable")
+    order: Optional[int] = Field(default=None, description="Display order of the variable")
+    reference_qualifier: Optional[str] = Field(
+        default=None, description="For reference fields, the query to filter reference options"
+    )
+    max_length: Optional[int] = Field(default=None, description="Maximum length for string fields")
+    min: Optional[int] = Field(default=None, description="Minimum value for numeric fields")
+    max: Optional[int] = Field(default=None, description="Maximum value for numeric fields")
 
 
 @register_tool(

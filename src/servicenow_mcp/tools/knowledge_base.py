@@ -21,41 +21,45 @@ class CreateKnowledgeBaseParams(BaseModel):
     """Parameters for creating a knowledge base."""
 
     title: str = Field(..., description="Title of the knowledge base")
-    description: Optional[str] = Field(None, description="Description of the knowledge base")
-    owner: Optional[str] = Field(None, description="The specified admin user or group")
-    managers: Optional[str] = Field(None, description="Users who can manage this knowledge base")
+    description: Optional[str] = Field(
+        default=None, description="Description of the knowledge base"
+    )
+    owner: Optional[str] = Field(default=None, description="The specified admin user or group")
+    managers: Optional[str] = Field(
+        default=None, description="Users who can manage this knowledge base"
+    )
     publish_workflow: Optional[str] = Field(
-        "Knowledge - Instant Publish", description="Publication workflow"
+        default="Knowledge - Instant Publish", description="Publication workflow"
     )
     retire_workflow: Optional[str] = Field(
-        "Knowledge - Instant Retire", description="Retirement workflow"
+        default="Knowledge - Instant Retire", description="Retirement workflow"
     )
 
 
 class ListKnowledgeBasesParams(BaseModel):
     """Parameters for listing knowledge bases."""
 
-    limit: int = Field(10, description="Maximum number of knowledge bases to return")
-    offset: int = Field(0, description="Offset for pagination")
-    active: Optional[bool] = Field(None, description="Filter by active status")
-    query: Optional[str] = Field(None, description="Search query for knowledge bases")
+    limit: int = Field(default=10, description="Maximum number of knowledge bases to return")
+    offset: int = Field(default=0, description="Offset for pagination")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    query: Optional[str] = Field(default=None, description="Search query for knowledge bases")
 
 
 class CreateCategoryParams(BaseModel):
     """Parameters for creating a category in a knowledge base."""
 
     title: str = Field(..., description="Title of the category")
-    description: Optional[str] = Field(None, description="Description of the category")
+    description: Optional[str] = Field(default=None, description="Description of the category")
     knowledge_base: str = Field(..., description="The knowledge base to create the category in")
     parent_category: Optional[str] = Field(
-        None,
+        default=None,
         description="Parent category (if creating a subcategory). Sys_id refering to the parent category or sys_id of the parent table.",
     )
     parent_table: Optional[str] = Field(
-        None,
+        default=None,
         description="Parent table (if creating a subcategory). Sys_id refering to the table where the parent category is defined.",
     )
-    active: bool = Field(True, description="Whether the category is active")
+    active: bool = Field(default=True, description="Whether the category is active")
 
 
 class CreateArticleParams(BaseModel):
@@ -63,15 +67,15 @@ class CreateArticleParams(BaseModel):
 
     title: str = Field(..., description="Title of the article")
     text: str = Field(
-        ...,
+        default=...,
         description="The main body text for the article. Field supports html formatting and wiki markup based on the article_type. HTML is the default.",
     )
     short_description: str = Field(..., description="Short description of the article")
     knowledge_base: str = Field(..., description="The knowledge base to create the article in")
     category: str = Field(..., description="Category for the article")
-    keywords: Optional[str] = Field(None, description="Keywords for search")
+    keywords: Optional[str] = Field(default=None, description="Keywords for search")
     article_type: Optional[str] = Field(
-        "html",
+        default="html",
         description="The type of article. Options are 'text' or 'wiki'. text lets the text field support html formatting. wiki lets the text field support wiki markup.",
     )
 
@@ -80,33 +84,35 @@ class UpdateArticleParams(BaseModel):
     """Parameters for updating a knowledge article."""
 
     article_id: str = Field(..., description="ID of the article to update")
-    title: Optional[str] = Field(None, description="Updated title of the article")
+    title: Optional[str] = Field(default=None, description="Updated title of the article")
     text: Optional[str] = Field(
-        None,
+        default=None,
         description="Updated main body text for the article. Field supports html formatting and wiki markup based on the article_type. HTML is the default.",
     )
-    short_description: Optional[str] = Field(None, description="Updated short description")
-    category: Optional[str] = Field(None, description="Updated category for the article")
-    keywords: Optional[str] = Field(None, description="Updated keywords for search")
+    short_description: Optional[str] = Field(default=None, description="Updated short description")
+    category: Optional[str] = Field(default=None, description="Updated category for the article")
+    keywords: Optional[str] = Field(default=None, description="Updated keywords for search")
 
 
 class PublishArticleParams(BaseModel):
     """Parameters for publishing a knowledge article."""
 
     article_id: str = Field(..., description="ID of the article to publish")
-    workflow_state: Optional[str] = Field("published", description="The workflow state to set")
-    workflow_version: Optional[str] = Field(None, description="The workflow version to use")
+    workflow_state: Optional[str] = Field(
+        default="published", description="The workflow state to set"
+    )
+    workflow_version: Optional[str] = Field(default=None, description="The workflow version to use")
 
 
 class ListArticlesParams(BaseModel):
     """Parameters for listing knowledge articles."""
 
-    limit: int = Field(10, description="Maximum number of articles to return")
-    offset: int = Field(0, description="Offset for pagination")
-    knowledge_base: Optional[str] = Field(None, description="Filter by knowledge base")
-    category: Optional[str] = Field(None, description="Filter by category")
-    query: Optional[str] = Field(None, description="Search query for articles")
-    workflow_state: Optional[str] = Field(None, description="Filter by workflow state")
+    limit: int = Field(default=10, description="Maximum number of articles to return")
+    offset: int = Field(default=0, description="Offset for pagination")
+    knowledge_base: Optional[str] = Field(default=None, description="Filter by knowledge base")
+    category: Optional[str] = Field(default=None, description="Filter by category")
+    query: Optional[str] = Field(default=None, description="Search query for articles")
+    workflow_state: Optional[str] = Field(default=None, description="Filter by workflow state")
 
 
 class GetArticleParams(BaseModel):
@@ -120,8 +126,8 @@ class KnowledgeBaseResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    kb_id: Optional[str] = Field(None, description="ID of the affected knowledge base")
-    kb_name: Optional[str] = Field(None, description="Name of the affected knowledge base")
+    kb_id: Optional[str] = Field(default=None, description="ID of the affected knowledge base")
+    kb_name: Optional[str] = Field(default=None, description="Name of the affected knowledge base")
 
 
 class CategoryResponse(BaseModel):
@@ -129,8 +135,8 @@ class CategoryResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    category_id: Optional[str] = Field(None, description="ID of the affected category")
-    category_name: Optional[str] = Field(None, description="Name of the affected category")
+    category_id: Optional[str] = Field(default=None, description="ID of the affected category")
+    category_name: Optional[str] = Field(default=None, description="Name of the affected category")
 
 
 class ArticleResponse(BaseModel):
@@ -138,20 +144,22 @@ class ArticleResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    article_id: Optional[str] = Field(None, description="ID of the affected article")
-    article_title: Optional[str] = Field(None, description="Title of the affected article")
-    workflow_state: Optional[str] = Field(None, description="Current workflow state of the article")
+    article_id: Optional[str] = Field(default=None, description="ID of the affected article")
+    article_title: Optional[str] = Field(default=None, description="Title of the affected article")
+    workflow_state: Optional[str] = Field(
+        default=None, description="Current workflow state of the article"
+    )
 
 
 class ListCategoriesParams(BaseModel):
     """Parameters for listing categories in a knowledge base."""
 
-    knowledge_base: Optional[str] = Field(None, description="Filter by knowledge base ID")
-    parent_category: Optional[str] = Field(None, description="Filter by parent category ID")
-    limit: int = Field(10, description="Maximum number of categories to return")
-    offset: int = Field(0, description="Offset for pagination")
-    active: Optional[bool] = Field(None, description="Filter by active status")
-    query: Optional[str] = Field(None, description="Search query for categories")
+    knowledge_base: Optional[str] = Field(default=None, description="Filter by knowledge base ID")
+    parent_category: Optional[str] = Field(default=None, description="Filter by parent category ID")
+    limit: int = Field(default=10, description="Maximum number of categories to return")
+    offset: int = Field(default=0, description="Offset for pagination")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    query: Optional[str] = Field(default=None, description="Search query for categories")
 
 
 @register_tool(

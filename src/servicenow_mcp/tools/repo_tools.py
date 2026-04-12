@@ -8,38 +8,42 @@ from servicenow_mcp.utils.registry import register_tool
 
 
 class RepoQueryBaseParams(BaseModel):
-    repo_path: str = Field(".", description="Target git repository path")
+    repo_path: str = Field(default=".", description="Target git repository path")
     path_filter: Optional[str] = Field(
-        None,
+        default=None,
         description="Optional path prefix filter (example: src/servicenow_mcp/tools)",
     )
 
 
 class GetRepoWorkingTreeStatusParams(RepoQueryBaseParams):
-    include_untracked: bool = Field(True, description="Include untracked files")
+    include_untracked: bool = Field(default=True, description="Include untracked files")
 
 
 class GetRepoRecentCommitsParams(RepoQueryBaseParams):
-    limit: int = Field(30, description="Maximum number of commits to return (1..200)")
-    include_files: bool = Field(True, description="Include file list for each commit")
+    limit: int = Field(default=30, description="Maximum number of commits to return (1..200)")
+    include_files: bool = Field(default=True, description="Include file list for each commit")
 
 
 class GetRepoFileLastModifierParams(RepoQueryBaseParams):
     files: List[str] | None = Field(
-        None,
+        default=None,
         description="Optional target files. If omitted, uses files from working tree status and recent commits",
     )
     commits_scan_limit: int = Field(
-        100, description="Commit scan depth used for file last-commit cache"
+        default=100, description="Commit scan depth used for file last-commit cache"
     )
-    include_uncommitted_status: bool = Field(True, description="Attach uncommitted status per file")
+    include_uncommitted_status: bool = Field(
+        default=True, description="Attach uncommitted status per file"
+    )
 
 
 class GetRepoChangeReportParams(RepoQueryBaseParams):
-    limit: int = Field(50, description="Maximum number of recent commits to scan (1..200)")
-    include_uncommitted: bool = Field(True, description="Include uncommitted files from git status")
+    limit: int = Field(default=50, description="Maximum number of recent commits to scan (1..200)")
+    include_uncommitted: bool = Field(
+        default=True, description="Include uncommitted files from git status"
+    )
     include_recent_commits: bool = Field(
-        True, description="Include recent commit list and file mappings"
+        default=True, description="Include recent commit list and file mappings"
     )
 
 

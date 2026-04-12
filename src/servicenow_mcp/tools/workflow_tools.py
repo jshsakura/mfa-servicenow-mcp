@@ -23,48 +23,44 @@ T = TypeVar("T", bound=BaseModel)
 class ListWorkflowsParams(BaseModel):
     """Parameters for listing workflows."""
 
-    limit: Optional[int] = Field(10, description="Maximum number of records to return")
-    offset: Optional[int] = Field(0, description="Offset to start from")
-    active: Optional[bool] = Field(None, description="Filter by active status")
-    name: Optional[str] = Field(None, description="Filter by name (contains)")
-    query: Optional[str] = Field(None, description="Additional query string")
+    limit: Optional[int] = Field(default=10, description="Maximum number of records to return")
+    offset: Optional[int] = Field(default=0, description="Offset to start from")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    name: Optional[str] = Field(default=None, description="Filter by name (contains)")
+    query: Optional[str] = Field(default=None, description="Additional query string")
     count_only: bool = Field(
-        False,
+        default=False,
         description="Return count only without fetching records. Uses lightweight Aggregate API.",
     )
 
 
 class GetWorkflowDetailsParams(BaseModel):
-    """Parameters for getting workflow details."""
+    """Parameters for getting workflow details with optional versions and activities."""
 
     workflow_id: str = Field(..., description="Workflow ID or sys_id")
-    include_versions: Optional[bool] = Field(False, description="Include workflow versions")
-
-
-class ListWorkflowVersionsParams(BaseModel):
-    """Parameters for listing workflow versions."""
-
-    workflow_id: str = Field(..., description="Workflow ID or sys_id")
-    limit: Optional[int] = Field(10, description="Maximum number of records to return")
-    offset: Optional[int] = Field(0, description="Offset to start from")
-
-
-class GetWorkflowActivitiesParams(BaseModel):
-    """Parameters for getting workflow activities."""
-
-    workflow_id: str = Field(..., description="Workflow ID or sys_id")
-    version: Optional[str] = Field(None, description="Specific version to get activities for")
+    include_versions: bool = Field(
+        default=False,
+        description="Include version history for this workflow",
+    )
+    include_activities: bool = Field(
+        default=False,
+        description="Include ordered activity list. Uses latest published version unless version_id is specified.",
+    )
+    version_id: Optional[str] = Field(
+        default=None,
+        description="Specific version sys_id to fetch activities for (only used with include_activities=true)",
+    )
 
 
 class CreateWorkflowParams(BaseModel):
     """Parameters for creating a new workflow."""
 
     name: str = Field(..., description="Name of the workflow")
-    description: Optional[str] = Field(None, description="Description of the workflow")
-    table: Optional[str] = Field(None, description="Table the workflow applies to")
-    active: Optional[bool] = Field(True, description="Whether the workflow is active")
+    description: Optional[str] = Field(default=None, description="Description of the workflow")
+    table: Optional[str] = Field(default=None, description="Table the workflow applies to")
+    active: Optional[bool] = Field(default=True, description="Whether the workflow is active")
     attributes: Optional[Dict[str, Any]] = Field(
-        None, description="Additional attributes for the workflow"
+        default=None, description="Additional attributes for the workflow"
     )
 
 
@@ -72,12 +68,12 @@ class UpdateWorkflowParams(BaseModel):
     """Parameters for updating a workflow."""
 
     workflow_id: str = Field(..., description="Workflow ID or sys_id")
-    name: Optional[str] = Field(None, description="Name of the workflow")
-    description: Optional[str] = Field(None, description="Description of the workflow")
-    table: Optional[str] = Field(None, description="Table the workflow applies to")
-    active: Optional[bool] = Field(None, description="Whether the workflow is active")
+    name: Optional[str] = Field(default=None, description="Name of the workflow")
+    description: Optional[str] = Field(default=None, description="Description of the workflow")
+    table: Optional[str] = Field(default=None, description="Table the workflow applies to")
+    active: Optional[bool] = Field(default=None, description="Whether the workflow is active")
     attributes: Optional[Dict[str, Any]] = Field(
-        None, description="Additional attributes for the workflow"
+        default=None, description="Additional attributes for the workflow"
     )
 
 
@@ -98,12 +94,12 @@ class AddWorkflowActivityParams(BaseModel):
 
     workflow_version_id: str = Field(..., description="Workflow version ID")
     name: str = Field(..., description="Name of the activity")
-    description: Optional[str] = Field(None, description="Description of the activity")
+    description: Optional[str] = Field(default=None, description="Description of the activity")
     activity_type: str = Field(
-        ..., description="Type of activity (e.g., 'approval', 'task', 'notification')"
+        default=..., description="Type of activity (e.g., 'approval', 'task', 'notification')"
     )
     attributes: Optional[Dict[str, Any]] = Field(
-        None, description="Additional attributes for the activity"
+        default=None, description="Additional attributes for the activity"
     )
 
 
@@ -111,10 +107,10 @@ class UpdateWorkflowActivityParams(BaseModel):
     """Parameters for updating a workflow activity."""
 
     activity_id: str = Field(..., description="Activity ID or sys_id")
-    name: Optional[str] = Field(None, description="Name of the activity")
-    description: Optional[str] = Field(None, description="Description of the activity")
+    name: Optional[str] = Field(default=None, description="Name of the activity")
+    description: Optional[str] = Field(default=None, description="Description of the activity")
     attributes: Optional[Dict[str, Any]] = Field(
-        None, description="Additional attributes for the activity"
+        default=None, description="Additional attributes for the activity"
     )
 
 
@@ -276,7 +272,11 @@ def list_workflows(
 @register_tool(
     name="get_legacy_workflow_details",
     params=GetWorkflowDetailsParams,
-    description="Get a single workflow by sys_id with full configuration and metadata.",
+    description=(
+        "Get a single workflow by sys_id with full configuration and metadata. "
+        "Use include_versions=true for version history, "
+        "include_activities=true for ordered activity list."
+    ),
     serialization="json",
     return_type=str,
 )
@@ -285,31 +285,18 @@ def get_workflow_details(
     server_config: ServerConfig,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """
-    Get detailed information about a specific workflow.
-
-    Args:
-        auth_manager: Authentication manager
-        server_config: Server configuration
-        params: Parameters for getting workflow details
-
-    Returns:
-        Dictionary containing the workflow details
-    """
+    """Get workflow details, optionally including versions and activities."""
     params = _unwrap_params(params, GetWorkflowDetailsParams)
 
-    # Get the correct auth_manager and server_config
     try:
         auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
     except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
         return {"error": str(e)}
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
         return {"error": "Workflow ID is required"}
 
-    # Make the API request
     try:
         rows, _ = sn_query_page(
             server_config,
@@ -322,167 +309,93 @@ def get_workflow_details(
             display_value=False,
             fail_silently=False,
         )
-
         if not rows:
             return {"error": f"Workflow {workflow_id} not found"}
 
-        return {
-            "workflow": rows[0],
-        }
+        result: Dict[str, Any] = {"workflow": rows[0]}
+
+        if params.get("include_versions"):
+            result["versions"] = _fetch_workflow_versions(server_config, auth_manager, workflow_id)
+
+        if params.get("include_activities"):
+            act_result = _fetch_workflow_activities(
+                server_config, auth_manager, workflow_id, params.get("version_id")
+            )
+            result.update(act_result)
+
+        return result
     except Exception as e:
         logger.error(f"Error getting workflow details: {e}")
         return {"error": str(e)}
 
 
-@register_tool(
-    name="list_legacy_workflow_versions",
-    params=ListWorkflowVersionsParams,
-    description="List version history for a workflow. Returns version records with publish status.",
-    serialization="json",
-    return_type=str,
-)
-def list_workflow_versions(
-    auth_manager: AuthManager,
+def _fetch_workflow_versions(
     server_config: ServerConfig,
-    params: Dict[str, Any],
+    auth_manager: AuthManager,
+    workflow_id: str,
+) -> List[Dict[str, Any]]:
+    """Fetch version history for a workflow (internal helper)."""
+    rows, _ = sn_query_page(
+        server_config,
+        auth_manager,
+        table="wf_workflow_version",
+        query=f"workflow={workflow_id}",
+        fields="",
+        limit=20,
+        offset=0,
+        display_value=False,
+        fail_silently=False,
+    )
+    return rows
+
+
+def _fetch_workflow_activities(
+    server_config: ServerConfig,
+    auth_manager: AuthManager,
+    workflow_id: str,
+    version_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Fetch activities for a workflow version (internal helper).
+
+    If version_id is not provided, uses the latest published version.
     """
-    List versions of a specific workflow.
-
-    Args:
-        auth_manager: Authentication manager
-        server_config: Server configuration
-        params: Parameters for listing workflow versions
-
-    Returns:
-        Dict[str, Any]: List of workflow versions
-    """
-    # Unwrap parameters if needed
-    params = _unwrap_params(params, ListWorkflowVersionsParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
-
-    workflow_id = params.get("workflow_id")
-    if not workflow_id:
-        return {"error": "Workflow ID is required"}
-
-    try:
-        rows, total = sn_query_page(
+    if not version_id:
+        versions, _ = sn_query_page(
             server_config,
             auth_manager,
             table="wf_workflow_version",
-            query=f"workflow={workflow_id}",
+            query=f"workflow={workflow_id}^published=true",
             fields="",
-            limit=params.get("limit", 10),
-            offset=params.get("offset", 0),
-            display_value=False,
-            fail_silently=False,
-        )
-        return {
-            "versions": rows,
-            "count": len(rows),
-            "total": total or 0,
-            "workflow_id": workflow_id,
-        }
-    except Exception as e:
-        logger.error(f"Error listing workflow versions: {e}")
-        return {"error": str(e)}
-
-
-@register_tool(
-    name="get_legacy_workflow_activities",
-    params=GetWorkflowActivitiesParams,
-    description="Get ordered activity list for a workflow version. Defaults to latest published version if unspecified.",
-    serialization="json",
-    return_type=str,
-)
-def get_workflow_activities(
-    auth_manager: AuthManager,
-    server_config: ServerConfig,
-    params: Dict[str, Any],
-) -> Dict[str, Any]:
-    """
-    Get activities for a specific workflow.
-
-    Args:
-        auth_manager: Authentication manager
-        server_config: Server configuration
-        params: Parameters for getting workflow activities
-
-    Returns:
-        Dict[str, Any]: List of workflow activities
-    """
-    # Unwrap parameters if needed
-    params = _unwrap_params(params, GetWorkflowActivitiesParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
-
-    workflow_id = params.get("workflow_id")
-    if not workflow_id:
-        return {"error": "Workflow ID is required"}
-
-    version_id = params.get("version")
-
-    # If no version specified, get the latest published version
-    if not version_id:
-        try:
-            versions, _ = sn_query_page(
-                server_config,
-                auth_manager,
-                table="wf_workflow_version",
-                query=f"workflow={workflow_id}^published=true",
-                fields="",
-                limit=1,
-                offset=0,
-                orderby="-version",
-                display_value=False,
-                fail_silently=False,
-            )
-
-            if not versions:
-                return {
-                    "error": f"No published versions found for workflow {workflow_id}",
-                    "workflow_id": workflow_id,
-                }
-
-            version_id = versions[0]["sys_id"]
-        except Exception as e:
-            logger.error(f"Error getting workflow version: {e}")
-            return {"error": str(e)}
-
-    # Get activities for the version
-    try:
-        activities, _ = sn_query_page(
-            server_config,
-            auth_manager,
-            table="wf_activity",
-            query=f"workflow_version={version_id}",
-            fields="",
-            limit=100,
+            limit=1,
             offset=0,
-            orderby="order",
+            orderby="-version",
             display_value=False,
             fail_silently=False,
         )
-        return {
-            "activities": activities,
-            "count": len(activities),
-            "workflow_id": workflow_id,
-            "version_id": version_id,
-        }
-    except Exception as e:
-        logger.error(f"Error getting workflow activities: {e}")
-        return {"error": str(e)}
+        if not versions:
+            return {
+                "activities": [],
+                "activities_error": f"No published versions found for workflow {workflow_id}",
+            }
+        version_id = versions[0]["sys_id"]
+
+    activities, _ = sn_query_page(
+        server_config,
+        auth_manager,
+        table="wf_activity",
+        query=f"workflow_version={version_id}",
+        fields="",
+        limit=100,
+        offset=0,
+        orderby="order",
+        display_value=False,
+        fail_silently=False,
+    )
+    return {
+        "activities": activities,
+        "activity_count": len(activities),
+        "version_id": version_id,
+    }
 
 
 @register_tool(

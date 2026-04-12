@@ -12,8 +12,8 @@ def test_workflow_tools_are_discovered_by_registry():
     workflow_tools = [
         "list_legacy_workflows",
         "get_legacy_workflow_details",
-        "list_legacy_workflow_versions",
-        "get_legacy_workflow_activities",
+        # list_legacy_workflow_versions and get_legacy_workflow_activities
+        # merged into get_legacy_workflow_details with include flags
         "create_legacy_workflow",
         "update_legacy_workflow",
         "activate_legacy_workflow",

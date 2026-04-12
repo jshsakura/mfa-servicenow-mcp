@@ -1,0 +1,99 @@
+site_name: MFA ServiceNow MCP
+site_description: MFA-first ServiceNow MCP server for LLMs (Claude, OpenAI, etc.)
+site_author: jshsakura
+site_url: https://jshsakura.github.io/mfa-servicenow-mcp/
+
+theme:
+  name: material
+  language: en
+  font:
+    text: Inter
+    code: JetBrains Mono
+  logo: assets/favicon.png
+  icon:
+    repo: fontawesome/brands/github
+  favicon: assets/favicon.png
+  palette:
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: black
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: black
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tooltips
+    - content.tabs.link
+
+extra_css:
+  - stylesheets/extra.css
+
+# Plugins for enhanced beauty and functionality
+plugins:
+  - search
+  - social:
+      cards_layout_options:
+        font_family: Roboto
+
+repo_name: jshsakura/mfa-servicenow-mcp
+repo_url: https://github.com/jshsakura/mfa-servicenow-mcp
+edit_uri: edit/main/docs/
+
+# Extensions to make the content look professional
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: [".."] # To allow including README.md from root
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+
+# Hooks to rewrite language links for MkDocs site
+hooks:
+  - hooks/rewrite_links.py
+
+# Navigation structure - mapping to existing docs
+nav:
+  - Home: index.md
+  - 한국어: ko.md
+  - Getting Started:
+      - Client Setup: docs/CLIENT_SETUP.md
+      - Windows Installation: docs/WINDOWS_INSTALL.md
+  - Features & Tools:
+      - Tool Inventory: docs/TOOL_INVENTORY.md
+  - Guides:
+      - Service Catalog: docs/catalog.md
+      - Change Management: docs/change_management.md
+      - Workflow & Flow Designer: docs/workflow_management.md
