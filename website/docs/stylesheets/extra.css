@@ -2,7 +2,7 @@
    MFA ServiceNow MCP — Landing Page
    ================================================================ */
 
-/* --- Tokens --- */
+/* --- Tokens: LIGHT theme --- */
 :root {
   --hero-text: #0a0a0a;
   --hero-sub: #52525b;
@@ -18,28 +18,35 @@
   --gradient-start: #6366f1;
   --gradient-mid: #8b5cf6;
   --gradient-end: #ec4899;
-  --code-bg: #1e1e2e;
-  --code-header-bg: #e4e4e7;
+  /* Terminal / code — LIGHT: light background, dark text */
+  --code-bg: #f4f4f8;
+  --code-header-bg: #eaeaef;
   --code-border: #d4d4d8;
-  --code-text: #d4d4d8;
-  --code-comment: #6b7280;
+  --code-text: #1e1e2e;
+  --code-comment: #8b8b9a;
   --code-prompt: #16a34a;
   --code-success: #059669;
   --code-thinking: #6366f1;
-  --code-tool: #d97706;
-  --code-dim: #9ca3af;
-  --code-cursor: #71717a;
-  --terminal-shadow: 0 4px 6px rgba(0,0,0,.04), 0 20px 40px rgba(0,0,0,.08);
+  --code-tool: #b45309;
+  --code-dim: #a1a1aa;
+  --code-cursor: #52525b;
+  --code-command: #18181b;
+  --terminal-shadow: 0 4px 6px rgba(0,0,0,.03), 0 12px 24px rgba(0,0,0,.06);
+  /* Grid */
   --grid-color: rgba(0,0,0,.06);
+  /* Header */
   --header-bg: rgba(255,255,255,.92);
   --header-text: #18181b;
   --header-border: rgba(0,0,0,.08);
   --header-icon: #3f3f46;
+  /* Tooltip */
   --tooltip-bg: #18181b;
   --tooltip-text: #fafafa;
   --tooltip-border: #3f3f46;
   --md-primary-fg-color: #18181b;
 }
+
+/* --- Tokens: DARK theme --- */
 [data-md-color-scheme="slate"] {
   --hero-text: #fafafa;
   --hero-sub: #a1a1aa;
@@ -52,9 +59,10 @@
   --btn-hover: #d4d4d8;
   --accent: #818cf8;
   --accent-bg: rgba(129,140,248,.1);
-  --code-bg: #0c0c0e;
+  /* Terminal / code — DARK: dark background, light text */
+  --code-bg: #0f0f14;
   --code-header-bg: #18181b;
-  --code-border: #3f3f46;
+  --code-border: #27272a;
   --code-text: #e4e4e7;
   --code-comment: #52525b;
   --code-prompt: #22c55e;
@@ -63,19 +71,25 @@
   --code-tool: #fbbf24;
   --code-dim: #52525b;
   --code-cursor: #a1a1aa;
-  --terminal-shadow: 0 4px 6px rgba(0,0,0,.1), 0 20px 40px rgba(0,0,0,.4);
+  --code-command: #fafafa;
+  --terminal-shadow: 0 4px 6px rgba(0,0,0,.15), 0 12px 24px rgba(0,0,0,.35);
+  /* Grid */
   --grid-color: rgba(255,255,255,.05);
+  /* Header */
   --header-bg: rgba(9,9,11,.92);
   --header-text: #fafafa;
   --header-border: rgba(255,255,255,.06);
   --header-icon: #a1a1aa;
+  /* Tooltip */
   --tooltip-bg: #27272a;
   --tooltip-text: #fafafa;
   --tooltip-border: #3f3f46;
   --md-primary-fg-color: #fafafa;
 }
 
-/* --- Header — theme-aware --- */
+/* ============================================================
+   HEADER — theme-aware
+   ============================================================ */
 .md-header {
   background: var(--header-bg) !important;
   backdrop-filter: blur(12px);
@@ -85,9 +99,7 @@
 .md-header, .md-header *, .md-header .md-source__fact {
   color: var(--header-text) !important;
 }
-.md-header .md-source__fact {
-  opacity: 1 !important;
-}
+.md-header .md-source__fact { opacity: 1 !important; }
 .md-header .md-header__button svg,
 .md-header .md-source svg,
 .md-header .md-search__icon svg,
@@ -100,26 +112,18 @@
   color: var(--tooltip-text) !important;
   border: 1px solid var(--tooltip-border) !important;
 }
-.md-header__button.md-logo img {
-  height: 24px;
-  width: auto;
-}
+.md-header__button.md-logo img { height: 24px; width: auto; }
+
 /* Tabs — theme-aware */
 .md-tabs {
   background: var(--header-bg) !important;
   border-bottom: 1px solid var(--header-border);
 }
-.md-tabs__link {
-  color: var(--hero-sub) !important;
-}
-.md-tabs__link--active, .md-tabs__link:hover {
-  color: var(--header-text) !important;
-}
-/* Hide "Home" breadcrumb text next to site title */
-body.landing .md-header__topic:nth-child(2) {
-  display: none !important;
-}
-/* Hide tabs bar on landing page globally */
+.md-tabs__link { color: var(--hero-sub) !important; }
+.md-tabs__link--active, .md-tabs__link:hover { color: var(--header-text) !important; }
+
+/* Landing-only overrides */
+body.landing .md-header__topic:nth-child(2) { display: none !important; }
 body.landing .md-tabs { display: none !important; }
 
 /* Mobile nav */
@@ -127,8 +131,35 @@ body.landing .md-tabs { display: none !important; }
   .md-header__title { padding-left: 0; }
 }
 
-/* --- Base — nuke width limits & full-bleed background (HOME ONLY) --- */
-/* .landing is added to <body> by inline JS on index.md */
+/* ============================================================
+   SEARCH — theme-aware
+   ============================================================ */
+.md-search__form {
+  background: var(--card-bg) !important;
+  border: 1px solid var(--border-color) !important;
+}
+.md-search__input {
+  color: var(--hero-text) !important;
+}
+.md-search__input::placeholder {
+  color: var(--hero-sub) !important;
+}
+
+/* ============================================================
+   FOOTER — theme-aware
+   ============================================================ */
+.md-footer {
+  background: var(--card-bg) !important;
+  border-top: 1px solid var(--border-color) !important;
+  color: var(--hero-sub) !important;
+}
+.md-footer a, .md-footer * { color: var(--hero-sub) !important; }
+.md-footer a:hover { color: var(--accent) !important; }
+
+/* ============================================================
+   BASE — full-bleed landing page
+   ============================================================ */
+.md-main__inner { margin-top: 0; }
 body.landing,
 body.landing .md-main,
 body.landing .md-main__inner,
@@ -137,7 +168,6 @@ body.landing .md-container {
   background-color: var(--page-bg) !important;
   background-image: none !important;
 }
-/* Grid on content area below hero — applied to content-wrap which spans full width */
 body.landing .content-wrap {
   background-color: var(--page-bg);
   background-image:
@@ -151,14 +181,13 @@ body.landing .md-main__inner { margin-top: 0; max-width: 100% !important; paddin
 body.landing .md-content { max-width: 100% !important; background: transparent !important; }
 body.landing .md-content__inner { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
 body.landing .md-content__inner::before { display: none !important; }
-/* Hide desktop sidebar only — keep mobile drawer functional */
 @media (min-width: 76.25em) {
   body.landing .md-sidebar { display: none; }
 }
 body.landing .md-footer { margin-top: 0; }
 
 /* ============================================================
-   HERO — full-width banner image with text overlay
+   HERO — banner image with text overlay (always dark)
    ============================================================ */
 .hero-section {
   position: relative;
@@ -185,8 +214,7 @@ body.landing .md-footer { margin-top: 0; }
   padding: 120px 24px 120px;
   max-width: 800px;
 }
-
-/* Title */
+/* Hero text — always white (on dark image) */
 .hero-title {
   font-size: clamp(2.4rem, 5.5vw, 4rem);
   font-weight: 800;
@@ -203,11 +231,9 @@ body.landing .md-footer { margin-top: 0; }
   background-clip: text;
   filter: drop-shadow(0 2px 8px rgba(139,92,246,.4));
 }
-
-/* Subtitle — fixed line count to prevent layout shift */
 .hero-subtitle {
   font-size: 1.1rem;
-  color: #e4e4e7;
+  color: #e4e4e7 !important;
   max-width: 520px;
   margin: 0 auto 24px;
   line-height: 1.7;
@@ -217,8 +243,7 @@ body.landing .md-footer { margin-top: 0; }
 @media (max-width: 480px) {
   .hero-subtitle { font-size: .95rem; max-width: 100%; }
 }
-
-/* Buttons */
+/* Hero buttons — always light-on-dark */
 .hero-buttons {
   display: flex;
   justify-content: center;
@@ -250,7 +275,7 @@ body.landing .md-footer { margin-top: 0; }
 }
 
 /* ============================================================
-   CONTENT WRAP — max-width container for everything below hero
+   CONTENT WRAP
    ============================================================ */
 .content-wrap {
   max-width: 100%;
@@ -262,7 +287,7 @@ body.landing .md-footer { margin-top: 0; }
 }
 
 /* ============================================================
-   TERMINAL — fixed height, pulled up into hero overlap
+   TERMINAL — theme-aware
    ============================================================ */
 .hero-terminal {
   margin: -32px auto 0;
@@ -274,7 +299,6 @@ body.landing .md-footer { margin-top: 0; }
   box-shadow: var(--terminal-shadow);
   overflow: hidden;
 }
-
 .hero-terminal-header {
   background: var(--code-header-bg);
   padding: 12px 16px;
@@ -283,10 +307,7 @@ body.landing .md-footer { margin-top: 0; }
   gap: 8px;
   border-bottom: 1px solid var(--code-border);
 }
-.hero-terminal-dots {
-  display: flex;
-  gap: 6px;
-}
+.hero-terminal-dots { display: flex; gap: 6px; }
 .hero-terminal-dots .dot {
   width: 10px; height: 10px;
   border-radius: 50%;
@@ -296,7 +317,6 @@ body.landing .md-footer { margin-top: 0; }
 .hero-terminal:hover .dot.red { background: #ef4444; }
 .hero-terminal:hover .dot.yellow { background: #eab308; }
 .hero-terminal:hover .dot.green { background: #22c55e; }
-
 .hero-terminal-title {
   flex: 1;
   text-align: center;
@@ -305,7 +325,6 @@ body.landing .md-footer { margin-top: 0; }
   font-weight: 500;
 }
 .hero-terminal-spacer { width: 42px; }
-
 .hero-terminal-body {
   padding: 24px 28px;
   font-family: 'JetBrains Mono', monospace;
@@ -315,7 +334,6 @@ body.landing .md-footer { margin-top: 0; }
   min-height: 420px;
   overflow: hidden;
 }
-
 .hero-terminal-line {
   margin-bottom: 3px;
   white-space: nowrap;
@@ -323,12 +341,11 @@ body.landing .md-footer { margin-top: 0; }
   text-overflow: ellipsis;
 }
 .hero-terminal-prompt { color: var(--code-prompt); margin-right: 8px; user-select: none; font-weight: 600; }
-.hero-terminal-command { color: var(--code-text); font-weight: 500; }
+.hero-terminal-command { color: var(--code-command); font-weight: 500; }
 .hero-terminal-success { color: var(--code-success); }
 .hero-terminal-thinking { color: var(--code-thinking); font-style: italic; padding-left: 20px; display: block; }
 .hero-terminal-tool { color: var(--code-tool); padding-left: 20px; display: block; }
 .hero-terminal-dim { color: var(--code-dim); }
-
 .hero-terminal-cursor {
   display: inline-block;
   width: 7px; height: 15px;
@@ -369,7 +386,7 @@ body.landing .md-footer { margin-top: 0; }
 }
 
 /* ============================================================
-   SECTIONS — shared
+   SECTIONS
    ============================================================ */
 .section-divider {
   height: 1px;
@@ -379,7 +396,6 @@ body.landing .md-footer { margin-top: 0; }
 }
 .section { padding: 72px 0; }
 .section-inner { max-width: 100%; margin: 0 auto; }
-
 .section-label {
   display: inline-block;
   font-size: .72rem;
@@ -406,10 +422,9 @@ body.landing .md-footer { margin-top: 0; }
 }
 
 /* ============================================================
-   INSTALL TABS
+   INSTALL TABS — theme-aware
    ============================================================ */
 .install-block { max-width: 100%; }
-
 .install-tabs {
   display: flex;
   gap: 2px;
@@ -435,10 +450,10 @@ body.landing .md-footer { margin-top: 0; }
 }
 .install-tab:hover { color: var(--hero-text); background: var(--accent-bg); }
 .install-tab.active { color: var(--accent); background: var(--accent-bg); }
-
 .install-panel { display: none; }
 .install-panel.active { display: block; }
 
+/* Code blocks — theme-aware */
 .install-code-block {
   background: var(--code-bg);
   border: 1px solid var(--code-border);
@@ -446,8 +461,6 @@ body.landing .md-footer { margin-top: 0; }
   overflow: hidden;
   position: relative;
 }
-
-
 pre.install-code {
   margin: 0 !important;
   padding: 16px 20px !important;
@@ -459,23 +472,18 @@ pre.install-code code {
   font-family: 'JetBrains Mono', monospace !important;
   font-size: .8rem !important;
   line-height: 1.65 !important;
-  color: #e4e4e7 !important;
+  color: var(--code-text) !important;
   background: transparent !important;
   border: none !important;
   padding: 0 !important;
 }
-/* Material copy button on code blocks */
-.install-code-block .md-clipboard {
-  color: var(--code-dim) !important;
-}
-.install-code-block .md-clipboard:hover {
-  color: var(--code-text) !important;
-}
-pre.install-code code { color: var(--code-text) !important; }
 pre.install-code .c { color: var(--code-comment); }
+/* Material copy button */
+.install-code-block .md-clipboard { color: var(--code-dim) !important; }
+.install-code-block .md-clipboard:hover { color: var(--code-text) !important; }
 
 /* ============================================================
-   STEPS
+   STEPS & SKILL CATEGORIES
    ============================================================ */
 .steps-grid {
   display: grid;
