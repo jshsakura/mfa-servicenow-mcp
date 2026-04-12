@@ -63,7 +63,6 @@ hide:
       <div class="install-panels">
         <div class="install-panel active" id="install-mac">
           <div class="install-code-block">
-            <button class="install-copy-btn" aria-label="Copy">Copy</button>
             <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
@@ -74,7 +73,6 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
         </div>
         <div class="install-panel" id="install-win">
           <div class="install-code-block">
-            <button class="install-copy-btn" aria-label="Copy">Copy</button>
             <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
@@ -85,7 +83,6 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
         </div>
         <div class="install-panel" id="install-pip">
           <div class="install-code-block">
-            <button class="install-copy-btn" aria-label="Copy">Copy</button>
             <pre class="install-code"><code><span class="c"># Install with pip + browser support</span>
 pip install "mfa-servicenow-mcp[browser]"
 playwright install chromium
@@ -97,7 +94,6 @@ servicenow-mcp \
         </div>
         <div class="install-panel" id="install-dev">
           <div class="install-code-block">
-            <button class="install-copy-btn" aria-label="Copy">Copy</button>
             <pre class="install-code"><code><span class="c"># Clone and install in development mode</span>
 git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
 cd mfa-servicenow-mcp
@@ -131,7 +127,6 @@ servicenow-mcp \
       <div class="install-panels" id="mcp-panels">
         <div class="install-panel active" id="mcp-claude-desktop">
           <div class="install-code-block">
-            <button class="install-copy-btn" aria-label="Copy">Copy</button>
             <pre class="install-code"><code>{
   "mcpServers": {
     "servicenow": {
@@ -153,7 +148,6 @@ servicenow-mcp \
         </div>
         <div class="install-panel" id="mcp-claude-code">
           <div class="install-code-block">
-            <button class="install-copy-btn" aria-label="Copy">Copy</button>
             <pre class="install-code"><code><span class="c">// Option A: CLI one-liner</span>
 claude mcp add servicenow -- \
   uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
@@ -180,7 +174,6 @@ claude mcp add servicenow -- \
         </div>
         <div class="install-panel" id="mcp-codex">
           <div class="install-code-block">
-            <button class="install-copy-btn" aria-label="Copy">Copy</button>
             <pre class="install-code"><code>[mcp_servers.servicenow]
 command = "uvx"
 args = [
@@ -195,7 +188,6 @@ args = [
         </div>
         <div class="install-panel" id="mcp-opencode">
           <div class="install-code-block">
-            <button class="install-copy-btn" aria-label="Copy">Copy</button>
             <pre class="install-code"><code>{
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -218,7 +210,6 @@ args = [
         </div>
         <div class="install-panel" id="mcp-gemini">
           <div class="install-code-block">
-            <button class="install-copy-btn" aria-label="Copy">Copy</button>
             <pre class="install-code"><code>{
   "mcp": {
     "servicenow": {
@@ -240,7 +231,6 @@ args = [
         </div>
         <div class="install-panel" id="mcp-antigravity">
           <div class="install-code-block">
-            <button class="install-copy-btn" aria-label="Copy">Copy</button>
             <pre class="install-code"><code>{
   "mcpServers": {
     "servicenow": {
@@ -448,15 +438,6 @@ args = [
         panels.forEach(function(p){p.classList.remove("active");});
         var t=document.getElementById(tab.getAttribute("data-target"));
         if(t) t.classList.add("active");
-      });
-    });
-  });
-  document.querySelectorAll(".install-copy-btn").forEach(function(btn){
-    btn.addEventListener("click",function(){
-      var code=btn.closest(".install-code-block").querySelector("code");
-      var text=code.textContent.replace(/^\/\/.*$/gm,"").replace(/^#.*$/gm,"").replace(/\n{2,}/g,"\n").trim();
-      navigator.clipboard.writeText(text).then(function(){
-        btn.textContent="Copied!";setTimeout(function(){btn.textContent="Copy";},2000);
       });
     });
   });
