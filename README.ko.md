@@ -197,9 +197,39 @@ claude mcp add servicenow -- \
 }
 ```
 
-### OpenCode / Gemini / Vertex AI
+### OpenCode
 
-#### `uvx`로 실행
+설정 파일: 프로젝트 루트의 `opencode.json`
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_BROWSER_USERNAME": "your.username",
+        "SERVICENOW_BROWSER_PASSWORD": "your-password",
+        "SERVICENOW_BROWSER_TIMEOUT": "120",
+        "SERVICENOW_BROWSER_SESSION_TTL": "30",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+> OpenCode는 `env`가 아닌 `environment`를 사용하며 `$schema` 필드를 지원합니다.
+> `SERVICENOW_BROWSER_USERNAME`, `SERVICENOW_BROWSER_PASSWORD`는 선택 — MFA/SSO 로그인 폼을 미리 채웁니다.
+
+### Gemini / Vertex AI
 
 ```json
 {
@@ -213,8 +243,6 @@ claude mcp add servicenow -- \
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       },
       "enabled": true
@@ -222,32 +250,6 @@ claude mcp add servicenow -- \
   }
 }
 ```
-
-#### 체크아웃한 소스에서 바로 실행
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uv", "run", "--project", "/absolute/path/to/mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_BROWSER_USERNAME": "your.username",
-        "SERVICENOW_BROWSER_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
-    }
-  }
-}
-```
-
-> `SERVICENOW_BROWSER_USERNAME`, `SERVICENOW_BROWSER_PASSWORD`는 필수는 아니지만, MFA/SSO 로그인 화면에 계정을 미리 채우고 싶을 때 유용합니다.
 
 ### AntiGravity
 
