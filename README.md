@@ -8,7 +8,7 @@
 [![Python Version](https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp)](https://pypi.org/project/mfa-servicenow-mcp/)
 [![CI](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-mfa--servicenow--mcp-blue?logo=docker)](https://ghcr.io/jshsakura/mfa-servicenow-mcp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ```bash
 # Install and run (one-liner)
@@ -157,6 +157,8 @@ Add to `claude_desktop_config.json`:
         "--browser-headless", "false"
       ],
       "env": {
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -190,6 +192,8 @@ Or add to `.mcp.json` in your project root:
         "--browser-headless", "false"
       ],
       "env": {
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -285,25 +289,25 @@ AntiGravity Editor uses a Claude Desktop-style `mcpServers` config. Edit via the
 
 ### OpenAI Codex
 
-Add to `codex.json` or pass via CLI:
+Add to `agents.toml` (usually `~/.codex/agents.toml` or `.codex/agents.toml` in your project root):
 
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false",
-        "--tool-package", "standard"
-      ]
-    }
-  }
-}
+```toml
+[mcp_servers.servicenow]
+command = "uvx"
+args = [
+  "--with", "playwright",
+  "--from", "mfa-servicenow-mcp",
+  "servicenow-mcp",
+  "--instance-url", "https://your-instance.service-now.com",
+  "--auth-type", "browser",
+  "--browser-headless", "false",
+  "--browser-username", "your.username",
+  "--browser-password", "your-password",
+  "--tool-package", "standard",
+]
+```
+
+> On Windows, set `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` as system environment variables instead of putting credentials in the config file.
 ```
 
 ---
@@ -701,4 +705,4 @@ uv build
 
 ## License
 
-MIT License
+Apache License 2.0
