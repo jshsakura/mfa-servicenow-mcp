@@ -70,3 +70,7 @@ scopes.json
 x_bpm/
 .tmp*/
 .servicenow_mcp/
+
+# Website (GitHub Pages)
+website/site/
+website/docs/docs/
