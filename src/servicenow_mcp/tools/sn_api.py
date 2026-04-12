@@ -143,7 +143,7 @@ def _cache_key(
     return (table, query, fields, limit, offset, display_value, no_count, orderby)
 
 
-def _cache_get(key: str) -> Optional[Any]:
+def _cache_get(key: _CacheKey) -> Optional[Any]:
     with _cache_lock:
         entry = _query_cache.get(key)
         if entry is None:
@@ -157,7 +157,7 @@ def _cache_get(key: str) -> Optional[Any]:
         return value
 
 
-def _cache_put(key: str, value: Any) -> None:
+def _cache_put(key: _CacheKey, value: Any) -> None:
     with _cache_lock:
         if key in _query_cache:
             # Update existing entry and move to end
@@ -507,12 +507,12 @@ def sn_batch(
 
 
 class HealthCheckParams(BaseModel):
-    timeout: int = Field(15, description="Request timeout in seconds")
+    timeout: int = Field(default=15, description="Request timeout in seconds")
 
 
 class GenericQueryParams(BaseModel):
     table: str = Field(
-        ...,
+       default= ...,
         description=(
             "Target table name for general record lookup (e.g., incident, kb_knowledge). "
             "For portal/widget/provider source analysis, prefer specialized portal tools instead of raw table reads. "
@@ -531,17 +531,17 @@ class GenericQueryParams(BaseModel):
             "Comma-separated field list. Avoid large fields like 'script' for list queries; use specialized source-aware tools when code evidence is needed."
         ),
     )
-    limit: int = Field(20, description="Max records (max 100). Default 20.")
-    offset: int = Field(0, description="Pagination offset. Use with total_count to iterate.")
+    limit: int = Field(default=20, description="Max records (max 100). Default 20.")
+    offset: int = Field(default=0, description="Pagination offset. Use with total_count to iterate.")
     orderby: Optional[str] = Field(
         default=None, description="Order by field, supports -field for desc"
     )
-    display_value: bool = Field(True, description="Return display values")
+    display_value: bool = Field(default=True, description="Return display values")
 
 
 class AggregateParams(BaseModel):
     table: str = Field(..., description="Target table name")
-    aggregate: str = Field("COUNT", description="COUNT, SUM, AVG, MIN, MAX")
+    aggregate: str = Field(default="COUNT", description="COUNT, SUM, AVG, MIN, MAX")
     field: Optional[str] = Field(default=None, description="Field for SUM/AVG/MIN/MAX")
     query: Optional[str] = Field(default=None, description="Encoded query")
     group_by: Optional[str] = Field(default=None, description="Group by field")
@@ -549,18 +549,18 @@ class AggregateParams(BaseModel):
 
 class SchemaParams(BaseModel):
     table: str = Field(..., description="Table name for schema lookup")
-    limit: int = Field(500, description="Maximum schema rows (max 1000)")
+    limit: int = Field(default=500, description="Maximum schema rows (max 1000)")
 
 
 class DiscoverParams(BaseModel):
     keyword: str = Field(..., description="Keyword to search table names and labels")
-    limit: int = Field(50, description="Max matches (max 200)")
+    limit: int = Field(default=50, description="Max matches (max 200)")
 
 
 class NaturalLanguageParams(BaseModel):
     text: str = Field(..., description="Natural language query")
-    execute: bool = Field(False, description="Execute writes")
-    confirm: bool = Field(False, description="Confirmation for destructive operations")
+    execute: bool = Field(default=False, description="Execute writes")
+    confirm: bool = Field(default=False, description="Confirmation for destructive operations")
 
 
 def _safe_json(response: requests.Response) -> Dict[str, Any]:

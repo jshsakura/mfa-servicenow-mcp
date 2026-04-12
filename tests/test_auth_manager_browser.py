@@ -29,6 +29,7 @@ def _make_browser_manager() -> AuthManager:
         ),
     )
     with (
+        patch.object(AuthManager, "_ensure_playwright_ready"),
         patch.object(AuthManager, "_load_session_from_disk"),
         patch.object(AuthManager, "_start_keepalive"),
     ):
@@ -114,6 +115,7 @@ def test_browser_probe_path_query_string_is_split_into_url_and_params():
         ),
     )
     with (
+        patch.object(AuthManager, "_ensure_playwright_ready"),
         patch.object(AuthManager, "_load_session_from_disk"),
         patch.object(AuthManager, "_start_keepalive"),
     ):

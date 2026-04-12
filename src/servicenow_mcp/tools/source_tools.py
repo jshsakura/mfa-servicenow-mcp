@@ -246,60 +246,60 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
 class SearchServerCodeParams(BaseModel):
     query: str = Field(..., description="Text to search in names, identifiers, and source fields")
     source_type: str = Field(
-        SOURCE_TYPE_ALL,
+        default=SOURCE_TYPE_ALL,
         description="One of: all, script_include, widget, business_rule, client_script, ui_action, ui_script, ui_page, scripted_rest, fix_script, update_xml",
     )
     limit: int = Field(
-        5, description=f"Maximum number of total matches to return. Clamped to {MAX_SEARCH_LIMIT}."
+        default=5, description=f"Maximum number of total matches to return. Clamped to {MAX_SEARCH_LIMIT}."
     )
-    scope: str | None = Field(None, description="Optional scope filter")
-    updated_by: str | None = Field(None, description="Optional updated_by filter")
-    max_snippet_length: int = Field(300, description="Maximum snippet size returned for each match")
+    scope: str | None = Field(default=None, description="Optional scope filter")
+    updated_by: str | None = Field(default=None, description="Optional updated_by filter")
+    max_snippet_length: int = Field(default=300, description="Maximum snippet size returned for each match")
 
 
 class GetMetadataSourceParams(BaseModel):
     source_type: str = Field(
-        ...,
+       default= ...,
         description="One of: script_include, widget, business_rule, client_script, ui_action, ui_script, ui_page, scripted_rest, fix_script, update_xml",
     )
     source_id: str = Field(..., description="sys_id, name, or logical identifier")
     max_field_length: int = Field(
-        DEFAULT_FIELD_LENGTH,
+        default=DEFAULT_FIELD_LENGTH,
         description=f"Maximum length for each returned source field. Clamped to {MAX_FIELD_LENGTH}.",
     )
 
 
 class ExtractTableDependenciesParams(BaseModel):
     scope: str | None = Field(
-        None,
+        default=None,
         description="Optional app scope filter (sys_scope). Example: x_company_bpm",
     )
     include_widgets: bool = Field(
-        True,
+        default=True,
         description="Scan widget server scripts (sp_widget.script) for table dependencies",
     )
     include_business_rules: bool = Field(
-        True,
+        default=True,
         description="Scan business rules (sys_script.script) for table dependencies",
     )
     include_linked_script_includes: bool = Field(
-        True,
+        default=True,
         description="From scanned widget/business rule scripts, resolve referenced Script Includes and scan them too",
     )
     only_active: bool = Field(
-        True,
+        default=True,
         description="When supported by the source table, scan only active records",
     )
     max_records_per_source: int = Field(
-        DEFAULT_DEP_SCAN_LIMIT,
+        default=DEFAULT_DEP_SCAN_LIMIT,
         description=f"Maximum records scanned per source type. Clamped to {MAX_DEP_SCAN_LIMIT}.",
     )
     page_size: int = Field(
-        DEFAULT_DEP_PAGE_SIZE,
+        default=DEFAULT_DEP_PAGE_SIZE,
         description="Fetch page size for each API call. Clamped to 10..200.",
     )
     include_loose_literal_scan: bool = Field(
-        False,
+        default=False,
         description="If true, also scan generic string literals that look like table names (higher recall, lower precision)",
     )
 
@@ -307,23 +307,23 @@ class ExtractTableDependenciesParams(BaseModel):
 class ExtractWidgetTableDependenciesParams(BaseModel):
     widget_id: str = Field(..., description="Widget sys_id, id, or name")
     scope: str | None = Field(
-        None,
+        default=None,
         description="Optional app scope filter (sys_scope). Example: x_company_bpm",
     )
     include_linked_script_includes: bool = Field(
-        True,
+        default=True,
         description="Resolve script includes referenced by the widget and include their table dependencies",
     )
     only_active: bool = Field(
-        True,
+        default=True,
         description="When supported by table, include only active records",
     )
     include_loose_literal_scan: bool = Field(
-        False,
+        default=False,
         description="If true, also scan generic string literals that look like table names (higher recall, lower precision)",
     )
     max_linked_script_includes: int = Field(
-        DEFAULT_MAX_LINKED_SI,
+        default=DEFAULT_MAX_LINKED_SI,
         description=f"Maximum linked script includes to resolve per widget. Clamped to {MAX_LINKED_SI}.",
     )
 

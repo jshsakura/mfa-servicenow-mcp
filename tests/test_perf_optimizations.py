@@ -851,6 +851,8 @@ class TestSessionDiskDedup:
 
     def test_duplicate_save_skipped(self, tmp_path):
         """Second save with same content must skip file write."""
+        from unittest.mock import patch
+
         from servicenow_mcp.auth.auth_manager import AuthManager
         from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig
 
@@ -858,7 +860,8 @@ class TestSessionDiskDedup:
             type=AuthType.BROWSER,
             browser=BrowserAuthConfig(),
         )
-        auth = AuthManager(config, "https://test.service-now.com")
+        with patch.object(AuthManager, "_ensure_playwright_ready"):
+            auth = AuthManager(config, "https://test.service-now.com")
         auth._session_cache_path = str(tmp_path / "session.json")
         auth._browser_cookie_header = "JSESSIONID=abc123"
         auth._browser_user_agent = "TestAgent"
@@ -882,6 +885,8 @@ class TestSessionDiskDedup:
 
     def test_changed_content_triggers_write(self, tmp_path):
         """Save with changed content must actually write."""
+        from unittest.mock import patch
+
         from servicenow_mcp.auth.auth_manager import AuthManager
         from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig
 
@@ -889,7 +894,8 @@ class TestSessionDiskDedup:
             type=AuthType.BROWSER,
             browser=BrowserAuthConfig(),
         )
-        auth = AuthManager(config, "https://test.service-now.com")
+        with patch.object(AuthManager, "_ensure_playwright_ready"):
+            auth = AuthManager(config, "https://test.service-now.com")
         auth._session_cache_path = str(tmp_path / "session.json")
         auth._browser_cookie_header = "JSESSIONID=abc123"
         auth._browser_user_agent = "TestAgent"

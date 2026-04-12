@@ -23,23 +23,23 @@ class CreateStoryParams(BaseModel):
 
     short_description: str = Field(..., description="Short description of the story")
     acceptance_criteria: str = Field(..., description="Acceptance criteria for the story")
-    description: Optional[str] = Field(None, description="Detailed description of the story")
+    description: Optional[str] = Field(default=None, description="Detailed description of the story")
     state: Optional[str] = Field(
-        None,
+        default=None,
         description="State of story (-6 is Draft,-7 is Ready for Testing,-8 is Testing,1 is Ready, 2 is Work in progress, 3 is Complete, 4 is Cancelled)",
     )
-    assignment_group: Optional[str] = Field(None, description="Group assigned to the story")
-    story_points: Optional[int] = Field(10, description="Points value for the story")
-    assigned_to: Optional[str] = Field(None, description="User assigned to the story")
+    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the story")
+    story_points: Optional[int] = Field(default=10, description="Points value for the story")
+    assigned_to: Optional[str] = Field(default=None, description="User assigned to the story")
     epic: Optional[str] = Field(
-        None, description="Epic that the story belongs to. It requires the System ID of the epic."
+        default=None, description="Epic that the story belongs to. It requires the System ID of the epic."
     )
     project: Optional[str] = Field(
-        None,
+        default=None,
         description="Project that the story belongs to. It requires the System ID of the project.",
     )
     work_notes: Optional[str] = Field(
-        None,
+        default=None,
         description="Work notes to add to the story. Used for adding notes and comments to a story",
     )
 
@@ -48,30 +48,30 @@ class UpdateStoryParams(BaseModel):
     """Parameters for updating a story."""
 
     story_id: str = Field(
-        ...,
+       default= ...,
         description="Story IDNumber or sys_id. You will need to fetch the story to get the sys_id if you only have the story number",
     )
-    short_description: Optional[str] = Field(None, description="Short description of the story")
+    short_description: Optional[str] = Field(default=None, description="Short description of the story")
     acceptance_criteria: Optional[str] = Field(
-        None, description="Acceptance criteria for the story"
+        default=None, description="Acceptance criteria for the story"
     )
-    description: Optional[str] = Field(None, description="Detailed description of the story")
+    description: Optional[str] = Field(default=None, description="Detailed description of the story")
     state: Optional[str] = Field(
-        None,
+        default=None,
         description="State of story (-6 is Draft,-7 is Ready for Testing,-8 is Testing,1 is Ready, 2 is Work in progress, 3 is Complete, 4 is Cancelled)",
     )
-    assignment_group: Optional[str] = Field(None, description="Group assigned to the story")
-    story_points: Optional[int] = Field(None, description="Points value for the story")
-    assigned_to: Optional[str] = Field(None, description="User assigned to the story")
+    assignment_group: Optional[str] = Field(default=None, description="Group assigned to the story")
+    story_points: Optional[int] = Field(default=None, description="Points value for the story")
+    assigned_to: Optional[str] = Field(default=None, description="User assigned to the story")
     epic: Optional[str] = Field(
-        None, description="Epic that the story belongs to. It requires the System ID of the epic."
+        default=None, description="Epic that the story belongs to. It requires the System ID of the epic."
     )
     project: Optional[str] = Field(
-        None,
+        default=None,
         description="Project that the story belongs to. It requires the System ID of the project.",
     )
     work_notes: Optional[str] = Field(
-        None,
+        default=None,
         description="Work notes to add to the story. Used for adding notes and comments to a story",
     )
 
@@ -79,27 +79,27 @@ class UpdateStoryParams(BaseModel):
 class ListStoriesParams(BaseModel):
     """Parameters for listing stories."""
 
-    limit: Optional[int] = Field(10, description="Maximum number of records to return")
-    offset: Optional[int] = Field(0, description="Offset to start from")
-    state: Optional[str] = Field(None, description="Filter by state")
-    assignment_group: Optional[str] = Field(None, description="Filter by assignment group")
+    limit: Optional[int] = Field(default=10, description="Maximum number of records to return")
+    offset: Optional[int] = Field(default=0, description="Offset to start from")
+    state: Optional[str] = Field(default=None, description="Filter by state")
+    assignment_group: Optional[str] = Field(default=None, description="Filter by assignment group")
     timeframe: Optional[str] = Field(
-        None, description="Filter by timeframe (upcoming, in-progress, completed)"
+        default=None, description="Filter by timeframe (upcoming, in-progress, completed)"
     )
-    query: Optional[str] = Field(None, description="Additional query string")
+    query: Optional[str] = Field(default=None, description="Additional query string")
 
 
 class ListStoryDependenciesParams(BaseModel):
     """Parameters for listing story dependencies."""
 
-    limit: Optional[int] = Field(10, description="Maximum number of records to return")
-    offset: Optional[int] = Field(0, description="Offset to start from")
-    query: Optional[str] = Field(None, description="Additional query string")
+    limit: Optional[int] = Field(default=10, description="Maximum number of records to return")
+    offset: Optional[int] = Field(default=0, description="Offset to start from")
+    query: Optional[str] = Field(default=None, description="Additional query string")
     dependent_story: Optional[str] = Field(
-        None, description="Sys_id of the dependent story is required"
+        default=None, description="Sys_id of the dependent story is required"
     )
     prerequisite_story: Optional[str] = Field(
-        None, description="Sys_id that this story depends on is required"
+        default=None, description="Sys_id that this story depends on is required"
     )
 
 
@@ -108,7 +108,7 @@ class CreateStoryDependencyParams(BaseModel):
 
     dependent_story: str = Field(..., description="Sys_id of the dependent story is required")
     prerequisite_story: str = Field(
-        ..., description="Sys_id that this story depends on is required"
+       default= ..., description="Sys_id that this story depends on is required"
     )
 
 
