@@ -73,9 +73,11 @@
 body.landing .md-header__topic:nth-child(2) {
   display: none !important;
 }
-/* Mobile nav drawer — ensure readable colors */
+/* Mobile — fix nav and header */
 @media (max-width: 76.1875em) {
   .md-header__title { padding-left: 0; }
+  /* Hide tabs bar on landing page to prevent overlap with header */
+  body.landing .md-tabs { display: none !important; }
   .md-nav--primary .md-nav__item a,
   .md-nav--primary .md-nav__title {
     color: var(--hero-text) !important;
