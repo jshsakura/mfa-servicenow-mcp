@@ -11,8 +11,8 @@ hide:
   <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
-      Your AI Couldn't Log In.<br>
-      <span class="gradient-text">Now It Can.</span>
+      Secure ServiceNow<br>
+      for <span class="gradient-text">AI Agents</span>
     </h1>
     <p class="hero-subtitle">
       Give your AI agent a real ServiceNow session.<br>
