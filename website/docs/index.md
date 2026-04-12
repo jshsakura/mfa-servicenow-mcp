@@ -11,12 +11,12 @@ hide:
   <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
-      ServiceNow<br>
-      <span class="gradient-text">MCP Server</span>
+      MFA-First<br>
+      <span class="gradient-text">ServiceNow MCP</span>
     </h1>
     <p class="hero-subtitle">
-      MFA login that just works. 89 tools. 20 skills.
-      One command to connect your AI agent to ServiceNow.
+      Browser auth for Okta / Entra ID / SAML.
+      No credentials in config. No token rotation. It just works.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
