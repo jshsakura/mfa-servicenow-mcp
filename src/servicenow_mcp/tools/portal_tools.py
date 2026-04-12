@@ -3139,9 +3139,7 @@ def download_portal_sources(
                 exported_providers.append({"name": name, "sys_id": sys_id})
 
     _write_json_file(scope_root / "sp_angular_provider" / "_map.json", provider_map)
-    _write_json_file(
-        scope_root / "sp_angular_provider" / "_sync_meta.json", _provider_sync_meta
-    )
+    _write_json_file(scope_root / "sp_angular_provider" / "_sync_meta.json", _provider_sync_meta)
 
     si_map: Dict[str, str] = {}
     _si_sync_meta: Dict[str, Dict[str, str]] = {}

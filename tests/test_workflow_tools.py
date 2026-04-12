@@ -10,8 +10,6 @@ import requests
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.workflow_tools import (
-    _fetch_workflow_activities,
-    _fetch_workflow_versions,
     activate_workflow,
     add_workflow_activity,
     create_workflow,
@@ -261,7 +259,9 @@ class TestWorkflowTools(unittest.TestCase):
         self._finalize_response(activities_response)
 
         self.auth_manager.make_request.side_effect = [
-            workflow_response, version_response, activities_response
+            workflow_response,
+            version_response,
+            activities_response,
         ]
 
         # Call the function

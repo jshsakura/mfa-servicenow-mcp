@@ -12,10 +12,7 @@ import pytest
 from dotenv import load_dotenv
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools.workflow_tools import (
-    get_workflow_details,
-    list_workflows,
-)
+from servicenow_mcp.tools.workflow_tools import get_workflow_details, list_workflows
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
 # Set up logging
@@ -127,7 +124,9 @@ def test_list_workflow_versions(auth_manager, server_config, workflow_id):
     """Test workflow details with include_versions flag."""
     logger.info(f"Testing get_workflow_details(include_versions) for workflow {workflow_id}...")
 
-    result = get_workflow_details(auth_manager, server_config, {"workflow_id": workflow_id, "include_versions": True})
+    result = get_workflow_details(
+        auth_manager, server_config, {"workflow_id": workflow_id, "include_versions": True}
+    )
     print_result("get_workflow_details(include_versions)", result)
 
     return result
@@ -137,7 +136,9 @@ def test_get_workflow_activities(auth_manager, server_config, workflow_id):
     """Test workflow details with include_activities flag."""
     logger.info(f"Testing get_workflow_details(include_activities) for workflow {workflow_id}...")
 
-    result = get_workflow_details(auth_manager, server_config, {"workflow_id": workflow_id, "include_activities": True})
+    result = get_workflow_details(
+        auth_manager, server_config, {"workflow_id": workflow_id, "include_activities": True}
+    )
     print_result("get_workflow_details(include_activities)", result)
 
     return result
