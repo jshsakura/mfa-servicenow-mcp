@@ -1,5 +1,7 @@
 /* ================================================================
    MFA ServiceNow MCP — Landing Page
+   Theme colors handled by Material (primary: indigo, accent: indigo)
+   Only custom landing page layout + terminal styling here
    ================================================================ */
 
 /* --- Tokens: LIGHT theme --- */
@@ -18,7 +20,6 @@
   --gradient-start: #6366f1;
   --gradient-mid: #8b5cf6;
   --gradient-end: #ec4899;
-  /* Terminal / code — LIGHT: light background, dark text */
   --code-bg: #f4f4f8;
   --code-header-bg: #eaeaef;
   --code-border: #d4d4d8;
@@ -32,18 +33,7 @@
   --code-cursor: #52525b;
   --code-command: #18181b;
   --terminal-shadow: 0 4px 6px rgba(0,0,0,.03), 0 12px 24px rgba(0,0,0,.06);
-  /* Grid */
   --grid-color: rgba(0,0,0,.06);
-  /* Header */
-  --header-bg: rgba(255,255,255,.92);
-  --header-text: #18181b;
-  --header-border: rgba(0,0,0,.08);
-  --header-icon: #3f3f46;
-  /* Tooltip */
-  --tooltip-bg: #18181b;
-  --tooltip-text: #fafafa;
-  --tooltip-border: #3f3f46;
-  --md-primary-fg-color: #18181b;
 }
 
 /* --- Tokens: DARK theme --- */
@@ -59,7 +49,6 @@
   --btn-hover: #d4d4d8;
   --accent: #818cf8;
   --accent-bg: rgba(129,140,248,.1);
-  /* Terminal / code — DARK: dark background, light text */
   --code-bg: #0f0f14;
   --code-header-bg: #18181b;
   --code-border: #27272a;
@@ -73,114 +62,21 @@
   --code-cursor: #a1a1aa;
   --code-command: #fafafa;
   --terminal-shadow: 0 4px 6px rgba(0,0,0,.15), 0 12px 24px rgba(0,0,0,.35);
-  /* Grid */
   --grid-color: rgba(255,255,255,.05);
-  /* Header */
-  --header-bg: rgba(9,9,11,.92);
-  --header-text: #fafafa;
-  --header-border: rgba(255,255,255,.06);
-  --header-icon: #a1a1aa;
-  /* Tooltip */
-  --tooltip-bg: #27272a;
-  --tooltip-text: #fafafa;
-  --tooltip-border: #3f3f46;
-  --md-primary-fg-color: #fafafa;
 }
 
 /* ============================================================
-   HEADER — theme-aware
+   MINIMAL GLOBAL OVERRIDES — let Material handle the rest
    ============================================================ */
-.md-header {
-  background: var(--header-bg) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 1px 0 var(--header-border);
-}
-.md-header, .md-header *, .md-header .md-source__fact {
-  color: var(--header-text) !important;
-}
-.md-header .md-source__fact { opacity: 1 !important; }
-.md-header .md-header__button svg,
-.md-header .md-source svg,
-.md-header .md-search__icon svg,
-.md-header [data-md-toggle="search"] svg {
-  fill: var(--header-icon) !important;
-  color: var(--header-icon) !important;
-}
-/* Palette toggle snackbar — always dark bg, white text, bigger */
-.md-dialog {
-  background-color: #18181b !important;
-  border-radius: 10px !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,.25) !important;
-  padding: 12px 20px !important;
-  min-width: 16rem !important;
-}
-.md-dialog__inner,
-.md-dialog__inner * {
-  color: #fafafa !important;
-  font-size: .82rem !important;
-}
-/* Palette toggle (dark/light switch) */
-.md-header .md-header__button[data-md-color-scheme] {
-  color: var(--header-icon) !important;
-}
-.md-header .md-header__button:hover,
-.md-header .md-header__button:focus {
-  color: var(--header-text) !important;
-  opacity: 1 !important;
-}
-.md-header .md-header__button:hover svg,
-.md-header .md-header__button:focus svg {
-  fill: var(--header-text) !important;
-}
-.md-tooltip {
-  background: var(--tooltip-bg) !important;
-  color: var(--tooltip-text) !important;
-  border: 1px solid var(--tooltip-border) !important;
-}
 .md-header__button.md-logo img { height: 24px; width: auto; }
+.md-dialog { border-radius: 8px !important; }
 
-/* Tabs — theme-aware */
-.md-tabs {
-  background: var(--header-bg) !important;
-  border-bottom: 1px solid var(--header-border);
-}
-.md-tabs__link { color: var(--hero-sub) !important; }
-.md-tabs__link--active, .md-tabs__link:hover { color: var(--header-text) !important; }
-
-/* Landing-only overrides */
+/* Landing-only */
 body.landing .md-header__topic:nth-child(2) { display: none !important; }
 body.landing .md-tabs { display: none !important; }
-
-/* Mobile nav */
 @media (max-width: 76.1875em) {
   .md-header__title { padding-left: 0; }
 }
-
-/* ============================================================
-   SEARCH — theme-aware
-   ============================================================ */
-.md-search__form {
-  background: var(--card-bg) !important;
-  border: 1px solid var(--border-color) !important;
-}
-.md-search__input {
-  color: var(--hero-text) !important;
-}
-.md-search__input::placeholder {
-  color: var(--hero-sub) !important;
-}
-
-/* ============================================================
-   FOOTER — theme-aware
-   ============================================================ */
-.md-footer {
-  background: var(--card-bg) !important;
-  border-top: 1px solid var(--border-color) !important;
-  color: var(--hero-sub) !important;
-}
-.md-footer a, .md-footer * { color: var(--hero-sub) !important; }
-.md-footer a:hover { color: var(--hero-text) !important; }
 
 /* ============================================================
    BASE — full-bleed landing page
@@ -240,7 +136,6 @@ body.landing .md-footer { margin-top: 0; }
   padding: 120px 24px 120px;
   max-width: 800px;
 }
-/* Hero text — always white (on dark image) */
 .hero-title {
   font-size: clamp(2.4rem, 5.5vw, 4rem);
   font-weight: 800;
@@ -269,7 +164,6 @@ body.landing .md-footer { margin-top: 0; }
 @media (max-width: 480px) {
   .hero-subtitle { font-size: .95rem; max-width: 100%; }
 }
-/* Hero buttons — always light-on-dark */
 .hero-buttons {
   display: flex;
   justify-content: center;
@@ -296,7 +190,6 @@ body.landing .md-footer { margin-top: 0; }
 .hero-section .md-button--ghost:hover {
   background: rgba(255,255,255,.18) !important;
   border-color: rgba(255,255,255,.5) !important;
-  box-shadow: 0 4px 16px rgba(255,255,255,.08) !important;
 }
 
 /* ============================================================
@@ -447,7 +340,7 @@ body.landing .md-footer { margin-top: 0; }
 }
 
 /* ============================================================
-   INSTALL TABS — theme-aware
+   INSTALL TABS
    ============================================================ */
 .install-block { max-width: 100%; }
 .install-tabs {
@@ -478,7 +371,6 @@ body.landing .md-footer { margin-top: 0; }
 .install-panel { display: none; }
 .install-panel.active { display: block; }
 
-/* Code blocks — theme-aware */
 .install-code-block {
   background: var(--code-bg);
   border: 1px solid var(--code-border);
@@ -503,7 +395,6 @@ pre.install-code code {
   padding: 0 !important;
 }
 pre.install-code .c { color: var(--code-comment); }
-/* Material copy button */
 .install-code-block .md-clipboard { color: var(--code-dim) !important; }
 .install-code-block .md-clipboard:hover { color: var(--code-text) !important; }
 
