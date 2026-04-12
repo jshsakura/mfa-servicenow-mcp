@@ -85,14 +85,16 @@ body.landing .md-main,
 body.landing .md-main__inner,
 body.landing .md-content,
 body.landing .md-container {
-  background: var(--page-bg) !important;
+  background-color: var(--page-bg) !important;
+  background-image: none !important;
 }
-/* Grid lines on entire page below header */
-body.landing .md-main {
+/* Grid on content area below hero — applied to content-wrap which spans full width */
+body.landing .content-wrap {
+  background-color: var(--page-bg);
   background-image:
     linear-gradient(var(--grid-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px) !important;
-  background-size: 40px 40px !important;
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: 40px 40px;
 }
 body.landing .md-grid { max-width: 100% !important; padding: 0 !important; }
 body.landing .md-main { margin-top: 0 !important; padding-top: 0 !important; }
@@ -124,7 +126,7 @@ body.landing .md-footer { margin-top: 0; }
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(0,0,0,.6) 0%, rgba(0,0,0,.2) 28%, rgba(0,0,0,0) 45%, rgba(0,0,0,0) 65%, rgba(0,0,0,.55) 100%);
+    linear-gradient(180deg, rgba(0,0,0,.65) 0%, rgba(0,0,0,.25) 25%, rgba(0,0,0,.05) 45%, rgba(0,0,0,.05) 60%, rgba(0,0,0,.3) 80%, rgba(0,0,0,.7) 100%);
 }
 .hero-content {
   position: relative;
