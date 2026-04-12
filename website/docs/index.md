@@ -47,8 +47,8 @@ hide:
 
 <div class="section" id="install" style="padding-top:48px;">
   <div class="section-inner">
-    <span class="section-label">Quick install</span>
-    <h2 class="section-title">Copy, paste, run</h2>
+    <span class="section-label">Step 1 — Server</span>
+    <h2 class="section-title">Install and connect</h2>
     <p class="section-desc">
       Pick your OS. A real Chromium browser opens for MFA/SSO login — Okta, Entra ID, SAML all work out of the box.
     </p>
@@ -116,8 +116,8 @@ servicenow-mcp \
     </div>
 
     <div style="margin-top:56px;">
-      <span class="section-label">MCP client config</span>
-      <h2 class="section-title">Connect your AI agent</h2>
+      <span class="section-label">Client config</span>
+      <h2 class="section-title">Paste into your AI client</h2>
       <p class="section-desc">
         Paste the config for your client. All use the same MCP server — only the format differs.
       </p>
@@ -261,11 +261,12 @@ args = [
     </div>
 
     <div style="margin-top:56px;">
-      <span class="section-label">Skills (optional)</span>
-      <h2 class="section-title">Install AI execution blueprints</h2>
+      <span class="section-label">Step 2 — Skills</span>
+      <h2 class="section-title">Add LLM-optimized skills</h2>
       <p class="section-desc">
-        Skills turn raw tools into verified pipelines with safety gates and sub-agent delegation.
-        20 skills across 5 categories — one command to install.
+        Tools alone are raw API calls. Skills are what make your LLM actually useful —
+        verified pipelines with safety gates, rollback, and context-aware delegation.
+        20 skills today, more coming with every release.
       </p>
     </div>
     <div class="install-block">
