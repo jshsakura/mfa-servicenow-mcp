@@ -30,6 +30,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 - [CLI 레퍼런스](#cli-레퍼런스)
 - [최신 버전 유지 (PyPI)](#최신-버전-유지-pypi)
 - [보안 정책](#보안-정책)
+- [스킬](#스킬)
 - [Docker](#docker)
 - [개발용 설치](#개발용-설치)
 - [상세 문서](#상세-문서)
@@ -546,6 +547,58 @@ pip install "mfa-servicenow-mcp==1.5.0"
 - **얕은 복사 스키마 주입**: 확인 스키마(`confirm='approve'`)를 `copy.deepcopy` 대신 경량 dict 복사로 주입하여 `list_tools` 오버헤드 감소.
 - **카운트 생략 최적화**: 후속 페이지네이션 페이지에서 `sysparm_no_count=true`를 사용하여 서버 측 전체 개수 계산 생략.
 - **페이로드 안전 장치**: 무거운 테이블(`sp_widget`, `sys_script` 등)에 자동 필드 클램핑과 제한 적용으로 컨텍스트 윈도우 오버플로 방지.
+
+## 스킬
+
+스킬은 MCP 도구를 검증된 파이프라인으로 조합하는 LLM 실행 명세서입니다. 안전 게이트, 서브에이전트 위임, 컨텍스트 최적화를 포함합니다.
+
+| | 도구만 | 스킬 + 도구 |
+|---|---|---|
+| 안전성 | LLM 판단 (운빨) | 게이트 강제 (스냅샷 → 프리뷰 → 적용) |
+| 토큰 | 소스 전문 컨텍스트 | 서브에이전트 위임, 요약만 반환 |
+| 정확도 | 도구 순서 추측 | 검증된 파이프라인 |
+| 롤백 | 까먹으면 끝 | 스냅샷 필수 |
+
+### 스킬 설치
+
+```bash
+# Claude Code
+servicenow-mcp-skills claude
+
+# OpenAI Codex
+servicenow-mcp-skills codex
+
+# OpenCode
+servicenow-mcp-skills opencode
+
+# uvx로 설치 없이 바로 실행
+uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
+```
+
+스킬은 이 저장소에서 다운로드되어 프로젝트의 LLM 디렉토리(예: `.claude/commands/servicenow/`)에 설치됩니다. 다음 시작 시 LLM이 자동 인식합니다.
+
+### 스킬 카테고리
+
+| 카테고리 | 스킬 수 | 용도 |
+|----------|---------|------|
+| `analyze/` | 6 | 위젯 분석, 포탈 진단, 프로바이더 감사, 의존성 매핑, 코드 감지, ESC 감사 |
+| `fix/` | 3 | 위젯 패치 (단계별 게이트), 디버깅, 코드 리뷰 |
+| `manage/` | 4 | 페이지 레이아웃, SI 관리, 소스 내보내기, 체인지셋 |
+| `deploy/` | 2 | 변경 요청 생명주기, 인시던트 분류 |
+| `explore/` | 4 | 헬스 체크, 스키마 탐색, 라우트 추적, ESC 카탈로그 흐름 |
+
+### 스킬 메타데이터
+
+각 스킬에는 LLM이 실행을 최적화하는 데 쓰는 메타데이터가 포함됩니다:
+
+```yaml
+context_cost: low|medium|high    # → high = 서브에이전트 위임
+safety_level: none|confirm|staged # → staged = 스냅샷/프리뷰/적용 필수
+delegatable: true|false           # → 서브에이전트 실행 가능 여부
+triggers: ["위젯 분석", "analyze widget"]  # → LLM 트리거 매칭
+```
+
+전체 스킬 레퍼런스는 [skills/SKILL.md](skills/SKILL.md)를 참조하세요.
 
 ## Docker
 
