@@ -20,6 +20,7 @@ hide:
       The MFA-first MCP server that gives your AI agents secure,
       high-performance access to ServiceNow — no credentials shared.
     </p>
+    <div class="hero-quote" id="hero-gandalf-quote"></div>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
         Get Started
@@ -267,6 +268,36 @@ servicenow-mcp \
     var ob=new IntersectionObserver(function(e){if(e[0].isIntersecting){ob.disconnect();run(0);}},{threshold:0.2});
     ob.observe(el);
   }else run(0);
+})();
+
+// --- Gandalf quote typing ---
+(function(){
+  var el=document.getElementById("hero-gandalf-quote");
+  if(!el) return;
+  var quotes=[
+    "You shall not pass... without MFA \u{1f9d9}",
+    "A wizard secures ServiceNow with a single command \u{2728}",
+    "Speak friend, and authenticate \u{1f512}",
+    "Even the smallest agent can change the course of ITSM \u{1f4a1}"
+  ];
+  var qIdx=0;
+  function typeQuote(){
+    var q=quotes[qIdx%quotes.length]; qIdx++;
+    el.textContent="";
+    var i=0;
+    (function t(){
+      if(i<=q.length){el.textContent=q.slice(0,i);i++;setTimeout(t,40);}
+      else setTimeout(function(){eraseQuote();},3000);
+    })();
+  }
+  function eraseQuote(){
+    var txt=el.textContent;
+    (function e(){
+      if(txt.length>0){txt=txt.slice(0,-1);el.textContent=txt;setTimeout(e,20);}
+      else setTimeout(typeQuote,400);
+    })();
+  }
+  typeQuote();
 })();
 
 (function(){
