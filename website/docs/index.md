@@ -10,9 +10,44 @@ hide:
     The next-generation, MFA-first integration server that empowers your AI agents with 
     <b>secure, high-performance</b> ServiceNow access.
   </p>
-  <div style="display: flex; justify-content: center; gap: 15px;">
-    <a href="docs/CLIENT_SETUP.md" class="md-button md-button--primary">Get Started Now</a>
-    <a href="https://github.com/jshsakura/mfa-servicenow-mcp" class="md-button">View on GitHub</a>
+  
+  <div class="hero-buttons">
+    <a href="docs/CLIENT_SETUP.md" class="md-button md-button--primary">
+      <span class="twemoji">🚀</span> Get Started Now
+    </a>
+    <a href="https://github.com/jshsakura/mfa-servicenow-mcp" class="md-button">
+      <span class="twemoji">⭐</span> View on GitHub
+    </a>
+  </div>
+
+  <div class="hero-terminal">
+    <div class="hero-terminal-header">
+      <div class="hero-terminal-dot red"></div>
+      <div class="hero-terminal-dot yellow"></div>
+      <div class="hero-terminal-dot green"></div>
+    </div>
+    <div class="hero-terminal-body">
+      <div class="hero-terminal-line">
+        <span class="hero-terminal-prompt">➜</span>
+        <span class="hero-terminal-command">uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp</span>
+      </div>
+      <div class="hero-terminal-line">
+        <span class="hero-terminal-output">[INFO] Starting MFA ServiceNow MCP Server...</span>
+      </div>
+      <div class="hero-terminal-line">
+        <span class="hero-terminal-output">[INFO] Initializing Playwright browser for MFA...</span>
+      </div>
+      <div class="hero-terminal-line">
+        <span class="hero-terminal-success">✔ Authenticated successfully with ServiceNow</span>
+      </div>
+      <div class="hero-terminal-line">
+        <span class="hero-terminal-prompt">Claude ➜</span>
+        <span class="hero-terminal-command">"Create an incident for the database outage"</span>
+      </div>
+      <div class="hero-terminal-line">
+        <span class="hero-terminal-success">✔ [Tool Executed: sn_create_incident] Incident INC001234 created.</span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -41,9 +76,3 @@ hide:
   <p style="margin-bottom: 30px;">Connect your AI agents to ServiceNow securely and efficiently.</p>
   <a href="docs/CLIENT_SETUP.md" class="md-button md-button--primary">Read the Setup Guide</a>
 </div>
-
----
-
-<p align="center">
-  <a href="ko.md" style="text-decoration: none; opacity: 0.7;">🇰🇷 한국어 버전 보기 (Korean Version)</a>
-</p>
