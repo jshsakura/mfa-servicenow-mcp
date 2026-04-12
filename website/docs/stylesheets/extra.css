@@ -154,7 +154,7 @@ body.landing .md-tabs { display: none !important; }
   color: var(--hero-sub) !important;
 }
 .md-footer a, .md-footer * { color: var(--hero-sub) !important; }
-.md-footer a:hover { color: var(--accent) !important; }
+.md-footer a:hover { color: var(--hero-text) !important; }
 
 /* ============================================================
    BASE — full-bleed landing page
@@ -257,10 +257,9 @@ body.landing .md-footer { margin-top: 0; }
   box-shadow: 0 2px 12px rgba(0,0,0,.25) !important;
 }
 .hero-section .md-button--primary:hover {
-  background: var(--accent) !important;
-  border-color: var(--accent) !important;
-  color: #fff !important;
-  box-shadow: 0 4px 20px rgba(99,102,241,.4) !important;
+  background: #e4e4e7 !important;
+  border-color: #e4e4e7 !important;
+  color: #09090b !important;
 }
 .hero-section .md-button--ghost {
   background: rgba(255,255,255,.08) !important;
@@ -448,8 +447,8 @@ body.landing .md-footer { margin-top: 0; }
   white-space: nowrap;
   font-family: inherit;
 }
-.install-tab:hover { color: var(--hero-text); background: var(--accent-bg); }
-.install-tab.active { color: var(--accent); background: var(--accent-bg); }
+.install-tab:hover { color: var(--hero-text); background: var(--card-hover); }
+.install-tab.active { color: var(--hero-text); background: var(--card-hover); font-weight: 700; }
 .install-panel { display: none; }
 .install-panel.active { display: block; }
 
@@ -504,11 +503,8 @@ pre.install-code .c { color: var(--code-comment); }
   transition: all .2s ease;
 }
 .step-card:hover {
-  border-color: var(--accent);
-  box-shadow: 0 8px 20px rgba(99,102,241,.07);
-}
-[data-md-color-scheme="slate"] .step-card:hover {
-  box-shadow: 0 8px 20px rgba(99,102,241,.12);
+  border-color: var(--hero-sub);
+  background: var(--card-hover);
 }
 .step-number {
   display: inline-flex;
@@ -558,12 +554,8 @@ pre.install-code .c { color: var(--code-comment); }
   padding: 24px 20px !important;
 }
 .grid.cards > ul > li:hover {
-  border-color: var(--accent) !important;
+  border-color: var(--hero-sub) !important;
   background: var(--card-hover) !important;
-  box-shadow: 0 8px 20px rgba(99,102,241,.07) !important;
-}
-[data-md-color-scheme="slate"] .grid.cards > ul > li:hover {
-  box-shadow: 0 8px 20px rgba(99,102,241,.12) !important;
 }
 .grid.cards .lg { color: var(--accent) !important; }
 
@@ -626,10 +618,9 @@ pre.install-code .c { color: var(--code-comment); }
   color: var(--btn-text) !important;
 }
 .md-button--primary:hover {
-  background: var(--accent) !important;
-  border-color: var(--accent) !important;
-  color: #fff !important;
-  box-shadow: 0 4px 20px rgba(99,102,241,.35) !important;
+  background: var(--btn-hover) !important;
+  border-color: var(--btn-hover) !important;
+  color: var(--btn-text) !important;
 }
 
 /* ============================================================
