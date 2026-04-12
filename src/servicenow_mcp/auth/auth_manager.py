@@ -281,71 +281,60 @@ class AuthManager:
 
     @staticmethod
     def _ensure_playwright_ready() -> None:
-        """Verify Playwright is installed with a working Chromium binary.
+        """Verify Playwright is importable and has a working Chromium binary.
 
         Called once during ``__init__`` when auth type is ``browser``.
-        If the Python package is missing it is installed via pip.
-        If the Chromium browser binary is missing or broken it is
-        installed via ``playwright install chromium``.
+
+        In a ``uvx`` environment the playwright *package* is expected to be
+        provided via ``uvx --with playwright …``.  If it is missing we
+        surface a clear error telling the user to add ``--with playwright``.
+
+        The Chromium *browser binary* is a separate download.  If it is
+        missing or version-mismatched we run ``playwright install chromium``
+        automatically.
         """
+        import shutil
+        import subprocess
+        import sys
+
         # 1. Ensure the Python package is importable.
         try:
             from playwright.sync_api import sync_playwright  # noqa: F401
         except ImportError:
-            logger.info("Playwright package not found — installing automatically …")
-            import subprocess
-            import sys
-
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "playwright", "-q"],
-                timeout=120,
+            raise RuntimeError(
+                "Playwright package is required for browser authentication but is not installed.\n"
+                "• uvx:  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp …\n"
+                "• pip:  pip install playwright && playwright install chromium\n"
+                "• dev:  uv pip install -e '.[browser]'"
             )
-            # Re-import after install to validate.
-            try:
-                from playwright.sync_api import sync_playwright  # noqa: F811, F401
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Failed to import playwright after installation. "
-                    "Please run manually: pip install playwright && playwright install chromium"
-                ) from exc
 
         # 2. Ensure the Chromium browser binary is present.
-        try:
-            from playwright._impl._driver import compute_driver_executable  # type: ignore[import-untyped]
-
-            driver_exe = compute_driver_executable()
-        except Exception:
-            driver_exe = None
-
         # Quick probe: try launching Chromium headless.  If the binary is
         # missing or version-mismatched Playwright raises a clear error.
         need_install = False
-        if driver_exe is None:
-            need_install = True
-        else:
-            try:
-                from playwright.sync_api import sync_playwright
+        try:
+            from playwright.sync_api import sync_playwright
 
-                with sync_playwright() as pw:
-                    browser = pw.chromium.launch(headless=True)
-                    browser.close()
-            except Exception as exc:
-                exc_msg = str(exc).lower()
-                if "executable doesn't exist" in exc_msg or "browser" in exc_msg:
-                    need_install = True
-                else:
-                    # Some other error (e.g. display/GPU) — not a missing-binary issue.
-                    logger.debug("Playwright probe raised non-binary error: %s", exc)
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=True)
+                browser.close()
+        except Exception as exc:
+            exc_msg = str(exc).lower()
+            if "executable doesn't exist" in exc_msg or "browser" in exc_msg:
+                need_install = True
+            else:
+                logger.debug("Playwright probe raised non-binary error: %s", exc)
 
         if need_install:
             logger.info("Chromium browser binary missing — installing via playwright install …")
-            import subprocess
-            import sys
-
-            subprocess.check_call(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                timeout=300,
-            )
+            # Prefer the playwright CLI on PATH (works inside uvx venvs),
+            # fall back to ``python -m playwright``.
+            pw_cli = shutil.which("playwright")
+            if pw_cli:
+                cmd = [pw_cli, "install", "chromium"]
+            else:
+                cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+            subprocess.check_call(cmd, timeout=300)
             logger.info("Chromium browser binary installed successfully.")
 
     def _get_session_cache_path(self) -> str:
