@@ -50,7 +50,7 @@ class DiffLocalComponentParams(BaseModel):
     """Parameters for diffing local source files against remote ServiceNow."""
 
     path: str = Field(
-       default= ...,
+        default=...,
         description=(
             "Path to a local file, widget directory, or download root directory. "
             "File/widget dir: returns detailed unified diff. "
@@ -67,7 +67,7 @@ class PushLocalComponentParams(BaseModel):
     """Parameters for pushing local file changes to ServiceNow."""
 
     path: str = Field(
-       default= ...,
+        default=...,
         description="Path to a local file (e.g. script.js) or widget directory to push",
     )
     force: bool = Field(
@@ -179,8 +179,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         table_dir = path.parent
         if table_dir.name != "sp_widget":
             raise ValueError(
-                f"Directory push is only supported for widget folders under sp_widget/. "
-                f"Got: {path}"
+                f"Directory push is only supported for widget folders under sp_widget/. Got: {path}"
             )
         folder_name = path.name
         map_data = _read_map_json(table_dir)

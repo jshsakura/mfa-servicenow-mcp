@@ -121,13 +121,21 @@ class AnalyzeWidgetPerformanceParams(BaseModel):
     min_response_time_ms: int = Field(
         default=3000, description="Minimum response time threshold in milliseconds"
     )
-    timeframe: str = Field(default="last_7d", description="Time window: last_hour, last_24h, last_7d")
-    analysis_depth: str = Field(default="standard", description="Analysis depth: quick, standard, deep")
+    timeframe: str = Field(
+        default="last_7d", description="Time window: last_hour, last_24h, last_7d"
+    )
+    analysis_depth: str = Field(
+        default="standard", description="Analysis depth: quick, standard, deep"
+    )
     include_auto_fix_suggestions: bool = Field(
         default=True, description="Include auto-fix suggestions where applicable"
     )
-    include_script_includes: bool = Field(default=True, description="Analyze linked script includes")
-    include_angular_providers: bool = Field(default=True, description="Analyze linked Angular providers")
+    include_script_includes: bool = Field(
+        default=True, description="Analyze linked script includes"
+    )
+    include_angular_providers: bool = Field(
+        default=True, description="Analyze linked Angular providers"
+    )
     max_script_length: int = Field(default=8000, description="Maximum script length to analyze")
 
 

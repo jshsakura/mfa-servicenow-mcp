@@ -24,7 +24,9 @@ class ListScriptIncludesParams(BaseModel):
     limit: int = Field(default=10, description="Maximum number of script includes to return")
     offset: int = Field(default=0, description="Offset for pagination")
     active: Optional[bool] = Field(default=None, description="Filter by active status")
-    client_callable: Optional[bool] = Field(default=None, description="Filter by client callable status")
+    client_callable: Optional[bool] = Field(
+        default=None, description="Filter by client callable status"
+    )
     query: Optional[str] = Field(default=None, description="Search query for script includes")
     count_only: bool = Field(
         default=False,
@@ -43,7 +45,9 @@ class CreateScriptIncludeParams(BaseModel):
 
     name: str = Field(..., description="Name of the script include")
     script: str = Field(..., description="Script content")
-    description: Optional[str] = Field(default=None, description="Description of the script include")
+    description: Optional[str] = Field(
+        default=None, description="Description of the script include"
+    )
     api_name: Optional[str] = Field(default=None, description="API name of the script include")
     client_callable: bool = Field(
         default=False, description="Whether the script include is client callable"
@@ -57,7 +61,9 @@ class UpdateScriptIncludeParams(BaseModel):
 
     script_include_id: str = Field(..., description="Script include ID or name")
     script: Optional[str] = Field(default=None, description="Script content")
-    description: Optional[str] = Field(default=None, description="Description of the script include")
+    description: Optional[str] = Field(
+        default=None, description="Description of the script include"
+    )
     api_name: Optional[str] = Field(default=None, description="API name of the script include")
     client_callable: Optional[bool] = Field(
         default=None, description="Whether the script include is client callable"
@@ -87,7 +93,9 @@ class ScriptIncludeResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
-    script_include_id: Optional[str] = Field(default=None, description="ID of the affected script include")
+    script_include_id: Optional[str] = Field(
+        default=None, description="ID of the affected script include"
+    )
     script_include_name: Optional[str] = Field(
         default=None, description="Name of the affected script include"
     )

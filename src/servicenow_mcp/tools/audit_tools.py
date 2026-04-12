@@ -270,7 +270,7 @@ class AuditPendingChangesParams(BaseModel):
     """Parameters for auditing pending update set changes."""
 
     developer: str = Field(
-       default= ...,
+        default=...,
         description="Developer username (sys_updated_by). Example: admin@example.com",
     )
     date_from: Optional[str] = Field(

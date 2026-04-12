@@ -166,7 +166,7 @@ def _compact_record(row: Dict[str, Any]) -> Dict[str, Any]:
 
 class GetDeveloperChangesParams(BaseModel):
     developer: str = Field(
-       default= ...,
+        default=...,
         description="Developer username (sys_updated_by value). Example: admin@example.com",
     )
     scope: Optional[str] = Field(
@@ -898,11 +898,11 @@ def _extract_script_profile(content: str) -> Dict[str, Any]:
 
 class GetDeveloperDailySummaryParams(BaseModel):
     developer: str = Field(
-       default= ...,
+        default=...,
         description="Developer username (sys_updated_by). Example: admin@example.com",
     )
     date: str = Field(
-       default= ...,
+        default=...,
         description="Target date (YYYY-MM-DD). Example: 2026-03-31",
     )
     scope: Optional[str] = Field(

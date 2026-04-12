@@ -32,12 +32,16 @@ class GetRepoFileLastModifierParams(RepoQueryBaseParams):
     commits_scan_limit: int = Field(
         default=100, description="Commit scan depth used for file last-commit cache"
     )
-    include_uncommitted_status: bool = Field(default=True, description="Attach uncommitted status per file")
+    include_uncommitted_status: bool = Field(
+        default=True, description="Attach uncommitted status per file"
+    )
 
 
 class GetRepoChangeReportParams(RepoQueryBaseParams):
     limit: int = Field(default=50, description="Maximum number of recent commits to scan (1..200)")
-    include_uncommitted: bool = Field(default=True, description="Include uncommitted files from git status")
+    include_uncommitted: bool = Field(
+        default=True, description="Include uncommitted files from git status"
+    )
     include_recent_commits: bool = Field(
         default=True, description="Include recent commit list and file mappings"
     )
