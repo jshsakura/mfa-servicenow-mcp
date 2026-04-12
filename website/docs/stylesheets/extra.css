@@ -134,26 +134,29 @@ body.landing .md-footer { margin-top: 0; }
   filter: drop-shadow(0 2px 8px rgba(139,92,246,.4));
 }
 
-/* Subtitle */
+/* Subtitle — fixed line count to prevent layout shift */
 .hero-subtitle {
   font-size: 1.1rem;
   color: #e4e4e7;
   max-width: 520px;
-  margin: 0 auto 36px;
+  margin: 0 auto 28px;
   line-height: 1.7;
   font-weight: 400;
-  text-shadow: 0 1px 6px rgba(0,0,0,.3);
+  text-shadow: 0 2px 12px rgba(0,0,0,.6), 0 0 40px rgba(0,0,0,.3);
+}
+@media (max-width: 480px) {
+  .hero-subtitle { font-size: .95rem; max-width: 100%; }
 }
 
 /* Gandalf quote */
 .hero-quote {
   font-family: 'JetBrains Mono', monospace;
   font-size: .95rem;
-  color: #d4d4d8;
+  color: #e4e4e7;
   min-height: 1.6em;
-  margin-bottom: 32px;
+  margin-bottom: 28px;
   letter-spacing: .01em;
-  text-shadow: 0 2px 8px rgba(0,0,0,.5);
+  text-shadow: 0 2px 12px rgba(0,0,0,.7), 0 0 40px rgba(0,0,0,.4);
 }
 
 /* Buttons */
@@ -577,7 +580,6 @@ pre.install-code .c { color: var(--code-comment); }
 }
 @media (max-width: 480px) {
   .content-wrap { padding: 0 16px; }
-  .hero-buttons { flex-direction: column; align-items: center; }
   .hero-stat-value { font-size: 1.5rem; }
   .section { padding: 48px 0; }
   .cta-banner { padding: 48px 16px; }
