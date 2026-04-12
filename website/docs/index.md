@@ -15,9 +15,9 @@ hide:
       <span class="gradient-text">Give it a gun.</span>
     </h1>
     <p class="hero-subtitle">
-      Equip your LLM with high-caliber MCP Skills to hunt down bottlenecks<br>
-      and execute precise ServiceNow tasks.<br>
-      Tactical analysis, heavy-duty support.
+      Equip your LLM with high-caliber MCP Skills<br>
+      to hunt down bottlenecks and execute with surgical precision.<br>
+      Less manual toil. More strategic fire.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
