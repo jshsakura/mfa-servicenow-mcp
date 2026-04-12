@@ -32,20 +32,26 @@ hide:
         <span class="hero-terminal-command">uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp</span>
       </div>
       <div class="hero-terminal-line">
-        <span class="hero-terminal-output">[INFO] Starting MFA ServiceNow MCP Server...</span>
+        <span class="hero-terminal-success">✔ Authenticated successfully with ServiceNow (MFA)</span>
       </div>
-      <div class="hero-terminal-line">
-        <span class="hero-terminal-output">[INFO] Initializing Playwright browser for MFA...</span>
-      </div>
-      <div class="hero-terminal-line">
-        <span class="hero-terminal-success">✔ Authenticated successfully with ServiceNow</span>
-      </div>
-      <div class="hero-terminal-line">
+      <div class="hero-terminal-line" style="margin-top: 15px;">
         <span class="hero-terminal-prompt">Claude ➜</span>
-        <span class="hero-terminal-command">"Create an incident for the database outage"</span>
+        <span class="hero-terminal-command">"Investigate the ServiceNow MCP route for /hr?id=onboarding"</span>
+      </div>
+      <div class="hero-terminal-line" style="margin-top: 10px;">
+        <span class="hero-terminal-thinking">Thinking: I need to gather portal and page routing context for '/hr?id=onboarding' and trace its widget layout.</span>
       </div>
       <div class="hero-terminal-line">
-        <span class="hero-terminal-success">✔ [Tool Executed: sn_create_incident] Incident INC001234 created.</span>
+        <span class="hero-terminal-tool">⚙ servicenow_get_portal [portal_id=hr, limit=20]</span>
+      </div>
+      <div class="hero-terminal-line">
+        <span class="hero-terminal-tool">⚙ servicenow_get_page [page_id=onboarding, include_layout=true]</span>
+      </div>
+      <div class="hero-terminal-line">
+        <span class="hero-terminal-tool">⚙ servicenow_trace_portal_route_targets [regex=onboarding, match_mode=literal]</span>
+      </div>
+      <div class="hero-terminal-line" style="margin-top: 10px;">
+        <span class="hero-terminal-success">✔ Route confirmed. The URL `/hr?id=onboarding` resolves to 4 widgets (e.g., hr_onboarding_main). Upstream callers: `newEmployeeRequestWd` redirects here.</span>
       </div>
     </div>
   </div>
