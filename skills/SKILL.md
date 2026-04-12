@@ -57,6 +57,7 @@ output: summary|report|diff|data|status|files|action
 | [script-include-management](manage/script-include-management.md) | low | confirm | "SI 보여줘", "execute GlideAjax" |
 | [source-download](manage/source-download.md) | high | none | "소스 내보내기", "download sources" |
 | [changeset-workflow](manage/changeset-workflow.md) | low | **staged** | "체인지셋 커밋", "publish" |
+| [local-sync](manage/local-sync.md) | low | **staged** | "로컬 동기화", "push local changes" |
 
 ### deploy/ — Release and operations
 
@@ -84,6 +85,9 @@ output: summary|report|diff|data|status|files|action
 
 ### New Feature Pipeline
 `analyze/widget-analysis` → `analyze/dependency-analysis` → `fix/widget-patching` → `manage/changeset-workflow` → `deploy/change-lifecycle`
+
+### Local Edit Pipeline
+`manage/source-download` → *(edit locally)* → `manage/local-sync` → `manage/changeset-workflow` → `deploy/change-lifecycle`
 
 ### ESC Customization Pipeline
 `analyze/esc-page-audit` → `explore/esc-catalog-flow` → `analyze/widget-analysis` → `fix/widget-patching`

@@ -1,17 +1,17 @@
 # ServiceNow MCP - Tool Inventory
 
-Active tools: **98** | Registered in code: **136** | Removed from packages: **38**
+Active tools: **100** | Registered in code: **138** | Removed from packages: **38**
 
 ## Package Summary
 
 | Package | Tools | Default | Description |
 |---------|-------|---------|-------------|
 | `none` | 0 |  | Disabled |
-| `standard` | 55 | Y | Read-only safe mode |
-| `portal_developer` | 70 |  | Portal/Widget development |
-| `platform_developer` | 78 |  | Backend/Workflow development |
-| `service_desk` | 59 |  | Incident operations |
-| `full` | 98 |  | All capabilities |
+| `standard` | 56 | Y | Read-only safe mode |
+| `portal_developer` | 72 |  | Portal/Widget development |
+| `platform_developer` | 80 |  | Backend/Workflow development |
+| `service_desk` | 60 |  | Incident operations |
+| `full` | 100 |  | All capabilities |
 
 ## Tools by Category
 
@@ -200,6 +200,13 @@ Active tools: **98** | Registered in code: **136** | Removed from packages: **38
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
 | `analyze_widget_performance` | R | Analyze a widget's code patterns, transaction logs, and data provider usage. Ret... | full, platform_developer, portal_developer, service_desk, standard |
+
+### Local Sync (2)
+
+| Tool | R/W | Description | Packages |
+|------|-----|-------------|----------|
+| `diff_local_component` | R | Compare local portal source files against remote ServiceNow. Download root dir f... | full, platform_developer, portal_developer, service_desk, standard |
+| `update_remote_from_local` | W | Push local file changes to ServiceNow. Auto-creates snapshot before push. Refuse... | full, platform_developer, portal_developer |
 
 ### Portal Dev Utilities (4)
 
