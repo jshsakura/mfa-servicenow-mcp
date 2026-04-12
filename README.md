@@ -353,9 +353,11 @@ The server includes several layers of performance optimization to minimize laten
 
 ## Skills
 
-Skills are LLM execution blueprints that turn raw MCP tools into verified pipelines with safety gates, sub-agent delegation, and context optimization.
+Tools are raw API calls. Skills are what make your LLM actually useful — verified pipelines with safety gates, rollback, and context-aware sub-agent delegation. **MCP server + skills is the complete setup** for LLM-driven ServiceNow automation.
 
-| | Tools Only | Skills + Tools |
+20 skills today, more coming with every release.
+
+| | Tools Only | Tools + Skills |
 |---|---|---|
 | Safety | LLM decides | Gates enforced (snapshot → preview → apply) |
 | Tokens | Source dumps in context | Delegate to sub-agent, summary only |
@@ -366,16 +368,13 @@ Skills are LLM execution blueprints that turn raw MCP tools into verified pipeli
 
 ```bash
 # Claude Code
-servicenow-mcp-skills claude
+uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 # OpenAI Codex
-servicenow-mcp-skills codex
+uvx --from mfa-servicenow-mcp servicenow-mcp-skills codex
 
 # OpenCode
-servicenow-mcp-skills opencode
-
-# Or with uvx (no install needed)
-uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
+uvx --from mfa-servicenow-mcp servicenow-mcp-skills opencode
 ```
 
 The installer downloads 20 skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
