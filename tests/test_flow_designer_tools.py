@@ -226,7 +226,8 @@ class TestFlowDesignerTools(unittest.TestCase):
 
         result = _fetch_flow_structure(
             self.config,
-            self.auth_manager, "flow1",
+            self.auth_manager,
+            "flow1",
         )
 
         self.assertTrue(result["success"])
@@ -265,7 +266,8 @@ class TestFlowDesignerTools(unittest.TestCase):
 
         result = _fetch_flow_structure(
             self.config,
-            self.auth_manager, "flow1",
+            self.auth_manager,
+            "flow1",
         )
 
         self.assertTrue(result["success"])
@@ -291,7 +293,8 @@ class TestFlowDesignerTools(unittest.TestCase):
 
         result = _fetch_flow_structure(
             self.config,
-            self.auth_manager, "flow_no_snap",
+            self.auth_manager,
+            "flow_no_snap",
         )
 
         self.assertFalse(result["success"])
@@ -315,7 +318,8 @@ class TestFlowDesignerTools(unittest.TestCase):
 
         result = _fetch_flow_structure(
             self.config,
-            self.auth_manager, "flow1",
+            self.auth_manager,
+            "flow1",
         )
 
         self.assertTrue(result["success"])
@@ -352,7 +356,8 @@ class TestFlowDesignerTools(unittest.TestCase):
 
         result = _fetch_flow_structure(
             self.config,
-            self.auth_manager, "flow1",
+            self.auth_manager,
+            "flow1",
         )
 
         self.assertTrue(result["success"])
@@ -368,7 +373,8 @@ class TestFlowDesignerTools(unittest.TestCase):
 
         result = _fetch_flow_structure(
             self.config,
-            self.auth_manager, "flow1",
+            self.auth_manager,
+            "flow1",
         )
 
         self.assertFalse(result["success"])
@@ -551,7 +557,8 @@ class TestFlowDesignerTools(unittest.TestCase):
 
         triggers = _fetch_flow_triggers(
             self.config,
-            self.auth_manager, "flow1",
+            self.auth_manager,
+            "flow1",
         )
 
         self.assertEqual(len(triggers), 2)
@@ -568,7 +575,8 @@ class TestFlowDesignerTools(unittest.TestCase):
 
         triggers = _fetch_flow_triggers(
             self.config,
-            self.auth_manager, "flow1",
+            self.auth_manager,
+            "flow1",
         )
 
         self.assertEqual(triggers, [])

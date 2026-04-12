@@ -48,10 +48,15 @@ class TestCountOnly:
     """Every list tool must support count_only=True to avoid fetching records."""
 
     def test_list_incidents_count_only(self, mock_config, mock_auth):
-        from servicenow_mcp.tools.incident_tools import GetIncidentByNumberParams, get_incident_by_number
+        from servicenow_mcp.tools.incident_tools import (
+            GetIncidentByNumberParams,
+            get_incident_by_number,
+        )
 
         mock_auth.make_request.return_value = _mock_count_response(42)
-        result = get_incident_by_number(mock_config, mock_auth, GetIncidentByNumberParams(count_only=True))
+        result = get_incident_by_number(
+            mock_config, mock_auth, GetIncidentByNumberParams(count_only=True)
+        )
         assert result["count"] == 42
         assert "incidents" not in result  # No records fetched
 
@@ -91,7 +96,10 @@ class TestCountOnly:
         assert result["count"] == 55
 
     def test_list_change_requests_count_only(self, mock_config, mock_auth):
-        from servicenow_mcp.tools.change_tools import GetChangeRequestDetailsParams, get_change_request_details
+        from servicenow_mcp.tools.change_tools import (
+            GetChangeRequestDetailsParams,
+            get_change_request_details,
+        )
 
         mock_auth.make_request.return_value = _mock_count_response(3)
         result = get_change_request_details(
@@ -107,15 +115,23 @@ class TestCountOnly:
         assert result["count"] == 2
 
     def test_list_changesets_count_only(self, mock_config, mock_auth):
-        from servicenow_mcp.tools.changeset_tools import GetChangesetDetailsParams, get_changeset_details
+        from servicenow_mcp.tools.changeset_tools import (
+            GetChangesetDetailsParams,
+            get_changeset_details,
+        )
 
         mock_auth.make_request.return_value = _mock_count_response(7)
-        result = get_changeset_details(mock_config, mock_auth, GetChangesetDetailsParams(count_only=True))
+        result = get_changeset_details(
+            mock_config, mock_auth, GetChangesetDetailsParams(count_only=True)
+        )
         assert result["count"] == 7
 
     def test_count_only_makes_single_aggregate_api_call(self, mock_config, mock_auth):
         """count_only must use Aggregate API (stats), not Table API."""
-        from servicenow_mcp.tools.incident_tools import GetIncidentByNumberParams, get_incident_by_number
+        from servicenow_mcp.tools.incident_tools import (
+            GetIncidentByNumberParams,
+            get_incident_by_number,
+        )
 
         mock_auth.make_request.return_value = _mock_count_response(10)
         get_incident_by_number(mock_config, mock_auth, GetIncidentByNumberParams(count_only=True))

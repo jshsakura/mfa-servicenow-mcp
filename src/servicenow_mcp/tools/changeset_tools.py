@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 class GetChangesetDetailsParams(BaseModel):
     """Parameters for getting changeset details or listing changesets."""
 
-    changeset_id: Optional[str] = Field(None, description="Changeset ID or sys_id. If provided, returns detail for that single update set with its entries.")
+    changeset_id: Optional[str] = Field(
+        None,
+        description="Changeset ID or sys_id. If provided, returns detail for that single update set with its entries.",
+    )
     limit: Optional[int] = Field(10, description="Maximum number of records to return (list mode)")
     offset: Optional[int] = Field(0, description="Offset to start from (list mode)")
     state: Optional[str] = Field(None, description="Filter by state (list mode)")

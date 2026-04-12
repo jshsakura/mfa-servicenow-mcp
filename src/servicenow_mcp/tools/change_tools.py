@@ -59,13 +59,20 @@ class UpdateChangeRequestParams(BaseModel):
 class GetChangeRequestDetailsParams(BaseModel):
     """Parameters for getting change request details or listing change requests."""
 
-    change_id: Optional[str] = Field(None, description="Change request ID or sys_id. If provided, returns full details for that single change request.")
+    change_id: Optional[str] = Field(
+        None,
+        description="Change request ID or sys_id. If provided, returns full details for that single change request.",
+    )
     limit: Optional[int] = Field(10, description="Maximum number of records to return (list mode)")
     offset: Optional[int] = Field(0, description="Offset to start from (list mode)")
     state: Optional[str] = Field(None, description="Filter by state (list mode)")
-    type: Optional[str] = Field(None, description="Filter by type (normal, standard, emergency) (list mode)")
+    type: Optional[str] = Field(
+        None, description="Filter by type (normal, standard, emergency) (list mode)"
+    )
     category: Optional[str] = Field(None, description="Filter by category (list mode)")
-    assignment_group: Optional[str] = Field(None, description="Filter by assignment group (list mode)")
+    assignment_group: Optional[str] = Field(
+        None, description="Filter by assignment group (list mode)"
+    )
     timeframe: Optional[str] = Field(
         None, description="Filter by timeframe (upcoming, in-progress, completed) (list mode)"
     )

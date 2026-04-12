@@ -52,7 +52,9 @@ def test_local_sync_tools_in_correct_packages():
 
     # update_remote_from_local is write — only in portal_developer, platform_developer, full
     for pkg in ["portal_developer", "platform_developer", "full"]:
-        assert "update_remote_from_local" in config[pkg], f"update_remote_from_local missing from {pkg}"
+        assert (
+            "update_remote_from_local" in config[pkg]
+        ), f"update_remote_from_local missing from {pkg}"
 
     # should NOT be in standard or service_desk
     assert "update_remote_from_local" not in config["standard"]
@@ -63,7 +65,9 @@ def test_full_package_is_89_tools():
     config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
     config = yaml.safe_load(config_path.read_text())
 
-    assert len(config["full"]) == 89, f"full package should have exactly 89 tools, got {len(config['full'])}"
+    assert (
+        len(config["full"]) == 89
+    ), f"full package should have exactly 89 tools, got {len(config['full'])}"
 
 
 def test_consolidated_tools_replaced_old_ones():
