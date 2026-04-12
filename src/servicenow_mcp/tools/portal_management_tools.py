@@ -40,6 +40,31 @@ def _order_key(record: Dict[str, Any]) -> tuple[int, str]:
     return order, str(record.get("sys_id") or "")
 
 
+def _resolve_widget_names(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    widget_sys_ids: List[str],
+) -> Dict[str, Dict[str, str]]:
+    """Bulk-resolve sp_widget sys_ids to {id, name} in a single query."""
+    ids = [sid for sid in widget_sys_ids if sid]
+    if not ids:
+        return {}
+    resp = _query(
+        config,
+        auth_manager,
+        "sp_widget",
+        f"sys_idIN{','.join(ids)}",
+        "sys_id,id,name",
+        limit=max(20, len(ids)),
+    )
+    result: Dict[str, Dict[str, str]] = {}
+    for w in resp.get("results", []):
+        wid = str(w.get("sys_id") or "")
+        if wid:
+            result[wid] = {"id": w.get("id", ""), "name": w.get("name", "")}
+    return result
+
+
 def _query(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -87,8 +112,9 @@ class GetPortalParams(BaseModel):
     name="get_portal",
     params=GetPortalParams,
     description=(
-        "Get a single portal by sys_id/URL suffix, or list all portals. "
-        "Provide portal_id for detail, omit for list mode."
+        "Look up a Service Portal by name, URL suffix (e.g. 'ybpm', 'sp'), or sys_id. "
+        "Returns portal config including homepage, theme, and linked pages with display names. "
+        "Omit portal_id to list all portals."
     ),
     serialization="raw_dict",
     return_type=dict,
@@ -105,7 +131,10 @@ def get_portal(
             "catalog,sc_catalog,login_page,notfound_page,sys_scope"
         )
         query = f"sys_id={params.portal_id}^ORurl_suffix={params.portal_id}"
-        response = _query(config, auth_manager, PORTAL_TABLE, query, fields, limit=1)
+        # Use display_value to resolve reference fields (homepage, login_page, etc.)
+        response = _query(
+            config, auth_manager, PORTAL_TABLE, query, fields, limit=1, display_value=True
+        )
         if not response.get("success") or not response.get("results"):
             return {"success": False, "message": f"Portal not found: {params.portal_id}"}
         r = response["results"][0]
@@ -191,8 +220,9 @@ class GetPageParams(BaseModel):
     name="get_page",
     params=GetPageParams,
     description=(
-        "Get a single page by sys_id/URL path with layout tree, or list all pages. "
-        "Provide page_id for detail, omit for list mode."
+        "Look up a Service Portal page by URL path (e.g. 'jobwfmngt'), title, or sys_id. "
+        "Returns page properties and full layout tree with widget names/IDs resolved — "
+        "no extra calls needed. Omit page_id to search/list pages."
     ),
     serialization="raw_dict",
     return_type=dict,
@@ -316,31 +346,11 @@ def _get_page_layout(
     )
     instances = inst_resp.get("results", [])
 
-    # ------------------------------------------------------------------
-    # Resolve widget names/IDs in a single bulk query so callers don't
-    # need N extra get_widget_bundle / get_metadata_source round-trips.
-    # ------------------------------------------------------------------
+    # Bulk-resolve widget names/IDs so callers don't need extra round-trips.
     widget_ref_ids = list(
-        {
-            str(inst.get("sp_widget") or "")
-            for inst in instances
-            if inst.get("sp_widget")
-        }
+        {str(inst.get("sp_widget") or "") for inst in instances if inst.get("sp_widget")}
     )
-    widget_meta: Dict[str, Dict[str, str]] = {}
-    if widget_ref_ids:
-        widget_resp = _query(
-            config,
-            auth_manager,
-            "sp_widget",
-            f"sys_idIN{','.join(widget_ref_ids)}",
-            "sys_id,id,name",
-            limit=max(20, len(widget_ref_ids)),
-        )
-        for w in widget_resp.get("results", []):
-            wid = str(w.get("sys_id") or "")
-            if wid:
-                widget_meta[wid] = {"id": w.get("id", ""), "name": w.get("name", "")}
+    widget_meta = _resolve_widget_names(config, auth_manager, widget_ref_ids)
 
     containers = sorted(containers, key=_order_key)
     rows = sorted(rows, key=_order_key)
@@ -458,8 +468,9 @@ class UpdateWidgetInstanceParams(BaseModel):
     name="get_widget_instance",
     params=GetWidgetInstanceParams,
     description=(
-        "Get a single widget instance by sys_id, or list instances filtered by page/widget. "
-        "Provide instance_id for detail, omit for list mode."
+        "Get widget placement details — where a widget sits on a page and its config. "
+        "Returns widget name/ID, column, order, and parameters. "
+        "Filter by page or widget to find all placements."
     ),
     serialization="raw_dict",
     return_type=dict,
@@ -467,7 +478,7 @@ class UpdateWidgetInstanceParams(BaseModel):
 def get_widget_instance(
     config: ServerConfig, auth_manager: AuthManager, params: GetWidgetInstanceParams
 ) -> Dict[str, Any]:
-    """Get or list widget instances."""
+    """Get or list widget instances with resolved widget names."""
     # Detail mode
     if params.instance_id:
         fields = "sys_id,sp_widget,sp_column,order,widget_parameters,css,sys_scope"
@@ -482,11 +493,18 @@ def get_widget_instance(
         if not response.get("success") or not response.get("results"):
             return {"success": False, "message": f"Widget instance not found: {params.instance_id}"}
         r = response["results"][0]
+        # Resolve widget name in one extra query
+        widget_meta = _resolve_widget_names(
+            config, auth_manager, [str(r.get("sp_widget") or "")]
+        )
+        meta = widget_meta.get(str(r.get("sp_widget") or ""), {})
         return {
             "success": True,
             "instance": {
                 "sys_id": r.get("sys_id"),
                 "widget": r.get("sp_widget"),
+                "widget_id": meta.get("id", ""),
+                "widget_name": meta.get("name", ""),
                 "column": r.get("sp_column"),
                 "order": r.get("order"),
                 "widget_parameters": r.get("widget_parameters"),
@@ -518,22 +536,32 @@ def get_widget_instance(
             "instances": [],
         }
 
-    instances = [
-        {
-            "sys_id": r.get("sys_id"),
-            "widget": r.get("sp_widget"),
-            "column": r.get("sp_column"),
-            "order": r.get("order"),
-        }
-        for r in response.get("results", [])
-    ]
+    results = response.get("results", [])
+    # Bulk-resolve widget names
+    widget_refs = list({str(r.get("sp_widget") or "") for r in results if r.get("sp_widget")})
+    widget_meta = _resolve_widget_names(config, auth_manager, widget_refs)
+
+    instances = []
+    for r in results:
+        ref = str(r.get("sp_widget") or "")
+        meta = widget_meta.get(ref, {})
+        instances.append(
+            {
+                "sys_id": r.get("sys_id"),
+                "widget": ref,
+                "widget_id": meta.get("id", ""),
+                "widget_name": meta.get("name", ""),
+                "column": r.get("sp_column"),
+                "order": r.get("order"),
+            }
+        )
     return {"success": True, "instances": instances, "total": response.get("total_count")}
 
 
 @register_tool(
     name="create_widget_instance",
     params=CreateWidgetInstanceParams,
-    description="Place a widget on a page column. Specify widget sys_id, target column, order, and optional parameters.",
+    description="Place a widget on a portal page column. Specify widget, target column, display order, and optional config parameters.",
     serialization="raw_dict",
     return_type=dict,
 )
