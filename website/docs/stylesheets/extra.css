@@ -131,13 +131,22 @@ body.landing .md-footer { margin-top: 0; }
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 40%, #16213e 100%);
+}
+.hero-bg-img {
+  position: absolute;
+  inset: 0;
+  background: url("../assets/images/banner.jpg") center 25% / cover no-repeat;
+}
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,.6) 0%, rgba(0,0,0,.35) 40%, rgba(0,0,0,.35) 60%, rgba(0,0,0,.7) 100%);
 }
 .hero-content {
   position: relative;
   z-index: 2;
   text-align: center;
-  padding: 64px 24px 56px;
+  padding: 48px 24px 40px;
   max-width: 800px;
 }
 
@@ -148,8 +157,8 @@ body.landing .md-footer { margin-top: 0; }
   letter-spacing: -.04em;
   line-height: 1.08;
   color: #fff !important;
-  margin: 0 0 20px;
-  text-shadow: none;
+  margin: 0 0 16px;
+  text-shadow: 0 2px 12px rgba(0,0,0,.5);
 }
 .hero-title .gradient-text {
   background: linear-gradient(135deg, #a5b4fc, #c084fc, #f472b6);
@@ -164,10 +173,10 @@ body.landing .md-footer { margin-top: 0; }
   font-size: 1.1rem;
   color: #e4e4e7;
   max-width: 520px;
-  margin: 0 auto 28px;
+  margin: 0 auto 24px;
   line-height: 1.7;
   font-weight: 400;
-  text-shadow: none;
+  text-shadow: 0 1px 8px rgba(0,0,0,.4);
 }
 @media (max-width: 480px) {
   .hero-subtitle { font-size: .95rem; max-width: 100%; }
@@ -220,7 +229,7 @@ body.landing .md-footer { margin-top: 0; }
    TERMINAL — fixed height, pulled up into hero overlap
    ============================================================ */
 .hero-terminal {
-  margin: -48px auto 0;
+  margin: -32px auto 0;
   position: relative;
   z-index: 3;
   background: var(--code-bg);
