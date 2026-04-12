@@ -72,11 +72,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ## 필수 준비 사항
 
-서버를 등록하기 전에 아래 도구들이 설치되어 있는지 확인하세요.
-
-### 1. `uv` 설치 (필수)
-
-이 프로젝트는 [uv](https://astral.sh/uv)에 최적화되어 있습니다.
+[uv](https://astral.sh/uv)를 설치하세요 — Python, 패키지, 실행을 한번에 처리합니다.
 
 - **macOS / Linux:**
   ```bash
@@ -87,53 +83,24 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
   ```
 
-설치 후 터미널을 재시작하고 확인합니다:
+설치 후 터미널을 재시작하면 끝입니다. Python 설치, pip, venv 전부 필요 없습니다.
 
-```bash
-uv --version
-```
-
-### 2. 브라우저 바이너리 설치 (`browser` 인증 필수)
-
-MFA/SSO 환경에서 `auth-type: browser`를 사용하려면 로컬 시스템에 Chromium 브라우저 바이너리가 설치되어 있어야 합니다:
-
-```bash
-uvx playwright install chromium
-```
-
-> 최초 1회만 실행하면 됩니다. 바이너리는 모든 uvx 실행에서 공유됩니다.
-
-### 3. Windows 전용 팁
-
-Windows 사용자는 PowerShell에서 스크립트 실행 권한이 허용되어 있어야 합니다:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-상세한 Windows 설치 가이드는 [docs/WINDOWS_INSTALL.ko.md](./docs/WINDOWS_INSTALL.ko.md)에서 확인하세요.
+> MFA/SSO 브라우저 로그인용 Chromium은 첫 사용 시 자동 설치됩니다.
+> Windows 사용자: [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
 ---
 
 ## 바로 쓰기
 
-대부분의 사용자는 Git으로 소스를 받을 필요가 **없습니다**. [uv](https://astral.sh/uv)만 있으면 MCP 클라이언트 설정에 바로 넣어 쓸 수 있습니다.
-
-### 터미널에서 바로 실행 (한 줄)
+클론 필요 없습니다. 한 줄로:
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
+  --auth-type "browser"
 ```
 
-### 로컬에 설치해서 계속 쓰기
-
-```bash
-uv tool install mfa-servicenow-mcp
-servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type "browser"
-```
+첫 도구 호출 시 브라우저 창이 열려 MFA/SSO 로그인을 합니다. Chromium이 없으면 자동 설치됩니다.
 
 ---
 

@@ -396,6 +396,35 @@ def _check_for_updates() -> None:
         pass
 
 
+def _ensure_playwright_browser(args) -> None:
+    """Auto-install Playwright Chromium if browser auth is selected and binary is missing."""
+    auth_type = _pick_first_resolved(args.auth_type, os.getenv("SERVICENOW_AUTH_TYPE"))
+    if auth_type != "browser":
+        return
+
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            # Try to get chromium executable path — raises if not installed
+            p.chromium.executable_path  # noqa: B018
+    except Exception:
+        logger.info("Chromium not found. Installing automatically...")
+        try:
+            import subprocess
+
+            subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                check=True,
+                timeout=120,
+            )
+            logger.info("Chromium installed successfully.")
+        except Exception as exc:
+            logger.warning(
+                f"Auto-install failed: {exc}. " "Run manually: playwright install chromium"
+            )
+
+
 def main():
     """Main entry point for the CLI."""
     # Load environment variables from .env file
@@ -420,6 +449,9 @@ def main():
 
         # Check for newer version (non-blocking, silent on failure)
         _check_for_updates()
+
+        # Auto-install Playwright Chromium if browser auth is selected
+        _ensure_playwright_browser(args)
 
         # Create server configuration
         config = create_config(args)
