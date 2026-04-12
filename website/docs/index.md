@@ -77,8 +77,8 @@ hide:
 
 </div>
 
-<div style="margin-top: 60px; text-align: center; padding: 40px; background: var(--md-primary-fg-color--transparent); border-radius: 30px;">
-  <h2 style="font-weight: 700;">Ready to transform your ServiceNow workflow?</h2>
-  <p style="margin-bottom: 30px;">Connect your AI agents to ServiceNow securely and efficiently.</p>
+<div class="cta-banner">
+  <h2>Ready to transform your ServiceNow workflow?</h2>
+  <p>Connect your AI agents to ServiceNow securely and efficiently.</p>
   <a href="docs/CLIENT_SETUP.md" class="md-button md-button--primary">Read the Setup Guide</a>
 </div>
