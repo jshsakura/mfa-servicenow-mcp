@@ -10,18 +10,25 @@ on:
       - 'README.md'
       - 'README.ko.md'
       - '.github/workflows/deploy-website.yml'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history for git-revision-date-localized plugin if needed
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,11 +39,26 @@ jobs:
         run: |
           pip install -r website/requirements.txt
 
-      - name: Build and Deploy
+      - name: Build site
         working-directory: website
         run: |
-          # The symbolic link might not work in CI if not handled correctly.
-          # Let's recreate it or just copy for the build step to be safe.
+          # Symbolic links don't always play nice in CI
           rm -rf docs/docs
           cp -r ../docs docs/docs
-          mkdocs gh-deploy --force --clean --verbose
+          mkdocs build --clean --verbose
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
