@@ -178,8 +178,10 @@ body.landing .md-footer { margin-top: 0; }
   box-shadow: 0 2px 12px rgba(0,0,0,.25) !important;
 }
 .hero-section .md-button--primary:hover {
-  background: #e4e4e7 !important;
-  border-color: #e4e4e7 !important;
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 20px rgba(99,102,241,.4) !important;
 }
 .hero-section .md-button--ghost {
   background: rgba(255,255,255,.08) !important;
@@ -188,8 +190,9 @@ body.landing .md-footer { margin-top: 0; }
   backdrop-filter: blur(4px);
 }
 .hero-section .md-button--ghost:hover {
-  background: rgba(255,255,255,.15) !important;
-  border-color: rgba(255,255,255,.35) !important;
+  background: rgba(255,255,255,.18) !important;
+  border-color: rgba(255,255,255,.5) !important;
+  box-shadow: 0 4px 16px rgba(255,255,255,.08) !important;
 }
 
 /* ============================================================
@@ -567,8 +570,10 @@ pre.install-code .c { color: var(--code-comment); }
   color: var(--btn-text) !important;
 }
 .md-button--primary:hover {
-  background: var(--btn-hover) !important;
-  border-color: var(--btn-hover) !important;
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 20px rgba(99,102,241,.35) !important;
 }
 
 /* ============================================================
