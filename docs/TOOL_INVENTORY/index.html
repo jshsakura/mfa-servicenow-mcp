@@ -1,0 +1,3132 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="MFA-first ServiceNow MCP server for LLMs (Claude, OpenAI, etc.)">
+      
+      
+        <meta name="author" content="jshsakura">
+      
+      
+        <link rel="canonical" href="https://jshsakura.github.io/servicenow/docs/TOOL_INVENTORY/">
+      
+      
+        <link rel="prev" href="../WINDOWS_INSTALL/">
+      
+      
+        <link rel="next" href="../catalog/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Tool Inventory - MFA ServiceNow MCP</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#servicenow-mcp-tool-inventory" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="MFA ServiceNow MCP" class="md-header__button md-logo" aria-label="MFA ServiceNow MCP" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            MFA ServiceNow MCP
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Tool Inventory
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jshsakura/mfa-servicenow-mcp" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jshsakura/mfa-servicenow-mcp
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../index.md#quick-start" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Features & Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../catalog/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../index.md#skills" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Skills
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../index.md#docker" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Advanced
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="MFA ServiceNow MCP" class="md-nav__button md-logo" aria-label="MFA ServiceNow MCP" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    MFA ServiceNow MCP
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jshsakura/mfa-servicenow-mcp" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jshsakura/mfa-servicenow-mcp
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.md#quick-start" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.md#prerequisites" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CLIENT_SETUP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Client Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../WINDOWS_INSTALL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features & Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features & Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Inventory
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Inventory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#package-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tools-by-category" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tools by Category
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tools by Category">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agile-epic-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agile - Epic (3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agile-project-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agile - Project (3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agile-scrum-task-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agile - Scrum Task (3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agile-story-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agile - Story (6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audit-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit (1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#catalog-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog (6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#catalog-optimization-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog Optimization (2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#catalog-variables-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog Variables (3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#change-management-7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Change Management (7)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changeset-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changeset (6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#code-detection-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Detection (1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#core-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core (6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#developer-repo-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Developer - Repo (4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flow-designer-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flow Designer (3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#incident-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Incident (5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#knowledge-base-9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Knowledge Base (9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#legacy-workflow-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Legacy Workflow (10)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logs-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logs (4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-analysis-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Analysis (1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#local-sync-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local Sync (2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#portal-dev-utilities-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portal Dev Utilities (4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#portal-development-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portal Development (12)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#portal-management-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portal Management (5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#script-include-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Script Include (6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#source-search-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source Search (4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ui-policy-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI Policy (2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#user-group-9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        User &amp; Group (9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.md#authentication" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.md#tool-packages" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Packages
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.md#performance-optimizations" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../catalog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Service Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../change_management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow_management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Flow Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Skills
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.md#skills" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.md#docker" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.md#developer-setup" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#package-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tools-by-category" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tools by Category
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tools by Category">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agile-epic-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agile - Epic (3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agile-project-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agile - Project (3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agile-scrum-task-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agile - Scrum Task (3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agile-story-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agile - Story (6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audit-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit (1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#catalog-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog (6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#catalog-optimization-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog Optimization (2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#catalog-variables-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog Variables (3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#change-management-7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Change Management (7)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changeset-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changeset (6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#code-detection-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Detection (1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#core-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core (6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#developer-repo-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Developer - Repo (4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flow-designer-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flow Designer (3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#incident-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Incident (5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#knowledge-base-9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Knowledge Base (9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#legacy-workflow-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Legacy Workflow (10)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logs-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logs (4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-analysis-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Analysis (1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#local-sync-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local Sync (2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#portal-dev-utilities-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portal Dev Utilities (4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#portal-development-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portal Development (12)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#portal-management-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portal Management (5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#script-include-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Script Include (6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#source-search-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source Search (4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ui-policy-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI Policy (2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#user-group-9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        User &amp; Group (9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="servicenow-mcp-tool-inventory">ServiceNow MCP - Tool Inventory<a class="headerlink" href="#servicenow-mcp-tool-inventory" title="Permanent link">&para;</a></h1>
+<p>Active tools: <strong>89</strong> | Registered in code: <strong>127</strong> | Removed from packages: <strong>38</strong></p>
+<h2 id="package-summary">Package Summary<a class="headerlink" href="#package-summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Tools</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>none</code></td>
+<td>0</td>
+<td></td>
+<td>Disabled</td>
+</tr>
+<tr>
+<td><code>standard</code></td>
+<td>45</td>
+<td>Y</td>
+<td>Read-only safe mode</td>
+</tr>
+<tr>
+<td><code>portal_developer</code></td>
+<td>61</td>
+<td></td>
+<td>Portal/Widget development</td>
+</tr>
+<tr>
+<td><code>platform_developer</code></td>
+<td>69</td>
+<td></td>
+<td>Backend/Workflow development</td>
+</tr>
+<tr>
+<td><code>service_desk</code></td>
+<td>49</td>
+<td></td>
+<td>Incident operations</td>
+</tr>
+<tr>
+<td><code>full</code></td>
+<td>89</td>
+<td></td>
+<td>All capabilities</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tools-by-category">Tools by Category<a class="headerlink" href="#tools-by-category" title="Permanent link">&para;</a></h2>
+<h3 id="agile-epic-3">Agile - Epic (3)<a class="headerlink" href="#agile-epic-3" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create_epic</code></td>
+<td>W</td>
+<td>Create a new epic in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>list_epics</code></td>
+<td>R</td>
+<td>List epics from ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>update_epic</code></td>
+<td>W</td>
+<td>Update an existing epic in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+</tbody>
+</table>
+<h3 id="agile-project-3">Agile - Project (3)<a class="headerlink" href="#agile-project-3" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create_project</code></td>
+<td>W</td>
+<td>Create a new project in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>list_projects</code></td>
+<td>R</td>
+<td>List projects from ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>update_project</code></td>
+<td>W</td>
+<td>Update an existing project in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+</tbody>
+</table>
+<h3 id="agile-scrum-task-3">Agile - Scrum Task (3)<a class="headerlink" href="#agile-scrum-task-3" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create_scrum_task</code></td>
+<td>W</td>
+<td>Create a new scrum task in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>list_scrum_tasks</code></td>
+<td>R</td>
+<td>List scrum tasks from ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>update_scrum_task</code></td>
+<td>W</td>
+<td>Update an existing scrum task in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+</tbody>
+</table>
+<h3 id="agile-story-6">Agile - Story (6)<a class="headerlink" href="#agile-story-6" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create_story</code></td>
+<td>W</td>
+<td>Create a new story in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>create_story_dependency</code></td>
+<td>W</td>
+<td>Create a dependency between two stories in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>delete_story_dependency</code></td>
+<td>W</td>
+<td>Delete a story dependency in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>list_stories</code></td>
+<td>R</td>
+<td>List stories from ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>list_story_dependencies</code></td>
+<td>R</td>
+<td>List story dependencies from ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>update_story</code></td>
+<td>W</td>
+<td>Update an existing story in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+</tbody>
+</table>
+<h3 id="audit-1">Audit (1)<a class="headerlink" href="#audit-1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_pending_changes</code></td>
+<td>R</td>
+<td>Audit a developer's pending update set changes in one call. Returns inventory gr...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+</tbody>
+</table>
+<h3 id="catalog-6">Catalog (6)<a class="headerlink" href="#catalog-6" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create_catalog_category</code></td>
+<td>W</td>
+<td>Create a catalog category. Requires title. Optionally set parent, icon, order, a...</td>
+<td>full</td>
+</tr>
+<tr>
+<td><code>get_catalog_item</code></td>
+<td>R</td>
+<td>Fetch a single catalog item by sys_id. Returns full details including variables....</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>list_catalog_categories</code></td>
+<td>R</td>
+<td>List catalog categories with parent/child relationships. Filter by active status...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>list_catalog_items</code></td>
+<td>R</td>
+<td>Search catalog items with optional category/active filters. Returns name, price,...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>move_catalog_items</code></td>
+<td>W</td>
+<td>Reassign one or more catalog items to a target category. Requires item_ids and t...</td>
+<td>full</td>
+</tr>
+<tr>
+<td><code>update_catalog_category</code></td>
+<td>W</td>
+<td>Partial update of a catalog category by sys_id. Supports title, parent, icon, or...</td>
+<td>full</td>
+</tr>
+</tbody>
+</table>
+<h3 id="catalog-optimization-2">Catalog Optimization (2)<a class="headerlink" href="#catalog-optimization-2" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_optimization_recommendations</code></td>
+<td>R</td>
+<td>Analyze catalog structure and suggest improvements (inactive items, low usage, a...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>update_catalog_item</code></td>
+<td>W</td>
+<td>Partial update of a catalog item by sys_id. Supports name, description, category...</td>
+<td>full</td>
+</tr>
+</tbody>
+</table>
+<h3 id="catalog-variables-3">Catalog Variables (3)<a class="headerlink" href="#catalog-variables-3" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create_catalog_item_variable</code></td>
+<td>W</td>
+<td>Add a form variable to a catalog item. Requires cat_item sys_id, variable type, ...</td>
+<td>full</td>
+</tr>
+<tr>
+<td><code>list_catalog_item_variables</code></td>
+<td>R</td>
+<td>List variable definitions for a catalog item. Returns type, order, mandatory fla...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>update_catalog_item_variable</code></td>
+<td>W</td>
+<td>Partial update of a catalog item variable by sys_id. Supports label, order, mand...</td>
+<td>full</td>
+</tr>
+</tbody>
+</table>
+<h3 id="change-management-7">Change Management (7)<a class="headerlink" href="#change-management-7" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_change_request_details</code></td>
+<td>R</td>
+<td>Get a single change request by sys_id/number, or list with filters. Provide chan...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>add_change_task</code></td>
+<td>W</td>
+<td>Create a change_task under a change request. Requires change_id and short_descri...</td>
+<td>full</td>
+</tr>
+<tr>
+<td><code>approve_change</code></td>
+<td>W</td>
+<td>Approve a change request and transition its state to implement. Requires change_...</td>
+<td>full</td>
+</tr>
+<tr>
+<td><code>create_change_request</code></td>
+<td>W</td>
+<td>Create a change request. Requires short_description and type (normal/standard/em...</td>
+<td>full</td>
+</tr>
+<tr>
+<td><code>reject_change</code></td>
+<td>W</td>
+<td>Reject a change request and transition its state to canceled. Requires change_id...</td>
+<td>full</td>
+</tr>
+<tr>
+<td><code>submit_change_for_approval</code></td>
+<td>W</td>
+<td>Transition a change request to assess state and create an approval record. Requi...</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>update_change_request</code></td>
+<td>W</td>
+<td>Update a change request by sys_id. Supports state, description, risk, impact, da...</td>
+<td>full, platform_developer</td>
+</tr>
+</tbody>
+</table>
+<h3 id="changeset-6">Changeset (6)<a class="headerlink" href="#changeset-6" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_changeset_details</code></td>
+<td>R</td>
+<td>Get a single update set by sys_id with entries, or list update sets with filters...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>add_file_to_changeset</code></td>
+<td>W</td>
+<td>Attach a record (file path + content) to an update set....</td>
+<td>full, platform_developer, portal_developer</td>
+</tr>
+<tr>
+<td><code>commit_changeset</code></td>
+<td>W</td>
+<td>Finalize an update set by marking it complete. Prevents further edits....</td>
+<td>full, platform_developer, portal_developer</td>
+</tr>
+<tr>
+<td><code>create_changeset</code></td>
+<td>W</td>
+<td>Create a new update set. Returns the new sys_id on success....</td>
+<td>full, platform_developer, portal_developer</td>
+</tr>
+<tr>
+<td><code>publish_changeset</code></td>
+<td>W</td>
+<td>Deploy a committed update set to the target instance....</td>
+<td>full, platform_developer, portal_developer</td>
+</tr>
+<tr>
+<td><code>update_changeset</code></td>
+<td>W</td>
+<td>Update an existing update set's name, description, state, or developer....</td>
+<td>full, platform_developer, portal_developer</td>
+</tr>
+</tbody>
+</table>
+<h3 id="code-detection-1">Code Detection (1)<a class="headerlink" href="#code-detection-1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>detect_missing_profit_company_codes</code></td>
+<td>R</td>
+<td>Detect missing profit_company_code branch values in portal widget and provider s...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+</tbody>
+</table>
+<h3 id="core-6">Core (6)<a class="headerlink" href="#core-6" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sn_aggregate</code></td>
+<td>R</td>
+<td>Run COUNT/SUM/AVG/MIN/MAX on any table with optional group_by. Returns stats wit...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>sn_discover</code></td>
+<td>R</td>
+<td>Find tables by name or label keyword. Returns table name, label, scope, and pare...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>sn_health</code></td>
+<td>R</td>
+<td>Check ServiceNow API connectivity and auth status. Triggers browser login on fir...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>sn_nl</code></td>
+<td>R</td>
+<td>Convert natural language to query, schema, or aggregate calls. Parses intent and...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>sn_query</code></td>
+<td>R</td>
+<td>Query any ServiceNow table with encoded query filters. Fallback only — prefer sp...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>sn_schema</code></td>
+<td>R</td>
+<td>Fetch field names, types, labels, and constraints from sys_dictionary for a give...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+</tbody>
+</table>
+<h3 id="developer-repo-4">Developer - Repo (4)<a class="headerlink" href="#developer-repo-4" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_repo_change_report</code></td>
+<td>R</td>
+<td>Combined git report: working tree status + recent commits + per-file last modifi...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_repo_file_last_modifier</code></td>
+<td>R</td>
+<td>Lookup per-file last modifier and commit metadata with optional uncommitted stat...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>get_repo_recent_commits</code></td>
+<td>R</td>
+<td>List recent commits with author and optional changed file lists...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>get_repo_working_tree_status</code></td>
+<td>R</td>
+<td>Inspect working tree status including staged, unstaged, and untracked files...</td>
+<td><em>(none)</em></td>
+</tr>
+</tbody>
+</table>
+<h3 id="flow-designer-3">Flow Designer (3)<a class="headerlink" href="#flow-designer-3" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>list_flow_designers</code></td>
+<td>R</td>
+<td>List Flow Designer flows with optional filters. Returns flow name, status, activ...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_flow_designer_detail</code></td>
+<td>R</td>
+<td>Get flow metadata. Use include_structure=true for action/logic/subflow tree, inc...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_flow_designer_executions</code></td>
+<td>R</td>
+<td>Get execution history or single execution detail (provide context_id). Filter by...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+</tbody>
+</table>
+<h3 id="incident-5">Incident (5)<a class="headerlink" href="#incident-5" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_incident_by_number</code></td>
+<td>R</td>
+<td>Get a single incident by number, or list incidents with filters. Provide inciden...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>add_comment</code></td>
+<td>W</td>
+<td>Add a work note (internal) or customer-visible comment to an incident by sys_id ...</td>
+<td>full, service_desk</td>
+</tr>
+<tr>
+<td><code>create_incident</code></td>
+<td>W</td>
+<td>Create a new incident (short_description required). Returns sys_id and INC numbe...</td>
+<td>full, service_desk</td>
+</tr>
+<tr>
+<td><code>resolve_incident</code></td>
+<td>W</td>
+<td>Set incident state to Resolved with resolution_code and close_notes. Use update_...</td>
+<td>full, platform_developer, service_desk</td>
+</tr>
+<tr>
+<td><code>update_incident</code></td>
+<td>W</td>
+<td>Update an incident by sys_id or INC number with partial field changes. Accepts a...</td>
+<td>full, platform_developer, service_desk</td>
+</tr>
+</tbody>
+</table>
+<h3 id="knowledge-base-9">Knowledge Base (9)<a class="headerlink" href="#knowledge-base-9" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create_article</code></td>
+<td>W</td>
+<td>Create a new knowledge article...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>create_category</code></td>
+<td>W</td>
+<td>Create a new category in a knowledge base...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>create_knowledge_base</code></td>
+<td>W</td>
+<td>Create a new knowledge base in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>get_article</code></td>
+<td>R</td>
+<td>Get a specific knowledge article by ID...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>list_articles</code></td>
+<td>R</td>
+<td>List knowledge articles...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>list_categories</code></td>
+<td>R</td>
+<td>List categories in a knowledge base...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>list_knowledge_bases</code></td>
+<td>R</td>
+<td>List knowledge bases from ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>publish_article</code></td>
+<td>W</td>
+<td>Publish a knowledge article...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>update_article</code></td>
+<td>W</td>
+<td>Update an existing knowledge article...</td>
+<td><em>(none)</em></td>
+</tr>
+</tbody>
+</table>
+<h3 id="legacy-workflow-10">Legacy Workflow (10)<a class="headerlink" href="#legacy-workflow-10" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>list_legacy_workflows</code></td>
+<td>R</td>
+<td>List workflows with optional filters by name, table, or active status. Returns s...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_legacy_workflow_details</code></td>
+<td>R</td>
+<td>Get workflow metadata. Use include_versions=true for version history, include_act...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>activate_legacy_workflow</code></td>
+<td>W</td>
+<td>Set a workflow to active state by sys_id. Returns updated workflow record....</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>add_legacy_workflow_activity</code></td>
+<td>W</td>
+<td>Add an activity (approval, task, notification, etc.) to a workflow version....</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>create_legacy_workflow</code></td>
+<td>W</td>
+<td>Create a workflow with name, table, description, and active flag. Returns create...</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>deactivate_legacy_workflow</code></td>
+<td>W</td>
+<td>Set a workflow to inactive state by sys_id. Returns updated workflow record....</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>delete_legacy_workflow_activity</code></td>
+<td>W</td>
+<td>Remove an activity from a workflow by activity sys_id. Irreversible....</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>reorder_legacy_workflow_activities</code></td>
+<td>W</td>
+<td>Reorder workflow activities by providing activity sys_ids in desired sequence....</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>update_legacy_workflow</code></td>
+<td>W</td>
+<td>Update workflow name, description, table, or active status by sys_id....</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>update_legacy_workflow_activity</code></td>
+<td>W</td>
+<td>Update activity name, description, or attributes by activity sys_id....</td>
+<td>full, platform_developer</td>
+</tr>
+</tbody>
+</table>
+<h3 id="logs-4">Logs (4)<a class="headerlink" href="#logs-4" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_background_script_logs</code></td>
+<td>R</td>
+<td>Query sys_execution_tracker for scheduled/background script run logs with state ...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_journal_entries</code></td>
+<td>R</td>
+<td>Fetch work notes and comments on any record. Filter by table, record sys_id, or ...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_system_logs</code></td>
+<td>R</td>
+<td>Query syslog entries by level/source/message. Hard-capped at 20 rows for safety....</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_transaction_logs</code></td>
+<td>R</td>
+<td>Query HTTP transaction logs with URL, status, and duration. Use for request perf...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+</tbody>
+</table>
+<h3 id="performance-analysis-1">Performance Analysis (1)<a class="headerlink" href="#performance-analysis-1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>analyze_widget_performance</code></td>
+<td>R</td>
+<td>Analyze a widget's code patterns, transaction logs, and data provider usage. Ret...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+</tbody>
+</table>
+<h3 id="local-sync-2">Local Sync (2)<a class="headerlink" href="#local-sync-2" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>diff_local_component</code></td>
+<td>R</td>
+<td>Compare local portal source files against remote ServiceNow. Download root dir f...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>update_remote_from_local</code></td>
+<td>W</td>
+<td>Push local file changes to ServiceNow. Auto-creates snapshot before push. Refuse...</td>
+<td>full, platform_developer, portal_developer</td>
+</tr>
+</tbody>
+</table>
+<h3 id="portal-dev-utilities-4">Portal Dev Utilities (4)<a class="headerlink" href="#portal-dev-utilities-4" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_developer_changes</code></td>
+<td>R</td>
+<td>List a developer's recent changes across portal tables (widgets, providers, SI, ...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_developer_daily_summary</code></td>
+<td>R</td>
+<td>Generate a developer's daily work summary for Jira/Confluence. Returns line coun...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>get_provider_dependency_map</code></td>
+<td>R</td>
+<td>Build widget-to-provider-to-script-include dependency graph. Returns metadata on...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_uncommitted_changes</code></td>
+<td>R</td>
+<td>List uncommitted update set entries for a developer. Use count_only=true first t...</td>
+<td><em>(none)</em></td>
+</tr>
+</tbody>
+</table>
+<h3 id="portal-development-12">Portal Development (12)<a class="headerlink" href="#portal-development-12" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>analyze_portal_component_update</code></td>
+<td>R</td>
+<td>Analyze a proposed portal component edit and return bounded risk and field-chang...</td>
+<td>full, portal_developer</td>
+</tr>
+<tr>
+<td><code>create_portal_component_snapshot</code></td>
+<td>W</td>
+<td>Save the current editable state of a portal component to a local snapshot file f...</td>
+<td>full, portal_developer</td>
+</tr>
+<tr>
+<td><code>detect_angular_implicit_globals</code></td>
+<td>R</td>
+<td>Find undeclared variable assignments in Angular provider scripts that cause runt...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>download_portal_sources</code></td>
+<td>R</td>
+<td>Export widget, provider, and script include sources to local file structure. Sup...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_portal_component_code</code></td>
+<td>R</td>
+<td>Fetch specific code field from a widget, provider, or script include. Token-effi...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_widget_bundle</code></td>
+<td>R</td>
+<td>Fetch widget HTML, scripts, and provider list in a single API call. Returns comp...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>preview_portal_component_update</code></td>
+<td>R</td>
+<td>Preview bounded before/after snippets and diff for a proposed portal component e...</td>
+<td>full, portal_developer</td>
+</tr>
+<tr>
+<td><code>route_portal_component_edit</code></td>
+<td>R</td>
+<td>Shallow natural-language router that maps short portal edit instructions to boun...</td>
+<td>full, portal_developer</td>
+</tr>
+<tr>
+<td><code>search_portal_regex_matches</code></td>
+<td>R</td>
+<td>Regex search across widget sources (HTML/scripts/providers). Supports minimal, c...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>trace_portal_route_targets</code></td>
+<td>R</td>
+<td>Map widget-to-provider-to-route relationships without raw script bodies. Returns...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>update_portal_component</code></td>
+<td>W</td>
+<td>Update specific code fields (HTML, CSS, or script) of a widget, provider, or scr...</td>
+<td>full, portal_developer</td>
+</tr>
+<tr>
+<td><code>update_portal_component_from_snapshot</code></td>
+<td>W</td>
+<td>Restore a portal component's editable fields from a previously saved local snaps...</td>
+<td>full, portal_developer</td>
+</tr>
+</tbody>
+</table>
+<h3 id="portal-management-5">Portal Management (5)<a class="headerlink" href="#portal-management-5" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_portal</code></td>
+<td>R</td>
+<td>Get a single portal by sys_id/URL suffix, or list all portals. Provide portal_id...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_page</code></td>
+<td>R</td>
+<td>Get a single page by sys_id/URL path with layout, or list all pages. Provide pag...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_widget_instance</code></td>
+<td>R</td>
+<td>Get a single widget instance by sys_id, or list instances by page/widget filter....</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>create_widget_instance</code></td>
+<td>W</td>
+<td>Place a widget on a page column. Specify widget sys_id, target column, order, an...</td>
+<td>full, portal_developer</td>
+</tr>
+<tr>
+<td><code>update_widget_instance</code></td>
+<td>W</td>
+<td>Move, reorder, or update options/CSS of an existing widget instance on a page....</td>
+<td>full, portal_developer</td>
+</tr>
+</tbody>
+</table>
+<h3 id="script-include-6">Script Include (6)<a class="headerlink" href="#script-include-6" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create_script_include</code></td>
+<td>W</td>
+<td>Create a script include with name, script, api_name, and client_callable fields....</td>
+<td>full, platform_developer, portal_developer</td>
+</tr>
+<tr>
+<td><code>delete_script_include</code></td>
+<td>W</td>
+<td>Permanently delete a script include by sys_id or name. Irreversible....</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>execute_script_include</code></td>
+<td>W</td>
+<td>Run a client-callable script include method via GlideAjax REST. Requires client_...</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>get_script_include</code></td>
+<td>R</td>
+<td>Retrieve a single script include with full script body by sys_id or name....</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>list_script_includes</code></td>
+<td>R</td>
+<td>List script includes filtered by name/scope/active. Returns metadata without scr...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>update_script_include</code></td>
+<td>W</td>
+<td>Update a script include's script, api_name, client_callable, or other fields by ...</td>
+<td>full, platform_developer, portal_developer</td>
+</tr>
+</tbody>
+</table>
+<h3 id="source-search-4">Source Search (4)<a class="headerlink" href="#source-search-4" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>extract_table_dependencies</code></td>
+<td>R</td>
+<td>Build a GlideRecord table dependency graph from server scripts. Scans SI, BR, an...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>extract_widget_table_dependencies</code></td>
+<td>R</td>
+<td>Build a table dependency graph for a single widget, optionally expanding linked ...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>get_metadata_source</code></td>
+<td>R</td>
+<td>Fetch a source record (SI, BR, widget, etc.) by name or sys_id. Returns metadata...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+<tr>
+<td><code>search_server_code</code></td>
+<td>R</td>
+<td>Keyword/regex search across server-side scripts (SI, BR, client scripts, etc.). ...</td>
+<td>full, platform_developer, portal_developer, service_desk, standard</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ui-policy-2">UI Policy (2)<a class="headerlink" href="#ui-policy-2" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create_ui_policy</code></td>
+<td>W</td>
+<td>Create a form field behavior rule (show/hide/mandatory) triggered by encoded que...</td>
+<td>full, platform_developer</td>
+</tr>
+<tr>
+<td><code>create_ui_policy_action</code></td>
+<td>W</td>
+<td>Add a field-level action to a UI policy: set visibility, mandatory, or read-only...</td>
+<td>full, platform_developer</td>
+</tr>
+</tbody>
+</table>
+<h3 id="user-group-9">User &amp; Group (9)<a class="headerlink" href="#user-group-9" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>R/W</th>
+<th>Description</th>
+<th>Packages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>add_group_members</code></td>
+<td>W</td>
+<td>Add members to an existing group in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>create_group</code></td>
+<td>W</td>
+<td>Create a new group in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>create_user</code></td>
+<td>W</td>
+<td>Create a new user in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>get_user</code></td>
+<td>R</td>
+<td>Get a specific user in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>list_groups</code></td>
+<td>R</td>
+<td>List groups from ServiceNow with optional filtering...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>list_users</code></td>
+<td>R</td>
+<td>List users in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>remove_group_members</code></td>
+<td>W</td>
+<td>Remove members from an existing group in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>update_group</code></td>
+<td>W</td>
+<td>Update an existing group in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>update_user</code></td>
+<td>W</td>
+<td>Update an existing user in ServiceNow...</td>
+<td><em>(none)</em></td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

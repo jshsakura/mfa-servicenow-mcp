@@ -1,0 +1,3059 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="MFA-first ServiceNow MCP server for LLMs (Claude, OpenAI, etc.)">
+      
+      
+        <meta name="author" content="jshsakura">
+      
+      
+        <link rel="canonical" href="https://jshsakura.github.io/servicenow/">
+      
+      
+      
+        <link rel="next" href="docs/CLIENT_SETUP/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>MFA ServiceNow MCP</title>
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mfa-servicenow-mcp" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="." title="MFA ServiceNow MCP" class="md-header__button md-logo" aria-label="MFA ServiceNow MCP" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            MFA ServiceNow MCP
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Home
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jshsakura/mfa-servicenow-mcp" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jshsakura/mfa-servicenow-mcp
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="index.md#quick-start" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="docs/TOOL_INVENTORY/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Features & Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="docs/catalog/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="index.md#skills" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Skills
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="index.md#docker" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Advanced
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="." title="MFA ServiceNow MCP" class="md-nav__button md-logo" aria-label="MFA ServiceNow MCP" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    MFA ServiceNow MCP
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jshsakura/mfa-servicenow-mcp" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jshsakura/mfa-servicenow-mcp
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="." class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supported-servicenow-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported ServiceNow Tables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-client-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP Client Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Authentication">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#browser-auth-mfasso-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Browser Auth (MFA/SSO) — Default
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#basic-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Auth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#oauth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OAuth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Key
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Packages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CLI Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#server-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#basic-auth_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Auth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#oauth_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OAuth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-key_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#script-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Script Execution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keeping-up-to-date" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping Up to Date
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Keeping Up to Date">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pip-upgrade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pip upgrade
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pinning-a-specific-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pinning a specific version
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#version-release-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Version release process
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#safety-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Safety Policy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Safety Policy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#portal-investigation-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portal Investigation Safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-optimizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Optimizations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Performance Optimizations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serialization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#caching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Caching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schema-startup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema &amp; Startup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#install-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install Skills
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skill-categories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Categories
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skill-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#developer-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Developer Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Developer Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#running-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#linting-formatting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linting &amp; Formatting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#building" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-projects-and-acknowledgements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Projects and Acknowledgements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#license" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        License
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="index.md#quick-start" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="index.md#prerequisites" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="docs/CLIENT_SETUP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Client Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="docs/WINDOWS_INSTALL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features & Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features & Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="docs/TOOL_INVENTORY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Inventory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="index.md#authentication" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="index.md#tool-packages" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool Packages
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="index.md#performance-optimizations" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="docs/catalog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Service Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="docs/change_management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="docs/workflow_management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Flow Designer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Skills
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="index.md#skills" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="index.md#docker" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="index.md#developer-setup" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supported-servicenow-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported ServiceNow Tables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-client-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP Client Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Authentication">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#browser-auth-mfasso-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Browser Auth (MFA/SSO) — Default
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#basic-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Auth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#oauth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OAuth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Key
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Packages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CLI Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#server-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#basic-auth_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Auth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#oauth_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OAuth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-key_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#script-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Script Execution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keeping-up-to-date" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping Up to Date
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Keeping Up to Date">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pip-upgrade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pip upgrade
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pinning-a-specific-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pinning a specific version
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#version-release-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Version release process
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#safety-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Safety Policy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Safety Policy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#portal-investigation-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portal Investigation Safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-optimizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Optimizations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Performance Optimizations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serialization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#caching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Caching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schema-startup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema &amp; Startup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#install-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install Skills
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skill-categories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Categories
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skill-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#developer-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Developer Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Developer Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#running-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#linting-formatting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linting &amp; Formatting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#building" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-projects-and-acknowledgements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Projects and Acknowledgements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#license" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        License
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="mfa-servicenow-mcp">MFA ServiceNow MCP<a class="headerlink" href="#mfa-servicenow-mcp" title="Permanent link">&para;</a></h1>
+<p><a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a></p>
+<p>MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so Okta, Entra ID, SAML, and any MFA/SSO login just works. Also supports API Key for headless/Docker environments.</p>
+<p><a href="https://pypi.org/project/mfa-servicenow-mcp/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/mfa-servicenow-mcp.svg" /></a>
+<a href="https://pypi.org/project/mfa-servicenow-mcp/"><img alt="Python Version" src="https://img.shields.io/pypi/pyversions/mfa-servicenow-mcp" /></a>
+<a href="https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jshsakura/mfa-servicenow-mcp/actions/workflows/ci.yml/badge.svg" /></a>
+<a href="https://ghcr.io/jshsakura/mfa-servicenow-mcp"><img alt="Docker" src="https://img.shields.io/badge/ghcr.io-mfa--servicenow--mcp-blue?logo=docker" /></a>
+<a href="https://opensource.org/licenses/Apache-2.0"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" /></a></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># One command — MFA/SSO browser login, works on macOS/Linux/Windows</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uvx<span class="w"> </span>--with<span class="w"> </span>playwright<span class="w"> </span>--from<span class="w"> </span>mfa-servicenow-mcp<span class="w"> </span>servicenow-mcp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--instance-url<span class="w"> </span><span class="s2">&quot;https://your-instance.service-now.com&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>--auth-type<span class="w"> </span><span class="s2">&quot;browser&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span>--browser-headless<span class="w"> </span><span class="s2">&quot;false&quot;</span>
+</span></code></pre></div>
+<hr />
+<h2 id="table-of-contents">Table of Contents<a class="headerlink" href="#table-of-contents" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="#features">Features</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#quick-start">Quick Start</a></li>
+<li><a href="#mcp-client-configuration">MCP Client Configuration</a></li>
+<li><a href="#authentication">Authentication</a></li>
+<li><a href="#tool-packages">Tool Packages</a></li>
+<li><a href="#cli-reference">CLI Reference</a></li>
+<li><a href="#keeping-up-to-date">Keeping Up to Date</a></li>
+<li><a href="#safety-policy">Safety Policy</a></li>
+<li><a href="#skills">Skills</a></li>
+<li><a href="#docker">Docker</a></li>
+<li><a href="#developer-setup">Developer Setup</a></li>
+<li><a href="#documentation">Documentation</a></li>
+<li><a href="#related-projects-and-acknowledgements">Related Projects</a></li>
+<li><a href="#license">License</a></li>
+</ul>
+<hr />
+<h2 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Browser authentication</strong> for MFA/SSO environments (Okta, Entra ID, SAML, MFA)</li>
+<li><strong>4 auth modes</strong>: Browser, Basic, OAuth, API Key</li>
+<li><strong>89 tools</strong> across 5 role-based packages — from read-only to full CRUD</li>
+<li>Safe write confirmation with <code>confirm='approve'</code></li>
+<li>Payload safety limits, per-field truncation, and total response budget (200K chars)</li>
+<li>Transient network error retry with backoff</li>
+<li>Tool packages for standard users, service desk, portal developers, and platform developers</li>
+<li>Developer productivity tools: activity tracking, uncommitted changes, dependency mapping, daily summary</li>
+<li>Full coverage of core ServiceNow artifact tables (see <a href="#supported-servicenow-tables">Supported Tables</a>)</li>
+<li>CI/CD with auto-tagging, PyPI publishing, and Docker multi-platform builds</li>
+</ul>
+<h3 id="supported-servicenow-tables">Supported ServiceNow Tables<a class="headerlink" href="#supported-servicenow-tables" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Artifact Type</th>
+<th>Table Name</th>
+<th style="text-align: center;">Source Search</th>
+<th style="text-align: center;">Developer Tracking</th>
+<th style="text-align: center;">Safety (Heavy Table)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Script Include</td>
+<td><code>sys_script_include</code></td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+</tr>
+<tr>
+<td>Business Rule</td>
+<td><code>sys_script</code></td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+</tr>
+<tr>
+<td>Client Script</td>
+<td><code>sys_client_script</code></td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+</tr>
+<tr>
+<td>UI Action</td>
+<td><code>sys_ui_action</code></td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+</tr>
+<tr>
+<td>UI Script</td>
+<td><code>sys_ui_script</code></td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+</tr>
+<tr>
+<td>UI Page</td>
+<td><code>sys_ui_page</code></td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+</tr>
+<tr>
+<td>Scripted REST API</td>
+<td><code>sys_ws_operation</code></td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+</tr>
+<tr>
+<td>Fix Script</td>
+<td><code>sys_script_fix</code></td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+</tr>
+<tr>
+<td>Service Portal Widget</td>
+<td><code>sp_widget</code></td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">O</td>
+</tr>
+<tr>
+<td>Angular Provider</td>
+<td><code>sp_angular_provider</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td>Update XML</td>
+<td><code>sys_update_xml</code></td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<p>Install <a href="https://astral.sh/uv">uv</a> — it handles Python, packages, and execution in one tool.</p>
+<ul>
+<li><strong>macOS / Linux:</strong>
+  <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span>-LsSf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+</span></code></pre></div></li>
+<li><strong>Windows:</strong>
+  <div class="language-powershell highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">powershell</span> <span class="n">-c</span> <span class="s2">&quot;irm https://astral.sh/uv/install.ps1 | iex&quot;</span>
+</span></code></pre></div></li>
+</ul>
+<p>Restart your terminal after installation. That's it — no Python install, no pip, no venv needed.</p>
+<blockquote>
+<p>Chromium for MFA/SSO browser login is installed automatically on first use.
+Windows users: see <a href="docs/WINDOWS_INSTALL/">Windows Installation Guide</a> for details.</p>
+</blockquote>
+<hr />
+<h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<p>No clone needed. One command — works on macOS, Linux, and Windows:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uvx<span class="w"> </span>--with<span class="w"> </span>playwright<span class="w"> </span>--from<span class="w"> </span>mfa-servicenow-mcp<span class="w"> </span>servicenow-mcp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--instance-url<span class="w"> </span><span class="s2">&quot;https://your-instance.service-now.com&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--auth-type<span class="w"> </span><span class="s2">&quot;browser&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--browser-headless<span class="w"> </span><span class="s2">&quot;false&quot;</span>
+</span></code></pre></div>
+<p>A browser window opens on the first tool call for Okta/Entra ID/SAML/MFA login. Chromium is auto-installed if missing. Session persists after login — no need to re-authenticate every time.</p>
+<hr />
+<h2 id="mcp-client-configuration">MCP Client Configuration<a class="headerlink" href="#mcp-client-configuration" title="Permanent link">&para;</a></h2>
+<p>Each project can connect to a different ServiceNow instance. Set the config in your <strong>project directory</strong> so each project has its own instance URL and credentials.</p>
+<table>
+<thead>
+<tr>
+<th>Client</th>
+<th>Config File</th>
+<th>Format</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Claude Desktop</td>
+<td><code>claude_desktop_config.json</code></td>
+<td>JSON (<code>mcpServers</code>)</td>
+</tr>
+<tr>
+<td>Claude Code</td>
+<td><code>.mcp.json</code> or <code>claude mcp add</code></td>
+<td>JSON / CLI</td>
+</tr>
+<tr>
+<td>OpenCode</td>
+<td><code>opencode.json</code></td>
+<td>JSON (<code>mcp</code>, uses <code>environment</code>)</td>
+</tr>
+<tr>
+<td>OpenAI Codex</td>
+<td><code>.codex/agents.toml</code></td>
+<td>TOML</td>
+</tr>
+<tr>
+<td>AntiGravity</td>
+<td><code>mcp_config.json</code></td>
+<td>JSON (<code>mcpServers</code>)</td>
+</tr>
+<tr>
+<td>Gemini / Vertex AI</td>
+<td>project config</td>
+<td>JSON (<code>mcp</code>)</td>
+</tr>
+<tr>
+<td>Docker</td>
+<td>—</td>
+<td>Environment variables</td>
+</tr>
+</tbody>
+</table>
+<p>Copy-paste configs for each client: <strong><a href="docs/CLIENT_SETUP/">Client Setup Guide</a></strong></p>
+<blockquote>
+<p><code>SERVICENOW_USERNAME</code> / <code>SERVICENOW_PASSWORD</code> are optional — they prefill the MFA login form. On Windows, set these as system environment variables.</p>
+</blockquote>
+<hr />
+<h2 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h2>
+<p>Choose the auth mode based on your ServiceNow environment.</p>
+<h3 id="browser-auth-mfasso-default">Browser Auth (MFA/SSO) — Default<a class="headerlink" href="#browser-auth-mfasso-default" title="Permanent link">&para;</a></h3>
+<p>The <a href="#quick-start">Quick Start</a> command uses browser auth. Optional flags:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Env Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--browser-username</code></td>
+<td><code>SERVICENOW_USERNAME</code></td>
+<td>—</td>
+<td>Prefill login form username</td>
+</tr>
+<tr>
+<td><code>--browser-password</code></td>
+<td><code>SERVICENOW_PASSWORD</code></td>
+<td>—</td>
+<td>Prefill login form password</td>
+</tr>
+<tr>
+<td><code>--browser-headless</code></td>
+<td><code>SERVICENOW_BROWSER_HEADLESS</code></td>
+<td><code>false</code></td>
+<td>Run browser without GUI</td>
+</tr>
+<tr>
+<td><code>--browser-timeout</code></td>
+<td><code>SERVICENOW_BROWSER_TIMEOUT</code></td>
+<td><code>120</code></td>
+<td>Login timeout in seconds</td>
+</tr>
+<tr>
+<td><code>--browser-session-ttl</code></td>
+<td><code>SERVICENOW_BROWSER_SESSION_TTL</code></td>
+<td><code>30</code></td>
+<td>Session TTL in minutes</td>
+</tr>
+<tr>
+<td><code>--browser-user-data-dir</code></td>
+<td><code>SERVICENOW_BROWSER_USER_DATA_DIR</code></td>
+<td>—</td>
+<td>Persistent browser profile path</td>
+</tr>
+<tr>
+<td><code>--browser-probe-path</code></td>
+<td><code>SERVICENOW_BROWSER_PROBE_PATH</code></td>
+<td><code>/api/now/table/sys_user?sysparm_limit=1&amp;sysparm_fields=sys_id</code></td>
+<td>Session validation endpoint</td>
+</tr>
+<tr>
+<td><code>--browser-login-url</code></td>
+<td><code>SERVICENOW_BROWSER_LOGIN_URL</code></td>
+<td>—</td>
+<td>Custom login page URL</td>
+</tr>
+</tbody>
+</table>
+<h3 id="basic-auth">Basic Auth<a class="headerlink" href="#basic-auth" title="Permanent link">&para;</a></h3>
+<p>Use this for PDIs or instances without MFA.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span>mfa-servicenow-mcp<span class="w"> </span>servicenow-mcp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--instance-url<span class="w"> </span><span class="s2">&quot;https://your-instance.service-now.com&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--auth-type<span class="w"> </span><span class="s2">&quot;basic&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>--username<span class="w"> </span><span class="s2">&quot;your_id&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>--password<span class="w"> </span><span class="s2">&quot;your_password&quot;</span>
+</span></code></pre></div>
+<h3 id="oauth">OAuth<a class="headerlink" href="#oauth" title="Permanent link">&para;</a></h3>
+<p>Current CLI support expects OAuth password grant inputs.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span>mfa-servicenow-mcp<span class="w"> </span>servicenow-mcp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--instance-url<span class="w"> </span><span class="s2">&quot;https://your-instance.service-now.com&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--auth-type<span class="w"> </span><span class="s2">&quot;oauth&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--client-id<span class="w"> </span><span class="s2">&quot;your_client_id&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>--client-secret<span class="w"> </span><span class="s2">&quot;your_client_secret&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span>--username<span class="w"> </span><span class="s2">&quot;your_id&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>--password<span class="w"> </span><span class="s2">&quot;your_password&quot;</span>
+</span></code></pre></div>
+<p>If <code>--token-url</code> is omitted, the server defaults to <code>https://&lt;instance&gt;/oauth_token.do</code>.</p>
+<h3 id="api-key">API Key<a class="headerlink" href="#api-key" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span>mfa-servicenow-mcp<span class="w"> </span>servicenow-mcp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--instance-url<span class="w"> </span><span class="s2">&quot;https://your-instance.service-now.com&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--auth-type<span class="w"> </span><span class="s2">&quot;api_key&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--api-key<span class="w"> </span><span class="s2">&quot;your_api_key&quot;</span>
+</span></code></pre></div>
+<p>Default header: <code>X-ServiceNow-API-Key</code> (customizable with <code>--api-key-header</code>).</p>
+<hr />
+<h2 id="tool-packages">Tool Packages<a class="headerlink" href="#tool-packages" title="Permanent link">&para;</a></h2>
+<p>Set <code>MCP_TOOL_PACKAGE</code> to choose a specific tool set. Default: <code>standard</code></p>
+<p>All packages except <code>none</code> include the full set of read-only tools (55 tools). Higher packages add write capabilities for their domain.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Package</th>
+<th style="text-align: center;">Tools</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>standard</code></td>
+<td style="text-align: center;">45</td>
+<td style="text-align: left;"><strong>(Default)</strong> Read-only safe mode. All query/analysis tools across every domain.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>service_desk</code></td>
+<td style="text-align: center;">49</td>
+<td style="text-align: left;">standard + incident create/update/resolve/comment</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>portal_developer</code></td>
+<td style="text-align: center;">61</td>
+<td style="text-align: left;">standard + portal/widget updates, script include writes, changeset commit/publish</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>platform_developer</code></td>
+<td style="text-align: center;">69</td>
+<td style="text-align: left;">standard + workflow CRUD, UI policy, incident/change management writes</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>full</code></td>
+<td style="text-align: center;">89</td>
+<td style="text-align: left;">All write operations across every domain</td>
+</tr>
+</tbody>
+</table>
+<p>If a tool is not available in your current package, the server tells you which package includes it.</p>
+<p>For the complete tool list by category, see <a href="docs/TOOL_INVENTORY/">Tool Inventory</a>.</p>
+<hr />
+<h2 id="cli-reference">CLI Reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h2>
+<h3 id="server-options">Server Options<a class="headerlink" href="#server-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Env Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--instance-url</code></td>
+<td><code>SERVICENOW_INSTANCE_URL</code></td>
+<td><em>required</em></td>
+<td>ServiceNow instance URL</td>
+</tr>
+<tr>
+<td><code>--auth-type</code></td>
+<td><code>SERVICENOW_AUTH_TYPE</code></td>
+<td><code>basic</code></td>
+<td>Auth mode: <code>basic</code>, <code>oauth</code>, <code>api_key</code>, <code>browser</code></td>
+</tr>
+<tr>
+<td><code>--tool-package</code></td>
+<td><code>MCP_TOOL_PACKAGE</code></td>
+<td><code>standard</code></td>
+<td>Tool package to load</td>
+</tr>
+<tr>
+<td><code>--timeout</code></td>
+<td><code>SERVICENOW_TIMEOUT</code></td>
+<td><code>30</code></td>
+<td>HTTP request timeout (seconds)</td>
+</tr>
+<tr>
+<td><code>--debug</code></td>
+<td><code>SERVICENOW_DEBUG</code></td>
+<td><code>false</code></td>
+<td>Enable debug logging</td>
+</tr>
+</tbody>
+</table>
+<h3 id="basic-auth_1">Basic Auth<a class="headerlink" href="#basic-auth_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Env Variable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--username</code></td>
+<td><code>SERVICENOW_USERNAME</code></td>
+</tr>
+<tr>
+<td><code>--password</code></td>
+<td><code>SERVICENOW_PASSWORD</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="oauth_1">OAuth<a class="headerlink" href="#oauth_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Env Variable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--client-id</code></td>
+<td><code>SERVICENOW_CLIENT_ID</code></td>
+</tr>
+<tr>
+<td><code>--client-secret</code></td>
+<td><code>SERVICENOW_CLIENT_SECRET</code></td>
+</tr>
+<tr>
+<td><code>--token-url</code></td>
+<td><code>SERVICENOW_TOKEN_URL</code></td>
+</tr>
+<tr>
+<td><code>--username</code></td>
+<td><code>SERVICENOW_USERNAME</code></td>
+</tr>
+<tr>
+<td><code>--password</code></td>
+<td><code>SERVICENOW_PASSWORD</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="api-key_1">API Key<a class="headerlink" href="#api-key_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Env Variable</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--api-key</code></td>
+<td><code>SERVICENOW_API_KEY</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>--api-key-header</code></td>
+<td><code>SERVICENOW_API_KEY_HEADER</code></td>
+<td><code>X-ServiceNow-API-Key</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="script-execution">Script Execution<a class="headerlink" href="#script-execution" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Env Variable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--script-execution-api-resource-path</code></td>
+<td><code>SCRIPT_EXECUTION_API_RESOURCE_PATH</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="keeping-up-to-date">Keeping Up to Date<a class="headerlink" href="#keeping-up-to-date" title="Permanent link">&para;</a></h2>
+<p><code>uvx</code> automatically uses the latest cached version. In most cases, updates happen without any action.</p>
+<p>To force the latest PyPI release immediately:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>uvx<span class="w"> </span>--refresh<span class="w"> </span>--from<span class="w"> </span>mfa-servicenow-mcp<span class="w"> </span>servicenow-mcp<span class="w"> </span>--version
+</span></code></pre></div>
+<h3 id="pip-upgrade">pip upgrade<a class="headerlink" href="#pip-upgrade" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>mfa-servicenow-mcp
+</span></code></pre></div>
+<h3 id="pinning-a-specific-version">Pinning a specific version<a class="headerlink" href="#pinning-a-specific-version" title="Permanent link">&para;</a></h3>
+<p>If you need a specific version (e.g., for stability):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># uvx with pinned version</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;mfa-servicenow-mcp==1.5.0&quot;</span><span class="w"> </span>servicenow-mcp<span class="w"> </span>--version
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># uv tool with pinned version</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;mfa-servicenow-mcp==1.5.0&quot;</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># pip with pinned version</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;mfa-servicenow-mcp==1.5.0&quot;</span>
+</span></code></pre></div>
+<h3 id="version-release-process">Version release process<a class="headerlink" href="#version-release-process" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Version is defined in <code>pyproject.toml</code> (<code>version = "x.y.z"</code>)</li>
+<li>On push to <code>main</code>, CI auto-creates a git tag <code>v{version}</code> if it doesn't exist</li>
+<li>Tagged pushes trigger PyPI publishing and GitHub Release creation</li>
+<li>Docker images (standard + playwright variants) are built for <code>amd64</code> and <code>arm64</code></li>
+</ol>
+<hr />
+<h2 id="safety-policy">Safety Policy<a class="headerlink" href="#safety-policy" title="Permanent link">&para;</a></h2>
+<p>All mutating tools are protected by explicit confirmation.</p>
+<p>Rules:
+1. Mutating tools with prefixes such as <code>create_</code>, <code>update_</code>, <code>delete_</code>, <code>remove_</code>, <code>add_</code>, <code>move_</code>, <code>activate_</code>, <code>deactivate_</code>, <code>commit_</code>, <code>publish_</code>, <code>submit_</code>, <code>approve_</code>, <code>reject_</code>, <code>resolve_</code>, <code>reorder_</code>, and <code>execute_</code> require confirmation.
+2. You must pass <code>confirm='approve'</code>.
+3. Without that parameter, the server rejects the request before execution.</p>
+<p>This policy applies regardless of the selected tool package.</p>
+<h3 id="portal-investigation-safety">Portal Investigation Safety<a class="headerlink" href="#portal-investigation-safety" title="Permanent link">&para;</a></h3>
+<p>Portal investigation tools are conservative by default:</p>
+<ul>
+<li><code>search_portal_regex_matches</code> starts with widget-only scanning, linked expansion off, and small default limits.</li>
+<li><code>trace_portal_route_targets</code> is the preferred follow-up for compact Widget -&gt; Provider -&gt; route target evidence.</li>
+<li><code>download_portal_sources</code> does not pull linked Script Includes or Angular Providers unless explicitly requested.</li>
+<li>Large portal scans are capped server-side and return warnings when the request exceeds safe defaults.</li>
+</ul>
+<p>Pattern matching modes:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>auto</code> (default)</td>
+<td>Plain strings treated literally, regex-looking patterns remain regex</td>
+</tr>
+<tr>
+<td><code>literal</code></td>
+<td>Always escape the pattern first; safest for route/token strings</td>
+</tr>
+<tr>
+<td><code>regex</code></td>
+<td>Use only when you intentionally need regex operators</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="performance-optimizations">Performance Optimizations<a class="headerlink" href="#performance-optimizations" title="Permanent link">&para;</a></h2>
+<p>The server includes several layers of performance optimization to minimize latency and token usage.</p>
+<h3 id="serialization">Serialization<a class="headerlink" href="#serialization" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>orjson backend</strong>: All JSON serialization uses <code>json_fast</code> (orjson when available, stdlib fallback). 2-4x faster than stdlib <code>json</code> for both loads and dumps.</li>
+<li><strong>Compact output</strong>: Tool responses are serialized without indentation or extra whitespace, saving 20-30% tokens per response.</li>
+<li><strong>Double-parse avoidance</strong>: <code>serialize_tool_output</code> detects already-compact JSON strings and skips re-serialization.</li>
+</ul>
+<h3 id="caching">Caching<a class="headerlink" href="#caching" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>OrderedDict LRU cache</strong>: Query results are cached with O(1) eviction using <code>OrderedDict.popitem()</code>. 256 max entries, 30-second TTL, thread-safe.</li>
+<li><strong>Tool schema cache</strong>: Pydantic <code>model_json_schema()</code> output is cached per model type, avoiding repeated schema generation.</li>
+<li><strong>Lazy tool discovery</strong>: Only tool modules required by the active <code>MCP_TOOL_PACKAGE</code> are imported at startup. Unused modules are skipped entirely.</li>
+</ul>
+<h3 id="network">Network<a class="headerlink" href="#network" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>HTTP session pooling</strong>: Persistent <code>requests.Session</code> with 20-connection pool, TCP keep-alive, TLS session resumption, and gzip/deflate compression.</li>
+<li><strong>Parallel pagination</strong>: <code>sn_query_all</code> fetches the first page sequentially for total count, then retrieves remaining pages concurrently via <code>ThreadPoolExecutor</code> (up to 4 workers).</li>
+<li><strong>Dynamic page sizing</strong>: When remaining records fit in a single page (&lt;=100), the page size is enlarged to avoid extra round-trips.</li>
+<li><strong>Batch API</strong>: <code>sn_batch</code> combines multiple REST sub-requests into a single <code>/api/now/batch</code> POST, with automatic chunking at the 150-request limit.</li>
+<li><strong>Parallel chunked M2M queries</strong>: Widget-to-provider M2M lookups split into 100-ID chunks are executed concurrently rather than sequentially.</li>
+</ul>
+<h3 id="schema-startup">Schema &amp; Startup<a class="headerlink" href="#schema-startup" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Shallow-copy schema injection</strong>: Confirmation schema (<code>confirm='approve'</code>) is injected via lightweight dict copy instead of <code>copy.deepcopy</code>, reducing <code>list_tools</code> overhead.</li>
+<li><strong>No-count optimization</strong>: Subsequent pagination pages use <code>sysparm_no_count=true</code> to skip server-side total count computation.</li>
+<li><strong>Payload safety</strong>: Heavy tables (<code>sp_widget</code>, <code>sys_script</code>, etc.) have automatic field clamping and limit restrictions to prevent context window overflow.</li>
+</ul>
+<h2 id="skills">Skills<a class="headerlink" href="#skills" title="Permanent link">&para;</a></h2>
+<p>Skills are LLM execution blueprints that turn raw MCP tools into verified pipelines with safety gates, sub-agent delegation, and context optimization.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Tools Only</th>
+<th>Skills + Tools</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Safety</td>
+<td>LLM decides</td>
+<td>Gates enforced (snapshot → preview → apply)</td>
+</tr>
+<tr>
+<td>Tokens</td>
+<td>Source dumps in context</td>
+<td>Delegate to sub-agent, summary only</td>
+</tr>
+<tr>
+<td>Accuracy</td>
+<td>LLM guesses tool order</td>
+<td>Verified pipeline</td>
+</tr>
+<tr>
+<td>Rollback</td>
+<td>Might forget</td>
+<td>Snapshot mandatory</td>
+</tr>
+</tbody>
+</table>
+<h3 id="install-skills">Install Skills<a class="headerlink" href="#install-skills" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Claude Code</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>servicenow-mcp-skills<span class="w"> </span>claude
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># OpenAI Codex</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>servicenow-mcp-skills<span class="w"> </span>codex
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1"># OpenCode</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>servicenow-mcp-skills<span class="w"> </span>opencode
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="c1"># Or with uvx (no install needed)</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>uvx<span class="w"> </span>--from<span class="w"> </span>mfa-servicenow-mcp<span class="w"> </span>servicenow-mcp-skills<span class="w"> </span>claude
+</span></code></pre></div>
+<p>The installer downloads 20 skill files from this repository's <code>skills/</code> directory and places them in a project-local LLM directory. No authentication or configuration needed.</p>
+<table>
+<thead>
+<tr>
+<th>Client</th>
+<th>Install Path</th>
+<th>Auto-Discovery</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Claude Code</td>
+<td><code>.claude/commands/servicenow/</code></td>
+<td><code>/servicenow</code> slash commands appear on next startup</td>
+</tr>
+<tr>
+<td>OpenAI Codex</td>
+<td><code>.codex/skills/servicenow/</code></td>
+<td>Skills loaded on next agent session</td>
+</tr>
+<tr>
+<td>OpenCode</td>
+<td><code>.opencode/skills/servicenow/</code></td>
+<td>Skills loaded on next session</td>
+</tr>
+</tbody>
+</table>
+<p><strong>How it works:</strong> Each skill is a standalone Markdown file with YAML frontmatter (metadata) and pipeline instructions. The LLM client reads these files from the install path and exposes them as callable commands or skill triggers.</p>
+<p><strong>Update:</strong> Re-run the same install command — it replaces all existing skill files (clean install, no merge).</p>
+<p><strong>Remove:</strong> Delete the install directory (e.g., <code>rm -rf .claude/commands/servicenow/</code>).</p>
+<h3 id="skill-categories">Skill Categories<a class="headerlink" href="#skill-categories" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Skills</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>analyze/</code></td>
+<td>6</td>
+<td>Widget analysis, portal diagnosis, provider audit, dependency mapping, code detection, ESC audit</td>
+</tr>
+<tr>
+<td><code>fix/</code></td>
+<td>3</td>
+<td>Widget patching (staged gates), debugging, code review</td>
+</tr>
+<tr>
+<td><code>manage/</code></td>
+<td>5</td>
+<td>Page layout, script includes, source export, changeset workflow, local sync</td>
+</tr>
+<tr>
+<td><code>deploy/</code></td>
+<td>2</td>
+<td>Change request lifecycle, incident triage</td>
+</tr>
+<tr>
+<td><code>explore/</code></td>
+<td>4</td>
+<td>Health check, schema discovery, route tracing, ESC catalog flow</td>
+</tr>
+</tbody>
+</table>
+<h3 id="skill-metadata">Skill Metadata<a class="headerlink" href="#skill-metadata" title="Permanent link">&para;</a></h3>
+<p>Each skill includes metadata that helps LLMs optimize execution:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">context_cost</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">low|medium|high</span><span class="w">    </span><span class="c1"># → high = delegate to sub-agent</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nt">safety_level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none|confirm|staged</span><span class="w"> </span><span class="c1"># → staged = mandatory snapshot/preview/apply</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nt">delegatable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true|false</span><span class="w">           </span><span class="c1"># → can run in sub-agent to save context</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="nt">triggers</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;위젯</span><span class="nv"> </span><span class="s">분석&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;analyze</span><span class="nv"> </span><span class="s">widget&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># → LLM trigger matching</span>
+</span></code></pre></div>
+<p>For the full skill reference, see <a href="skills/SKILL.md">skills/SKILL.md</a>.</p>
+<h2 id="docker">Docker<a class="headerlink" href="#docker" title="Permanent link">&para;</a></h2>
+<p>API Key auth only (MFA browser auth requires GUI, not available in containers).</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--rm<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SERVICENOW_INSTANCE_URL</span><span class="o">=</span>https://your-instance.service-now.com<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SERVICENOW_AUTH_TYPE</span><span class="o">=</span>api_key<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SERVICENOW_API_KEY</span><span class="o">=</span>your-api-key<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span>ghcr.io/jshsakura/mfa-servicenow-mcp:latest
+</span></code></pre></div>
+<p>See <a href="docs/CLIENT_SETUP/#docker-api-key-only">Client Setup Guide</a> for SSE mode and local build options.</p>
+<h2 id="developer-setup">Developer Setup<a class="headerlink" href="#developer-setup" title="Permanent link">&para;</a></h2>
+<p>If you want to modify the source locally:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/jshsakura/mfa-servicenow-mcp.git
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="nb">cd</span><span class="w"> </span>mfa-servicenow-mcp
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>uv<span class="w"> </span>venv
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[browser,dev]&quot;</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>uv<span class="w"> </span>run<span class="w"> </span>playwright<span class="w"> </span>install<span class="w"> </span>chromium
+</span></code></pre></div>
+<h3 id="running-tests">Running Tests<a class="headerlink" href="#running-tests" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest
+</span></code></pre></div>
+<h3 id="linting-formatting">Linting &amp; Formatting<a class="headerlink" href="#linting-formatting" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>uv<span class="w"> </span>run<span class="w"> </span>black<span class="w"> </span>src/<span class="w"> </span>tests/
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>uv<span class="w"> </span>run<span class="w"> </span>isort<span class="w"> </span>src/<span class="w"> </span>tests/
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>src/<span class="w"> </span>tests/
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/
+</span></code></pre></div>
+<h3 id="building">Building<a class="headerlink" href="#building" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>uv<span class="w"> </span>build
+</span></code></pre></div>
+<blockquote>
+<p>Windows: see <a href="docs/WINDOWS_INSTALL/">Windows Installation Guide</a></p>
+</blockquote>
+<hr />
+<h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="docs/CLIENT_SETUP/">Client Setup Guide</a> — Copy-paste configs for every MCP client</li>
+<li><a href="docs/TOOL_INVENTORY/">Tool Inventory</a> — Complete list of 89 tools by category and package</li>
+<li><a href="docs/WINDOWS_INSTALL/">Windows Installation Guide</a></li>
+<li><a href="docs/catalog/">Catalog Guide</a> — Service catalog CRUD and optimization</li>
+<li><a href="docs/change_management/">Change Management</a> — Change request lifecycle and approval</li>
+<li><a href="docs/workflow_management/">Workflow Management</a> — Legacy workflow and Flow Designer tools</li>
+<li><a href="./README.ko.md">Korean README</a></li>
+</ul>
+<hr />
+<h2 id="related-projects-and-acknowledgements">Related Projects and Acknowledgements<a class="headerlink" href="#related-projects-and-acknowledgements" title="Permanent link">&para;</a></h2>
+<ul>
+<li>This repository includes tools consolidated and refactored from earlier internal / legacy ServiceNow MCP implementations. You can still see that lineage in modules such as <a href="./src/servicenow_mcp/tools/core_plus.py">core_plus.py</a> and <a href="./src/servicenow_mcp/utils/tool_utils.py">tool_utils.py</a>.</li>
+<li>Some developer productivity workflows, especially server-side source lookup, were designed with ideas inspired by <a href="https://github.com/arnoudkooi/SN-Utils">SN Utils</a>. This project does not bundle or redistribute SN Utils code.</li>
+<li>This project is focused on MCP server use cases rather than browser-extension UX. If you want in-browser productivity features inside ServiceNow, SN Utils remains a strong companion tool.</li>
+</ul>
+<hr />
+<h2 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h2>
+<p>Apache License 2.0</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
