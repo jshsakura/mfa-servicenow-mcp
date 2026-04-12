@@ -273,16 +273,21 @@ body.landing .md-footer { margin-top: 0; }
 .hero-terminal-spacer { width: 42px; }
 
 .hero-terminal-body {
-  padding: 20px 24px;
+  padding: 24px 28px;
   font-family: 'JetBrains Mono', monospace;
   font-size: .8rem;
-  line-height: 1.65;
+  line-height: 1.8;
   color: #d4d4d8;
-  height: 240px;
+  height: 320px;
   overflow: hidden;
 }
 
-.hero-terminal-line { margin-bottom: 3px; }
+.hero-terminal-line {
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .hero-terminal-prompt { color: #22c55e; margin-right: 8px; user-select: none; font-weight: 600; }
 .hero-terminal-command { color: #fafafa; font-weight: 500; }
 .hero-terminal-success { color: #34d399; }
@@ -609,7 +614,7 @@ pre.install-code .c { color: #52525b; }
   .hero-section { min-height: 440px; }
   .hero-content { padding: 80px 20px 64px; }
   .hero-terminal { margin-top: -32px; }
-  .hero-terminal-body { height: 200px; font-size: .75rem; padding: 16px; }
+  .hero-terminal-body { height: 280px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
   .content-wrap { padding: 0 16px; }
