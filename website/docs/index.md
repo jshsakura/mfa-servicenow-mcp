@@ -12,6 +12,7 @@ social:
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
 
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
 <script>document.body.classList.add("landing");</script>
 
 <div class="hero-section">
