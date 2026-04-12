@@ -73,11 +73,12 @@
 body.landing .md-header__topic:nth-child(2) {
   display: none !important;
 }
+/* Hide tabs bar on landing page globally — prevents sticky overlap on scroll */
+body.landing .md-tabs { display: none !important; }
+
 /* Mobile — fix nav and header */
 @media (max-width: 76.1875em) {
   .md-header__title { padding-left: 0; }
-  /* Hide tabs bar on landing page to prevent overlap with header */
-  body.landing .md-tabs { display: none !important; }
   .md-nav--primary .md-nav__item a,
   .md-nav--primary .md-nav__title {
     color: var(--hero-text) !important;
@@ -124,7 +125,7 @@ body.landing .md-footer { margin-top: 0; }
 .hero-section {
   position: relative;
   width: 100%;
-  min-height: 700px;
+  min-height: 540px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -615,8 +616,8 @@ pre.install-code .c { color: var(--code-comment); }
   .content-wrap { padding: 0 24px; }
   .steps-grid { grid-template-columns: 1fr; }
   .hero-stats { gap: 28px; padding: 32px 0; }
-  .hero-section { min-height: 520px; }
-  .hero-content { padding: 32px 20px 20px; }
+  .hero-section { min-height: 420px; }
+  .hero-content { padding: 24px 20px 16px; }
   .hero-terminal { margin-top: -32px; }
   .hero-terminal-body { min-height: 380px; font-size: .72rem; padding: 16px 20px; }
 }
