@@ -76,6 +76,8 @@ standard:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
+  # Local Sync (Read)
+  - diff_local_component
 
 # --- Portal Developer: standard + portal/changeset/script writes ---
 portal_developer:
@@ -137,6 +139,8 @@ portal_developer:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
+  # Local Sync (Read)
+  - diff_local_component
   # + Portal writes
   - route_portal_component_edit
   - analyze_portal_component_update
@@ -155,6 +159,8 @@ portal_developer:
   - add_file_to_changeset
   - commit_changeset
   - publish_changeset
+  # + Local Sync writes
+  - update_remote_from_local
 
 # --- Platform Developer: standard + workflow/incident/change/script writes ---
 platform_developer:
@@ -216,6 +222,8 @@ platform_developer:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
+  # Local Sync (Read)
+  - diff_local_component
   # + Legacy Workflow writes
   - create_legacy_workflow
   - update_legacy_workflow
@@ -245,6 +253,8 @@ platform_developer:
   - add_file_to_changeset
   - commit_changeset
   - publish_changeset
+  # + Local Sync writes
+  - update_remote_from_local
 
 # --- Service Desk: standard + incident writes ---
 service_desk:
@@ -306,6 +316,8 @@ service_desk:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
+  # Local Sync (Read)
+  - diff_local_component
   # + Incident writes
   - create_incident
   - update_incident
@@ -372,6 +384,8 @@ full:
   - extract_table_dependencies
   # Detection
   - detect_missing_profit_company_codes
+  # Local Sync (Read)
+  - diff_local_component
   # + All writes
   - create_incident
   - update_incident
@@ -416,3 +430,5 @@ full:
   - execute_script_include
   - create_ui_policy
   - create_ui_policy_action
+  # + Local Sync writes
+  - update_remote_from_local

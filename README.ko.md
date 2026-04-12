@@ -44,7 +44,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **98개 도구**, 5개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
+- **100개 도구**, 5개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
 - `confirm='approve'` 기반 안전한 수정 승인 정책
 - 페이로드 안전 제한, 필드별 절단, 총 응답 한도 (200K 문자)
 - 일시적 네트워크 오류 자동 재시도 (백오프)
@@ -194,11 +194,11 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
-| `standard` | 55 | **(기본값)** 읽기 전용 safe mode. 전 도메인 조회/분석 도구 포함 |
-| `service_desk` | 59 | standard + 인시던트 생성/처리/해결/코멘트 |
-| `portal_developer` | 70 | standard + 포탈/위젯 수정, Script Include 수정, 체인지셋 커밋/퍼블리시 |
-| `platform_developer` | 78 | standard + 워크플로우 CRUD, UI Policy, 인시던트/변경관리 수정 |
-| `full` | 98 | 전 도메인 수정/삭제 가능 |
+| `standard` | 56 | **(기본값)** 읽기 전용 safe mode. 전 도메인 조회/분석 도구 포함 |
+| `service_desk` | 60 | standard + 인시던트 생성/처리/해결/코멘트 |
+| `portal_developer` | 72 | standard + 포탈/위젯 수정, Script Include 수정, 체인지셋 커밋/퍼블리시 |
+| `platform_developer` | 80 | standard + 워크플로우 CRUD, UI Policy, 인시던트/변경관리 수정 |
+| `full` | 100 | 전 도메인 수정/삭제 가능 |
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 
@@ -357,7 +357,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 |----------|---------|------|
 | `analyze/` | 6 | 위젯 분석, 포탈 진단, 프로바이더 감사, 의존성 매핑, 코드 감지, ESC 감사 |
 | `fix/` | 3 | 위젯 패치 (단계별 게이트), 디버깅, 코드 리뷰 |
-| `manage/` | 4 | 페이지 레이아웃, SI 관리, 소스 내보내기, 체인지셋 |
+| `manage/` | 5 | 페이지 레이아웃, SI 관리, 소스 내보내기, 체인지셋, 로컬 동기화 |
 | `deploy/` | 2 | 변경 요청 생명주기, 인시던트 분류 |
 | `explore/` | 4 | 헬스 체크, 스키마 탐색, 라우트 추적, ESC 카탈로그 흐름 |
 
@@ -429,7 +429,7 @@ uv build
 ## 상세 문서
 
 - [클라이언트 설정 가이드](docs/CLIENT_SETUP.md) — 클라이언트별 복사 붙여넣기 설정
-- [도구 목록](docs/TOOL_INVENTORY.md) — 98개 도구 카테고리/패키지별 전체 목록
+- [도구 목록](docs/TOOL_INVENTORY.md) — 100개 도구 카테고리/패키지별 전체 목록
 - [Windows 설치 가이드](docs/WINDOWS_INSTALL.ko.md)
 - [서비스 카탈로그 가이드](docs/catalog.md) — 카탈로그 CRUD 및 최적화
 - [변경 관리 가이드](docs/change_management.md) — 변경 요청 생명주기 및 승인

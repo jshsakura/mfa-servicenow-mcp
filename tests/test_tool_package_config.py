@@ -42,3 +42,27 @@ def test_full_package_includes_portal_edit_pipeline_tools():
     assert "preview_portal_component_update" in full_tools
     assert "update_portal_component" in full_tools
     assert "update_portal_component_from_snapshot" in full_tools
+
+
+def test_local_sync_tools_in_correct_packages():
+    config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
+    config = yaml.safe_load(config_path.read_text())
+
+    # diff_local_component is read-only — should be in all packages
+    for pkg in ["standard", "service_desk", "portal_developer", "platform_developer", "full"]:
+        assert "diff_local_component" in config[pkg], f"diff_local_component missing from {pkg}"
+
+    # update_remote_from_local is write — only in portal_developer, platform_developer, full
+    for pkg in ["portal_developer", "platform_developer", "full"]:
+        assert "update_remote_from_local" in config[pkg], f"update_remote_from_local missing from {pkg}"
+
+    # should NOT be in standard or service_desk
+    assert "update_remote_from_local" not in config["standard"]
+    assert "update_remote_from_local" not in config["service_desk"]
+
+
+def test_full_package_is_100_tools():
+    config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
+    config = yaml.safe_load(config_path.read_text())
+
+    assert len(config["full"]) == 100, f"full package should have exactly 100 tools, got {len(config['full'])}"
