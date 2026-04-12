@@ -80,6 +80,7 @@ body.landing .md-main { margin-top: 0 !important; padding-top: 0 !important; }
 body.landing .md-main__inner { margin-top: 0; max-width: 100% !important; padding: 0 !important; }
 body.landing .md-content { max-width: 100% !important; background: transparent !important; }
 body.landing .md-content__inner { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
+body.landing .md-content__inner::before { display: none !important; }
 body.landing .md-sidebar { display: none; }
 body.landing .md-footer { margin-top: 0; }
 
