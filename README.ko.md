@@ -349,7 +349,19 @@ servicenow-mcp-skills opencode
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 ```
 
-스킬은 이 저장소에서 다운로드되어 프로젝트의 LLM 디렉토리(예: `.claude/commands/servicenow/`)에 설치됩니다. 다음 시작 시 LLM이 자동 인식합니다.
+이 저장소의 `skills/` 디렉토리에서 20개 스킬 파일을 다운로드해 프로젝트 로컬 LLM 디렉토리에 설치합니다. 인증이나 별도 설정은 필요 없습니다.
+
+| 클라이언트 | 설치 경로 | 자동 인식 |
+|-----------|----------|----------|
+| Claude Code | `.claude/commands/servicenow/` | 다음 시작 시 `/servicenow` 슬래시 명령으로 노출 |
+| OpenAI Codex | `.codex/skills/servicenow/` | 다음 에이전트 세션에서 로드 |
+| OpenCode | `.opencode/skills/servicenow/` | 다음 세션에서 로드 |
+
+**동작 원리:** 각 스킬은 YAML 프론트매터(메타데이터) + 파이프라인 지시문으로 구성된 독립 Markdown 파일입니다. LLM 클라이언트가 설치 경로에서 이 파일을 읽어 호출 가능한 명령이나 스킬 트리거로 노출합니다.
+
+**업데이트:** 동일한 설치 명령을 다시 실행하면 기존 파일을 모두 교체합니다 (클린 설치).
+
+**삭제:** 설치 디렉토리를 삭제하면 됩니다 (예: `rm -rf .claude/commands/servicenow/`).
 
 ### 스킬 카테고리
 
