@@ -130,7 +130,7 @@ body.landing .md-footer { margin-top: 0; }
   position: relative;
   z-index: 2;
   text-align: center;
-  padding: 64px 24px 48px;
+  padding: 40px 24px 24px;
   max-width: 800px;
 }
 
@@ -601,7 +601,7 @@ pre.install-code .c { color: var(--code-comment); }
   .steps-grid { grid-template-columns: 1fr; }
   .hero-stats { gap: 28px; padding: 32px 0; }
   .hero-section { min-height: 520px; }
-  .hero-content { padding: 56px 20px 40px; }
+  .hero-content { padding: 32px 20px 20px; }
   .hero-terminal { margin-top: -32px; }
   .hero-terminal-body { min-height: 380px; font-size: .72rem; padding: 16px 20px; }
 }
