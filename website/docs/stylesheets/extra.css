@@ -107,15 +107,18 @@
   fill: var(--header-icon) !important;
   color: var(--header-icon) !important;
 }
-/* Palette toggle snackbar — always dark bg, white text */
+/* Palette toggle snackbar — always dark bg, white text, bigger */
 .md-dialog {
   background-color: #18181b !important;
-  border-radius: 8px !important;
-  box-shadow: 0 4px 16px rgba(0,0,0,.2) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,.25) !important;
+  padding: 12px 20px !important;
+  min-width: 16rem !important;
 }
 .md-dialog__inner,
 .md-dialog__inner * {
   color: #fafafa !important;
+  font-size: .82rem !important;
 }
 /* Palette toggle (dark/light switch) */
 .md-header .md-header__button[data-md-color-scheme] {
