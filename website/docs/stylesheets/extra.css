@@ -171,11 +171,12 @@ body.landing .md-footer { margin-top: 0; }
   filter: drop-shadow(0 2px 8px rgba(139,92,246,.4));
 }
 .hero-subtitle {
-  font-size: 1.1rem;
+  font-family: 'Gugi', sans-serif;
+  font-size: 1rem;
   color: #e4e4e7 !important;
-  max-width: 520px;
+  max-width: 560px;
   margin: 0 auto 24px;
-  line-height: 1.7;
+  line-height: 1.8;
   font-weight: 400;
   text-shadow: 0 1px 8px rgba(0,0,0,.4);
 }
