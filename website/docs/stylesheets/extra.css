@@ -155,7 +155,7 @@ body.landing .md-footer { margin-top: 0; }
 }
 .hero-title {
   font-family: 'Gugi', sans-serif;
-  font-size: clamp(2.4rem, 5.5vw, 4rem);
+  font-size: clamp(2.2rem, 5.5vw, 4.5rem);
   font-weight: 400;
   letter-spacing: -.02em;
   line-height: 1.15;
