@@ -227,7 +227,7 @@ body.landing .md-footer { margin-top: 0; }
    TERMINAL — theme-aware
    ============================================================ */
 .hero-terminal {
-  margin: -32px auto 0;
+  margin: -80px auto 0;
   position: relative;
   z-index: 3;
   background: var(--code-bg);
@@ -567,7 +567,7 @@ pre.install-code .c { color: var(--code-comment); }
   .steps-grid { grid-template-columns: 1fr; }
   .hero-stats { gap: 28px; padding: 32px 0; }
   .hero-content { padding: 48px 20px 40px; }
-  .hero-terminal { margin-top: -32px; }
+  .hero-terminal { margin-top: -60px; }
   .hero-terminal-body { min-height: 380px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
@@ -575,5 +575,5 @@ pre.install-code .c { color: var(--code-comment); }
   .hero-stat-value { font-size: 1.5rem; }
   .section { padding: 48px 0; }
   .cta-banner { padding: 48px 16px; }
-  .hero-terminal { margin-top: -24px; }
+  .hero-terminal { margin-top: -48px; }
 }
