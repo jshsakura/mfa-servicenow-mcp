@@ -23,9 +23,8 @@ social:
       Don't script your AI. <span class="gradient-text">Arm it.</span>
     </h1>
     <p class="hero-subtitle">
-      Tell your AI what you need in plain language.<br>
-      MCP Skills handle the rest — analysis, execution,<br>
-      and everything in between.
+      Tell your AI what you need in plain language.
+      MCP Skills handle the rest.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
