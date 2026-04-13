@@ -452,12 +452,22 @@ Setup complete!
   Tool package: $TOOL_PACKAGE
   Skills:       $SKILL_COUNT installed (or "not applicable")
   Config:       $CONFIG_FILE_PATH
-
-Next steps:
-  1. Restart your AI client to load the new MCP server
-  2. Try: "Run a health check on my ServiceNow instance"
-  3. Full docs: https://jshsakura.github.io/mfa-servicenow-mcp/
 ```
+
+**CRITICAL — Restart required:**
+
+Tell the user clearly:
+
+> **You must restart your AI client (or reload MCP servers) before the ServiceNow tools become available.**
+>
+> The MCP server is loaded when your client starts. Config changes made during a session
+> won't take effect until the next restart. After restarting:
+>
+> 1. A browser window will open on the first tool call for MFA/SSO login
+> 2. Try: "Run a health check on my ServiceNow instance"
+> 3. Full docs: https://jshsakura.github.io/mfa-servicenow-mcp/
+
+**Do NOT attempt to call ServiceNow MCP tools (like `sn_health`, `sn_query`, etc.) in this session.** They are not available until the client restarts and loads the MCP server process. Trying to use them now will fail — do not try to work around this by running the server manually via shell commands.
 
 ### Important notes for the LLM
 
@@ -466,3 +476,4 @@ Next steps:
 - **Windows paths** use backslashes. Use the correct path separator for the OS.
 - If any step fails, diagnose the error and help the user fix it before moving on.
 - Keep the conversation friendly and concise. Don't dump walls of text.
+- **Do NOT try to run health checks or test MCP tools after installation.** The server is not running yet. Tell the user to restart and test afterwards.
