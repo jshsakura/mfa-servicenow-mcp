@@ -217,6 +217,7 @@ body.landing .md-footer { margin-top: 0; }
   border: 1px solid rgba(255,255,255,.2) !important;
   color: #fff !important;
   backdrop-filter: blur(4px);
+  white-space: nowrap;
 }
 .hero-section .md-button--ghost:hover {
   background: rgba(255,255,255,.18) !important;
