@@ -23,6 +23,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 ## 목차
 
 - [주요 특징](#주요-특징)
+- [AI 자동 설치](#ai-자동-설치)
 - [필수 준비 사항](#필수-준비-사항)
 - [바로 쓰기](#바로-쓰기)
 - [MCP 클라이언트 설정](#mcp-클라이언트-설정)
@@ -37,6 +38,29 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 - [상세 문서](#상세-문서)
 - [관련 프로젝트 및 참고](#관련-프로젝트-및-참고)
 - [라이선스](#라이선스)
+
+---
+
+## AI 자동 설치
+
+> **한 줄이면 끝. AI가 알아서 전부 설정합니다.**
+
+Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI 등 아무 AI 코딩 도구에 아래 내용을 붙여넣으세요:
+
+```
+Install and configure mfa-servicenow-mcp by following the instructions here:
+curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md
+```
+
+AI가 자동으로:
+1. **uv**와 **Playwright** 설치 (없으면)
+2. ServiceNow 인스턴스 URL, 인증 방식, 도구 패키지 질문
+3. 사용 중인 클라이언트에 맞는 MCP 설정 파일 생성
+4. **20개 워크플로우 스킬** 설치 (지원 클라이언트)
+
+설정 파일 직접 편집할 필요 없습니다. 포맷 차이 신경 쓸 필요 없습니다. macOS, Linux, Windows 전부 지원.
+
+> 수동 설치는 아래 [필수 준비 사항](#필수-준비-사항)과 [바로 쓰기](#바로-쓰기) 참조.
 
 ---
 

@@ -24,6 +24,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 ## Table of Contents
 
 - [Features](#features)
+- [AI-Powered Setup](#ai-powered-setup)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [MCP Client Configuration](#mcp-client-configuration)
@@ -38,6 +39,29 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 - [Documentation](#documentation)
 - [Related Projects](#related-projects-and-acknowledgements)
 - [License](#license)
+
+---
+
+## AI-Powered Setup
+
+> **One line. Any AI coding assistant. Everything configured automatically.**
+
+Paste this into Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, or Gemini CLI:
+
+```
+Install and configure mfa-servicenow-mcp by following the instructions here:
+curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md
+```
+
+Your AI will:
+1. Install **uv** and **Playwright** (if needed)
+2. Ask for your ServiceNow instance URL, auth type, and tool package
+3. Generate the correct MCP config file for your client
+4. Install **20 workflow skills** (if supported)
+
+No manual config editing. No format differences to worry about. Works on macOS, Linux, and Windows.
+
+> For manual setup, see [Prerequisites](#prerequisites) and [Quick Start](#quick-start) below.
 
 ---
 
