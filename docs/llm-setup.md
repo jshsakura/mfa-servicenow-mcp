@@ -454,20 +454,21 @@ Setup complete!
   Config:       $CONFIG_FILE_PATH
 ```
 
-**CRITICAL — Restart required:**
+**Next: Restart required**
 
-Tell the user clearly:
+After completing all installation steps above, tell the user:
 
-> **You must restart your AI client (or reload MCP servers) before the ServiceNow tools become available.**
+> **Installation is complete!**
+> To start using ServiceNow MCP tools, **restart your AI client** (or reload MCP servers).
 >
-> The MCP server is loaded when your client starts. Config changes made during a session
-> won't take effect until the next restart. After restarting:
+> The MCP server loads when your client starts up. After restarting:
 >
 > 1. A browser window will open on the first tool call for MFA/SSO login
-> 2. Try: "Run a health check on my ServiceNow instance"
-> 3. Full docs: https://jshsakura.github.io/mfa-servicenow-mcp/
+> 2. Complete the login — the session persists after that
+> 3. Try: "Run a health check on my ServiceNow instance"
+> 4. Full docs: https://jshsakura.github.io/mfa-servicenow-mcp/
 
-**Do NOT attempt to call ServiceNow MCP tools (like `sn_health`, `sn_query`, etc.) in this session.** They are not available until the client restarts and loads the MCP server process. Trying to use them now will fail — do not try to work around this by running the server manually via shell commands.
+This is the end of setup. Do NOT attempt to call ServiceNow MCP tools (`sn_health`, `sn_query`, etc.) in this session — they won't be available until the client restarts and loads the server process. Do not try to work around this by running the server via shell commands.
 
 ### Important notes for the LLM
 
@@ -476,4 +477,4 @@ Tell the user clearly:
 - **Windows paths** use backslashes. Use the correct path separator for the OS.
 - If any step fails, diagnose the error and help the user fix it before moving on.
 - Keep the conversation friendly and concise. Don't dump walls of text.
-- **Do NOT try to run health checks or test MCP tools after installation.** The server is not running yet. Tell the user to restart and test afterwards.
+- After installation, do NOT try to test MCP tools. Just tell the user to restart and they're good to go.
