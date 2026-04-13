@@ -99,7 +99,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 <span class="c"># Run with MFA browser login (Okta, Entra ID, SAML supported)</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://YOUR_INSTANCE.service-now.com" \
+  --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"</code></pre>
           </div>
@@ -111,7 +111,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 <span class="c"># Run with MFA browser login (Okta, Entra ID, SAML supported)</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
-  --instance-url "https://YOUR_INSTANCE.service-now.com" `
+  --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser" `
   --browser-headless "false"</code></pre>
           </div>
@@ -124,7 +124,7 @@ playwright install chromium
 
 <span class="c"># Run with MFA browser login</span>
 servicenow-mcp \
-  --instance-url "https://YOUR_INSTANCE.service-now.com" \
+  --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"</code></pre>
           </div>
@@ -139,7 +139,7 @@ playwright install chromium
 
 <span class="c"># Run with MFA browser login</span>
 servicenow-mcp \
-  --instance-url "https://YOUR_INSTANCE.service-now.com" \
+  --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"</code></pre>
           </div>
@@ -174,7 +174,7 @@ servicenow-mcp \
         "--with", "playwright",
         "--from", "mfa-servicenow-mcp",
         "servicenow-mcp",
-        "--instance-url", "https://YOUR_INSTANCE.service-now.com",
+        "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser"
       ],
       "env": {
@@ -190,7 +190,7 @@ servicenow-mcp \
             <pre class="install-code"><code><span class="c">// Option A: CLI one-liner</span>
 claude mcp add servicenow -- \
   uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://YOUR_INSTANCE.service-now.com" \
+  --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"
 
 <span class="c">// Option B: .mcp.json in project root</span>
@@ -202,7 +202,7 @@ claude mcp add servicenow -- \
         "--with", "playwright",
         "--from", "mfa-servicenow-mcp",
         "servicenow-mcp",
-        "--instance-url", "https://YOUR_INSTANCE.service-now.com",
+        "--instance-url", "https://your-instance.service-now.com",
         "--auth-type", "browser"
       ],
       "env": { "MCP_TOOL_PACKAGE": "standard" }
@@ -219,7 +219,7 @@ args = [
   "--with", "playwright",
   "--from", "mfa-servicenow-mcp",
   "servicenow-mcp",
-  "--instance-url", "https://YOUR_INSTANCE.service-now.com",
+  "--instance-url", "https://your-instance.service-now.com",
   "--auth-type", "browser",
   "--tool-package", "standard",
 ]</code></pre>
@@ -238,7 +238,7 @@ args = [
       ],
       "enabled": true,
       "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://YOUR_INSTANCE.service-now.com",
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "MCP_TOOL_PACKAGE": "standard"
       }
@@ -258,7 +258,7 @@ args = [
         "--from", "mfa-servicenow-mcp", "servicenow-mcp"
       ],
       "env": {
-        "SERVICENOW_INSTANCE_URL": "https://YOUR_INSTANCE.service-now.com",
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "MCP_TOOL_PACKAGE": "standard"
       },
@@ -280,7 +280,7 @@ args = [
         "servicenow-mcp"
       ],
       "env": {
-        "SERVICENOW_INSTANCE_URL": "https://YOUR_INSTANCE.service-now.com",
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "MCP_TOOL_PACKAGE": "standard"
       }
