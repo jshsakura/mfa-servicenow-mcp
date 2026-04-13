@@ -416,6 +416,7 @@ If yes, determine the skill target from `$CLIENT`:
 | claude-code | `claude` | `.claude/commands/servicenow/` |
 | codex | `codex` | `.codex/skills/servicenow/` |
 | opencode | `opencode` | `.opencode/skills/servicenow/` |
+| gemini | `gemini` | `.gemini/skills/servicenow/` |
 | cursor | — | Not yet supported (use CLAUDE.md rules instead) |
 | windsurf | — | Not yet supported |
 | vscode-copilot | — | Not yet supported |

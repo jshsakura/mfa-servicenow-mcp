@@ -306,6 +306,7 @@ args = [
         <button class="install-tab active" data-target="skill-claude">Claude Code</button>
         <button class="install-tab" data-target="skill-codex">Codex</button>
         <button class="install-tab" data-target="skill-opencode">OpenCode</button>
+        <button class="install-tab" data-target="skill-gemini">Gemini CLI</button>
       </div>
       <div class="install-panels" id="skill-panels">
         <div class="install-panel active" id="skill-claude">
@@ -321,6 +322,11 @@ args = [
         <div class="install-panel" id="skill-opencode">
           <div class="install-code-block">
             <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills opencode</code></pre>
+          </div>
+        </div>
+        <div class="install-panel" id="skill-gemini">
+          <div class="install-code-block">
+            <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills gemini</code></pre>
           </div>
         </div>
       </div>

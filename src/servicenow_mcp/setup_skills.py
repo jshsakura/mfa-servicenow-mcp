@@ -27,6 +27,7 @@ TARGETS = {
     "claude": ".claude/commands/servicenow",
     "codex": ".codex/skills/servicenow",
     "opencode": ".opencode/skills/servicenow",
+    "gemini": ".gemini/skills/servicenow",
 }
 
 CATEGORIES = ["analyze", "fix", "manage", "deploy", "explore"]
@@ -95,6 +96,7 @@ def main() -> None:
         _print("  claude     .claude/commands/servicenow/")
         _print("  codex      .codex/skills/servicenow/")
         _print("  opencode   .opencode/skills/servicenow/")
+        _print("  gemini     .gemini/skills/servicenow/")
         _print()
         _print("Example:")
         _print("  servicenow-mcp-skills claude")
