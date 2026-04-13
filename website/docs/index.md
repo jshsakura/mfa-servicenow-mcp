@@ -20,8 +20,7 @@ social:
   <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
-      Don't script your AI.<br>
-      <span class="gradient-text">Arm it.</span>
+      Don't script your AI. <span class="gradient-text">Arm it.</span>
     </h1>
     <p class="hero-subtitle">
       Tell your AI what you need in plain language.<br>
