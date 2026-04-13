@@ -598,15 +598,17 @@ pre.install-code .c { color: var(--code-comment); }
   font-weight: 600 !important;
   font-size: .88rem !important;
   transition: all .2s ease !important;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
   text-decoration: none !important;
   box-shadow: none !important;
+  line-height: 1 !important;
 }
 .md-button svg {
   display: block;
   flex-shrink: 0;
+  vertical-align: middle;
 }
 .md-button--primary {
   background: var(--btn-bg) !important;
