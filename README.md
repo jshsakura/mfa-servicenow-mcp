@@ -61,6 +61,8 @@ Your AI will:
 
 No manual config editing. No format differences to worry about. Works on macOS, Linux, and Windows.
 
+After setup, **restart your AI client** (or reload MCP servers) to load the new configuration. A browser window will open on the first tool call for MFA login.
+
 > For manual setup, see [Prerequisites](#prerequisites) and [Quick Start](#quick-start) below.
 
 ---
