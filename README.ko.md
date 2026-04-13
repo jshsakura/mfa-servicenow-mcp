@@ -369,6 +369,9 @@ servicenow-mcp-skills codex
 # OpenCode
 servicenow-mcp-skills opencode
 
+# Gemini CLI
+servicenow-mcp-skills gemini
+
 # uvx로 설치 없이 바로 실행
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 ```
@@ -380,6 +383,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 | Claude Code | `.claude/commands/servicenow/` | 다음 시작 시 `/servicenow` 슬래시 명령으로 노출 |
 | OpenAI Codex | `.codex/skills/servicenow/` | 다음 에이전트 세션에서 로드 |
 | OpenCode | `.opencode/skills/servicenow/` | 다음 세션에서 로드 |
+| Gemini CLI | `.gemini/skills/servicenow/` | 다음 세션에서 활성화 |
 
 **동작 원리:** 각 스킬은 YAML 프론트매터(메타데이터) + 파이프라인 지시문으로 구성된 독립 Markdown 파일입니다. LLM 클라이언트가 설치 경로에서 이 파일을 읽어 호출 가능한 명령이나 스킬 트리거로 노출합니다.
 
