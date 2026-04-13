@@ -124,26 +124,30 @@ Ask the user these questions one by one. Provide defaults in brackets.
 
 ### Step 4 — Configure MCP for the client
 
-Based on `$CLIENT`, write the config file. Replace all `$VARIABLES` with collected values.
+**IMPORTANT: Always default to project-local installation.** Write config files in the user's current working directory (project root). Only use global/user-level config if the user explicitly asks for it. Each project should have its own ServiceNow instance configuration.
+
+Based on `$CLIENT`, write the config file in the current directory. Replace all `$VARIABLES` with collected values.
 
 ---
 
 #### claude-code
 
-**Option A (recommended):** Run CLI command:
+**Default: Project-local install.** Write `.mcp.json` in the current project root. This is the recommended approach — each project gets its own ServiceNow instance config.
+
+Ask the user: "Install to this project, or globally for all projects?"
+- **Project (default):** Write `.mcp.json` in the current project root
+- **Global:** Use `claude mcp add --global` or write to `~/.claude.json`
+
+If global, run:
 ```bash
-claude mcp add servicenow -- \
+claude mcp add --global servicenow -- \
   uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "$INSTANCE_URL" \
   --auth-type "$AUTH_TYPE" \
   --browser-headless "$HEADLESS"
 ```
 
-**Option B:** Ask the user: "Install to this project only, or globally?"
-- **Project:** Write `.mcp.json` in the current project root
-- **Global:** Write to `~/.claude.json` or use `claude mcp add --global`
-
-`.mcp.json` format:
+For project-local (default), write `.mcp.json`:
 ```json
 {
   "mcpServers": {
