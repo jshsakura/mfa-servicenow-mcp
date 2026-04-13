@@ -55,7 +55,7 @@ social:
 
 <div class="section" id="install" style="padding-top:48px;">
   <div class="section-inner">
-    <span class="section-label">Quick Start</span>
+    <span class="section-label">Step 1 — AI Setup</span>
     <h2 class="section-title">Just paste this. That's it.</h2>
     <p class="section-desc">
       Copy the line below into any AI coding assistant.<br>
@@ -81,7 +81,7 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <div style="margin-top:56px;">
-      <span class="section-label">Manual — Server</span>
+      <span class="section-label">Step 2 — Server</span>
       <h2 class="section-title">Or install manually</h2>
       <p class="section-desc">
         Prefer to do it yourself? Pick your OS. A real Chromium browser opens for MFA/SSO login — Okta, Entra ID, SAML all work out of the box.
@@ -151,7 +151,7 @@ servicenow-mcp \
     </div>
 
     <div style="margin-top:56px;">
-      <span class="section-label">Manual — Client</span>
+      <span class="section-label">Step 3 — Client Config</span>
       <h2 class="section-title">Paste into your AI client</h2>
       <p class="section-desc">
         Paste the config for your client. All use the same MCP server — only the format differs.
@@ -296,7 +296,7 @@ args = [
     </div>
 
     <div style="margin-top:56px;">
-      <span class="section-label">Step 2 — Skills</span>
+      <span class="section-label">Step 4 — Skills</span>
       <h2 class="section-title">Add LLM-optimized skills</h2>
       <p class="section-desc">
         Tools alone are raw API calls. Skills are what make your LLM actually useful —
