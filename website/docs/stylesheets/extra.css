@@ -89,7 +89,7 @@
 .md-dialog { border-radius: 8px !important; }
 
 /* Landing-only */
-body.landing .md-header__topic:nth-child(2) { display: none !important; }
+/* header-topic: show current section title on scroll (keep visible on landing) */
 body.landing .md-tabs { display: none !important; }
 @media (max-width: 76.1875em) {
   .md-header__title { padding-left: 0; }
