@@ -594,7 +594,7 @@ pre.install-code .c { color: var(--code-comment); }
    ============================================================ */
 .md-button {
   border-radius: 8px !important;
-  padding: 10px 24px !important;
+  padding: 12px 28px !important;
   font-weight: 600 !important;
   font-size: .88rem !important;
   transition: all .2s ease !important;
