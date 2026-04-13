@@ -436,6 +436,15 @@ pre.install-code .c { color: var(--code-comment); }
   grid-template-columns: repeat(3, 1fr);
   gap: 20px;
 }
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 24px;
+}
+@media (max-width: 600px) {
+  .feature-grid { grid-template-columns: 1fr; }
+}
 .skill-categories {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
