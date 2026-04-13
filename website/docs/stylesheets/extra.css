@@ -512,7 +512,7 @@ pre.install-code .c { color: var(--code-comment); }
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--hero-text);
-  margin-bottom: 8px;
+  margin: 0 0 8px;
   letter-spacing: -.01em;
 }
 .step-card p {
