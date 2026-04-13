@@ -56,11 +56,34 @@ social:
 
 <div class="section" id="install" style="padding-top:48px;">
   <div class="section-inner">
-    <span class="section-label">Step 1 — Server</span>
-    <h2 class="section-title">Install and connect</h2>
+    <span class="section-label">Quick Start</span>
+    <h2 class="section-title">Just paste this. That's it.</h2>
     <p class="section-desc">
-      Pick your OS. A real Chromium browser opens for MFA/SSO login — Okta, Entra ID, SAML all work out of the box.
+      Copy the line below into any AI coding assistant.<br>
+      It installs everything — uv, Playwright, MCP config, and skills — automatically.
     </p>
+    <div class="install-block">
+      <div class="install-panels">
+        <div class="install-panel active">
+          <div class="install-code-block">
+            <pre class="install-code"><code>Install and configure mfa-servicenow-mcp by following the instructions here:
+curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.7;">
+      Works with Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI, and more.<br>
+      Your AI detects the client and OS, then walks you through setup interactively.
+    </p>
+
+    <div style="margin-top:56px;">
+      <span class="section-label">Manual — Server</span>
+      <h2 class="section-title">Or install manually</h2>
+      <p class="section-desc">
+        Prefer to do it yourself? Pick your OS. A real Chromium browser opens for MFA/SSO login — Okta, Entra ID, SAML all work out of the box.
+      </p>
+    </div>
     <div class="install-block">
       <div class="install-tabs">
         <button class="install-tab active" data-target="install-mac">macOS / Linux</button>
@@ -125,7 +148,7 @@ servicenow-mcp \
     </div>
 
     <div style="margin-top:56px;">
-      <span class="section-label">Client config</span>
+      <span class="section-label">Manual — Client</span>
       <h2 class="section-title">Paste into your AI client</h2>
       <p class="section-desc">
         Paste the config for your client. All use the same MCP server — only the format differs.
