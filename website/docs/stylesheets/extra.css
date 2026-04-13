@@ -154,15 +154,13 @@ body.landing .md-footer { margin-top: 0; }
   max-width: 800px;
 }
 .hero-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: clamp(2rem, 5vw, 3.5rem);
-  font-weight: 900;
-  letter-spacing: .02em;
-  line-height: 1.15;
+  font-size: clamp(2.2rem, 5vw, 3.6rem);
+  font-weight: 800;
+  letter-spacing: -.03em;
+  line-height: 1.1;
   color: #fff !important;
   margin: 0 0 28px;
   text-shadow: 0 2px 12px rgba(0,0,0,.5);
-  text-transform: uppercase;
 }
 .hero-title .gradient-text {
   background: linear-gradient(135deg, #a5b4fc, #c084fc, #f472b6);
