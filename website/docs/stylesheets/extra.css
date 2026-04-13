@@ -154,7 +154,7 @@ body.landing .md-footer { margin-top: 0; }
   max-width: 800px;
 }
 .hero-title {
-  font-family: 'Orbit', sans-serif;
+  font-family: 'Gugi', sans-serif;
   font-size: clamp(2.4rem, 5.5vw, 4rem);
   font-weight: 400;
   letter-spacing: -.02em;
