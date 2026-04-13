@@ -305,23 +305,23 @@ args = [
     </div>
     <div class="skill-categories">
       <div class="step-card">
-        <h3>analyze/</h3>
+        <h3>🔍 analyze/</h3>
         <p>6 skills — widget analysis, portal diagnosis, dependency mapping, code detection</p>
       </div>
       <div class="step-card">
-        <h3>fix/</h3>
+        <h3>🔧 fix/</h3>
         <p>3 skills — widget patching with staged safety gates, debugging, code review</p>
       </div>
       <div class="step-card">
-        <h3>manage/</h3>
+        <h3>📦 manage/</h3>
         <p>5 skills — page layout, script includes, source export, changeset workflow</p>
       </div>
       <div class="step-card">
-        <h3>deploy/</h3>
+        <h3>🚀 deploy/</h3>
         <p>2 skills — change request lifecycle, incident triage</p>
       </div>
       <div class="step-card">
-        <h3>explore/</h3>
+        <h3>🧭 explore/</h3>
         <p>4 skills — health check, schema discovery, route tracing, ESC catalog flow</p>
       </div>
     </div>
