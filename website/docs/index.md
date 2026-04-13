@@ -416,25 +416,24 @@ args = [
       Everything you need to bridge AI agents and ServiceNow securely at scale.
     </p>
 
-<div class="grid cards" markdown>
-
--   :material-shield-lock:{ .lg .middle } __Zero-Trust Security__
-
-    Browser-based auth means credentials never leave your machine. Supports MFA, SSO, SAML, and any login flow your org uses.
-
--   :material-lightning-bolt:{ .lg .middle } __Optimized Performance__
-
-    Batch queries, connection pooling, response caching, and token-efficient JSON keep latency and API costs to a minimum.
-
--   :material-puzzle:{ .lg .middle } __Modular Skill Packages__
-
-    Incidents, Changes, Catalog, Portals, Workflows, and Scripts — load only what you need or run the full suite.
-
--   :material-robot:{ .lg .middle } __Multi-LLM Compatible__
-
-    Works with Claude, ChatGPT, Gemini, Cursor, and any client that speaks the Model Context Protocol.
-
-</div>
+    <div class="feature-grid">
+      <div class="step-card">
+        <h3>🔒 Zero-Trust Security</h3>
+        <p>Browser-based auth means credentials never leave your machine. Supports MFA, SSO, SAML, and any login flow your org uses.</p>
+      </div>
+      <div class="step-card">
+        <h3>⚡ Optimized Performance</h3>
+        <p>Batch queries, connection pooling, response caching, and token-efficient JSON keep latency and API costs to a minimum.</p>
+      </div>
+      <div class="step-card">
+        <h3>🧩 Modular Skill Packages</h3>
+        <p>Incidents, Changes, Catalog, Portals, Workflows, and Scripts — load only what you need or run the full suite.</p>
+      </div>
+      <div class="step-card">
+        <h3>🤖 Multi-LLM Compatible</h3>
+        <p>Works with Claude, ChatGPT, Gemini, Cursor, and any client that speaks the Model Context Protocol.</p>
+      </div>
+    </div>
 
   </div>
 </div>
