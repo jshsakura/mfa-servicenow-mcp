@@ -431,6 +431,40 @@ pre.install-code .c { color: var(--code-comment); }
   gap: 16px;
   margin-top: 24px;
 }
+.skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+.skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--hero-text);
+  transition: all .2s ease;
+}
+.skill-chip:hover {
+  border-color: var(--hero-sub);
+  background: var(--card-hover);
+}
+.skill-chip-icon {
+  font-size: 1rem;
+}
+.skill-chip-count {
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: .72rem;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 10px;
+}
 .step-card {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
