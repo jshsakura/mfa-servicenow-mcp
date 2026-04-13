@@ -64,10 +64,10 @@ social:
     </p>
     <div class="install-block">
       <div class="install-tabs">
-        <button class="install-tab active">Paste into your AI</button>
+        <button class="install-tab active" data-target="quick-ai">Paste into your AI</button>
       </div>
       <div class="install-panels">
-        <div class="install-panel active">
+        <div class="install-panel active" id="quick-ai">
           <div class="install-code-block">
             <pre class="install-code"><code>Install and configure mfa-servicenow-mcp by following the instructions here:
 curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md</code></pre>
