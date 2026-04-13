@@ -63,6 +63,9 @@ social:
       It installs everything — uv, Playwright, MCP config, and skills — automatically.
     </p>
     <div class="install-block">
+      <div class="install-tabs">
+        <button class="install-tab active">Paste into your AI</button>
+      </div>
       <div class="install-panels">
         <div class="install-panel active">
           <div class="install-code-block">
