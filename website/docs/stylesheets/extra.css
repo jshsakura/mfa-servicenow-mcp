@@ -432,9 +432,9 @@ pre.install-code .c { color: var(--code-comment); }
 }
 .skill-categories {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
-  margin-top: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
 }
 .skill-chips {
   display: flex;
@@ -474,7 +474,7 @@ pre.install-code .c { color: var(--code-comment); }
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 10px;
-  padding: 28px 24px;
+  padding: 20px 20px;
   transition: all .2s ease;
 }
 .step-card:hover {
