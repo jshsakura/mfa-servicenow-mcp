@@ -587,6 +587,10 @@ pre.install-code .c { color: var(--code-comment); }
   text-decoration: none !important;
   box-shadow: none !important;
 }
+.md-button svg {
+  display: block;
+  flex-shrink: 0;
+}
 .md-button--primary {
   background: var(--btn-bg) !important;
   border-color: var(--btn-bg) !important;
