@@ -457,7 +457,7 @@ args = [
     { type:"tool", text:"\u2699 servicenow_get_page", dim:" page_id=onboarding", speed:6 },
     { type:"tool", text:"\u2699 servicenow_trace_portal_route_targets", dim:" match=onboarding", speed:6 },
     { type:"pause", ms:500 },
-    { type:"success", text:"\u2713 Route resolved \u2014 4 widgets found, upstream: newEmployeeRequestWd", speed:10 }
+    { type:"success", text:"\u2713 Route resolved \u2014 4 widgets found, upstream: onboardingHeroWd", speed:10 }
   ];
   var el=document.getElementById("hero-typed-terminal");
   if(!el) return;
