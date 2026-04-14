@@ -4,7 +4,6 @@ Tests for browser-session behavior in AuthManager.
 
 import json
 import os
-import tempfile
 import time
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -619,8 +618,6 @@ class TestMakeRequest401DiskReload:
         resp_200.headers = {}
         resp_200.url = "https://example.service-now.com/api/now/table/sys_user"
 
-        call_count = 0
-
         def _mock_get_headers():
             return {
                 "Accept": "application/json",
@@ -636,7 +633,7 @@ class TestMakeRequest401DiskReload:
                 mock_request.side_effect = [resp_401, resp_401, resp_200]
 
                 with patch.object(manager, "invalidate_browser_session"):
-                    response = manager.make_request(
+                    manager.make_request(
                         "GET",
                         "https://example.service-now.com/api/now/table/sys_user",
                         timeout=10,
