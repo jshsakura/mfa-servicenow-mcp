@@ -209,7 +209,7 @@ class GetDeveloperChangesParams(BaseModel):
 @register_tool(
     name="get_developer_changes",
     params=GetDeveloperChangesParams,
-    description="List a developer's recent portal changes (widgets, providers, SI). Metadata only, no script bodies.",
+    description="List a developer's recent changes across portal tables (widgets, providers, SI). Metadata only, no bodies. Use count_only=true first.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -928,7 +928,7 @@ class GetDeveloperDailySummaryParams(BaseModel):
 @register_tool(
     name="get_developer_daily_summary",
     params=GetDeveloperDailySummaryParams,
-    description="Generate a developer's daily work summary. Returns line counts, functions, and provider links.",
+    description="Generate a developer's daily work summary for Jira/Confluence. Returns line counts, functions, providers. Supports jira/plain/structured formats.",
     serialization="raw_dict",
     return_type=dict,
 )
