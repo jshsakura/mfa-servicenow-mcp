@@ -538,11 +538,9 @@ class AuthManager:
                     # Disk had fresher cookies — adopted them, skip ping this cycle.
                     self._keepalive_consecutive_failures = 0
                     continue
-                if (
-                    self._browser_cookie_expires_at
-                    and (self._browser_cookie_expires_at - time.time())
-                    > (ttl_minutes * 60 - ping_interval * 0.3)
-                ):
+                if self._browser_cookie_expires_at and (
+                    self._browser_cookie_expires_at - time.time()
+                ) > (ttl_minutes * 60 - ping_interval * 0.3):
                     # TTL was recently extended (by another process's ping) —
                     # remaining TTL is close to full, no need to ping again.
                     logger.debug(
@@ -576,9 +574,7 @@ class AuthManager:
                         )
                         # Another terminal may have re-authenticated — try disk reload
                         if self._reload_session_from_disk():
-                            logger.info(
-                                "Keep-alive: reloaded fresher session from disk."
-                            )
+                            logger.info("Keep-alive: reloaded fresher session from disk.")
                             self._keepalive_consecutive_failures = 0
                         elif self._keepalive_consecutive_failures >= 3:
                             logger.info(
@@ -595,10 +591,7 @@ class AuthManager:
                         exc,
                     )
                     if self._keepalive_consecutive_failures >= 3:
-                        logger.info(
-                            "Keep-alive: 3 consecutive failures — "
-                            "invalidating session."
-                        )
+                        logger.info("Keep-alive: 3 consecutive failures — " "invalidating session.")
                         self.invalidate_browser_session()
                         self._keepalive_consecutive_failures = 0
 
