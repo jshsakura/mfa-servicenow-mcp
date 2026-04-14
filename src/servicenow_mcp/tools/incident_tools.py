@@ -340,7 +340,7 @@ def add_comment(
 @register_tool(
     "resolve_incident",
     params=ResolveIncidentParams,
-    description="Resolve an incident. Requires resolution_code and close_notes.",
+    description="Set incident to Resolved state. Requires resolution_code and close_notes. Use update_incident for other state changes.",
     serialization="str",
     return_type=str,
 )

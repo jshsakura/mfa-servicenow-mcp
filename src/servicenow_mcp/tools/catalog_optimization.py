@@ -64,7 +64,7 @@ class UpdateCatalogItemParams(BaseModel):
 @register_tool(
     name="get_optimization_recommendations",
     params=OptimizationRecommendationsParams,
-    description="Analyze catalog structure and suggest improvements.",
+    description="Analyze catalog structure — inactive items, low usage, abandonment, fulfillment time. Returns improvement suggestions.",
     serialization="json",
     return_type=str,
 )

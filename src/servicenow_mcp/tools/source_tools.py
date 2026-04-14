@@ -852,7 +852,7 @@ def _build_snippet(record: Dict[str, Any], fields: List[str], query: str, max_le
 @register_tool(
     "search_server_code",
     params=SearchServerCodeParams,
-    description="Search server-side scripts (SI, BR, client scripts) by keyword/regex.",
+    description="Search across 22 server-side source types (SI, BR, widget, ACL, etc.) by keyword/regex. Returns matching snippets.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -939,7 +939,7 @@ def search_server_code(
 @register_tool(
     "get_metadata_source",
     params=GetMetadataSourceParams,
-    description="Get a source record (SI, BR, widget) by name/sys_id. Metadata + truncated body.",
+    description="Get a single source record (SI, BR, widget, etc.) by name or sys_id. Returns metadata + truncated script body.",
     serialization="raw_dict",
     return_type=dict,
 )
