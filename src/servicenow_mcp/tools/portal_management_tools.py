@@ -462,7 +462,7 @@ class UpdateWidgetInstanceParams(BaseModel):
 @register_tool(
     name="get_widget_instance",
     params=GetWidgetInstanceParams,
-    description="Get widget instance placement on a page — column, order, and config parameters.",
+    description="Get widget instance placement on a page. Returns column, order, and config. Filter by page or widget.",
     serialization="raw_dict",
     return_type=dict,
 )

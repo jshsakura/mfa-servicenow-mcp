@@ -349,7 +349,7 @@ class GetUncommittedChangesParams(BaseModel):
 @register_tool(
     name="get_uncommitted_changes",
     params=GetUncommittedChangesParams,
-    description="List uncommitted update set entries for a developer. Supports count_only mode.",
+    description="List uncommitted update set entries for a developer. Returns entry type and target. Use count_only=true first.",
     serialization="raw_dict",
     return_type=dict,
 )

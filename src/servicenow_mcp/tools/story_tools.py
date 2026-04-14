@@ -345,7 +345,7 @@ def list_stories(
 @register_tool(
     name="list_story_dependencies",
     params=ListStoryDependenciesParams,
-    description="List story dependencies from ServiceNow",
+    description="List story dependencies. Returns blocking/blocked-by relationships with story details.",
     serialization="json",
     return_type=str,
 )
@@ -410,7 +410,7 @@ def list_story_dependencies(
 @register_tool(
     name="create_story_dependency",
     params=CreateStoryDependencyParams,
-    description="Create a dependency between two stories in ServiceNow",
+    description="Create a blocking dependency between two stories. Requires parent and child story sys_ids.",
     serialization="str",
     return_type=str,
 )
@@ -461,7 +461,7 @@ def create_story_dependency(
 @register_tool(
     name="delete_story_dependency",
     params=DeleteStoryDependencyParams,
-    description="Delete a story dependency in ServiceNow",
+    description="Delete a story dependency by sys_id. Irreversible.",
     serialization="str",
     return_type=str,
 )
