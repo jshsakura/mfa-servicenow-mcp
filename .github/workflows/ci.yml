@@ -238,6 +238,22 @@ jobs:
           ")"
           echo "NEXT_TAG=$next_tag" >> "$GITHUB_OUTPUT"
 
+      - name: Verify version is newer than PyPI
+        env:
+          NEXT_TAG: ${{ steps.next_tag.outputs.NEXT_TAG }}
+        run: |
+          LOCAL_VER="${NEXT_TAG#v}"
+          PYPI_VER=$(pip index versions mfa-servicenow-mcp 2>/dev/null | head -1 | grep -oP '\(\K[^)]+' || echo "0.0.0")
+          echo "Local: $LOCAL_VER, PyPI latest: $PYPI_VER"
+          pip install packaging -q
+          python3 -c "
+          from packaging.version import Version
+          local, pypi = Version('$LOCAL_VER'), Version('$PYPI_VER')
+          if local <= pypi:
+              raise SystemExit(f'BLOCKED: {local} <= PyPI {pypi}. Bump pyproject.toml version first!')
+          print(f'OK: {local} > {pypi}')
+          "
+
       - name: Push tag
         env:
           NEXT_TAG: ${{ steps.next_tag.outputs.NEXT_TAG }}
