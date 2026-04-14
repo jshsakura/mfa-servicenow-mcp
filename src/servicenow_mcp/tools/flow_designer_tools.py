@@ -180,10 +180,7 @@ def _try_flow_designer_api(
 @register_tool(
     name="list_flow_designers",
     params=ListFlowsParams,
-    description=(
-        "List Flow Designer flows with optional filters. "
-        "Returns flow name, status, active flag, scope, and trigger type."
-    ),
+    description="List Flow Designer flows with optional filters. Returns name, status, scope, and trigger type.",
     serialization="json",
     return_type=dict,
 )
@@ -236,11 +233,7 @@ def list_flows(
 @register_tool(
     name="get_flow_designer_detail",
     params=GetFlowDetailsParams,
-    description=(
-        "Get detailed information about a single Flow Designer flow. "
-        "Returns metadata by default. Use include_structure=true for "
-        "action/logic/subflow tree, include_triggers=true for trigger config."
-    ),
+    description="Get a single Flow Designer flow by sys_id. Optionally include structure tree and trigger config.",
     serialization="json",
     return_type=dict,
 )
@@ -402,11 +395,7 @@ def _fetch_flow_structure(
 @register_tool(
     name="get_flow_designer_executions",
     params=GetFlowExecutionsParams,
-    description=(
-        "Get flow execution history or a single execution detail. "
-        "Provide context_id for single execution detail. "
-        "Otherwise filter by flow name, state, source record, or errors only."
-    ),
+    description="Get flow execution history or single execution detail. Filter by name, state, or errors.",
     serialization="json",
     return_type=dict,
 )

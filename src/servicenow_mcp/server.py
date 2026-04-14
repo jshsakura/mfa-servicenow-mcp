@@ -15,6 +15,7 @@ from mcp.server.lowlevel import Server
 from pydantic import ValidationError
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.resources.skill_resources import build_tool_to_skills_map, load_skills
 from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
@@ -149,6 +150,8 @@ class ServiceNowMCP:
         self.enabled_tool_names: List[str] = []
         self.current_package_name: str = "none"
         self._tool_list_cache: List[types.Tool] | None = None
+        self._skill_entries = load_skills()
+        self._tool_to_skills = build_tool_to_skills_map()
         self._load_package_config()
         self._determine_enabled_tools()
 
@@ -196,10 +199,13 @@ class ServiceNowMCP:
                 )
 
     def _register_handlers(self):
-        """Register the list_tools and call_tool handlers."""
+        """Register the list_tools, call_tool, and resource handlers."""
         self.mcp_server.list_tools()(self._list_tools_impl)
         self.mcp_server.call_tool()(self._call_tool_impl)
-        logger.info("Registered list_tools and call_tool handlers.")
+        self.mcp_server.list_resources()(self._list_resources_impl)
+        self.mcp_server.read_resource()(self._read_resource_impl)
+        self.mcp_server.list_resource_templates()(self._list_resource_templates_impl)
+        logger.info("Registered list_tools, call_tool, and resource handlers.")
 
     def _load_package_config(self):
         """Load tool package definitions from the YAML configuration file."""
@@ -315,11 +321,56 @@ class ServiceNowMCP:
         schema_with_confirm["required"] = required
         return schema_with_confirm
 
-    @staticmethod
-    def _augment_tool_description(tool_name: str, description: str) -> str:
-        if not ServiceNowMCP._tool_requires_confirmation(tool_name):
-            return description
-        return f"{description} Requires confirm='approve' when executing a write or destructive action."
+    def _augment_tool_description(self, tool_name: str, description: str) -> str:
+        """Append confirmation notice and skill guide hint (if any) to description."""
+        if self._tool_requires_confirmation(tool_name):
+            description = f"{description} Requires confirm='approve' for write/destructive actions."
+        # Append skill guide hint — lightweight pointer, ~5 tokens.
+        # Skip generic tools referenced by 3+ skills (e.g. sn_query) — hint would be arbitrary.
+        skill_uris = self._tool_to_skills.get(tool_name)
+        if skill_uris and len(skill_uris) <= 2:
+            description = f"{description} → {skill_uris[0]}"
+        return description
+
+    # ------------------------------------------------------------------
+    # Resource handlers (skills as MCP resources)
+    # ------------------------------------------------------------------
+
+    async def _list_resources_impl(self) -> List[types.Resource]:
+        """Return all skill guides as MCP resources."""
+        resources: List[types.Resource] = []
+        for uri, name, description, category, _tools, content in self._skill_entries:
+            resources.append(
+                types.Resource(
+                    uri=uri,
+                    name=f"{category}/{name}",
+                    description=description,
+                    mimeType="text/markdown",
+                    size=len(content.encode("utf-8")),
+                )
+            )
+        return resources
+
+    async def _list_resource_templates_impl(self) -> List[types.ResourceTemplate]:
+        """Advertise the skill URI template for discovery."""
+        if not self._skill_entries:
+            return []
+        return [
+            types.ResourceTemplate(
+                uriTemplate="skill://{category}/{name}",
+                name="Skill Guide",
+                description="Workflow guide for ServiceNow operations. Pull on-demand for SOP details.",
+                mimeType="text/markdown",
+            )
+        ]
+
+    async def _read_resource_impl(self, uri) -> list:
+        """Read a single skill guide by URI."""
+        uri_str = str(uri)
+        for skill_uri, _name, _desc, _cat, _tools, content in self._skill_entries:
+            if skill_uri == uri_str:
+                return [types.TextResourceContents(uri=uri, text=content, mimeType="text/markdown")]
+        raise ValueError(f"Resource not found: {uri_str}")
 
     async def _list_tools_impl(self) -> List[types.Tool]:
         """Implementation for the list_tools MCP endpoint."""

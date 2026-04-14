@@ -199,7 +199,7 @@ def _get_auth_and_config(
 @register_tool(
     name="list_legacy_workflows",
     params=ListWorkflowsParams,
-    description="List workflows with optional filters by name, table, or active status. Returns summary with total count.",
+    description="List legacy workflows with optional name/table/active filters.",
     serialization="json",
     return_type=str,
 )
@@ -272,11 +272,7 @@ def list_workflows(
 @register_tool(
     name="get_legacy_workflow_details",
     params=GetWorkflowDetailsParams,
-    description=(
-        "Get a single workflow by sys_id with full configuration and metadata. "
-        "Use include_versions=true for version history, "
-        "include_activities=true for ordered activity list."
-    ),
+    description="Get a legacy workflow by sys_id. Optionally include version history and activity list.",
     serialization="json",
     return_type=str,
 )

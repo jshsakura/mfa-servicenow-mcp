@@ -453,12 +453,7 @@ def _scan_download_root(
 @register_tool(
     "diff_local_component",
     params=DiffLocalComponentParams,
-    description=(
-        "Compare local portal source files against remote ServiceNow. "
-        "Give a download root directory for a compact change scan across all components. "
-        "Give a specific file or widget folder for a detailed unified diff. "
-        "Never dumps full source — only diffs and status summaries."
-    ),
+    description="Compare local source files against remote ServiceNow. Returns diffs and status summaries only.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -560,11 +555,7 @@ def diff_local_component(
 @register_tool(
     "update_remote_from_local",
     params=PushLocalComponentParams,
-    description=(
-        "Push local file changes to ServiceNow. Auto-creates a snapshot of the "
-        "remote state before pushing (for rollback). Refuses if remote has been "
-        "modified since your download unless force=true."
-    ),
+    description="Push local file changes to ServiceNow. Auto-snapshots remote state before push for rollback.",
     serialization="raw_dict",
     return_type=dict,
 )

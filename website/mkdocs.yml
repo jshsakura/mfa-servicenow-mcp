@@ -101,4 +101,6 @@ nav:
   - Guides:
       - Service Catalog: docs/catalog.md
       - Change Management: docs/change_management.md
+      - Incident & Troubleshooting: docs/incident_management.md
       - Workflow & Flow Designer: docs/workflow_management.md
+      - Portal Development: docs/portal_development.md

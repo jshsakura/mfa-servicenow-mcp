@@ -79,7 +79,7 @@ class ListEpicsParams(BaseModel):
 @register_tool(
     name="create_epic",
     params=CreateEpicParams,
-    description="Create a new epic in ServiceNow",
+    description="Create an epic (rm_epic). Requires short_description. Optional: priority, state, assignment_group.",
     serialization="str",
     return_type=str,
 )
@@ -144,7 +144,7 @@ def create_epic(
 @register_tool(
     name="update_epic",
     params=UpdateEpicParams,
-    description="Update an existing epic in ServiceNow",
+    description="Update an epic by sys_id. Supports description, priority, state, and assignment fields.",
     serialization="str",
     return_type=str,
 )
@@ -209,7 +209,7 @@ def update_epic(
 @register_tool(
     name="list_epics",
     params=ListEpicsParams,
-    description="List epics from ServiceNow",
+    description="List epics with optional state/assignment_group/query filters.",
     serialization="json",
     return_type=str,
 )

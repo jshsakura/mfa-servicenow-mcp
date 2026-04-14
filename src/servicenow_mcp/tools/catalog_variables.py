@@ -248,7 +248,7 @@ def list_catalog_item_variables(
 @register_tool(
     name="update_catalog_item_variable",
     params=UpdateCatalogItemVariableParams,
-    description="Partial update of a catalog item variable by sys_id. Supports label, order, mandatory, and default value.",
+    description="Update a catalog variable by sys_id. Partial field update.",
     serialization="dict",
     return_type=dict,
 )

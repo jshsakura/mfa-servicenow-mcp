@@ -167,7 +167,7 @@ class GroupResponse(BaseModel):
 @register_tool(
     name="create_user",
     params=CreateUserParams,
-    description="Create a new user in ServiceNow",
+    description="Create a user (sys_user). Requires user_name. Optional: email, first/last name, roles.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -250,7 +250,7 @@ def create_user(
 @register_tool(
     name="update_user",
     params=UpdateUserParams,
-    description="Update an existing user in ServiceNow",
+    description="Update a user by sys_id. Supports name, email, active, department, and role fields.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -336,7 +336,7 @@ def update_user(
 @register_tool(
     name="get_user",
     params=GetUserParams,
-    description="Get a specific user in ServiceNow",
+    description="Get a user by sys_id or user_name. Returns profile, roles, and group memberships.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -394,7 +394,7 @@ def get_user(
 @register_tool(
     name="list_users",
     params=ListUsersParams,
-    description="List users in ServiceNow",
+    description="List users with optional name/email/department/active filters.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -658,7 +658,7 @@ def check_user_has_role(
 @register_tool(
     name="create_group",
     params=CreateGroupParams,
-    description="Create a new group in ServiceNow",
+    description="Create a group (sys_user_group). Requires name. Optional: manager, description, type.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -739,7 +739,7 @@ def create_group(
 @register_tool(
     name="update_group",
     params=UpdateGroupParams,
-    description="Update an existing group in ServiceNow",
+    description="Update a group by sys_id. Supports name, manager, description, and active fields.",
     serialization="raw_dict",
     return_type=dict,
 )

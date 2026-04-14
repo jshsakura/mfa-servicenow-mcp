@@ -553,7 +553,7 @@ def delete_script_include(
 @register_tool(
     name="execute_script_include",
     params=ExecuteScriptIncludeParams,
-    description="Run a client-callable script include method via GlideAjax REST. Requires client_callable=true on the SI.",
+    description="Execute a client-callable SI method via GlideAjax REST.",
     serialization="raw_dict",
     return_type=dict,
 )
