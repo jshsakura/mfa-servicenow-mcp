@@ -32,7 +32,7 @@ social:
 
 <div class="content-wrap">
 
-<div class="hero-terminal">
+<div class="hero-terminal reveal">
   <div class="hero-terminal-header">
     <div class="hero-terminal-dots">
       <span class="dot red"></span>
@@ -45,7 +45,7 @@ social:
   <div class="hero-terminal-body" id="hero-typed-terminal"></div>
 </div>
 
-<div class="section" id="install" style="padding-top:48px;">
+<div class="section reveal" id="install" style="padding-top:48px;">
   <div class="section-inner">
     <span class="section-label">빠른 시작</span>
     <h2 class="section-title">이 한 줄만 복사하세요. 끝입니다.</h2>
@@ -53,7 +53,7 @@ social:
       아래 명령어를 AI 코딩 어시스턴트에 붙여넣으세요.<br>
       uv, Playwright, MCP 설정, 스킬 설치까지 한 번에 자동으로 설정됩니다.
     </p>
-    <div class="install-block">
+    <div class="install-block reveal">
       <div class="install-tabs">
         <button class="install-tab active" data-target="quick-ai">Paste into your AI</button>
       </div>
@@ -72,14 +72,14 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       설정이 완료되면 <strong>AI 클라이언트를 재시작</strong>하여 MCP 서버를 로드하세요.
     </p>
 
-    <div style="margin-top:56px;">
+    <div style="margin-top:56px;" class="reveal">
       <span class="section-label">수동 설치 — 1단계</span>
       <h2 class="section-title">서버 설치</h2>
       <p class="section-desc">
         직접 설치를 원하시나요? 운영체제를 선택하세요. MFA/SSO 로그인을 위한 실제 Chromium 브라우저가 열리며 Okta, Entra ID, SAML 등이 모두 기본으로 지원됩니다.
       </p>
     </div>
-    <div class="install-block">
+    <div class="install-block reveal">
       <div class="install-tabs">
         <button class="install-tab active" data-target="install-mac">macOS / Linux</button>
         <button class="install-tab" data-target="install-win">Windows</button>
@@ -142,14 +142,14 @@ servicenow-mcp \
       </div>
     </div>
 
-    <div style="margin-top:56px;">
+    <div style="margin-top:56px;" class="reveal">
       <span class="section-label">수동 설치 — 2단계</span>
       <h2 class="section-title">AI 클라이언트 설정</h2>
       <p class="section-desc">
         사용 중인 클라이언트의 설정 코드를 복사해서 붙여넣으세요. 모두 같은 MCP 서버를 사용하며 포맷만 다를 뿐입니다.
       </p>
     </div>
-    <div class="install-block">
+    <div class="install-block reveal">
       <div class="install-tabs" id="mcp-tabs">
         <button class="install-tab active" data-target="mcp-claude-desktop">Claude Desktop</button>
         <button class="install-tab" data-target="mcp-claude-code">Claude Code</button>
@@ -287,7 +287,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       </div>
     </div>
 
-    <div style="margin-top:56px;">
+    <div style="margin-top:56px;" class="reveal">
       <span class="section-label">수동 설치 — 3단계</span>
       <h2 class="section-title">LLM 최적화 스킬 추가하기</h2>
       <p class="section-desc">
@@ -295,7 +295,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
         현재 20개의 스킬을 지원하며 릴리스마다 더 추가되고 있습니다.
       </p>
     </div>
-    <div class="install-block">
+    <div class="install-block reveal">
       <div class="install-tabs" id="skill-tabs">
         <button class="install-tab active" data-target="skill-claude">Claude Code</button>
         <button class="install-tab" data-target="skill-codex">Codex</button>
@@ -325,7 +325,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
         </div>
       </div>
     </div>
-    <div class="skill-categories">
+    <div class="skill-categories reveal-stagger">
       <div class="step-card">
         <h3>🔍 analyze/</h3>
         <p>6개 스킬 — 위젯 분석, 포털 진단, 의존성 매핑, 코드 감지</p>
@@ -350,7 +350,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
   </div>
 </div>
 
-<div class="hero-stats">
+<div class="hero-stats reveal">
   <div class="hero-stat">
     <span class="hero-stat-value">89+</span>
     <span class="hero-stat-label">MCP 도구(Tools)</span>
@@ -371,7 +371,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <hr class="section-divider">
 
-<div class="section">
+<div class="section reveal">
   <div class="section-inner">
     <span class="section-label">작동 방식</span>
     <h2 class="section-title">운영 환경까지 단 3단계</h2>
@@ -379,7 +379,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       설정할 API 키나 구성 파일에 넣을 비밀번호가 없습니다.
       브라우저를 통해 한 번만 인증하면 AI 에이전트가 실시간 세션을 상속받습니다.
     </p>
-    <div class="steps-grid">
+    <div class="steps-grid reveal-stagger">
       <div class="step-card">
         <div class="step-number">1</div>
         <h3>설치</h3>
@@ -401,7 +401,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <hr class="section-divider">
 
-<div class="section">
+<div class="section reveal">
   <div class="section-inner">
     <span class="section-label">주요 기능</span>
     <h2 class="section-title">엔터프라이즈 환경에 맞게 구축됨</h2>
@@ -409,7 +409,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       AI 에이전트와 ServiceNow를 대규모로 안전하게 연결하는 데 필요한 모든 것을 제공합니다.
     </p>
 
-    <div class="feature-grid">
+    <div class="feature-grid reveal-stagger">
       <div class="step-card">
         <h3>🔒 제로 트러스트 보안</h3>
         <p>브라우저 기반 인증은 자격 증명이 절대 로컬 장치를 벗어나지 않음을 의미합니다. MFA, SSO, SAML 및 조직에서 사용하는 모든 로그인 흐름을 지원합니다.</p>
@@ -433,7 +433,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <hr class="section-divider">
 
-<div class="cta-banner">
+<div class="cta-banner reveal">
   <h2>Ready to connect your AI to ServiceNow?</h2>
   <p>Get set up in under five minutes with our step-by-step guide.</p>
   <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">Read the Setup Guide</a>
@@ -443,6 +443,20 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <script>
 (function(){
+  // Intersection Observer for Reveal Animations
+  var obsOptions = { threshold: 0.1 };
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('active');
+      }
+    });
+  }, obsOptions);
+
+  document.querySelectorAll('.reveal, .reveal-stagger').forEach(function(el) {
+    observer.observe(el);
+  });
+
   var lines = [
     { type:"prompt", prompt:"$ ", text:"uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp", speed:22 },
     { type:"pause", ms:500 },
@@ -504,6 +518,31 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
         var t=document.getElementById(tab.getAttribute("data-target"));
         if(t) t.classList.add("active");
       });
+    });
+  });
+})();
+
+// --- 3D Hover Tracking for Cards ---
+(function(){
+  document.querySelectorAll('.step-card').forEach(function(card){
+    card.addEventListener('mousemove', function(e) {
+      var rect = card.getBoundingClientRect();
+      var x = e.clientX - rect.left;
+      var y = e.clientY - rect.top;
+      
+      // Calculate extreme rotation
+      var centerX = rect.width / 2;
+      var centerY = rect.height / 2;
+      var rotateX = ((y - centerY) / centerY) * -15; // Max 15deg
+      var rotateY = ((x - centerX) / centerX) * 15;
+      
+      card.style.setProperty('--mouse-x', x + 'px');
+      card.style.setProperty('--mouse-y', y + 'px');
+      card.style.transform = 'perspective(1200px) rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg) scale3d(1.05, 1.05, 1.05)';
+    });
+    
+    card.addEventListener('mouseleave', function() {
+      card.style.transform = 'perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
     });
   });
 })();
