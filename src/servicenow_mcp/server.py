@@ -44,7 +44,10 @@ MUTATING_TOOL_PREFIXES = (
     "resolve_",
     "reorder_",
     "execute_",
+    "assign_",
 )
+# Tools that need confirmation but don't match a prefix above.
+MUTATING_TOOL_NAMES = {"sn_batch"}
 
 CONFIRM_FIELD = "confirm"
 CONFIRM_VALUE = "approve"
@@ -295,7 +298,7 @@ class ServiceNowMCP:
 
     @staticmethod
     def _is_blocked_mutating_tool(tool_name: str) -> bool:
-        return tool_name.startswith(MUTATING_TOOL_PREFIXES)
+        return tool_name.startswith(MUTATING_TOOL_PREFIXES) or tool_name in MUTATING_TOOL_NAMES
 
     @staticmethod
     def _tool_requires_confirmation(tool_name: str) -> bool:
