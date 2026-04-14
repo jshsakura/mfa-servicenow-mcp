@@ -7,8 +7,8 @@ social:
 ---
 
 <meta property="og:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
-<meta property="og:title" content="MFA ServiceNow MCP — AI에게 코딩을 시키지 마세요. 무기를 쥐여주세요.">
-<meta property="og:description" content="AI에게 원하는 것을 자연어로 말하세요. 분석, 실행, 그 사이의 모든 과정은 MCP 스킬이 처리합니다.">
+<meta property="og:title" content="MFA ServiceNow MCP — Don't script your AI. Arm it.">
+<meta property="og:description" content="Tell your AI what you need in plain language. MCP Skills handle the rest — analysis, execution, and everything in between.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
 
@@ -20,15 +20,15 @@ social:
   <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
-      AI에게 코딩을 시키지 마세요. <br><span class="gradient-text">무기를 쥐여주세요.</span>
+      Don't script your AI. <br><span class="gradient-text">Arm it.</span>
     </h1>
     <p class="hero-subtitle">
-      AI에게 원하는 것을 자연어로 말하세요.
-      나머지는 MCP 스킬이 알아서 처리합니다.
+      Tell your AI what you need in plain language.
+      MCP Skills handle the rest.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
-        시작하기
+        Get Started
       </a>
       <a href="https://github.com/jshsakura/mfa-servicenow-mcp" class="md-button md-button--ghost">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
@@ -63,12 +63,12 @@ social:
     </p>
     <div class="install-block">
       <div class="install-tabs">
-        <button class="install-tab active" data-target="quick-ai">AI에 붙여넣기</button>
+        <button class="install-tab active" data-target="quick-ai">Paste into your AI</button>
       </div>
       <div class="install-panels">
         <div class="install-panel active" id="quick-ai">
           <div class="install-code-block">
-            <pre class="install-code"><code>다음 지침에 따라 mfa-servicenow-mcp를 설치하고 구성하세요:
+            <pre class="install-code"><code>Install and configure mfa-servicenow-mcp by following the instructions here:
 curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md</code></pre>
           </div>
         </div>
@@ -97,10 +97,10 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       <div class="install-panels">
         <div class="install-panel active" id="install-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># uv 설치 (아직 설치되지 않은 경우)</span>
+            <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-<span class="c"># MFA 브라우저 로그인 지원으로 실행 (Okta, Entra ID, SAML 지원)</span>
+<span class="c"># Run with MFA browser login (Okta, Entra ID, SAML supported)</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
@@ -109,10 +109,10 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
         </div>
         <div class="install-panel" id="install-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># uv 설치 (아직 설치되지 않은 경우)</span>
+            <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-<span class="c"># MFA 브라우저 로그인 지원으로 실행 (Okta, Entra ID, SAML 지원)</span>
+<span class="c"># Run with MFA browser login (Okta, Entra ID, SAML supported)</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
   --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser" `
@@ -121,11 +121,11 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
         </div>
         <div class="install-panel" id="install-pip">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 브라우저 인증 지원 버전으로 pip 설치</span>
+            <pre class="install-code"><code><span class="c"># Install with pip + browser auth support</span>
 pip install "mfa-servicenow-mcp[browser]"
 playwright install chromium
 
-<span class="c"># MFA 브라우저 로그인 지원으로 실행</span>
+<span class="c"># Run with MFA browser login</span>
 servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
@@ -134,13 +134,13 @@ servicenow-mcp \
         </div>
         <div class="install-panel" id="install-dev">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 저장소 복제 및 개발 모드로 설치</span>
+            <pre class="install-code"><code><span class="c"># Clone and install in development mode</span>
 git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
 cd mfa-servicenow-mcp
 uv pip install -e ".[browser]"
 playwright install chromium
 
-<span class="c"># MFA 브라우저 로그인 지원으로 실행</span>
+<span class="c"># Run with MFA browser login</span>
 servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
@@ -173,14 +173,13 @@ servicenow-mcp \
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser"
-      ],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -190,25 +189,19 @@ servicenow-mcp \
         </div>
         <div class="install-panel" id="mcp-claude-code">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c">// 옵션 A: CLI 명령어 한 줄</span>
-claude mcp add servicenow -- \
-  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
-
-<span class="c">// 옵션 B: 프로젝트 루트에 .mcp.json 파일 생성</span>
-{
+            <pre class="install-code"><code>{
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser"
-      ],
-      "env": { "MCP_TOOL_PACKAGE": "standard" }
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
     }
   }
 }</code></pre>
@@ -218,14 +211,16 @@ claude mcp add servicenow -- \
           <div class="install-code-block">
             <pre class="install-code"><code>[mcp_servers.servicenow]
 command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-  "--instance-url", "https://your-instance.service-now.com",
-  "--auth-type", "browser",
-  "--tool-package", "standard",
-]</code></pre>
+args = ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"]
+enabled = true
+
+[mcp_servers.servicenow.env]
+SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
+SERVICENOW_AUTH_TYPE = "browser"
+SERVICENOW_BROWSER_HEADLESS = "false"
+SERVICENOW_USERNAME = "your-username"
+SERVICENOW_PASSWORD = "your-password"
+MCP_TOOL_PACKAGE = "full"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="mcp-opencode">
@@ -243,6 +238,9 @@ args = [
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -253,19 +251,18 @@ args = [
         <div class="install-panel" id="mcp-gemini">
           <div class="install-code-block">
             <pre class="install-code"><code>{
-  "mcp": {
+  "mcpServers": {
     "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright",
-        "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
+      }
     }
   }
 }</code></pre>
@@ -285,6 +282,9 @@ args = [
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -442,9 +442,9 @@ args = [
 <hr class="section-divider">
 
 <div class="cta-banner">
-  <h2>AI를 ServiceNow에 연결할 준비가 되셨나요?</h2>
-  <p>단계별 가이드와 함께 5분 이내에 설정을 완료하세요.</p>
-  <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">설정 가이드 읽기</a>
+  <h2>Ready to connect your AI to ServiceNow?</h2>
+  <p>Get set up in under five minutes with our step-by-step guide.</p>
+  <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">Read the Setup Guide</a>
 </div>
 
 </div>
@@ -456,15 +456,15 @@ args = [
     { type:"pause", ms:500 },
     { type:"success", text:"\u2713 Authenticated with ServiceNow (MFA verified)", speed:10 },
     { type:"pause", ms:700 },
-    { type:"prompt", prompt:"Claude \u203a ", text:"\"/hr?id=onboarding 의 라우팅을 추적해줘\"", speed:26 },
+    { type:"prompt", prompt:"Claude \u203a ", text:"\"Trace the route for /hr?id=onboarding\"", speed:26 },
     { type:"pause", ms:400 },
-    { type:"thinking", text:"포털 라우팅 및 위젯 레이아웃 분석 중\u2026", speed:14 },
+    { type:"thinking", text:"Analyzing portal route and widget layout\u2026", speed:14 },
     { type:"pause", ms:250 },
     { type:"tool", text:"\u2699 servicenow_get_portal", dim:" portal_id=hr", speed:6 },
     { type:"tool", text:"\u2699 servicenow_get_page", dim:" page_id=onboarding", speed:6 },
     { type:"tool", text:"\u2699 servicenow_trace_portal_route_targets", dim:" match=onboarding", speed:6 },
     { type:"pause", ms:500 },
-    { type:"success", text:"\u2713 라우팅 확인됨 \u2014 4개 위젯 발견, 상위: onboardingHeroWd", speed:10 }
+    { type:"success", text:"\u2713 Route resolved \u2014 4 widgets found, upstream: onboardingHeroWd", speed:10 }
   ];
   var el=document.getElementById("hero-typed-terminal");
   if(!el) return;

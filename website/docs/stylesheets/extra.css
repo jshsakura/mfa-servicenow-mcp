@@ -62,7 +62,7 @@
   --code-cursor: #a1a1aa;
   --code-command: #fafafa;
   --terminal-shadow: 0 4px 6px rgba(0,0,0,.15), 0 12px 24px rgba(0,0,0,.35);
-  --grid-color: rgba(255,255,255,.05);
+  --grid-color: rgba(129,140,248,.12);
 }
 
 /* ============================================================
@@ -113,6 +113,12 @@ body.landing .content-wrap {
     linear-gradient(var(--grid-color) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
   background-size: 40px 40px;
+  position: relative;
+}
+[data-md-color-scheme="slate"] body.landing .content-wrap {
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
 }
 body.landing .md-grid { max-width: 100% !important; padding: 0 !important; }
 body.landing .md-container { margin-top: 0 !important; padding-top: 0 !important; }
