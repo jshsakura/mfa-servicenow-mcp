@@ -1698,7 +1698,7 @@ def _json_or_raw_string(value: Any) -> Any:
 @register_tool(
     "get_widget_bundle",
     params=GetWidgetBundleParams,
-    description="Fetch widget HTML, scripts, and provider list in one call.",
+    description="Fetch full widget bundle (HTML, scripts, providers) in one call. Use as analysis starting point.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1771,7 +1771,7 @@ def get_widget_bundle(
 @register_tool(
     "get_portal_component_code",
     params=GetPortalComponentParams,
-    description="Fetch specific code fields from a widget/provider/SI. Returns only requested fields.",
+    description="Fetch one or more code fields from a widget/provider/SI. Lighter than get_widget_bundle when you only need specific fields.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2056,7 +2056,7 @@ def route_portal_component_edit(
 @register_tool(
     "search_portal_regex_matches",
     params=SearchPortalRegexMatchesParams,
-    description="Regex search across widget sources (HTML/scripts/providers).",
+    description="Regex search across widget sources (HTML/scripts/providers). Supports minimal, compact, and full output modes.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2668,7 +2668,7 @@ def trace_portal_route_targets(
 @register_tool(
     "detect_angular_implicit_globals",
     params=DetectAngularImplicitGlobalsParams,
-    description="Detect undeclared variable assignments in Angular provider scripts.",
+    description="Detect undeclared variable assignments in Angular provider scripts that cause runtime 'not defined' errors.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2916,7 +2916,7 @@ def update_portal_component_from_snapshot(
 @register_tool(
     "download_portal_sources",
     params=DownloadPortalSourcesParams,
-    description="Export portal sources to local files. Filter by scope or widget.",
+    description="Export widget, provider, and SI sources to local files. Filter by scope or widget name.",
     serialization="raw_dict",
     return_type=dict,
 )
