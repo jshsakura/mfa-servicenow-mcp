@@ -13,6 +13,8 @@ tools:
   - detect_angular_implicit_globals
   - get_provider_dependency_map
   - analyze_widget_performance
+  - download_portal_sources
+  - resolve_widget_chain
 triggers:
   - "포탈 진단"
   - "포탈 건강 확인"
@@ -61,6 +63,19 @@ You are running a comprehensive portal health check. DELEGATE to sub-agent recom
 
 6. FOR EACH anti-pattern finding, INCLUDE:
    - location, line, snippet, suggested fix
+
+## Deep Dive (optional)
+
+If anti-patterns or issues found and user wants details:
+
+1. CALL download_portal_sources
+   - scope = INPUT
+   - include_linked_angular_providers = true
+   - include_linked_script_includes = true
+   → Files in ./temp/{instance}/
+
+2. READ flagged files locally to trace root cause
+3. For each issue → show exact code location + fix suggestion
 
 ## ON ERROR
 
