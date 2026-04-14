@@ -6,15 +6,7 @@ social:
   cards: false
 ---
 
-<meta property="og:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
-<meta property="og:title" content="MFA ServiceNow MCP — Don't script your AI. Arm it.">
-<meta property="og:description" content="Tell your AI what you need in plain language. MCP Skills handle the rest — analysis, execution, and everything in between.">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://jshsakura.github.io/mfa-servicenow-mcp/assets/images/banner.jpg">
-
-<link href="https://fonts.googleapis.com/css2?family=Gugi&display=swap" rel="stylesheet">
-<script>document.body.classList.add("landing");</script>
-
+<div class="landing-page">
 <div class="hero-section">
   <div class="hero-bg-img"></div>
   <div class="hero-overlay"></div>
@@ -38,8 +30,6 @@ social:
   </div>
 </div>
 
-<div class="content-wrap">
-
 <div class="hero-terminal">
   <div class="hero-terminal-header">
     <div class="hero-terminal-dots">
@@ -52,6 +42,8 @@ social:
   </div>
   <div class="hero-terminal-body" id="hero-typed-terminal"></div>
 </div>
+
+<div class="content-wrap">
 
 <div class="section" id="install" style="padding-top:48px;">
   <div class="section-inner">
@@ -517,3 +509,4 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
   });
 })();
 </script>
+</div>
