@@ -327,23 +327,23 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       </div>
     </div>
     <div class="skill-categories reveal-stagger">
-      <div class="step-card">
+      <div class="step-card" style="--i:1">
         <h3>🔍 analyze/</h3>
         <p>6 skills — widget analysis, portal diagnosis, dependency mapping, code detection</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:2">
         <h3>🔧 fix/</h3>
         <p>3 skills — widget patching with staged safety gates, debugging, code review</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
         <p>5 skills — page layout, script includes, source export, changeset workflow</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:4">
         <h3>🚀 deploy/</h3>
         <p>2 skills — change request lifecycle, incident triage</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:5">
         <h3>🧭 explore/</h3>
         <p>4 skills — health check, schema discovery, route tracing, ESC catalog flow</p>
       </div>
@@ -381,17 +381,17 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       Authenticate once through your browser, and your AI agent inherits a live session.
     </p>
     <div class="steps-grid reveal-stagger">
-      <div class="step-card">
+      <div class="step-card" style="--i:1">
         <div class="step-number">1</div>
         <h3>Install</h3>
         <p>One command with <code>uvx</code> sets everything up. Zero config.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:2">
         <div class="step-number">2</div>
         <h3>Authenticate</h3>
         <p>A real browser opens for MFA, SSO, SAML — whatever your org requires.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Connect</h3>
         <p>Point Claude, Cursor, or any MCP client. 89+ tools ready instantly.</p>
@@ -411,19 +411,19 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     </p>
 
     <div class="feature-grid reveal-stagger">
-      <div class="step-card">
+      <div class="step-card" style="--i:1">
         <h3>🔒 Zero-Trust Security</h3>
         <p>Browser-based auth means credentials never leave your machine. Supports MFA, SSO, SAML, and any login flow your org uses.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:2">
         <h3>⚡ Optimized Performance</h3>
         <p>Batch queries, connection pooling, response caching, and token-efficient JSON keep latency and API costs to a minimum.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:3">
         <h3>🧩 Modular Skill Packages</h3>
         <p>Incidents, Changes, Catalog, Portals, Workflows, and Scripts — load only what you need or run the full suite.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:4">
         <h3>🤖 Multi-LLM Compatible</h3>
         <p>Works with Claude, ChatGPT, Gemini, Cursor, and any client that speaks the Model Context Protocol.</p>
       </div>
@@ -454,7 +454,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     });
   }, obsOptions);
 
-  document.querySelectorAll('.reveal, .reveal-stagger').forEach(function(el) {
+  document.querySelectorAll('.reveal, .reveal-stagger, .reveal-left, .reveal-right').forEach(function(el) {
     observer.observe(el);
   });
 
@@ -523,27 +523,15 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
   });
 })();
 
-// --- 3D Hover Tracking for Cards ---
+// --- Hover Tracking for Cards ---
 (function(){
   document.querySelectorAll('.step-card').forEach(function(card){
     card.addEventListener('mousemove', function(e) {
       var rect = card.getBoundingClientRect();
       var x = e.clientX - rect.left;
       var y = e.clientY - rect.top;
-      
-      // Calculate extreme rotation
-      var centerX = rect.width / 2;
-      var centerY = rect.height / 2;
-      var rotateX = ((y - centerY) / centerY) * -15; // Max 15deg
-      var rotateY = ((x - centerX) / centerX) * 15;
-      
       card.style.setProperty('--mouse-x', x + 'px');
       card.style.setProperty('--mouse-y', y + 'px');
-      card.style.transform = 'perspective(1200px) rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg) scale3d(1.05, 1.05, 1.05)';
-    });
-    
-    card.addEventListener('mouseleave', function() {
-      card.style.transform = 'perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
     });
   });
 })();

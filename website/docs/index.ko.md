@@ -326,23 +326,23 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       </div>
     </div>
     <div class="skill-categories reveal-stagger">
-      <div class="step-card">
+      <div class="step-card" style="--i:1">
         <h3>🔍 analyze/</h3>
         <p>6개 스킬 — 위젯 분석, 포털 진단, 의존성 매핑, 코드 감지</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:2">
         <h3>🔧 fix/</h3>
         <p>3개 스킬 — 안전망이 있는 위젯 패치, 디버깅, 코드 리뷰</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
         <p>5개 스킬 — 페이지 레이아웃, 스크립트 인클루드, 소스 내보내기, 변경 집합(Changeset) 워크플로우</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:4">
         <h3>🚀 deploy/</h3>
         <p>2개 스킬 — 변경 요청(CR) 수명주기, 인시던트 분류</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:5">
         <h3>🧭 explore/</h3>
         <p>4개 스킬 — 상태 점검(Health check), 스키마 탐색, 라우트 추적, ESC 카탈로그 흐름</p>
       </div>
@@ -380,17 +380,17 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       브라우저를 통해 한 번만 인증하면 AI 에이전트가 실시간 세션을 상속받습니다.
     </p>
     <div class="steps-grid reveal-stagger">
-      <div class="step-card">
+      <div class="step-card" style="--i:1">
         <div class="step-number">1</div>
         <h3>설치</h3>
         <p><code>uvx</code>를 사용한 명령 한 줄로 모든 설정이 끝납니다. 제로 구성(Zero config).</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:2">
         <div class="step-number">2</div>
         <h3>인증</h3>
         <p>실제 브라우저가 열려 조직에서 요구하는 MFA, SSO, SAML을 처리합니다.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>연결</h3>
         <p>Claude, Cursor 또는 모든 MCP 클라이언트에 연결하세요. 89개 이상의 도구가 즉시 준비됩니다.</p>
@@ -410,19 +410,19 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     </p>
 
     <div class="feature-grid reveal-stagger">
-      <div class="step-card">
+      <div class="step-card" style="--i:1">
         <h3>🔒 제로 트러스트 보안</h3>
         <p>브라우저 기반 인증은 자격 증명이 절대 로컬 장치를 벗어나지 않음을 의미합니다. MFA, SSO, SAML 및 조직에서 사용하는 모든 로그인 흐름을 지원합니다.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:2">
         <h3>⚡ 최적화된 성능</h3>
         <p>배치 쿼리, 연결 풀링, 응답 캐싱 및 토큰 효율적인 JSON은 지연 시간과 API 비용을 최소화합니다.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:3">
         <h3>🧩 모듈식 스킬 패키지</h3>
         <p>인시던트, 변경 관리, 카탈로그, 포털, 워크플로우 및 스크립트 등 — 필요한 기능만 로드하거나 전체 제품군을 실행할 수 있습니다.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card" style="--i:4">
         <h3>🤖 다중 LLM 호환</h3>
         <p>Claude, ChatGPT, Gemini, Cursor 및 모델 컨텍스트 프로토콜(MCP)을 사용하는 모든 클라이언트에서 작동합니다.</p>
       </div>
@@ -453,7 +453,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     });
   }, obsOptions);
 
-  document.querySelectorAll('.reveal, .reveal-stagger').forEach(function(el) {
+  document.querySelectorAll('.reveal, .reveal-stagger, .reveal-left, .reveal-right').forEach(function(el) {
     observer.observe(el);
   });
 
@@ -522,27 +522,15 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
   });
 })();
 
-// --- 3D Hover Tracking for Cards ---
+// --- Hover Tracking for Cards ---
 (function(){
   document.querySelectorAll('.step-card').forEach(function(card){
     card.addEventListener('mousemove', function(e) {
       var rect = card.getBoundingClientRect();
       var x = e.clientX - rect.left;
       var y = e.clientY - rect.top;
-      
-      // Calculate extreme rotation
-      var centerX = rect.width / 2;
-      var centerY = rect.height / 2;
-      var rotateX = ((y - centerY) / centerY) * -15; // Max 15deg
-      var rotateY = ((x - centerX) / centerX) * 15;
-      
       card.style.setProperty('--mouse-x', x + 'px');
       card.style.setProperty('--mouse-y', y + 'px');
-      card.style.transform = 'perspective(1200px) rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg) scale3d(1.05, 1.05, 1.05)';
-    });
-    
-    card.addEventListener('mouseleave', function() {
-      card.style.transform = 'perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
     });
   });
 })();
