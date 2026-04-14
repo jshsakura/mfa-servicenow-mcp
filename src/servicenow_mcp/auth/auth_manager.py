@@ -462,8 +462,12 @@ class AuthManager:
                 self._keepalive_stop_event.wait(ping_interval)
                 if self._keepalive_stop_event.is_set():
                     break
-                # Only ping if we have a valid session
+                # Only ping if we have a valid session outside grace period
                 if not self._browser_cookie_header or self._is_browser_session_expired():
+                    continue
+                if self._browser_last_login_at is not None and (
+                    time.time() - self._browser_last_login_at
+                ) < self._browser_post_login_grace_seconds:
                     continue
                 try:
                     probe = self._probe_browser_api_with_cookie(
