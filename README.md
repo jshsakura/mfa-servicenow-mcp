@@ -142,7 +142,7 @@ Each project can connect to a different ServiceNow instance. Set the config in y
 | Claude Desktop | `claude_desktop_config.json` | JSON (`mcpServers`) |
 | Claude Code | `.mcp.json` or `claude mcp add` | JSON / CLI |
 | OpenCode | `opencode.json` | JSON (`mcp`, uses `environment`) |
-| OpenAI Codex | `.codex/agents.toml` | TOML |
+| OpenAI Codex (CLI & App) | `~/.codex/config.toml` | TOML |
 | AntiGravity | `mcp_config.json` | JSON (`mcpServers`) |
 | Gemini / Vertex AI | project config | JSON (`mcp`) |
 | Docker | — | Environment variables |

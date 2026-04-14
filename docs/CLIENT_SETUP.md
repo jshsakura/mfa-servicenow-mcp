@@ -107,9 +107,11 @@ Config file: `opencode.json` in project root.
 
 ---
 
-## OpenAI Codex
+## OpenAI Codex (CLI & App)
 
-Config file: `~/.codex/agents.toml` or `.codex/agents.toml` in project root.
+Config file: `~/.codex/config.toml` (user-level) or `.codex/config.toml` (project-local, trusted projects only).
+
+Both **Codex CLI** (`codex` command) and **Codex App** (chatgpt.com/codex) read from the same `config.toml`.
 
 ```toml
 [mcp_servers.servicenow]
