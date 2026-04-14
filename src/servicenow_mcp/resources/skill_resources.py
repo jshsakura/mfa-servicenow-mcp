@@ -86,9 +86,9 @@ def _find_skills_dir() -> Path | None:
         candidates = []
 
     # 2. Repo-relative fallback
-    repo_skills = Path(os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "..", "skills")
-    ))
+    repo_skills = Path(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "skills"))
+    )
     candidates.append(repo_skills)
 
     for p in candidates:
