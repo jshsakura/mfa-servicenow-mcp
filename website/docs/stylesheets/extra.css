@@ -192,7 +192,6 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  z-index: 1;
 }
 .hero-bg-img {
   position: absolute;
@@ -297,7 +296,6 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   margin: 0 auto;
   padding: 0 calc((100% - 1200px) / 2 + 48px);
   position: relative;
-  z-index: 2;
 }
 @media (max-width: 1296px) {
   .content-wrap { padding: 0 48px; }
