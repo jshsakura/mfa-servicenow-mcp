@@ -2,7 +2,7 @@
 
 Detailed setup for each MCP client. All clients use the same MCP server — only the config format differs.
 
-> **Credentials**: `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` are optional. They prefill the browser login form for MFA/SSO. On Windows, set these as system environment variables instead of config files.
+> **`args` is for the package only** — instance URL, auth, credentials all go in `env` (or `environment`). This keeps args clean and makes it easy to swap instances per project.
 
 > **Project-local recommended**: Use project-scoped config so each project can connect to a different ServiceNow instance.
 
@@ -20,15 +20,11 @@ Detailed setup for each MCP client. All clients use the same MCP server — only
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
@@ -49,32 +45,16 @@ Detailed setup for each MCP client. All clients use the same MCP server — only
 | Global | `~/.claude.json` |
 | Project | `.mcp.json` in project root |
 
-### Option A: CLI (adds to project config)
-
-```bash
-claude mcp add servicenow -- \
-  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
-```
-
-### Option B: `.mcp.json` in project root
-
 ```json
 {
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser",
-        "--browser-headless", "false"
-      ],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
@@ -98,12 +78,7 @@ Both **Codex CLI** (`codex` command) and **Codex App** (chatgpt.com/codex) read 
 ```toml
 [mcp_servers.servicenow]
 command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-  "--tool-package", "full"
-]
+args = ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"]
 enabled = true
 
 [mcp_servers.servicenow.env]
@@ -112,6 +87,7 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
+MCP_TOOL_PACKAGE = "full"
 ```
 
 ---
@@ -122,7 +98,7 @@ SERVICENOW_PASSWORD = "your-password"
 |-------|------|
 | Project | `opencode.json` in project root |
 
-> OpenCode uses `environment` (not `env`) and supports `$schema`.
+> OpenCode uses `environment` (not `env`).
 
 ```json
 {
@@ -130,9 +106,7 @@ SERVICENOW_PASSWORD = "your-password"
   "mcp": {
     "servicenow": {
       "type": "local",
-      "command": [
-        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
+      "command": ["uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "enabled": true,
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -140,8 +114,6 @@ SERVICENOW_PASSWORD = "your-password"
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
-        "SERVICENOW_BROWSER_TIMEOUT": "120",
-        "SERVICENOW_BROWSER_SESSION_TTL": "30",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -163,11 +135,7 @@ SERVICENOW_PASSWORD = "your-password"
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
@@ -197,11 +165,7 @@ SERVICENOW_PASSWORD = "your-password"
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
