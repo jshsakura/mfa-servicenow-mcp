@@ -3208,9 +3208,9 @@ def download_portal_sources(
 # ---------------------------------------------------------------------------
 
 MAX_CHAIN_DEPTH = 3
-MAX_CHAIN_WIDGETS = 5
-MAX_CHAIN_PROVIDERS = 20
-MAX_CHAIN_SI = 10
+MAX_CHAIN_WIDGETS = 15
+MAX_CHAIN_PROVIDERS = 50
+MAX_CHAIN_SI = 30
 MAX_SOURCE_CHARS_PER_FIELD = 15000
 
 
@@ -3450,3 +3450,340 @@ def _extract_si_refs_from_script(script: str) -> Set[str]:
     for m in _SI_GETAPPFUNCTION_PATTERN.finditer(script):
         refs.add(m.group(1))
     return refs
+
+
+# ---------------------------------------------------------------------------
+# Page-level deep resolve: all widgets + shared dependencies in one call
+# ---------------------------------------------------------------------------
+
+
+class ResolvePageDependenciesParams(BaseModel):
+    """Parameters for page-level dependency resolution."""
+
+    page_id: str = Field(
+        ...,
+        description="Page sys_id or URL path (e.g. 'index', 'form', 'kb_view')",
+    )
+    depth: int = Field(
+        default=3,
+        description="1=widgets only, 2=+providers, 3=+script includes",
+    )
+    include_fields: List[str] = Field(
+        default=["script", "client_script", "template"],
+        description="Widget source fields to include",
+    )
+    max_source_length: int = Field(
+        default=MAX_SOURCE_CHARS_PER_FIELD,
+        description="Max chars per source field. 0=unlimited.",
+    )
+    save_to_disk: bool = Field(
+        default=False,
+        description="Save sources + dependency map to ./temp/{instance}/ for local analysis",
+    )
+
+
+@register_tool(
+    "resolve_page_dependencies",
+    params=ResolvePageDependenciesParams,
+    description=(
+        "Resolve ALL widgets on a page with full dependency chains in one call. "
+        "Deduplicates shared providers/SIs. Use for multi-widget cross-component analysis."
+    ),
+    serialization="raw_dict",
+    return_type=dict,
+)
+def resolve_page_dependencies(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ResolvePageDependenciesParams,
+) -> Dict[str, Any]:
+    """Page → all widgets → providers → script includes with deduplication."""
+    from .portal_management_tools import GetPageParams, get_page
+
+    depth = min(max(1, params.depth), MAX_CHAIN_DEPTH)
+    max_src = params.max_source_length
+    api_calls = 0
+    warnings: List[str] = []
+
+    # --- Step 1: Get page layout to find all widget instances ---
+    try:
+        page_result = get_page(
+            config,
+            auth_manager,
+            GetPageParams(page_id=params.page_id, include_layout=True),
+        )
+        api_calls += 1
+    except Exception as exc:
+        return {"success": False, "error": f"Failed to get page: {exc}"}
+
+    if not page_result.get("success"):
+        return {"success": False, "error": f"Page '{params.page_id}' not found."}
+
+    # Extract widget sys_ids from layout tree
+    page_data = page_result.get("page", {})
+    widget_ids: List[str] = []
+    widget_names: Dict[str, str] = {}  # sys_id → name
+
+    def _walk_layout(node: Any) -> None:
+        if isinstance(node, dict):
+            w_id = node.get("widget_sys_id") or node.get("widget", {}).get("sys_id")
+            w_name = node.get("widget_name") or node.get("widget", {}).get("name", "")
+            if w_id and w_id not in widget_ids:
+                widget_ids.append(w_id)
+                if w_name:
+                    widget_names[w_id] = w_name
+            for v in node.values():
+                _walk_layout(v)
+        elif isinstance(node, list):
+            for item in node:
+                _walk_layout(item)
+
+    _walk_layout(page_data.get("layout", {}))
+    # Also check direct instances list
+    for inst in page_result.get("instances", []):
+        w_id = inst.get("widget_sys_id") or inst.get("widget", "")
+        w_name = inst.get("widget_name", "")
+        if w_id and w_id not in widget_ids:
+            widget_ids.append(w_id)
+            if w_name:
+                widget_names[w_id] = w_name
+
+    if not widget_ids:
+        return {
+            "success": True,
+            "page": page_data.get("title", params.page_id),
+            "widgets": [],
+            "message": "No widgets found on this page.",
+            "api_calls": api_calls,
+        }
+
+    widget_ids = widget_ids[:MAX_CHAIN_WIDGETS]
+
+    # --- Step 2: Fetch all widgets with source ---
+    widget_fields = ["sys_id", "name", "id", "sys_scope", "sys_updated_on"]
+    widget_fields.extend(f for f in params.include_fields if f not in widget_fields)
+
+    try:
+        w_resp = sn_query(
+            config,
+            auth_manager,
+            GenericQueryParams(
+                table=WIDGET_TABLE,
+                query=f"sys_idIN{','.join(widget_ids)}",
+                fields=",".join(widget_fields),
+                limit=MAX_CHAIN_WIDGETS,
+                offset=0,
+                display_value=False,
+            ),
+        )
+        api_calls += 1
+    except Exception as exc:
+        return {"success": False, "error": f"Failed to fetch widgets: {exc}"}
+
+    widgets = w_resp.get("results", [])
+    for w in widgets:
+        for f in params.include_fields:
+            if f in w and isinstance(w[f], str):
+                w[f] = _truncate_source(w[f], max_src)
+
+    result: Dict[str, Any] = {
+        "page": page_data.get("title", params.page_id),
+        "page_url": page_data.get("id", params.page_id),
+        "widgets": widgets,
+        "providers": [],
+        "script_includes": [],
+        "dependency_map": {},
+        "api_calls": api_calls,
+    }
+
+    if depth < 2:
+        result["success"] = True
+        return result
+
+    # --- Step 3: Fetch ALL providers for ALL widgets (deduplicated) ---
+    all_widget_sys_ids = [w["sys_id"] for w in widgets if w.get("sys_id")]
+    widget_to_providers: Dict[str, List[str]] = {}  # widget_sys_id → [provider_sys_ids]
+
+    if all_widget_sys_ids:
+        try:
+            m2m_resp = sn_query(
+                config,
+                auth_manager,
+                GenericQueryParams(
+                    table=ANGULAR_PROVIDER_M2M_TABLE,
+                    query=f"sp_widgetIN{','.join(all_widget_sys_ids)}",
+                    fields="sp_widget,sp_angular_provider",
+                    limit=500,
+                    offset=0,
+                    display_value=False,
+                ),
+            )
+            api_calls += 1
+        except Exception as exc:
+            warnings.append(f"Failed to fetch provider M2M: {exc}")
+            m2m_resp = {"results": []}
+
+        all_provider_ids: Set[str] = set()
+        for row in m2m_resp.get("results", []):
+            w_id = _as_ref_sys_id(row.get("sp_widget"))
+            p_id = _as_ref_sys_id(row.get("sp_angular_provider"))
+            if w_id and p_id:
+                widget_to_providers.setdefault(w_id, []).append(p_id)
+                all_provider_ids.add(p_id)
+
+        # Fetch unique providers in one batch
+        if all_provider_ids:
+            provider_id_list = sorted(all_provider_ids)[:MAX_CHAIN_PROVIDERS]
+            try:
+                prov_resp = sn_query(
+                    config,
+                    auth_manager,
+                    GenericQueryParams(
+                        table=ANGULAR_PROVIDER_TABLE,
+                        query=f"sys_idIN{','.join(provider_id_list)}",
+                        fields="sys_id,name,type,script,client_script",
+                        limit=MAX_CHAIN_PROVIDERS,
+                        offset=0,
+                        display_value=False,
+                    ),
+                )
+                api_calls += 1
+            except Exception as exc:
+                warnings.append(f"Failed to fetch providers: {exc}")
+                prov_resp = {"results": []}
+
+            for prov in prov_resp.get("results", []):
+                if "script" in prov and isinstance(prov["script"], str):
+                    prov["script"] = _truncate_source(prov["script"], max_src)
+                if "client_script" in prov and isinstance(prov["client_script"], str):
+                    prov["client_script"] = _truncate_source(prov["client_script"], max_src)
+                result["providers"].append(prov)
+
+    if depth < 3:
+        result["success"] = True
+        result["dependency_map"] = _build_dep_map(widgets, widget_to_providers, result["providers"])
+        if warnings:
+            result["warnings"] = warnings
+        return result
+
+    # --- Step 4: Extract SI refs from ALL scripts (deduplicated) ---
+    si_names: Set[str] = set()
+    for w in widgets:
+        ws = w.get("script", "")
+        if ws:
+            si_names.update(_extract_si_refs_from_script(ws))
+    for prov in result["providers"]:
+        ps = prov.get("script", "")
+        if ps:
+            si_names.update(_extract_si_refs_from_script(ps))
+
+    if si_names:
+        si_list = sorted(si_names)[:MAX_CHAIN_SI]
+        try:
+            si_resp = sn_query(
+                config,
+                auth_manager,
+                GenericQueryParams(
+                    table="sys_script_include",
+                    query="nameIN" + ",".join(si_list),
+                    fields="sys_id,name,api_name,script,client_callable",
+                    limit=MAX_CHAIN_SI,
+                    offset=0,
+                    display_value=False,
+                ),
+            )
+            api_calls += 1
+        except Exception as exc:
+            warnings.append(f"Failed to fetch script includes: {exc}")
+            si_resp = {"results": []}
+
+        for si in si_resp.get("results", []):
+            if "script" in si and isinstance(si["script"], str):
+                si["script"] = _truncate_source(si["script"], max_src)
+            result["script_includes"].append(si)
+
+    result["api_calls"] = api_calls
+    result["dependency_map"] = _build_dep_map(
+        widgets, widget_to_providers, result["providers"], result["script_includes"]
+    )
+    result["success"] = True
+    result["summary"] = (
+        f"Page '{result['page']}': {len(widgets)} widgets, "
+        f"{len(result['providers'])} providers (deduplicated), "
+        f"{len(result['script_includes'])} script includes in {api_calls} API calls"
+    )
+    if warnings:
+        result["warnings"] = warnings
+
+    # --- Optional: save to disk for local deep analysis ---
+    if params.save_to_disk:
+        instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+        out_dir = Path.cwd() / "temp" / instance_name / _safe_name(result["page_url"])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        _write_json_file(out_dir / "_dependency_map.json", result["dependency_map"])
+        for w in widgets:
+            w_dir = out_dir / "sp_widget" / _safe_name(w.get("name") or w.get("sys_id", ""))
+            w_dir.mkdir(parents=True, exist_ok=True)
+            for field in params.include_fields:
+                if w.get(field):
+                    ext = {"template": "html", "css": "css", "link": "scss"}.get(field, "js")
+                    _write_text_file(w_dir / f"{field}.{ext}", str(w[field]))
+        for prov in result["providers"]:
+            p_dir = out_dir / "sp_angular_provider"
+            p_dir.mkdir(parents=True, exist_ok=True)
+            if prov.get("script"):
+                _write_text_file(
+                    p_dir / f"{_safe_name(prov.get('name', prov.get('sys_id', '')))}.js",
+                    str(prov["script"]),
+                )
+        for si in result["script_includes"]:
+            si_dir = out_dir / "sys_script_include"
+            si_dir.mkdir(parents=True, exist_ok=True)
+            if si.get("script"):
+                _write_text_file(
+                    si_dir / f"{_safe_name(si.get('name', si.get('sys_id', '')))}.js",
+                    str(si["script"]),
+                )
+        result["saved_to"] = str(out_dir)
+
+    return result
+
+
+def _build_dep_map(
+    widgets: List[Dict],
+    widget_to_providers: Dict[str, List[str]],
+    providers: List[Dict],
+    script_includes: List[Dict] | None = None,
+) -> Dict[str, Any]:
+    """Build a human-readable dependency map for the LLM."""
+    prov_by_id = {p["sys_id"]: p.get("name", p["sys_id"]) for p in providers}
+    si_names = [si.get("name", si.get("sys_id", "")) for si in (script_includes or [])]
+
+    dep_map: Dict[str, Any] = {"widgets": {}, "shared_providers": {}, "script_includes": si_names}
+
+    # Widget → provider connections
+    provider_usage_count: Dict[str, int] = {}
+    for w in widgets:
+        w_id = w.get("sys_id", "")
+        w_name = w.get("name", w.get("id", w_id))
+        prov_ids = widget_to_providers.get(w_id, [])
+        prov_names = [prov_by_id.get(pid, pid) for pid in prov_ids]
+        dep_map["widgets"][w_name] = {"providers": prov_names}
+        for pid in prov_ids:
+            provider_usage_count[pid] = provider_usage_count.get(pid, 0) + 1
+
+    # Shared providers (used by 2+ widgets)
+    for pid, count in provider_usage_count.items():
+        if count >= 2:
+            name = prov_by_id.get(pid, pid)
+            dep_map["shared_providers"][name] = {
+                "used_by_widgets": count,
+                "widgets": [
+                    w.get("name", w.get("id", w.get("sys_id", "")))
+                    for w in widgets
+                    if w.get("sys_id", "") in widget_to_providers
+                    and pid in widget_to_providers[w["sys_id"]]
+                ],
+            }
+
+    return dep_map
