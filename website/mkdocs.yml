@@ -50,11 +50,42 @@ extra_css:
 # Plugins for enhanced beauty and functionality
 plugins:
   - search
+  - i18n:
+      default_language: en
+      languages:
+        en:
+          name: English
+          build: true
+        ko:
+          name: 한국어
+          build: true
+          nav_translations:
+            Home: 홈
+            Getting Started: 시작하기
+            Client Setup: 클라이언트 설정
+            Windows Installation: 윈도우 설치
+            Features & Tools: 기능 및 도구
+            Tool Inventory: 도구 인벤토리
+            Guides: 가이드
+            Service Catalog: 서비스 카탈로그
+            Change Management: 변경 관리
+            Incident & Troubleshooting: 인시던트 및 문제 해결
+            Workflow & Flow Designer: 워크플로우 및 플로우 디자이너
+            Portal Development: 포털 개발
   - social:
       cards_layout_options:
         font_family: Roboto
         background_color: "#18181b"
         color: "#fafafa"
+
+extra:
+  alternate:
+    - name: English
+      link: /mfa-servicenow-mcp/
+      lang: en
+    - name: 한국어
+      link: /mfa-servicenow-mcp/ko/
+      lang: ko
 
 repo_name: jshsakura/mfa-servicenow-mcp
 repo_url: https://github.com/jshsakura/mfa-servicenow-mcp
@@ -92,7 +123,6 @@ hooks:
 # Navigation structure - mapping to existing docs
 nav:
   - Home: index.md
-  - 한국어: ko.md
   - Getting Started:
       - Client Setup: docs/CLIENT_SETUP.md
       - Windows Installation: docs/WINDOWS_INSTALL.md
