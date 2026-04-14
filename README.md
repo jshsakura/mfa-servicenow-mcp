@@ -151,12 +151,15 @@ Each project can connect to a different ServiceNow instance. Set the config in y
 | Client | Project Config | Global Config | Format |
 |--------|---------------|--------------|--------|
 | Claude Code | `.mcp.json` | `~/.claude.json` | JSON |
+| Cursor | `.cursor/mcp.json` | *Project only* | JSON |
+| VS Code (Copilot) | `.vscode/mcp.json` | *Project only* | JSON |
 | OpenAI Codex | `.codex/config.toml` | `~/.codex/config.toml` | TOML |
 | Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | JSON |
-| OpenCode | `opencode.json` | ⬜ | JSON |
-| Claude Desktop | ⬜ | `claude_desktop_config.json` | JSON |
-| AntiGravity | ⬜ | `~/.gemini/antigravity/mcp_config.json` | JSON |
-| Docker | ⬜ | ⬜ | Env vars |
+| OpenCode | `opencode.json` | *Project only* | JSON |
+| Windsurf | *Global only* | `~/.codeium/windsurf/mcp_config.json` | JSON |
+| Claude Desktop | *Global only* | `claude_desktop_config.json` | JSON |
+| AntiGravity | *Global only* | `~/.gemini/antigravity/mcp_config.json` | JSON |
+| Docker | *Env vars only* | *Env vars only* | Env vars |
 
 Copy-paste configs for each client: **[Client Setup Guide](docs/CLIENT_SETUP.md)**
 
