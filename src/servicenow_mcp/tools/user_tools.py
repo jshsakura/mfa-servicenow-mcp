@@ -461,7 +461,7 @@ def list_users(
 @register_tool(
     name="list_groups",
     params=ListGroupsParams,
-    description="List groups from ServiceNow with optional filtering",
+    description="List groups with optional name/type/active filters. Returns group details and member count.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -810,7 +810,7 @@ def update_group(
 @register_tool(
     name="add_group_members",
     params=AddGroupMembersParams,
-    description="Add members to an existing group in ServiceNow",
+    description="Add one or more users to a group. Requires group sys_id and user sys_ids.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -888,7 +888,7 @@ def add_group_members(
 @register_tool(
     name="remove_group_members",
     params=RemoveGroupMembersParams,
-    description="Remove members from an existing group in ServiceNow",
+    description="Remove one or more users from a group. Requires group sys_id and user sys_ids.",
     serialization="raw_dict",
     return_type=dict,
 )

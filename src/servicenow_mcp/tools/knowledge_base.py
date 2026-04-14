@@ -165,7 +165,7 @@ class ListCategoriesParams(BaseModel):
 @register_tool(
     "create_knowledge_base",
     params=CreateKnowledgeBaseParams,
-    description="Create a knowledge base. Requires title.",
+    description="Create a knowledge base (kb_knowledge_base). Requires title. Returns sys_id.",
     serialization="json_dict",
     return_type=str,
 )
@@ -347,7 +347,7 @@ def list_knowledge_bases(
 @register_tool(
     "create_category",
     params=CreateCategoryParams,
-    description="Create a KB category. Requires kb_id and label.",
+    description="Create a KB category under a knowledge base. Requires kb_id and label.",
     serialization="json_dict",
     return_type=str,
 )
@@ -497,7 +497,7 @@ def create_article(
 @register_tool(
     "update_article",
     params=UpdateArticleParams,
-    description="Update a KB article by sys_id.",
+    description="Update a KB article by sys_id. Supports title, text, category, and workflow_state fields.",
     serialization="json_dict",
     return_type=str,
 )
