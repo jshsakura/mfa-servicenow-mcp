@@ -4,11 +4,16 @@ Detailed setup for each MCP client. All clients use the same MCP server — only
 
 > **Credentials**: `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` are optional. They prefill the browser login form for MFA/SSO. On Windows, set these as system environment variables instead of config files.
 
+> **Project-local recommended**: Use project-scoped config so each project can connect to a different ServiceNow instance.
+
 ---
 
 ## Claude Desktop
 
-Config file: `claude_desktop_config.json`
+| Scope | Path |
+|-------|------|
+| Global | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) |
+| Global | `%APPDATA%\Claude\claude_desktop_config.json` (Windows) |
 
 ```json
 {
@@ -33,11 +38,18 @@ Config file: `claude_desktop_config.json`
 }
 ```
 
+> Claude Desktop does not support project-local config. Use Claude Code for per-project setup.
+
 ---
 
 ## Claude Code
 
-### Option A: CLI (one command)
+| Scope | Path |
+|-------|------|
+| Global | `~/.claude.json` |
+| Project | `.mcp.json` in project root |
+
+### Option A: CLI (adds to project config)
 
 ```bash
 claude mcp add servicenow -- \
@@ -74,9 +86,38 @@ claude mcp add servicenow -- \
 
 ---
 
+## OpenAI Codex (CLI & App)
+
+Both **Codex CLI** (`codex` command) and **Codex App** (chatgpt.com/codex) read from the same `config.toml`.
+
+| Scope | Path | Note |
+|-------|------|------|
+| Global | `~/.codex/config.toml` | Shared across all projects |
+| Project | `.codex/config.toml` | Overrides global (trusted projects only) |
+
+```toml
+[mcp_servers.servicenow]
+command = "uvx"
+args = [
+  "--with", "playwright",
+  "--from", "mfa-servicenow-mcp",
+  "servicenow-mcp",
+  "--instance-url", "https://your-instance.service-now.com",
+  "--auth-type", "browser",
+  "--browser-headless", "false",
+  "--browser-username", "your.username",
+  "--browser-password", "your-password",
+  "--tool-package", "standard",
+]
+```
+
+---
+
 ## OpenCode
 
-Config file: `opencode.json` in project root.
+| Scope | Path |
+|-------|------|
+| Project | `opencode.json` in project root |
 
 > OpenCode uses `environment` (not `env`) and supports `$schema`.
 
@@ -107,40 +148,12 @@ Config file: `opencode.json` in project root.
 
 ---
 
-## OpenAI Codex (CLI & App)
+## Gemini CLI
 
-Both **Codex CLI** (`codex` command) and **Codex App** (chatgpt.com/codex) read from the same `config.toml`.
-
-| Scope | Path | Note |
-|-------|------|------|
-| Global | `~/.codex/config.toml` | Shared across all projects |
-| Project | `.codex/config.toml` | Overrides global (trusted projects only) |
-
-```toml
-[mcp_servers.servicenow]
-command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-  "--instance-url", "https://your-instance.service-now.com",
-  "--auth-type", "browser",
-  "--browser-headless", "false",
-  "--browser-username", "your.username",
-  "--browser-password", "your-password",
-  "--tool-package", "standard",
-]
-```
-
----
-
-## AntiGravity
-
-Config file:
-- **macOS / Linux:** `~/.gemini/antigravity/mcp_config.json`
-- **Windows:** `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
-
-> Edit via agent panel: **...** → **Manage MCP Servers** → **View raw config**. Click **Refresh** after saving.
+| Scope | Path |
+|-------|------|
+| Global | `~/.gemini/settings.json` |
+| Project | `.gemini/settings.json` in project root |
 
 ```json
 {
@@ -167,15 +180,24 @@ Config file:
 
 ---
 
-## Gemini / Vertex AI
+## AntiGravity
+
+| Scope | Path |
+|-------|------|
+| Global | `~/.gemini/antigravity/mcp_config.json` (macOS/Linux) |
+| Global | `%USERPROFILE%\.gemini\antigravity\mcp_config.json` (Windows) |
+
+> Edit via agent panel: **...** > **Manage MCP Servers** > **View raw config**. Click **Refresh** after saving.
 
 ```json
 {
-  "mcp": {
+  "mcpServers": {
     "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"
+      "command": "uvx",
+      "args": [
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp"
       ],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -184,8 +206,7 @@ Config file:
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
+      }
     }
   }
 }
