@@ -118,6 +118,7 @@ body:has(.landing-page) .content-wrap {
     linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
   background-size: 40px 40px;
   position: relative;
+  clear: both;
 }
 body:has(.landing-page) .content-wrap::before {
   display: none;
@@ -193,23 +194,23 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  min-height: 85vh; /* Decisive height to see Gandalf */
 }
 .hero-bg-img {
   position: absolute;
   inset: 0;
   background: url("../assets/images/banner.jpg") center center / cover no-repeat;
+  z-index: 1;
 }
 .hero-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,.46);
+  display: none; /* Removed as requested */
 }
 .hero-content {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   text-align: center;
-  padding: 120px 24px 240px;
-  max-width: 800px;
+  padding: 100px 24px 300px; /* Strong bottom padding */
+  max-width: 900px;
 }
 .hero-title {
   font-family: 'Gugi', sans-serif;
@@ -225,7 +226,7 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
 @media (min-width: 1024px) {
   .hero-content {
     max-width: 940px;
-    padding: 138px 24px 260px;
+    padding: 138px 24px 300px;
   }
   .hero-title {
     font-size: clamp(4.4rem, 6.2vw, 5.8rem);
@@ -290,41 +291,24 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
 }
 
 /* ============================================================
-   CONTENT WRAP
-   ============================================================ */
-.content-wrap {
-  max-width: 100%;
-  margin: 0 auto;
-  padding: 0 calc((100% - 1200px) / 2 + 48px);
-  position: relative;
-}
-@media (max-width: 1296px) {
-  .content-wrap { padding: 0 48px; }
-}
-
-/* ============================================================
-   TERMINAL — theme-aware
+   TERMINAL — theme-aware, floated
    ============================================================ */
 .hero-terminal {
-  width: 100%;
-  margin-top: -120px;
   position: relative;
-  z-index: 3;
+  width: 65%; /* decisively wide */
+  float: left;
+  margin-left: 48px;
+  margin-top: -190px; /* decisively pulled up */
+  z-index: 10;
   background: var(--code-bg);
   border-radius: 12px;
   border: 1px solid rgba(0,0,0,.06);
   box-shadow: var(--terminal-shadow);
   overflow: hidden;
+  clear: both;
 }
 [data-md-color-scheme="slate"] .hero-terminal {
   border-color: rgba(255,255,255,.08);
-}
-.hero-terminal::before {
-  display: none;
-}
-.content-wrap > * {
-  position: relative;
-  z-index: 1;
 }
 .hero-terminal-header {
   background: var(--code-header-bg);
@@ -332,18 +316,13 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: none;
 }
 .hero-terminal-dots { display: flex; gap: 6px; }
 .hero-terminal-dots .dot {
   width: 10px; height: 10px;
   border-radius: 50%;
   background: var(--code-dim);
-  transition: background .2s;
 }
-.hero-terminal:hover .dot.red { background: #f38ba8; }
-.hero-terminal:hover .dot.yellow { background: #f9e2af; }
-.hero-terminal:hover .dot.green { background: #a6e3a1; }
 .hero-terminal-title {
   flex: 1;
   text-align: center;
@@ -364,8 +343,6 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
 .hero-terminal-line {
   margin-bottom: 3px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .hero-terminal-prompt { color: var(--code-prompt); margin-right: 8px; user-select: none; font-weight: 600; }
 .hero-terminal-command { color: var(--code-command); font-weight: 500; }
@@ -420,9 +397,14 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   background: var(--border-color);
   margin: 0;
   border: none;
+  clear: both;
 }
 .section { padding: 72px 0; }
-.section-inner { max-width: 100%; margin: 0 auto; }
+.section-inner {
+  max-width: 100%;
+  margin: 0 auto;
+  margin-top: 260px; /* Pushed down from floated terminal */
+}
 .section-label {
   display: inline-block;
   font-size: .72rem;
@@ -699,48 +681,21 @@ pre.install-code .c { color: var(--code-comment); }
 }
 
 /* ============================================================
-   HERO — Decisive Height & Clear Image
-   ============================================================ */
-.hero-section {
-  position: relative;
-  width: 100%;
-  min-height: 85vh; /* Decisive height */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.hero-bg-img {
-  position: absolute;
-  inset: 0;
-  background: url("../assets/images/banner.jpg") center center / cover no-repeat;
-  /* No filter/blur here */
-}
-.hero-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.25); /* Very transparent to see the image */
-  backdrop-filter: none; /* No blur */
-}
-.hero-content {
-  position: relative;
-  z-index: 2;
-  text-align: center;
-  padding: 100px 24px 180px; /* Space for buttons and terminal overlap */
-  max-width: 900px;
-}
-
-/* ============================================================
    RESPONSIVE & SCROLL REVEAL
    ============================================================ */
 @media (max-width: 768px) {
   .hero-section { min-height: 75vh; }
-  .content-wrap { padding: 0 24px; }
+  .content-wrap { padding: 0 24px; clear: both; }
   .steps-grid { grid-template-columns: 1fr; }
   .hero-stats { gap: 28px; padding: 32px 0; }
-  .hero-content { padding: 80px 20px 140px; }
-  .hero-terminal { margin-top: -80px; position: relative; z-index: 10; }
-  .hero-terminal-body { height: 320px; font-size: .72rem; }
+  .hero-content { padding: 80px 20px 200px; }
+  .hero-terminal { 
+    margin-top: -100px !important; 
+    float: none !important; 
+    width: calc(100% - 32px) !important; /* Margin for mobile */
+    margin-left: 16px !important;
+    margin-right: 16px !important;
+  }
 }
 
 .reveal {
@@ -774,21 +729,7 @@ pre.install-code .c { color: var(--code-comment); }
 body:has(.landing-page) .hero-content { animation: fadeInUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 body:has(.landing-page) .hero-terminal { animation: fadeInUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.2s; opacity: 0; }
 
-/* Terminal — Clean & Solid */
-.hero-terminal {
-  position: relative;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-  margin-top: -120px; /* Desktop overlap */
-  z-index: 10;
-  background: var(--code-bg);
-  border-radius: 12px;
-  box-shadow: var(--terminal-shadow);
-}
-.hero-terminal:hover {
-  transform: translateY(-4px);
-}
-
-/* Simple Cards — No 3D */
+/* Subtle Cards — No 3D */
 .step-card, .grid.cards > ul > li {
   transition: transform 0.3s ease, box-shadow 0.3s ease !important;
   position: relative;
