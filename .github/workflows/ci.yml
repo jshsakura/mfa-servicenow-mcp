@@ -7,14 +7,12 @@ on:
     paths-ignore:
       - 'website/**'
       - 'docs/**'
-      - '*.md'
       - '.github/workflows/deploy-website.yml'
   pull_request:
     branches: [main]
     paths-ignore:
       - 'website/**'
       - 'docs/**'
-      - '*.md'
       - '.github/workflows/deploy-website.yml'
   workflow_dispatch:
 
