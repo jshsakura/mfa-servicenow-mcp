@@ -93,8 +93,8 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 | Scripted REST API | `sys_ws_operation` | ✅ | ✅ | 🛡️ |
 | Fix Script | `sys_script_fix` | ✅ | ✅ | 🛡️ |
 | Service Portal Widget | `sp_widget` | ✅ | ✅ | 🛡️ |
-| Angular Provider | `sp_angular_provider` | — | ✅ | — |
-| Update XML | `sys_update_xml` | ✅ | — | — |
+| Angular Provider | `sp_angular_provider` | ⬜ | ✅ | ⬜ |
+| Update XML | `sys_update_xml` | ✅ | ⬜ | ⬜ |
 
 ---
 
@@ -142,10 +142,10 @@ Each project can connect to a different ServiceNow instance. Set the config in y
 | Claude Code | `.mcp.json` | `~/.claude.json` | JSON |
 | OpenAI Codex | `.codex/config.toml` | `~/.codex/config.toml` | TOML |
 | Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | JSON |
-| OpenCode | `opencode.json` | — | JSON |
-| Claude Desktop | — | `claude_desktop_config.json` | JSON |
-| AntiGravity | — | `~/.gemini/antigravity/mcp_config.json` | JSON |
-| Docker | — | — | Env vars |
+| OpenCode | `opencode.json` | ⬜ | JSON |
+| Claude Desktop | ⬜ | `claude_desktop_config.json` | JSON |
+| AntiGravity | ⬜ | `~/.gemini/antigravity/mcp_config.json` | JSON |
+| Docker | ⬜ | ⬜ | Env vars |
 
 Copy-paste configs for each client: **[Client Setup Guide](docs/CLIENT_SETUP.md)**
 
