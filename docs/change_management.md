@@ -150,7 +150,7 @@ result = create_change_request(auth_manager, server_config, create_params)
 print(result)
 ```
 
-For a complete example, see the [change_management_demo.py](../examples/change_management_demo.py) script.
+The sample above shows the programmatic request shape and the key imports needed to integrate change management into your own automation.
 
 ## Integration with Claude Desktop
 
