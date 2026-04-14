@@ -1537,6 +1537,24 @@ class AuthManager:
         # Handle 401 Unauthorized - retry with fresh session for Browser Auth
         if response.status_code == 401 and max_retries > 0:
             if self.config.type == AuthType.BROWSER:
+                # Within post-login grace period: the session was JUST created.
+                # A 401 right after login is likely a transient timing issue (cookie propagation).
+                # Retry once with existing cookies instead of invalidating and re-opening browser.
+                if self._browser_last_login_at is not None and (
+                    time.time() - self._browser_last_login_at
+                ) < self._browser_post_login_grace_seconds:
+                    logger.info(
+                        "Received 401 within post-login grace period — retrying with existing session "
+                        "instead of re-authenticating."
+                    )
+                    time.sleep(2)  # brief wait for cookie propagation
+                    retry_response = self._http_session.request(method, url, **kwargs)
+                    if retry_response.status_code != 401:
+                        return retry_response
+                    logger.warning(
+                        "Retry within grace period still returned 401. Proceeding to re-auth."
+                    )
+
                 # In browser mode, 401 almost always means the session/X-UserToken is dead.
                 # First try restoring from persistent profile before forcing interactive re-auth.
                 logger.warning(

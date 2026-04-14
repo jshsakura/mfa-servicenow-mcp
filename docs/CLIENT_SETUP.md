@@ -102,13 +102,16 @@ args = [
   "--with", "playwright",
   "--from", "mfa-servicenow-mcp",
   "servicenow-mcp",
-  "--instance-url", "https://your-instance.service-now.com",
-  "--auth-type", "browser",
-  "--browser-headless", "false",
-  "--browser-username", "your.username",
-  "--browser-password", "your-password",
-  "--tool-package", "standard",
+  "--tool-package", "full"
 ]
+enabled = true
+
+[mcp_servers.servicenow.env]
+SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
+SERVICENOW_AUTH_TYPE = "browser"
+SERVICENOW_BROWSER_HEADLESS = "false"
+SERVICENOW_USERNAME = "your-username"
+SERVICENOW_PASSWORD = "your-password"
 ```
 
 ---
