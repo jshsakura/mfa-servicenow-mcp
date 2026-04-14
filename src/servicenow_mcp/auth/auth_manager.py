@@ -1265,7 +1265,26 @@ class AuthManager:
             stable_instance_ticks = 0
             saw_unauthorized_probe = False
             while (time.time() - start) * 1000 < wait_budget_ms:
-                current_url = page.url
+                # Detect browser closed by user — break immediately instead of
+                # looping for minutes until wait_budget_ms expires.
+                try:
+                    if page.is_closed() or context.pages == []:
+                        raise ValueError(
+                            "Browser was closed before login completed. "
+                            "The next tool call will re-open the login window."
+                        )
+                    current_url = page.url
+                except Exception as poll_exc:
+                    error_text = str(poll_exc).lower()
+                    if any(
+                        m in error_text
+                        for m in ["closed", "target", "disposed", "connection"]
+                    ):
+                        raise ValueError(
+                            "Target page, context or browser has been closed. "
+                            "The next tool call will re-open the login window."
+                        ) from poll_exc
+                    raise
                 current_host = (urlparse(current_url).hostname or "").lower()
                 # Use full-context cookies; some IdP/ServiceNow flows keep auth
                 # cookies on parent domains that may not be returned for a single URL filter.
