@@ -354,7 +354,7 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   font-size: .8rem;
   line-height: 1.8;
   color: var(--code-text);
-  min-height: 420px;
+  height: 432px;
   overflow: hidden;
 }
 .hero-terminal-line {
@@ -704,7 +704,7 @@ pre.install-code .c { color: var(--code-comment); }
   .hero-content { padding: 48px 20px 100px; }
   .hero-terminal { width: calc(100% - 48px); }
   .hero-terminal { margin-top: -56px; }
-  .hero-terminal-body { min-height: 380px; font-size: .72rem; padding: 16px 20px; }
+  .hero-terminal-body { height: 392px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
   .content-wrap { padding: 0 16px; }
@@ -714,6 +714,7 @@ pre.install-code .c { color: var(--code-comment); }
   .hero-content { padding: 40px 16px 80px; }
   .hero-terminal { width: calc(100% - 32px); }
   .hero-terminal { margin-top: -40px; }
+  .hero-terminal-body { height: 344px; }
 }
 
 /* ============================================================
