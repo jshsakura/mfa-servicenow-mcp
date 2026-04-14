@@ -32,7 +32,7 @@ social:
 
 <div class="content-wrap">
 
-<div class="hero-terminal">
+<div class="hero-terminal reveal">
   <div class="hero-terminal-header">
     <div class="hero-terminal-dots">
       <span class="dot red"></span>
@@ -45,7 +45,7 @@ social:
   <div class="hero-terminal-body" id="hero-typed-terminal"></div>
 </div>
 
-<div class="section" id="install" style="padding-top:48px;">
+<div class="section reveal" id="install" style="padding-top:48px;">
   <div class="section-inner">
     <span class="section-label">Quick Start</span>
     <h2 class="section-title">Just paste this. That's it.</h2>
@@ -53,7 +53,7 @@ social:
       Copy the line below into any AI coding assistant.<br>
       It installs everything — uv, Playwright, MCP config, and skills — automatically.
     </p>
-    <div class="install-block">
+    <div class="install-block reveal">
       <div class="install-tabs">
         <button class="install-tab active" data-target="quick-ai">Paste into your AI</button>
       </div>
@@ -72,14 +72,14 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       After setup, <strong>restart your AI client</strong> to load the MCP server.
     </p>
 
-    <div style="margin-top:56px;">
+    <div style="margin-top:56px;" class="reveal">
       <span class="section-label">Manual — Step 1</span>
       <h2 class="section-title">Install the server</h2>
       <p class="section-desc">
         Prefer to do it yourself? Pick your OS. A real Chromium browser opens for MFA/SSO login — Okta, Entra ID, SAML all work out of the box.
       </p>
     </div>
-    <div class="install-block">
+    <div class="install-block reveal">
       <div class="install-tabs">
         <button class="install-tab active" data-target="install-mac">macOS / Linux</button>
         <button class="install-tab" data-target="install-win">Windows</button>
@@ -142,14 +142,14 @@ servicenow-mcp \
       </div>
     </div>
 
-    <div style="margin-top:56px;">
+    <div style="margin-top:56px;" class="reveal">
       <span class="section-label">Manual — Step 2</span>
       <h2 class="section-title">Configure your AI client</h2>
       <p class="section-desc">
         Paste the config for your client. All use the same MCP server — only the format differs.
       </p>
     </div>
-    <div class="install-block">
+    <div class="install-block reveal">
       <div class="install-tabs" id="mcp-tabs">
         <button class="install-tab active" data-target="mcp-claude-desktop">Claude Desktop</button>
         <button class="install-tab" data-target="mcp-claude-code">Claude Code</button>
@@ -287,7 +287,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       </div>
     </div>
 
-    <div style="margin-top:56px;">
+    <div style="margin-top:56px;" class="reveal">
       <span class="section-label">Manual — Step 3</span>
       <h2 class="section-title">Add LLM-optimized skills</h2>
       <p class="section-desc">
@@ -296,7 +296,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
         20 skills today, more coming with every release.
       </p>
     </div>
-    <div class="install-block">
+    <div class="install-block reveal">
       <div class="install-tabs" id="skill-tabs">
         <button class="install-tab active" data-target="skill-claude">Claude Code</button>
         <button class="install-tab" data-target="skill-codex">Codex</button>
@@ -326,7 +326,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
         </div>
       </div>
     </div>
-    <div class="skill-categories">
+    <div class="skill-categories reveal-stagger">
       <div class="step-card">
         <h3>🔍 analyze/</h3>
         <p>6 skills — widget analysis, portal diagnosis, dependency mapping, code detection</p>
@@ -351,7 +351,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
   </div>
 </div>
 
-<div class="hero-stats">
+<div class="hero-stats reveal">
   <div class="hero-stat">
     <span class="hero-stat-value">89+</span>
     <span class="hero-stat-label">MCP Tools</span>
@@ -372,7 +372,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <hr class="section-divider">
 
-<div class="section">
+<div class="section reveal">
   <div class="section-inner">
     <span class="section-label">How it works</span>
     <h2 class="section-title">Three steps to production</h2>
@@ -380,7 +380,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       No API keys to configure, no passwords in config files.
       Authenticate once through your browser, and your AI agent inherits a live session.
     </p>
-    <div class="steps-grid">
+    <div class="steps-grid reveal-stagger">
       <div class="step-card">
         <div class="step-number">1</div>
         <h3>Install</h3>
@@ -402,7 +402,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <hr class="section-divider">
 
-<div class="section">
+<div class="section reveal">
   <div class="section-inner">
     <span class="section-label">Features</span>
     <h2 class="section-title">Built for the enterprise</h2>
@@ -410,7 +410,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       Everything you need to bridge AI agents and ServiceNow securely at scale.
     </p>
 
-    <div class="feature-grid">
+    <div class="feature-grid reveal-stagger">
       <div class="step-card">
         <h3>🔒 Zero-Trust Security</h3>
         <p>Browser-based auth means credentials never leave your machine. Supports MFA, SSO, SAML, and any login flow your org uses.</p>
@@ -434,7 +434,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <hr class="section-divider">
 
-<div class="cta-banner">
+<div class="cta-banner reveal">
   <h2>Ready to connect your AI to ServiceNow?</h2>
   <p>Get set up in under five minutes with our step-by-step guide.</p>
   <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">Read the Setup Guide</a>
@@ -444,6 +444,20 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <script>
 (function(){
+  // Intersection Observer for Reveal Animations
+  var obsOptions = { threshold: 0.1 };
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('active');
+      }
+    });
+  }, obsOptions);
+
+  document.querySelectorAll('.reveal, .reveal-stagger').forEach(function(el) {
+    observer.observe(el);
+  });
+
   var lines = [
     { type:"prompt", prompt:"$ ", text:"uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp", speed:22 },
     { type:"pause", ms:500 },
@@ -505,6 +519,31 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
         var t=document.getElementById(tab.getAttribute("data-target"));
         if(t) t.classList.add("active");
       });
+    });
+  });
+})();
+
+// --- 3D Hover Tracking for Cards ---
+(function(){
+  document.querySelectorAll('.step-card').forEach(function(card){
+    card.addEventListener('mousemove', function(e) {
+      var rect = card.getBoundingClientRect();
+      var x = e.clientX - rect.left;
+      var y = e.clientY - rect.top;
+      
+      // Calculate extreme rotation
+      var centerX = rect.width / 2;
+      var centerY = rect.height / 2;
+      var rotateX = ((y - centerY) / centerY) * -15; // Max 15deg
+      var rotateY = ((x - centerX) / centerX) * 15;
+      
+      card.style.setProperty('--mouse-x', x + 'px');
+      card.style.setProperty('--mouse-y', y + 'px');
+      card.style.transform = 'perspective(1200px) rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg) scale3d(1.05, 1.05, 1.05)';
+    });
+    
+    card.addEventListener('mouseleave', function() {
+      card.style.transform = 'perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
     });
   });
 })();
