@@ -83,17 +83,17 @@ AI가 자동으로:
 
 | 아티팩트 유형 | 테이블명 | 소스 검색 | 개발자 추적 | 안전 제한 (대형 테이블) |
 |--------------|------------|:---:|:---:|:---:|
-| Script Include | `sys_script_include` | O | O | O |
-| Business Rule | `sys_script` | O | O | O |
-| Client Script | `sys_client_script` | O | O | O |
-| UI Action | `sys_ui_action` | O | O | O |
-| UI Script | `sys_ui_script` | O | O | O |
-| UI Page | `sys_ui_page` | O | O | O |
-| Scripted REST API | `sys_ws_operation` | O | O | O |
-| Fix Script | `sys_script_fix` | O | O | O |
-| Service Portal Widget | `sp_widget` | O | O | O |
-| Angular Provider | `sp_angular_provider` | - | O | - |
-| Update XML | `sys_update_xml` | O | - | - |
+| Script Include | `sys_script_include` | ✅ | ✅ | 🛡️ |
+| Business Rule | `sys_script` | ✅ | ✅ | 🛡️ |
+| Client Script | `sys_client_script` | ✅ | ✅ | 🛡️ |
+| UI Action | `sys_ui_action` | ✅ | ✅ | 🛡️ |
+| UI Script | `sys_ui_script` | ✅ | ✅ | 🛡️ |
+| UI Page | `sys_ui_page` | ✅ | ✅ | 🛡️ |
+| Scripted REST API | `sys_ws_operation` | ✅ | ✅ | 🛡️ |
+| Fix Script | `sys_script_fix` | ✅ | ✅ | 🛡️ |
+| Service Portal Widget | `sp_widget` | ✅ | ✅ | 🛡️ |
+| Angular Provider | `sp_angular_provider` | — | ✅ | — |
+| Update XML | `sys_update_xml` | ✅ | — | — |
 
 ---
 
