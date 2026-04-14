@@ -87,13 +87,24 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 | Script Include | `sys_script_include` | ✅ | ✅ | 🛡️ |
 | Business Rule | `sys_script` | ✅ | ✅ | 🛡️ |
 | Client Script | `sys_client_script` | ✅ | ✅ | 🛡️ |
+| Catalog Client Script | `catalog_script_client` | ✅ | ⬜ | ⬜ |
 | UI Action | `sys_ui_action` | ✅ | ✅ | 🛡️ |
 | UI Script | `sys_ui_script` | ✅ | ✅ | 🛡️ |
 | UI Page | `sys_ui_page` | ✅ | ✅ | 🛡️ |
+| UI Macro | `sys_ui_macro` | ✅ | ⬜ | 🛡️ |
 | Scripted REST API | `sys_ws_operation` | ✅ | ✅ | 🛡️ |
 | Fix Script | `sys_script_fix` | ✅ | ✅ | 🛡️ |
+| Scheduled Job | `sysauto_script` | ✅ | ⬜ | ⬜ |
+| Script Action | `sysevent_script_action` | ✅ | ⬜ | ⬜ |
+| Email Notification | `sysevent_email_action` | ✅ | ⬜ | ⬜ |
+| ACL | `sys_security_acl` | ✅ | ⬜ | ⬜ |
+| Transform Script | `sys_transform_script` | ✅ | ⬜ | ⬜ |
+| Processor | `sys_processor` | ✅ | ⬜ | ⬜ |
 | Service Portal Widget | `sp_widget` | ✅ | ✅ | 🛡️ |
 | Angular Provider | `sp_angular_provider` | ✅ | ✅ | ⬜ |
+| Portal Header/Footer | `sp_header_footer` | ✅ | ⬜ | ⬜ |
+| Portal CSS | `sp_css` | ✅ | ⬜ | ⬜ |
+| Angular Template | `sp_ng_template` | ✅ | ⬜ | ⬜ |
 | Update XML | `sys_update_xml` | ✅ | ⬜ | ⬜ |
 
 ---
