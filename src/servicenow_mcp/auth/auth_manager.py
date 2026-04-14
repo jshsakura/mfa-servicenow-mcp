@@ -471,9 +471,11 @@ class AuthManager:
                 # Only ping if we have a valid session outside grace period
                 if not self._browser_cookie_header or self._is_browser_session_expired():
                     continue
-                if self._browser_last_login_at is not None and (
-                    time.time() - self._browser_last_login_at
-                ) < self._browser_post_login_grace_seconds:
+                if (
+                    self._browser_last_login_at is not None
+                    and (time.time() - self._browser_last_login_at)
+                    < self._browser_post_login_grace_seconds
+                ):
                     continue
                 try:
                     probe = self._probe_browser_api_with_cookie(
@@ -1276,10 +1278,7 @@ class AuthManager:
                     current_url = page.url
                 except Exception as poll_exc:
                     error_text = str(poll_exc).lower()
-                    if any(
-                        m in error_text
-                        for m in ["closed", "target", "disposed", "connection"]
-                    ):
+                    if any(m in error_text for m in ["closed", "target", "disposed", "connection"]):
                         raise ValueError(
                             "Target page, context or browser has been closed. "
                             "The next tool call will re-open the login window."
@@ -1590,9 +1589,11 @@ class AuthManager:
                 # Within post-login grace period: the session was JUST created.
                 # A 401 right after login is likely a transient timing issue (cookie propagation).
                 # Retry once with existing cookies instead of invalidating and re-opening browser.
-                if self._browser_last_login_at is not None and (
-                    time.time() - self._browser_last_login_at
-                ) < self._browser_post_login_grace_seconds:
+                if (
+                    self._browser_last_login_at is not None
+                    and (time.time() - self._browser_last_login_at)
+                    < self._browser_post_login_grace_seconds
+                ):
                     logger.info(
                         "Received 401 within post-login grace period — retrying with existing session "
                         "instead of re-authenticating."
