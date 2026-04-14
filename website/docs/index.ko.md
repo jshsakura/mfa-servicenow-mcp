@@ -32,19 +32,17 @@ social:
 
 <div class="content-wrap">
 
-<div class="hero-terminal-anchor">
-  <div class="hero-terminal">
-    <div class="hero-terminal-header">
-      <div class="hero-terminal-dots">
-        <span class="dot red"></span>
-        <span class="dot yellow"></span>
-        <span class="dot green"></span>
-      </div>
-      <span class="hero-terminal-title">mfa-servicenow-mcp</span>
-      <div class="hero-terminal-spacer"></div>
+<div class="hero-terminal">
+  <div class="hero-terminal-header">
+    <div class="hero-terminal-dots">
+      <span class="dot red"></span>
+      <span class="dot yellow"></span>
+      <span class="dot green"></span>
     </div>
-    <div class="hero-terminal-body" id="hero-typed-terminal"></div>
+    <span class="hero-terminal-title">mfa-servicenow-mcp</span>
+    <div class="hero-terminal-spacer"></div>
   </div>
+  <div class="hero-terminal-body" id="hero-typed-terminal"></div>
 </div>
 
 <div class="section" id="install" style="padding-top:48px;">

@@ -294,29 +294,19 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
 .content-wrap {
   max-width: 100%;
   margin: 0 auto;
-  padding: 390px calc((100% - 1200px) / 2 + 48px) 0;
+  padding: 0 calc((100% - 1200px) / 2 + 48px);
 }
 @media (max-width: 1296px) {
-  .content-wrap { padding: 390px 48px 0; }
+  .content-wrap { padding: 0 48px; }
 }
 
 /* ============================================================
    TERMINAL — theme-aware
    ============================================================ */
-.hero-terminal-anchor {
-  position: relative;
-  width: 100vw;
-  margin-left: calc(-50vw + 50%);
-  height: 0;
-  z-index: 3;
-}
 .hero-terminal {
-  width: min(1200px, calc(100vw - 96px));
-  max-width: 100%;
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  top: -80px;
+  width: 100%;
+  margin-top: -80px;
+  position: relative;
   z-index: 3;
   background: var(--code-bg);
   border-radius: 12px;
@@ -707,20 +697,20 @@ pre.install-code .c { color: var(--code-comment); }
    RESPONSIVE
    ============================================================ */
 @media (max-width: 768px) {
-  .content-wrap { padding: 360px 24px 0; }
+  .content-wrap { padding: 0 24px; }
   .steps-grid { grid-template-columns: 1fr; }
   .hero-stats { gap: 28px; padding: 32px 0; }
   .hero-content { padding: 48px 20px 100px; }
-  .hero-terminal { width: calc(100vw - 48px); top: -56px; }
+  .hero-terminal { margin-top: -56px; }
   .hero-terminal-body { height: 380px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
-  .content-wrap { padding: 360px 16px 0; }
+  .content-wrap { padding: 0 16px; }
   .hero-stat-value { font-size: 1.5rem; }
   .section { padding: 48px 0; }
   .cta-banner { padding: 48px 16px; }
   .hero-content { padding: 40px 16px 80px; }
-  .hero-terminal { width: calc(100vw - 32px); top: -40px; }
+  .hero-terminal { margin-top: -40px; }
   .hero-terminal-body { height: 380px; }
 }
 
