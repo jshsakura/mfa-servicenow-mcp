@@ -92,8 +92,8 @@ AI가 자동으로:
 | Scripted REST API | `sys_ws_operation` | ✅ | ✅ | 🛡️ |
 | Fix Script | `sys_script_fix` | ✅ | ✅ | 🛡️ |
 | Service Portal Widget | `sp_widget` | ✅ | ✅ | 🛡️ |
-| Angular Provider | `sp_angular_provider` | — | ✅ | — |
-| Update XML | `sys_update_xml` | ✅ | — | — |
+| Angular Provider | `sp_angular_provider` | ⬜ | ✅ | ⬜ |
+| Update XML | `sys_update_xml` | ✅ | ⬜ | ⬜ |
 
 ---
 
@@ -141,10 +141,10 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 | Claude Code | `.mcp.json` | `~/.claude.json` | JSON |
 | OpenAI Codex | `.codex/config.toml` | `~/.codex/config.toml` | TOML |
 | Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | JSON |
-| OpenCode | `opencode.json` | — | JSON |
-| Claude Desktop | — | `claude_desktop_config.json` | JSON |
-| AntiGravity | — | `~/.gemini/antigravity/mcp_config.json` | JSON |
-| Docker | — | — | 환경변수 |
+| OpenCode | `opencode.json` | ⬜ | JSON |
+| Claude Desktop | ⬜ | `claude_desktop_config.json` | JSON |
+| AntiGravity | ⬜ | `~/.gemini/antigravity/mcp_config.json` | JSON |
+| Docker | ⬜ | ⬜ | 환경변수 |
 
 클라이언트별 복사 붙여넣기 설정: **[클라이언트 설정 가이드](docs/CLIENT_SETUP.md)**
 
