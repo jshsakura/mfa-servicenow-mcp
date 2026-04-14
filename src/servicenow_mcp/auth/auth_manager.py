@@ -604,19 +604,40 @@ class AuthManager:
                             "Browser login thread still running — keeping login_in_progress=True"
                         )
                     else:
-                        # Actual failure — allow new attempts
                         self._browser_login_in_progress = False
-                        self._browser_reauth_failure_count += 1
-                        self._browser_reauth_cooldown_seconds = min(
-                            self._browser_reauth_cooldown_base
-                            * (2**self._browser_reauth_failure_count),
-                            self._browser_reauth_cooldown_max,
+                        # User closed the browser manually — not a real failure.
+                        # Reset cooldown so next tool call can retry immediately.
+                        user_closed = any(
+                            marker in error_text
+                            for marker in [
+                                "target closed",
+                                "browser closed",
+                                "browser has been closed",
+                                "target page, context or browser has been closed",
+                                "connection closed",
+                            ]
                         )
-                        logger.warning(
-                            "Browser re-auth failed (attempt #%d). Next retry cooldown: %ds",
-                            self._browser_reauth_failure_count,
-                            self._browser_reauth_cooldown_seconds,
-                        )
+                        if user_closed:
+                            logger.info(
+                                "Browser was closed by user — resetting cooldown for immediate retry."
+                            )
+                            self._browser_reauth_failure_count = 0
+                            self._browser_reauth_cooldown_seconds = (
+                                self._browser_reauth_cooldown_base
+                            )
+                            self._browser_last_reauth_attempt_at = None
+                        else:
+                            self._browser_reauth_failure_count += 1
+                            self._browser_reauth_cooldown_seconds = min(
+                                self._browser_reauth_cooldown_base
+                                * (2**self._browser_reauth_failure_count),
+                                self._browser_reauth_cooldown_max,
+                            )
+                            logger.warning(
+                                "Browser re-auth failed (attempt #%d). Next retry cooldown: %ds",
+                                self._browser_reauth_failure_count,
+                                self._browser_reauth_cooldown_seconds,
+                            )
                     raise
             elif self._should_validate_browser_session():
                 if not self._is_browser_session_valid(self.config.browser):
