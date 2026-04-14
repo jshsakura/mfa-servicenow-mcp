@@ -7,6 +7,21 @@ repos:
         entry: ./.venv/bin/black
         language: system
         types: [python]
+
+      # Fast structural test gate for skill content changes
+      - id: pytest-skills
+        name: pytest-skills
+        entry: ./.venv/bin/pytest tests/test_skills.py -q
+        language: system
+        pass_filenames: false
+
+      # Full test suite before push to avoid CI-only surprises
+      - id: pytest-all
+        name: pytest-all
+        entry: ./.venv/bin/pytest tests/ -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
   # isort - import sorting
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
