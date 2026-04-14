@@ -296,10 +296,9 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
    TERMINAL — theme-aware
    ============================================================ */
 .hero-terminal {
-  --terminal-overlap: 44px;
   width: min(1200px, calc(100% - 96px));
   max-width: 100%;
-  margin: 0 auto calc(-1 * var(--terminal-overlap));
+  margin: -80px auto 0;
   position: relative;
   z-index: 3;
   background: var(--code-bg);
@@ -307,7 +306,6 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   border: 1px solid var(--code-border);
   box-shadow: var(--terminal-shadow);
   overflow: hidden;
-  transform: translateY(calc(-1 * var(--terminal-overlap)));
 }
 .hero-terminal::before {
   display: none;
@@ -697,7 +695,7 @@ pre.install-code .c { color: var(--code-comment); }
   .hero-stats { gap: 28px; padding: 32px 0; }
   .hero-content { padding: 48px 20px 100px; }
   .hero-terminal { width: calc(100% - 48px); }
-  .hero-terminal { --terminal-overlap: 32px; }
+  .hero-terminal { margin-top: -56px; }
   .hero-terminal-body { min-height: 380px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
@@ -707,7 +705,7 @@ pre.install-code .c { color: var(--code-comment); }
   .cta-banner { padding: 48px 16px; }
   .hero-content { padding: 40px 16px 80px; }
   .hero-terminal { width: calc(100% - 32px); }
-  .hero-terminal { --terminal-overlap: 24px; }
+  .hero-terminal { margin-top: -40px; }
 }
 
 /* ============================================================
@@ -728,17 +726,32 @@ body:has(.landing-page) .section { animation: fadeInUp 0.8s cubic-bezier(0.16, 1
 /* Terminal Lift */
 .hero-terminal {
   box-shadow: 0 0 0 1px var(--code-border), 0 18px 36px rgba(0,0,0,0.12);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: margin-top 0.3s ease, box-shadow 0.3s ease;
 }
 .hero-terminal:hover {
-  transform: translateY(calc(-1 * var(--terminal-overlap) - 4px));
+  margin-top: -84px;
   box-shadow: 0 0 0 1px var(--code-border), 0 24px 44px rgba(0,0,0,0.16);
 }
 [data-md-color-scheme="slate"] .hero-terminal {
   box-shadow: 0 0 0 1px var(--code-border), 0 18px 38px rgba(0,0,0,0.42);
 }
 [data-md-color-scheme="slate"] .hero-terminal:hover {
+  margin-top: -84px;
   box-shadow: 0 0 0 1px var(--code-border), 0 24px 46px rgba(0,0,0,0.5);
+}
+
+@media (max-width: 768px) {
+  .hero-terminal:hover,
+  [data-md-color-scheme="slate"] .hero-terminal:hover {
+    margin-top: -60px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-terminal:hover,
+  [data-md-color-scheme="slate"] .hero-terminal:hover {
+    margin-top: -44px;
+  }
 }
 
 /* Enhanced Buttons */
