@@ -254,6 +254,7 @@ class AuthManager:
         self._keepalive_thread: Optional[threading.Thread] = None
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
+        self._login_lock_path = self._session_cache_path.replace(".json", ".lock")
         self._cached_basic_auth_header: Optional[str] = None
         self._session_disk_hash: Optional[int] = None  # Track disk content to skip redundant writes
         self._keepalive_consecutive_failures: int = 0  # Track consecutive keepalive failures
@@ -354,6 +355,87 @@ class AuthManager:
         elif self.config.basic and self.config.basic.username:
             username = f"_{self.config.basic.username.replace('.', '_').replace('@', '_')}"
         return os.path.join(cache_dir, f"session_{instance_id}{username}.json")
+
+    # ------------------------------------------------------------------
+    # Cross-process login lock (disk-based)
+    # ------------------------------------------------------------------
+
+    def _acquire_login_lock(self) -> bool:
+        """Try to acquire a cross-process login lock.
+
+        Returns True if we got the lock (no other process is logging in).
+        Returns False if another process already holds the lock.
+        Stale locks (PID dead or older than 5 minutes) are automatically cleaned up.
+        """
+        if os.path.exists(self._login_lock_path):
+            try:
+                with open(self._login_lock_path, "r") as f:
+                    lock_data = json.load(f)
+                lock_pid = lock_data.get("pid")
+                lock_time = lock_data.get("timestamp", 0)
+                # Stale lock: process dead or lock older than 5 minutes
+                stale = (time.time() - lock_time) > 300
+                if not stale and lock_pid:
+                    try:
+                        os.kill(lock_pid, 0)  # Check if PID is alive
+                    except OSError:
+                        stale = True  # Process is dead
+                if not stale:
+                    logger.info(
+                        "Login lock held by PID %s (age %.0fs) — "
+                        "another terminal is already logging in.",
+                        lock_pid,
+                        time.time() - lock_time,
+                    )
+                    return False
+                logger.info("Removing stale login lock (PID %s).", lock_pid)
+            except Exception:
+                pass  # Corrupt lock file — safe to overwrite
+        try:
+            with open(self._login_lock_path, "w") as f:
+                json.dump({"pid": os.getpid(), "timestamp": time.time()}, f)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to acquire login lock: %s", exc)
+            return True  # Fail open — better to double-login than deadlock
+
+    def _release_login_lock(self) -> None:
+        """Release the cross-process login lock (only if we own it)."""
+        try:
+            if os.path.exists(self._login_lock_path):
+                with open(self._login_lock_path, "r") as f:
+                    lock_data = json.load(f)
+                if lock_data.get("pid") == os.getpid():
+                    os.remove(self._login_lock_path)
+        except Exception:
+            pass
+
+    def _wait_for_other_login(self, timeout: int = 180) -> bool:
+        """Wait for another process to finish logging in, then reload session.
+
+        Returns True if a fresh session was loaded from disk.
+        Returns False if timeout elapsed or no session appeared.
+        """
+        logger.info("Waiting up to %ds for another terminal to complete login...", timeout)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            time.sleep(3)
+            # Check if lock was released
+            if not os.path.exists(self._login_lock_path):
+                if self._reload_session_from_disk():
+                    logger.info("Other terminal completed login — session reloaded.")
+                    return True
+                # Lock released but no session yet — try disk load once more
+                self._load_session_from_disk()
+                if self._browser_cookie_header and not self._is_browser_session_expired():
+                    logger.info("Other terminal completed login — session loaded from disk.")
+                    return True
+            # Lock still held — check if disk was updated (login succeeded while lock still exists)
+            if self._reload_session_from_disk():
+                logger.info("Fresh session appeared on disk while waiting — using it.")
+                return True
+        logger.warning("Timed out waiting for other terminal to complete login.")
+        return False
 
     def _save_session_to_disk(self) -> None:
         """Save the current browser session to disk.
@@ -669,7 +751,26 @@ class AuthManager:
                         "Please wait for the user to finish and then retry this request. "
                         "Do NOT start a new login attempt."
                     )
+                # Cross-process lock: another terminal may already be logging in.
+                if not self._acquire_login_lock():
+                    # Another process is logging in — wait for it instead of opening a second browser.
+                    if self._wait_for_other_login(timeout=self.config.browser.timeout_seconds + 60):
+                        if not self._keepalive_thread:
+                            self._start_keepalive()
+                        headers["Cookie"] = self._browser_cookie_header or ""
+                        if self._browser_user_agent:
+                            headers["User-Agent"] = self._browser_user_agent
+                        if self._browser_session_token:
+                            headers["X-UserToken"] = self._browser_session_token
+                        return headers
+                    # Timed out waiting — fall through to try login ourselves
+                    if not self._acquire_login_lock():
+                        raise ValueError(
+                            "Browser login is in progress in another terminal. "
+                            "Please complete MFA/SSO there, or close that browser window first."
+                        )
                 if not self._can_attempt_browser_reauth():
+                    self._release_login_lock()
                     cooldown_remaining = self._get_reauth_cooldown_remaining()
                     raise ValueError(
                         f"Browser session expired. Re-login will be attempted automatically "
@@ -693,6 +794,7 @@ class AuthManager:
                     self._browser_reauth_failure_count = 0
                     self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
                     self._browser_login_in_progress = False
+                    self._release_login_lock()
                     if not self._keepalive_thread:
                         self._start_keepalive()
                 except Exception as exc:
@@ -701,11 +803,13 @@ class AuthManager:
                         # Thread join timed out but browser is still open for user MFA.
                         # Keep _browser_login_in_progress=True so concurrent calls
                         # see "login in progress" and don't open duplicate windows.
+                        # Keep lock held — browser is still open.
                         logger.info(
                             "Browser login thread still running — keeping login_in_progress=True"
                         )
                     else:
                         self._browser_login_in_progress = False
+                        self._release_login_lock()
                         # User closed the browser manually — not a real failure.
                         # Reset cooldown so next tool call can retry immediately.
                         user_closed = any(
@@ -747,6 +851,18 @@ class AuthManager:
                         "Opening browser for interactive re-authentication..."
                     )
                     self.invalidate_browser_session()
+                    if not self._acquire_login_lock():
+                        if self._wait_for_other_login(
+                            timeout=self.config.browser.timeout_seconds + 60
+                        ):
+                            if not self._keepalive_thread:
+                                self._start_keepalive()
+                            headers["Cookie"] = self._browser_cookie_header or ""
+                            if self._browser_user_agent:
+                                headers["User-Agent"] = self._browser_user_agent
+                            if self._browser_session_token:
+                                headers["X-UserToken"] = self._browser_session_token
+                            return headers
                     self._mark_browser_reauth_attempt()
                     self._browser_login_in_progress = True
                     try:
@@ -754,6 +870,7 @@ class AuthManager:
                         self._browser_reauth_failure_count = 0
                         self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
                         self._browser_login_in_progress = False
+                        self._release_login_lock()
                     except Exception as exc:
                         error_text = str(exc).lower()
                         if "still in progress" in error_text or "still be completing" in error_text:
@@ -762,6 +879,7 @@ class AuthManager:
                             )
                         else:
                             self._browser_login_in_progress = False
+                            self._release_login_lock()
                             self._browser_reauth_failure_count += 1
                             self._browser_reauth_cooldown_seconds = min(
                                 self._browser_reauth_cooldown_base

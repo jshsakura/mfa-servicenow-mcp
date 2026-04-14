@@ -760,3 +760,131 @@ class TestLoadSessionFromDisk:
         manager._load_session_from_disk()
 
         assert manager._browser_cookie_header is None
+
+
+class TestCrossProcessLoginLock:
+    """Tests for disk-based login lock to prevent duplicate browser windows."""
+
+    def test_acquire_lock_succeeds_when_no_lock_exists(self, tmp_path):
+        manager = _make_browser_manager()
+        manager._login_lock_path = str(tmp_path / "test.lock")
+
+        assert manager._acquire_login_lock() is True
+        assert os.path.exists(manager._login_lock_path)
+
+    def test_acquire_lock_fails_when_held_by_live_process(self, tmp_path):
+        manager = _make_browser_manager()
+        lock_path = str(tmp_path / "test.lock")
+        manager._login_lock_path = lock_path
+
+        # Simulate another process holding the lock (use our own PID — it's alive)
+        with open(lock_path, "w") as f:
+            json.dump({"pid": os.getpid(), "timestamp": time.time()}, f)
+
+        # A different manager (simulating another terminal) should fail to acquire
+        manager2 = _make_browser_manager()
+        manager2._login_lock_path = lock_path
+
+        assert manager2._acquire_login_lock() is False
+
+    def test_acquire_lock_cleans_stale_dead_pid(self, tmp_path):
+        manager = _make_browser_manager()
+        lock_path = str(tmp_path / "test.lock")
+        manager._login_lock_path = lock_path
+
+        # Write a lock with a PID that doesn't exist
+        with open(lock_path, "w") as f:
+            json.dump({"pid": 99999999, "timestamp": time.time()}, f)
+
+        # Should clean up stale lock and acquire
+        assert manager._acquire_login_lock() is True
+
+    def test_acquire_lock_cleans_stale_old_timestamp(self, tmp_path):
+        manager = _make_browser_manager()
+        lock_path = str(tmp_path / "test.lock")
+        manager._login_lock_path = lock_path
+
+        # Write a lock that's older than 5 minutes
+        with open(lock_path, "w") as f:
+            json.dump({"pid": os.getpid(), "timestamp": time.time() - 400}, f)
+
+        assert manager._acquire_login_lock() is True
+
+    def test_acquire_lock_cleans_corrupt_file(self, tmp_path):
+        manager = _make_browser_manager()
+        lock_path = str(tmp_path / "test.lock")
+        manager._login_lock_path = lock_path
+
+        with open(lock_path, "w") as f:
+            f.write("not json{{{")
+
+        assert manager._acquire_login_lock() is True
+
+    def test_release_lock_only_if_owner(self, tmp_path):
+        manager = _make_browser_manager()
+        lock_path = str(tmp_path / "test.lock")
+        manager._login_lock_path = lock_path
+
+        # Lock held by another PID
+        with open(lock_path, "w") as f:
+            json.dump({"pid": 99999999, "timestamp": time.time()}, f)
+
+        manager._release_login_lock()
+
+        # Should NOT delete — we don't own it
+        assert os.path.exists(lock_path)
+
+    def test_release_lock_deletes_if_owner(self, tmp_path):
+        manager = _make_browser_manager()
+        lock_path = str(tmp_path / "test.lock")
+        manager._login_lock_path = lock_path
+
+        manager._acquire_login_lock()
+        manager._release_login_lock()
+
+        assert not os.path.exists(lock_path)
+
+    def test_release_lock_noop_when_no_file(self, tmp_path):
+        manager = _make_browser_manager()
+        manager._login_lock_path = str(tmp_path / "nonexistent.lock")
+
+        # Should not raise
+        manager._release_login_lock()
+
+    def test_wait_for_other_login_picks_up_session(self, tmp_path):
+        manager = _make_browser_manager()
+        manager._browser_cookie_header = None
+        manager._browser_cookie_expires_at = None
+        cache_path = str(tmp_path / "session.json")
+        lock_path = str(tmp_path / "test.lock")
+        manager._session_cache_path = cache_path
+        manager._login_lock_path = lock_path
+
+        # Simulate: lock exists, then gets released and session appears
+        with open(lock_path, "w") as f:
+            json.dump({"pid": os.getpid(), "timestamp": time.time()}, f)
+
+        # Write a session file (simulating the other terminal completing login)
+        _write_session_cache(cache_path, "FRESH=COOKIE", time.time() + 1800)
+        # Remove lock (simulating the other terminal releasing it)
+        os.remove(lock_path)
+
+        result = manager._wait_for_other_login(timeout=5)
+
+        assert result is True
+        assert manager._browser_cookie_header == "FRESH=COOKIE"
+
+    def test_wait_for_other_login_timeout(self, tmp_path):
+        manager = _make_browser_manager()
+        manager._browser_cookie_header = None
+        lock_path = str(tmp_path / "test.lock")
+        manager._login_lock_path = lock_path
+        manager._session_cache_path = str(tmp_path / "no_session.json")
+
+        # Lock stays held, no session appears
+        with open(lock_path, "w") as f:
+            json.dump({"pid": os.getpid(), "timestamp": time.time()}, f)
+
+        result = manager._wait_for_other_login(timeout=4)
+
+        assert result is False
