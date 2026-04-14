@@ -702,6 +702,17 @@ class AuthManager:
         if not self.instance_url or not self._browser_cookie_header:
             return False
 
+        # Within post-login grace period: trust the session, skip probe.
+        # Avoids re-opening browser due to transient probe failures right after login.
+        if self._browser_last_login_at is not None:
+            if (time.time() - self._browser_last_login_at) < self._browser_post_login_grace_seconds:
+                logger.debug(
+                    "Skipping session probe — within post-login grace period (%ds)",
+                    self._browser_post_login_grace_seconds,
+                )
+                self._browser_last_validated_at = time.time()
+                return True
+
         try:
             response = self._probe_browser_api_with_cookie(
                 self._browser_cookie_header,
