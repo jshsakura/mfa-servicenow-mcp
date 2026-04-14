@@ -91,18 +91,6 @@
 .md-header__button.md-logo img { height: 24px; width: auto; }
 .md-dialog { border-radius: 8px !important; }
 
-/* Sidebar & accent — use theme accent instead of default blue */
-:root {
-  --md-accent-fg-color: var(--accent);
-  --md-accent-bg-color: var(--accent-bg);
-}
-.md-nav__link--active,
-.md-nav__link:is([aria-current]) {
-  color: var(--accent) !important;
-}
-.md-nav__link:hover {
-  color: var(--accent) !important;
-}
 
 /* Landing-only */
 body:has(.landing-page) .md-header__topic:nth-child(2) { display: none !important; }
