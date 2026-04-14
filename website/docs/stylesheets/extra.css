@@ -296,6 +296,8 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   max-width: 100%;
   margin: 0 auto;
   padding: 0 calc((100% - 1200px) / 2 + 48px);
+  position: relative;
+  z-index: 2;
 }
 @media (max-width: 1296px) {
   .content-wrap { padding: 0 48px; }
