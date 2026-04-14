@@ -23,19 +23,19 @@
   --gradient-start: #6366f1;
   --gradient-mid: #8b5cf6;
   --gradient-end: #ec4899;
-  --code-bg: #f4f4f8;
-  --code-header-bg: #eaeaef;
-  --code-border: #d4d4d8;
-  --code-text: #1e1e2e;
-  --code-comment: #8b8b9a;
-  --code-prompt: #16a34a;
-  --code-success: #059669;
-  --code-thinking: #6366f1;
-  --code-tool: #b45309;
-  --code-dim: #a1a1aa;
-  --code-cursor: #52525b;
-  --code-command: #18181b;
-  --terminal-shadow: 0 4px 6px rgba(0,0,0,.03), 0 12px 24px rgba(0,0,0,.06);
+  --code-bg: #eff1f5;
+  --code-header-bg: #e6e9ef;
+  --code-border: #ccd0da;
+  --code-text: #4c4f69;
+  --code-comment: #9ca0b0;
+  --code-prompt: #40a02b;
+  --code-success: #179299;
+  --code-thinking: #7287fd;
+  --code-tool: #fe640b;
+  --code-dim: #9ca0b0;
+  --code-cursor: #4c4f69;
+  --code-command: #4c4f69;
+  --terminal-shadow: 0 4px 6px rgba(0,0,0,.04), 0 12px 24px rgba(0,0,0,.08);
   --grid-color: rgba(0,0,0,.06);
 }
 
@@ -52,19 +52,19 @@
   --btn-hover: #d4d4d8;
   --accent: #818cf8;
   --accent-bg: rgba(129,140,248,.1);
-  --code-bg: #16161e;
-  --code-header-bg: #1e1e28;
-  --code-border: #3f3f50;
-  --code-text: #e4e4e7;
-  --code-comment: #52525b;
-  --code-prompt: #22c55e;
-  --code-success: #34d399;
-  --code-thinking: #818cf8;
-  --code-tool: #fbbf24;
-  --code-dim: #52525b;
-  --code-cursor: #a1a1aa;
-  --code-command: #fafafa;
-  --terminal-shadow: 0 4px 6px rgba(0,0,0,.15), 0 12px 24px rgba(0,0,0,.35);
+  --code-bg: #1e1e2e;
+  --code-header-bg: #181825;
+  --code-border: #45475a;
+  --code-text: #cdd6f4;
+  --code-comment: #6c7086;
+  --code-prompt: #a6e3a1;
+  --code-success: #94e2d5;
+  --code-thinking: #b4befe;
+  --code-tool: #fab387;
+  --code-dim: #6c7086;
+  --code-cursor: #cdd6f4;
+  --code-command: #cdd6f4;
+  --terminal-shadow: 0 4px 6px rgba(0,0,0,.2), 0 12px 24px rgba(0,0,0,.4);
   --grid-color: rgba(129,140,248,.12);
 }
 
@@ -337,9 +337,9 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   background: var(--code-dim);
   transition: background .2s;
 }
-.hero-terminal:hover .dot.red { background: #ef4444; }
-.hero-terminal:hover .dot.yellow { background: #eab308; }
-.hero-terminal:hover .dot.green { background: #22c55e; }
+.hero-terminal:hover .dot.red { background: #f38ba8; }
+.hero-terminal:hover .dot.yellow { background: #f9e2af; }
+.hero-terminal:hover .dot.green { background: #a6e3a1; }
 .hero-terminal-title {
   flex: 1;
   text-align: center;
