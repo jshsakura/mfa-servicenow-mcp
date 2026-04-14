@@ -109,9 +109,18 @@ Config file: `opencode.json` in project root.
 
 ## OpenAI Codex (CLI & App)
 
-Config file: `~/.codex/config.toml` (user-level) or `.codex/config.toml` (project-local, trusted projects only).
+Both **Codex CLI** (`codex` command) and **Codex App** (chatgpt.com/codex) read from the same `config.toml`. Two scopes are available:
 
-Both **Codex CLI** (`codex` command) and **Codex App** (chatgpt.com/codex) read from the same `config.toml`.
+| Scope | Path | Use case |
+|-------|------|----------|
+| Global | `~/.codex/config.toml` | Shared across all projects |
+| Project | `.codex/config.toml` | Per-project instance, overrides global |
+
+> Project-local config requires the project to be trusted by Codex.
+
+### Option A: Global config (`~/.codex/config.toml`)
+
+Use this when you work with one ServiceNow instance across all projects.
 
 ```toml
 [mcp_servers.servicenow]
@@ -126,6 +135,26 @@ args = [
   "--browser-username", "your.username",
   "--browser-password", "your-password",
   "--tool-package", "standard",
+]
+```
+
+### Option B: Project config (`.codex/config.toml`)
+
+Use this when each project connects to a different ServiceNow instance.
+
+```toml
+[mcp_servers.servicenow]
+command = "uvx"
+args = [
+  "--with", "playwright",
+  "--from", "mfa-servicenow-mcp",
+  "servicenow-mcp",
+  "--instance-url", "https://dev12345.service-now.com",
+  "--auth-type", "browser",
+  "--browser-headless", "false",
+  "--browser-username", "your.username",
+  "--browser-password", "your-password",
+  "--tool-package", "portal_developer",
 ]
 ```
 
