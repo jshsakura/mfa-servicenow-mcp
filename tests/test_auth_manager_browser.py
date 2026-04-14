@@ -46,20 +46,27 @@ def _make_browser_manager(
     return manager
 
 
-def _write_session_cache(path: str, cookie: str, expires_at: float,
-                         instance_url: str = "https://example.service-now.com",
-                         session_token: str = "g_ck_tok",
-                         user_agent: str = "TestAgent") -> None:
+def _write_session_cache(
+    path: str,
+    cookie: str,
+    expires_at: float,
+    instance_url: str = "https://example.service-now.com",
+    session_token: str = "g_ck_tok",
+    user_agent: str = "TestAgent",
+) -> None:
     """Helper to write a session cache file for testing."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
-        json.dump({
-            "cookie_header": cookie,
-            "user_agent": user_agent,
-            "session_token": session_token,
-            "expires_at": expires_at,
-            "instance_url": instance_url,
-        }, f)
+        json.dump(
+            {
+                "cookie_header": cookie,
+                "user_agent": user_agent,
+                "session_token": session_token,
+                "expires_at": expires_at,
+                "instance_url": instance_url,
+            },
+            f,
+        )
 
 
 def test_browser_session_probe_401_triggers_interactive_relogin():
@@ -297,6 +304,7 @@ def test_fill_first_matching_returns_none_when_password_selector_missing():
 # Session sharing & keepalive resilience tests
 # ---------------------------------------------------------------------------
 
+
 class TestReloadSessionFromDisk:
     """Tests for _reload_session_from_disk() — cross-terminal session sync."""
 
@@ -361,7 +369,9 @@ class TestReloadSessionFromDisk:
         manager._session_cache_path = cache_path
 
         _write_session_cache(
-            cache_path, "OTHER=COOKIE", time.time() + 1800,
+            cache_path,
+            "OTHER=COOKIE",
+            time.time() + 1800,
             instance_url="https://other.service-now.com",
         )
 
@@ -408,8 +418,11 @@ class TestReloadSessionFromDisk:
         manager._session_cache_path = cache_path
 
         _write_session_cache(
-            cache_path, "NEW=COOKIE", time.time() + 1800,
-            user_agent="NewBrowser/1.0", session_token="new_g_ck",
+            cache_path,
+            "NEW=COOKIE",
+            time.time() + 1800,
+            user_agent="NewBrowser/1.0",
+            session_token="new_g_ck",
         )
 
         manager._reload_session_from_disk()
@@ -565,7 +578,8 @@ class TestMakeRequest401DiskReload:
         second_response.url = "https://example.service-now.com/api/now/table/sys_user"
 
         with patch.object(
-            manager, "get_headers",
+            manager,
+            "get_headers",
             return_value={
                 "Accept": "application/json",
                 "Content-Type": "application/json",
@@ -731,7 +745,9 @@ class TestLoadSessionFromDisk:
         manager._session_cache_path = cache_path
 
         _write_session_cache(
-            cache_path, "OTHER=COOKIE", time.time() + 1800,
+            cache_path,
+            "OTHER=COOKIE",
+            time.time() + 1800,
             instance_url="https://other.service-now.com",
         )
 
