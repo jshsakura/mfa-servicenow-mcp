@@ -133,7 +133,8 @@ class RoutePortalComponentEditParams(BaseModel):
 
 class DownloadPortalSourcesParams(BaseModel):
     output_dir: str | None = Field(
-        default=None, description="Output directory path. Defaults to current working directory"
+        default=None,
+        description="Output directory. Defaults to ./temp/{instance}/ in current working directory.",
     )
     scope: str | None = Field(
         default=None,
@@ -2925,11 +2926,14 @@ def download_portal_sources(
     auth_manager: AuthManager,
     params: DownloadPortalSourcesParams,
 ) -> Dict[str, Any]:
-    root = (
-        Path(params.output_dir).expanduser().resolve()
-        if params.output_dir
-        else Path.cwd().expanduser().resolve()
-    )
+    if params.output_dir:
+        root = Path(params.output_dir).expanduser().resolve()
+    else:
+        # Default: temp/ folder in current working directory, scoped by instance.
+        # Keeps analysis workspace separate from project source and SN-Utils folders.
+        instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+        root = Path.cwd() / "temp" / instance_name
+    root.mkdir(parents=True, exist_ok=True)
     max_widgets = _clamp_download_widget_limit(params.max_widgets)
     targeted_widget_export = bool(params.widget_ids)
     include_linked_script_includes = (
@@ -3197,3 +3201,252 @@ def download_portal_sources(
         "script_include_map_path": str(scope_root / "sys_script_include" / "_map.json"),
         "safety_notice": "Exports structured source files only; no destructive remote operations are performed.",
     }
+
+
+# ---------------------------------------------------------------------------
+# Deep Analysis: Resolve full dependency chain with source code
+# ---------------------------------------------------------------------------
+
+MAX_CHAIN_DEPTH = 3
+MAX_CHAIN_WIDGETS = 5
+MAX_CHAIN_PROVIDERS = 20
+MAX_CHAIN_SI = 10
+MAX_SOURCE_CHARS_PER_FIELD = 15000
+
+
+class ResolveWidgetChainParams(BaseModel):
+    """Parameters for deep dependency chain resolution."""
+
+    widget_id: str = Field(
+        ...,
+        description="Starting widget sys_id, id, or name",
+    )
+    depth: int = Field(
+        default=2,
+        description="Resolution depth: 1=widget only, 2=+providers, 3=+script includes (max 3)",
+    )
+    include_fields: List[str] = Field(
+        default=["script", "client_script", "template"],
+        description="Widget fields to include. Options: script, client_script, template, css, link",
+    )
+    max_source_length: int = Field(
+        default=MAX_SOURCE_CHARS_PER_FIELD,
+        description="Max chars per source field. 0 for unlimited (use with caution).",
+    )
+
+
+def _truncate_source(text: str, max_len: int) -> str:
+    if max_len <= 0 or len(text) <= max_len:
+        return text
+    return text[:max_len] + f"\n... [TRUNCATED at {max_len} chars, total {len(text)}]"
+
+
+@register_tool(
+    "resolve_widget_chain",
+    params=ResolveWidgetChainParams,
+    description=(
+        "Deep-resolve a widget's full dependency chain with source code. "
+        "Returns widget source + linked provider scripts + script include bodies "
+        "in one call. Use when analysis requires cross-component logic tracing."
+    ),
+    serialization="raw_dict",
+    return_type=dict,
+)
+def resolve_widget_chain(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ResolveWidgetChainParams,
+) -> Dict[str, Any]:
+    """Resolve widget → providers → script includes with full source code."""
+    depth = min(max(1, params.depth), MAX_CHAIN_DEPTH)
+    max_src = params.max_source_length
+    result: Dict[str, Any] = {"depth": depth, "api_calls": 0}
+
+    # --- Step 1: Fetch the widget with full source ---
+    widget_fields = ["sys_id", "name", "id", "sys_scope", "sys_updated_on", "sys_updated_by"]
+    widget_fields.extend(f for f in params.include_fields if f not in widget_fields)
+
+    query = f"sys_id={params.widget_id}^ORid={params.widget_id}^ORname={params.widget_id}"
+    try:
+        w_resp = sn_query(
+            config,
+            auth_manager,
+            GenericQueryParams(
+                table=WIDGET_TABLE,
+                query=query,
+                fields=",".join(widget_fields),
+                limit=1,
+                offset=0,
+                display_value=False,
+            ),
+        )
+        result["api_calls"] += 1
+    except Exception as exc:
+        return {"success": False, "error": f"Failed to fetch widget: {exc}"}
+
+    if not w_resp.get("success") or not w_resp.get("results"):
+        return {"success": False, "error": f"Widget '{params.widget_id}' not found."}
+
+    widget = w_resp["results"][0]
+    # Truncate source fields
+    for f in params.include_fields:
+        if f in widget and isinstance(widget[f], str):
+            widget[f] = _truncate_source(widget[f], max_src)
+
+    result["widget"] = widget
+    result["providers"] = []
+    result["script_includes"] = []
+
+    if depth < 2:
+        result["success"] = True
+        return result
+
+    # --- Step 2: Fetch linked Angular Providers with full script ---
+    widget_sys_id = widget.get("sys_id", "")
+    try:
+        m2m_resp = sn_query(
+            config,
+            auth_manager,
+            GenericQueryParams(
+                table=ANGULAR_PROVIDER_M2M_TABLE,
+                query=f"sp_widget={widget_sys_id}",
+                fields="sp_angular_provider",
+                limit=100,
+                offset=0,
+                display_value=False,
+            ),
+        )
+        result["api_calls"] += 1
+    except Exception as exc:
+        result["warnings"] = [f"Failed to fetch provider M2M: {exc}"]
+        result["success"] = True
+        return result
+
+    provider_ids = []
+    for row in m2m_resp.get("results", []):
+        pid = _as_ref_sys_id(row.get("sp_angular_provider"))
+        if pid:
+            provider_ids.append(pid)
+
+    if provider_ids:
+        provider_ids = provider_ids[:MAX_CHAIN_PROVIDERS]
+        try:
+            prov_resp = sn_query(
+                config,
+                auth_manager,
+                GenericQueryParams(
+                    table=ANGULAR_PROVIDER_TABLE,
+                    query=f"sys_idIN{','.join(provider_ids)}",
+                    fields="sys_id,name,type,script,client_script",
+                    limit=MAX_CHAIN_PROVIDERS,
+                    offset=0,
+                    display_value=False,
+                ),
+            )
+            result["api_calls"] += 1
+        except Exception as exc:
+            result["warnings"] = [f"Failed to fetch providers: {exc}"]
+            result["success"] = True
+            return result
+
+        for prov in prov_resp.get("results", []):
+            if "script" in prov and isinstance(prov["script"], str):
+                prov["script"] = _truncate_source(prov["script"], max_src)
+            if "client_script" in prov and isinstance(prov["client_script"], str):
+                prov["client_script"] = _truncate_source(prov["client_script"], max_src)
+            result["providers"].append(prov)
+
+    if depth < 3:
+        result["success"] = True
+        return result
+
+    # --- Step 3: Extract Script Include references and fetch bodies ---
+    si_names: Set[str] = set()
+    # Scan widget server script for SI references
+    widget_script = widget.get("script", "")
+    if widget_script:
+        si_names.update(_extract_si_refs_from_script(widget_script))
+    # Scan provider scripts
+    for prov in result["providers"]:
+        prov_script = prov.get("script", "")
+        if prov_script:
+            si_names.update(_extract_si_refs_from_script(prov_script))
+
+    if si_names:
+        si_names_list = sorted(si_names)[:MAX_CHAIN_SI]
+        si_query = "nameIN" + ",".join(si_names_list)
+        try:
+            si_resp = sn_query(
+                config,
+                auth_manager,
+                GenericQueryParams(
+                    table="sys_script_include",
+                    query=si_query,
+                    fields="sys_id,name,api_name,script,client_callable",
+                    limit=MAX_CHAIN_SI,
+                    offset=0,
+                    display_value=False,
+                ),
+            )
+            result["api_calls"] += 1
+        except Exception as exc:
+            result["warnings"] = result.get("warnings", []) + [
+                f"Failed to fetch script includes: {exc}"
+            ]
+            result["success"] = True
+            return result
+
+        for si in si_resp.get("results", []):
+            if "script" in si and isinstance(si["script"], str):
+                si["script"] = _truncate_source(si["script"], max_src)
+            result["script_includes"].append(si)
+
+    result["success"] = True
+    result["summary"] = (
+        f"Resolved: 1 widget, {len(result['providers'])} providers, "
+        f"{len(result['script_includes'])} script includes in {result['api_calls']} API calls"
+    )
+    return result
+
+
+# Helper: extract Script Include names referenced in server scripts
+_SI_REF_PATTERN = re.compile(r"\bnew\s+(\w+)\s*\(", re.MULTILINE)
+_SI_GETAPPFUNCTION_PATTERN = re.compile(r"GlideAjax\s*\(\s*['\"](\w+)['\"]", re.MULTILINE)
+
+
+def _extract_si_refs_from_script(script: str) -> Set[str]:
+    """Extract likely Script Include names from a server-side script."""
+    refs: Set[str] = set()
+    # Pattern: new SomeSI()
+    for m in _SI_REF_PATTERN.finditer(script):
+        name = m.group(1)
+        # Filter out common non-SI constructors
+        if name not in {
+            "GlideRecord",
+            "GlideAggregate",
+            "GlideDateTime",
+            "GlideDate",
+            "GlideDuration",
+            "GlideFilter",
+            "GlideRecordSecure",
+            "GlideSession",
+            "GlideSysAttachment",
+            "GlideSchedule",
+            "GlideSystem",
+            "GlideElement",
+            "GlideEmail",
+            "Date",
+            "Array",
+            "Object",
+            "Map",
+            "Set",
+            "RegExp",
+            "Error",
+            "JSON",
+            "XMLDocument",
+        }:
+            refs.add(name)
+    # Pattern: GlideAjax("SIName")
+    for m in _SI_GETAPPFUNCTION_PATTERN.finditer(script):
+        refs.add(m.group(1))
+    return refs

@@ -932,7 +932,7 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_download_portal_sources_defaults_to_current_working_directory(
+def test_download_portal_sources_defaults_to_temp_directory(
     mock_sn_query, mock_config, mock_auth_manager, tmp_path
 ):
     mock_sn_query.return_value = {"success": True, "results": []}
@@ -945,8 +945,9 @@ def test_download_portal_sources_defaults_to_current_working_directory(
         )
 
     assert result["success"] is True
-    assert (tmp_path / "_settings.json").exists()
-    assert (tmp_path / "_last_error.json").exists()
+    workspace = tmp_path / "temp" / "test"
+    assert (workspace / "_settings.json").exists()
+    assert (workspace / "_last_error.json").exists()
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
