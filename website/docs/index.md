@@ -173,14 +173,13 @@ servicenow-mcp \
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser"
-      ],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -190,25 +189,19 @@ servicenow-mcp \
         </div>
         <div class="install-panel" id="mcp-claude-code">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c">// Option A: CLI one-liner</span>
-claude mcp add servicenow -- \
-  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
-
-<span class="c">// Option B: .mcp.json in project root</span>
-{
+            <pre class="install-code"><code>{
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser"
-      ],
-      "env": { "MCP_TOOL_PACKAGE": "standard" }
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
     }
   }
 }</code></pre>
@@ -218,14 +211,16 @@ claude mcp add servicenow -- \
           <div class="install-code-block">
             <pre class="install-code"><code>[mcp_servers.servicenow]
 command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-  "--instance-url", "https://your-instance.service-now.com",
-  "--auth-type", "browser",
-  "--tool-package", "standard",
-]</code></pre>
+args = ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"]
+enabled = true
+
+[mcp_servers.servicenow.env]
+SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
+SERVICENOW_AUTH_TYPE = "browser"
+SERVICENOW_BROWSER_HEADLESS = "false"
+SERVICENOW_USERNAME = "your-username"
+SERVICENOW_PASSWORD = "your-password"
+MCP_TOOL_PACKAGE = "full"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="mcp-opencode">
@@ -243,6 +238,9 @@ args = [
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -253,19 +251,18 @@ args = [
         <div class="install-panel" id="mcp-gemini">
           <div class="install-code-block">
             <pre class="install-code"><code>{
-  "mcp": {
+  "mcpServers": {
     "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright",
-        "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
-      },
-      "enabled": true
+      }
     }
   }
 }</code></pre>
@@ -285,6 +282,9 @@ args = [
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
