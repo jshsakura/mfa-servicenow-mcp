@@ -192,6 +192,8 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  padding-bottom: 120px;
+  margin-bottom: -120px;
 }
 .hero-bg-img {
   position: absolute;
