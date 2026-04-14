@@ -66,6 +66,7 @@ SOURCE_TYPE_ALL = "all"
 DEFAULT_SOURCE_TYPE_ORDER = [
     "script_include",
     "widget",
+    "angular_provider",
     "business_rule",
     "client_script",
     "ui_action",
@@ -240,6 +241,21 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         "search_fields": ["name", "id", "template", "script", "client_script", "css"],
         "lookup_fields": ["sys_id", "id", "name"],
     },
+    "angular_provider": {
+        "table": "sp_angular_provider",
+        "identifier_field": "name",
+        "summary_fields": [
+            "sys_id",
+            "name",
+            "type",
+            "sys_scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": ["script", "client_script"],
+        "search_fields": ["name", "script", "client_script"],
+        "lookup_fields": ["sys_id", "name"],
+    },
 }
 
 
@@ -247,7 +263,7 @@ class SearchServerCodeParams(BaseModel):
     query: str = Field(..., description="Text to search in names, identifiers, and source fields")
     source_type: str = Field(
         default=SOURCE_TYPE_ALL,
-        description="One of: all, script_include, widget, business_rule, client_script, ui_action, ui_script, ui_page, scripted_rest, fix_script, update_xml",
+        description="One of: all, script_include, widget, angular_provider, business_rule, client_script, ui_action, ui_script, ui_page, scripted_rest, fix_script, update_xml",
     )
     limit: int = Field(
         default=5,
@@ -263,7 +279,7 @@ class SearchServerCodeParams(BaseModel):
 class GetMetadataSourceParams(BaseModel):
     source_type: str = Field(
         default=...,
-        description="One of: script_include, widget, business_rule, client_script, ui_action, ui_script, ui_page, scripted_rest, fix_script, update_xml",
+        description="One of: script_include, widget, angular_provider, business_rule, client_script, ui_action, ui_script, ui_page, scripted_rest, fix_script, update_xml",
     )
     source_id: str = Field(..., description="sys_id, name, or logical identifier")
     max_field_length: int = Field(
