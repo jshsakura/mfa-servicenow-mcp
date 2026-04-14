@@ -211,72 +211,13 @@ jobs:
           sarif_file: 'trivy-results.sarif'
 
   # ============================================
-  # Auto Tag (Patch bump on main deploy)
-  # ============================================
-  auto_tag:
-    name: Auto Tag Patch Version
-    runs-on: ubuntu-latest
-    needs: [build, security]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Create next patch tag
-        id: next_tag
-        run: |
-          # Read version from pyproject.toml [project] section
-          next_tag="v$(python3 -c "
-          import tomllib, pathlib
-          data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
-          print(data['project']['version'])
-          ")"
-          echo "NEXT_TAG=$next_tag" >> "$GITHUB_OUTPUT"
-
-      - name: Verify version is newer than PyPI
-        env:
-          NEXT_TAG: ${{ steps.next_tag.outputs.NEXT_TAG }}
-        run: |
-          LOCAL_VER="${NEXT_TAG#v}"
-          PYPI_VER=$(pip index versions mfa-servicenow-mcp 2>/dev/null | head -1 | grep -oP '\(\K[^)]+' || echo "0.0.0")
-          echo "Local: $LOCAL_VER, PyPI latest: $PYPI_VER"
-          pip install packaging -q
-          python3 -c "
-          from packaging.version import Version
-          local, pypi = Version('$LOCAL_VER'), Version('$PYPI_VER')
-          if local <= pypi:
-              raise SystemExit(f'BLOCKED: {local} <= PyPI {pypi}. Bump pyproject.toml version first!')
-          print(f'OK: {local} > {pypi}')
-          "
-
-      - name: Push tag
-        env:
-          NEXT_TAG: ${{ steps.next_tag.outputs.NEXT_TAG }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          if git rev-parse "$NEXT_TAG" >/dev/null 2>&1; then
-            echo "Tag $NEXT_TAG already exists. Skipping."
-            exit 0
-          fi
-
-          git tag -a "$NEXT_TAG" -m "Release $NEXT_TAG"
-          git push origin "$NEXT_TAG"
-
-  # ============================================
-  # Release (runs after auto_tag on main, or on manual tag push)
+  # Release (tag push only — create git tag manually to deploy)
   # ============================================
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [test, auto_tag]
-    if: always() && needs.test.result == 'success' && (needs.auto_tag.result == 'success' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [test]
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
       packages: write
@@ -338,13 +279,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ============================================
-  # Publish to PyPI (runs after tests pass + tag exists)
+  # Publish to PyPI (tag push only — create git tag manually to deploy)
   # ============================================
   pypi:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    needs: [test, auto_tag]
-    if: always() && needs.test.result == 'success' && (needs.auto_tag.result == 'success' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [test]
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: read
       id-token: write
