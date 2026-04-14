@@ -353,14 +353,14 @@ class TestMakeRequest401GracePeriod:
                 mgr._http_session, "request", side_effect=[response_401, response_200]
             ):
                 with patch.object(mgr, "invalidate_browser_session") as mock_invalidate:
-                    response = mgr.make_request(
+                    result = mgr.make_request(
                         "GET",
                         "https://test.service-now.com/api/now/table/sys_user",
                         timeout=10,
                         max_retries=1,
                     )
 
-        assert response.status_code == 200
+        assert result.status_code == 200
         mock_invalidate.assert_called_once()
 
     def test_401_no_login_at_no_retry_direct_reauth(self):
@@ -397,7 +397,7 @@ class TestMakeRequest401GracePeriod:
                 mgr._http_session, "request", side_effect=[response_401, response_200]
             ):
                 with patch.object(mgr, "invalidate_browser_session") as mock_invalidate:
-                    response = mgr.make_request(
+                    mgr.make_request(
                         "GET",
                         "https://test.service-now.com/api/now/table/sys_user",
                         timeout=10,
