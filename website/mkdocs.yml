@@ -51,12 +51,12 @@ extra_css:
 plugins:
   - search
   - i18n:
-      default_language: en
       languages:
-        en:
+        - locale: en
           name: English
           build: true
-        ko:
+          default: true
+        - locale: ko
           name: 한국어
           build: true
           nav_translations:
@@ -131,6 +131,4 @@ nav:
   - Guides:
       - Service Catalog: docs/catalog.md
       - Change Management: docs/change_management.md
-      - Incident & Troubleshooting: docs/incident_management.md
       - Workflow & Flow Designer: docs/workflow_management.md
-      - Portal Development: docs/portal_development.md
