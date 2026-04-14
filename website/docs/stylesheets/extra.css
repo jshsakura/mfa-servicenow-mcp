@@ -354,7 +354,7 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   font-size: .8rem;
   line-height: 1.8;
   color: var(--code-text);
-  height: 468px;
+  height: 420px;
   overflow: hidden;
 }
 .hero-terminal-line {
@@ -704,7 +704,7 @@ pre.install-code .c { color: var(--code-comment); }
   .hero-content { padding: 48px 20px 100px; }
   .hero-terminal { width: calc(100% - 48px); }
   .hero-terminal { margin-top: -56px; }
-  .hero-terminal-body { height: 420px; font-size: .72rem; padding: 16px 20px; }
+  .hero-terminal-body { height: 380px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
   .content-wrap { padding: 0 16px; }
@@ -714,7 +714,7 @@ pre.install-code .c { color: var(--code-comment); }
   .hero-content { padding: 40px 16px 80px; }
   .hero-terminal { width: calc(100% - 32px); }
   .hero-terminal { margin-top: -40px; }
-  .hero-terminal-body { height: 372px; }
+  .hero-terminal-body { height: 380px; }
 }
 
 /* ============================================================
@@ -732,35 +732,9 @@ body:has(.landing-page) .hero-terminal { animation: fadeInUp 0.8s cubic-bezier(0
 body:has(.landing-page) .hero-stats { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.3s; opacity: 0; }
 body:has(.landing-page) .section { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.4s; opacity: 0; }
 
-/* Terminal Lift */
-.hero-terminal {
-  box-shadow: 0 0 0 1px var(--code-border), 0 18px 36px rgba(0,0,0,0.12);
-  transition: margin-top 0.3s ease, box-shadow 0.3s ease;
-}
-.hero-terminal:hover {
-  margin-top: -84px;
-  box-shadow: 0 0 0 1px var(--code-border), 0 24px 44px rgba(0,0,0,0.16);
-}
+/* Terminal shadow — no hover lift to avoid layout reflow */
 [data-md-color-scheme="slate"] .hero-terminal {
   box-shadow: 0 0 0 1px var(--code-border), 0 18px 38px rgba(0,0,0,0.42);
-}
-[data-md-color-scheme="slate"] .hero-terminal:hover {
-  margin-top: -84px;
-  box-shadow: 0 0 0 1px var(--code-border), 0 24px 46px rgba(0,0,0,0.5);
-}
-
-@media (max-width: 768px) {
-  .hero-terminal:hover,
-  [data-md-color-scheme="slate"] .hero-terminal:hover {
-    margin-top: -60px;
-  }
-}
-
-@media (max-width: 480px) {
-  .hero-terminal:hover,
-  [data-md-color-scheme="slate"] .hero-terminal:hover {
-    margin-top: -44px;
-  }
 }
 
 /* Enhanced Buttons */
