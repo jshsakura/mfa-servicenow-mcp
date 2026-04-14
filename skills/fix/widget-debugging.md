@@ -8,6 +8,8 @@ required_input: widget_id + symptom description
 output: diagnosis
 tools:
   - get_widget_bundle
+  - resolve_widget_chain
+  - download_portal_sources
   - get_portal_component_code
   - get_system_logs
   - get_transaction_logs
@@ -57,6 +59,25 @@ IF widget is slow:
   3. COUNT GlideRecord calls. IF inside loop → N+1 pattern
   4. CHECK script size. IF > 50KB → too large
   → RETURN: performance bottleneck
+
+## Deep Debug (cross-component issues)
+
+When the bug spans widget → provider → SI:
+
+1. CALL download_portal_sources
+   - widget_ids = [INPUT]
+   - include_linked_angular_providers = true
+   - include_linked_script_includes = true
+   → Files in ./temp/{instance}/
+
+2. READ each file locally — trace the full data flow:
+   - Widget server script → what data.X is set
+   - Widget client script → what calls c.server.get() / spUtil
+   - Each provider → what service methods exist, what $http calls
+   - Each SI → what GlideRecord queries, what returns
+   - Widget template → what binds to c.data.X
+
+3. FIND the break point in the chain
 
 ## Common Root Causes
 
