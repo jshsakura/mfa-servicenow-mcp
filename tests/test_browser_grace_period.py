@@ -460,7 +460,7 @@ class TestGracePeriodEdgeCases:
         with patch.object(mgr, "_try_restore_browser_session", return_value=False):
             try:
                 mgr.get_headers()
-                assert False, "Should have raised ValueError"
+                raise AssertionError("Should have raised ValueError")
             except ValueError as exc:
                 assert "currently in progress" in str(exc)
 
