@@ -290,6 +290,14 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   border-color: rgba(255,255,255,.5) !important;
 }
 
+.terminal-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 48px;
+  position: relative;
+  z-index: 10;
+}
+
 /* ============================================================
    TERMINAL — theme-aware, floated
    ============================================================ */
@@ -297,7 +305,6 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   position: relative;
   width: 65%; /* decisively wide */
   float: left;
-  margin-left: 48px;
   margin-top: -190px; /* decisively pulled up */
   z-index: 10;
   background: var(--code-bg);
