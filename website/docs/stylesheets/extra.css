@@ -24,7 +24,7 @@
   --gradient-mid: #8b5cf6;
   --gradient-end: #ec4899;
   --code-bg: #eff1f5;
-  --code-header-bg: #e6e9ef;
+  --code-header-bg: #dce0e8;
   --code-border: #ccd0da;
   --code-text: #4c4f69;
   --code-comment: #9ca0b0;
@@ -701,8 +701,8 @@ pre.install-code .c { color: var(--code-comment); }
   .content-wrap { padding: 0 24px; }
   .steps-grid { grid-template-columns: 1fr; }
   .hero-stats { gap: 28px; padding: 32px 0; }
-  .hero-content { padding: 48px 20px 100px; }
-  .hero-terminal { margin-top: -80px; }
+  .hero-content { padding: 48px 20px 120px; }
+  .hero-terminal { margin-top: -100px; }
   .hero-terminal-body { height: 380px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
@@ -710,8 +710,8 @@ pre.install-code .c { color: var(--code-comment); }
   .hero-stat-value { font-size: 1.5rem; }
   .section { padding: 48px 0; }
   .cta-banner { padding: 48px 16px; }
-  .hero-content { padding: 40px 16px 80px; }
-  .hero-terminal { margin-top: -60px; }
+  .hero-content { padding: 40px 16px 110px; }
+  .hero-terminal { margin-top: -90px; }
   .hero-terminal-body { height: 380px; }
 }
 
