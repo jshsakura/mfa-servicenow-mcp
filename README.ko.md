@@ -141,7 +141,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 | Claude Desktop | `claude_desktop_config.json` | JSON (`mcpServers`) |
 | Claude Code | `.mcp.json` 또는 `claude mcp add` | JSON / CLI |
 | OpenCode | `opencode.json` | JSON (`mcp`, `environment` 사용) |
-| OpenAI Codex | `.codex/agents.toml` | TOML |
+| OpenAI Codex (CLI & App) | `~/.codex/config.toml` | TOML |
 | AntiGravity | `mcp_config.json` | JSON (`mcpServers`) |
 | Gemini / Vertex AI | 프로젝트 설정 | JSON (`mcp`) |
 | Docker | — | 환경변수 |
