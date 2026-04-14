@@ -35,7 +35,11 @@ You are analyzing a Service Portal widget. Choose the right depth based on the u
 | "로직 분석", "왜 안돼", cross-component debug | **Deep** | Download to local, Read files, full trace |
 | Multiple widgets, page-level analysis | **Deep** | Download scope, Read locally |
 
-## Quick Analysis Pipeline
+## Pipeline
+
+Choose one of the two pipelines below based on the request scope and debugging depth.
+
+### Quick Analysis Pipeline
 
 Use when: single widget, overview needed, no cross-component debugging.
 
@@ -55,7 +59,7 @@ Use when: single widget, overview needed, no cross-component debugging.
 
 4. RETURN summary: purpose, data flow, routes, provider roles
 
-## Deep Analysis Pipeline
+### Deep Analysis Pipeline
 
 Use when: cross-component logic, debugging, "왜 안 돼", multi-widget analysis.
 
