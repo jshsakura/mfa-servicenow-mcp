@@ -416,6 +416,27 @@ triggers: ["위젯 분석", "analyze widget"]  # → LLM 트리거 매칭
 
 전체 스킬 레퍼런스는 [skills/SKILL.md](skills/SKILL.md)를 참조하세요.
 
+### MCP 리소스 (내장 스킬 가이드)
+
+스킬은 MCP 서버에서 **MCP 리소스**로도 직접 제공됩니다 — 클라이언트 측 설치 없이 사용 가능합니다. MCP 호환 클라이언트라면 누구나 on-demand로 조회하고 읽을 수 있습니다.
+
+```
+# 스킬 가이드 목록 조회
+list_resources → skill://fix/widget-patching, skill://deploy/change-lifecycle, ...
+
+# 특정 가이드 읽기
+read_resource("skill://fix/widget-patching") → 안전 게이트 포함 전체 파이프라인
+```
+
+매칭되는 스킬 가이드가 있는 도구는 description에 `→ skill://...` 힌트가 표시됩니다. 가이드 본문은 **Pull 기반** — 클라이언트가 실제로 읽을 때까지 토큰 비용 0입니다.
+
+| 기능 | 클라이언트 측 스킬 | MCP 리소스 |
+|------|------------------|-----------|
+| 사용 가능 조건 | 설치 명령 필요 | 내장, 모든 클라이언트 |
+| 토큰 비용 | 클라이언트가 로딩 | 요청 시만 (0 until read) |
+| 탐색 방법 | 슬래시 명령 / 트리거 | `list_resources` |
+| 적합한 사용자 | 파워 유저, 슬래시 명령 | 범용 가이드 |
+
 ## Docker
 
 API Key 인증만 가능 (MFA 브라우저 인증은 GUI가 필요하므로 컨테이너 불가).

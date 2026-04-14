@@ -129,7 +129,7 @@ class DeleteStoryDependencyParams(BaseModel):
 @register_tool(
     name="create_story",
     params=CreateStoryParams,
-    description="Create a new story in ServiceNow",
+    description="Create a story (rm_story). Requires short_description. Optional: points, sprint, epic, state.",
     serialization="str",
     return_type=str,
 )
@@ -199,7 +199,7 @@ def create_story(
 @register_tool(
     name="update_story",
     params=UpdateStoryParams,
-    description="Update an existing story in ServiceNow",
+    description="Update a story by sys_id. Supports points, sprint, state, and assignment fields.",
     serialization="str",
     return_type=str,
 )
@@ -270,7 +270,7 @@ def update_story(
 @register_tool(
     name="list_stories",
     params=ListStoriesParams,
-    description="List stories from ServiceNow",
+    description="List stories with optional sprint/epic/state/assignment filters.",
     serialization="json",
     return_type=str,
 )

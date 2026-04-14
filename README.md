@@ -444,6 +444,27 @@ triggers: ["위젯 분석", "analyze widget"]  # → LLM trigger matching
 
 For the full skill reference, see [skills/SKILL.md](skills/SKILL.md).
 
+### MCP Resources (Built-in Skill Guides)
+
+Skills are also exposed as **MCP resources** directly from the server — no client-side installation required. Any MCP-compliant client can discover and read them on demand.
+
+```
+# List available skill guides
+list_resources → skill://fix/widget-patching, skill://deploy/change-lifecycle, ...
+
+# Read a specific guide
+read_resource("skill://fix/widget-patching") → full pipeline with safety gates
+```
+
+Tools that have a matching skill guide show a `→ skill://...` hint in their description. The guide content is **pull-based** — zero token cost until the client actually reads it.
+
+| Feature | Client-side Skills | MCP Resources |
+|---------|-------------------|---------------|
+| Availability | Requires install command | Built-in, any client |
+| Token cost | Loaded by client | Pull on demand (0 until read) |
+| Discovery | Slash commands / triggers | `list_resources` |
+| Best for | Power users, slash commands | Universal guidance |
+
 ## Docker
 
 API Key auth only (MFA browser auth requires GUI, not available in containers).

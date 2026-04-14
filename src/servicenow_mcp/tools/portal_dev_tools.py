@@ -209,10 +209,7 @@ class GetDeveloperChangesParams(BaseModel):
 @register_tool(
     name="get_developer_changes",
     params=GetDeveloperChangesParams,
-    description=(
-        "List a developer's recent changes across portal tables (widgets, providers, SI, etc.). "
-        "Returns metadata only, no script bodies. Use count_only=true to preview volume first."
-    ),
+    description="List a developer's recent portal changes (widgets, providers, SI). Metadata only, no script bodies.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -352,10 +349,7 @@ class GetUncommittedChangesParams(BaseModel):
 @register_tool(
     name="get_uncommitted_changes",
     params=GetUncommittedChangesParams,
-    description=(
-        "List uncommitted update set entries for a developer. "
-        "Use count_only=true first to check volume before fetching full list."
-    ),
+    description="List uncommitted update set entries for a developer. Supports count_only mode.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -934,10 +928,7 @@ class GetDeveloperDailySummaryParams(BaseModel):
 @register_tool(
     name="get_developer_daily_summary",
     params=GetDeveloperDailySummaryParams,
-    description=(
-        "Generate a developer's daily work summary for Jira/Confluence. "
-        "Returns line counts, functions, and provider links. Supports jira/plain/structured formats."
-    ),
+    description="Generate a developer's daily work summary. Returns line counts, functions, and provider links.",
     serialization="raw_dict",
     return_type=dict,
 )

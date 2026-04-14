@@ -111,7 +111,7 @@ class ListScrumTasksParams(BaseModel):
 @register_tool(
     name="create_scrum_task",
     params=CreateScrumTaskParams,
-    description="Create a new scrum task in ServiceNow",
+    description="Create a scrum task (rm_scrum_task). Requires short_description and story. Optional: state, hours.",
     serialization="str",
     return_type=str,
 )
@@ -186,7 +186,7 @@ def create_scrum_task(
 @register_tool(
     name="update_scrum_task",
     params=UpdateScrumTaskParams,
-    description="Update an existing scrum task in ServiceNow",
+    description="Update a scrum task by sys_id. Supports state, hours, assigned_to, and work_notes.",
     serialization="str",
     return_type=str,
 )
@@ -260,7 +260,7 @@ def update_scrum_task(
 @register_tool(
     name="list_scrum_tasks",
     params=ListScrumTasksParams,
-    description="List scrum tasks from ServiceNow",
+    description="List scrum tasks with optional story/sprint/state filters.",
     serialization="json",
     return_type=str,
 )

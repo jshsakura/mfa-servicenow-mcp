@@ -321,10 +321,7 @@ class AuditPendingChangesParams(BaseModel):
 @register_tool(
     name="audit_pending_changes",
     params=AuditPendingChangesParams,
-    description=(
-        "Audit a developer's pending update set changes in one call. "
-        "Returns inventory grouped by type, risk pattern scan, clone detection, and cross-references."
-    ),
+    description="Audit pending update set changes — inventory by type, risk patterns, clones, and cross-refs.",
     serialization="raw_dict",
     return_type=dict,
 )

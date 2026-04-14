@@ -447,11 +447,7 @@ def _shape_finding(
 @register_tool(
     "detect_missing_profit_company_codes",
     params=DetectMissingCodesParams,
-    description=(
-        "Detect missing profit_company_code branch values in portal widget and provider scripts. "
-        "Scans for conditional patterns (==, switch, includes) and reports where some required codes "
-        "are present but others are missing. Designed for code-set completeness audits."
-    ),
+    description="Detect missing profit_company_code branch values in widget/provider conditional patterns.",
     serialization="raw_dict",
     return_type=dict,
 )
