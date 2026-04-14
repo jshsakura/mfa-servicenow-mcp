@@ -256,6 +256,7 @@ class AuthManager:
         self._session_cache_path = self._get_session_cache_path()
         self._cached_basic_auth_header: Optional[str] = None
         self._session_disk_hash: Optional[int] = None  # Track disk content to skip redundant writes
+        self._keepalive_consecutive_failures: int = 0  # Track consecutive keepalive failures
 
         # Lazy browser auth: only load disk cache on startup (no browser).
         # The actual browser login is deferred to the first tool call
@@ -450,6 +451,56 @@ class AuthManager:
         except Exception as exc:
             logger.warning("Failed to load browser session from disk: %s", exc)
 
+    def _reload_session_from_disk(self) -> bool:
+        """Reload session from disk if a fresher session exists.
+
+        Used by keepalive and request retry paths to pick up sessions
+        written by another terminal/process sharing the same cache file.
+        Returns True if a different (fresher) session was loaded.
+        """
+        if not os.path.exists(self._session_cache_path):
+            return False
+        try:
+            with open(self._session_cache_path, "r") as f:
+                data = json.load(f)
+        except Exception:
+            return False
+
+        if data.get("instance_url") != self.instance_url:
+            return False
+
+        disk_cookie = data.get("cookie_header")
+        if not disk_cookie:
+            return False
+
+        disk_expires = data.get("expires_at")
+        # Skip if disk session is the same as what we already have in memory
+        if disk_cookie == self._browser_cookie_header:
+            # But refresh TTL if disk has a later expiry (another process extended it)
+            if disk_expires and (
+                not self._browser_cookie_expires_at
+                or disk_expires > self._browser_cookie_expires_at
+            ):
+                self._browser_cookie_expires_at = disk_expires
+                self._browser_last_validated_at = time.time()
+                logger.debug("Reload: same cookies but extended TTL from disk.")
+            return False
+
+        # Disk has different cookies — likely written by another terminal after re-auth
+        if disk_expires and time.time() > disk_expires:
+            return False  # disk session already expired
+
+        self._browser_cookie_header = disk_cookie
+        self._browser_user_agent = data.get("user_agent")
+        self._browser_session_token = data.get("session_token")
+        self._browser_cookie_expires_at = disk_expires
+        self._browser_last_validated_at = time.time()
+        logger.info(
+            "Reloaded fresher session from disk (written by another process): %s",
+            self._session_cache_path,
+        )
+        return True
+
     def _start_keepalive(self) -> None:
         """Start a background thread that periodically pings ServiceNow
         to keep the browser session alive (sliding window reset).
@@ -470,12 +521,34 @@ class AuthManager:
                     break
                 # Only ping if we have a valid session outside grace period
                 if not self._browser_cookie_header or self._is_browser_session_expired():
-                    continue
+                    # No session in memory — try loading from disk
+                    # (another terminal may have written a fresh session)
+                    self._reload_session_from_disk()
+                    if not self._browser_cookie_header or self._is_browser_session_expired():
+                        continue
                 if (
                     self._browser_last_login_at is not None
                     and (time.time() - self._browser_last_login_at)
                     < self._browser_post_login_grace_seconds
                 ):
+                    continue
+                # Dedup: if another process recently extended TTL on disk,
+                # skip our ping to avoid redundant requests from multiple terminals.
+                if self._reload_session_from_disk():
+                    # Disk had fresher cookies — adopted them, skip ping this cycle.
+                    self._keepalive_consecutive_failures = 0
+                    continue
+                if (
+                    self._browser_cookie_expires_at
+                    and (self._browser_cookie_expires_at - time.time())
+                    > (ttl_minutes * 60 - ping_interval * 0.3)
+                ):
+                    # TTL was recently extended (by another process's ping) —
+                    # remaining TTL is close to full, no need to ping again.
+                    logger.debug(
+                        "Keep-alive: TTL recently extended (remaining %.0fs), skipping ping.",
+                        self._browser_cookie_expires_at - time.time(),
+                    )
                     continue
                 try:
                     probe = self._probe_browser_api_with_cookie(
@@ -487,20 +560,47 @@ class AuthManager:
                         # Session is alive — extend TTL
                         self._browser_cookie_expires_at = time.time() + (ttl_minutes * 60)
                         self._browser_last_validated_at = time.time()
+                        self._keepalive_consecutive_failures = 0
                         self._save_session_to_disk()
                         logger.debug(
                             "Keep-alive ping OK: session extended by %d minutes.",
                             ttl_minutes,
                         )
                     else:
+                        self._keepalive_consecutive_failures += 1
                         logger.info(
-                            "Keep-alive ping: session no longer valid (status=%s). "
-                            "Will re-authenticate on next tool call.",
+                            "Keep-alive ping: session invalid (status=%s, failure %d/3). "
+                            "Trying disk reload...",
                             probe.status_code,
+                            self._keepalive_consecutive_failures,
+                        )
+                        # Another terminal may have re-authenticated — try disk reload
+                        if self._reload_session_from_disk():
+                            logger.info(
+                                "Keep-alive: reloaded fresher session from disk."
+                            )
+                            self._keepalive_consecutive_failures = 0
+                        elif self._keepalive_consecutive_failures >= 3:
+                            logger.info(
+                                "Keep-alive: 3 consecutive failures — "
+                                "invalidating session. Will re-authenticate on next tool call."
+                            )
+                            self.invalidate_browser_session()
+                            self._keepalive_consecutive_failures = 0
+                except Exception as exc:
+                    self._keepalive_consecutive_failures += 1
+                    logger.debug(
+                        "Keep-alive ping failed (failure %d/3): %s",
+                        self._keepalive_consecutive_failures,
+                        exc,
+                    )
+                    if self._keepalive_consecutive_failures >= 3:
+                        logger.info(
+                            "Keep-alive: 3 consecutive failures — "
+                            "invalidating session."
                         )
                         self.invalidate_browser_session()
-                except Exception as exc:
-                    logger.debug("Keep-alive ping failed: %s", exc)
+                        self._keepalive_consecutive_failures = 0
 
         self._keepalive_thread = threading.Thread(
             target=_keepalive_loop, daemon=True, name="sn-session-keepalive"
@@ -1459,13 +1559,31 @@ class AuthManager:
             context.close()
 
     def invalidate_browser_session(self):
-        """Invalidate the current browser session, forcing re-authentication on next request."""
-        logger.info("Browser session invalidated")
+        """Invalidate the current browser session, forcing re-authentication on next request.
+
+        Only removes the disk cache file if it still contains OUR cookies.
+        Another terminal may have already written a fresher session to disk,
+        and we must not delete that.
+        """
+        my_cookie = self._browser_cookie_header
+        logger.info("Browser session invalidated (in-memory)")
         self._browser_cookie_header = None
         self._browser_cookie_expires_at = None
         self._browser_last_validated_at = None
         self._browser_session_token = None
         if os.path.exists(self._session_cache_path):
+            try:
+                with open(self._session_cache_path, "r") as f:
+                    disk_data = json.load(f)
+                disk_cookie = disk_data.get("cookie_header")
+                if disk_cookie and disk_cookie != my_cookie:
+                    logger.info(
+                        "Disk cache has a different session (likely from another terminal) — "
+                        "keeping disk cache intact."
+                    )
+                    return
+            except Exception:
+                pass  # If we can't read, safe to remove
             try:
                 os.remove(self._session_cache_path)
                 logger.info("Session cache file removed: %s", self._session_cache_path)
@@ -1607,12 +1725,31 @@ class AuthManager:
                     )
 
                 # In browser mode, 401 almost always means the session/X-UserToken is dead.
-                # First try restoring from persistent profile before forcing interactive re-auth.
+                # First try reloading from disk — another terminal may have refreshed the session.
+                if self._reload_session_from_disk():
+                    logger.info(
+                        "Received 401 but reloaded fresher session from disk (another terminal). "
+                        "Retrying with reloaded session..."
+                    )
+                    fresh_headers = self.get_headers()
+                    headers = kwargs.get("headers", {})
+                    headers.update(fresh_headers)
+                    cookie_map = _cookie_header_to_dict(headers.get("Cookie"))
+                    if cookie_map:
+                        kwargs["cookies"] = cookie_map
+                        headers.pop("Cookie", None)
+                    kwargs["headers"] = headers
+                    retry_response = self._http_session.request(method, url, **kwargs)
+                    if retry_response.status_code != 401:
+                        self._mark_browser_session_recently_valid()
+                        return retry_response
+                    logger.info("Disk-reloaded session also got 401. Proceeding to full re-auth.")
+
                 logger.warning(
                     "Received 401 Unauthorized in browser mode. "
                     "Attempting session restore before full re-auth..."
                 )
-                # Invalidate current in-memory session (this also removes the cache file)
+                # Invalidate current in-memory session (disk cache only deleted if it's our cookies)
                 self.invalidate_browser_session()
 
                 # Get fresh headers — get_headers() will try restore first, then interactive
