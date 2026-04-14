@@ -232,9 +232,17 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   }
 }
 .hero-title .gradient-text {
-  color: #fff;
-  -webkit-text-fill-color: currentColor;
-  text-shadow: inherit;
+  background: linear-gradient(90deg, #6dd5fa, #a5b4fc, #c084fc, #f472b6, #fb923c, #6dd5fa);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 4s linear infinite;
+  filter: drop-shadow(0 2px 12px rgba(139,92,246,.5));
+}
+@keyframes shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: -100% 50%; }
 }
 .hero-subtitle {
   font-family: 'Gugi', sans-serif;
