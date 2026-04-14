@@ -165,7 +165,7 @@ class ListCategoriesParams(BaseModel):
 @register_tool(
     "create_knowledge_base",
     params=CreateKnowledgeBaseParams,
-    description="Create a new knowledge base in ServiceNow",
+    description="Create a knowledge base. Requires title.",
     serialization="json_dict",
     return_type=str,
 )
@@ -235,7 +235,7 @@ def create_knowledge_base(
 @register_tool(
     "list_knowledge_bases",
     params=ListKnowledgeBasesParams,
-    description="List knowledge bases from ServiceNow",
+    description="List knowledge bases with optional active/query filters.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -347,7 +347,7 @@ def list_knowledge_bases(
 @register_tool(
     "create_category",
     params=CreateCategoryParams,
-    description="Create a new category in a knowledge base",
+    description="Create a KB category. Requires kb_id and label.",
     serialization="json_dict",
     return_type=str,
 )
@@ -428,7 +428,7 @@ def create_category(
 @register_tool(
     "create_article",
     params=CreateArticleParams,
-    description="Create a new knowledge article",
+    description="Create a KB article. Requires kb_id, short_description, and text.",
     serialization="json_dict",
     return_type=str,
 )
@@ -497,7 +497,7 @@ def create_article(
 @register_tool(
     "update_article",
     params=UpdateArticleParams,
-    description="Update an existing knowledge article",
+    description="Update a KB article by sys_id.",
     serialization="json_dict",
     return_type=str,
 )
@@ -566,7 +566,7 @@ def update_article(
 @register_tool(
     "publish_article",
     params=PublishArticleParams,
-    description="Publish a knowledge article",
+    description="Publish a KB article by sys_id. Sets workflow_state to published.",
     serialization="json_dict",
     return_type=str,
 )
@@ -629,7 +629,7 @@ def publish_article(
 @register_tool(
     "list_articles",
     params=ListArticlesParams,
-    description="List knowledge articles",
+    description="List KB articles with optional kb/category/query filters.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -744,7 +744,7 @@ def list_articles(
 @register_tool(
     "get_article",
     params=GetArticleParams,
-    description="Get a specific knowledge article by ID",
+    description="Get a KB article by sys_id. Returns full text and metadata.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -849,7 +849,7 @@ def get_article(
 @register_tool(
     "list_categories",
     params=ListCategoriesParams,
-    description="List categories in a knowledge base",
+    description="List categories in a KB with optional active/query filters.",
     serialization="raw_dict",
     return_type=dict,
 )

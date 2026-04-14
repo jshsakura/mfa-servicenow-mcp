@@ -113,11 +113,7 @@ class GetPortalParams(BaseModel):
 @register_tool(
     name="get_portal",
     params=GetPortalParams,
-    description=(
-        "Look up a Service Portal by name, URL suffix (e.g. 'sp', 'csm'), or sys_id. "
-        "Returns portal config including homepage, theme, and linked pages with display names. "
-        "Omit portal_id to list all portals."
-    ),
+    description="Get or list Service Portals by name, URL suffix, or sys_id. Returns config, homepage, theme, and pages.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -220,11 +216,7 @@ class GetPageParams(BaseModel):
 @register_tool(
     name="get_page",
     params=GetPageParams,
-    description=(
-        "Look up a Service Portal page by URL path (e.g. 'index', 'form'), title, or sys_id. "
-        "Returns page properties and full layout tree with widget names/IDs resolved — "
-        "no extra calls needed. Omit page_id to search/list pages."
-    ),
+    description="Get or list portal pages by URL path, title, or sys_id. Returns layout tree with widget placements.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -470,11 +462,7 @@ class UpdateWidgetInstanceParams(BaseModel):
 @register_tool(
     name="get_widget_instance",
     params=GetWidgetInstanceParams,
-    description=(
-        "Get widget placement details — where a widget sits on a page and its config. "
-        "Returns widget name/ID, column, order, and parameters. "
-        "Filter by page or widget to find all placements."
-    ),
+    description="Get widget instance placement on a page — column, order, and config parameters.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -562,7 +550,7 @@ def get_widget_instance(
 @register_tool(
     name="create_widget_instance",
     params=CreateWidgetInstanceParams,
-    description="Place a widget on a portal page column. Specify widget, target column, display order, and optional config parameters.",
+    description="Place a widget on a portal page column with order and config.",
     serialization="raw_dict",
     return_type=dict,
 )

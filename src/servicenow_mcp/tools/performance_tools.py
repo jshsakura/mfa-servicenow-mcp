@@ -357,7 +357,7 @@ def _fetch_angular_providers(
 @register_tool(
     "analyze_widget_performance",
     params=AnalyzeWidgetPerformanceParams,
-    description="Analyze a widget's code patterns, transaction logs, and data provider usage. Returns performance findings.",
+    description="Analyze widget performance — code patterns, transaction logs, provider usage.",
     serialization="raw_dict",
     return_type=dict,
 )

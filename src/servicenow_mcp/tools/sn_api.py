@@ -671,7 +671,7 @@ def sn_health(
 @register_tool(
     name="sn_query",
     params=GenericQueryParams,
-    description="Query any ServiceNow table with encoded query filters. Fallback only — prefer specialized tools for portal/widget/code tasks.",
+    description="Query any table with encoded query filters. Fallback — prefer specialized tools.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -875,7 +875,7 @@ def sn_discover(
 @register_tool(
     name="sn_nl",
     params=NaturalLanguageParams,
-    description="Convert natural language to query, schema, or aggregate calls. Parses intent and dispatches to sn_query/sn_schema/sn_aggregate.",
+    description="Natural language → sn_query/sn_schema/sn_aggregate dispatch.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )

@@ -93,7 +93,7 @@ class ListProjectsParams(BaseModel):
 @register_tool(
     name="create_project",
     params=CreateProjectParams,
-    description="Create a new project in ServiceNow",
+    description="Create a project (pm_project). Requires short_description. Optional: start/end dates, state.",
     serialization="str",
     return_type=str,
 )
@@ -164,7 +164,7 @@ def create_project(
 @register_tool(
     name="update_project",
     params=UpdateProjectParams,
-    description="Update an existing project in ServiceNow",
+    description="Update a project by sys_id. Supports description, dates, state, and assignment fields.",
     serialization="str",
     return_type=str,
 )
@@ -235,7 +235,7 @@ def update_project(
 @register_tool(
     name="list_projects",
     params=ListProjectsParams,
-    description="List projects from ServiceNow",
+    description="List projects with optional state/assignment_group/query filters.",
     serialization="json",
     return_type=str,
 )
