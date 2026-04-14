@@ -192,8 +192,6 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding-bottom: 120px;
-  margin-bottom: -120px;
 }
 .hero-bg-img {
   position: absolute;
@@ -209,7 +207,7 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   position: relative;
   z-index: 2;
   text-align: center;
-  padding: 140px 24px 200px;
+  padding: 120px 24px 180px;
   max-width: 800px;
 }
 .hero-title {
@@ -226,7 +224,7 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
 @media (min-width: 1024px) {
   .hero-content {
     max-width: 940px;
-    padding: 160px 24px 220px;
+    padding: 138px 24px 196px;
   }
   .hero-title {
     font-size: clamp(4.4rem, 6.2vw, 5.8rem);
