@@ -640,3 +640,88 @@ pre.install-code .c { color: var(--code-comment); }
   .hero-content { padding: 40px 16px 80px; }
   .hero-terminal { margin-top: -48px; }
 }
+
+/* ============================================================
+   AESTHETIC ENHANCEMENTS (Animations, Glows, Hover Effects)
+   ============================================================ */
+
+/* Smooth Reveal Animations */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+body.landing .hero-content { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+body.landing .hero-terminal { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.15s; opacity: 0; }
+body.landing .hero-stats { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.3s; opacity: 0; }
+body.landing .section { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.4s; opacity: 0; }
+
+/* Enhanced Gradient Text */
+.hero-title .gradient-text {
+  background: linear-gradient(to right, #6dd5fa, #a5b4fc, #c084fc, #f472b6, #fb923c, #6dd5fa);
+  background-size: 200% auto;
+  animation: gradientFlow 4s linear infinite;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 4px 24px rgba(192, 132, 252, 0.4));
+}
+@keyframes gradientFlow {
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
+/* Glowing Terminal */
+.hero-terminal {
+  box-shadow: 0 0 0 1px var(--code-border), 0 20px 40px rgba(0,0,0,0.1), 0 0 80px rgba(99, 102, 241, 0.15);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.hero-terminal:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 0 0 1px var(--code-border), 0 30px 60px rgba(0,0,0,0.15), 0 0 100px rgba(99, 102, 241, 0.25);
+}
+[data-md-color-scheme="slate"] .hero-terminal {
+  box-shadow: 0 0 0 1px var(--code-border), 0 20px 40px rgba(0,0,0,0.4), 0 0 80px rgba(129, 140, 248, 0.15);
+}
+[data-md-color-scheme="slate"] .hero-terminal:hover {
+  box-shadow: 0 0 0 1px var(--code-border), 0 30px 60px rgba(0,0,0,0.5), 0 0 120px rgba(129, 140, 248, 0.25);
+}
+
+/* Enhanced Buttons */
+.hero-section .md-button--primary {
+  box-shadow: 0 0 20px rgba(255,255,255,0.2) !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+.hero-section .md-button--primary:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 30px rgba(255,255,255,0.4) !important;
+}
+
+/* Enhanced Cards */
+.step-card, .grid.cards > ul > li {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  position: relative;
+}
+.step-card:hover, .grid.cards > ul > li:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 14px 28px rgba(0,0,0,0.06), 0 0 0 1px var(--accent) !important;
+  border-color: transparent !important;
+}
+[data-md-color-scheme="slate"] .step-card:hover, [data-md-color-scheme="slate"] .grid.cards > ul > li:hover {
+  box-shadow: 0 14px 28px rgba(0,0,0,0.4), 0 0 0 1px var(--accent) !important;
+}
+
+/* Pulse effect for CTA */
+.cta-banner::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%; height: 100%;
+  background: radial-gradient(circle, rgba(99,102,241,0.05) 0%, transparent 60%);
+  pointer-events: none;
+  animation: pulseGlow 4s infinite alternate;
+}
+@keyframes pulseGlow {
+  0% { opacity: 0.5; transform: translate(-50%, -50%) scale(0.9); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+}
