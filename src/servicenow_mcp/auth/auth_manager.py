@@ -338,15 +338,21 @@ class AuthManager:
             logger.info("Chromium browser binary installed successfully.")
 
     def _get_session_cache_path(self) -> str:
-        """Get the path to the session cache file."""
+        """Get the path to the session cache file, scoped by instance + user."""
         home = os.path.expanduser("~")
         cache_dir = os.path.join(home, ".servicenow_mcp")
         os.makedirs(cache_dir, exist_ok=True)
-        # Use a sanitized instance URL to keep sessions separate per instance
         instance_id = "default"
         if self.instance_url:
             instance_id = (urlparse(self.instance_url).hostname or "default").replace(".", "_")
-        return os.path.join(cache_dir, f"session_{instance_id}.json")
+        # Include username in cache key to prevent session cross-contamination
+        # when multiple users share the same machine/instance.
+        username = ""
+        if self.config.browser and self.config.browser.username:
+            username = f"_{self.config.browser.username.replace('.', '_').replace('@', '_')}"
+        elif self.config.basic and self.config.basic.username:
+            username = f"_{self.config.basic.username.replace('.', '_').replace('@', '_')}"
+        return os.path.join(cache_dir, f"session_{instance_id}{username}.json")
 
     def _save_session_to_disk(self) -> None:
         """Save the current browser session to disk.
