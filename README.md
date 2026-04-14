@@ -137,15 +137,15 @@ A browser window opens on the first tool call for Okta/Entra ID/SAML/MFA login. 
 
 Each project can connect to a different ServiceNow instance. Set the config in your **project directory** so each project has its own instance URL and credentials.
 
-| Client | Config File | Format |
-|--------|------------|--------|
-| Claude Desktop | `claude_desktop_config.json` | JSON (`mcpServers`) |
-| Claude Code | `.mcp.json` or `claude mcp add` | JSON / CLI |
-| OpenCode | `opencode.json` | JSON (`mcp`, uses `environment`) |
-| OpenAI Codex (CLI & App) | `~/.codex/config.toml` | TOML |
-| AntiGravity | `mcp_config.json` | JSON (`mcpServers`) |
-| Gemini / Vertex AI | project config | JSON (`mcp`) |
-| Docker | — | Environment variables |
+| Client | Project Config | Global Config | Format |
+|--------|---------------|--------------|--------|
+| Claude Code | `.mcp.json` | `~/.claude.json` | JSON |
+| OpenAI Codex | `.codex/config.toml` | `~/.codex/config.toml` | TOML |
+| Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | JSON |
+| OpenCode | `opencode.json` | — | JSON |
+| Claude Desktop | — | `claude_desktop_config.json` | JSON |
+| AntiGravity | — | `~/.gemini/antigravity/mcp_config.json` | JSON |
+| Docker | — | — | Env vars |
 
 Copy-paste configs for each client: **[Client Setup Guide](docs/CLIENT_SETUP.md)**
 

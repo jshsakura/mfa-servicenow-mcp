@@ -136,15 +136,15 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 프로젝트마다 다른 ServiceNow 인스턴스에 접속할 수 있습니다. **프로젝트 디렉토리**에 설정 파일을 두세요.
 
-| 클라이언트 | 설정 파일 | 포맷 |
-|-----------|----------|------|
-| Claude Desktop | `claude_desktop_config.json` | JSON (`mcpServers`) |
-| Claude Code | `.mcp.json` 또는 `claude mcp add` | JSON / CLI |
-| OpenCode | `opencode.json` | JSON (`mcp`, `environment` 사용) |
-| OpenAI Codex (CLI & App) | `~/.codex/config.toml` | TOML |
-| AntiGravity | `mcp_config.json` | JSON (`mcpServers`) |
-| Gemini / Vertex AI | 프로젝트 설정 | JSON (`mcp`) |
-| Docker | — | 환경변수 |
+| 클라이언트 | 프로젝트 설정 | 글로벌 설정 | 포맷 |
+|-----------|-------------|-----------|------|
+| Claude Code | `.mcp.json` | `~/.claude.json` | JSON |
+| OpenAI Codex | `.codex/config.toml` | `~/.codex/config.toml` | TOML |
+| Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | JSON |
+| OpenCode | `opencode.json` | — | JSON |
+| Claude Desktop | — | `claude_desktop_config.json` | JSON |
+| AntiGravity | — | `~/.gemini/antigravity/mcp_config.json` | JSON |
+| Docker | — | — | 환경변수 |
 
 클라이언트별 복사 붙여넣기 설정: **[클라이언트 설정 가이드](docs/CLIENT_SETUP.md)**
 
