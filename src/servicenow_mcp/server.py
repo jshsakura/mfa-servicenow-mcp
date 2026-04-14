@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Union
 import mcp.types as types
 import yaml
 from mcp.server.lowlevel import Server
-from pydantic import ValidationError
+from pydantic import AnyUrl, ValidationError
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.resources.skill_resources import build_tool_to_skills_map, load_skills
@@ -342,7 +342,7 @@ class ServiceNowMCP:
         for uri, name, description, category, _tools, content in self._skill_entries:
             resources.append(
                 types.Resource(
-                    uri=uri,
+                    uri=AnyUrl(uri),
                     name=f"{category}/{name}",
                     description=description,
                     mimeType="text/markdown",
