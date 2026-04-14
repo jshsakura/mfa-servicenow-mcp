@@ -91,6 +91,15 @@
 .md-header__button.md-logo img { height: 24px; width: auto; }
 .md-dialog { border-radius: 8px !important; }
 
+/* Sidebar accent — sync with light/dark theme */
+:root {
+  --md-accent-fg-color: #6366f1;
+  --md-typeset-a-color: #6366f1;
+}
+[data-md-color-scheme="slate"] {
+  --md-accent-fg-color: #818cf8;
+  --md-typeset-a-color: #818cf8;
+}
 
 /* Landing-only */
 body:has(.landing-page) .md-header__topic:nth-child(2) { display: none !important; }
