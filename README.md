@@ -93,7 +93,7 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 | Scripted REST API | `sys_ws_operation` | ✅ | ✅ | 🛡️ |
 | Fix Script | `sys_script_fix` | ✅ | ✅ | 🛡️ |
 | Service Portal Widget | `sp_widget` | ✅ | ✅ | 🛡️ |
-| Angular Provider | `sp_angular_provider` | ⬜ | ✅ | ⬜ |
+| Angular Provider | `sp_angular_provider` | ✅ | ✅ | ⬜ |
 | Update XML | `sys_update_xml` | ✅ | ⬜ | ⬜ |
 
 ---
