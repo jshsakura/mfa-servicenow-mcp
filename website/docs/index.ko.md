@@ -9,7 +9,6 @@ social:
 <div class="landing-page">
 <div class="hero-section">
   <div class="hero-bg-img"></div>
-  <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
       Don't script your AI. <span class="gradient-text">Arm it.</span>
@@ -30,6 +29,7 @@ social:
   </div>
 </div>
 
+<div class="terminal-container">
 <div class="hero-terminal reveal">
   <div class="hero-terminal-header">
     <div class="hero-terminal-dots">
@@ -41,6 +41,7 @@ social:
     <div class="hero-terminal-spacer"></div>
   </div>
   <div class="hero-terminal-body" id="hero-typed-terminal"></div>
+</div>
 </div>
 
 <div class="content-wrap">
