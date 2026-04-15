@@ -28,10 +28,10 @@ from servicenow_mcp.tools.source_audit_tools import (
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def config() -> ServerConfig:
@@ -60,12 +60,19 @@ def _write(path: Path, content):
 def _create_source_tree(root: Path):
     """Create a realistic source tree for testing."""
     # Script Includes
-    _write(root / "sys_script_include" / "CommitHelper" / "_metadata.json", {
-        "source_type": "script_include", "table": "sys_script_include",
-        "sys_id": "si-1", "name": "CommitHelper",
-        "active": "true", "sys_updated_on": "2026-04-01",
-    })
-    _write(root / "sys_script_include" / "CommitHelper" / "script.js",
+    _write(
+        root / "sys_script_include" / "CommitHelper" / "_metadata.json",
+        {
+            "source_type": "script_include",
+            "table": "sys_script_include",
+            "sys_id": "si-1",
+            "name": "CommitHelper",
+            "active": "true",
+            "sys_updated_on": "2026-04-01",
+        },
+    )
+    _write(
+        root / "sys_script_include" / "CommitHelper" / "script.js",
         "var CommitHelper = Class.create();\n"
         "CommitHelper.prototype = {\n"
         "  validate: function() {\n"
@@ -73,15 +80,22 @@ def _create_source_tree(root: Path):
         "    gr.query();\n"
         "    return true;\n"
         "  }\n"
-        "};\n"
+        "};\n",
     )
 
-    _write(root / "sys_script_include" / "ApprovalUtil" / "_metadata.json", {
-        "source_type": "script_include", "table": "sys_script_include",
-        "sys_id": "si-2", "name": "ApprovalUtil",
-        "active": "true", "sys_updated_on": "2026-04-02",
-    })
-    _write(root / "sys_script_include" / "ApprovalUtil" / "script.js",
+    _write(
+        root / "sys_script_include" / "ApprovalUtil" / "_metadata.json",
+        {
+            "source_type": "script_include",
+            "table": "sys_script_include",
+            "sys_id": "si-2",
+            "name": "ApprovalUtil",
+            "active": "true",
+            "sys_updated_on": "2026-04-02",
+        },
+    )
+    _write(
+        root / "sys_script_include" / "ApprovalUtil" / "script.js",
         "var ApprovalUtil = Class.create();\n"
         "ApprovalUtil.prototype = {\n"
         "  approve: function(gr) {\n"
@@ -89,74 +103,114 @@ def _create_source_tree(root: Path):
         "    task.query();\n"
         "    var helper = new CommitHelper();\n"
         "  }\n"
-        "};\n"
+        "};\n",
     )
 
     # Orphan Script Include (nobody references it)
-    _write(root / "sys_script_include" / "DeadCodeUtil" / "_metadata.json", {
-        "source_type": "script_include", "table": "sys_script_include",
-        "sys_id": "si-3", "name": "DeadCodeUtil",
-        "active": "true", "sys_updated_on": "2026-04-03",
-    })
-    _write(root / "sys_script_include" / "DeadCodeUtil" / "script.js",
+    _write(
+        root / "sys_script_include" / "DeadCodeUtil" / "_metadata.json",
+        {
+            "source_type": "script_include",
+            "table": "sys_script_include",
+            "sys_id": "si-3",
+            "name": "DeadCodeUtil",
+            "active": "true",
+            "sys_updated_on": "2026-04-03",
+        },
+    )
+    _write(
+        root / "sys_script_include" / "DeadCodeUtil" / "script.js",
         "var DeadCodeUtil = Class.create();\n"
         "DeadCodeUtil.prototype = {\n"
         "  doNothing: function() { return null; }\n"
-        "};\n"
+        "};\n",
     )
 
     # Business Rule
-    _write(root / "sys_script" / "ValidateInsert" / "_metadata.json", {
-        "source_type": "business_rule", "table": "sys_script",
-        "sys_id": "br-1", "name": "ValidateInsert",
-        "collection": "x_app_request", "when": "before",
-        "order": "100", "active": "true",
-    })
-    _write(root / "sys_script" / "ValidateInsert" / "script.js",
+    _write(
+        root / "sys_script" / "ValidateInsert" / "_metadata.json",
+        {
+            "source_type": "business_rule",
+            "table": "sys_script",
+            "sys_id": "br-1",
+            "name": "ValidateInsert",
+            "collection": "x_app_request",
+            "when": "before",
+            "order": "100",
+            "active": "true",
+        },
+    )
+    _write(
+        root / "sys_script" / "ValidateInsert" / "script.js",
         "(function executeRule(current, previous) {\n"
         "  var util = new ApprovalUtil();\n"
         "  util.approve(current);\n"
-        "})(current, previous);\n"
+        "})(current, previous);\n",
     )
 
-    _write(root / "sys_script" / "AfterInsert" / "_metadata.json", {
-        "source_type": "business_rule", "table": "sys_script",
-        "sys_id": "br-2", "name": "AfterInsert",
-        "collection": "x_app_request", "when": "after",
-        "order": "200", "active": "true",
-    })
-    _write(root / "sys_script" / "AfterInsert" / "script.js",
+    _write(
+        root / "sys_script" / "AfterInsert" / "_metadata.json",
+        {
+            "source_type": "business_rule",
+            "table": "sys_script",
+            "sys_id": "br-2",
+            "name": "AfterInsert",
+            "collection": "x_app_request",
+            "when": "after",
+            "order": "200",
+            "active": "true",
+        },
+    )
+    _write(
+        root / "sys_script" / "AfterInsert" / "script.js",
         "(function executeRule(current, previous) {\n"
         "  gs.eventQueue('x_app.request.created', current);\n"
-        "})(current, previous);\n"
+        "})(current, previous);\n",
     )
 
     # UI Action
-    _write(root / "sys_ui_action" / "ApproveButton" / "_metadata.json", {
-        "source_type": "ui_action", "table": "sys_ui_action",
-        "sys_id": "ua-1", "name": "ApproveButton",
-        "table": "x_app_request", "active": "true",
-    })
-    _write(root / "sys_ui_action" / "ApproveButton" / "script.js",
-        "current.state = 'approved';\ncurrent.update();\n"
+    _write(
+        root / "sys_ui_action" / "ApproveButton" / "_metadata.json",
+        {
+            "source_type": "ui_action",
+            "table": "sys_ui_action",
+            "sys_id": "ua-1",
+            "name": "ApproveButton",
+            "table": "x_app_request",
+            "active": "true",
+        },
+    )
+    _write(
+        root / "sys_ui_action" / "ApproveButton" / "script.js",
+        "current.state = 'approved';\ncurrent.update();\n",
     )
 
     # ACL
-    _write(root / "sys_security_acl" / "x_app_request.read" / "_metadata.json", {
-        "source_type": "acl", "table": "sys_security_acl",
-        "sys_id": "acl-1", "name": "x_app_request.read",
-        "operation": "read", "active": "true",
-    })
-    _write(root / "sys_security_acl" / "x_app_request.read" / "script.js",
-        "answer = gs.hasRole('x_app.user');\n"
+    _write(
+        root / "sys_security_acl" / "x_app_request.read" / "_metadata.json",
+        {
+            "source_type": "acl",
+            "table": "sys_security_acl",
+            "sys_id": "acl-1",
+            "name": "x_app_request.read",
+            "operation": "read",
+            "active": "true",
+        },
+    )
+    _write(
+        root / "sys_security_acl" / "x_app_request.read" / "script.js",
+        "answer = gs.hasRole('x_app.user');\n",
     )
 
     # Manifest
-    _write(root / "_manifest.json", {
-        "scope": "x_app",
-        "instance": "https://test.service-now.com",
-        "downloaded_at": "2026-04-15T00:00:00Z",
-    })
+    _write(
+        root / "_manifest.json",
+        {
+            "scope": "x_app",
+            "instance": "https://test.service-now.com",
+            "downloaded_at": "2026-04-15T00:00:00Z",
+        },
+    )
 
     return root
 
@@ -164,30 +218,55 @@ def _create_source_tree(root: Path):
 def _create_schema(root: Path):
     """Create schema files for validation tests."""
     schema_dir = root / "_schema"
-    _write(schema_dir / "x_app_request.json", {
-        "table": "x_app_request",
-        "field_count": 2,
-        "fields": [
-            {"field": "short_description", "label": "Short description",
-             "type": "string", "max_length": "160", "mandatory": "true", "reference": ""},
-            {"field": "state", "label": "State",
-             "type": "string", "max_length": "40", "mandatory": "false", "reference": ""},
-        ],
-    })
-    _write(schema_dir / "task.json", {
-        "table": "task",
-        "field_count": 1,
-        "fields": [
-            {"field": "number", "label": "Number",
-             "type": "string", "max_length": "40", "mandatory": "true", "reference": ""},
-        ],
-    })
+    _write(
+        schema_dir / "x_app_request.json",
+        {
+            "table": "x_app_request",
+            "field_count": 2,
+            "fields": [
+                {
+                    "field": "short_description",
+                    "label": "Short description",
+                    "type": "string",
+                    "max_length": "160",
+                    "mandatory": "true",
+                    "reference": "",
+                },
+                {
+                    "field": "state",
+                    "label": "State",
+                    "type": "string",
+                    "max_length": "40",
+                    "mandatory": "false",
+                    "reference": "",
+                },
+            ],
+        },
+    )
+    _write(
+        schema_dir / "task.json",
+        {
+            "table": "task",
+            "field_count": 1,
+            "fields": [
+                {
+                    "field": "number",
+                    "label": "Number",
+                    "type": "string",
+                    "max_length": "40",
+                    "mandatory": "true",
+                    "reference": "",
+                },
+            ],
+        },
+    )
     _write(schema_dir / "_index.json", {"tables": {"x_app_request": 2, "task": 1}})
 
 
 # ---------------------------------------------------------------------------
 # Reference extraction tests
 # ---------------------------------------------------------------------------
+
 
 class TestExtractReferences:
     def test_glide_record_table(self):
@@ -273,6 +352,7 @@ class TestExtractReferences:
 # Source index tests
 # ---------------------------------------------------------------------------
 
+
 class TestScanSourceIndex:
     def test_builds_index(self, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
@@ -314,6 +394,7 @@ class TestScanSourceIndex:
 # Cross-reference tests
 # ---------------------------------------------------------------------------
 
+
 class TestBuildCrossReferences:
     def test_outgoing_references(self, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
@@ -321,7 +402,9 @@ class TestBuildCrossReferences:
         xrefs = _build_cross_references(root, index)
 
         # ApprovalUtil references CommitHelper and table 'task'
-        assert "CommitHelper" in xrefs["outgoing"].get("ApprovalUtil", {}).get("script_includes", [])
+        assert "CommitHelper" in xrefs["outgoing"].get("ApprovalUtil", {}).get(
+            "script_includes", []
+        )
         assert "task" in xrefs["outgoing"].get("ApprovalUtil", {}).get("tables", [])
 
     def test_incoming_references(self, tmp_path):
@@ -340,7 +423,9 @@ class TestBuildCrossReferences:
         xrefs = _build_cross_references(root, index)
 
         # ValidateInsert BR references ApprovalUtil
-        assert "ApprovalUtil" in xrefs["outgoing"].get("ValidateInsert", {}).get("script_includes", [])
+        assert "ApprovalUtil" in xrefs["outgoing"].get("ValidateInsert", {}).get(
+            "script_includes", []
+        )
 
     def test_known_names_tracked(self, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
@@ -355,6 +440,7 @@ class TestBuildCrossReferences:
 # ---------------------------------------------------------------------------
 # Orphan detection tests
 # ---------------------------------------------------------------------------
+
 
 class TestDetectOrphans:
     def test_finds_dead_code(self, tmp_path):
@@ -403,6 +489,7 @@ class TestDetectOrphans:
 # Execution order tests
 # ---------------------------------------------------------------------------
 
+
 class TestBuildExecutionOrder:
     def test_groups_by_table(self, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
@@ -428,10 +515,7 @@ class TestBuildExecutionOrder:
 
         # UI Action targets x_app_request via table metadata field
         # Check if any table has ui_actions
-        has_ui_actions = any(
-            len(data.get("ui_actions", [])) > 0
-            for data in exec_order.values()
-        )
+        has_ui_actions = any(len(data.get("ui_actions", [])) > 0 for data in exec_order.values())
         # UI actions may or may not appear depending on metadata table field
         # The important thing is the function doesn't crash
         assert isinstance(exec_order, dict)
@@ -440,6 +524,7 @@ class TestBuildExecutionOrder:
 # ---------------------------------------------------------------------------
 # Schema validation tests
 # ---------------------------------------------------------------------------
+
 
 class TestValidateSchemaReferences:
     def test_no_issues_when_schemas_exist(self, tmp_path):
@@ -466,12 +551,19 @@ class TestValidateSchemaReferences:
         root = _create_source_tree(tmp_path / "x_app")
         _create_schema(root)
         # Add a script referencing sys_user (should be ignored)
-        _write(root / "sys_script_include" / "SysRef" / "_metadata.json", {
-            "source_type": "script_include", "table": "sys_script_include",
-            "sys_id": "si-99", "name": "SysRef", "active": "true",
-        })
-        _write(root / "sys_script_include" / "SysRef" / "script.js",
-            "var gr = new GlideRecord('sys_user');\ngr.query();"
+        _write(
+            root / "sys_script_include" / "SysRef" / "_metadata.json",
+            {
+                "source_type": "script_include",
+                "table": "sys_script_include",
+                "sys_id": "si-99",
+                "name": "SysRef",
+                "active": "true",
+            },
+        )
+        _write(
+            root / "sys_script_include" / "SysRef" / "script.js",
+            "var gr = new GlideRecord('sys_user');\ngr.query();",
         )
 
         index = _scan_source_index(root)
@@ -486,6 +578,7 @@ class TestValidateSchemaReferences:
 # HTML report tests
 # ---------------------------------------------------------------------------
 
+
 class TestHTMLReport:
     def test_generates_valid_html(self, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
@@ -496,9 +589,12 @@ class TestHTMLReport:
         schema_issues = []
 
         html = _generate_html_report(
-            scope="x_app", instance="https://test.service-now.com",
-            source_index=index, cross_refs=xrefs,
-            orphans=orphans, execution_order=exec_order,
+            scope="x_app",
+            instance="https://test.service-now.com",
+            source_index=index,
+            cross_refs=xrefs,
+            orphans=orphans,
+            execution_order=exec_order,
             schema_issues=schema_issues,
         )
 
@@ -514,9 +610,12 @@ class TestHTMLReport:
         orphans = _detect_orphans(index, xrefs)
 
         html = _generate_html_report(
-            scope="x_app", instance="test",
-            source_index=index, cross_refs=xrefs,
-            orphans=orphans, execution_order={},
+            scope="x_app",
+            instance="test",
+            source_index=index,
+            cross_refs=xrefs,
+            orphans=orphans,
+            execution_order={},
             schema_issues=[],
         )
 
@@ -528,9 +627,12 @@ class TestHTMLReport:
         xrefs = _build_cross_references(root, index)
 
         html = _generate_html_report(
-            scope="x_app", instance="test",
-            source_index=index, cross_refs=xrefs,
-            orphans=[], execution_order={},
+            scope="x_app",
+            instance="test",
+            source_index=index,
+            cross_refs=xrefs,
+            orphans=[],
+            execution_order={},
             schema_issues=[],
         )
 
@@ -538,13 +640,22 @@ class TestHTMLReport:
         assert "ApprovalUtil" in html
 
     def test_html_contains_schema_issues(self):
-        issues = [{"type": "unknown_table", "table": "missing_table",
-                    "referenced_by": "SomeScript", "ref_count": "3"}]
+        issues = [
+            {
+                "type": "unknown_table",
+                "table": "missing_table",
+                "referenced_by": "SomeScript",
+                "ref_count": "3",
+            }
+        ]
 
         html = _generate_html_report(
-            scope="x_app", instance="test",
-            source_index=[], cross_refs={"outgoing": {}, "incoming": {}},
-            orphans=[], execution_order={},
+            scope="x_app",
+            instance="test",
+            source_index=[],
+            cross_refs={"outgoing": {}, "incoming": {}},
+            orphans=[],
+            execution_order={},
             schema_issues=issues,
         )
 
@@ -558,9 +669,12 @@ class TestHTMLReport:
         xrefs = _build_cross_references(root, index)
 
         html = _generate_html_report(
-            scope="x_app", instance="test",
-            source_index=index, cross_refs=xrefs,
-            orphans=[], execution_order={},
+            scope="x_app",
+            instance="test",
+            source_index=index,
+            cross_refs=xrefs,
+            orphans=[],
+            execution_order={},
             schema_issues=[],
         )
 
@@ -574,13 +688,18 @@ class TestHTMLReport:
 # Full audit_local_sources integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestAuditLocalSources:
     def test_full_audit_happy_path(self, config, auth, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
 
-        result = audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root=str(root),
-        ))
+        result = audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root=str(root),
+            ),
+        )
 
         assert result["success"] is True
         assert result["scope"] == "x_app"
@@ -593,9 +712,13 @@ class TestAuditLocalSources:
     def test_generates_all_files(self, config, auth, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
 
-        result = audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root=str(root),
-        ))
+        result = audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root=str(root),
+            ),
+        )
 
         assert (root / "_audit_report.html").exists()
         assert (root / "_source_index.json").exists()
@@ -619,9 +742,13 @@ class TestAuditLocalSources:
         root = _create_source_tree(tmp_path / "x_app")
         _create_schema(root)
 
-        result = audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root=str(root),
-        ))
+        result = audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root=str(root),
+            ),
+        )
 
         html = (root / "_audit_report.html").read_text()
         assert len(html) > 1000  # substantial report
@@ -631,18 +758,26 @@ class TestAuditLocalSources:
         root = _create_source_tree(tmp_path / "x_app")
         custom_path = tmp_path / "reports" / "my_audit.html"
 
-        result = audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root=str(root),
-            output_file=str(custom_path),
-        ))
+        result = audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root=str(root),
+                output_file=str(custom_path),
+            ),
+        )
 
         assert result["report_path"] == str(custom_path)
         assert custom_path.exists()
 
     def test_missing_source_root(self, config, auth):
-        result = audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root="/nonexistent/path",
-        ))
+        result = audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root="/nonexistent/path",
+            ),
+        )
         assert result["success"] is False
         assert "not found" in result["message"]
 
@@ -650,9 +785,13 @@ class TestAuditLocalSources:
         root = tmp_path / "empty"
         root.mkdir()
 
-        result = audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root=str(root),
-        ))
+        result = audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root=str(root),
+            ),
+        )
         assert result["success"] is False
         assert "No source records" in result["message"]
 
@@ -660,9 +799,13 @@ class TestAuditLocalSources:
         """Verify audit_local_sources makes ZERO API calls."""
         root = _create_source_tree(tmp_path / "x_app")
 
-        audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root=str(root),
-        ))
+        audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root=str(root),
+            ),
+        )
 
         # auth mock should never have been called
         auth.make_request.assert_not_called()
@@ -672,9 +815,13 @@ class TestAuditLocalSources:
         root = _create_source_tree(tmp_path / "x_app")
         _create_schema(root)
 
-        result = audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root=str(root),
-        ))
+        result = audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root=str(root),
+            ),
+        )
 
         assert result["success"] is True
         # Schema issues should be reported in summary
@@ -683,9 +830,13 @@ class TestAuditLocalSources:
     def test_generated_files_in_result(self, config, auth, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
 
-        result = audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root=str(root),
-        ))
+        result = audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root=str(root),
+            ),
+        )
 
         generated = result["generated_files"]
         assert len(generated) >= 5
@@ -695,18 +846,29 @@ class TestAuditLocalSources:
     def test_safety_notice(self, config, auth, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
 
-        result = audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root=str(root),
-        ))
+        result = audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root=str(root),
+            ),
+        )
 
-        assert "zero api calls" in result["safety_notice"].lower() or "no api" in result["safety_notice"].lower()
+        assert (
+            "zero api calls" in result["safety_notice"].lower()
+            or "no api" in result["safety_notice"].lower()
+        )
 
     def test_execution_order_in_report(self, config, auth, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
 
-        result = audit_local_sources(config, auth, AuditAppSourcesParams(
-            source_root=str(root),
-        ))
+        result = audit_local_sources(
+            config,
+            auth,
+            AuditAppSourcesParams(
+                source_root=str(root),
+            ),
+        )
 
         assert result["summary"]["execution_order_tables"] >= 1
         exec_order = json.loads((root / "_execution_order.json").read_text())

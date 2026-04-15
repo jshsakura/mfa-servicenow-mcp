@@ -204,23 +204,46 @@ class GetLogsParams(BaseModel):
         description="Text search on the main content field (message/value).",
     )
     # --- system filters ---
-    level: Optional[str] = Field(default=None, description="[system] Log level: error, warning, info, debug")
-    source: Optional[str] = Field(default=None, description="[system/background] Source name (LIKE match)")
+    level: Optional[str] = Field(
+        default=None, description="[system] Log level: error, warning, info, debug"
+    )
+    source: Optional[str] = Field(
+        default=None, description="[system/background] Source name (LIKE match)"
+    )
     # --- journal filters ---
-    table: Optional[str] = Field(default=None, description="[journal] Target table (e.g. incident, x_app_request)")
-    record_sys_id: Optional[str] = Field(default=None, description="[journal] Specific record sys_id")
-    field_name: Optional[str] = Field(default=None, description="[journal] Field name (work_notes, comments)")
-    created_by: Optional[str] = Field(default=None, description="[journal/transaction] Filter by user")
+    table: Optional[str] = Field(
+        default=None, description="[journal] Target table (e.g. incident, x_app_request)"
+    )
+    record_sys_id: Optional[str] = Field(
+        default=None, description="[journal] Specific record sys_id"
+    )
+    field_name: Optional[str] = Field(
+        default=None, description="[journal] Field name (work_notes, comments)"
+    )
+    created_by: Optional[str] = Field(
+        default=None, description="[journal/transaction] Filter by user"
+    )
     # --- transaction filters ---
-    url_contains: Optional[str] = Field(default=None, description="[transaction] URL pattern (LIKE match)")
-    response_status: Optional[str] = Field(default=None, description="[transaction] HTTP status code")
-    min_response_time_ms: Optional[int] = Field(default=None, description="[transaction] Slow request threshold (ms)")
+    url_contains: Optional[str] = Field(
+        default=None, description="[transaction] URL pattern (LIKE match)"
+    )
+    response_status: Optional[str] = Field(
+        default=None, description="[transaction] HTTP status code"
+    )
+    min_response_time_ms: Optional[int] = Field(
+        default=None, description="[transaction] Slow request threshold (ms)"
+    )
     # --- background filters ---
-    name: Optional[str] = Field(default=None, description="[background] Execution name (LIKE match)")
-    state: Optional[str] = Field(default=None, description="[background] State: running, complete, cancelled")
+    name: Optional[str] = Field(
+        default=None, description="[background] Execution name (LIKE match)"
+    )
+    state: Optional[str] = Field(
+        default=None, description="[background] State: running, complete, cancelled"
+    )
     # --- advanced ---
     query: Optional[str] = Field(
-        default=None, description="Raw encoded query appended to filters.",
+        default=None,
+        description="Raw encoded query appended to filters.",
     )
     max_text_length: int = Field(
         default=DEFAULT_TEXT_PREVIEW,
@@ -250,9 +273,7 @@ def get_logs(
         return {
             "success": False,
             "message": f"Unknown log_type '{params.log_type}'. Valid: {_LOG_TYPE_NAMES}",
-            "available_types": {
-                name: cfg["hint"] for name, cfg in LOG_TYPES.items()
-            },
+            "available_types": {name: cfg["hint"] for name, cfg in LOG_TYPES.items()},
         }
 
     type_cfg = LOG_TYPES[log_type]
