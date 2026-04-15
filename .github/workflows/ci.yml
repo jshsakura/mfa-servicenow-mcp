@@ -262,7 +262,7 @@ jobs:
             > `uvx` caches the last version — it does **not** auto-update. Upgrade via `uv`:
 
             ```bash
-            uv tool upgrade mfa-servicenow-mcp
+            uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
             ```
 
             After updating, **restart your MCP client** to load the new version.
