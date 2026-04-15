@@ -736,13 +736,25 @@ def _extract_script_include_refs(script: str, known_script_include_names: Set[st
     if not script:
         return set()
 
+    # Build a lookup dict that maps both full names and short (dotted-last) names
+    # to the canonical known name — reduces two set lookups to one dict lookup.
+    lookup: Dict[str, str] = {}
+    for name in known_script_include_names:
+        lookup[name] = name
+        short = name.split(".")[-1]
+        if short != name:
+            lookup.setdefault(short, name)
+
     refs: Set[str] = set()
     for candidate in SCRIPT_INCLUDE_INSTANCE_RE.findall(script):
-        dotted_last = candidate.split(".")[-1]
-        if candidate in known_script_include_names:
-            refs.add(candidate)
-        elif dotted_last in known_script_include_names:
-            refs.add(dotted_last)
+        found = lookup.get(candidate)
+        if found:
+            refs.add(found)
+        else:
+            short = candidate.split(".")[-1]
+            found = lookup.get(short)
+            if found:
+                refs.add(found)
     return refs
 
 
