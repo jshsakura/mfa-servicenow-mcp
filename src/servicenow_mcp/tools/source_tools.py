@@ -31,8 +31,8 @@ SNIPPET_RADIUS = 120
 MAX_DEP_SCAN_LIMIT = 5000
 DEFAULT_DEP_SCAN_LIMIT = 500
 DEFAULT_DEP_PAGE_SIZE = 100
-MAX_DOWNLOAD_PER_TYPE = 2000
-DEFAULT_DOWNLOAD_PER_TYPE = 500
+MAX_DOWNLOAD_PER_TYPE = 50000
+DEFAULT_DOWNLOAD_PER_TYPE = 10000
 DEFAULT_DOWNLOAD_PAGE_SIZE = 20
 MAX_TABLES_PER_RECORD = 50
 DEFAULT_MAX_LINKED_SI = 20
@@ -1595,38 +1595,45 @@ def _download_source_types(
         source_cfg = SOURCE_CONFIG[source_type]
         table = source_cfg["table"]
 
-        if include_global:
-            query_parts: List[str] = [f"sys_scope.scope={scope}^ORsys_scope.scope=global"]
-        else:
-            query_parts: List[str] = [f"sys_scope.scope={scope}"]
-        if only_active and table in _ACTIVE_SUPPORTED_TABLES:
-            query_parts.append("active=true")
-        if source_type in extra_query:
-            query_parts.append(extra_query[source_type])
-        query = "^".join(query_parts)
-
-        # Batch: metadata + source together (small page_size to avoid truncation)
         all_fields = list(source_cfg["summary_fields"]) + list(source_cfg["source_fields"])
-        if include_global and "sys_scope" in source_cfg["summary_fields"]:
-            all_fields.append("sys_scope.scope")
-        # Clamp page_size small for tables with source fields to prevent truncation
         effective_page_size = min(page_size, 10) if source_cfg["source_fields"] else page_size
-        try:
-            records = sn_query_all(
-                config,
-                auth_manager,
-                table=table,
-                query=query,
-                fields=",".join(all_fields),
-                page_size=effective_page_size,
-                max_records=max_per_type,
-                display_value=False,
-            )
-        except Exception as exc:
-            logger.error("Failed to download %s: %s", source_type, exc)
-            warnings.append(f"{source_type}: fetch failed — {exc}")
-            type_results[source_type] = {"count": 0, "error": str(exc)}
-            continue
+
+        # Build base query filters (active, extra)
+        base_filters: List[str] = []
+        if only_active and table in _ACTIVE_SUPPORTED_TABLES:
+            base_filters.append("active=true")
+        if source_type in extra_query:
+            base_filters.append(extra_query[source_type])
+
+        # Fetch app scope first, then global separately (each gets full quota)
+        scope_queries = [("app", f"sys_scope.scope={scope}")]
+        if include_global:
+            scope_queries.append(("global", "sys_scope.scope=global"))
+
+        records: List[Dict[str, Any]] = []
+        record_scopes: Dict[str, str] = {}  # sys_id → "app" or "global"
+        for scope_label, scope_filter in scope_queries:
+            query_parts = [scope_filter] + base_filters
+            query = "^".join(query_parts)
+            try:
+                batch = sn_query_all(
+                    config,
+                    auth_manager,
+                    table=table,
+                    query=query,
+                    fields=",".join(all_fields),
+                    page_size=effective_page_size,
+                    max_records=max_per_type,
+                    display_value=False,
+                )
+                for r in batch:
+                    sid = str(r.get("sys_id") or "")
+                    if sid:
+                        record_scopes[sid] = scope_label
+                records.extend(batch)
+            except Exception as exc:
+                logger.error("Failed to download %s (%s): %s", source_type, scope_label, exc)
+                warnings.append(f"{source_type} ({scope_label}): fetch failed — {exc}")
 
         if not records:
             type_results[source_type] = {"count": 0}
@@ -1641,7 +1648,6 @@ def _download_source_types(
         global_sync_meta: Dict[str, Dict[str, str]] = {}
         now_iso = datetime.now(timezone.utc).isoformat()
         type_file_count = 0
-        ",".join(source_cfg["source_fields"])
         retry_records: List[tuple] = []
 
         for record in records:
@@ -1650,9 +1656,8 @@ def _download_source_types(
             name = str(record.get(identifier_field) or record.get("name") or sys_id)
             safe_name = _safe_filename(name)
 
-            # Route to global/ sibling folder if not app scope
-            record_scope_name = str(record.get("sys_scope.scope") or "")
-            is_global = include_global and record_scope_name != scope
+            # Route to global/ sibling folder based on which query fetched it
+            is_global = record_scopes.get(sys_id) == "global"
             type_dir = global_type_dir if is_global else app_type_dir
             cur_name_map = global_name_map if is_global else name_map
             cur_sync_meta = global_sync_meta if is_global else sync_meta

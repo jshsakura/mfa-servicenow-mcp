@@ -395,7 +395,7 @@ class TestDownloadSourceTypes:
         )
 
         assert result["type_results"]["script_include"]["count"] == 0
-        assert "error" in result["type_results"]["script_include"]
+        assert any("fetch failed" in w for w in result["warnings"])
         assert len(result["warnings"]) == 1
         assert "Connection timeout" in result["warnings"][0]
 
@@ -1226,7 +1226,7 @@ class TestEdgeCases:
         )
 
         call_kwargs = mock_query_all.call_args[1]
-        assert call_kwargs["max_records"] == 2000  # MAX_DOWNLOAD_PER_TYPE
+        assert call_kwargs["max_records"] == 50000  # MAX_DOWNLOAD_PER_TYPE
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_page_size_clamped(self, mock_query_all, config, auth, tmp_path):
