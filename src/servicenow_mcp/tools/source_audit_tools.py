@@ -93,25 +93,27 @@ def _read_text(path: Path) -> str:
 
 
 def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
-    """Build a flat index of all source records under scope_root."""
+    """Build a flat index of all source records under scope_root.
+
+    Recognizes two metadata formats:
+    - _metadata.json (from _download_source_types): has source_type, table, sys_id
+    - _widget.json (from download_portal_sources): has tableName, sys_id, name
+    Also picks up flat provider/SI files from portal download (no metadata dir).
+    """
     entries: List[Dict[str, Any]] = []
+    seen_dirs: set[str] = set()
+
+    # --- Pass 1: _metadata.json directories (from _download_source_types) ---
     for meta_file in sorted(scope_root.rglob("_metadata.json")):
         meta = _read_json(meta_file)
         if not meta or not isinstance(meta, dict):
             continue
         record_dir = meta_file.parent
+        seen_dirs.add(str(record_dir))
         source_files = [
             f.name for f in record_dir.iterdir() if f.is_file() and not f.name.startswith("_")
         ]
-        # Count lines in source files
-        total_lines = 0
-        for sf in record_dir.iterdir():
-            if sf.is_file() and not sf.name.startswith("_"):
-                try:
-                    total_lines += sf.read_text(encoding="utf-8").count("\n") + 1
-                except Exception:
-                    pass
-
+        total_lines = _count_lines_in_dir(record_dir)
         entries.append(
             {
                 "source_type": meta.get("source_type", ""),
@@ -127,7 +129,95 @@ def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
                 "order": meta.get("order", ""),
             }
         )
+
+    # --- Pass 2: _widget.json directories (from download_portal_sources) ---
+    for widget_file in sorted(scope_root.rglob("_widget.json")):
+        record_dir = widget_file.parent
+        if str(record_dir) in seen_dirs:
+            continue
+        seen_dirs.add(str(record_dir))
+        wdata = _read_json(widget_file)
+        if not wdata or not isinstance(wdata, dict):
+            continue
+        source_files = [
+            f.name for f in record_dir.iterdir() if f.is_file() and not f.name.startswith("_")
+        ]
+        total_lines = _count_lines_in_dir(record_dir)
+        entries.append(
+            {
+                "source_type": "widget",
+                "table": wdata.get("tableName", "sp_widget"),
+                "sys_id": wdata.get("sys_id", ""),
+                "name": wdata.get("name", record_dir.name),
+                "path": str(record_dir.relative_to(scope_root)),
+                "files": source_files,
+                "lines": total_lines,
+                "active": "true",
+                "collection": "",
+                "when": "",
+                "order": "",
+            }
+        )
+
+    # --- Pass 3: flat files from portal download (sp_angular_provider/*.script.js) ---
+    for table_dir in sorted(scope_root.iterdir()):
+        if not table_dir.is_dir() or table_dir.name.startswith("_"):
+            continue
+        # Map directory names to source types
+        dir_type_map = {
+            "sp_angular_provider": "angular_provider",
+            "sys_script_include": "script_include",
+        }
+        source_type = dir_type_map.get(table_dir.name)
+        if not source_type:
+            continue
+        map_file = table_dir / "_map.json"
+        name_map = _read_json(map_file) if map_file.exists() else {}
+        if not isinstance(name_map, dict):
+            name_map = {}
+        for src_file in sorted(table_dir.iterdir()):
+            if not src_file.is_file() or src_file.name.startswith("_"):
+                continue
+            # Flat file: e.g. quotationService.script.js
+            file_name = src_file.stem.split(".")[0]  # strip .script etc.
+            if str(src_file.parent / file_name) in seen_dirs:
+                continue  # already indexed from _metadata.json dir
+            # Check it's not inside a subdirectory (those are handled above)
+            if src_file.parent != table_dir:
+                continue
+            try:
+                lines = src_file.read_text(encoding="utf-8").count("\n") + 1
+            except Exception:
+                lines = 0
+            entries.append(
+                {
+                    "source_type": source_type,
+                    "table": table_dir.name,
+                    "sys_id": name_map.get(file_name, ""),
+                    "name": file_name,
+                    "path": str(src_file.relative_to(scope_root)),
+                    "files": [src_file.name],
+                    "lines": lines,
+                    "active": "true",
+                    "collection": "",
+                    "when": "",
+                    "order": "",
+                }
+            )
+
     return entries
+
+
+def _count_lines_in_dir(record_dir: Path) -> int:
+    """Count total lines in non-metadata source files."""
+    total = 0
+    for sf in record_dir.iterdir():
+        if sf.is_file() and not sf.name.startswith("_"):
+            try:
+                total += sf.read_text(encoding="utf-8").count("\n") + 1
+            except Exception:
+                pass
+    return total
 
 
 def _extract_references_from_script(script: str) -> Dict[str, Set[str]]:
@@ -156,6 +246,11 @@ def _extract_references_from_script(script: str) -> Dict[str, Set[str]]:
     for dep in ANGULAR_DEPENDENCY_RE.findall(script):
         refs["providers"].add(dep)
 
+    # $inject array: api.$inject = ['dep1', 'dep2', 'myService']
+    for inject_match in PROVIDER_INJECT_RE.findall(script):
+        for dep in re.findall(r"""["']([^"'$][^"']*)["']""", inject_match):
+            refs["providers"].add(dep)
+
     return refs
 
 
@@ -172,15 +267,18 @@ def _build_cross_references(
     known_names: Set[str] = set()
     known_si_names: Set[str] = set()
 
+    known_provider_names: Set[str] = set()
     for entry in source_index:
         name = entry["name"]
         known_names.add(name)
         if entry["source_type"] == "script_include":
             known_si_names.add(name)
+        elif entry["source_type"] == "angular_provider":
+            known_provider_names.add(name)
 
     for entry in source_index:
         name = entry["name"]
-        record_dir = scope_root / entry["path"]
+        record_path = scope_root / entry["path"]
         all_refs: Dict[str, Set[str]] = {
             "tables": set(),
             "script_includes": set(),
@@ -188,13 +286,31 @@ def _build_cross_references(
             "providers": set(),
         }
 
-        for sf in record_dir.iterdir():
+        # Handle both directory (has sub-files) and flat file structures
+        source_files: List[Path] = []
+        if record_path.is_dir():
+            source_files = [
+                sf for sf in record_path.iterdir() if sf.is_file() and not sf.name.startswith("_")
+            ]
+        elif record_path.is_file():
+            source_files = [record_path]
+
+        for sf in source_files:
             if sf.is_file() and not sf.name.startswith("_"):
                 script = _read_text(sf)
                 if script:
                     refs = _extract_references_from_script(script)
                     for key in all_refs:
                         all_refs[key].update(refs[key])
+                    # Name-match: if any known provider/SI name appears in the
+                    # script text, it's a reference (catches Angular DI injection,
+                    # function parameters, and any other usage pattern).
+                    for pname in known_provider_names:
+                        if pname != name and pname in script:
+                            all_refs["providers"].add(pname)
+                    for si_name in known_si_names:
+                        if si_name != name and si_name in script:
+                            all_refs["script_includes"].add(si_name)
 
         outgoing[name] = {k: sorted(v) for k, v in all_refs.items() if v}
 
