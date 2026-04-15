@@ -110,9 +110,9 @@ If the server starts and a browser window opens for login, you're ready to confi
 
 | Scope | Path |
 |-------|------|
-| Global | `~/.config/zed/settings.json` (macOS/Linux) |
+| Global | `~/.config/zed/settings.json` |
 
-In Zed, open **Settings** > **MCP Servers** (or add manually to `settings.json`). Register one server block:
+Add via **Settings** > **MCP Servers** in Zed:
 
 ```json
 {
@@ -130,8 +130,6 @@ In Zed, open **Settings** > **MCP Servers** (or add manually to `settings.json`)
   }
 }
 ```
-
-> Zed currently supports global config only.
 
 ---
 
