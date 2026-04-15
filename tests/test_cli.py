@@ -1,5 +1,6 @@
 """Tests for cli.py — argument parsing, config creation, main entry."""
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -111,12 +112,14 @@ class TestCreateConfig:
                 with pytest.raises(ValueError, match="instance URL"):
                     create_config(args)
 
+    @patch.dict(os.environ, {}, clear=True)
     def test_basic_auth_missing_credentials_raises(self):
         args = MagicMock()
         args.instance_url = "https://test.service-now.com"
         args.auth_type = "basic"
         args.username = None
         args.password = None
+        args.script_execution_api_resource_path = None
         with pytest.raises(ValueError, match="[Uu]sername"):
             create_config(args)
 
