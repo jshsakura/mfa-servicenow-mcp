@@ -593,8 +593,12 @@ class AuthManager:
         if not self.config.browser:
             return
 
+        import random
+
         ttl_minutes = self.config.browser.session_ttl_minutes or 30
-        ping_interval = max(ttl_minutes * 60 // 2, 60)  # half of TTL, minimum 60s
+        base_interval = max(ttl_minutes * 60 // 2, 60)  # half of TTL, minimum 60s
+        # Add jitter so multiple MCP processes don't ping at the same time
+        ping_interval = base_interval + random.randint(10, 60)
 
         def _keepalive_loop() -> None:
             while not self._keepalive_stop_event.is_set():
@@ -1855,6 +1859,32 @@ class AuthManager:
                         self._mark_browser_session_recently_valid()
                         return retry_response
                     logger.info("Disk-reloaded session also got 401. Proceeding to full re-auth.")
+
+                # Before re-auth: check if another process is already logging in.
+                # If so, wait for it and reload from disk instead of opening a second browser.
+                if not self._acquire_login_lock():
+                    logger.info(
+                        "Another process is already re-authenticating. "
+                        "Waiting for it to finish..."
+                    )
+                    waited = self._wait_for_other_login(timeout=120)
+                    if waited and self._reload_session_from_disk():
+                        logger.info("Picked up session from other process after wait.")
+                        fresh_headers = self.get_headers()
+                        headers = kwargs.get("headers", {})
+                        headers.update(fresh_headers)
+                        cookie_map = _cookie_header_to_dict(headers.get("Cookie"))
+                        if cookie_map:
+                            kwargs["cookies"] = cookie_map
+                            headers.pop("Cookie", None)
+                        kwargs["headers"] = headers
+                        retry_response = self._http_session.request(method, url, **kwargs)
+                        if retry_response.status_code != 401:
+                            self._mark_browser_session_recently_valid()
+                            return retry_response
+                    # Fall through to own re-auth if other process didn't save a valid session
+                else:
+                    self._release_login_lock()
 
                 logger.warning(
                     "Received 401 Unauthorized in browser mode. "
