@@ -146,6 +146,20 @@ portal_developer:
   - update_portal_component_from_snapshot
   - create_widget_instance
   - update_widget_instance
+  # + Portal CRUD (Phase 1: Component Create)
+  - create_widget
+  - create_angular_provider
+  - create_header_footer
+  - create_css_theme
+  - create_ng_template
+  - create_ui_page
+  # + Portal CRUD (Phase 3: Page/Layout)
+  - create_page
+  - update_page
+  - create_container
+  - create_row
+  - create_column
+  - scaffold_page
   # + Script Include writes
   - create_script_include
   - update_script_include
@@ -234,6 +248,19 @@ platform_developer:
   # + UI Policy writes
   - create_ui_policy
   - create_ui_policy_action
+  # + Portal CRUD
+  - create_widget
+  - create_angular_provider
+  - create_header_footer
+  - create_css_theme
+  - create_ng_template
+  - create_ui_page
+  - create_page
+  - update_page
+  - create_container
+  - create_row
+  - create_column
+  - scaffold_page
   # + Script Include writes (full)
   - create_script_include
   - update_script_include
@@ -421,6 +448,19 @@ full:
   - create_portal_component_snapshot
   - preview_portal_component_update
   - update_portal_component_from_snapshot
+  # + Portal CRUD
+  - create_widget
+  - create_angular_provider
+  - create_header_footer
+  - create_css_theme
+  - create_ng_template
+  - create_ui_page
+  - create_page
+  - update_page
+  - create_container
+  - create_row
+  - create_column
+  - scaffold_page
   - create_script_include
   - update_script_include
   - delete_script_include
