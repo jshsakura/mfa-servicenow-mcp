@@ -95,6 +95,17 @@
   border-top: 1px solid rgba(255,255,255,.08);
 }
 
+/* Search form */
+.md-search__form {
+  background: rgba(0,0,0,.06) !important;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 8px;
+}
+[data-md-color-scheme="slate"] .md-search__form {
+  background: rgba(255,255,255,.08) !important;
+  border: 1px solid rgba(255,255,255,.1);
+}
+
 .md-header__button.md-logo img { height: 24px; width: auto; }
 .md-dialog { border-radius: 8px !important; }
 
