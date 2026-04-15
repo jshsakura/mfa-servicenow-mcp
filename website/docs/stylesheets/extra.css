@@ -86,8 +86,14 @@
 [data-md-color-scheme="slate"] .md-header svg { fill: #a1a1aa !important; }
 
 /* Tabs bar */
-.md-tabs { background: rgba(255,255,255,.95) !important; }
-[data-md-color-scheme="slate"] .md-tabs { background: rgba(9,9,11,.95) !important; }
+.md-tabs {
+  background: rgba(255,255,255,.95) !important;
+  border-top: 1px solid rgba(0,0,0,.08);
+}
+[data-md-color-scheme="slate"] .md-tabs {
+  background: rgba(9,9,11,.95) !important;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
 
 .md-header__button.md-logo img { height: 24px; width: auto; }
 .md-dialog { border-radius: 8px !important; }
