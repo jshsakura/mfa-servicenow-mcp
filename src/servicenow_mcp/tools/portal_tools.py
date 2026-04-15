@@ -648,7 +648,7 @@ DEFAULT_REDIRECT_PATTERN = (
     r"(?:/\$sp\.do\?id=[A-Za-z0-9_-]+(?:&[^'\"\s]+)*)"
     r"|(?:/(?:sp|esc|[A-Za-z0-9_-]+)\?id=[A-Za-z0-9_-]+(?:&[^'\"\s]+)*)"
 )
-MAX_PORTAL_DOWNLOAD_WIDGETS = 100
+MAX_PORTAL_DOWNLOAD_WIDGETS = 500
 MAX_WIDGET_REVIEW_LIMIT = 100
 MAX_WIDGET_REVIEW_MATCHES = 100
 DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH = 220

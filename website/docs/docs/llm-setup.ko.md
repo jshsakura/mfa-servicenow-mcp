@@ -112,7 +112,7 @@ uvx --with playwright playwright install chromium
    > 2. service_desk — standard + 할당, SLA, 에스컬레이션
    > 3. portal_developer — standard + 포털 위젯, 페이지, 테마
    > 4. platform_developer — standard + 스크립트, 플로우, 업데이트 세트
-   > 5. full — 전체 (89개 이상의 도구)
+   > 5. full — 전체 (97개 이상의 도구)
 
    `$TOOL_PACKAGE`에 저장합니다. 기본값: `standard`
 
@@ -432,7 +432,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills $SKILL_TARGET
 ```
 
 지원되지 않는 클라이언트의 경우, 사용자에게 알립니다:
-> $CLIENT에서는 스킬이 아직 지원되지 않습니다. MCP 도구(89개 이상)는 모두 사용 가능합니다. 스킬 지원은 향후 릴리스에서 추가될 예정입니다.
+> $CLIENT에서는 스킬이 아직 지원되지 않습니다. MCP 도구(97개 이상)는 모두 사용 가능합니다. 스킬 지원은 향후 릴리스에서 추가될 예정입니다.
 
 ### 6단계 — 설치 확인
 
