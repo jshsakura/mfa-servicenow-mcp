@@ -379,28 +379,24 @@ Works with Gemini CLI. Config file: `~/.gemini/settings.json` (merge into existi
 
 #### zed
 
-Config file: `~/.config/zed/settings.json` (macOS/Linux)
-
-Merge the `context_servers` block into the existing `settings.json` — do NOT overwrite the entire file.
+Config: `~/.config/zed/settings.json` (macOS/Linux). In Zed, open **Settings** > **MCP Servers** and register one server block:
 
 ```json
 {
-  "context_servers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "$INSTANCE_URL",
-        "SERVICENOW_AUTH_TYPE": "$AUTH_TYPE",
-        "SERVICENOW_BROWSER_HEADLESS": "$HEADLESS",
-        "SERVICENOW_USERNAME": "$USERNAME",
-        "SERVICENOW_PASSWORD": "$PASSWORD",
-        "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
-      }
+  "servicenow": {
+    "command": "uvx",
+    "args": [
+      "--with", "playwright",
+      "--from", "mfa-servicenow-mcp",
+      "servicenow-mcp"
+    ],
+    "env": {
+      "SERVICENOW_INSTANCE_URL": "$INSTANCE_URL",
+      "SERVICENOW_AUTH_TYPE": "$AUTH_TYPE",
+      "SERVICENOW_BROWSER_HEADLESS": "$HEADLESS",
+      "SERVICENOW_USERNAME": "$USERNAME",
+      "SERVICENOW_PASSWORD": "$PASSWORD",
+      "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
     }
   }
 }

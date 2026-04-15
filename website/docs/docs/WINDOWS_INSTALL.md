@@ -136,24 +136,22 @@ Config file location: `opencode.json` in your project root.
 
 Config file location: `~/.config/zed/settings.json`
 
-> Zed is primarily macOS/Linux. Merge the `context_servers` block into your existing `settings.json`.
+> Zed is primarily macOS/Linux. Open **Settings** > **MCP Servers** and register one server block:
 
 ```json
 {
-  "context_servers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
+  "servicenow": {
+    "command": "uvx",
+    "args": [
+      "--with", "playwright",
+      "--from", "mfa-servicenow-mcp",
+      "servicenow-mcp"
+    ],
+    "env": {
+      "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+      "SERVICENOW_AUTH_TYPE": "browser",
+      "SERVICENOW_BROWSER_HEADLESS": "false",
+      "MCP_TOOL_PACKAGE": "standard"
     }
   }
 }
