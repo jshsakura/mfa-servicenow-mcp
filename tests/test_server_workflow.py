@@ -10,18 +10,18 @@ def test_workflow_tools_are_discovered_by_registry():
     registry = discover_tools()
 
     workflow_tools = [
-        "list_legacy_workflows",
-        "get_legacy_workflow_details",
-        # list_legacy_workflow_versions and get_legacy_workflow_activities
-        # merged into get_legacy_workflow_details with include flags
-        "create_legacy_workflow",
-        "update_legacy_workflow",
-        "activate_legacy_workflow",
-        "deactivate_legacy_workflow",
-        "add_legacy_workflow_activity",
-        "update_legacy_workflow_activity",
-        "delete_legacy_workflow_activity",
-        "reorder_legacy_workflow_activities",
+        "list_workflows",
+        "get_workflow_details",
+        # list_workflow_versions and get_workflow_activities
+        # merged into get_workflow_details with include flags
+        "create_workflow",
+        "update_workflow",
+        "activate_workflow",
+        "deactivate_workflow",
+        "add_workflow_activity",
+        "update_workflow_activity",
+        "delete_workflow_activity",
+        "reorder_workflow_activities",
     ]
 
     for tool_name in workflow_tools:
@@ -33,10 +33,10 @@ def test_workflow_tools_have_valid_params_and_description():
     registry = discover_tools()
 
     workflow_tools = [
-        "list_legacy_workflows",
-        "get_legacy_workflow_details",
-        "create_legacy_workflow",
-        "update_legacy_workflow",
+        "list_workflows",
+        "get_workflow_details",
+        "create_workflow",
+        "update_workflow",
     ]
 
     for tool_name in workflow_tools:
