@@ -292,29 +292,16 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 ## 최신 버전 유지
 
-> **`uvx`는 마지막으로 다운로드한 버전을 캐시합니다.** 새 릴리스가 나와도 자동 반영되지 않습니다.
-
-### 권장: `uv tool` (영구 설치)
+> **`uvx`는 마지막으로 다운로드한 버전을 캐시하여 계속 재사용합니다.**
+> 새 릴리스가 나와도 자동으로 반영되지 않으므로, `uv`를 통해 직접 업그레이드해야 합니다.
 
 ```bash
-# 최초 설치
-uv tool install mfa-servicenow-mcp
-
-# 업데이트 — 캐시를 최신 버전으로 영구 갱신
 uv tool upgrade mfa-servicenow-mcp
 ```
 
-### 대안: `uvx --refresh` (1회성)
+업그레이드 후 **MCP 클라이언트를 재시작**해야 새 버전이 적용됩니다 (Claude Code, Cursor 등).
 
-`uv tool install` 없이 `uvx`로 사용 중이라면, 이 명령으로 1회 최신 버전을 가져옵니다:
-
-```bash
-uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
-```
-
-> 업데이트 후 **MCP 클라이언트를 재시작**해야 새 버전이 적용됩니다 (Claude Code, Cursor 등).
-
-업데이트 후 MCP 클라이언트를 재시작해야 새 버전이 적용됩니다.
+> 아직 `uv tool install`을 하지 않았다면 먼저 `uv tool install mfa-servicenow-mcp`를 실행하세요.
 
 ---
 

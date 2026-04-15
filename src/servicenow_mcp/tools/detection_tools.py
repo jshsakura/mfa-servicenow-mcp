@@ -497,7 +497,7 @@ def detect_missing_profit_company_codes(
     # -----------------------------------------------------------------------
     query_parts: List[str] = []
     if params.scope:
-        query_parts.append(f"sys_scope={_escape_query(params.scope)}")
+        query_parts.append(f"sys_scope.scope={_escape_query(params.scope)}")
 
     if params.widget_ids:
         id_tokens = [
@@ -650,7 +650,7 @@ def detect_missing_profit_company_codes(
         if provider_ids:
             provider_query = f"sys_idIN{','.join(sorted(provider_ids))}"
             if params.scope:
-                provider_query += f"^sys_scope={_escape_query(params.scope)}"
+                provider_query += f"^sys_scope.scope={_escape_query(params.scope)}"
             provider_rows = _sn_query_all(
                 config,
                 auth_manager,

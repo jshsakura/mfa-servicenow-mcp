@@ -236,7 +236,7 @@ def get_developer_changes(
 
         query_parts = [f"{filter_field}={safe_developer}"]
         if params.scope:
-            query_parts.append(f"sys_scope={_escape_query(params.scope)}")
+            query_parts.append(f"sys_scope.scope={_escape_query(params.scope)}")
         if params.updated_after:
             query_parts.append(f"sys_updated_on>={params.updated_after}")
         if params.updated_before:
@@ -566,7 +566,7 @@ def get_provider_dependency_map(
         id_filter = ",".join(params.widget_ids)
         widget_query_parts.append(f"sys_idIN{id_filter}^ORidIN{id_filter}^ORnameIN{id_filter}")
     if params.scope:
-        widget_query_parts.append(f"sys_scope={_escape_query(params.scope)}")
+        widget_query_parts.append(f"sys_scope.scope={_escape_query(params.scope)}")
     if params.developer:
         widget_query_parts.append(f"sys_updated_by={_escape_query(params.developer)}")
 
@@ -958,7 +958,7 @@ def get_developer_daily_summary(
             f"sys_updated_on<={date_end}",
         ]
         if params.scope:
-            query_parts.append(f"sys_scope={_escape_query(params.scope)}")
+            query_parts.append(f"sys_scope.scope={_escape_query(params.scope)}")
         query = "^".join(query_parts)
 
         # Build fields: metadata + source fields if details requested

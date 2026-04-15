@@ -563,7 +563,7 @@ def _build_search_query(config: Dict[str, Any], params: SearchServerCodeParams) 
     safe_query = _escape_query_value(params.query)
     query_parts: List[str] = [f"{field}LIKE{safe_query}" for field in config["search_fields"]]
     if params.scope:
-        query_parts.append(f"sys_scope={_escape_query_value(params.scope)}")
+        query_parts.append(f"sys_scope.scope={_escape_query_value(params.scope)}")
     if params.updated_by:
         query_parts.append(f"sys_updated_by={_escape_query_value(params.updated_by)}")
     return "^OR".join(query_parts[: len(config["search_fields"])]) + (
@@ -599,7 +599,7 @@ def _build_dependency_query(
 ) -> str | None:
     parts: List[str] = []
     if scope:
-        parts.append(f"sys_scope={_escape_query_fragment(scope)}")
+        parts.append(f"sys_scope.scope={_escape_query_fragment(scope)}")
 
     supports_active = source_table in {"sp_widget", "sys_script", "sys_script_include"}
     if only_active and supports_active:
@@ -732,7 +732,7 @@ def _find_script_include_by_candidate(
         f"name={safe_candidate}^ORapi_name={safe_candidate}^ORapi_nameENDSWITH.{safe_candidate}"
     ]
     if scope:
-        query_parts.append(f"sys_scope={_escape_query_fragment(scope)}")
+        query_parts.append(f"sys_scope.scope={_escape_query_fragment(scope)}")
     if only_active:
         query_parts.append("active=true")
     query = "^".join(query_parts)
@@ -1265,7 +1265,7 @@ def extract_widget_table_dependencies(
     widget_cfg = SOURCE_CONFIG["widget"]
     widget_query = _build_lookup_query(widget_cfg, params.widget_id)
     if params.scope:
-        widget_query += f"^sys_scope={_escape_query_fragment(params.scope)}"
+        widget_query += f"^sys_scope.scope={_escape_query_fragment(params.scope)}"
     if params.only_active:
         widget_query += "^active=true"
 
@@ -1516,7 +1516,7 @@ def _download_source_types(
         source_cfg = SOURCE_CONFIG[source_type]
         table = source_cfg["table"]
 
-        query_parts: List[str] = [f"sys_scope={scope}"]
+        query_parts: List[str] = [f"sys_scope.scope={scope}"]
         if only_active and table in _ACTIVE_SUPPORTED_TABLES:
             query_parts.append("active=true")
         if source_type in extra_query:
