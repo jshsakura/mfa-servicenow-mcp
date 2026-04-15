@@ -106,6 +106,37 @@ If the server starts and a browser window opens for login, you're ready to confi
 
 ---
 
+## Zed
+
+| Scope | Path |
+|-------|------|
+| Global | `~/.config/zed/settings.json` (macOS/Linux) |
+
+Add the `"context_servers"` block inside your Zed `settings.json`:
+
+```json
+{
+  "context_servers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your-username",
+        "SERVICENOW_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+> Zed currently supports global config only. Merge the `context_servers` block into your existing `settings.json` — do not overwrite the entire file.
+
+---
+
 ## OpenAI Codex (CLI & App)
 
 Both **Codex CLI** (`codex` command) and **Codex App** (chatgpt.com/codex) read from the same `config.toml`.
