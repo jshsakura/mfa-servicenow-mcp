@@ -504,7 +504,7 @@ class TestDownloadScriptIncludes:
 
         call_kwargs = mock_query_all.call_args[1]
         assert call_kwargs["table"] == "sys_script_include"
-        assert "sys_scope=x_app" in call_kwargs["query"]
+        assert "sys_scope.scope=x_app" in call_kwargs["query"]
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_empty_scope(self, mock_query_all, config, auth, tmp_path):
