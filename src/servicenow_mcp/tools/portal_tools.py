@@ -24,6 +24,7 @@ from .sn_api import (
     invalidate_query_cache,
     sn_query,
     sn_query_all,
+    sn_query_page,
 )
 
 logger = logging.getLogger(__name__)
@@ -3121,23 +3122,44 @@ def download_portal_sources(
                     m2m_ids.append(provider_id)
 
         if m2m_ids:
+            # Fetch provider metadata first (no script — lightweight)
             provider_rows = _sn_query_all(
                 config,
                 auth_manager,
                 table=ANGULAR_PROVIDER_TABLE,
                 query=f"sys_idIN{','.join(m2m_ids)}",
-                fields="sys_id,name,script,type,sys_scope,sys_updated_on",
-                page_size=params.page_size,
+                fields="sys_id,name,type,sys_scope,sys_updated_on",
+                page_size=100,
                 max_records=1000,
             )
+            # Fetch script per provider individually (no truncation)
             for provider in provider_rows:
                 name = str(provider.get("name") or provider.get("sys_id") or "")
                 sys_id = str(provider.get("sys_id") or "")
                 file_name = _safe_name(name)
-                _write_text_file(
-                    scope_root / "sp_angular_provider" / f"{file_name}.script.js",
-                    str(provider.get("script") or ""),
-                )
+                script = ""
+                if sys_id:
+                    try:
+                        src_rows, _ = sn_query_page(
+                            config,
+                            auth_manager,
+                            table=ANGULAR_PROVIDER_TABLE,
+                            query=f"sys_id={sys_id}",
+                            fields="script",
+                            limit=1,
+                            offset=0,
+                            display_value=False,
+                            no_count=True,
+                        )
+                        if src_rows:
+                            script = str(src_rows[0].get("script") or "")
+                    except Exception:
+                        pass
+                if script.strip():
+                    _write_text_file(
+                        scope_root / "sp_angular_provider" / f"{file_name}.script.js",
+                        script,
+                    )
                 if name:
                     provider_map[name] = sys_id
                     _provider_sync_meta[name] = {
