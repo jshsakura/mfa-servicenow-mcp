@@ -132,6 +132,33 @@ args = [
 }
 ```
 
+### Zed
+
+설정 파일 위치: `~/.config/zed/settings.json`
+
+> Zed는 주로 macOS/Linux를 지원합니다. 기존 `settings.json`에 `context_servers` 블록을 병합하세요.
+
+```json
+{
+  "context_servers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
 ### AntiGravity
 
 설정 파일 위치: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
