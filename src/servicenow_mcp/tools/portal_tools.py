@@ -1002,7 +1002,7 @@ def _fetch_linked_script_include_rows(
 
         query_parts = ["(" + "^OR".join(candidate_clauses) + ")"]
         if scope:
-            query_parts.append(f"sys_scope={_escape_query(scope)}")
+            query_parts.append(f"sys_scope.scope={_escape_query(scope)}")
         if updated_by:
             query_parts.append(f"sys_updated_by={safe_updated_by}")
         if updated_after:
@@ -2108,7 +2108,7 @@ def search_portal_regex_matches(
     if params.updated_by:
         widget_query_parts.append(f"sys_updated_by={safe_updated_by}")
     if params.scope:
-        widget_query_parts.append(f"sys_scope={_escape_query(params.scope)}")
+        widget_query_parts.append(f"sys_scope.scope={_escape_query(params.scope)}")
     if params.updated_after:
         widget_query_parts.append(f"sys_updated_on>={_escape_query(params.updated_after)}")
     if params.updated_before:
@@ -2391,7 +2391,7 @@ def trace_portal_route_targets(
     if params.updated_by:
         widget_query_parts.append(f"sys_updated_by={_escape_query(params.updated_by)}")
     if params.scope:
-        widget_query_parts.append(f"sys_scope={_escape_query(params.scope)}")
+        widget_query_parts.append(f"sys_scope.scope={_escape_query(params.scope)}")
 
     provider_filter_tokens = [
         _escape_query(value)
@@ -2699,7 +2699,7 @@ def detect_angular_implicit_globals(
     if params.updated_by:
         query_parts.append(f"sys_updated_by={_escape_query(params.updated_by)}")
     if params.scope:
-        query_parts.append(f"sys_scope={_escape_query(params.scope)}")
+        query_parts.append(f"sys_scope.scope={_escape_query(params.scope)}")
     if params.updated_after:
         query_parts.append(f"sys_updated_on>={_escape_query(params.updated_after)}")
     if params.updated_before:
@@ -2970,7 +2970,7 @@ def download_portal_sources(
 
     widget_base_query = ""
     if params.scope:
-        widget_base_query = f"sys_scope={_escape_query(params.scope)}"
+        widget_base_query = f"sys_scope.scope={_escape_query(params.scope)}"
     widget_fields = _download_widget_fields(
         include_widget_template=params.include_widget_template,
         include_widget_server_script=params.include_widget_server_script,

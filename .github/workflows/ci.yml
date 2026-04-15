@@ -259,14 +259,10 @@ jobs:
 
             ## Update
 
-            > `uvx` caches the last version it downloaded — new releases are **not** picked up automatically.
+            > `uvx` caches the last version — it does **not** auto-update. Upgrade via `uv`:
 
             ```bash
-            # Persistent install — update the cached version permanently
             uv tool upgrade mfa-servicenow-mcp
-
-            # Or one-shot refresh (if using uvx without install)
-            uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
             ```
 
             After updating, **restart your MCP client** to load the new version.
