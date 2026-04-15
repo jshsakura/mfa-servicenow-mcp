@@ -1,6 +1,6 @@
 # ServiceNow MCP - 도구 인벤토리
 
-활성 도구: **89** | 코드에 등록된 도구: **127** | 패키지에서 제거된 도구: **38**
+활성 도구: **101** | 코드에 등록된 도구: **139** | 패키지에서 제거된 도구: **38**
 
 ## 패키지 요약
 
@@ -8,10 +8,10 @@
 |---------|-------|---------|-------------|
 | `none` | 0 |  | 비활성화 |
 | `standard` | 45 | Y | 읽기 전용 안전 모드 |
-| `portal_developer` | 61 |  | 포털/위젯 개발 |
-| `platform_developer` | 69 |  | 백엔드/워크플로 개발 |
+| `portal_developer` | 73 |  | 포털/위젯 개발 |
+| `platform_developer` | 81 |  | 백엔드/워크플로 개발 |
 | `service_desk` | 49 |  | 인시던트 운영 |
-| `full` | 89 |  | 모든 기능 |
+| `full` | 101 |  | 모든 기능 |
 
 ## 카테고리별 도구
 
@@ -235,6 +235,28 @@
 | `get_widget_instance` | R | sys_id로 단일 위젯 인스턴스를 가져오거나, 페이지/위젯 필터로 목록을 조회합니다... | full, platform_developer, portal_developer, service_desk, standard |
 | `create_widget_instance` | W | 페이지 컬럼에 위젯을 배치합니다. 위젯 sys_id, 대상 컬럼, 순서 및... | full, portal_developer |
 | `update_widget_instance` | W | 페이지에서 기존 위젯 인스턴스를 이동, 재정렬 또는 옵션/CSS 업데이트합니다... | full, portal_developer |
+
+### 포털 CRUD — 컴포넌트 생성 (6)
+
+| 도구 | 읽기/쓰기 | 설명 | 패키지 |
+|------|-----|-------------|----------|
+| `create_widget` | W | 새 Service Portal 위젯을 생성합니다. 스코프 필수. 중복 이름/ID 사전 체크. | full, platform_developer, portal_developer |
+| `create_angular_provider` | W | AngularJS 1.x 앵귤러 프로바이더(factory/service/directive)를 생성합니다. 스코프 필수. | full, platform_developer, portal_developer |
+| `create_header_footer` | W | Service Portal 헤더 또는 푸터 컴포넌트를 생성합니다. 스코프 필수. | full, platform_developer, portal_developer |
+| `create_css_theme` | W | Service Portal CSS 테마(sp_css)를 생성합니다. 스코프 필수. | full, platform_developer, portal_developer |
+| `create_ng_template` | W | AngularJS ng-template(sp_ng_template)을 생성합니다. 스코프 필수. | full, platform_developer, portal_developer |
+| `create_ui_page` | W | UI 페이지(sys_ui_page)를 HTML, 클라이언트 스크립트, 프로세싱 스크립트와 함께 생성합니다. 스코프 필수. | full, platform_developer, portal_developer |
+
+### 포털 CRUD — 페이지 & 레이아웃 (6)
+
+| 도구 | 읽기/쓰기 | 설명 | 패키지 |
+|------|-----|-------------|----------|
+| `create_page` | W | 새 Service Portal 페이지를 생성합니다. 스코프 필수. 중복 페이지 ID 체크. | full, platform_developer, portal_developer |
+| `update_page` | W | Service Portal 페이지의 제목, 설명, CSS, 가시성 플래그를 업데이트합니다. | full, platform_developer, portal_developer |
+| `create_container` | W | 포털 페이지에 레이아웃 컨테이너를 추가합니다. 컨테이너는 행(row)을 포함합니다. | full, platform_developer, portal_developer |
+| `create_row` | W | 레이아웃 컨테이너에 행을 추가합니다. 행은 열(column)을 포함합니다. | full, platform_developer, portal_developer |
+| `create_column` | W | 행에 열을 추가합니다. Bootstrap 그리드(크기 1-12). 위젯은 열에 배치됩니다. | full, platform_developer, portal_developer |
+| `scaffold_page` | W | 포털 페이지와 레이아웃(컨테이너/행/열) 및 위젯 배치를 한번에 생성합니다. 스코프 필수. 중복 체크 + 칼럼 합계 검증. | full, platform_developer, portal_developer |
 
 ### 스크립트 인클루드 (6)
 

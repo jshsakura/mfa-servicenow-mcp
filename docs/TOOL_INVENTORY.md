@@ -1,6 +1,6 @@
 # ServiceNow MCP - Tool Inventory
 
-Active tools: **89** | Registered in code: **127** | Removed from packages: **38**
+Active tools: **101** | Registered in code: **139** | Removed from packages: **38**
 
 ## Package Summary
 
@@ -8,10 +8,10 @@ Active tools: **89** | Registered in code: **127** | Removed from packages: **38
 |---------|-------|---------|-------------|
 | `none` | 0 |  | Disabled |
 | `standard` | 45 | Y | Read-only safe mode |
-| `portal_developer` | 61 |  | Portal/Widget development |
-| `platform_developer` | 69 |  | Backend/Workflow development |
+| `portal_developer` | 73 |  | Portal/Widget development |
+| `platform_developer` | 81 |  | Backend/Workflow development |
 | `service_desk` | 49 |  | Incident operations |
-| `full` | 89 |  | All capabilities |
+| `full` | 101 |  | All capabilities |
 
 ## Tools by Category
 
@@ -235,6 +235,28 @@ Active tools: **89** | Registered in code: **127** | Removed from packages: **38
 | `get_widget_instance` | R | Get a single widget instance by sys_id, or list instances by page/widget filter.... | full, platform_developer, portal_developer, service_desk, standard |
 | `create_widget_instance` | W | Place a widget on a page column. Specify widget sys_id, target column, order, an... | full, portal_developer |
 | `update_widget_instance` | W | Move, reorder, or update options/CSS of an existing widget instance on a page.... | full, portal_developer |
+
+### Portal CRUD — Component Create (6)
+
+| Tool | R/W | Description | Packages |
+|------|-----|-------------|----------|
+| `create_widget` | W | Create a new Service Portal widget with template, scripts, and CSS. Scope is required. Duplicate name/id check before creation. | full, platform_developer, portal_developer |
+| `create_angular_provider` | W | Create an AngularJS 1.x angular provider (factory/service/directive). Scope is required. Duplicate check before creation. | full, platform_developer, portal_developer |
+| `create_header_footer` | W | Create a Service Portal header or footer component. Scope is required. | full, platform_developer, portal_developer |
+| `create_css_theme` | W | Create a Service Portal CSS theme (sp_css). Scope is required. | full, platform_developer, portal_developer |
+| `create_ng_template` | W | Create an AngularJS ng-template (sp_ng_template) for use in ng-include. Scope is required. | full, platform_developer, portal_developer |
+| `create_ui_page` | W | Create a UI Page (sys_ui_page) with HTML, client script, and processing script. Scope is required. | full, platform_developer, portal_developer |
+
+### Portal CRUD — Page & Layout (6)
+
+| Tool | R/W | Description | Packages |
+|------|-----|-------------|----------|
+| `create_page` | W | Create a new Service Portal page. Scope is required. Duplicate page id check. Returns sys_id for layout creation. | full, platform_developer, portal_developer |
+| `update_page` | W | Update a Service Portal page's title, description, CSS, or visibility flags. | full, platform_developer, portal_developer |
+| `create_container` | W | Add a layout container to a portal page. Containers hold rows. | full, platform_developer, portal_developer |
+| `create_row` | W | Add a row to a layout container. Rows hold columns. | full, platform_developer, portal_developer |
+| `create_column` | W | Add a column to a row. Columns use Bootstrap grid (size 1-12). Widgets are placed in columns. | full, platform_developer, portal_developer |
+| `scaffold_page` | W | Create a complete portal page with layout (container/rows/columns) and widget placements in one call. Scope is required. Duplicate check + column sum validation. | full, platform_developer, portal_developer |
 
 ### Script Include (6)
 

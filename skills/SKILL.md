@@ -54,7 +54,7 @@ output: summary|report|diff|data|status|files|action
 
 | Skill | Cost | Safety | Trigger Examples |
 |-------|------|--------|-----------------|
-| [page-management](manage/page-management.md) | low | confirm | "위젯 배치", "page layout" |
+| [page-management](manage/page-management.md) | low | confirm | "위젯 배치", "page layout", "페이지 생성", "scaffold page" |
 | [script-include-management](manage/script-include-management.md) | low | confirm | "SI 보여줘", "execute GlideAjax" |
 | [source-download](manage/source-download.md) | high | none | "소스 내보내기", "download sources" |
 | [changeset-workflow](manage/changeset-workflow.md) | low | **staged** | "체인지셋 커밋", "publish" |
