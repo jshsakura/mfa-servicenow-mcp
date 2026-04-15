@@ -296,33 +296,32 @@ For the complete tool list by category, see [Tool Inventory](docs/TOOL_INVENTORY
 
 ## Keeping Up to Date
 
-`uvx` automatically uses the latest cached version. In most cases, updates happen without any action.
+> **`uvx` caches the last version it downloaded.** New releases are NOT picked up automatically.
 
-To force the latest PyPI release immediately:
+### Recommended: `uv tool` (persistent install)
+
+```bash
+# First time — install as a persistent tool
+uv tool install mfa-servicenow-mcp
+
+# Update — refreshes the cached version permanently
+uv tool upgrade mfa-servicenow-mcp
+```
+
+### Alternative: `uvx --refresh` (one-shot)
+
+If you use `uvx` without installing, this forces a one-time fetch of the latest version:
 
 ```bash
 uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 ```
 
-### pip upgrade
-
-```bash
-pip install --upgrade mfa-servicenow-mcp
-```
+> After updating, **restart your MCP client** (Claude Code, Cursor, etc.) to load the new version.
 
 ### Pinning a specific version
 
-If you need a specific version (e.g., for stability):
-
 ```bash
-# uvx with pinned version
 uvx --from "mfa-servicenow-mcp==1.5.0" servicenow-mcp --version
-
-# uv tool with pinned version
-uv tool install "mfa-servicenow-mcp==1.5.0"
-
-# pip with pinned version
-pip install "mfa-servicenow-mcp==1.5.0"
 ```
 
 ### Version release process

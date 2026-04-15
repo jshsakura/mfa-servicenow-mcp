@@ -85,4 +85,16 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "--ignore=examples" 
+addopts = "--ignore=examples --cov=src/servicenow_mcp --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src/servicenow_mcp"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+]
