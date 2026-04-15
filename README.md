@@ -156,6 +156,7 @@ Each project can connect to a different ServiceNow instance. Set the config in y
 | Claude Code | `.mcp.json` | `~/.claude.json` | JSON |
 | Cursor | `.cursor/mcp.json` | *Project only* | JSON |
 | VS Code (Copilot) | `.vscode/mcp.json` | *Project only* | JSON |
+| Zed | *Global only* | `~/.config/zed/settings.json` | JSON |
 | OpenAI Codex | `.codex/config.toml` | `~/.codex/config.toml` | TOML |
 | Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | JSON |
 | OpenCode | `opencode.json` | *Project only* | JSON |
