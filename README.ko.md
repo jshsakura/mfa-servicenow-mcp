@@ -32,6 +32,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 - [CLI 레퍼런스](#cli-레퍼런스)
 - [최신 버전 유지](#최신-버전-유지)
 - [보안 정책](#보안-정책)
+- [로컬 소스 검수](#로컬-소스-검수)
 - [스킬](#스킬)
 - [Docker](#docker)
 - [개발용 설치](#개발용-설치)
@@ -360,6 +361,45 @@ uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 - **얕은 복사 스키마 주입**: 확인 스키마(`confirm='approve'`)를 `copy.deepcopy` 대신 경량 dict 복사로 주입하여 `list_tools` 오버헤드 감소.
 - **카운트 생략 최적화**: 후속 페이지네이션 페이지에서 `sysparm_no_count=true`를 사용하여 서버 측 전체 개수 계산 생략.
 - **페이로드 안전 장치**: 무거운 테이블(`sp_widget`, `sys_script` 등)에 자동 필드 클램핑과 제한 적용으로 컨텍스트 윈도우 오버플로 방지.
+
+## 로컬 소스 검수
+
+ServiceNow 앱의 전체 소스를 로컬에 다운로드하고 분석합니다 — 반복적인 API 호출 없이, 컨텍스트 낭비 없이.
+
+```
+Step 1: download_app_sources(scope="x_company_app")    → 서버사이드 코드 전체를 디스크에
+Step 2: audit_local_sources(source_root="temp/...")     → 분석 + HTML 리포트
+```
+
+### 생성되는 파일
+
+| 파일 | 용도 |
+|------|------|
+| `_audit_report.html` | 셀프 컨테인드 다크 테마 HTML 리포트 — 브라우저에서 바로 열기 |
+| `_cross_references.json` | 상호참조 — SI 호출 체인, GlideRecord 테이블 참조 |
+| `_orphans.json` | 데드코드 후보 — 참조되지 않는 SI, 미사용 위젯 |
+| `_execution_order.json` | 테이블별 BR/CS/ACL 실행 순서 |
+| `_domain_knowledge.md` | 자동 생성 앱 프로파일 — 테이블 맵, 허브 스크립트, 경고 |
+| `_schema/*.json` | 참조된 모든 테이블의 필드 정의 |
+
+### 개별 다운로드 도구
+
+각 소스 타입별 전용 다운로드 도구가 있습니다. 오케스트레이터로 전체를 받거나, 필요한 것만 선택:
+
+| 도구 | 소스 |
+|------|------|
+| `download_portal_sources` | 위젯, Angular Provider, 연결된 Script Include |
+| `download_script_includes` | Script Include (scope 전체) |
+| `download_server_scripts` | Business Rule, Client Script, Catalog Client Script |
+| `download_ui_components` | UI Action, UI Script, UI Page, UI Macro |
+| `download_api_sources` | Scripted REST API, Processor |
+| `download_security_sources` | ACL (스크립트 있는 것만) |
+| `download_admin_scripts` | Fix Script, Scheduled Job, Script Action, Email Notification |
+| `download_table_schema` | sys_dictionary 필드 정의 |
+
+모든 다운로드는 잘림 없이 전체 소스를 디스크에 저장합니다. LLM 컨텍스트에는 요약만 반환됩니다.
+
+---
 
 ## 스킬
 
