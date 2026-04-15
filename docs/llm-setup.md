@@ -379,7 +379,7 @@ Works with Gemini CLI. Config file: `~/.gemini/settings.json` (merge into existi
 
 #### zed
 
-Config: `~/.config/zed/settings.json` (macOS/Linux). In Zed, open **Settings** > **MCP Servers** and register one server block:
+Config: `~/.config/zed/settings.json`. Add via **Settings** > **MCP Servers** in Zed:
 
 ```json
 {

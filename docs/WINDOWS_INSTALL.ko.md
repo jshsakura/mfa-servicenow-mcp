@@ -136,7 +136,7 @@ args = [
 
 설정 파일 위치: `~/.config/zed/settings.json`
 
-> Zed는 주로 macOS/Linux를 지원합니다. **Settings** > **MCP Servers**에서 서버 블록 하나를 등록하세요:
+> Zed에서 **Settings** > **MCP Servers**로 추가하세요:
 
 ```json
 {
