@@ -166,6 +166,36 @@ def _fix_script_records():
     ]
 
 
+# Source fields per source type — must be stripped from sn_query_all mocks
+# and returned by sn_query_page mocks in the 2-pass download model.
+_SOURCE_FIELDS = {
+    "script",
+    "operation_script",
+    "html",
+    "client_script",
+    "processing_script",
+}
+
+
+def _strip_source(records):
+    """Return records with source fields removed (Pass 1 metadata only)."""
+    return [{k: v for k, v in r.items() if k not in _SOURCE_FIELDS} for r in records]
+
+
+def _page_side_effect_for(full_records):
+    """Build a sn_query_page side_effect that returns source fields by sys_id."""
+
+    def _side_effect(*args, **kwargs):
+        query = kwargs.get("query", "")
+        for r in full_records:
+            if r["sys_id"] in query:
+                src = {k: v for k, v in r.items() if k in _SOURCE_FIELDS and v}
+                return ([src], None) if src else ([], None)
+        return ([], None)
+
+    return _side_effect
+
+
 def _dict_records():
     return [
         {
@@ -252,8 +282,23 @@ class TestResolveScopeRoot:
 
 class TestDownloadSourceTypes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_downloads_and_writes_files(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _si_records()
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_downloads_and_writes_files(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        # Pass 1: sn_query_all returns metadata only (no script)
+        meta_records = [{k: v for k, v in r.items() if k != "script"} for r in _si_records()]
+        mock_query_all.return_value = meta_records
+
+        # Pass 2: sn_query_page returns source per record
+        def _page_side_effect(*args, **kwargs):
+            query = kwargs.get("query", "")
+            for r in _si_records():
+                if r["sys_id"] in query:
+                    return [{"script": r["script"]}], None
+            return [], None
+
+        mock_query_page.side_effect = _page_side_effect
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
@@ -289,8 +334,12 @@ class TestDownloadSourceTypes:
         assert "validate" in script
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_map_and_sync_meta_content(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _si_records()
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_map_and_sync_meta_content(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        mock_query_all.return_value = _strip_source(_si_records())
+        mock_query_page.side_effect = _page_side_effect_for(_si_records())
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
@@ -368,8 +417,10 @@ class TestDownloadSourceTypes:
         assert "Unknown source type" in result["warnings"][0]
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_only_active_filter(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _br_records()
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_only_active_filter(self, mock_query_page, mock_query_all, config, auth, tmp_path):
+        mock_query_all.return_value = _strip_source(_br_records())
+        mock_query_page.return_value = ([], None)
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
@@ -387,8 +438,10 @@ class TestDownloadSourceTypes:
         assert "active=true" in call_kwargs["query"]
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_extra_query_for_acl(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _acl_records()
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_extra_query_for_acl(self, mock_query_page, mock_query_all, config, auth, tmp_path):
+        mock_query_all.return_value = _strip_source(_acl_records())
+        mock_query_page.return_value = ([], None)
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
@@ -406,8 +459,10 @@ class TestDownloadSourceTypes:
         assert "scriptISNOTEMPTY" in call_kwargs["query"]
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_multiple_source_types(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.side_effect = [_br_records(), [], []]
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_multiple_source_types(self, mock_query_page, mock_query_all, config, auth, tmp_path):
+        mock_query_all.side_effect = [_strip_source(_br_records()), [], []]
+        mock_query_page.return_value = ([], None)
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
@@ -425,8 +480,11 @@ class TestDownloadSourceTypes:
         assert mock_query_all.call_count == 3
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_empty_script_fields_not_written(self, mock_query_all, config, auth, tmp_path):
-        records = [
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_empty_script_fields_not_written(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        meta_records = [
             {
                 "sys_id": "si-empty",
                 "name": "EmptySI",
@@ -435,10 +493,11 @@ class TestDownloadSourceTypes:
                 "sys_scope": "x_app",
                 "sys_updated_on": "2026-04-01",
                 "sys_updated_by": "admin",
-                "script": "",  # empty
             }
         ]
-        mock_query_all.return_value = records
+        mock_query_all.return_value = meta_records
+        # Pass 2 returns empty script
+        mock_query_page.return_value = ([{"script": ""}], None)
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
@@ -457,8 +516,12 @@ class TestDownloadSourceTypes:
         assert not (si_dir / "script.js").exists()  # empty script not written
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_manifest_entries_contain_path(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _si_records()[:1]
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_manifest_entries_contain_path(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        mock_query_all.return_value = _strip_source(_si_records()[:1])
+        mock_query_page.return_value = ([], None)
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
@@ -486,8 +549,10 @@ class TestDownloadSourceTypes:
 
 class TestDownloadScriptIncludes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_happy_path(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _si_records()
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_happy_path(self, mock_query_page, mock_query_all, config, auth, tmp_path):
+        mock_query_all.return_value = _strip_source(_si_records())
+        mock_query_page.side_effect = _page_side_effect_for(_si_records())
         result = download_script_includes(
             config,
             auth,
@@ -523,8 +588,12 @@ class TestDownloadScriptIncludes:
 
 class TestDownloadServerScripts:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_downloads_br_and_client_scripts(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.side_effect = [_br_records(), [], []]
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_downloads_br_and_client_scripts(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        mock_query_all.side_effect = [_strip_source(_br_records()), [], []]
+        mock_query_page.side_effect = _page_side_effect_for(_br_records())
         result = download_server_scripts(
             config,
             auth,
@@ -545,8 +614,10 @@ class TestDownloadServerScripts:
 
 class TestDownloadUIComponents:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_downloads_all_ui_types(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.side_effect = [_ui_action_records(), [], [], []]
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_downloads_all_ui_types(self, mock_query_page, mock_query_all, config, auth, tmp_path):
+        mock_query_all.side_effect = [_strip_source(_ui_action_records()), [], [], []]
+        mock_query_page.side_effect = _page_side_effect_for(_ui_action_records())
         result = download_ui_components(
             config,
             auth,
@@ -561,8 +632,11 @@ class TestDownloadUIComponents:
         assert mock_query_all.call_count == 4  # 4 UI types
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_ui_page_multi_field_export(self, mock_query_all, config, auth, tmp_path):
-        ui_page = [
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_ui_page_multi_field_export(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        ui_page_full = [
             {
                 "sys_id": "up-1",
                 "name": "custom_page",
@@ -575,7 +649,8 @@ class TestDownloadUIComponents:
                 "processing_script": "gs.log('processed');",
             }
         ]
-        mock_query_all.side_effect = [[], [], ui_page, []]
+        mock_query_all.side_effect = [[], [], _strip_source(ui_page_full), []]
+        mock_query_page.side_effect = _page_side_effect_for(ui_page_full)
         download_ui_components(
             config,
             auth,
@@ -593,8 +668,12 @@ class TestDownloadUIComponents:
 
 class TestDownloadAPISources:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_downloads_rest_and_processor(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.side_effect = [_rest_records(), []]
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_downloads_rest_and_processor(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        mock_query_all.side_effect = [_strip_source(_rest_records()), []]
+        mock_query_page.side_effect = _page_side_effect_for(_rest_records())
         result = download_api_sources(
             config,
             auth,
@@ -615,8 +694,10 @@ class TestDownloadAPISources:
 
 class TestDownloadSecuritySources:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_acl_script_only_filter(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _acl_records()
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_acl_script_only_filter(self, mock_query_page, mock_query_all, config, auth, tmp_path):
+        mock_query_all.return_value = _strip_source(_acl_records())
+        mock_query_page.return_value = ([], None)
         result = download_security_sources(
             config,
             auth,
@@ -632,8 +713,10 @@ class TestDownloadSecuritySources:
         assert "scriptISNOTEMPTY" in call_kwargs["query"]
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_acl_all_no_filter(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _acl_records()
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_acl_all_no_filter(self, mock_query_page, mock_query_all, config, auth, tmp_path):
+        mock_query_all.return_value = _strip_source(_acl_records())
+        mock_query_page.return_value = ([], None)
         download_security_sources(
             config,
             auth,
@@ -650,8 +733,12 @@ class TestDownloadSecuritySources:
 
 class TestDownloadAdminScripts:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_downloads_all_admin_types(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.side_effect = [_fix_script_records(), [], [], [], []]
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_downloads_all_admin_types(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        mock_query_all.side_effect = [_strip_source(_fix_script_records()), [], [], [], []]
+        mock_query_page.side_effect = _page_side_effect_for(_fix_script_records())
         result = download_admin_scripts(
             config,
             auth,
@@ -867,10 +954,12 @@ class TestDownloadAppSources:
     @patch("servicenow_mcp.tools.source_tools._fetch_and_write_schema")
     @patch("servicenow_mcp.tools.source_tools._scan_tables_from_source_root")
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     def test_orchestrator_writes_manifest(
-        self, mock_query_all, mock_scan, mock_schema, config, auth, tmp_path
+        self, mock_query_page, mock_query_all, mock_scan, mock_schema, config, auth, tmp_path
     ):
-        mock_query_all.side_effect = [_si_records()] + [[] for _ in range(20)]
+        mock_query_all.side_effect = [_strip_source(_si_records())] + [[] for _ in range(20)]
+        mock_query_page.side_effect = _page_side_effect_for(_si_records())
         mock_scan.return_value = {"x_app_request"}
         mock_schema.return_value = ({"x_app_request": 3}, [])
 
@@ -1024,8 +1113,12 @@ class TestDownloadAppSources:
 
 class TestFieldExtensions:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_business_rule_script_extension(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _br_records()
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_business_rule_script_extension(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        mock_query_all.return_value = _strip_source(_br_records())
+        mock_query_page.side_effect = _page_side_effect_for(_br_records())
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
@@ -1042,8 +1135,12 @@ class TestFieldExtensions:
         assert (br_dir / "script.js").exists()
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_rest_operation_script_extension(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _rest_records()
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_rest_operation_script_extension(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        mock_query_all.return_value = _strip_source(_rest_records())
+        mock_query_page.side_effect = _page_side_effect_for(_rest_records())
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
@@ -1060,8 +1157,10 @@ class TestFieldExtensions:
         assert (rest_dir / "operation_script.js").exists()
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_acl_script_extension(self, mock_query_all, config, auth, tmp_path):
-        mock_query_all.return_value = _acl_records()
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_acl_script_extension(self, mock_query_page, mock_query_all, config, auth, tmp_path):
+        mock_query_all.return_value = _strip_source(_acl_records())
+        mock_query_page.side_effect = _page_side_effect_for(_acl_records())
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
@@ -1085,13 +1184,17 @@ class TestFieldExtensions:
 
 class TestEdgeCases:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_duplicate_names_safe_filename(self, mock_query_all, config, auth, tmp_path):
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_duplicate_names_safe_filename(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
         """Two records with same name should not crash (last one wins)."""
-        records = [
+        full_records = [
             {**_si_records()[0], "sys_id": "si-dup-1"},
             {**_si_records()[0], "sys_id": "si-dup-2"},
         ]
-        mock_query_all.return_value = records
+        mock_query_all.return_value = _strip_source(full_records)
+        mock_query_page.side_effect = _page_side_effect_for(full_records)
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
