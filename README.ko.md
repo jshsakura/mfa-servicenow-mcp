@@ -153,6 +153,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 | 클라이언트 | 프로젝트 설정 | 글로벌 설정 | 포맷 |
 |-----------|-------------|-----------|------|
 | Claude Code | `.mcp.json` | `~/.claude.json` | JSON |
+| Zed | ⬜ | `~/.config/zed/settings.json` | JSON |
 | OpenAI Codex | `.codex/config.toml` | `~/.codex/config.toml` | TOML |
 | Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | JSON |
 | OpenCode | `opencode.json` | ⬜ | JSON |
