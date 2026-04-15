@@ -310,7 +310,7 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   max-width: 100%;
   margin: 0 auto;
   max-width: 960px;
-  padding: 48px 48px 0;
+  padding: 24px 48px 0;
   position: relative;
 }
 @media (max-width: 1296px) {
@@ -322,7 +322,7 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
    ============================================================ */
 .hero-terminal {
   width: 100%;
-  margin-top: 32px;
+  margin-top: 0;
   position: relative;
   background: var(--code-bg);
   border-radius: 12px;
@@ -716,20 +716,20 @@ pre.install-code .c { color: var(--code-comment); }
    RESPONSIVE & SCROLL REVEAL
    ============================================================ */
 @media (max-width: 768px) {
-  .content-wrap { padding: 36px 24px 0; }
+  .content-wrap { padding: 20px 24px 0; }
   .steps-grid { grid-template-columns: 1fr; }
   .hero-stats { gap: 28px; padding: 32px 0; }
   .hero-content { padding: 60px 20px 60px; }
-  .hero-terminal { margin-top: 24px; }
+  .hero-terminal { margin-top: 0; }
   .hero-terminal-body { height: 360px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
-  .content-wrap { padding: 32px 16px 0; }
+  .content-wrap { padding: 16px 16px 0; }
   .hero-stat-value { font-size: 1.5rem; }
   .section { padding: 48px 0; }
   .cta-banner { padding: 48px 16px; }
   .hero-content { padding: 50px 16px 50px; }
-  .hero-terminal { margin-top: 20px; }
+  .hero-terminal { margin-top: 0; }
   .hero-terminal-body { height: 340px; }
 }
 
@@ -794,7 +794,6 @@ body:has(.landing-page) .section { animation: fadeInUp 1s cubic-bezier(0.16, 1, 
 .hero-terminal {
   position: relative;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
-  margin-top: 32px;
 }
 .hero-terminal:hover {
   transform: translateY(-4px);
