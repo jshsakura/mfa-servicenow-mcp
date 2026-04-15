@@ -197,9 +197,9 @@ def _get_auth_and_config(
 
 
 @register_tool(
-    name="list_legacy_workflows",
+    name="list_workflows",
     params=ListWorkflowsParams,
-    description="List legacy workflows with optional name/table/active filters.",
+    description="List workflows (wf_workflow engine) with optional name/table/active filters.",
     serialization="json",
     return_type=str,
 )
@@ -270,9 +270,9 @@ def list_workflows(
 
 
 @register_tool(
-    name="get_legacy_workflow_details",
+    name="get_workflow_details",
     params=GetWorkflowDetailsParams,
-    description="Get a legacy workflow by sys_id. Optionally include version history and activity list.",
+    description="Get a workflow (wf_workflow engine) by sys_id. Optionally include version history and activity list.",
     serialization="json",
     return_type=str,
 )
@@ -395,7 +395,7 @@ def _fetch_workflow_activities(
 
 
 @register_tool(
-    name="create_legacy_workflow",
+    name="create_workflow",
     params=CreateWorkflowParams,
     description="Create a workflow with name, table, description, and active flag. Returns created record.",
     serialization="json_dict",
@@ -469,7 +469,7 @@ def create_workflow(
 
 
 @register_tool(
-    name="update_legacy_workflow",
+    name="update_workflow",
     params=UpdateWorkflowParams,
     description="Update workflow name, description, table, or active status by sys_id.",
     serialization="json_dict",
@@ -547,7 +547,7 @@ def update_workflow(
 
 
 @register_tool(
-    name="activate_legacy_workflow",
+    name="activate_workflow",
     params=ActivateWorkflowParams,
     description="Set a workflow to active state by sys_id. Returns updated workflow record.",
     serialization="str",
@@ -608,7 +608,7 @@ def activate_workflow(
 
 
 @register_tool(
-    name="deactivate_legacy_workflow",
+    name="deactivate_workflow",
     params=DeactivateWorkflowParams,
     description="Set a workflow to inactive state by sys_id. Returns updated workflow record.",
     serialization="str",
@@ -669,7 +669,7 @@ def deactivate_workflow(
 
 
 @register_tool(
-    name="add_legacy_workflow_activity",
+    name="add_workflow_activity",
     params=AddWorkflowActivityParams,
     description="Add an activity (approval, task, notification, etc.) to a workflow version.",
     serialization="json_dict",
@@ -746,7 +746,7 @@ def add_workflow_activity(
 
 
 @register_tool(
-    name="update_legacy_workflow_activity",
+    name="update_workflow_activity",
     params=UpdateWorkflowActivityParams,
     description="Update activity name, description, or attributes by activity sys_id.",
     serialization="json_dict",
@@ -818,7 +818,7 @@ def update_workflow_activity(
 
 
 @register_tool(
-    name="delete_legacy_workflow_activity",
+    name="delete_workflow_activity",
     params=DeleteWorkflowActivityParams,
     description="Remove an activity from a workflow by activity sys_id. Irreversible.",
     serialization="str",
@@ -873,7 +873,7 @@ def delete_workflow_activity(
 
 
 @register_tool(
-    name="reorder_legacy_workflow_activities",
+    name="reorder_workflow_activities",
     params=ReorderWorkflowActivitiesParams,
     description="Reorder workflow activities by providing activity sys_ids in desired sequence.",
     serialization="str",

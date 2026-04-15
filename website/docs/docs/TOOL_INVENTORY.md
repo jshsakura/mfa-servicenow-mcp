@@ -163,20 +163,20 @@ Active tools: **89** | Registered in code: **127** | Removed from packages: **38
 | `publish_article` | W | Publish a knowledge article... | *(none)* |
 | `update_article` | W | Update an existing knowledge article... | *(none)* |
 
-### Legacy Workflow (10)
+### Workflow (wf_workflow engine) (10)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `list_legacy_workflows` | R | List workflows with optional filters by name, table, or active status. Returns s... | full, platform_developer, portal_developer, service_desk, standard |
-| `get_legacy_workflow_details` | R | Get workflow metadata. Use include_versions=true for version history, include_act... | full, platform_developer, portal_developer, service_desk, standard |
-| `activate_legacy_workflow` | W | Set a workflow to active state by sys_id. Returns updated workflow record.... | full, platform_developer |
-| `add_legacy_workflow_activity` | W | Add an activity (approval, task, notification, etc.) to a workflow version.... | full, platform_developer |
-| `create_legacy_workflow` | W | Create a workflow with name, table, description, and active flag. Returns create... | full, platform_developer |
-| `deactivate_legacy_workflow` | W | Set a workflow to inactive state by sys_id. Returns updated workflow record.... | full, platform_developer |
-| `delete_legacy_workflow_activity` | W | Remove an activity from a workflow by activity sys_id. Irreversible.... | full, platform_developer |
-| `reorder_legacy_workflow_activities` | W | Reorder workflow activities by providing activity sys_ids in desired sequence.... | full, platform_developer |
-| `update_legacy_workflow` | W | Update workflow name, description, table, or active status by sys_id.... | full, platform_developer |
-| `update_legacy_workflow_activity` | W | Update activity name, description, or attributes by activity sys_id.... | full, platform_developer |
+| `list_workflows` | R | List workflows with optional filters by name, table, or active status. Returns s... | full, platform_developer, portal_developer, service_desk, standard |
+| `get_workflow_details` | R | Get workflow metadata. Use include_versions=true for version history, include_act... | full, platform_developer, portal_developer, service_desk, standard |
+| `activate_workflow` | W | Set a workflow to active state by sys_id. Returns updated workflow record.... | full, platform_developer |
+| `add_workflow_activity` | W | Add an activity (approval, task, notification, etc.) to a workflow version.... | full, platform_developer |
+| `create_workflow` | W | Create a workflow with name, table, description, and active flag. Returns create... | full, platform_developer |
+| `deactivate_workflow` | W | Set a workflow to inactive state by sys_id. Returns updated workflow record.... | full, platform_developer |
+| `delete_workflow_activity` | W | Remove an activity from a workflow by activity sys_id. Irreversible.... | full, platform_developer |
+| `reorder_workflow_activities` | W | Reorder workflow activities by providing activity sys_ids in desired sequence.... | full, platform_developer |
+| `update_workflow` | W | Update workflow name, description, table, or active status by sys_id.... | full, platform_developer |
+| `update_workflow_activity` | W | Update activity name, description, or attributes by activity sys_id.... | full, platform_developer |
 
 ### Logs (4)
 

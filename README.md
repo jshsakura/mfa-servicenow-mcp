@@ -72,7 +72,7 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **97 tools** across 5 role-based packages — from read-only to full CRUD
+- **101 tools** across 5 role-based packages — from read-only to full CRUD
 - **20+ workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - Safe write confirmation with `confirm='approve'`
@@ -564,11 +564,11 @@ uv build
 ## Documentation
 
 - [Client Setup Guide](docs/CLIENT_SETUP.md) — Copy-paste configs for every MCP client
-- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 97 tools by category and package
+- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 101 tools by category and package
 - [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
 - [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization
 - [Change Management](docs/change_management.md) — Change request lifecycle and approval
-- [Workflow Management](docs/workflow_management.md) — Legacy workflow and Flow Designer tools
+- [Workflow Management](docs/workflow_management.md) — Workflow (wf_workflow engine) and Flow Designer tools
 - [Korean README](./README.ko.md)
 
 ---
