@@ -69,6 +69,20 @@ from servicenow_mcp.tools.knowledge_base import (
 )
 from servicenow_mcp.tools.log_tools import get_logs
 from servicenow_mcp.tools.performance_tools import analyze_widget_performance
+from servicenow_mcp.tools.portal_crud_tools import (
+    create_angular_provider,
+    create_column,
+    create_container,
+    create_css_theme,
+    create_header_footer,
+    create_ng_template,
+    create_page,
+    create_row,
+    create_ui_page,
+    create_widget,
+    scaffold_page,
+    update_page,
+)
 from servicenow_mcp.tools.portal_tools import (
     analyze_portal_component_update,
     create_portal_component_snapshot,
