@@ -2150,8 +2150,8 @@ def download_app_sources(
     widget_summary: Optional[Dict[str, Any]] = None
     if params.include_widget_sources:
         try:
-            from servicenow_mcp.tools.portal_tools import download_portal_sources as _dps
             from servicenow_mcp.tools.portal_tools import DownloadPortalSourcesParams as _DPSParams
+            from servicenow_mcp.tools.portal_tools import download_portal_sources as _dps
 
             ws_params = _DPSParams(
                 scope=params.scope,
