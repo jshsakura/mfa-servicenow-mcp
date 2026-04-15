@@ -27,13 +27,14 @@ standard:
   - get_change_request_details
   # Changeset (Read)
   - get_changeset_details
-  # Legacy Workflow (Read)
-  - list_legacy_workflows
-  - get_legacy_workflow_details
+  # Workflow (Read)
+  - list_workflows
+  - get_workflow_details
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
+  - list_flow_triggers_by_table
   # Portal (Read)
   - get_portal
   - get_page
@@ -93,12 +94,13 @@ portal_developer:
   - get_optimization_recommendations
   - get_change_request_details
   - get_changeset_details
-  - list_legacy_workflows
-  - get_legacy_workflow_details
+  - list_workflows
+  - get_workflow_details
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
+  - list_flow_triggers_by_table
   - get_portal
   - get_page
   - get_widget_bundle
@@ -173,12 +175,13 @@ platform_developer:
   - get_optimization_recommendations
   - get_change_request_details
   - get_changeset_details
-  - list_legacy_workflows
-  - get_legacy_workflow_details
+  - list_workflows
+  - get_workflow_details
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
+  - list_flow_triggers_by_table
   - get_portal
   - get_page
   - get_widget_bundle
@@ -215,15 +218,15 @@ platform_developer:
   - detect_missing_profit_company_codes
   # Local Sync (Read)
   - diff_local_component
-  # + Legacy Workflow writes
-  - create_legacy_workflow
-  - update_legacy_workflow
-  - activate_legacy_workflow
-  - deactivate_legacy_workflow
-  - add_legacy_workflow_activity
-  - update_legacy_workflow_activity
-  - delete_legacy_workflow_activity
-  - reorder_legacy_workflow_activities
+  # + Workflow writes
+  - create_workflow
+  - update_workflow
+  - activate_workflow
+  - deactivate_workflow
+  - add_workflow_activity
+  - update_workflow_activity
+  - delete_workflow_activity
+  - reorder_workflow_activities
   # + UI Policy writes
   - create_ui_policy
   - create_ui_policy_action
@@ -264,12 +267,13 @@ service_desk:
   - get_optimization_recommendations
   - get_change_request_details
   - get_changeset_details
-  - list_legacy_workflows
-  - get_legacy_workflow_details
+  - list_workflows
+  - get_workflow_details
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
+  - list_flow_triggers_by_table
   - get_portal
   - get_page
   - get_widget_bundle
@@ -329,12 +333,13 @@ full:
   - get_optimization_recommendations
   - get_change_request_details
   - get_changeset_details
-  - list_legacy_workflows
-  - get_legacy_workflow_details
+  - list_workflows
+  - get_workflow_details
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
+  - list_flow_triggers_by_table
   - get_portal
   - get_page
   - get_widget_bundle
@@ -393,14 +398,17 @@ full:
   - add_file_to_changeset
   - commit_changeset
   - publish_changeset
-  - create_legacy_workflow
-  - update_legacy_workflow
-  - activate_legacy_workflow
-  - deactivate_legacy_workflow
-  - add_legacy_workflow_activity
-  - update_legacy_workflow_activity
-  - delete_legacy_workflow_activity
-  - reorder_legacy_workflow_activities
+  - create_workflow
+  - update_workflow
+  - activate_workflow
+  - deactivate_workflow
+  - add_workflow_activity
+  - update_workflow_activity
+  - delete_workflow_activity
+  - reorder_workflow_activities
+  - update_flow_designer
+  - activate_flow_designer
+  - deactivate_flow_designer
   - update_portal_component
   - create_widget_instance
   - update_widget_instance

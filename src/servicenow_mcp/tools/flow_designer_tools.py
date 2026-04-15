@@ -17,7 +17,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from .sn_api import sn_count, sn_query_page
+from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ LOGIC_V2_TABLE = "sys_hub_flow_logic_instance_v2"
 SUBFLOW_V2_TABLE = "sys_hub_sub_flow_instance_v2"
 FLOW_CONTEXT_TABLE = "sys_flow_context"
 TRIGGER_TABLE = "sys_hub_trigger_instance"
+RECORD_TRIGGER_TABLE = "sys_flow_record_trigger"
 
 # ---------------------------------------------------------------------------
 # Parameter Models
@@ -94,6 +95,37 @@ class GetFlowExecutionsParams(BaseModel):
         default=False,
         description="Only return executions with errors",
     )
+
+
+class UpdateFlowDesignerParams(BaseModel):
+    """Parameters for updating a Flow Designer flow."""
+
+    flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
+    name: Optional[str] = Field(default=None, description="New name for the flow")
+    description: Optional[str] = Field(default=None, description="New description for the flow")
+    active: Optional[bool] = Field(default=None, description="Set active status")
+
+
+class ActivateFlowDesignerParams(BaseModel):
+    """Parameters for activating a Flow Designer flow."""
+
+    flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
+
+
+class DeactivateFlowDesignerParams(BaseModel):
+    """Parameters for deactivating a Flow Designer flow."""
+
+    flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
+
+
+class ListFlowTriggersByTableParams(BaseModel):
+    """Parameters for listing flow triggers by table name."""
+
+    table_name: str = Field(..., description="ServiceNow table name (e.g. 'incident')")
+    scope: Optional[str] = Field(
+        default=None, description="Filter by application scope (e.g. 'global')"
+    )
+    limit: int = Field(default=50, description="Maximum number of trigger records (max 200)")
 
 
 # ---------------------------------------------------------------------------
@@ -490,3 +522,181 @@ def _fetch_flow_triggers(
         display_value=True,
     )
     return triggers
+
+
+# ---------------------------------------------------------------------------
+# CRUD Tools
+# ---------------------------------------------------------------------------
+
+
+@register_tool(
+    name="update_flow_designer",
+    params=UpdateFlowDesignerParams,
+    description="Update a Flow Designer flow name, description, or active status by sys_id.",
+    serialization="json",
+    return_type=dict,
+)
+def update_flow_designer(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: UpdateFlowDesignerParams,
+) -> Dict[str, Any]:
+    """Update a Flow Designer flow by sys_id."""
+    flow_id = params.flow_id
+
+    data: Dict[str, Any] = {}
+    if params.name is not None:
+        data["name"] = params.name
+    if params.description is not None:
+        data["description"] = params.description
+    if params.active is not None:
+        data["active"] = str(params.active).lower()
+
+    if not data:
+        return {"success": False, "error": "No update parameters provided"}
+
+    try:
+        url = f"{config.instance_url}/api/now/table/{FLOW_TABLE}/{flow_id}"
+        response = auth_manager.make_request("PATCH", url, json=data)
+        response.raise_for_status()
+
+        result = response.json()
+        invalidate_query_cache(table=FLOW_TABLE)
+        return {
+            "success": True,
+            "flow": result.get("result", {}),
+            "message": "Flow updated successfully",
+        }
+    except Exception as e:
+        logger.error(f"Error updating flow designer: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@register_tool(
+    name="activate_flow_designer",
+    params=ActivateFlowDesignerParams,
+    description="Set a Flow Designer flow to active state by sys_id.",
+    serialization="json",
+    return_type=dict,
+)
+def activate_flow_designer(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ActivateFlowDesignerParams,
+) -> Dict[str, Any]:
+    """Activate a Flow Designer flow by sys_id."""
+    flow_id = params.flow_id
+    data = {"active": "true"}
+
+    try:
+        url = f"{config.instance_url}/api/now/table/{FLOW_TABLE}/{flow_id}"
+        response = auth_manager.make_request("PATCH", url, json=data)
+        response.raise_for_status()
+
+        result = response.json()
+        invalidate_query_cache(table=FLOW_TABLE)
+        return {
+            "success": True,
+            "flow": result.get("result", {}),
+            "message": "Flow activated successfully",
+        }
+    except Exception as e:
+        logger.error(f"Error activating flow designer: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@register_tool(
+    name="deactivate_flow_designer",
+    params=DeactivateFlowDesignerParams,
+    description="Set a Flow Designer flow to inactive state by sys_id.",
+    serialization="json",
+    return_type=dict,
+)
+def deactivate_flow_designer(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: DeactivateFlowDesignerParams,
+) -> Dict[str, Any]:
+    """Deactivate a Flow Designer flow by sys_id."""
+    flow_id = params.flow_id
+    data = {"active": "false"}
+
+    try:
+        url = f"{config.instance_url}/api/now/table/{FLOW_TABLE}/{flow_id}"
+        response = auth_manager.make_request("PATCH", url, json=data)
+        response.raise_for_status()
+
+        result = response.json()
+        invalidate_query_cache(table=FLOW_TABLE)
+        return {
+            "success": True,
+            "flow": result.get("result", {}),
+            "message": "Flow deactivated successfully",
+        }
+    except Exception as e:
+        logger.error(f"Error deactivating flow designer: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@register_tool(
+    name="list_flow_triggers_by_table",
+    params=ListFlowTriggersByTableParams,
+    description="Find flow triggers for a given table. Returns triggers with linked flow info. Answers: 'what flows fire when this table changes?'",
+    serialization="json",
+    return_type=dict,
+)
+def list_flow_triggers_by_table(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ListFlowTriggersByTableParams,
+) -> Dict[str, Any]:
+    """List flow record triggers for a specific table, with linked flow details."""
+    query_parts: List[str] = [f"table={params.table_name}"]
+    if params.scope:
+        query_parts.append(f"sys_scope.scope={params.scope}")
+
+    query_string = "^".join(query_parts)
+
+    try:
+        triggers, total = sn_query_page(
+            config,
+            auth_manager,
+            table=RECORD_TRIGGER_TABLE,
+            query=query_string,
+            fields="sys_id,table,remote_trigger_id,condition,sys_scope,sys_name",
+            limit=min(params.limit, 200),
+            offset=0,
+            display_value=True,
+        )
+
+        # Look up linked flows via remote_trigger_id
+        results: List[Dict[str, Any]] = []
+        for trigger in triggers:
+            entry: Dict[str, Any] = {"trigger": trigger}
+            remote_id = trigger.get("remote_trigger_id", "")
+            if remote_id:
+                flows, _ = sn_query_page(
+                    config,
+                    auth_manager,
+                    table=FLOW_TABLE,
+                    query=f"sys_id={remote_id}",
+                    fields="sys_id,name,status,active,trigger_type,sys_scope,description",
+                    limit=1,
+                    offset=0,
+                    display_value=True,
+                )
+                entry["flow"] = flows[0] if flows else None
+            else:
+                entry["flow"] = None
+            results.append(entry)
+
+        return {
+            "success": True,
+            "table": params.table_name,
+            "triggers": results,
+            "count": len(results),
+            "total": total if total is not None else len(results),
+        }
+    except Exception as e:
+        logger.error(f"Error listing flow triggers by table: {e}")
+        return {"success": False, "error": str(e)}
