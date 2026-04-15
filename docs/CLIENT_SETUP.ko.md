@@ -112,28 +112,26 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 |------|------|
 | 전역 | `~/.config/zed/settings.json` (macOS/Linux) |
 
-Zed의 `settings.json`에 `"context_servers"` 블록을 추가하세요:
+Zed에서 **Settings** > **MCP Servers**를 열고 (또는 `settings.json`에 직접 추가) 서버 블록 하나를 등록하세요:
 
 ```json
 {
-  "context_servers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
+  "servicenow": {
+    "command": "uvx",
+    "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+    "env": {
+      "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+      "SERVICENOW_AUTH_TYPE": "browser",
+      "SERVICENOW_BROWSER_HEADLESS": "false",
+      "SERVICENOW_USERNAME": "your-username",
+      "SERVICENOW_PASSWORD": "your-password",
+      "MCP_TOOL_PACKAGE": "standard"
     }
   }
 }
 ```
 
-> Zed는 현재 전역 설정만 지원합니다. 기존 `settings.json`에 `context_servers` 블록을 병합하세요. 파일 전체를 덮어쓰지 마세요.
+> Zed는 현재 전역 설정만 지원합니다.
 
 ---
 
