@@ -1551,6 +1551,7 @@ def _download_source_types(
         sync_meta: Dict[str, Dict[str, str]] = {}
         now_iso = datetime.now(timezone.utc).isoformat()
         type_file_count = 0
+        _retry_records: List[tuple] = []
 
         for record in records:
             sys_id = str(record.get("sys_id") or "")
@@ -1581,11 +1582,9 @@ def _download_source_types(
                 _dl_write_file(record_dir / f"{source_field}{ext}", content)
                 type_file_count += 1
 
-            if not record_has_source:
-                warnings.append(
-                    f"{source_type}/{safe_name}: all source fields empty "
-                    f"(API may have truncated response — try smaller page_size)"
-                )
+            if not record_has_source and sys_id:
+                # Batch page may have truncated source — retry single record
+                _retry_records.append((sys_id, safe_name, record_dir))
 
             name_map[safe_name] = sys_id
             sync_meta[safe_name] = {
@@ -1603,6 +1602,49 @@ def _download_source_types(
                     "path": str(record_dir.relative_to(root)),
                 }
             )
+
+        # --- Retry: individually re-fetch records whose source came back empty ---
+        if _retry_records:
+            source_fields_str = ",".join(source_cfg["source_fields"])
+            retry_ok = 0
+            for rid, rname, rdir in _retry_records:
+                try:
+                    single_rows, _ = sn_query_page(
+                        config,
+                        auth_manager,
+                        table=table,
+                        query=f"sys_id={rid}",
+                        fields=source_fields_str,
+                        limit=1,
+                        offset=0,
+                        display_value=False,
+                        no_count=True,
+                    )
+                    if single_rows:
+                        row = single_rows[0]
+                        got_source = False
+                        for sf in source_cfg["source_fields"]:
+                            content = row.get(sf)
+                            if content and isinstance(content, str) and content.strip():
+                                got_source = True
+                                ext = _FIELD_EXTENSIONS.get(sf, ".txt")
+                                _dl_write_file(rdir / f"{sf}{ext}", content)
+                                type_file_count += 1
+                        if got_source:
+                            retry_ok += 1
+                        else:
+                            warnings.append(
+                                f"{source_type}/{rname}: source empty even on individual fetch"
+                            )
+                except Exception as exc:
+                    warnings.append(f"{source_type}/{rname}: retry failed — {exc}")
+            if _retry_records:
+                logger.info(
+                    "%s: retried %d empty records, recovered %d",
+                    source_type,
+                    len(_retry_records),
+                    retry_ok,
+                )
 
         _dl_write_json(type_dir / "_map.json", name_map)
         _dl_write_json(type_dir / "_sync_meta.json", sync_meta)
