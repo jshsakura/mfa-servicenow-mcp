@@ -15,7 +15,7 @@ social:
       Don't script your AI. <span class="gradient-text">Arm it.</span>
     </h1>
     <p class="hero-subtitle">
-      자연어로 AI에게 원하는 걸 말하세요.<br>
+      자연스럽게 AI에게 물어보세요.<br>
       나머지는 MCP 스킬이 알아서 처리합니다.
     </p>
     <div class="hero-buttons">
