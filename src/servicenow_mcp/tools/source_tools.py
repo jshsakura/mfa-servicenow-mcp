@@ -1568,18 +1568,18 @@ def _download_source_types(
             query_parts.append(extra_query[source_type])
         query = "^".join(query_parts)
 
-        # --- Pass 1: metadata only (lightweight, large pages OK) ---
-        summary_fields = list(source_cfg["summary_fields"])
-        # Add dot-walked scope name for global/app routing
-        if include_global and "sys_scope" in summary_fields:
-            summary_fields.append("sys_scope.scope")
+        # Fetch all fields (summary + source) in batch pages
+        all_fields = list(source_cfg["summary_fields"]) + list(source_cfg["source_fields"])
+        # Add dot-walked scope name for global/app folder routing
+        if include_global and "sys_scope" in source_cfg["summary_fields"]:
+            all_fields.append("sys_scope.scope")
         try:
             records = sn_query_all(
                 config,
                 auth_manager,
                 table=table,
                 query=query,
-                fields=",".join(summary_fields),
+                fields=",".join(all_fields),
                 page_size=page_size,
                 max_records=max_per_type,
                 display_value=False,
@@ -1595,24 +1595,23 @@ def _download_source_types(
             continue
 
         app_type_dir = scope_root / table
-        global_type_dir = scope_root / "_global" / table
+        global_root = scope_root.parent / "global"
+        global_type_dir = global_root / table
         name_map: Dict[str, str] = {}
         global_name_map: Dict[str, str] = {}
         sync_meta: Dict[str, Dict[str, str]] = {}
         global_sync_meta: Dict[str, Dict[str, str]] = {}
         now_iso = datetime.now(timezone.utc).isoformat()
         type_file_count = 0
-        source_fields_str = ",".join(source_cfg["source_fields"])
+        retry_records: List[tuple] = []
 
-        # --- Pass 2: fetch source per record (1 API call each, no truncation) ---
         for record in records:
             sys_id = str(record.get("sys_id") or "")
             identifier_field = source_cfg["identifier_field"]
             name = str(record.get(identifier_field) or record.get("name") or sys_id)
             safe_name = _safe_filename(name)
 
-            # Route global records to _global/ subfolder.
-            # sys_scope.scope gives the scope name string (via dot-walking).
+            # Route to global/ sibling folder if not app scope
             record_scope_name = str(record.get("sys_scope.scope") or "")
             is_global = include_global and record_scope_name != scope
             type_dir = global_type_dir if is_global else app_type_dir
@@ -1624,7 +1623,7 @@ def _download_source_types(
                 "table": table,
                 "sys_id": sys_id,
             }
-            for sf in summary_fields:
+            for sf in source_cfg["summary_fields"]:
                 val = record.get(sf)
                 if val is not None:
                     metadata[sf] = str(val) if not isinstance(val, str) else val
@@ -1632,29 +1631,20 @@ def _download_source_types(
             record_dir = type_dir / safe_name
             _dl_write_json(record_dir / "_metadata.json", metadata)
 
-            if sys_id:
-                try:
-                    src_rows, _ = sn_query_page(
-                        config,
-                        auth_manager,
-                        table=table,
-                        query=f"sys_id={sys_id}",
-                        fields=source_fields_str,
-                        limit=1,
-                        offset=0,
-                        display_value=False,
-                        no_count=True,
-                    )
-                    if src_rows:
-                        for source_field in source_cfg["source_fields"]:
-                            content = src_rows[0].get(source_field)
-                            if not content or not isinstance(content, str) or not content.strip():
-                                continue
-                            ext = _FIELD_EXTENSIONS.get(source_field, ".txt")
-                            _dl_write_file(record_dir / f"{source_field}{ext}", content)
-                            type_file_count += 1
-                except Exception as exc:
-                    warnings.append(f"{source_type}/{safe_name}: source fetch failed — {exc}")
+            # Write source files from batch response
+            record_has_source = False
+            for source_field in source_cfg["source_fields"]:
+                content = record.get(source_field)
+                if not content or not isinstance(content, str) or not content.strip():
+                    continue
+                record_has_source = True
+                ext = _FIELD_EXTENSIONS.get(source_field, ".txt")
+                _dl_write_file(record_dir / f"{source_field}{ext}", content)
+                type_file_count += 1
+
+            # If batch truncated source fields, queue for individual retry
+            if not record_has_source and sys_id and source_cfg["source_fields"]:
+                retry_records.append((sys_id, safe_name, record_dir))
 
             cur_name_map[safe_name] = sys_id
             cur_sync_meta[safe_name] = {
@@ -1673,11 +1663,37 @@ def _download_source_types(
                 }
             )
 
+        # Retry empty records individually (batch may have truncated)
+        if retry_records:
+            source_fields_str = ",".join(source_cfg["source_fields"])
+            for rid, rname, rdir in retry_records:
+                try:
+                    rows, _ = sn_query_page(
+                        config,
+                        auth_manager,
+                        table=table,
+                        query=f"sys_id={rid}",
+                        fields=source_fields_str,
+                        limit=1,
+                        offset=0,
+                        display_value=False,
+                        no_count=True,
+                    )
+                    if rows:
+                        for sf in source_cfg["source_fields"]:
+                            content = rows[0].get(sf)
+                            if content and isinstance(content, str) and content.strip():
+                                ext = _FIELD_EXTENSIONS.get(sf, ".txt")
+                                _dl_write_file(rdir / f"{sf}{ext}", content)
+                                type_file_count += 1
+                except Exception as exc:
+                    warnings.append(f"{source_type}/{rname}: retry failed — {exc}")
+
         # Write app-scope maps
         if name_map:
             _dl_write_json(app_type_dir / "_map.json", name_map)
             _dl_write_json(app_type_dir / "_sync_meta.json", sync_meta)
-        # Write global-scope maps (separate folder)
+        # Write global-scope maps (sibling global/ folder)
         if global_name_map:
             _dl_write_json(global_type_dir / "_map.json", global_name_map)
             _dl_write_json(global_type_dir / "_sync_meta.json", global_sync_meta)
