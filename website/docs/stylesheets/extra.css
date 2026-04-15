@@ -121,7 +121,6 @@ body:has(.landing-page) .md-tabs { display: none !important; }
 body:has(.landing-page),
 body:has(.landing-page) .md-main,
 body:has(.landing-page) .md-main__inner,
-body:has(.landing-page) .md-content,
 body:has(.landing-page) .md-container {
   background-color: var(--page-bg) !important;
   background-image: none !important;
