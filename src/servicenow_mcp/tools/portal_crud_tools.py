@@ -2,6 +2,11 @@
 Portal CRUD tools for the ServiceNow MCP server.
 Create widgets, angular providers, header/footer, CSS themes,
 ng templates, UI pages, pages, and layout components.
+
+Safety features:
+- scope is REQUIRED for all component creation (prevents accidental Global scope)
+- Duplicate name/id check before creation
+- scaffold_page returns full created-record inventory for manual cleanup on partial failure
 """
 
 import logging
@@ -10,7 +15,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools.sn_api import invalidate_query_cache
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -18,8 +23,39 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Common response helper
+# Safety helpers
 # ---------------------------------------------------------------------------
+def _check_duplicate(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    field: str,
+    value: str,
+    scope: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Check if a record with the same identifier already exists.
+
+    Returns the existing record dict if found, None otherwise.
+    """
+    query = f"{field}={value}"
+    if scope:
+        query += f"^sys_scope={scope}"
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=query,
+            fields=f"sys_id,{field},sys_scope",
+            limit=1,
+            offset=0,
+            display_value=True,
+        )
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
 def _create_record(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -74,13 +110,16 @@ class CreateWidgetParams(BaseModel):
     internal: bool = Field(default=False, description="Mark as internal widget")
     data_table: Optional[str] = Field(default=None, description="Default data table")
     description: Optional[str] = Field(default=None, description="Widget description")
-    scope: Optional[str] = Field(default=None, description="sys_scope sys_id")
+    scope: str = Field(
+        ...,
+        description="REQUIRED. sys_scope sys_id — the application scope this widget belongs to.",
+    )
 
 
 @register_tool(
     name="create_widget",
     params=CreateWidgetParams,
-    description="Create a new Service Portal widget with template, scripts, and CSS.",
+    description="Create a new Service Portal widget with template, scripts, and CSS. Scope is required.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -89,7 +128,29 @@ def create_widget(
     auth_manager: AuthManager,
     params: CreateWidgetParams,
 ) -> Dict[str, Any]:
-    body: Dict[str, Any] = {"name": params.name}
+    # Duplicate check by name
+    existing = _check_duplicate(
+        config, auth_manager, "sp_widget", "name", params.name, params.scope
+    )
+    if existing:
+        return {
+            "success": False,
+            "message": f"Widget with name '{params.name}' already exists in this scope.",
+            "existing_sys_id": existing.get("sys_id"),
+            "existing_scope": existing.get("sys_scope"),
+        }
+    # Also check by id if provided
+    if params.id:
+        existing_id = _check_duplicate(config, auth_manager, "sp_widget", "id", params.id)
+        if existing_id:
+            return {
+                "success": False,
+                "message": f"Widget with id '{params.id}' already exists.",
+                "existing_sys_id": existing_id.get("sys_id"),
+                "existing_scope": existing_id.get("sys_scope"),
+            }
+
+    body: Dict[str, Any] = {"name": params.name, "sys_scope": params.scope}
     if params.id:
         body["id"] = params.id
     if params.template is not None:
@@ -108,8 +169,6 @@ def create_widget(
         body["data_table"] = params.data_table
     if params.description:
         body["description"] = params.description
-    if params.scope:
-        body["sys_scope"] = params.scope
 
     result = _create_record(config, auth_manager, "sp_widget", body)
     if not result["success"]:
@@ -136,13 +195,13 @@ class CreateAngularProviderParams(BaseModel):
         description="Provider type: factory, service, provider, directive, filter",
     )
     description: Optional[str] = Field(default=None, description="Description")
-    scope: Optional[str] = Field(default=None, description="sys_scope sys_id")
+    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
 
 
 @register_tool(
     name="create_angular_provider",
     params=CreateAngularProviderParams,
-    description="Create an AngularJS 1.x angular provider (factory/service/directive).",
+    description="Create an AngularJS 1.x angular provider (factory/service/directive). Scope is required.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -151,15 +210,24 @@ def create_angular_provider(
     auth_manager: AuthManager,
     params: CreateAngularProviderParams,
 ) -> Dict[str, Any]:
+    existing = _check_duplicate(
+        config, auth_manager, "sp_angular_provider", "name", params.name, params.scope
+    )
+    if existing:
+        return {
+            "success": False,
+            "message": f"Angular provider '{params.name}' already exists in this scope.",
+            "existing_sys_id": existing.get("sys_id"),
+        }
+
     body: Dict[str, Any] = {
         "name": params.name,
         "script": params.script,
         "type": params.type,
+        "sys_scope": params.scope,
     }
     if params.description:
         body["description"] = params.description
-    if params.scope:
-        body["sys_scope"] = params.scope
 
     result = _create_record(config, auth_manager, "sp_angular_provider", body)
     if not result["success"]:
@@ -182,13 +250,13 @@ class CreateHeaderFooterParams(BaseModel):
     name: str = Field(..., description="Header/footer name")
     template: Optional[str] = Field(default=None, description="HTML template")
     css: Optional[str] = Field(default=None, description="CSS/SCSS styles")
-    scope: Optional[str] = Field(default=None, description="sys_scope sys_id")
+    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
 
 
 @register_tool(
     name="create_header_footer",
     params=CreateHeaderFooterParams,
-    description="Create a Service Portal header or footer component.",
+    description="Create a Service Portal header or footer component. Scope is required.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -197,13 +265,21 @@ def create_header_footer(
     auth_manager: AuthManager,
     params: CreateHeaderFooterParams,
 ) -> Dict[str, Any]:
-    body: Dict[str, Any] = {"name": params.name}
+    existing = _check_duplicate(
+        config, auth_manager, "sp_header_footer", "name", params.name, params.scope
+    )
+    if existing:
+        return {
+            "success": False,
+            "message": f"Header/footer '{params.name}' already exists in this scope.",
+            "existing_sys_id": existing.get("sys_id"),
+        }
+
+    body: Dict[str, Any] = {"name": params.name, "sys_scope": params.scope}
     if params.template is not None:
         body["template"] = params.template
     if params.css is not None:
         body["css"] = params.css
-    if params.scope:
-        body["sys_scope"] = params.scope
 
     result = _create_record(config, auth_manager, "sp_header_footer", body)
     if not result["success"]:
@@ -224,13 +300,13 @@ def create_header_footer(
 class CreateCssThemeParams(BaseModel):
     name: str = Field(..., description="CSS theme name")
     css: Optional[str] = Field(default=None, description="CSS/SCSS content")
-    scope: Optional[str] = Field(default=None, description="sys_scope sys_id")
+    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
 
 
 @register_tool(
     name="create_css_theme",
     params=CreateCssThemeParams,
-    description="Create a Service Portal CSS theme (sp_css).",
+    description="Create a Service Portal CSS theme (sp_css). Scope is required.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -239,11 +315,17 @@ def create_css_theme(
     auth_manager: AuthManager,
     params: CreateCssThemeParams,
 ) -> Dict[str, Any]:
-    body: Dict[str, Any] = {"name": params.name}
+    existing = _check_duplicate(config, auth_manager, "sp_css", "name", params.name, params.scope)
+    if existing:
+        return {
+            "success": False,
+            "message": f"CSS theme '{params.name}' already exists in this scope.",
+            "existing_sys_id": existing.get("sys_id"),
+        }
+
+    body: Dict[str, Any] = {"name": params.name, "sys_scope": params.scope}
     if params.css is not None:
         body["css"] = params.css
-    if params.scope:
-        body["sys_scope"] = params.scope
 
     result = _create_record(config, auth_manager, "sp_css", body)
     if not result["success"]:
@@ -264,13 +346,13 @@ def create_css_theme(
 class CreateNgTemplateParams(BaseModel):
     id: str = Field(..., description="Template ID (used in ng-include, e.g. 'my-template.html')")
     template: str = Field(..., description="HTML template content")
-    scope: Optional[str] = Field(default=None, description="sys_scope sys_id")
+    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
 
 
 @register_tool(
     name="create_ng_template",
     params=CreateNgTemplateParams,
-    description="Create an AngularJS ng-template (sp_ng_template) for use in ng-include.",
+    description="Create an AngularJS ng-template (sp_ng_template) for use in ng-include. Scope is required.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -279,12 +361,21 @@ def create_ng_template(
     auth_manager: AuthManager,
     params: CreateNgTemplateParams,
 ) -> Dict[str, Any]:
+    existing = _check_duplicate(
+        config, auth_manager, "sp_ng_template", "id", params.id, params.scope
+    )
+    if existing:
+        return {
+            "success": False,
+            "message": f"ng-template with id '{params.id}' already exists in this scope.",
+            "existing_sys_id": existing.get("sys_id"),
+        }
+
     body: Dict[str, Any] = {
         "id": params.id,
         "template": params.template,
+        "sys_scope": params.scope,
     }
-    if params.scope:
-        body["sys_scope"] = params.scope
 
     result = _create_record(config, auth_manager, "sp_ng_template", body)
     if not result["success"]:
@@ -311,13 +402,13 @@ class CreateUiPageParams(BaseModel):
     )
     description: Optional[str] = Field(default=None, description="Page description")
     category: Optional[str] = Field(default=None, description="Category (e.g. 'general')")
-    scope: Optional[str] = Field(default=None, description="sys_scope sys_id")
+    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
 
 
 @register_tool(
     name="create_ui_page",
     params=CreateUiPageParams,
-    description="Create a UI Page (sys_ui_page) with HTML, client script, and processing script.",
+    description="Create a UI Page (sys_ui_page) with HTML, client script, and processing script. Scope is required.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -326,7 +417,17 @@ def create_ui_page(
     auth_manager: AuthManager,
     params: CreateUiPageParams,
 ) -> Dict[str, Any]:
-    body: Dict[str, Any] = {"name": params.name}
+    existing = _check_duplicate(
+        config, auth_manager, "sys_ui_page", "name", params.name, params.scope
+    )
+    if existing:
+        return {
+            "success": False,
+            "message": f"UI page '{params.name}' already exists in this scope.",
+            "existing_sys_id": existing.get("sys_id"),
+        }
+
+    body: Dict[str, Any] = {"name": params.name, "sys_scope": params.scope}
     if params.html is not None:
         body["html"] = params.html
     if params.client_script is not None:
@@ -337,8 +438,6 @@ def create_ui_page(
         body["description"] = params.description
     if params.category:
         body["category"] = params.category
-    if params.scope:
-        body["sys_scope"] = params.scope
 
     result = _create_record(config, auth_manager, "sys_ui_page", body)
     if not result["success"]:
@@ -374,13 +473,13 @@ class CreatePageParams(BaseModel):
     public: bool = Field(default=False, description="Allow unauthenticated access")
     draft: bool = Field(default=False, description="Mark as draft (not published)")
     category: Optional[str] = Field(default=None, description="Category sys_id (sp_category)")
-    scope: Optional[str] = Field(default=None, description="sys_scope sys_id")
+    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
 
 
 @register_tool(
     name="create_page",
     params=CreatePageParams,
-    description="Create a new Service Portal page. Returns sys_id for subsequent layout creation.",
+    description="Create a new Service Portal page. Scope is required. Returns sys_id for subsequent layout creation.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -389,9 +488,20 @@ def create_page(
     auth_manager: AuthManager,
     params: CreatePageParams,
 ) -> Dict[str, Any]:
+    # sp_page.id is globally unique (URL path), check without scope filter
+    existing = _check_duplicate(config, auth_manager, "sp_page", "id", params.id)
+    if existing:
+        return {
+            "success": False,
+            "message": f"Page with id '{params.id}' already exists.",
+            "existing_sys_id": existing.get("sys_id"),
+            "existing_scope": existing.get("sys_scope"),
+        }
+
     body: Dict[str, Any] = {
         "id": params.id,
         "title": params.title,
+        "sys_scope": params.scope,
     }
     if params.description:
         body["description"] = params.description
@@ -405,8 +515,6 @@ def create_page(
         body["draft"] = "true"
     if params.category:
         body["category"] = params.category
-    if params.scope:
-        body["sys_scope"] = params.scope
 
     result = _create_record(config, auth_manager, "sp_page", body)
     if not result["success"]:
@@ -678,13 +786,15 @@ class ScaffoldPageParams(BaseModel):
         ...,
         description="List of row definitions. Each row has column sizes and optional widget placements.",
     )
-    scope: Optional[str] = Field(default=None, description="sys_scope sys_id")
+    scope: str = Field(
+        ..., description="REQUIRED. sys_scope sys_id — the application scope for the page."
+    )
 
 
 @register_tool(
     name="scaffold_page",
     params=ScaffoldPageParams,
-    description="Create a complete portal page with layout (container/rows/columns) and widget placements in one call.",
+    description="Create a complete portal page with layout (container/rows/columns) and widget placements in one call. Scope is required.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -728,16 +838,28 @@ def scaffold_page(
                 ),
             }
 
+    # Duplicate check: page id is globally unique
+    existing_page = _check_duplicate(config, auth_manager, "sp_page", "id", params.page_id)
+    if existing_page:
+        return {
+            "success": False,
+            "message": f"Page with id '{params.page_id}' already exists.",
+            "existing_sys_id": existing_page.get("sys_id"),
+            "existing_scope": existing_page.get("sys_scope"),
+        }
+
     # 1. Create page
-    page_body: Dict[str, Any] = {"id": params.page_id, "title": params.title}
+    page_body: Dict[str, Any] = {
+        "id": params.page_id,
+        "title": params.title,
+        "sys_scope": params.scope,
+    }
     if params.description:
         page_body["description"] = params.description
     if params.css:
         page_body["css"] = params.css
     if params.public:
         page_body["public"] = "true"
-    if params.scope:
-        page_body["sys_scope"] = params.scope
 
     page_result = _create_record(config, auth_manager, "sp_page", page_body)
     if not page_result["success"]:
@@ -763,6 +885,7 @@ def scaffold_page(
             "message": "Failed after page creation",
             "created": created,
             "errors": errors,
+            "cleanup_hint": "Page was created but layout failed. Delete the page or retry layout manually.",
         }
     container_sys_id = container_result["result"].get("sys_id")
     created["container"] = {"sys_id": container_sys_id}
@@ -835,14 +958,14 @@ def scaffold_page(
                         }
                     )
 
-    return {
-        "success": len(errors) == 0,
+    success = len(errors) == 0
+    result: Dict[str, Any] = {
+        "success": success,
         "message": (
             f"Page scaffolded: /{params.page_id}"
             + (f" with {len(errors)} errors" if errors else "")
         ),
         "created": created,
-        "errors": errors if errors else None,
         "summary": {
             "page": params.page_id,
             "containers": 1,
@@ -851,3 +974,10 @@ def scaffold_page(
             "widget_instances": len(created["instances"]),
         },
     }
+    if errors:
+        result["errors"] = errors
+        result["cleanup_hint"] = (
+            "Some layout components failed to create. Use the 'created' dict "
+            "to identify orphaned records for manual cleanup or retry."
+        )
+    return result
