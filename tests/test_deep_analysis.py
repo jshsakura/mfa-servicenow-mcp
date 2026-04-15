@@ -8,9 +8,7 @@ Covers:
 4. Edge cases: empty providers, no widgets on page, shared providers
 """
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from servicenow_mcp.tools.portal_tools import (
     ResolvePageDependenciesParams,
