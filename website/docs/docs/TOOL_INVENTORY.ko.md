@@ -163,20 +163,20 @@
 | `publish_article` | W | 지식 아티클을 게시합니다... | *(none)* |
 | `update_article` | W | 기존 지식 아티클을 업데이트합니다... | *(none)* |
 
-### 레거시 워크플로 (10)
+### 워크플로 (wf_workflow 엔진) (10)
 
 | 도구 | 읽기/쓰기 | 설명 | 패키지 |
 |------|-----|-------------|----------|
-| `list_legacy_workflows` | R | 이름, 테이블 또는 활성 상태로 필터링하여 워크플로 목록을 조회합니다. 간단한... | full, platform_developer, portal_developer, service_desk, standard |
-| `get_legacy_workflow_details` | R | 워크플로 메타데이터를 가져옵니다. include_versions=true로 버전 이력, include_act... | full, platform_developer, portal_developer, service_desk, standard |
-| `activate_legacy_workflow` | W | sys_id로 워크플로를 활성 상태로 설정합니다. 업데이트된 워크플로 레코드를 반환합니다... | full, platform_developer |
-| `add_legacy_workflow_activity` | W | 워크플로 버전에 액티비티(승인, 태스크, 알림 등)를 추가합니다... | full, platform_developer |
-| `create_legacy_workflow` | W | 이름, 테이블, 설명 및 활성 플래그로 워크플로를 생성합니다. 생성된... | full, platform_developer |
-| `deactivate_legacy_workflow` | W | sys_id로 워크플로를 비활성 상태로 설정합니다. 업데이트된 워크플로 레코드를 반환합니다... | full, platform_developer |
-| `delete_legacy_workflow_activity` | W | 액티비티 sys_id로 워크플로에서 액티비티를 제거합니다. 복원할 수 없습니다... | full, platform_developer |
-| `reorder_legacy_workflow_activities` | W | 액티비티 sys_id를 원하는 순서로 제공하여 워크플로 액티비티를 재정렬합니다... | full, platform_developer |
-| `update_legacy_workflow` | W | sys_id로 워크플로의 이름, 설명, 테이블 또는 활성 상태를 업데이트합니다... | full, platform_developer |
-| `update_legacy_workflow_activity` | W | 액티비티 sys_id로 액티비티의 이름, 설명 또는 속성을 업데이트합니다... | full, platform_developer |
+| `list_workflows` | R | 이름, 테이블 또는 활성 상태로 필터링하여 워크플로 목록을 조회합니다. 간단한... | full, platform_developer, portal_developer, service_desk, standard |
+| `get_workflow_details` | R | 워크플로 메타데이터를 가져옵니다. include_versions=true로 버전 이력, include_act... | full, platform_developer, portal_developer, service_desk, standard |
+| `activate_workflow` | W | sys_id로 워크플로를 활성 상태로 설정합니다. 업데이트된 워크플로 레코드를 반환합니다... | full, platform_developer |
+| `add_workflow_activity` | W | 워크플로 버전에 액티비티(승인, 태스크, 알림 등)를 추가합니다... | full, platform_developer |
+| `create_workflow` | W | 이름, 테이블, 설명 및 활성 플래그로 워크플로를 생성합니다. 생성된... | full, platform_developer |
+| `deactivate_workflow` | W | sys_id로 워크플로를 비활성 상태로 설정합니다. 업데이트된 워크플로 레코드를 반환합니다... | full, platform_developer |
+| `delete_workflow_activity` | W | 액티비티 sys_id로 워크플로에서 액티비티를 제거합니다. 복원할 수 없습니다... | full, platform_developer |
+| `reorder_workflow_activities` | W | 액티비티 sys_id를 원하는 순서로 제공하여 워크플로 액티비티를 재정렬합니다... | full, platform_developer |
+| `update_workflow` | W | sys_id로 워크플로의 이름, 설명, 테이블 또는 활성 상태를 업데이트합니다... | full, platform_developer |
+| `update_workflow_activity` | W | 액티비티 sys_id로 액티비티의 이름, 설명 또는 속성을 업데이트합니다... | full, platform_developer |
 
 ### 로그 (4)
 

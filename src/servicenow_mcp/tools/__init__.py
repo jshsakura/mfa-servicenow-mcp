@@ -38,11 +38,17 @@ from servicenow_mcp.tools.changeset_tools import (
     update_changeset,
 )
 from servicenow_mcp.tools.epic_tools import create_epic, list_epics, update_epic
+from servicenow_mcp.tools.flow_designer_tools import (
+    activate_flow_designer,
+    deactivate_flow_designer,
+)
 from servicenow_mcp.tools.flow_designer_tools import get_flow_details as get_flow_designer_detail
 from servicenow_mcp.tools.flow_designer_tools import (
     get_flow_executions as get_flow_designer_executions,
 )
+from servicenow_mcp.tools.flow_designer_tools import list_flow_triggers_by_table
 from servicenow_mcp.tools.flow_designer_tools import list_flows as list_flow_designers
+from servicenow_mcp.tools.flow_designer_tools import update_flow_designer
 from servicenow_mcp.tools.incident_tools import (
     add_comment,
     create_incident,
@@ -105,19 +111,19 @@ __all__ = [
     "submit_change_for_approval",
     "approve_change",
     "reject_change",
-    # Legacy Workflow management tools
-    "list_legacy_workflows",
-    "get_legacy_workflow_details",
-    "list_legacy_workflow_versions",
-    "get_legacy_workflow_activities",
-    "create_legacy_workflow",
-    "update_legacy_workflow",
-    "activate_legacy_workflow",
-    "deactivate_legacy_workflow",
-    "add_legacy_workflow_activity",
-    "update_legacy_workflow_activity",
-    "delete_legacy_workflow_activity",
-    "reorder_legacy_workflow_activities",
+    # Workflow (wf_workflow engine) management tools
+    "list_workflows",
+    "get_workflow_details",
+    "list_workflow_versions",
+    "get_workflow_activities",
+    "create_workflow",
+    "update_workflow",
+    "activate_workflow",
+    "deactivate_workflow",
+    "add_workflow_activity",
+    "update_workflow_activity",
+    "delete_workflow_activity",
+    "reorder_workflow_activities",
     # Changeset tools
     "get_changeset_details",
     "create_changeset",
@@ -185,6 +191,10 @@ __all__ = [
     "get_flow_designer_executions",
     "get_flow_designer_execution_detail",
     "get_flow_designer_triggers",
+    "update_flow_designer",
+    "activate_flow_designer",
+    "deactivate_flow_designer",
+    "list_flow_triggers_by_table",
     # Future tools
     # "create_problem",
     # "update_problem",
