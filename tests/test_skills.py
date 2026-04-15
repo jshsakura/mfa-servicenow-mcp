@@ -217,7 +217,19 @@ class TestSkillContent:
         next_section = pipeline_section.find("\n## ", 1)
         if next_section > 0:
             pipeline_section = pipeline_section[:next_section]
-        action_keywords = ["CALL ", "READ ", "WRITE ", "SCAN ", "ASK", "IDENTIFY", "VALIDATE", "GENERATE", "APPLY", "SHOW", "UPDATE"]
+        action_keywords = [
+            "CALL ",
+            "READ ",
+            "WRITE ",
+            "SCAN ",
+            "ASK",
+            "IDENTIFY",
+            "VALIDATE",
+            "GENERATE",
+            "APPLY",
+            "SHOW",
+            "UPDATE",
+        ]
         has_action = any(kw in pipeline_section for kw in action_keywords)
         assert has_action, f"{path.name}: Pipeline section has no action instructions"
 
