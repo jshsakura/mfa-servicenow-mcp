@@ -1748,17 +1748,18 @@ class AuthManager:
         kwargs["headers"] = headers
         request_timeout = kwargs.get("timeout")
         request_host = (urlparse(url).hostname or "").lower()
+        method_upper = method.upper()
         cookie_names = _extract_cookie_names(headers.get("Cookie"))
         start = time.monotonic()
         logger.info(
             "ServiceNow request start: method=%s host=%s timeout=%s auth_type=%s cookie_count=%s",
-            method.upper(),
+            method_upper,
             request_host,
             request_timeout,
             self.config.type.value,
             len(cookie_names),
         )
-        if cookie_names:
+        if cookie_names and logger.isEnabledFor(logging.DEBUG):
             logger.debug("ServiceNow request cookies: %s", ",".join(cookie_names))
 
         # Retry on transient network errors (ConnectionError, Timeout) before
@@ -1785,7 +1786,7 @@ class AuthManager:
                         1 + max_transient_retries,
                         exc,
                         wait,
-                        method.upper(),
+                        method_upper,
                         request_host,
                         elapsed_ms,
                     )
@@ -1795,7 +1796,7 @@ class AuthManager:
                         "Network error persisted after %s attempts: %s method=%s host=%s elapsed_ms=%s",
                         1 + max_transient_retries,
                         exc,
-                        method.upper(),
+                        method_upper,
                         request_host,
                         elapsed_ms,
                     )
@@ -1807,7 +1808,7 @@ class AuthManager:
         elapsed_ms = int((time.monotonic() - start) * 1000)
         logger.info(
             "ServiceNow request end: method=%s host=%s status=%s elapsed_ms=%s",
-            method.upper(),
+            method_upper,
             request_host,
             response.status_code,
             elapsed_ms,
@@ -1923,7 +1924,7 @@ class AuthManager:
                 retry_elapsed_ms = int((time.monotonic() - retry_start) * 1000)
                 logger.info(
                     "ServiceNow request retry end: method=%s host=%s status=%s elapsed_ms=%s",
-                    method.upper(),
+                    method_upper,
                     request_host,
                     response.status_code,
                     retry_elapsed_ms,
