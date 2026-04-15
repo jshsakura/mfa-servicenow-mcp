@@ -61,6 +61,7 @@ output: summary|report|diff|data|status|files|action
 | [app-source-download](manage/app-source-download.md) | high | yes | "앱 소스 다운로드", "전체 소스 받아" |
 | [skill-management](manage/skill-management.md) | low | confirm | "스킬 업데이트", "update skill" |
 | [local-sync](manage/local-sync.md) | low | **staged** | "로컬 동기화", "push local changes" |
+| [workflow-management](manage/workflow-management.md) | low | **staged** | "워크플로우 수정", "edit workflow" |
 
 ### deploy/ — Release and operations
 
@@ -77,6 +78,7 @@ output: summary|report|diff|data|status|files|action
 | [schema-discovery](explore/schema-discovery.md) | low | yes | "테이블 찾기", "show fields" |
 | [route-tracing](explore/route-tracing.md) | medium | yes | "어디로 이동", "find dead links" |
 | [esc-catalog-flow](explore/esc-catalog-flow.md) | high | yes | "ESC 카탈로그", "catalog flow" |
+| [flow-trigger-tracing](explore/flow-trigger-tracing.md) | medium | yes | "트리거 추적", "what runs on this table" |
 
 ## Workflow Chains
 

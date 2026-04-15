@@ -293,15 +293,14 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 ## 최신 버전 유지
 
 > **`uvx`는 마지막으로 다운로드한 버전을 캐시하여 계속 재사용합니다.**
-> 새 릴리스가 나와도 자동으로 반영되지 않으므로, `uv`를 통해 직접 업그레이드해야 합니다.
+> 새 릴리스가 나와도 자동으로 반영되지 않으므로, 직접 갱신해야 합니다.
 
 ```bash
-uv tool upgrade mfa-servicenow-mcp
+# uvx 캐시를 최신 PyPI 릴리스로 갱신
+uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 ```
 
-업그레이드 후 **MCP 클라이언트를 재시작**해야 새 버전이 적용됩니다 (Claude Code, Cursor 등).
-
-> 아직 `uv tool install`을 하지 않았다면 먼저 `uv tool install mfa-servicenow-mcp`를 실행하세요.
+갱신 후 **MCP 클라이언트를 재시작**해야 새 버전이 적용됩니다 (Claude Code, Cursor 등).
 
 ---
 
