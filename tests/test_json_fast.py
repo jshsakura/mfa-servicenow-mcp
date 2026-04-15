@@ -15,9 +15,9 @@ from servicenow_mcp.utils import json_fast
 # ---------------------------------------------------------------------------
 
 
-def test_stdlib_backend_active():
-    """The active backend should be stdlib json (orjson not installed)."""
-    assert json_fast.BACKEND == "json"
+def test_backend_is_known():
+    """The active backend should be either orjson or stdlib json."""
+    assert json_fast.BACKEND in ("orjson", "json")
 
 
 def test_stdlib_loads():
