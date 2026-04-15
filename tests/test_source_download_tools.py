@@ -13,7 +13,6 @@ Covers:
 """
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -577,7 +576,7 @@ class TestDownloadUIComponents:
             }
         ]
         mock_query_all.side_effect = [[], [], ui_page, []]
-        result = download_ui_components(
+        download_ui_components(
             config,
             auth,
             DownloadUIComponentsParams(
@@ -875,7 +874,7 @@ class TestDownloadAppSources:
         mock_scan.return_value = {"x_app_request"}
         mock_schema.return_value = ({"x_app_request": 3}, [])
 
-        result = download_app_sources(
+        download_app_sources(
             config,
             auth,
             DownloadAppSourcesParams(

@@ -176,7 +176,6 @@ def _create_source_tree(root: Path):
             "table": "sys_ui_action",
             "sys_id": "ua-1",
             "name": "ApproveButton",
-            "table": "x_app_request",
             "active": "true",
         },
     )
@@ -515,7 +514,7 @@ class TestBuildExecutionOrder:
 
         # UI Action targets x_app_request via table metadata field
         # Check if any table has ui_actions
-        has_ui_actions = any(len(data.get("ui_actions", [])) > 0 for data in exec_order.values())
+        _has_ui_actions = any(len(data.get("ui_actions", [])) > 0 for data in exec_order.values())
         # UI actions may or may not appear depending on metadata table field
         # The important thing is the function doesn't crash
         assert isinstance(exec_order, dict)
@@ -712,7 +711,7 @@ class TestAuditLocalSources:
     def test_generates_all_files(self, config, auth, tmp_path):
         root = _create_source_tree(tmp_path / "x_app")
 
-        result = audit_local_sources(
+        audit_local_sources(
             config,
             auth,
             AuditAppSourcesParams(
@@ -742,7 +741,7 @@ class TestAuditLocalSources:
         root = _create_source_tree(tmp_path / "x_app")
         _create_schema(root)
 
-        result = audit_local_sources(
+        audit_local_sources(
             config,
             auth,
             AuditAppSourcesParams(
