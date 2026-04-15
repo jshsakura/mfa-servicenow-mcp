@@ -1566,15 +1566,11 @@ def _download_source_types(
     page_size: int = DEFAULT_DOWNLOAD_PAGE_SIZE,
     only_active: bool = False,
     extra_query: Optional[Dict[str, str]] = None,
-    include_global: bool = False,
 ) -> Dict[str, Any]:
     """Core download loop shared by all individual download tools.
 
     Args:
         extra_query: Per-source_type extra query clauses (e.g. {"acl": "scriptISNOTEMPTY"}).
-        include_global: Also fetch global scope records. Global records are
-            written under ``scope_root/_global/{table}/`` to keep them
-            separate from app-scope records.
 
     Returns dict with keys: type_results, manifest_entries, warnings, total_files.
     """
@@ -1605,47 +1601,33 @@ def _download_source_types(
         if source_type in extra_query:
             base_filters.append(extra_query[source_type])
 
-        # Fetch app scope first, then global separately (each gets full quota)
-        scope_queries = [("app", f"sys_scope.scope={scope}")]
-        if include_global:
-            scope_queries.append(("global", "sys_scope.scope=global"))
+        query_parts = [f"sys_scope.scope={scope}"] + base_filters
+        query = "^".join(query_parts)
 
-        records: List[Dict[str, Any]] = []
-        record_scopes: Dict[str, str] = {}  # sys_id → "app" or "global"
-        for scope_label, scope_filter in scope_queries:
-            query_parts = [scope_filter] + base_filters
-            query = "^".join(query_parts)
-            try:
-                batch = sn_query_all(
-                    config,
-                    auth_manager,
-                    table=table,
-                    query=query,
-                    fields=",".join(all_fields),
-                    page_size=effective_page_size,
-                    max_records=max_per_type,
-                    display_value=False,
-                )
-                for r in batch:
-                    sid = str(r.get("sys_id") or "")
-                    if sid:
-                        record_scopes[sid] = scope_label
-                records.extend(batch)
-            except Exception as exc:
-                logger.error("Failed to download %s (%s): %s", source_type, scope_label, exc)
-                warnings.append(f"{source_type} ({scope_label}): fetch failed — {exc}")
+        try:
+            records = sn_query_all(
+                config,
+                auth_manager,
+                table=table,
+                query=query,
+                fields=",".join(all_fields),
+                page_size=effective_page_size,
+                max_records=max_per_type,
+                display_value=False,
+            )
+        except Exception as exc:
+            logger.error("Failed to download %s: %s", source_type, exc)
+            warnings.append(f"{source_type}: fetch failed — {exc}")
+            type_results[source_type] = {"count": 0, "error": str(exc)}
+            continue
 
         if not records:
             type_results[source_type] = {"count": 0}
             continue
 
-        app_type_dir = scope_root / table
-        global_root = scope_root.parent / "global"
-        global_type_dir = global_root / table
+        type_dir = scope_root / table
         name_map: Dict[str, str] = {}
-        global_name_map: Dict[str, str] = {}
         sync_meta: Dict[str, Dict[str, str]] = {}
-        global_sync_meta: Dict[str, Dict[str, str]] = {}
         now_iso = datetime.now(timezone.utc).isoformat()
         type_file_count = 0
         retry_records: List[tuple] = []
@@ -1655,12 +1637,6 @@ def _download_source_types(
             identifier_field = source_cfg["identifier_field"]
             name = str(record.get(identifier_field) or record.get("name") or sys_id)
             safe_name = _safe_filename(name)
-
-            # Route to global/ sibling folder based on which query fetched it
-            is_global = record_scopes.get(sys_id) == "global"
-            type_dir = global_type_dir if is_global else app_type_dir
-            cur_name_map = global_name_map if is_global else name_map
-            cur_sync_meta = global_sync_meta if is_global else sync_meta
 
             metadata: Dict[str, Any] = {
                 "source_type": source_type,
@@ -1690,8 +1666,8 @@ def _download_source_types(
             if not has_source and sys_id and source_cfg["source_fields"]:
                 retry_records.append((sys_id, safe_name, record_dir))
 
-            cur_name_map[safe_name] = sys_id
-            cur_sync_meta[safe_name] = {
+            name_map[safe_name] = sys_id
+            sync_meta[safe_name] = {
                 "sys_id": sys_id,
                 "name": name,
                 "sys_updated_on": str(record.get("sys_updated_on") or ""),
@@ -1726,20 +1702,12 @@ def _download_source_types(
                 ]
                 type_file_count += sum(f.result() for f in futures)
 
-        # Write app-scope maps
-        if name_map:
-            _dl_write_json(app_type_dir / "_map.json", name_map)
-            _dl_write_json(app_type_dir / "_sync_meta.json", sync_meta)
-        # Write global-scope maps (sibling global/ folder)
-        if global_name_map:
-            _dl_write_json(global_type_dir / "_map.json", global_name_map)
-            _dl_write_json(global_type_dir / "_sync_meta.json", global_sync_meta)
+        _dl_write_json(type_dir / "_map.json", name_map)
+        _dl_write_json(type_dir / "_sync_meta.json", sync_meta)
         type_results[source_type] = {
             "count": len(records),
-            "app_count": len(name_map),
-            "global_count": len(global_name_map),
             "files": type_file_count,
-            "path": str(app_type_dir.relative_to(root)),
+            "path": str(type_dir.relative_to(root)),
         }
         total_files += type_file_count
 
@@ -2255,10 +2223,6 @@ class DownloadAppSourcesParams(BaseModel):
     )
     only_active: bool = Field(default=False, description="Download only active records.")
     acl_script_only: bool = Field(default=True, description="Only download ACLs with scripts.")
-    include_global: bool = Field(
-        default=True,
-        description="Include global scope records. Written to _global/ subfolder, separate from app scope.",
-    )
     output_dir: Optional[str] = Field(default=None, description="Custom output directory.")
 
 
@@ -2362,7 +2326,6 @@ def download_app_sources(
             page_size=params.page_size,
             only_active=params.only_active,
             extra_query=extra_query,
-            include_global=params.include_global,
         )
         all_type_results.update(dl["type_results"])
         all_manifest_entries.extend(dl["manifest_entries"])
