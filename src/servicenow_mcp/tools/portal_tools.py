@@ -20,7 +20,7 @@ from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
 from .sn_api import (
     GenericQueryParams,
-    _page_executor,
+    _get_page_executor,
     invalidate_query_cache,
     sn_query,
     sn_query_all,
@@ -34,6 +34,33 @@ WIDGET_TABLE = "sp_widget"
 ANGULAR_PROVIDER_TABLE = "sp_angular_provider"
 WIDGET_DEPENDENCY_TABLE = "m2m_sp_widget_dependency"
 ANGULAR_PROVIDER_M2M_TABLE = "m2m_sp_widget_angular_provider"
+
+# ---------------------------------------------------------------------------
+# Cached instance name extraction — avoids re-parsing the URL every call.
+# ---------------------------------------------------------------------------
+_INSTANCE_NAME_CACHE: Dict[str, str] = {}
+
+
+def _get_instance_name(config: ServerConfig) -> str:
+    """Extract short instance name from config URL, cached."""
+    url = config.instance_url
+    cached = _INSTANCE_NAME_CACHE.get(url)
+    if cached is not None:
+        return cached
+    name = (urlparse(url).hostname or "instance").split(".")[0]
+    _INSTANCE_NAME_CACHE[url] = name
+    return name
+
+
+def _dedupe_fields(fields: List[str]) -> List[str]:
+    """Deduplicate a field list while preserving order."""
+    seen: Set[str] = set()
+    result: List[str] = []
+    for f in fields:
+        if f not in seen:
+            seen.add(f)
+            result.append(f)
+    return result
 
 
 class GetWidgetBundleParams(BaseModel):
@@ -225,7 +252,7 @@ def _fetch_portal_component_record(
     sys_id: str,
     fields: List[str],
 ) -> Dict[str, Any]:
-    query_fields = list(dict.fromkeys([*fields, "name", "sys_id"]))
+    query_fields = _dedupe_fields([*fields, "name", "sys_id"])
     query_params = GenericQueryParams(
         table=table,
         query=f"sys_id={sys_id}",
@@ -525,8 +552,7 @@ def _build_portal_edit_three_stage_flow(
 def _resolve_snapshot_root(config: ServerConfig, output_dir: str | None) -> Path:
     if output_dir:
         return Path(output_dir).expanduser().resolve()
-    instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
-    return (Path.cwd() / SNAPSHOT_ROOT_DIRNAME / instance_name).expanduser().resolve()
+    return (Path.cwd() / SNAPSHOT_ROOT_DIRNAME / _get_instance_name(config)).expanduser().resolve()
 
 
 def _resolve_snapshot_fields(table: str, requested_fields: List[str] | None) -> List[str]:
@@ -541,7 +567,7 @@ def _resolve_snapshot_fields(table: str, requested_fields: List[str] | None) -> 
         raise ValueError(
             f"Unsupported snapshot fields for {normalized_table}: {', '.join(invalid_fields)}. Allowed fields: {allowed}"
         )
-    return list(dict.fromkeys(requested_fields))
+    return _dedupe_fields(requested_fields)
 
 
 def _build_snapshot_payload(
@@ -954,7 +980,8 @@ def _parallel_chunked_query(
         )
 
     rows: List[Dict[str, Any]] = []
-    futures = {_page_executor.submit(_fetch, c): c for c in chunks}
+    executor = _get_page_executor()
+    futures = {executor.submit(_fetch, c): c for c in chunks}
     for future in as_completed(futures):
         try:
             rows.extend(future.result())
@@ -2948,7 +2975,7 @@ def download_portal_sources(
     else:
         # Default: temp/ folder in current working directory, scoped by instance.
         # Keeps analysis workspace separate from project source and SN-Utils folders.
-        instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+        instance_name = _get_instance_name(config)
         root = Path.cwd() / "temp" / instance_name
     root.mkdir(parents=True, exist_ok=True)
     max_widgets = _clamp_download_widget_limit(params.max_widgets)
@@ -2972,7 +2999,7 @@ def download_portal_sources(
     )
     scope_name = _safe_name(params.scope or "global")
     scope_root = root / scope_name
-    instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+    instance_name = _get_instance_name(config)
     g_ck = str(getattr(auth_manager, "_browser_session_token", "") or "")
 
     _write_json_file(
@@ -3755,7 +3782,7 @@ def resolve_page_dependencies(
 
     # --- Optional: save to disk for local deep analysis ---
     if params.save_to_disk:
-        instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+        instance_name = _get_instance_name(config)
         out_dir = Path.cwd() / "temp" / instance_name / _safe_name(result["page_url"])
         out_dir.mkdir(parents=True, exist_ok=True)
         _write_json_file(out_dir / "_dependency_map.json", result["dependency_map"])
