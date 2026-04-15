@@ -1245,4 +1245,5 @@ class TestEdgeCases:
         )
 
         call_kwargs = mock_query_all.call_args[1]
-        assert call_kwargs["page_size"] == 100  # max
+        # script_include has source_fields → clamped to min(100, 10) = 10
+        assert call_kwargs["page_size"] == 10

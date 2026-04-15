@@ -721,8 +721,9 @@ def test_detect_angular_defaults_are_conservative():
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_page")
 def test_download_portal_sources_exports_widget_provider_and_script_include(
-    mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
+    mock_sn_query_page, mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
 ):
     mock_sn_query_all.side_effect = [
         [
@@ -750,7 +751,6 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
             {
                 "sys_id": "prov-1",
                 "name": "quotationService",
-                "script": "angular.module('x').factory('quotationService', function(){});",
             }
         ],
         [
@@ -762,6 +762,12 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
             }
         ],
     ]
+
+    # sn_query_page returns provider script when queried individually
+    mock_sn_query_page.return_value = (
+        [{"script": "angular.module('x').factory('quotationService', function(){});"}],
+        None,
+    )
 
     result = download_portal_sources(
         mock_config,
@@ -859,11 +865,13 @@ def test_download_portal_sources_batches_targeted_widget_fetches(
     assert (scope_root / "approval_widget" / "_widget.json").exists()
 
 
+@patch("servicenow_mcp.tools.portal_tools.sn_query_page")
 @patch("servicenow_mcp.tools.portal_tools._fetch_linked_script_include_rows")
 @patch("servicenow_mcp.tools.portal_tools._sn_query_all")
 def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_components(
     mock_sn_query_all,
     mock_fetch_linked_script_include_rows,
+    mock_sn_query_page,
     mock_config,
     mock_auth_manager,
     tmp_path,
@@ -894,12 +902,15 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
             {
                 "sys_id": "prov-1",
                 "name": "quotationService",
-                "script": "angular.module('x').factory('quotationService', function(){});",
                 "type": "factory",
                 "sys_scope": "x_bpm",
             }
         ],
     ]
+    mock_sn_query_page.return_value = (
+        [{"script": "angular.module('x').factory('quotationService', function(){});"}],
+        None,
+    )
     mock_fetch_linked_script_include_rows.return_value = [
         {
             "sys_id": "si-1",
