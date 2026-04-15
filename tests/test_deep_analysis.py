@@ -19,6 +19,7 @@ from servicenow_mcp.tools.portal_tools import (
     resolve_page_dependencies,
     resolve_widget_chain,
 )
+
 # ================================================================
 # _extract_si_refs_from_script
 # ================================================================
