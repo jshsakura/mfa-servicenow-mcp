@@ -33,6 +33,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 - [CLI Reference](#cli-reference)
 - [Keeping Up to Date](#keeping-up-to-date)
 - [Safety Policy](#safety-policy)
+- [Local Source Audit](#local-source-audit)
 - [Skills](#skills)
 - [Docker](#docker)
 - [Developer Setup](#developer-setup)
@@ -392,6 +393,45 @@ The server includes several layers of performance optimization to minimize laten
 - **Shallow-copy schema injection**: Confirmation schema (`confirm='approve'`) is injected via lightweight dict copy instead of `copy.deepcopy`, reducing `list_tools` overhead.
 - **No-count optimization**: Subsequent pagination pages use `sysparm_no_count=true` to skip server-side total count computation.
 - **Payload safety**: Heavy tables (`sp_widget`, `sys_script`, etc.) have automatic field clamping and limit restrictions to prevent context window overflow.
+
+## Local Source Audit
+
+Download and analyze your entire ServiceNow application locally — no repeated API calls, no context waste.
+
+```
+Step 1: download_app_sources(scope="x_company_app")    → All server-side code to disk
+Step 2: audit_local_sources(source_root="temp/...")     → Analysis + HTML report
+```
+
+### What Gets Generated
+
+| File | Purpose |
+|------|---------|
+| `_audit_report.html` | Self-contained dark-theme HTML report — open in browser |
+| `_cross_references.json` | Who calls who — Script Include chains, GlideRecord table refs |
+| `_orphans.json` | Dead code candidates — unreferenced SIs, unused widgets |
+| `_execution_order.json` | Per-table BR/CS/ACL execution sequence with order numbers |
+| `_domain_knowledge.md` | Auto-generated app profile — table maps, hub scripts, warnings |
+| `_schema/*.json` | Field definitions for every referenced table |
+
+### Individual Download Tools
+
+Each source type has a dedicated download tool — use the orchestrator for everything, or pick what you need:
+
+| Tool | Sources |
+|------|---------|
+| `download_portal_sources` | Widgets, Angular Providers, linked Script Includes |
+| `download_script_includes` | Script Includes (scope-wide) |
+| `download_server_scripts` | Business Rules, Client Scripts, Catalog Client Scripts |
+| `download_ui_components` | UI Actions, UI Scripts, UI Pages, UI Macros |
+| `download_api_sources` | Scripted REST APIs, Processors |
+| `download_security_sources` | ACLs (script-only by default) |
+| `download_admin_scripts` | Fix Scripts, Scheduled Jobs, Script Actions, Email Notifications |
+| `download_table_schema` | sys_dictionary field definitions |
+
+All downloads write full source to disk with zero truncation. Only a summary is returned to the LLM context.
+
+---
 
 ## Skills
 
