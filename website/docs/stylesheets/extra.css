@@ -842,13 +842,6 @@ body:has(.landing-page) .section { animation: fadeInUp 1s cubic-bezier(0.16, 1, 
 .hero-overlay {
   background: rgba(0,0,0,.3); /* Lighter overlay */
 }
-.hero-bg-img {
-  animation: bgSubtleZoom 20s infinite alternate ease-in-out;
-}
-@keyframes bgSubtleZoom {
-  0% { transform: scale(1); filter: saturate(100%); }
-  100% { transform: scale(1.05); filter: saturate(120%); }
-}
 
 /* Intense Pulse effect for CTA */
 .cta-banner::after {
