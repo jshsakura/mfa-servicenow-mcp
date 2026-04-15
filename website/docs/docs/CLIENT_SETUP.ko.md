@@ -2,6 +2,46 @@
 
 각 MCP 클라이언트별 상세 설정 가이드입니다. 모든 클라이언트는 동일한 MCP 서버를 사용하며, 설정 형식만 다릅니다.
 
+---
+
+## 시작하기 전에
+
+먼저 **uv**를 설치하세요. Python, 패키지, 실행을 한번에 처리합니다. MCP 서버는 `uvx`로 실행되며 `uv`가 필요합니다.
+
+**macOS / Linux:**
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows:**
+
+```powershell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+설치 후 터미널을 재시작하세요. Python 설치, pip, venv 전부 필요 없습니다.
+
+> MFA/SSO 브라우저 로그인용 Chromium은 첫 사용 시 자동 설치됩니다.
+> Windows 사용자: [Windows 설치 가이드](WINDOWS_INSTALL.ko.md)에서 단계별 안내를 확인하세요.
+
+### 동작 확인
+
+클라이언트 설정 전에 서버가 정상 작동하는지 먼저 확인하세요:
+
+```bash
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"
+```
+
+서버가 시작되고 로그인용 브라우저 창이 열리면, 아래 클라이언트 설정으로 넘어갈 준비가 된 것입니다.
+
+---
+
+## 설정 가이드
+
 > **`args`는 패키지 실행에만 사용합니다**. 인스턴스 URL, 인증 방식, 자격 증명은 모두 `env`(또는 `environment`)에 넣으세요. 이렇게 하면 args가 깔끔하게 유지되고, 프로젝트별로 다른 인스턴스에 쉽게 연결할 수 있습니다.
 
 > **프로젝트 로컬 설정을 권장합니다**: 프로젝트 단위로 설정하면 각 프로젝트가 서로 다른 ServiceNow 인스턴스에 연결할 수 있습니다.
