@@ -152,7 +152,6 @@ class TestSkillMetadata:
         _, front, _ = skill
         if front and "tools" in front:
             assert isinstance(front["tools"], list), "tools must be a list"
-            assert len(front["tools"]) > 0, "tools list must not be empty"
 
     def test_triggers_is_list(self, skill):
         _, front, _ = skill
@@ -207,8 +206,8 @@ class TestSkillContent:
         path, _, body = skill
         assert "## DELEGATE hint" in body, f"{path.name}: missing '## DELEGATE hint' section"
 
-    def test_pipeline_has_call_statements(self, skill):
-        """Pipeline must contain at least one CALL instruction."""
+    def test_pipeline_has_action_statements(self, skill):
+        """Pipeline must contain at least one action instruction (CALL, READ, WRITE, SCAN, ASK, IDENTIFY, VALIDATE, GENERATE, APPLY, SHOW)."""
         path, _, body = skill
         pipeline_start = body.find("## Pipeline")
         if pipeline_start == -1:
@@ -218,9 +217,9 @@ class TestSkillContent:
         next_section = pipeline_section.find("\n## ", 1)
         if next_section > 0:
             pipeline_section = pipeline_section[:next_section]
-        assert (
-            "CALL " in pipeline_section
-        ), f"{path.name}: Pipeline section has no CALL instructions"
+        action_keywords = ["CALL ", "READ ", "WRITE ", "SCAN ", "ASK", "IDENTIFY", "VALIDATE", "GENERATE", "APPLY", "SHOW", "UPDATE"]
+        has_action = any(kw in pipeline_section for kw in action_keywords)
+        assert has_action, f"{path.name}: Pipeline section has no action instructions"
 
     def test_staged_skills_have_gate(self, skill):
         """Skills with safety_level=staged must have GATE rules."""

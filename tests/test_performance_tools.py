@@ -22,12 +22,12 @@ def mock_auth_manager():
     return MagicMock()
 
 
-@patch("servicenow_mcp.tools.performance_tools.get_transaction_logs")
+@patch("servicenow_mcp.tools.performance_tools.get_logs")
 @patch("servicenow_mcp.tools.performance_tools.sn_query")
 def test_analyze_widget_performance_handles_raw_provider_refs(
-    mock_sn_query, mock_get_transaction_logs, mock_config, mock_auth_manager
+    mock_sn_query, mock_get_logs, mock_config, mock_auth_manager
 ):
-    mock_get_transaction_logs.return_value = {"success": True, "results": []}
+    mock_get_logs.return_value = {"success": True, "results": []}
     mock_sn_query.side_effect = [
         {
             "success": True,

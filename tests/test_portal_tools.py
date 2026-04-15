@@ -1453,5 +1453,5 @@ def test_download_portal_sources_warns_and_clamps_broad_requests(
     )
 
     assert result["success"] is True
-    assert any("reduced to 100" in warning for warning in result["warnings"])
+    assert any("reduced to 500" in warning for warning in result["warnings"])
     assert any("Linked component expansion is enabled" in warning for warning in result["warnings"])

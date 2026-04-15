@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .log_tools import GetTransactionLogsParams, get_transaction_logs
+from .log_tools import GetLogsParams, get_logs
 from .sn_api import GenericQueryParams, sn_query
 from .source_tools import get_metadata_source
 
@@ -233,10 +233,11 @@ def _analyze_transaction_logs(
 
     url_filter = f"{page_id}|{widget_id}" if page_id else widget_id
 
-    log_result = get_transaction_logs(
+    log_result = get_logs(
         config,
         auth_manager,
-        GetTransactionLogsParams(
+        GetLogsParams(
+            log_type="transaction",
             url_contains=url_filter.split("|")[0],
             min_response_time_ms=min_response_time_ms,
             timeframe=timeframe,
