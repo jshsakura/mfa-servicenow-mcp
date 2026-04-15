@@ -1529,7 +1529,6 @@ def _download_source_types(
     page_size: int = DEFAULT_DOWNLOAD_PAGE_SIZE,
     only_active: bool = False,
     extra_query: Optional[Dict[str, str]] = None,
-    include_global: bool = False,
 ) -> Dict[str, Any]:
     """Core download loop shared by all individual download tools.
 
@@ -1555,10 +1554,7 @@ def _download_source_types(
         source_cfg = SOURCE_CONFIG[source_type]
         table = source_cfg["table"]
 
-        if include_global:
-            query_parts: List[str] = [f"sys_scope.scope={scope}^ORsys_scope.scope=global"]
-        else:
-            query_parts: List[str] = [f"sys_scope.scope={scope}"]
+        query_parts: List[str] = [f"sys_scope.scope={scope}"]
         if only_active and table in _ACTIVE_SUPPORTED_TABLES:
             query_parts.append("active=true")
         if source_type in extra_query:
@@ -2177,10 +2173,6 @@ class DownloadAppSourcesParams(BaseModel):
     )
     only_active: bool = Field(default=False, description="Download only active records.")
     acl_script_only: bool = Field(default=True, description="Only download ACLs with scripts.")
-    include_global: bool = Field(
-        default=True,
-        description="Include global scope components (shared widgets, providers, etc.) in addition to the app scope.",
-    )
     output_dir: Optional[str] = Field(default=None, description="Custom output directory.")
 
 
@@ -2284,7 +2276,6 @@ def download_app_sources(
             page_size=params.page_size,
             only_active=params.only_active,
             extra_query=extra_query,
-            include_global=params.include_global,
         )
         all_type_results.update(dl["type_results"])
         all_manifest_entries.extend(dl["manifest_entries"])
