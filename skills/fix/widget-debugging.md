@@ -11,8 +11,7 @@ tools:
   - resolve_widget_chain
   - download_portal_sources
   - get_portal_component_code
-  - get_system_logs
-  - get_transaction_logs
+  - get_logs
   - search_portal_regex_matches
   - analyze_widget_performance
   - sn_query
@@ -34,7 +33,7 @@ You are debugging a broken Service Portal widget. Follow the symptom-based path.
 ## Pipeline
 
 IF user has an error message:
-  1. CALL get_system_logs(query="messageLIKE{ERROR_TEXT}", limit=20, minutes_ago=30)
+  1. CALL get_logs(log_type="system", contains="{ERROR_TEXT}", limit=20, timeframe="last_hour")
   2. CALL get_widget_bundle(widget_id=INPUT, include_providers=true)
   3. MATCH error to source code location
   → RETURN: root cause + file + line
@@ -47,8 +46,8 @@ IF widget loads but wrong data:
   → RETURN: data flow mismatch location
 
 IF widget doesn't load at all:
-  1. CALL get_system_logs(query="messageLIKE{WIDGET_NAME}", limit=20, minutes_ago=30)
-  2. CALL get_transaction_logs(query="urlLIKEsp^status>=400", limit=20, minutes_ago=30)
+  1. CALL get_logs(log_type="system", contains="{WIDGET_NAME}", limit=20, timeframe="last_hour")
+  2. CALL get_logs(log_type="transaction", url_contains="sp", response_status="400", limit=20, timeframe="last_hour")
   3. CALL get_widget_bundle(widget_id=INPUT, include_providers=true)
   4. CHECK: are all injected providers linked? any syntax errors?
   → RETURN: failure point (ACL / provider missing / syntax error)

@@ -112,7 +112,7 @@ Ask the user these questions one by one. Provide defaults in brackets.
    > 2. service_desk — Standard + assignment, SLA, escalation
    > 3. portal_developer — Standard + portal widgets, pages, themes
    > 4. platform_developer — Standard + scripts, flows, update sets
-   > 5. full — Everything (89+ tools)
+   > 5. full — Everything (97+ tools)
 
    Store as `$TOOL_PACKAGE`. Default: `standard`
 
@@ -411,7 +411,7 @@ Config file:
 Skills are LLM execution blueprints — verified pipelines with safety gates and exact tool calls. They are available for clients that support custom commands/skills.
 
 Ask the user:
-> Install ServiceNow skills (20 workflow recipes for analysis, debugging, deployment)? [Y/n]
+> Install ServiceNow skills (20+ workflow recipes for analysis, debugging, deployment)? [Y/n]
 
 If yes, determine the skill target from `$CLIENT`:
 
@@ -432,7 +432,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills $SKILL_TARGET
 ```
 
 For unsupported clients, inform the user:
-> Skills are not yet supported for $CLIENT. MCP tools (89+) are fully available — skills support will be added in a future release.
+> Skills are not yet supported for $CLIENT. MCP tools (97+) are fully available — skills support will be added in a future release.
 
 ### Step 6 — Verify installation
 

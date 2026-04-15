@@ -57,7 +57,7 @@ Your AI will:
 1. Install **uv** and **Playwright** (if needed)
 2. Ask for your ServiceNow instance URL, auth type, and tool package
 3. Generate the correct MCP config file for your client
-4. Install **20 workflow skills** (if supported)
+4. Install **20+ workflow skills** (if supported)
 
 No manual config editing. No format differences to worry about. Works on macOS, Linux, and Windows.
 
@@ -71,7 +71,9 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **89 tools** across 5 role-based packages — from read-only to full CRUD
+- **97 tools** across 5 role-based packages — from read-only to full CRUD
+- **20+ workflow skills** with safety gates, sub-agent delegation, and verified pipelines
+- **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
@@ -231,15 +233,15 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 
 Set `MCP_TOOL_PACKAGE` to choose a specific tool set. Default: `standard`
 
-All packages except `none` include the full set of read-only tools (55 tools). Higher packages add write capabilities for their domain.
+All packages except `none` include the full set of read-only tools. Higher packages add write capabilities for their domain.
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `standard` | 45 | **(Default)** Read-only safe mode. All query/analysis tools across every domain. |
-| `service_desk` | 49 | standard + incident create/update/resolve/comment |
-| `portal_developer` | 61 | standard + portal/widget updates, script include writes, changeset commit/publish |
-| `platform_developer` | 69 | standard + workflow CRUD, UI policy, incident/change management writes |
-| `full` | 89 | All write operations across every domain |
+| `standard` | 53 | **(Default)** Read-only safe mode. All query/analysis/download tools across every domain. |
+| `service_desk` | 57 | standard + incident create/update/resolve/comment |
+| `portal_developer` | 69 | standard + portal/widget updates, script include writes, changeset commit/publish |
+| `platform_developer` | 77 | standard + workflow CRUD, UI policy, incident/change management writes |
+| `full` | 97 | All write operations across every domain |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
@@ -395,7 +397,7 @@ The server includes several layers of performance optimization to minimize laten
 
 Tools are raw API calls. Skills are what make your LLM actually useful — verified pipelines with safety gates, rollback, and context-aware sub-agent delegation. **MCP server + skills is the complete setup** for LLM-driven ServiceNow automation.
 
-20 skills today, more coming with every release.
+20+ skills today, more coming with every release.
 
 | | Tools Only | Tools + Skills |
 |---|---|---|
@@ -420,7 +422,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills opencode
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills gemini
 ```
 
-The installer downloads 20 skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
+The installer downloads 20+ skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
 
 | Client | Install Path | Auto-Discovery |
 |--------|-------------|----------------|
@@ -439,9 +441,9 @@ The installer downloads 20 skill files from this repository's `skills/` director
 
 | Category | Skills | Purpose |
 |----------|--------|---------|
-| `analyze/` | 6 | Widget analysis, portal diagnosis, provider audit, dependency mapping, code detection, ESC audit |
+| `analyze/` | 7 | Widget analysis, portal diagnosis, provider audit, dependency mapping, code detection, ESC audit, **local source audit** |
 | `fix/` | 3 | Widget patching (staged gates), debugging, code review |
-| `manage/` | 5 | Page layout, script includes, source export, changeset workflow, local sync |
+| `manage/` | 7 | Page layout, script includes, source export, **app source download**, changeset workflow, local sync, **skill management** |
 | `deploy/` | 2 | Change request lifecycle, incident triage |
 | `explore/` | 4 | Health check, schema discovery, route tracing, ESC catalog flow |
 
@@ -534,7 +536,7 @@ uv build
 ## Documentation
 
 - [Client Setup Guide](docs/CLIENT_SETUP.md) — Copy-paste configs for every MCP client
-- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 89 tools by category and package
+- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 97 tools by category and package
 - [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
 - [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization
 - [Change Management](docs/change_management.md) — Change request lifecycle and approval

@@ -3,11 +3,15 @@ Server-side source discovery tools inspired by common ServiceNow productivity wo
 Designed for MCP use: read-only, token-efficient, and strongly scoped.
 """
 
+import json
 import logging
 import re
 import time
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Set
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +30,9 @@ SNIPPET_RADIUS = 120
 MAX_DEP_SCAN_LIMIT = 5000
 DEFAULT_DEP_SCAN_LIMIT = 500
 DEFAULT_DEP_PAGE_SIZE = 100
+MAX_DOWNLOAD_PER_TYPE = 2000
+DEFAULT_DOWNLOAD_PER_TYPE = 500
+DEFAULT_DOWNLOAD_PAGE_SIZE = 100
 MAX_TABLES_PER_RECORD = 50
 DEFAULT_MAX_LINKED_SI = 20
 MAX_LINKED_SI = 100
@@ -1400,3 +1407,731 @@ def extract_widget_table_dependencies(
         "warnings": failed_sources,
         "safety_notice": "Dependency graph output only. Raw script bodies are never returned to prevent context overload.",
     }
+
+
+# ---------------------------------------------------------------------------
+# Source download infrastructure
+# ---------------------------------------------------------------------------
+
+# File extension mapping based on source field content
+_FIELD_EXTENSIONS: Dict[str, str] = {
+    "script": ".js",
+    "client_script": ".client.js",
+    "operation_script": ".js",
+    "processing_script": ".server.js",
+    "html": ".html",
+    "template": ".html",
+    "css": ".scss",
+    "xml": ".xml",
+    "message_html": ".html",
+    "message_text": ".txt",
+    "payload": ".xml",
+}
+
+# Tables that support the 'active' field
+_ACTIVE_SUPPORTED_TABLES = {
+    "sys_script", "sys_script_include", "sys_ui_action", "sys_security_acl",
+    "sys_script_fix", "sysauto_script", "sysevent_script_action",
+    "sysevent_email_action", "catalog_script_client", "sys_ui_macro",
+}
+
+
+def _clamp_download_per_type(value: int) -> int:
+    return max(1, min(value, MAX_DOWNLOAD_PER_TYPE))
+
+
+def _safe_filename(value: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    return safe.strip("._") or "unnamed"
+
+
+def _dl_write_file(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _dl_write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _resolve_scope_root(
+    config: ServerConfig,
+    scope: str,
+    output_dir: Optional[str],
+) -> tuple[Path, Path]:
+    """Returns (root, scope_root) paths."""
+    if output_dir:
+        root = Path(output_dir).expanduser().resolve()
+    else:
+        instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+        root = Path.cwd() / "temp" / instance_name
+    scope_name = _safe_filename(scope)
+    scope_root = root / scope_name
+    scope_root.mkdir(parents=True, exist_ok=True)
+    return root, scope_root
+
+
+def _download_source_types(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    scope: str,
+    source_types: List[str],
+    scope_root: Path,
+    root: Path,
+    max_per_type: int = DEFAULT_DOWNLOAD_PER_TYPE,
+    page_size: int = DEFAULT_DOWNLOAD_PAGE_SIZE,
+    only_active: bool = False,
+    extra_query: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Core download loop shared by all individual download tools.
+
+    Args:
+        extra_query: Per-source_type extra query clauses (e.g. {"acl": "scriptISNOTEMPTY"}).
+
+    Returns dict with keys: type_results, manifest_entries, warnings, total_files.
+    """
+    max_per_type = _clamp_download_per_type(max_per_type)
+    page_size = max(10, min(page_size, 100))
+    extra_query = extra_query or {}
+
+    type_results: Dict[str, Dict[str, Any]] = {}
+    manifest_entries: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    total_files = 0
+
+    for source_type in source_types:
+        if source_type not in SOURCE_CONFIG:
+            warnings.append(f"Unknown source type: {source_type}")
+            continue
+
+        source_cfg = SOURCE_CONFIG[source_type]
+        table = source_cfg["table"]
+
+        query_parts: List[str] = [f"sys_scope={scope}"]
+        if only_active and table in _ACTIVE_SUPPORTED_TABLES:
+            query_parts.append("active=true")
+        if source_type in extra_query:
+            query_parts.append(extra_query[source_type])
+        query = "^".join(query_parts)
+
+        fields = source_cfg["summary_fields"] + source_cfg["source_fields"]
+
+        try:
+            records = sn_query_all(
+                config,
+                auth_manager,
+                table=table,
+                query=query,
+                fields=",".join(fields),
+                page_size=page_size,
+                max_records=max_per_type,
+                display_value=False,
+            )
+        except Exception as exc:
+            logger.error("Failed to download %s: %s", source_type, exc)
+            warnings.append(f"{source_type}: fetch failed — {exc}")
+            type_results[source_type] = {"count": 0, "error": str(exc)}
+            continue
+
+        if not records:
+            type_results[source_type] = {"count": 0}
+            continue
+
+        type_dir = scope_root / table
+        name_map: Dict[str, str] = {}
+        sync_meta: Dict[str, Dict[str, str]] = {}
+        now_iso = datetime.now(timezone.utc).isoformat()
+        type_file_count = 0
+
+        for record in records:
+            sys_id = str(record.get("sys_id") or "")
+            identifier_field = source_cfg["identifier_field"]
+            name = str(
+                record.get(identifier_field)
+                or record.get("name")
+                or sys_id
+            )
+            safe_name = _safe_filename(name)
+
+            metadata: Dict[str, Any] = {
+                "source_type": source_type,
+                "table": table,
+                "sys_id": sys_id,
+            }
+            for sf in source_cfg["summary_fields"]:
+                val = record.get(sf)
+                if val is not None:
+                    metadata[sf] = str(val) if not isinstance(val, str) else val
+
+            record_dir = type_dir / safe_name
+            _dl_write_json(record_dir / "_metadata.json", metadata)
+
+            for source_field in source_cfg["source_fields"]:
+                content = record.get(source_field)
+                if not content or not isinstance(content, str) or not content.strip():
+                    continue
+                ext = _FIELD_EXTENSIONS.get(source_field, ".txt")
+                _dl_write_file(record_dir / f"{source_field}{ext}", content)
+                type_file_count += 1
+
+            name_map[safe_name] = sys_id
+            sync_meta[safe_name] = {
+                "sys_id": sys_id,
+                "name": name,
+                "sys_updated_on": str(record.get("sys_updated_on") or ""),
+                "downloaded_at": now_iso,
+            }
+            manifest_entries.append({
+                "source_type": source_type,
+                "table": table,
+                "sys_id": sys_id,
+                "name": name,
+                "path": str(record_dir.relative_to(root)),
+            })
+
+        _dl_write_json(type_dir / "_map.json", name_map)
+        _dl_write_json(type_dir / "_sync_meta.json", sync_meta)
+        type_results[source_type] = {
+            "count": len(records),
+            "files": type_file_count,
+            "path": str(type_dir.relative_to(root)),
+        }
+        total_files += type_file_count
+
+    return {
+        "type_results": type_results,
+        "manifest_entries": manifest_entries,
+        "warnings": warnings,
+        "total_files": total_files,
+    }
+
+
+def _build_download_result(
+    scope: str,
+    scope_root: Path,
+    dl: Dict[str, Any],
+    elapsed_ms: int,
+    tool_name: str,
+) -> Dict[str, Any]:
+    """Build a standard return dict from _download_source_types output."""
+    result: Dict[str, Any] = {
+        "success": True,
+        "tool": tool_name,
+        "scope": scope,
+        "output_root": str(scope_root),
+        "duration_ms": elapsed_ms,
+        "source_types": dl["type_results"],
+        "total_records": sum(r.get("count", 0) for r in dl["type_results"].values()),
+        "total_files": dl["total_files"],
+        "safety_notice": (
+            "All source files written to disk in full — no truncation. "
+            "Only this summary is returned to the conversation context."
+        ),
+    }
+    if dl["warnings"]:
+        result["warnings"] = dl["warnings"]
+    return result
+
+
+# --- Common params mixin ---
+
+class _ScopeDownloadParams(BaseModel):
+    scope: str = Field(..., description="Application scope (e.g. x_yergb_bpm).")
+    max_records_per_type: int = Field(
+        default=DEFAULT_DOWNLOAD_PER_TYPE,
+        description=f"Max records per type. Clamped to {MAX_DOWNLOAD_PER_TYPE}.",
+    )
+    page_size: int = Field(default=DEFAULT_DOWNLOAD_PAGE_SIZE, description="Records per page (10..100).")
+    only_active: bool = Field(default=False, description="Download only active records.")
+    output_dir: Optional[str] = Field(default=None, description="Custom output directory.")
+
+
+# ---------------------------------------------------------------------------
+# Individual download tools (each registered as MCP tool, also called by
+# download_app_sources orchestrator)
+# ---------------------------------------------------------------------------
+
+_SCRIPT_INCLUDE_TYPES = ["script_include"]
+_SERVER_SCRIPT_TYPES = ["business_rule", "client_script", "catalog_client_script"]
+_UI_COMPONENT_TYPES = ["ui_action", "ui_script", "ui_page", "ui_macro"]
+_API_SOURCE_TYPES = ["scripted_rest", "processor"]
+_SECURITY_SOURCE_TYPES = ["acl"]
+_ADMIN_SCRIPT_TYPES = ["fix_script", "scheduled_job", "script_action", "email_notification", "transform_script"]
+
+
+# --- 1. download_script_includes ---
+
+class DownloadScriptIncludesParams(_ScopeDownloadParams):
+    pass
+
+
+@register_tool(
+    "download_script_includes",
+    params=DownloadScriptIncludesParams,
+    description="Download all Script Includes for a scope to local files.",
+    serialization="raw_dict", return_type=dict,
+)
+def download_script_includes(
+    config: ServerConfig, auth_manager: AuthManager, params: DownloadScriptIncludesParams,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
+    dl = _download_source_types(
+        config, auth_manager, scope=params.scope, source_types=_SCRIPT_INCLUDE_TYPES,
+        scope_root=scope_root, root=root,
+        max_per_type=params.max_records_per_type, page_size=params.page_size,
+        only_active=params.only_active,
+    )
+    return _build_download_result(params.scope, scope_root, dl,
+        int((time.perf_counter() - started) * 1000), "download_script_includes")
+
+
+# --- 2. download_server_scripts ---
+
+class DownloadServerScriptsParams(_ScopeDownloadParams):
+    pass
+
+
+@register_tool(
+    "download_server_scripts",
+    params=DownloadServerScriptsParams,
+    description="Download Business Rules, Client Scripts, and Catalog Client Scripts for a scope.",
+    serialization="raw_dict", return_type=dict,
+)
+def download_server_scripts(
+    config: ServerConfig, auth_manager: AuthManager, params: DownloadServerScriptsParams,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
+    dl = _download_source_types(
+        config, auth_manager, scope=params.scope, source_types=_SERVER_SCRIPT_TYPES,
+        scope_root=scope_root, root=root,
+        max_per_type=params.max_records_per_type, page_size=params.page_size,
+        only_active=params.only_active,
+    )
+    return _build_download_result(params.scope, scope_root, dl,
+        int((time.perf_counter() - started) * 1000), "download_server_scripts")
+
+
+# --- 3. download_ui_components ---
+
+class DownloadUIComponentsParams(_ScopeDownloadParams):
+    pass
+
+
+@register_tool(
+    "download_ui_components",
+    params=DownloadUIComponentsParams,
+    description="Download UI Actions, UI Scripts, UI Pages, and UI Macros for a scope.",
+    serialization="raw_dict", return_type=dict,
+)
+def download_ui_components(
+    config: ServerConfig, auth_manager: AuthManager, params: DownloadUIComponentsParams,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
+    dl = _download_source_types(
+        config, auth_manager, scope=params.scope, source_types=_UI_COMPONENT_TYPES,
+        scope_root=scope_root, root=root,
+        max_per_type=params.max_records_per_type, page_size=params.page_size,
+        only_active=params.only_active,
+    )
+    return _build_download_result(params.scope, scope_root, dl,
+        int((time.perf_counter() - started) * 1000), "download_ui_components")
+
+
+# --- 4. download_api_sources ---
+
+class DownloadAPISourcesParams(_ScopeDownloadParams):
+    pass
+
+
+@register_tool(
+    "download_api_sources",
+    params=DownloadAPISourcesParams,
+    description="Download Scripted REST API operations and Processors for a scope.",
+    serialization="raw_dict", return_type=dict,
+)
+def download_api_sources(
+    config: ServerConfig, auth_manager: AuthManager, params: DownloadAPISourcesParams,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
+    dl = _download_source_types(
+        config, auth_manager, scope=params.scope, source_types=_API_SOURCE_TYPES,
+        scope_root=scope_root, root=root,
+        max_per_type=params.max_records_per_type, page_size=params.page_size,
+        only_active=params.only_active,
+    )
+    return _build_download_result(params.scope, scope_root, dl,
+        int((time.perf_counter() - started) * 1000), "download_api_sources")
+
+
+# --- 5. download_security_sources ---
+
+class DownloadSecuritySourcesParams(_ScopeDownloadParams):
+    acl_script_only: bool = Field(default=True, description="Only download ACLs with scripts.")
+
+
+@register_tool(
+    "download_security_sources",
+    params=DownloadSecuritySourcesParams,
+    description="Download ACL rules for a scope. By default only ACLs with scripts.",
+    serialization="raw_dict", return_type=dict,
+)
+def download_security_sources(
+    config: ServerConfig, auth_manager: AuthManager, params: DownloadSecuritySourcesParams,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
+    extra_q: Dict[str, str] = {}
+    if params.acl_script_only:
+        extra_q["acl"] = "scriptISNOTEMPTY"
+    dl = _download_source_types(
+        config, auth_manager, scope=params.scope, source_types=_SECURITY_SOURCE_TYPES,
+        scope_root=scope_root, root=root,
+        max_per_type=params.max_records_per_type, page_size=params.page_size,
+        only_active=params.only_active, extra_query=extra_q,
+    )
+    return _build_download_result(params.scope, scope_root, dl,
+        int((time.perf_counter() - started) * 1000), "download_security_sources")
+
+
+# --- 6. download_admin_scripts ---
+
+class DownloadAdminScriptsParams(_ScopeDownloadParams):
+    pass
+
+
+@register_tool(
+    "download_admin_scripts",
+    params=DownloadAdminScriptsParams,
+    description="Download Fix Scripts, Scheduled Jobs, Script Actions, and Email Notifications for a scope.",
+    serialization="raw_dict", return_type=dict,
+)
+def download_admin_scripts(
+    config: ServerConfig, auth_manager: AuthManager, params: DownloadAdminScriptsParams,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
+    dl = _download_source_types(
+        config, auth_manager, scope=params.scope, source_types=_ADMIN_SCRIPT_TYPES,
+        scope_root=scope_root, root=root,
+        max_per_type=params.max_records_per_type, page_size=params.page_size,
+        only_active=params.only_active,
+    )
+    return _build_download_result(params.scope, scope_root, dl,
+        int((time.perf_counter() - started) * 1000), "download_admin_scripts")
+
+
+# ---------------------------------------------------------------------------
+# 7. download_table_schema
+# ---------------------------------------------------------------------------
+
+class DownloadTableSchemaParams(BaseModel):
+    tables: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "Explicit list of table names to fetch schema for. "
+            "When omitted, auto-scans source_root for GlideRecord references."
+        ),
+    )
+    source_root: Optional[str] = Field(
+        default=None,
+        description=(
+            "Path to a downloaded source directory (e.g. temp/<instance>/<scope>). "
+            "Scripts inside will be scanned for GlideRecord table references. "
+            "Ignored when tables is provided."
+        ),
+    )
+    output_dir: Optional[str] = Field(
+        default=None,
+        description="Where to write schema JSON files. Defaults to <source_root>/_schema/",
+    )
+
+
+def _scan_tables_from_source_root(source_root: Path) -> Set[str]:
+    """Scan .js/.html files under source_root for GlideRecord table references."""
+    tables: Set[str] = set()
+    for js_file in source_root.rglob("*.js"):
+        try:
+            script_text = js_file.read_text(encoding="utf-8")
+            tables.update(
+                _extract_table_names_from_script(script_text, include_loose_literal_scan=False)
+            )
+        except Exception:
+            pass
+    for meta_file in source_root.rglob("_metadata.json"):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            for field in ("collection", "table"):
+                val = meta.get(field)
+                if isinstance(val, str) and TABLE_NAME_RE.match(val):
+                    tables.add(val)
+        except Exception:
+            pass
+    return tables
+
+
+def _fetch_and_write_schema(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table_names: Set[str],
+    schema_dir: Path,
+) -> tuple[Dict[str, int], List[str]]:
+    """Fetch sys_dictionary for given tables and write per-table JSON files."""
+    schema_dir.mkdir(parents=True, exist_ok=True)
+    schema_results: Dict[str, int] = {}
+    warnings: List[str] = []
+
+    for table_chunk in _chunked(sorted(table_names), 50):
+        encoded_names = ",".join(table_chunk)
+        try:
+            dict_rows = sn_query_all(
+                config, auth_manager,
+                table="sys_dictionary",
+                query=f"nameIN{encoded_names}^internal_type!=collection",
+                fields="name,element,column_label,internal_type,max_length,mandatory,reference",
+                page_size=100, max_records=5000, display_value=True,
+            )
+            table_fields: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+            for row in dict_rows:
+                tbl = row.get("name")
+                if tbl and row.get("element"):
+                    table_fields[tbl].append({
+                        "field": row["element"],
+                        "label": row.get("column_label", ""),
+                        "type": row.get("internal_type", ""),
+                        "max_length": row.get("max_length", ""),
+                        "mandatory": row.get("mandatory", ""),
+                        "reference": row.get("reference", ""),
+                    })
+            for tbl, fields_list in table_fields.items():
+                _dl_write_json(schema_dir / f"{tbl}.json", {
+                    "table": tbl, "field_count": len(fields_list), "fields": fields_list,
+                })
+                schema_results[tbl] = len(fields_list)
+        except Exception as exc:
+            warnings.append(f"schema fetch failed for chunk: {exc}")
+
+    _dl_write_json(schema_dir / "_index.json", {
+        "downloaded_at": datetime.now(timezone.utc).isoformat(),
+        "tables": schema_results,
+        "total_tables": len(schema_results),
+        "total_fields": sum(schema_results.values()),
+    })
+    return schema_results, warnings
+
+
+@register_tool(
+    "download_table_schema",
+    params=DownloadTableSchemaParams,
+    description=(
+        "Download sys_dictionary field definitions for ServiceNow tables. "
+        "Specify table names directly, or point to a downloaded source directory "
+        "to auto-detect referenced tables from GlideRecord calls."
+    ),
+    serialization="raw_dict",
+    return_type=dict,
+)
+def download_table_schema(
+    config: ServerConfig, auth_manager: AuthManager, params: DownloadTableSchemaParams,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    if params.tables:
+        table_names = {t.strip().lower() for t in params.tables if t.strip()}
+    elif params.source_root:
+        source_path = Path(params.source_root).expanduser().resolve()
+        if not source_path.is_dir():
+            return {"success": False, "message": f"source_root not found: {params.source_root}"}
+        table_names = _scan_tables_from_source_root(source_path)
+    else:
+        return {"success": False, "message": "Either tables or source_root must be provided."}
+
+    if not table_names:
+        return {"success": True, "message": "No tables found to fetch schema for.", "tables": 0}
+
+    if params.output_dir:
+        schema_dir = Path(params.output_dir).expanduser().resolve()
+    elif params.source_root:
+        schema_dir = Path(params.source_root).expanduser().resolve() / "_schema"
+    else:
+        schema_dir = Path.cwd() / "temp" / "_schema"
+
+    schema_results, warnings = _fetch_and_write_schema(config, auth_manager, table_names, schema_dir)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    result: Dict[str, Any] = {
+        "success": True,
+        "schema_dir": str(schema_dir),
+        "tables_requested": len(table_names),
+        "tables_fetched": len(schema_results),
+        "total_fields": sum(schema_results.values()),
+        "duration_ms": elapsed_ms,
+        "safety_notice": "Schema JSON files written to disk. Only this summary returned to context.",
+    }
+    if warnings:
+        result["warnings"] = warnings
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 8. download_app_sources  (Orchestrator)
+# ---------------------------------------------------------------------------
+
+class DownloadAppSourcesParams(BaseModel):
+    scope: str = Field(..., description="Application scope (e.g. x_yergb_bpm).")
+    include_widget_sources: bool = Field(
+        default=True,
+        description="Download widgets, providers, header/footer, CSS via download_portal_sources.",
+    )
+    include_schema: bool = Field(
+        default=True,
+        description="Auto-detect referenced tables and download their schemas.",
+    )
+    max_records_per_type: int = Field(
+        default=DEFAULT_DOWNLOAD_PER_TYPE,
+        description=f"Max records per type. Clamped to {MAX_DOWNLOAD_PER_TYPE}.",
+    )
+    page_size: int = Field(default=DEFAULT_DOWNLOAD_PAGE_SIZE, description="Records per page (10..100).")
+    only_active: bool = Field(default=False, description="Download only active records.")
+    acl_script_only: bool = Field(default=True, description="Only download ACLs with scripts.")
+    output_dir: Optional[str] = Field(default=None, description="Custom output directory.")
+
+
+@register_tool(
+    "download_app_sources",
+    params=DownloadAppSourcesParams,
+    description=(
+        "Orchestrator: download ALL source code for an application scope. "
+        "Calls download_portal_sources, download_script_includes, download_server_scripts, "
+        "download_ui_components, download_api_sources, download_security_sources, "
+        "download_admin_scripts, and download_table_schema in sequence. "
+        "Returns a unified summary."
+    ),
+    serialization="raw_dict",
+    return_type=dict,
+)
+def download_app_sources(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: DownloadAppSourcesParams,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
+
+    all_type_results: Dict[str, Dict[str, Any]] = {}
+    all_manifest_entries: List[Dict[str, Any]] = []
+    all_warnings: List[str] = []
+    all_files = 0
+
+    # --- Portal sources (widgets, providers, CSS via portal_tools) ---
+    widget_summary: Optional[Dict[str, Any]] = None
+    if params.include_widget_sources:
+        try:
+            from servicenow_mcp.tools.portal_tools import download_portal_sources as _dps
+            from servicenow_mcp.tools.portal_tools import DownloadPortalSourcesParams as _DPSParams
+            ws_params = _DPSParams(
+                scope=params.scope,
+                max_widgets=min(params.max_records_per_type, 1000),
+                output_dir=str(root),
+                include_linked_angular_providers=True,
+                include_linked_script_includes=True,
+            )
+            widget_summary = _dps(config, auth_manager, ws_params)
+            if widget_summary.get("success"):
+                ws = widget_summary.get("summary", {})
+                all_type_results["widget"] = {"count": ws.get("widgets", 0)}
+                all_type_results["angular_provider"] = {"count": ws.get("angular_providers", 0)}
+                all_files += ws.get("widgets", 0) + ws.get("angular_providers", 0)
+        except Exception as exc:
+            all_warnings.append(f"widget sources: {exc}")
+            # Fallback: download portal types via SOURCE_CONFIG
+            dl = _download_source_types(
+                config, auth_manager,
+                scope=params.scope,
+                source_types=["widget", "angular_provider", "sp_header_footer", "sp_css", "ng_template"],
+                scope_root=scope_root, root=root,
+                max_per_type=params.max_records_per_type, page_size=params.page_size,
+                only_active=params.only_active,
+            )
+            all_type_results.update(dl["type_results"])
+            all_manifest_entries.extend(dl["manifest_entries"])
+            all_warnings.extend(dl["warnings"])
+            all_files += dl["total_files"]
+
+    # --- Server-side sources (7 groups — includes portal assets not covered by download_portal_sources) ---
+    _groups = [
+        ["script_include"],
+        ["business_rule", "client_script", "catalog_client_script"],
+        ["ui_action", "ui_script", "ui_page", "ui_macro"],
+        ["scripted_rest", "processor"],
+        ["acl"],
+        ["fix_script", "scheduled_job", "script_action", "email_notification", "transform_script"],
+        ["sp_header_footer", "sp_css", "ng_template"],
+    ]
+    extra_query: Dict[str, str] = {}
+    if params.acl_script_only:
+        extra_query["acl"] = "scriptISNOTEMPTY"
+
+    for group in _groups:
+        dl = _download_source_types(
+            config, auth_manager,
+            scope=params.scope, source_types=group,
+            scope_root=scope_root, root=root,
+            max_per_type=params.max_records_per_type, page_size=params.page_size,
+            only_active=params.only_active, extra_query=extra_query,
+        )
+        all_type_results.update(dl["type_results"])
+        all_manifest_entries.extend(dl["manifest_entries"])
+        all_warnings.extend(dl["warnings"])
+        all_files += dl["total_files"]
+
+    # --- Table schema ---
+    schema_summary: Optional[Dict[str, Any]] = None
+    if params.include_schema:
+        table_names = _scan_tables_from_source_root(scope_root)
+        if table_names:
+            schema_results, schema_warnings = _fetch_and_write_schema(
+                config, auth_manager, table_names, scope_root / "_schema",
+            )
+            schema_summary = {
+                "tables_fetched": len(schema_results),
+                "total_fields": sum(schema_results.values()),
+            }
+            all_warnings.extend(schema_warnings)
+
+    # --- Write unified manifest ---
+    _dl_write_json(scope_root / "_manifest.json", {
+        "scope": params.scope,
+        "instance": config.instance_url,
+        "downloaded_at": datetime.now(timezone.utc).isoformat(),
+        "source_types": all_type_results,
+        "total_records": sum(r.get("count", 0) for r in all_type_results.values()),
+        "total_files": all_files,
+        "schema": schema_summary,
+        "entries": all_manifest_entries,
+    })
+
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    summary: Dict[str, Any] = {
+        "success": True,
+        "scope": params.scope,
+        "output_root": str(scope_root),
+        "duration_ms": elapsed_ms,
+        "source_types": all_type_results,
+        "total_records": sum(r.get("count", 0) for r in all_type_results.values()),
+        "total_files": all_files,
+    }
+    if widget_summary and widget_summary.get("success"):
+        summary["widget_summary"] = widget_summary.get("summary")
+    if schema_summary:
+        summary["schema_summary"] = schema_summary
+    if all_warnings:
+        summary["warnings"] = all_warnings
+    summary["safety_notice"] = (
+        "All source files written to disk in full — no truncation. "
+        "Only this summary is returned to the conversation context."
+    )
+    return summary
