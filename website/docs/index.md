@@ -351,6 +351,19 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
   </div>
 </div>
 
+<div class="install-block reveal" style="margin-top:40px;">
+  <span class="section-label">Keeping Up to Date</span>
+  <p class="section-desc" style="margin-bottom:16px;">
+    <code>uvx</code> caches the last downloaded version — it does <strong>not</strong> auto-update. Run this to upgrade:
+  </p>
+  <div class="install-code-block">
+    <pre class="install-code"><code>uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version</code></pre>
+  </div>
+  <p class="section-desc" style="margin-top:12px;font-size:0.9em;">
+    Then restart your MCP client (Claude Code, Cursor, etc.) to load the new version.
+  </p>
+</div>
+
 <div class="hero-stats reveal">
   <div class="hero-stat">
     <span class="hero-stat-value">97+</span>
