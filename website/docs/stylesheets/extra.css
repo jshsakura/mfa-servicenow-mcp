@@ -118,7 +118,6 @@ body:has(.landing-page) .content-wrap {
     linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
   background-size: 40px 40px;
   position: relative;
-  clear: both;
 }
 body:has(.landing-page) .content-wrap::before {
   display: none;
@@ -194,23 +193,23 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  min-height: 85vh; /* Decisive height to see Gandalf */
 }
 .hero-bg-img {
   position: absolute;
   inset: 0;
   background: url("../assets/images/banner.jpg") center center / cover no-repeat;
-  z-index: 1;
 }
 .hero-overlay {
-  display: none; /* Removed as requested */
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.46);
 }
 .hero-content {
   position: relative;
-  z-index: 3;
+  z-index: 2;
   text-align: center;
-  padding: 100px 24px 300px; /* Strong bottom padding */
-  max-width: 900px;
+  padding: 120px 24px 240px;
+  max-width: 800px;
 }
 .hero-title {
   font-family: 'Gugi', sans-serif;
@@ -226,7 +225,7 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
 @media (min-width: 1024px) {
   .hero-content {
     max-width: 940px;
-    padding: 138px 24px 300px;
+    padding: 138px 24px 260px;
   }
   .hero-title {
     font-size: clamp(4.4rem, 6.2vw, 5.8rem);
@@ -290,32 +289,42 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   border-color: rgba(255,255,255,.5) !important;
 }
 
-.terminal-container {
-  max-width: 1200px;
+/* ============================================================
+   CONTENT WRAP
+   ============================================================ */
+.content-wrap {
+  max-width: 100%;
   margin: 0 auto;
-  padding: 0 48px;
+  padding: 0 calc((100% - 1200px) / 2 + 48px);
   position: relative;
-  z-index: 10;
+}
+@media (max-width: 1296px) {
+  .content-wrap { padding: 0 48px; }
 }
 
 /* ============================================================
-   TERMINAL — theme-aware, floated
+   TERMINAL — theme-aware
    ============================================================ */
 .hero-terminal {
+  width: 100%;
+  margin-top: -120px;
   position: relative;
-  width: 65%; /* decisively wide */
-  float: left;
-  margin-top: -190px; /* decisively pulled up */
-  z-index: 10;
+  z-index: 3;
   background: var(--code-bg);
   border-radius: 12px;
   border: 1px solid rgba(0,0,0,.06);
   box-shadow: var(--terminal-shadow);
   overflow: hidden;
-  clear: both;
 }
 [data-md-color-scheme="slate"] .hero-terminal {
   border-color: rgba(255,255,255,.08);
+}
+.hero-terminal::before {
+  display: none;
+}
+.content-wrap > * {
+  position: relative;
+  z-index: 1;
 }
 .hero-terminal-header {
   background: var(--code-header-bg);
@@ -323,13 +332,18 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   display: flex;
   align-items: center;
   gap: 8px;
+  border-bottom: none;
 }
 .hero-terminal-dots { display: flex; gap: 6px; }
 .hero-terminal-dots .dot {
   width: 10px; height: 10px;
   border-radius: 50%;
   background: var(--code-dim);
+  transition: background .2s;
 }
+.hero-terminal:hover .dot.red { background: #f38ba8; }
+.hero-terminal:hover .dot.yellow { background: #f9e2af; }
+.hero-terminal:hover .dot.green { background: #a6e3a1; }
 .hero-terminal-title {
   flex: 1;
   text-align: center;
@@ -350,6 +364,8 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
 .hero-terminal-line {
   margin-bottom: 3px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .hero-terminal-prompt { color: var(--code-prompt); margin-right: 8px; user-select: none; font-weight: 600; }
 .hero-terminal-command { color: var(--code-command); font-weight: 500; }
@@ -404,14 +420,9 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   background: var(--border-color);
   margin: 0;
   border: none;
-  clear: both;
 }
 .section { padding: 72px 0; }
-.section-inner {
-  max-width: 100%;
-  margin: 0 auto;
-  margin-top: 260px; /* Pushed down from floated terminal */
-}
+.section-inner { max-width: 100%; margin: 0 auto; }
 .section-label {
   display: inline-block;
   font-size: .72rem;
@@ -691,37 +702,64 @@ pre.install-code .c { color: var(--code-comment); }
    RESPONSIVE & SCROLL REVEAL
    ============================================================ */
 @media (max-width: 768px) {
-  .hero-section { min-height: 75vh; }
-  .content-wrap { padding: 0 24px; clear: both; }
+  .content-wrap { padding: 0 24px; }
   .steps-grid { grid-template-columns: 1fr; }
   .hero-stats { gap: 28px; padding: 32px 0; }
-  .hero-content { padding: 80px 20px 200px; }
-  .hero-terminal { 
-    margin-top: -100px !important; 
-    float: none !important; 
-    width: calc(100% - 32px) !important; /* Margin for mobile */
-    margin-left: 16px !important;
-    margin-right: 16px !important;
-  }
+  .hero-content { padding: 60px 20px 120px; } /* Decisive bottom padding */
+  .hero-terminal { margin-top: 0; position: relative; top: -60px; } /* Clean overlap */
+  .hero-terminal-body { height: 360px; font-size: .72rem; padding: 16px 20px; }
+}
+@media (max-width: 480px) {
+  .content-wrap { padding: 0 16px; }
+  .hero-stat-value { font-size: 1.5rem; }
+  .section { padding: 48px 0; }
+  .cta-banner { padding: 48px 16px; }
+  .hero-content { padding: 50px 16px 100px; }
+  .hero-terminal { top: -50px; }
+  .hero-terminal-body { height: 340px; }
 }
 
 .reveal {
   opacity: 0;
   transform: translateY(30px);
+  filter: blur(5px);
+  transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+.reveal-left {
+  opacity: 0;
+  transform: translateX(-50px);
   transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.reveal.active { opacity: 1; transform: translateY(0); }
+
+.reveal-right {
+  opacity: 0;
+  transform: translateX(50px);
+  transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal.active, .reveal-left.active, .reveal-right.active {
+  opacity: 1;
+  transform: translate(0);
+  filter: blur(0);
+}
 
 .reveal-stagger > * {
   opacity: 0;
   transform: translateY(20px);
   transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
 .reveal-stagger.active > * {
   opacity: 1;
   transform: translateY(0);
 }
-.reveal-stagger.active > * { transition-delay: calc(var(--i, 0) * 0.1s); }
+
+/* Specific delays for staggered items */
+.reveal-stagger.active > *:nth-child(odd) { transform: translateX(-20px); }
+.reveal-stagger.active > *:nth-child(even) { transform: translateX(20px); }
+.reveal-stagger.active > * { transform: translate(0) !important; transition-delay: calc(var(--i, 0) * 0.1s); }
 
 /* ============================================================
    AESTHETIC ENHANCEMENTS
@@ -729,28 +767,90 @@ pre.install-code .c { color: var(--code-comment); }
 
 /* Hero entry animation */
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(20px); }
+  from { opacity: 0; transform: translateY(30px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 body:has(.landing-page) .hero-content { animation: fadeInUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 body:has(.landing-page) .hero-terminal { animation: fadeInUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.2s; opacity: 0; }
+body:has(.landing-page) .hero-stats { animation: fadeInUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.4s; opacity: 0; }
+body:has(.landing-page) .section { animation: fadeInUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: 0.5s; opacity: 0; }
+
+/* Terminal — Clean & Solid */
+.hero-terminal {
+  position: relative;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  margin-top: -100px; /* Reduced desktop overlap */
+  z-index: 10;
+}
+.hero-terminal:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 30px 60px rgba(0,0,0,0.12);
+}
+[data-md-color-scheme="slate"] .hero-terminal {
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
+}
 
 /* Subtle Cards — No 3D */
 .step-card, .grid.cards > ul > li {
-  transition: transform 0.3s ease, box-shadow 0.3s ease !important;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease !important;
   position: relative;
 }
 .step-card:hover, .grid.cards > ul > li:hover {
   transform: translateY(-6px);
-  box-shadow: 0 15px 30px rgba(0,0,0,0.1) !important;
-  border-color: var(--accent) !important;
+  box-shadow: 0 15px 35px rgba(0,0,0,0.08), 0 0 0 1px var(--accent) !important;
+  border-color: transparent !important;
+}
+[data-md-color-scheme="slate"] .step-card:hover, [data-md-color-scheme="slate"] .grid.cards > ul > li:hover {
+  box-shadow: 0 20px 40px rgba(0,0,0,0.4), 0 0 0 1px var(--accent) !important;
+}
+.step-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255,255,255,0.05), transparent 40%);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  z-index: 1;
+}
+.step-card:hover::before { opacity: 1; }
+
+/* Remove Glitch Effect */
+.hero-title:hover {
+  animation: none;
+  text-shadow: none;
 }
 
-/* Remove unwanted effects */
-.hero-title:hover { animation: none; text-shadow: none; }
-.hero-bg-img { animation: none; }
+/* Clearer Banner */
+.hero-overlay {
+  background: rgba(0,0,0,.3); /* Lighter overlay */
+  backdrop-filter: blur(2px); /* Much less blur */
+}
+.hero-bg-img {
+  animation: bgSubtleZoom 20s infinite alternate ease-in-out;
+}
+@keyframes bgSubtleZoom {
+  0% { transform: scale(1); filter: saturate(100%); }
+  100% { transform: scale(1.05); filter: saturate(120%); }
+}
 
+/* Intense Pulse effect for CTA */
+.cta-banner::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%; height: 100%;
+  background: radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 60%);
+  pointer-events: none;
+  animation: pulseSubtle 3s infinite alternate ease-in-out;
+}
+@keyframes pulseSubtle {
+  0% { opacity: 0.4; transform: translate(-50%, -50%) scale(0.95); }
+  100% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.05); }
+}
 
 /* Install block glowing — Subtler & Sophisticated */
 .install-code-block {

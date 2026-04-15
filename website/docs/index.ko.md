@@ -9,6 +9,7 @@ social:
 <div class="landing-page">
 <div class="hero-section">
   <div class="hero-bg-img"></div>
+  <div class="hero-overlay"></div>
   <div class="hero-content">
     <h1 class="hero-title">
       Don't script your AI. <span class="gradient-text">Arm it.</span>
@@ -29,7 +30,8 @@ social:
   </div>
 </div>
 
-<div class="terminal-container">
+<div class="content-wrap">
+
 <div class="hero-terminal reveal">
   <div class="hero-terminal-header">
     <div class="hero-terminal-dots">
@@ -42,9 +44,6 @@ social:
   </div>
   <div class="hero-terminal-body" id="hero-typed-terminal"></div>
 </div>
-</div>
-
-<div class="content-wrap">
 
 <div class="section reveal" id="install" style="padding-top:48px;">
   <div class="section-inner">
@@ -454,7 +453,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     });
   }, obsOptions);
 
-  document.querySelectorAll('.reveal, .reveal-stagger').forEach(function(el) {
+  document.querySelectorAll('.reveal, .reveal-stagger, .reveal-left, .reveal-right').forEach(function(el) {
     observer.observe(el);
   });
 
@@ -506,7 +505,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 })();
 
 
-// --- Tabs: scoped per .install-block ---
+// --- Tabs: scoped per .install-block so multiple tab groups work independently ---
 (function(){
   document.querySelectorAll(".install-block").forEach(function(block){
     var tabs=block.querySelectorAll(".install-tab");
@@ -519,6 +518,19 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
         var t=document.getElementById(tab.getAttribute("data-target"));
         if(t) t.classList.add("active");
       });
+    });
+  });
+})();
+
+// --- Hover Tracking for Cards ---
+(function(){
+  document.querySelectorAll('.step-card').forEach(function(card){
+    card.addEventListener('mousemove', function(e) {
+      var rect = card.getBoundingClientRect();
+      var x = e.clientX - rect.left;
+      var y = e.clientY - rect.top;
+      card.style.setProperty('--mouse-x', x + 'px');
+      card.style.setProperty('--mouse-y', y + 'px');
     });
   });
 })();
