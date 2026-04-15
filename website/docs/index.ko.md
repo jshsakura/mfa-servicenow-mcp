@@ -361,7 +361,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     <code>uv</code>를 통해 업그레이드하세요:
   </p>
   <div class="install-code-block">
-    <pre class="install-code"><code>uv tool upgrade mfa-servicenow-mcp</code></pre>
+    <pre class="install-code"><code>uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version</code></pre>
   </div>
   <p class="section-desc" style="margin-top:12px;font-size:0.9em;">
     업그레이드 후 MCP 클라이언트를 재시작해야 새 버전이 적용됩니다 (Claude Code, Cursor 등).
