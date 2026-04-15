@@ -110,9 +110,9 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 | 범위 | 경로 |
 |------|------|
-| 전역 | `~/.config/zed/settings.json` (macOS/Linux) |
+| 전역 | `~/.config/zed/settings.json` |
 
-Zed에서 **Settings** > **MCP Servers**를 열고 (또는 `settings.json`에 직접 추가) 서버 블록 하나를 등록하세요:
+Zed에서 **Settings** > **MCP Servers**로 추가하세요:
 
 ```json
 {
@@ -130,8 +130,6 @@ Zed에서 **Settings** > **MCP Servers**를 열고 (또는 `settings.json`에 �
   }
 }
 ```
-
-> Zed는 현재 전역 설정만 지원합니다.
 
 ---
 
