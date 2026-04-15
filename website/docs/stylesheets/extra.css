@@ -324,7 +324,6 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   width: 100%;
   margin-top: 32px;
   position: relative;
-  z-index: 3;
   background: var(--code-bg);
   border-radius: 12px;
   border: 1px solid rgba(0,0,0,.06);
@@ -796,7 +795,6 @@ body:has(.landing-page) .section { animation: fadeInUp 1s cubic-bezier(0.16, 1, 
   position: relative;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
   margin-top: 32px;
-  z-index: 10;
 }
 .hero-terminal:hover {
   transform: translateY(-4px);
