@@ -2,6 +2,46 @@
 
 Detailed setup for each MCP client. All clients use the same MCP server — only the config format differs.
 
+---
+
+## Before You Start
+
+Install **uv** first — it handles Python, packages, and execution in one tool. The MCP server runs through `uvx`, which requires `uv`.
+
+**macOS / Linux:**
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows:**
+
+```powershell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Restart your terminal after installation. No Python install, pip, or venv needed.
+
+> Chromium for MFA/SSO browser login is installed automatically on first use.
+> Windows users: see [Windows Installation Guide](WINDOWS_INSTALL.md) for step-by-step details.
+
+### Quick Test
+
+Verify the server starts before configuring your client:
+
+```bash
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"
+```
+
+If the server starts and a browser window opens for login, you're ready to configure your client below.
+
+---
+
+## Configuration Guide
+
 > **`args` is for the package only** — instance URL, auth, credentials all go in `env` (or `environment`). This keeps args clean and makes it easy to swap instances per project.
 
 > **Project-local recommended**: Use project-scoped config so each project can connect to a different ServiceNow instance.
