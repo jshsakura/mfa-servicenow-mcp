@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .sn_api import _page_executor
+from .sn_api import _get_page_executor
 from .sn_api import sn_count as _sn_count_shared
 from .sn_api import sn_query_all as _sn_query_all_shared
 
@@ -636,7 +636,8 @@ def detect_missing_profit_company_codes(
             m2m_rows = _fetch_m2m(chunks[0])
         else:
             m2m_rows = []
-            futures = {_page_executor.submit(_fetch_m2m, c): c for c in chunks}
+            executor = _get_page_executor()
+            futures = {executor.submit(_fetch_m2m, c): c for c in chunks}
             for future in as_completed(futures):
                 try:
                     m2m_rows.extend(future.result())

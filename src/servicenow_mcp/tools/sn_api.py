@@ -35,6 +35,27 @@ DEFAULT_SAFE_FIELDS = "sys_id,name,id,sys_scope"
 # Maximum total response size in characters to prevent context window overflow.
 MAX_TOTAL_RESPONSE_SIZE = 200_000
 
+# ---------------------------------------------------------------------------
+# Cached field normalization — avoids repeated split/lower on identical strings.
+# ---------------------------------------------------------------------------
+_FIELD_NORM_CACHE: Dict[str, List[str]] = {}
+_FIELD_NORM_CACHE_MAX = 128
+
+
+def _normalize_fields(fields: str) -> List[str]:
+    """Return lowercased, stripped field list from a comma-separated string.
+
+    Results are cached so repeated queries with the same field string
+    skip redundant split+lower work.
+    """
+    cached = _FIELD_NORM_CACHE.get(fields)
+    if cached is not None:
+        return cached
+    normalized = [f.strip().lower() for f in fields.split(",")]
+    if len(_FIELD_NORM_CACHE) < _FIELD_NORM_CACHE_MAX:
+        _FIELD_NORM_CACHE[fields] = normalized
+    return normalized
+
 
 def truncate_results(
     results: List[Dict[str, Any]],
@@ -54,9 +75,13 @@ def truncate_results(
         row_chars = 0
         for key, value in row.items():
             if isinstance(value, str):
-                if len(value) > max_len:
-                    row[key] = value[:max_len] + f"... (truncated, original length: {len(value)})"
-                row_chars += len(row[key]) if isinstance(row[key], str) else len(str(row[key]))
+                orig_len = len(value)
+                if orig_len > max_len:
+                    suffix = f"... (truncated, original length: {orig_len})"
+                    row[key] = value[:max_len] + suffix
+                    row_chars += max_len + len(suffix)
+                else:
+                    row_chars += orig_len
             else:
                 row_chars += len(str(value))
 
@@ -93,7 +118,7 @@ def apply_payload_safety(
             )
 
         # If fields are specified, check if they include heavy fields
-        requested_fields = [f.strip().lower() for f in fields.split(",")]
+        requested_fields = _normalize_fields(fields)
         has_heavy_fields = any(hf in requested_fields for hf in HEAVY_FIELDS)
 
         if has_heavy_fields and safe_limit > 5:
@@ -109,7 +134,18 @@ def apply_payload_safety(
 # ---------------------------------------------------------------------------
 
 _MAX_PARALLEL_PAGES = 4  # Concurrent page fetches (keep conservative for SN rate limits)
-_page_executor = ThreadPoolExecutor(max_workers=_MAX_PARALLEL_PAGES)
+_page_executor: Optional[ThreadPoolExecutor] = None
+
+
+def _get_page_executor() -> ThreadPoolExecutor:
+    """Lazily create the page executor to avoid idle thread overhead at import."""
+    global _page_executor
+    if _page_executor is None:
+        _page_executor = ThreadPoolExecutor(
+            max_workers=_MAX_PARALLEL_PAGES, thread_name_prefix="sn-page"
+        )
+    return _page_executor
+
 
 # ---------------------------------------------------------------------------
 # Lightweight TTL cache for repeated identical queries within a session.
@@ -260,11 +296,7 @@ def sn_query_page(
         )
         response.raise_for_status()
         total = response.headers.get("X-Total-Count")
-        data = (
-            json_fast.loads(response.content)
-            if getattr(response, "content", None)
-            else response.json()
-        )
+        data = json_fast.loads(response.content) if response.content else response.json()
         rows = data.get("result", [])
         result = (rows, int(total) if total else None)
         _cache_put(ck, result)
@@ -360,9 +392,10 @@ def sn_query_all(
             )
             return page_rows
 
-        # Parallel fetch of remaining pages (reuse module-level executor)
+        # Parallel fetch of remaining pages (reuse lazily-created executor)
         page_results: Dict[int, List[Dict[str, Any]]] = {}
-        future_map = {_page_executor.submit(_fetch_page, off): off for off in offsets}
+        executor = _get_page_executor()
+        future_map = {executor.submit(_fetch_page, off): off for off in offsets}
         for future in as_completed(future_map):
             page_offset = future_map[future]
             try:
@@ -567,9 +600,8 @@ class NaturalLanguageParams(BaseModel):
 
 def _safe_json(response: requests.Response) -> Dict[str, Any]:
     try:
-        raw = getattr(response, "content", None)
-        if isinstance(raw, (bytes, str)) and raw:
-            return json_fast.loads(raw)
+        if response.content:
+            return json_fast.loads(response.content)
         return response.json()
     except Exception:
         return {"raw": response.text}
