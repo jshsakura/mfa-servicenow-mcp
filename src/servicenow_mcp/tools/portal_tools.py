@@ -665,6 +665,10 @@ PORTAL_COMPONENT_EDITABLE_FIELDS: Dict[str, Set[str]] = {
     "sp_widget": {"template", "script", "client_script", "link", "css"},
     "sp_angular_provider": {"script"},
     "sys_script_include": {"script"},
+    "sp_header_footer": {"template", "css"},
+    "sp_css": {"css"},
+    "sp_ng_template": {"template"},
+    "sys_ui_page": {"html", "client_script", "processing_script"},
 }
 
 KNOWN_GLOBAL_IDENTIFIERS = {
@@ -2821,6 +2825,15 @@ def update_portal_component(
             },
         }
 
+    size_warnings = []
+    for field_name, value in effective_update_data.items():
+        field_bytes = len(value.encode("utf-8"))
+        if field_bytes > 500_000:
+            size_warnings.append(
+                f"Field '{field_name}' is {field_bytes:,} bytes ({field_bytes // 1024}KB). "
+                f"Large payloads may be rejected by proxy/WAF."
+            )
+
     snapshot_path = _write_portal_component_snapshot(
         config,
         normalized_table,
@@ -2862,7 +2875,7 @@ def update_portal_component(
                 }
             )
 
-    return {
+    result_dict = {
         "message": "Update successful",
         "sys_id": params.sys_id,
         "fields": list(effective_update_data.keys()),
@@ -2876,6 +2889,9 @@ def update_portal_component(
             "post_update_name": str(validated_record.get("name") or params.sys_id),
         },
     }
+    if size_warnings:
+        result_dict["size_warnings"] = size_warnings
+    return result_dict
 
 
 @register_tool(

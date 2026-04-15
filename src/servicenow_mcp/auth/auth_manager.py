@@ -1060,8 +1060,9 @@ class AuthManager:
         )
         try:
             with sync_playwright() as playwright:
+                effective_user_data_dir = f"{browser_config.user_data_dir}-{os.getpid()}"
                 context = playwright.chromium.launch_persistent_context(
-                    browser_config.user_data_dir,
+                    effective_user_data_dir,
                     headless=browser_config.headless,
                 )
                 page = context.pages[0] if context.pages else context.new_page()
@@ -1364,8 +1365,11 @@ class AuthManager:
             )
         with sync_playwright() as playwright:
             if browser_config.user_data_dir:
+                # Use PID-scoped directory to prevent Playwright lock conflicts
+                # when multiple MCP processes run simultaneously.
+                effective_user_data_dir = f"{browser_config.user_data_dir}-{os.getpid()}"
                 context = playwright.chromium.launch_persistent_context(
-                    browser_config.user_data_dir,
+                    effective_user_data_dir,
                     headless=use_headless,
                 )
                 page = context.pages[0] if context.pages else context.new_page()
