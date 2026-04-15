@@ -39,6 +39,7 @@ output: summary|report|diff|data|status|files|action
 | [provider-audit](analyze/provider-audit.md) | medium | yes | "프로바이더 감사", "find unused providers" |
 | [dependency-analysis](analyze/dependency-analysis.md) | medium | yes | "지워도 돼?", "what depends on this" |
 | [code-detection](analyze/code-detection.md) | medium | yes | "누락된 조건", "missing branches" |
+| [local-source-audit](analyze/local-source-audit.md) | low | yes | "로컬 검수", "dead code", "cross reference" |
 | [esc-page-audit](analyze/esc-page-audit.md) | high | yes | "ESC 구조", "audit ESC" |
 
 ### fix/ — Modify with safety gates
@@ -57,6 +58,8 @@ output: summary|report|diff|data|status|files|action
 | [script-include-management](manage/script-include-management.md) | low | confirm | "SI 보여줘", "execute GlideAjax" |
 | [source-download](manage/source-download.md) | high | none | "소스 내보내기", "download sources" |
 | [changeset-workflow](manage/changeset-workflow.md) | low | **staged** | "체인지셋 커밋", "publish" |
+| [app-source-download](manage/app-source-download.md) | high | yes | "앱 소스 다운로드", "전체 소스 받아" |
+| [skill-management](manage/skill-management.md) | low | confirm | "스킬 업데이트", "update skill" |
 | [local-sync](manage/local-sync.md) | low | **staged** | "로컬 동기화", "push local changes" |
 
 ### deploy/ — Release and operations
@@ -85,6 +88,9 @@ output: summary|report|diff|data|status|files|action
 
 ### New Feature Pipeline
 `analyze/widget-analysis` → `analyze/dependency-analysis` → `fix/widget-patching` → `manage/changeset-workflow` → `deploy/change-lifecycle`
+
+### Full App Audit Pipeline
+`manage/app-source-download` → `analyze/local-source-audit` → *(review HTML report)* → `fix/code-review`
 
 ### Local Edit Pipeline
 `manage/source-download` → *(edit locally)* → `manage/local-sync` → `manage/changeset-workflow` → `deploy/change-lifecycle`

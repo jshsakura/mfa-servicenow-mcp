@@ -293,7 +293,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <p class="section-desc">
         Tools alone are raw API calls. Skills are what make your LLM actually useful —
         verified pipelines with safety gates, rollback, and context-aware delegation.
-        20 skills today, more coming with every release.
+        20+ skills today, more coming with every release.
       </p>
     </div>
     <div class="install-block reveal">
@@ -353,7 +353,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">89+</span>
+    <span class="hero-stat-value">97+</span>
     <span class="hero-stat-label">MCP Tools</span>
   </div>
   <div class="hero-stat">
@@ -394,7 +394,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Connect</h3>
-        <p>Point Claude, Cursor, or any MCP client. 89+ tools ready instantly.</p>
+        <p>Point Claude, Cursor, or any MCP client. 97+ tools ready instantly.</p>
       </div>
     </div>
   </div>

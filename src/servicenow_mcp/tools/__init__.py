@@ -61,12 +61,7 @@ from servicenow_mcp.tools.knowledge_base import (
     publish_article,
     update_article,
 )
-from servicenow_mcp.tools.log_tools import (
-    get_background_script_logs,
-    get_journal_entries,
-    get_system_logs,
-    get_transaction_logs,
-)
+from servicenow_mcp.tools.log_tools import get_logs
 from servicenow_mcp.tools.performance_tools import analyze_widget_performance
 from servicenow_mcp.tools.portal_tools import (
     analyze_portal_component_update,
@@ -86,10 +81,7 @@ __all__ = [
     "resolve_incident",
     "get_incident_by_number",
     # Log tools
-    "get_system_logs",
-    "get_journal_entries",
-    "get_transaction_logs",
-    "get_background_script_logs",
+    "get_logs",
     # Source tools
     "search_server_code",
     "get_metadata_source",

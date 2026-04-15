@@ -165,7 +165,7 @@ Config file location: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
 
 ## Step 4: Install Skills (Optional)
 
-Skills are AI execution blueprints — verified pipelines with safety gates that turn raw MCP tools into reliable workflows. 20 skills across 5 categories.
+Skills are AI execution blueprints — verified pipelines with safety gates that turn raw MCP tools into reliable workflows. 20+ skills across 5 categories.
 
 ```powershell
 # Claude Code

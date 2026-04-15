@@ -9,10 +9,7 @@ def test_portal_developer_includes_changeset_commit_and_workflow_read_tools():
 
     portal_tools = set(config["portal_developer"])
 
-    assert "get_system_logs" in portal_tools
-    assert "get_journal_entries" in portal_tools
-    assert "get_transaction_logs" in portal_tools
-    assert "get_background_script_logs" in portal_tools
+    assert "get_logs" in portal_tools
     assert "search_server_code" in portal_tools
     assert "get_metadata_source" in portal_tools
     assert "trace_portal_route_targets" in portal_tools
@@ -61,13 +58,38 @@ def test_local_sync_tools_in_correct_packages():
     assert "update_remote_from_local" not in config["service_desk"]
 
 
-def test_full_package_is_89_tools():
+def test_full_package_under_100_tools():
     config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
     config = yaml.safe_load(config_path.read_text())
 
     assert (
-        len(config["full"]) >= 89
-    ), f"full package should have at least 89 tools, got {len(config['full'])}"
+        len(config["full"]) < 100
+    ), f"full package must be under 100 tools, got {len(config['full'])}"
+
+
+def test_download_and_audit_tools_in_all_packages():
+    config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
+    config = yaml.safe_load(config_path.read_text())
+
+    # These read-only tools should be in all active packages
+    download_tools = [
+        "download_portal_sources",
+        "download_script_includes",
+        "download_server_scripts",
+        "download_ui_components",
+        "download_api_sources",
+        "download_security_sources",
+        "download_admin_scripts",
+        "download_table_schema",
+        "audit_local_sources",
+    ]
+    for pkg in ["standard", "portal_developer", "platform_developer", "service_desk", "full"]:
+        for tool in download_tools:
+            assert tool in config[pkg], f"'{tool}' missing from '{pkg}' package"
+
+    # download_app_sources (orchestrator) should be in standard and full
+    assert "download_app_sources" in config["standard"]
+    assert "download_app_sources" in config["full"]
 
 
 def test_consolidated_tools_replaced_old_ones():
