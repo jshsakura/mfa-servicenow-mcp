@@ -112,12 +112,15 @@ body:has(.landing-page) .md-container {
   background-color: var(--page-bg) !important;
   background-image: none !important;
 }
-body:has(.landing-page) .content-wrap {
-  background-color: var(--page-bg);
+body:has(.landing-page) .md-content {
+  background-color: var(--page-bg) !important;
   background-image:
     linear-gradient(var(--grid-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
-  background-size: 40px 40px;
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px) !important;
+  background-size: 40px 40px !important;
+}
+body:has(.landing-page) .content-wrap {
+  background: transparent;
   position: relative;
 }
 body:has(.landing-page) .content-wrap::before {
@@ -125,11 +128,6 @@ body:has(.landing-page) .content-wrap::before {
 }
 body:has(.landing-page) .content-wrap::after {
   display: none;
-}
-[data-md-color-scheme="slate"] body:has(.landing-page) .content-wrap {
-  background-image:
-    linear-gradient(var(--grid-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
 }
 
 /* ============================================================
