@@ -245,6 +245,34 @@ def _detect_orphans(
     return orphans
 
 
+def _extract_external_refs(cross_refs: Dict[str, Any]) -> Dict[str, List[str]]:
+    """Find references to components NOT in this scope (global/external).
+
+    Returns dict with keys: script_includes, providers, tables — each a
+    sorted list of names that are referenced but not present locally.
+    """
+    known = set(cross_refs.get("known_names", []))
+    ext_si: set[str] = set()
+    ext_providers: set[str] = set()
+    ext_tables: set[str] = set()
+
+    for refs in cross_refs.get("outgoing", {}).values():
+        for si in refs.get("script_includes", []):
+            if si not in known:
+                ext_si.add(si)
+        for prov in refs.get("providers", []):
+            if prov not in known:
+                ext_providers.add(prov)
+        for table in refs.get("tables", []):
+            ext_tables.add(table)
+
+    return {
+        "script_includes": sorted(ext_si),
+        "providers": sorted(ext_providers),
+        "tables": sorted(ext_tables),
+    }
+
+
 def _build_execution_order(source_index: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Group BRs and Client Scripts by target table with execution order."""
     table_map: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(
@@ -962,6 +990,7 @@ def audit_local_sources(
             ),
             "orphan_count": len(orphans),
             "orphan_names": [o["name"] for o in orphans[:20]],
+            "external_references": _extract_external_refs(cross_refs),
             "schema_issue_count": len(schema_issues),
             "execution_order_tables": len(execution_order),
             "domain_knowledge": domain_stats.get("size_chars", 0),
