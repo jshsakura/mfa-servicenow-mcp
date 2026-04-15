@@ -8,8 +8,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.tools.log_tools import (
-    GetLogsParams,
     LOG_TYPES,
+    GetLogsParams,
     _clamp_limit,
     _clamp_text_length,
     _timeframe_query,
