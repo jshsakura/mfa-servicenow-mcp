@@ -8,6 +8,7 @@ import logging
 import re
 import time
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -1517,6 +1518,42 @@ def _resolve_scope_root(
     return root, scope_root
 
 
+def _retry_empty_source(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    source_fields: List[str],
+    source_type: str,
+    record: tuple,
+    warnings: List[str],
+) -> int:
+    """Fetch source for a single record that came back empty in batch. Returns file count."""
+    rid, rname, rdir = record
+    fetched = 0
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=f"sys_id={rid}",
+            fields=",".join(source_fields),
+            limit=1,
+            offset=0,
+            display_value=False,
+            no_count=True,
+        )
+        if rows:
+            for sf in source_fields:
+                content = rows[0].get(sf)
+                if content and isinstance(content, str) and content.strip():
+                    ext = _FIELD_EXTENSIONS.get(sf, ".txt")
+                    _dl_write_file(rdir / f"{sf}{ext}", content)
+                    fetched += 1
+    except Exception as exc:
+        warnings.append(f"{source_type}/{rname}: retry failed — {exc}")
+    return fetched
+
+
 def _download_source_types(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1568,11 +1605,12 @@ def _download_source_types(
             query_parts.append(extra_query[source_type])
         query = "^".join(query_parts)
 
-        # Fetch all fields (summary + source) in batch pages
+        # Batch: metadata + source together (small page_size to avoid truncation)
         all_fields = list(source_cfg["summary_fields"]) + list(source_cfg["source_fields"])
-        # Add dot-walked scope name for global/app folder routing
         if include_global and "sys_scope" in source_cfg["summary_fields"]:
             all_fields.append("sys_scope.scope")
+        # Clamp page_size small for tables with source fields to prevent truncation
+        effective_page_size = min(page_size, 10) if source_cfg["source_fields"] else page_size
         try:
             records = sn_query_all(
                 config,
@@ -1580,7 +1618,7 @@ def _download_source_types(
                 table=table,
                 query=query,
                 fields=",".join(all_fields),
-                page_size=page_size,
+                page_size=effective_page_size,
                 max_records=max_per_type,
                 display_value=False,
             )
@@ -1603,6 +1641,7 @@ def _download_source_types(
         global_sync_meta: Dict[str, Dict[str, str]] = {}
         now_iso = datetime.now(timezone.utc).isoformat()
         type_file_count = 0
+        ",".join(source_cfg["source_fields"])
         retry_records: List[tuple] = []
 
         for record in records:
@@ -1631,19 +1670,19 @@ def _download_source_types(
             record_dir = type_dir / safe_name
             _dl_write_json(record_dir / "_metadata.json", metadata)
 
-            # Write source files from batch response
-            record_has_source = False
+            # Write source from batch response
+            has_source = False
             for source_field in source_cfg["source_fields"]:
                 content = record.get(source_field)
                 if not content or not isinstance(content, str) or not content.strip():
                     continue
-                record_has_source = True
+                has_source = True
                 ext = _FIELD_EXTENSIONS.get(source_field, ".txt")
                 _dl_write_file(record_dir / f"{source_field}{ext}", content)
                 type_file_count += 1
 
-            # If batch truncated source fields, queue for individual retry
-            if not record_has_source and sys_id and source_cfg["source_fields"]:
+            # Queue for individual retry if batch returned empty source
+            if not has_source and sys_id and source_cfg["source_fields"]:
                 retry_records.append((sys_id, safe_name, record_dir))
 
             cur_name_map[safe_name] = sys_id
@@ -1663,31 +1702,24 @@ def _download_source_types(
                 }
             )
 
-        # Retry empty records individually (batch may have truncated)
+        # Parallel retry: individually fetch records whose source was empty in batch
         if retry_records:
-            source_fields_str = ",".join(source_cfg["source_fields"])
-            for rid, rname, rdir in retry_records:
-                try:
-                    rows, _ = sn_query_page(
+            _src_fields = list(source_cfg["source_fields"])
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(
+                        _retry_empty_source,
                         config,
                         auth_manager,
-                        table=table,
-                        query=f"sys_id={rid}",
-                        fields=source_fields_str,
-                        limit=1,
-                        offset=0,
-                        display_value=False,
-                        no_count=True,
+                        table,
+                        _src_fields,
+                        source_type,
+                        rec,
+                        warnings,
                     )
-                    if rows:
-                        for sf in source_cfg["source_fields"]:
-                            content = rows[0].get(sf)
-                            if content and isinstance(content, str) and content.strip():
-                                ext = _FIELD_EXTENSIONS.get(sf, ".txt")
-                                _dl_write_file(rdir / f"{sf}{ext}", content)
-                                type_file_count += 1
-                except Exception as exc:
-                    warnings.append(f"{source_type}/{rname}: retry failed — {exc}")
+                    for rec in retry_records
+                ]
+                type_file_count += sum(f.result() for f in futures)
 
         # Write app-scope maps
         if name_map:
