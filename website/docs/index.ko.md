@@ -15,12 +15,12 @@ social:
       Don't script your AI. <span class="gradient-text">Arm it.</span>
     </h1>
     <p class="hero-subtitle">
-      Tell your AI what you need in plain language.
-      MCP Skills handle the rest.
+      자연어로 AI에게 원하는 걸 말하세요.<br>
+      나머지는 MCP 스킬이 알아서 처리합니다.
     </p>
     <div class="hero-buttons">
       <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">
-        Get Started
+        시작하기
       </a>
       <a href="https://github.com/jshsakura/mfa-servicenow-mcp" class="md-button md-button--ghost">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
@@ -55,7 +55,7 @@ social:
     </p>
     <div class="install-block reveal">
       <div class="install-tabs">
-        <button class="install-tab active" data-target="quick-ai">Paste into your AI</button>
+        <button class="install-tab active" data-target="quick-ai">AI에 붙여넣기</button>
       </div>
       <div class="install-panels">
         <div class="install-panel active" id="quick-ai">
@@ -76,7 +76,9 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       <span class="section-label">수동 설치 — 1단계</span>
       <h2 class="section-title">서버 설치</h2>
       <p class="section-desc">
-        직접 설치를 원하시나요? 운영체제를 선택하세요. MFA/SSO 로그인을 위한 실제 Chromium 브라우저가 열리며 Okta, Entra ID, SAML 등이 모두 기본으로 지원됩니다.
+        직접 설치를 원하시나요? 운영체제를 선택하세요.<br>
+        MFA/SSO 로그인을 위한 실제 Chromium 브라우저가 열리며,<br>
+        Okta, Entra ID, SAML 등이 모두 기본으로 지원됩니다.
       </p>
     </div>
     <div class="install-block reveal">
@@ -146,7 +148,8 @@ servicenow-mcp \
       <span class="section-label">수동 설치 — 2단계</span>
       <h2 class="section-title">AI 클라이언트 설정</h2>
       <p class="section-desc">
-        사용 중인 클라이언트의 설정 코드를 복사해서 붙여넣으세요. 모두 같은 MCP 서버를 사용하며 포맷만 다를 뿐입니다.
+        사용 중인 클라이언트의 설정 코드를 복사해서 붙여넣으세요.<br>
+        모두 같은 MCP 서버를 사용하며 포맷만 다를 뿐입니다.
       </p>
     </div>
     <div class="install-block reveal">
@@ -291,8 +294,9 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <span class="section-label">수동 설치 — 3단계</span>
       <h2 class="section-title">LLM 최적화 스킬 추가하기</h2>
       <p class="section-desc">
-        도구(Tool)만으로는 단순한 API 호출일 뿐입니다. 안전 장치, 롤백, 문맥 인식을 통한 위임 파이프라인이 포함된 스킬(Skill)들이 결합되었을 때 LLM은 진정으로 유용해집니다.
-        현재 20개의 스킬을 지원하며 릴리스마다 더 추가되고 있습니다.
+        도구(Tool)만으로는 단순한 API 호출일 뿐입니다.<br>
+        안전 장치, 롤백, 문맥 인식을 통한 위임 파이프라인이 포함된 스킬(Skill)들이 결합되었을 때<br>
+        LLM은 진정으로 유용해집니다. 현재 20개 이상의 스킬을 지원하며 릴리스마다 더 추가되고 있습니다.
       </p>
     </div>
     <div class="install-block reveal">
@@ -352,7 +356,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">89+</span>
+    <span class="hero-stat-value">97+</span>
     <span class="hero-stat-label">MCP 도구(Tools)</span>
   </div>
   <div class="hero-stat">
@@ -376,7 +380,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     <span class="section-label">작동 방식</span>
     <h2 class="section-title">운영 환경까지 단 3단계</h2>
     <p class="section-desc">
-      설정할 API 키나 구성 파일에 넣을 비밀번호가 없습니다.
+      설정할 API 키나 구성 파일에 넣을 비밀번호가 없습니다.<br>
       브라우저를 통해 한 번만 인증하면 AI 에이전트가 실시간 세션을 상속받습니다.
     </p>
     <div class="steps-grid reveal-stagger">
@@ -393,7 +397,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>연결</h3>
-        <p>Claude, Cursor 또는 모든 MCP 클라이언트에 연결하세요. 89개 이상의 도구가 즉시 준비됩니다.</p>
+        <p>Claude, Cursor 또는 모든 MCP 클라이언트에 연결하세요. 97개 이상의 도구가 즉시 준비됩니다.</p>
       </div>
     </div>
   </div>
@@ -406,7 +410,8 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     <span class="section-label">주요 기능</span>
     <h2 class="section-title">엔터프라이즈 환경에 맞게 구축됨</h2>
     <p class="section-desc">
-      AI 에이전트와 ServiceNow를 대규모로 안전하게 연결하는 데 필요한 모든 것을 제공합니다.
+      AI 에이전트와 ServiceNow를<br>
+      대규모로 안전하게 연결하는 데 필요한 모든 것을 제공합니다.
     </p>
 
     <div class="feature-grid reveal-stagger">
@@ -434,9 +439,9 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 <hr class="section-divider">
 
 <div class="cta-banner reveal">
-  <h2>Ready to connect your AI to ServiceNow?</h2>
-  <p>Get set up in under five minutes with our step-by-step guide.</p>
-  <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">Read the Setup Guide</a>
+  <h2>AI를 ServiceNow에 연결할 준비 되셨나요?</h2>
+  <p>단계별 가이드로 5분 안에 설정을 완료하세요.</p>
+  <a href="docs/CLIENT_SETUP/" class="md-button md-button--primary">설정 가이드 보기</a>
 </div>
 
 </div>

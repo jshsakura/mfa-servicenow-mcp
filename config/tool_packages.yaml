@@ -57,14 +57,20 @@ standard:
   - audit_pending_changes
   - get_repo_change_report
   # Logs
-  - get_system_logs
-  - get_journal_entries
-  - get_transaction_logs
-  - get_background_script_logs
+  - get_logs
   # Search & Analysis
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
+  - download_app_sources
+  - download_script_includes
+  - download_server_scripts
+  - download_ui_components
+  - download_api_sources
+  - download_security_sources
+  - download_admin_scripts
+  - download_table_schema
+  - audit_local_sources
   # Detection
   - detect_missing_profit_company_codes
   # Local Sync (Read)
@@ -112,13 +118,19 @@ portal_developer:
   - get_developer_changes
   - audit_pending_changes
   - get_repo_change_report
-  - get_system_logs
-  - get_journal_entries
-  - get_transaction_logs
-  - get_background_script_logs
+  - get_logs
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
+  - download_app_sources
+  - download_script_includes
+  - download_server_scripts
+  - download_ui_components
+  - download_api_sources
+  - download_security_sources
+  - download_admin_scripts
+  - download_table_schema
+  - audit_local_sources
   # Detection
   - detect_missing_profit_company_codes
   # Local Sync (Read)
@@ -186,13 +198,19 @@ platform_developer:
   - get_developer_changes
   - audit_pending_changes
   - get_repo_change_report
-  - get_system_logs
-  - get_journal_entries
-  - get_transaction_logs
-  - get_background_script_logs
+  - get_logs
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
+  - download_app_sources
+  - download_script_includes
+  - download_server_scripts
+  - download_ui_components
+  - download_api_sources
+  - download_security_sources
+  - download_admin_scripts
+  - download_table_schema
+  - audit_local_sources
   # Detection
   - detect_missing_profit_company_codes
   # Local Sync (Read)
@@ -271,13 +289,19 @@ service_desk:
   - get_developer_changes
   - audit_pending_changes
   - get_repo_change_report
-  - get_system_logs
-  - get_journal_entries
-  - get_transaction_logs
-  - get_background_script_logs
+  - get_logs
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
+  - download_app_sources
+  - download_script_includes
+  - download_server_scripts
+  - download_ui_components
+  - download_api_sources
+  - download_security_sources
+  - download_admin_scripts
+  - download_table_schema
+  - audit_local_sources
   # Detection
   - detect_missing_profit_company_codes
   # Local Sync (Read)
@@ -330,18 +354,24 @@ full:
   - get_developer_changes
   - audit_pending_changes
   - get_repo_change_report
-  - get_system_logs
-  - get_journal_entries
-  - get_transaction_logs
-  - get_background_script_logs
+  - get_logs
   - search_server_code
   - get_metadata_source
   - extract_table_dependencies
+  - download_app_sources
+  - download_script_includes
+  - download_server_scripts
+  - download_ui_components
+  - download_api_sources
+  - download_security_sources
+  - download_admin_scripts
+  - download_table_schema
+  - audit_local_sources
   # Detection
   - detect_missing_profit_company_codes
   # Local Sync (Read)
   - diff_local_component
-  # + All writes
+  # + All writes (full only below this line)
   - create_incident
   - update_incident
   - add_comment

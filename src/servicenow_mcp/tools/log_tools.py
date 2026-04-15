@@ -1,5 +1,8 @@
 """
-Safe, token-efficient log query tools for the ServiceNow MCP server.
+Unified log query tool for ServiceNow MCP.
+
+Single get_logs tool covers all log types: system, journal, transaction, background.
+LLM selects log_type based on intent — no ambiguity about which tool to call.
 """
 
 import logging
@@ -19,65 +22,64 @@ MAX_LOG_LIMIT = 20
 DEFAULT_TEXT_PREVIEW = 500
 MAX_TEXT_PREVIEW = 2000
 
-SYSTEM_LOG_FIELDS = "sys_id,level,source,message,sys_created_on"
-JOURNAL_FIELDS = "sys_id,name,element,element_id,value,sys_created_by,sys_created_on"
-TRANSACTION_LOG_FIELDS = (
-    "sys_id,url,response_status,response_time,transaction_id,sys_created_by,sys_created_on"
-)
-BACKGROUND_LOG_FIELDS = (
-    "sys_id,name,state,source,message,detail,percent_complete,sys_created_on,sys_updated_on"
-)
+# ---------------------------------------------------------------------------
+# Log type registry
+# ---------------------------------------------------------------------------
 
+LOG_TYPES: Dict[str, Dict[str, Any]] = {
+    "system": {
+        "table": "syslog",
+        "fields": "sys_id,level,source,message,sys_created_on",
+        "label": "System Log",
+        "hint": "Script errors, warnings, gs.log output, platform messages",
+        "filters": {
+            "level": ("level", "="),
+            "source": ("source", "LIKE"),
+            "contains": ("message", "LIKE"),
+        },
+    },
+    "journal": {
+        "table": "sys_journal_field",
+        "fields": "sys_id,name,element,element_id,value,sys_created_by,sys_created_on",
+        "label": "Journal Entries",
+        "hint": "Work notes, comments, activity log on records",
+        "filters": {
+            "table": ("name", "="),
+            "record_sys_id": ("element_id", "="),
+            "field_name": ("element", "="),
+            "created_by": ("sys_created_by", "="),
+            "contains": ("value", "LIKE"),
+        },
+    },
+    "transaction": {
+        "table": "syslog_transaction",
+        "fields": "sys_id,url,response_status,response_time,transaction_id,sys_created_by,sys_created_on",
+        "label": "Transaction Log",
+        "hint": "HTTP request/response logs — URL, status code, response time",
+        "filters": {
+            "url_contains": ("url", "LIKE"),
+            "response_status": ("response_status", "="),
+            "min_response_time_ms": ("response_time", ">="),
+            "created_by": ("sys_created_by", "="),
+        },
+    },
+    "background": {
+        "table": "sys_execution_tracker",
+        "fields": "sys_id,name,state,source,message,detail,percent_complete,sys_created_on,sys_updated_on",
+        "label": "Background Execution",
+        "hint": "Scheduled jobs, fix scripts, background script runs",
+        "filters": {
+            "name": ("name", "LIKE"),
+            "state": ("state", "="),
+            "source": ("source", "LIKE"),
+            "contains": ("message", "LIKE"),
+        },
+    },
+}
 
-class BaseLogQueryParams(BaseModel):
-    limit: int = Field(
-        default=DEFAULT_LOG_LIMIT,
-        description=f"Maximum number of records to return. Clamped to {MAX_LOG_LIMIT}.",
-    )
-    offset: int = Field(default=0, description="Pagination offset")
-    timeframe: str = Field(
-        default="last_24h",
-        description="Relative time filter: last_hour, last_24h, last_7d, all",
-    )
-    contains: Optional[str] = Field(
-        default=None, description="Text filter applied to the main message/value field"
-    )
-    query: Optional[str] = Field(
-        default=None, description="Additional encoded query. Safety limits still apply."
-    )
-    max_text_length: int = Field(
-        default=DEFAULT_TEXT_PREVIEW,
-        description=f"Maximum length for large text fields. Clamped to {MAX_TEXT_PREVIEW}.",
-    )
-
-
-class GetSystemLogsParams(BaseLogQueryParams):
-    level: Optional[str] = Field(default=None, description="Filter by log level")
-    source: Optional[str] = Field(default=None, description="Filter by source (LIKE match)")
-
-
-class GetJournalEntriesParams(BaseLogQueryParams):
-    table: Optional[str] = Field(default=None, description="Filter by target table name")
-    record_sys_id: Optional[str] = Field(default=None, description="Filter by target record sys_id")
-    field_name: Optional[str] = Field(default=None, description="Filter by journal field name")
-    created_by: Optional[str] = Field(default=None, description="Filter by creator")
-
-
-class GetTransactionLogsParams(BaseLogQueryParams):
-    url_contains: Optional[str] = Field(
-        default=None, description="Filter by request URL (LIKE match)"
-    )
-    response_status: Optional[str] = Field(default=None, description="Filter by response status")
-    min_response_time_ms: Optional[int] = Field(
-        default=None, description="Only include requests slower than this threshold"
-    )
-    created_by: Optional[str] = Field(default=None, description="Filter by creator")
-
-
-class GetBackgroundScriptLogsParams(BaseLogQueryParams):
-    name: Optional[str] = Field(default=None, description="Filter by execution name (LIKE match)")
-    state: Optional[str] = Field(default=None, description="Filter by execution state")
-    source: Optional[str] = Field(default=None, description="Filter by execution source")
+# ---------------------------------------------------------------------------
+# Internals
+# ---------------------------------------------------------------------------
 
 
 def _clamp_limit(limit: int) -> int:
@@ -169,169 +171,120 @@ def _fetch_logs(
         }
 
 
+# ---------------------------------------------------------------------------
+# Unified MCP tool
+# ---------------------------------------------------------------------------
+
+_LOG_TYPE_NAMES = ", ".join(sorted(LOG_TYPES.keys()))
+
+
+class GetLogsParams(BaseModel):
+    log_type: str = Field(
+        ...,
+        description=(
+            "Log type to query. One of: system, journal, transaction, background. "
+            "system = script errors, gs.log output. "
+            "journal = work notes/comments on records. "
+            "transaction = HTTP request/response. "
+            "background = scheduled job/fix script runs."
+        ),
+    )
+    limit: int = Field(
+        default=DEFAULT_LOG_LIMIT,
+        description=f"Max records. Clamped to {MAX_LOG_LIMIT}.",
+    )
+    offset: int = Field(default=0, description="Pagination offset.")
+    timeframe: str = Field(
+        default="last_24h",
+        description="Time filter: last_hour, last_24h, last_7d, all",
+    )
+    # --- Universal filter ---
+    contains: Optional[str] = Field(
+        default=None,
+        description="Text search on the main content field (message/value).",
+    )
+    # --- system filters ---
+    level: Optional[str] = Field(default=None, description="[system] Log level: error, warning, info, debug")
+    source: Optional[str] = Field(default=None, description="[system/background] Source name (LIKE match)")
+    # --- journal filters ---
+    table: Optional[str] = Field(default=None, description="[journal] Target table (e.g. incident, x_app_request)")
+    record_sys_id: Optional[str] = Field(default=None, description="[journal] Specific record sys_id")
+    field_name: Optional[str] = Field(default=None, description="[journal] Field name (work_notes, comments)")
+    created_by: Optional[str] = Field(default=None, description="[journal/transaction] Filter by user")
+    # --- transaction filters ---
+    url_contains: Optional[str] = Field(default=None, description="[transaction] URL pattern (LIKE match)")
+    response_status: Optional[str] = Field(default=None, description="[transaction] HTTP status code")
+    min_response_time_ms: Optional[int] = Field(default=None, description="[transaction] Slow request threshold (ms)")
+    # --- background filters ---
+    name: Optional[str] = Field(default=None, description="[background] Execution name (LIKE match)")
+    state: Optional[str] = Field(default=None, description="[background] State: running, complete, cancelled")
+    # --- advanced ---
+    query: Optional[str] = Field(
+        default=None, description="Raw encoded query appended to filters.",
+    )
+    max_text_length: int = Field(
+        default=DEFAULT_TEXT_PREVIEW,
+        description=f"Max text field length. Clamped to {MAX_TEXT_PREVIEW}.",
+    )
+
+
 @register_tool(
-    "get_system_logs",
-    params=GetSystemLogsParams,
-    description="Query syslog entries by level/source/message. Hard-capped at 20 rows for safety.",
+    "get_logs",
+    params=GetLogsParams,
+    description=(
+        "Query ServiceNow logs. "
+        "log_type: system (script errors, gs.log), journal (work notes/comments), "
+        "transaction (HTTP requests), background (scheduled jobs). "
+        "Each type has specific filters. Hard-capped at 20 rows."
+    ),
     serialization="raw_dict",
     return_type=dict,
 )
-def get_system_logs(
+def get_logs(
     config: ServerConfig,
     auth_manager: AuthManager,
-    params: GetSystemLogsParams,
+    params: GetLogsParams,
 ) -> Dict[str, Any]:
+    log_type = params.log_type.strip().lower()
+    if log_type not in LOG_TYPES:
+        return {
+            "success": False,
+            "message": f"Unknown log_type '{params.log_type}'. Valid: {_LOG_TYPE_NAMES}",
+            "available_types": {
+                name: cfg["hint"] for name, cfg in LOG_TYPES.items()
+            },
+        }
+
+    type_cfg = LOG_TYPES[log_type]
+    filter_defs = type_cfg["filters"]
+
+    # Build query from applicable filters
     query_parts: List[str] = []
-    if params.level:
-        query_parts.append(f"level={params.level}")
-    if params.source:
-        query_parts.append(f"sourceLIKE{params.source}")
-    if params.contains:
-        query_parts.append(f"messageLIKE{params.contains}")
+    param_dict = params.model_dump(exclude_none=True)
+    for param_name, (field_name, operator) in filter_defs.items():
+        value = param_dict.get(param_name)
+        if value is not None:
+            query_parts.append(f"{field_name}{operator}{value}")
     if params.query:
         query_parts.append(params.query)
 
     result = _fetch_logs(
         config,
         auth_manager,
-        table="syslog",
-        fields=SYSTEM_LOG_FIELDS,
+        table=type_cfg["table"],
+        fields=type_cfg["fields"],
         limit=params.limit,
         offset=params.offset,
         timeframe=params.timeframe,
         query_parts=query_parts,
         text_preview_length=params.max_text_length,
     )
+
     if result.get("success"):
+        result["log_type"] = log_type
+        result["log_label"] = type_cfg["label"]
         result["safety_notice"] = (
-            "System logs use fixed summary fields and a hard limit cap to avoid large payloads."
+            f"Queried {type_cfg['table']} with hard limit cap and text truncation."
         )
-    return result
 
-
-@register_tool(
-    "get_journal_entries",
-    params=GetJournalEntriesParams,
-    description="Fetch work notes and comments on any record. Filter by table, record sys_id, or field name.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def get_journal_entries(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetJournalEntriesParams,
-) -> Dict[str, Any]:
-    query_parts: List[str] = []
-    if params.table:
-        query_parts.append(f"name={params.table}")
-    if params.record_sys_id:
-        query_parts.append(f"element_id={params.record_sys_id}")
-    if params.field_name:
-        query_parts.append(f"element={params.field_name}")
-    if params.created_by:
-        query_parts.append(f"sys_created_by={params.created_by}")
-    if params.contains:
-        query_parts.append(f"valueLIKE{params.contains}")
-    if params.query:
-        query_parts.append(params.query)
-
-    result = _fetch_logs(
-        config,
-        auth_manager,
-        table="sys_journal_field",
-        fields=JOURNAL_FIELDS,
-        limit=params.limit,
-        offset=params.offset,
-        timeframe=params.timeframe,
-        query_parts=query_parts,
-        text_preview_length=params.max_text_length,
-    )
-    if result.get("success"):
-        result["safety_notice"] = (
-            "Journal entry queries are restricted to summary fields. Filter by record_sys_id or table when possible."
-        )
-    return result
-
-
-@register_tool(
-    "get_transaction_logs",
-    params=GetTransactionLogsParams,
-    description="Query HTTP transaction logs with URL, status, and duration. Use for request performance analysis.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def get_transaction_logs(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetTransactionLogsParams,
-) -> Dict[str, Any]:
-    query_parts: List[str] = []
-    if params.url_contains:
-        query_parts.append(f"urlLIKE{params.url_contains}")
-    if params.response_status:
-        query_parts.append(f"response_status={params.response_status}")
-    if params.min_response_time_ms is not None:
-        query_parts.append(f"response_time>={params.min_response_time_ms}")
-    if params.created_by:
-        query_parts.append(f"sys_created_by={params.created_by}")
-    if params.query:
-        query_parts.append(params.query)
-
-    result = _fetch_logs(
-        config,
-        auth_manager,
-        table="syslog_transaction",
-        fields=TRANSACTION_LOG_FIELDS,
-        limit=params.limit,
-        offset=params.offset,
-        timeframe=params.timeframe,
-        query_parts=query_parts,
-        text_preview_length=params.max_text_length,
-    )
-    if result.get("success"):
-        result["safety_notice"] = (
-            "Transaction logs are returned as summaries only. Use filters such as url_contains or min_response_time_ms."
-        )
-    return result
-
-
-@register_tool(
-    "get_background_script_logs",
-    params=GetBackgroundScriptLogsParams,
-    description="Query sys_execution_tracker for scheduled/background script run logs with state and progress.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def get_background_script_logs(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetBackgroundScriptLogsParams,
-) -> Dict[str, Any]:
-    query_parts: List[str] = []
-    if params.name:
-        query_parts.append(f"nameLIKE{params.name}")
-    if params.state:
-        query_parts.append(f"state={params.state}")
-    if params.source:
-        query_parts.append(f"sourceLIKE{params.source}")
-    if params.contains:
-        query_parts.append(f"messageLIKE{params.contains}")
-    if params.query:
-        query_parts.append(params.query)
-
-    result = _fetch_logs(
-        config,
-        auth_manager,
-        table="sys_execution_tracker",
-        fields=BACKGROUND_LOG_FIELDS,
-        limit=params.limit,
-        offset=params.offset,
-        timeframe=params.timeframe,
-        query_parts=query_parts,
-        text_preview_length=params.max_text_length,
-    )
-    if result.get("success"):
-        result["safety_notice"] = (
-            "Background execution logs come from sys_execution_tracker with capped result size and truncated text fields."
-        )
     return result
