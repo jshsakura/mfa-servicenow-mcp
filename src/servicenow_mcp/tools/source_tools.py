@@ -1649,6 +1649,28 @@ def _download_source_types(
                     metadata[sf] = str(val) if not isinstance(val, str) else val
 
             record_dir = type_dir / safe_name
+
+            # Resume: skip if source files already exist from a previous run
+            if source_cfg["source_fields"]:
+                existing_source = any(
+                    (record_dir / f"{sf}{_FIELD_EXTENSIONS.get(sf, '.txt')}").exists()
+                    for sf in source_cfg["source_fields"]
+                )
+                if existing_source:
+                    name_map[safe_name] = sys_id
+                    sync_meta[safe_name] = {
+                        "sys_id": sys_id,
+                        "name": name,
+                        "sys_updated_on": str(record.get("sys_updated_on") or ""),
+                        "downloaded_at": now_iso,
+                    }
+                    type_file_count += sum(
+                        1
+                        for sf in source_cfg["source_fields"]
+                        if (record_dir / f"{sf}{_FIELD_EXTENSIONS.get(sf, '.txt')}").exists()
+                    )
+                    continue
+
             _dl_write_json(record_dir / "_metadata.json", metadata)
 
             # Write source from batch response
