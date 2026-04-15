@@ -16,6 +16,12 @@ on:
       - '.github/workflows/deploy-website.yml'
   workflow_dispatch:
 
+# Prevent duplicate runs: when a tag push and branch push happen on the same commit,
+# cancel the branch run and keep only the tag run (which triggers release + PyPI).
+concurrency:
+  group: ci-${{ github.sha }}
+  cancel-in-progress: true
+
 env:
   PYTHON_VERSION: '3.11'
   REGISTRY: ghcr.io
