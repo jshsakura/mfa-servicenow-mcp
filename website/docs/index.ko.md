@@ -357,13 +357,14 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 <div class="install-block reveal" style="margin-top:40px;">
   <span class="section-label">최신 버전 유지</span>
   <p class="section-desc" style="margin-bottom:16px;">
-    <code>uvx</code>는 마지막으로 다운로드한 버전을 캐시합니다 — <strong>자동 업데이트되지 않습니다.</strong> 아래 명령으로 갱신하세요:
+    <code>uvx</code>는 마지막으로 다운로드한 버전을 캐시하여 계속 재사용합니다 — <strong>자동 업데이트되지 않습니다.</strong><br>
+    <code>uv</code>를 통해 업그레이드하세요:
   </p>
   <div class="install-code-block">
-    <pre class="install-code"><code>uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version</code></pre>
+    <pre class="install-code"><code>uv tool upgrade mfa-servicenow-mcp</code></pre>
   </div>
   <p class="section-desc" style="margin-top:12px;font-size:0.9em;">
-    실행 후 MCP 클라이언트를 재시작해야 새 버전이 적용됩니다 (Claude Code, Cursor 등).
+    업그레이드 후 MCP 클라이언트를 재시작해야 새 버전이 적용됩니다 (Claude Code, Cursor 등).
   </p>
 </div>
 

@@ -296,27 +296,16 @@ For the complete tool list by category, see [Tool Inventory](docs/TOOL_INVENTORY
 
 ## Keeping Up to Date
 
-> **`uvx` caches the last version it downloaded.** New releases are NOT picked up automatically.
-
-### Recommended: `uv tool` (persistent install)
+> **`uvx` caches the last version it downloaded** and keeps reusing it.
+> To get a new release you must explicitly upgrade — it will NOT update on its own.
 
 ```bash
-# First time — install as a persistent tool
-uv tool install mfa-servicenow-mcp
-
-# Update — refreshes the cached version permanently
 uv tool upgrade mfa-servicenow-mcp
 ```
 
-### Alternative: `uvx --refresh` (one-shot)
+After upgrading, **restart your MCP client** (Claude Code, Cursor, etc.) to load the new version.
 
-If you use `uvx` without installing, this forces a one-time fetch of the latest version:
-
-```bash
-uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
-```
-
-> After updating, **restart your MCP client** (Claude Code, Cursor, etc.) to load the new version.
+> If you haven't installed with `uv tool install` yet, run `uv tool install mfa-servicenow-mcp` first.
 
 ### Pinning a specific version
 
