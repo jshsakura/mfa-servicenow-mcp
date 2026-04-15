@@ -189,7 +189,7 @@ body:has(.landing-page) .md-main__inner { margin-top: 0 !important; padding-top:
 body:has(.landing-page) .md-content__inner { margin-top: 0 !important; padding-top: 0 !important; }
 body:has(.landing-page) .hero-section { margin-top: 0 !important; }
 body:has(.landing-page) .md-main__inner { margin-top: 0; max-width: 100% !important; padding: 0 !important; }
-body:has(.landing-page) .md-content { max-width: 100% !important; background: transparent !important; }
+body:has(.landing-page) .md-content { max-width: 100% !important; }
 body:has(.landing-page) .md-content__inner { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
 body:has(.landing-page) .md-content__inner::before { display: none !important; }
 @media (min-width: 76.25em) {
