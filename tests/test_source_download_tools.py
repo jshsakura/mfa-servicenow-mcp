@@ -41,10 +41,10 @@ from servicenow_mcp.tools.source_tools import (
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def config() -> ServerConfig:
@@ -169,16 +169,49 @@ def _fix_script_records():
 
 def _dict_records():
     return [
-        {"name": "x_app_request", "element": "short_description", "column_label": "Short description", "internal_type": "string", "max_length": "160", "mandatory": "true", "reference": ""},
-        {"name": "x_app_request", "element": "state", "column_label": "State", "internal_type": "string", "max_length": "40", "mandatory": "false", "reference": ""},
-        {"name": "x_app_request", "element": "assigned_to", "column_label": "Assigned to", "internal_type": "reference", "max_length": "32", "mandatory": "false", "reference": "sys_user"},
-        {"name": "task", "element": "number", "column_label": "Number", "internal_type": "string", "max_length": "40", "mandatory": "true", "reference": ""},
+        {
+            "name": "x_app_request",
+            "element": "short_description",
+            "column_label": "Short description",
+            "internal_type": "string",
+            "max_length": "160",
+            "mandatory": "true",
+            "reference": "",
+        },
+        {
+            "name": "x_app_request",
+            "element": "state",
+            "column_label": "State",
+            "internal_type": "string",
+            "max_length": "40",
+            "mandatory": "false",
+            "reference": "",
+        },
+        {
+            "name": "x_app_request",
+            "element": "assigned_to",
+            "column_label": "Assigned to",
+            "internal_type": "reference",
+            "max_length": "32",
+            "mandatory": "false",
+            "reference": "sys_user",
+        },
+        {
+            "name": "task",
+            "element": "number",
+            "column_label": "Number",
+            "internal_type": "string",
+            "max_length": "40",
+            "mandatory": "true",
+            "reference": "",
+        },
     ]
 
 
 # ---------------------------------------------------------------------------
 # Utility function tests
 # ---------------------------------------------------------------------------
+
 
 class TestSafeFilename:
     def test_normal_name(self):
@@ -217,6 +250,7 @@ class TestResolveScopeRoot:
 # Core download loop tests
 # ---------------------------------------------------------------------------
 
+
 class TestDownloadSourceTypes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_downloads_and_writes_files(self, mock_query_all, config, auth, tmp_path):
@@ -225,7 +259,8 @@ class TestDownloadSourceTypes:
         scope_root.mkdir()
 
         result = _download_source_types(
-            config, auth,
+            config,
+            auth,
             scope="x_app",
             source_types=["script_include"],
             scope_root=scope_root,
@@ -261,8 +296,12 @@ class TestDownloadSourceTypes:
         scope_root.mkdir()
 
         _download_source_types(
-            config, auth, scope="x_app", source_types=["script_include"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
         )
 
         si_dir = scope_root / "sys_script_include"
@@ -281,8 +320,12 @@ class TestDownloadSourceTypes:
         scope_root.mkdir()
 
         result = _download_source_types(
-            config, auth, scope="x_app", source_types=["script_include"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
         )
 
         assert result["total_files"] == 0
@@ -295,8 +338,12 @@ class TestDownloadSourceTypes:
         scope_root.mkdir()
 
         result = _download_source_types(
-            config, auth, scope="x_app", source_types=["script_include"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
         )
 
         assert result["type_results"]["script_include"]["count"] == 0
@@ -310,8 +357,12 @@ class TestDownloadSourceTypes:
         scope_root.mkdir()
 
         result = _download_source_types(
-            config, auth, scope="x_app", source_types=["nonexistent_type"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["nonexistent_type"],
+            scope_root=scope_root,
+            root=tmp_path,
         )
 
         assert len(result["warnings"]) == 1
@@ -324,8 +375,12 @@ class TestDownloadSourceTypes:
         scope_root.mkdir()
 
         _download_source_types(
-            config, auth, scope="x_app", source_types=["business_rule"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["business_rule"],
+            scope_root=scope_root,
+            root=tmp_path,
             only_active=True,
         )
 
@@ -339,8 +394,12 @@ class TestDownloadSourceTypes:
         scope_root.mkdir()
 
         _download_source_types(
-            config, auth, scope="x_app", source_types=["acl"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["acl"],
+            scope_root=scope_root,
+            root=tmp_path,
             extra_query={"acl": "scriptISNOTEMPTY"},
         )
 
@@ -354,9 +413,12 @@ class TestDownloadSourceTypes:
         scope_root.mkdir()
 
         result = _download_source_types(
-            config, auth, scope="x_app",
+            config,
+            auth,
+            scope="x_app",
             source_types=["business_rule", "client_script", "catalog_client_script"],
-            scope_root=scope_root, root=tmp_path,
+            scope_root=scope_root,
+            root=tmp_path,
         )
 
         assert result["type_results"]["business_rule"]["count"] == 1
@@ -365,23 +427,29 @@ class TestDownloadSourceTypes:
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_empty_script_fields_not_written(self, mock_query_all, config, auth, tmp_path):
-        records = [{
-            "sys_id": "si-empty",
-            "name": "EmptySI",
-            "api_name": "x_app.EmptySI",
-            "description": "",
-            "sys_scope": "x_app",
-            "sys_updated_on": "2026-04-01",
-            "sys_updated_by": "admin",
-            "script": "",  # empty
-        }]
+        records = [
+            {
+                "sys_id": "si-empty",
+                "name": "EmptySI",
+                "api_name": "x_app.EmptySI",
+                "description": "",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-04-01",
+                "sys_updated_by": "admin",
+                "script": "",  # empty
+            }
+        ]
         mock_query_all.return_value = records
         scope_root = tmp_path / "x_app"
         scope_root.mkdir()
 
         result = _download_source_types(
-            config, auth, scope="x_app", source_types=["script_include"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
         )
 
         assert result["total_files"] == 0  # no script file written
@@ -396,8 +464,12 @@ class TestDownloadSourceTypes:
         scope_root.mkdir()
 
         result = _download_source_types(
-            config, auth, scope="x_app", source_types=["script_include"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
         )
 
         assert len(result["manifest_entries"]) == 1
@@ -412,13 +484,19 @@ class TestDownloadSourceTypes:
 # Individual download tool tests
 # ---------------------------------------------------------------------------
 
+
 class TestDownloadScriptIncludes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_happy_path(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _si_records()
-        result = download_script_includes(config, auth, DownloadScriptIncludesParams(
-            scope="x_app", output_dir=str(tmp_path),
-        ))
+        result = download_script_includes(
+            config,
+            auth,
+            DownloadScriptIncludesParams(
+                scope="x_app",
+                output_dir=str(tmp_path),
+            ),
+        )
 
         assert result["success"] is True
         assert result["tool"] == "download_script_includes"
@@ -432,9 +510,14 @@ class TestDownloadScriptIncludes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_empty_scope(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = []
-        result = download_script_includes(config, auth, DownloadScriptIncludesParams(
-            scope="x_empty", output_dir=str(tmp_path),
-        ))
+        result = download_script_includes(
+            config,
+            auth,
+            DownloadScriptIncludesParams(
+                scope="x_empty",
+                output_dir=str(tmp_path),
+            ),
+        )
         assert result["success"] is True
         assert result["total_records"] == 0
 
@@ -443,9 +526,14 @@ class TestDownloadServerScripts:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_downloads_br_and_client_scripts(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.side_effect = [_br_records(), [], []]
-        result = download_server_scripts(config, auth, DownloadServerScriptsParams(
-            scope="x_app", output_dir=str(tmp_path),
-        ))
+        result = download_server_scripts(
+            config,
+            auth,
+            DownloadServerScriptsParams(
+                scope="x_app",
+                output_dir=str(tmp_path),
+            ),
+        )
 
         assert result["success"] is True
         assert result["source_types"]["business_rule"]["count"] == 1
@@ -460,9 +548,14 @@ class TestDownloadUIComponents:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_downloads_all_ui_types(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.side_effect = [_ui_action_records(), [], [], []]
-        result = download_ui_components(config, auth, DownloadUIComponentsParams(
-            scope="x_app", output_dir=str(tmp_path),
-        ))
+        result = download_ui_components(
+            config,
+            auth,
+            DownloadUIComponentsParams(
+                scope="x_app",
+                output_dir=str(tmp_path),
+            ),
+        )
 
         assert result["success"] is True
         assert result["source_types"]["ui_action"]["count"] == 1
@@ -470,18 +563,28 @@ class TestDownloadUIComponents:
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_ui_page_multi_field_export(self, mock_query_all, config, auth, tmp_path):
-        ui_page = [{
-            "sys_id": "up-1", "name": "custom_page",
-            "description": "A custom page",
-            "sys_scope": "x_app", "sys_updated_on": "2026-04-01", "sys_updated_by": "admin",
-            "html": "<html><body>hello</body></html>",
-            "client_script": "alert('hi');",
-            "processing_script": "gs.log('processed');",
-        }]
+        ui_page = [
+            {
+                "sys_id": "up-1",
+                "name": "custom_page",
+                "description": "A custom page",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-04-01",
+                "sys_updated_by": "admin",
+                "html": "<html><body>hello</body></html>",
+                "client_script": "alert('hi');",
+                "processing_script": "gs.log('processed');",
+            }
+        ]
         mock_query_all.side_effect = [[], [], ui_page, []]
-        result = download_ui_components(config, auth, DownloadUIComponentsParams(
-            scope="x_app", output_dir=str(tmp_path),
-        ))
+        result = download_ui_components(
+            config,
+            auth,
+            DownloadUIComponentsParams(
+                scope="x_app",
+                output_dir=str(tmp_path),
+            ),
+        )
 
         page_dir = tmp_path / "x_app" / "sys_ui_page" / "custom_page"
         assert (page_dir / "html.html").exists()
@@ -493,9 +596,14 @@ class TestDownloadAPISources:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_downloads_rest_and_processor(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.side_effect = [_rest_records(), []]
-        result = download_api_sources(config, auth, DownloadAPISourcesParams(
-            scope="x_app", output_dir=str(tmp_path),
-        ))
+        result = download_api_sources(
+            config,
+            auth,
+            DownloadAPISourcesParams(
+                scope="x_app",
+                output_dir=str(tmp_path),
+            ),
+        )
 
         assert result["success"] is True
         assert result["source_types"]["scripted_rest"]["count"] == 1
@@ -510,9 +618,15 @@ class TestDownloadSecuritySources:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_acl_script_only_filter(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _acl_records()
-        result = download_security_sources(config, auth, DownloadSecuritySourcesParams(
-            scope="x_app", output_dir=str(tmp_path), acl_script_only=True,
-        ))
+        result = download_security_sources(
+            config,
+            auth,
+            DownloadSecuritySourcesParams(
+                scope="x_app",
+                output_dir=str(tmp_path),
+                acl_script_only=True,
+            ),
+        )
 
         assert result["success"] is True
         call_kwargs = mock_query_all.call_args[1]
@@ -521,9 +635,15 @@ class TestDownloadSecuritySources:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_acl_all_no_filter(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _acl_records()
-        download_security_sources(config, auth, DownloadSecuritySourcesParams(
-            scope="x_app", output_dir=str(tmp_path), acl_script_only=False,
-        ))
+        download_security_sources(
+            config,
+            auth,
+            DownloadSecuritySourcesParams(
+                scope="x_app",
+                output_dir=str(tmp_path),
+                acl_script_only=False,
+            ),
+        )
 
         call_kwargs = mock_query_all.call_args[1]
         assert "scriptISNOTEMPTY" not in call_kwargs["query"]
@@ -533,9 +653,14 @@ class TestDownloadAdminScripts:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_downloads_all_admin_types(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.side_effect = [_fix_script_records(), [], [], [], []]
-        result = download_admin_scripts(config, auth, DownloadAdminScriptsParams(
-            scope="x_app", output_dir=str(tmp_path),
-        ))
+        result = download_admin_scripts(
+            config,
+            auth,
+            DownloadAdminScriptsParams(
+                scope="x_app",
+                output_dir=str(tmp_path),
+            ),
+        )
 
         assert result["success"] is True
         assert result["source_types"]["fix_script"]["count"] == 1
@@ -546,14 +671,19 @@ class TestDownloadAdminScripts:
 # download_table_schema tests
 # ---------------------------------------------------------------------------
 
+
 class TestDownloadTableSchema:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_explicit_tables(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _dict_records()
-        result = download_table_schema(config, auth, DownloadTableSchemaParams(
-            tables=["x_app_request", "task"],
-            output_dir=str(tmp_path / "_schema"),
-        ))
+        result = download_table_schema(
+            config,
+            auth,
+            DownloadTableSchemaParams(
+                tables=["x_app_request", "task"],
+                output_dir=str(tmp_path / "_schema"),
+            ),
+        )
 
         assert result["success"] is True
         assert result["tables_requested"] == 2
@@ -581,23 +711,33 @@ class TestDownloadTableSchema:
             encoding="utf-8",
         )
         (si_dir / "_metadata.json").write_text(
-            json.dumps({"source_type": "script_include", "table": "sys_script_include", "sys_id": "x"}),
+            json.dumps(
+                {"source_type": "script_include", "table": "sys_script_include", "sys_id": "x"}
+            ),
             encoding="utf-8",
         )
 
         mock_query_all.return_value = _dict_records()[:2]
 
-        result = download_table_schema(config, auth, DownloadTableSchemaParams(
-            source_root=str(tmp_path),
-        ))
+        result = download_table_schema(
+            config,
+            auth,
+            DownloadTableSchemaParams(
+                source_root=str(tmp_path),
+            ),
+        )
 
         assert result["success"] is True
         assert result["tables_fetched"] >= 1
 
     def test_missing_source_root(self, config, auth):
-        result = download_table_schema(config, auth, DownloadTableSchemaParams(
-            source_root="/nonexistent/path",
-        ))
+        result = download_table_schema(
+            config,
+            auth,
+            DownloadTableSchemaParams(
+                source_root="/nonexistent/path",
+            ),
+        )
         assert result["success"] is False
         assert "not found" in result["message"]
 
@@ -608,9 +748,13 @@ class TestDownloadTableSchema:
 
     def test_empty_tables_list(self, config, auth, tmp_path):
         """Empty list is falsy → falls through to source_root check → error."""
-        result = download_table_schema(config, auth, DownloadTableSchemaParams(
-            tables=[],
-        ))
+        result = download_table_schema(
+            config,
+            auth,
+            DownloadTableSchemaParams(
+                tables=[],
+            ),
+        )
         # Empty list is falsy in Python, so params.tables check fails
         # → falls to source_root check → neither provided → error
         assert result["success"] is False
@@ -618,20 +762,28 @@ class TestDownloadTableSchema:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_schema_fetch_error_captured(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.side_effect = Exception("API limit exceeded")
-        result = download_table_schema(config, auth, DownloadTableSchemaParams(
-            tables=["x_app_request"],
-            output_dir=str(tmp_path / "_schema"),
-        ))
+        result = download_table_schema(
+            config,
+            auth,
+            DownloadTableSchemaParams(
+                tables=["x_app_request"],
+                output_dir=str(tmp_path / "_schema"),
+            ),
+        )
         assert result["success"] is True  # partial success
         assert len(result.get("warnings", [])) > 0
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_index_file_content(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _dict_records()
-        download_table_schema(config, auth, DownloadTableSchemaParams(
-            tables=["x_app_request"],
-            output_dir=str(tmp_path / "_schema"),
-        ))
+        download_table_schema(
+            config,
+            auth,
+            DownloadTableSchemaParams(
+                tables=["x_app_request"],
+                output_dir=str(tmp_path / "_schema"),
+            ),
+        )
 
         index = json.loads((tmp_path / "_schema" / "_index.json").read_text())
         assert "downloaded_at" in index
@@ -644,19 +796,36 @@ class TestDownloadTableSchema:
         br_dir.mkdir(parents=True)
         (br_dir / "script.js").write_text("// no GlideRecord", encoding="utf-8")
         (br_dir / "_metadata.json").write_text(
-            json.dumps({"source_type": "business_rule", "table": "sys_script",
-                        "sys_id": "x", "collection": "custom_table"}),
+            json.dumps(
+                {
+                    "source_type": "business_rule",
+                    "table": "sys_script",
+                    "sys_id": "x",
+                    "collection": "custom_table",
+                }
+            ),
             encoding="utf-8",
         )
 
         mock_query_all.return_value = [
-            {"name": "custom_table", "element": "field1", "column_label": "Field 1",
-             "internal_type": "string", "max_length": "40", "mandatory": "false", "reference": ""},
+            {
+                "name": "custom_table",
+                "element": "field1",
+                "column_label": "Field 1",
+                "internal_type": "string",
+                "max_length": "40",
+                "mandatory": "false",
+                "reference": "",
+            },
         ]
 
-        result = download_table_schema(config, auth, DownloadTableSchemaParams(
-            source_root=str(tmp_path),
-        ))
+        result = download_table_schema(
+            config,
+            auth,
+            DownloadTableSchemaParams(
+                source_root=str(tmp_path),
+            ),
+        )
 
         assert result["tables_fetched"] >= 1
         # Verify custom_table was included in the query
@@ -667,6 +836,7 @@ class TestDownloadTableSchema:
 # ---------------------------------------------------------------------------
 # Orchestrator tests
 # ---------------------------------------------------------------------------
+
 
 class TestDownloadAppSources:
     @patch("servicenow_mcp.tools.source_tools._fetch_and_write_schema")
@@ -680,12 +850,16 @@ class TestDownloadAppSources:
         mock_scan.return_value = set()
         mock_schema.return_value = ({}, [])
 
-        result = download_app_sources(config, auth, DownloadAppSourcesParams(
-            scope="x_app",
-            include_widget_sources=False,
-            include_schema=True,
-            output_dir=str(tmp_path),
-        ))
+        result = download_app_sources(
+            config,
+            auth,
+            DownloadAppSourcesParams(
+                scope="x_app",
+                include_widget_sources=False,
+                include_schema=True,
+                output_dir=str(tmp_path),
+            ),
+        )
 
         assert result["success"] is True
         # Should call sn_query_all for 7 groups (each with multiple types)
@@ -701,12 +875,16 @@ class TestDownloadAppSources:
         mock_scan.return_value = {"x_app_request"}
         mock_schema.return_value = ({"x_app_request": 3}, [])
 
-        result = download_app_sources(config, auth, DownloadAppSourcesParams(
-            scope="x_app",
-            include_widget_sources=False,
-            include_schema=True,
-            output_dir=str(tmp_path),
-        ))
+        result = download_app_sources(
+            config,
+            auth,
+            DownloadAppSourcesParams(
+                scope="x_app",
+                include_widget_sources=False,
+                include_schema=True,
+                output_dir=str(tmp_path),
+            ),
+        )
 
         manifest_path = tmp_path / "x_app" / "_manifest.json"
         assert manifest_path.exists()
@@ -724,12 +902,16 @@ class TestDownloadAppSources:
         mock_scan.return_value = {"task", "x_app_request"}
         mock_schema.return_value = ({"task": 5, "x_app_request": 3}, [])
 
-        result = download_app_sources(config, auth, DownloadAppSourcesParams(
-            scope="x_app",
-            include_widget_sources=False,
-            include_schema=True,
-            output_dir=str(tmp_path),
-        ))
+        result = download_app_sources(
+            config,
+            auth,
+            DownloadAppSourcesParams(
+                scope="x_app",
+                include_widget_sources=False,
+                include_schema=True,
+                output_dir=str(tmp_path),
+            ),
+        )
 
         assert result["schema_summary"]["tables_fetched"] == 2
         mock_schema.assert_called_once()
@@ -742,12 +924,16 @@ class TestDownloadAppSources:
     ):
         mock_query_all.return_value = []
 
-        result = download_app_sources(config, auth, DownloadAppSourcesParams(
-            scope="x_app",
-            include_widget_sources=False,
-            include_schema=False,
-            output_dir=str(tmp_path),
-        ))
+        result = download_app_sources(
+            config,
+            auth,
+            DownloadAppSourcesParams(
+                scope="x_app",
+                include_widget_sources=False,
+                include_schema=False,
+                output_dir=str(tmp_path),
+            ),
+        )
 
         mock_scan.assert_not_called()
         mock_schema.assert_not_called()
@@ -763,13 +949,17 @@ class TestDownloadAppSources:
         mock_scan.return_value = set()
         mock_schema.return_value = ({}, [])
 
-        download_app_sources(config, auth, DownloadAppSourcesParams(
-            scope="x_app",
-            include_widget_sources=False,
-            include_schema=False,
-            acl_script_only=True,
-            output_dir=str(tmp_path),
-        ))
+        download_app_sources(
+            config,
+            auth,
+            DownloadAppSourcesParams(
+                scope="x_app",
+                include_widget_sources=False,
+                include_schema=False,
+                acl_script_only=True,
+                output_dir=str(tmp_path),
+            ),
+        )
 
         # Find the call that queries ACL table
         for call in mock_query_all.call_args_list:
@@ -787,12 +977,16 @@ class TestDownloadAppSources:
             "servicenow_mcp.tools.source_tools.download_app_sources.__module__",
             "servicenow_mcp.tools.source_tools",
         ):
-            result = download_app_sources(config, auth, DownloadAppSourcesParams(
-                scope="x_app",
-                include_widget_sources=False,
-                include_schema=False,
-                output_dir=str(tmp_path),
-            ))
+            result = download_app_sources(
+                config,
+                auth,
+                DownloadAppSourcesParams(
+                    scope="x_app",
+                    include_widget_sources=False,
+                    include_schema=False,
+                    output_dir=str(tmp_path),
+                ),
+            )
 
         assert result["success"] is True
 
@@ -807,12 +1001,16 @@ class TestDownloadAppSources:
         mock_scan.return_value = set()
         mock_schema.return_value = ({}, [])
 
-        download_app_sources(config, auth, DownloadAppSourcesParams(
-            scope="x_app",
-            include_widget_sources=False,
-            include_schema=False,
-            output_dir=str(tmp_path),
-        ))
+        download_app_sources(
+            config,
+            auth,
+            DownloadAppSourcesParams(
+                scope="x_app",
+                include_widget_sources=False,
+                include_schema=False,
+                output_dir=str(tmp_path),
+            ),
+        )
 
         queried_tables = [c[1]["table"] for c in mock_query_all.call_args_list]
         assert "sp_header_footer" in queried_tables
@@ -824,6 +1022,7 @@ class TestDownloadAppSources:
 # File extension mapping tests
 # ---------------------------------------------------------------------------
 
+
 class TestFieldExtensions:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_business_rule_script_extension(self, mock_query_all, config, auth, tmp_path):
@@ -832,8 +1031,12 @@ class TestFieldExtensions:
         scope_root.mkdir()
 
         _download_source_types(
-            config, auth, scope="x_app", source_types=["business_rule"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["business_rule"],
+            scope_root=scope_root,
+            root=tmp_path,
         )
 
         br_dir = scope_root / "sys_script" / "Validate_Before_Insert"
@@ -846,8 +1049,12 @@ class TestFieldExtensions:
         scope_root.mkdir()
 
         _download_source_types(
-            config, auth, scope="x_app", source_types=["scripted_rest"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["scripted_rest"],
+            scope_root=scope_root,
+            root=tmp_path,
         )
 
         rest_dir = scope_root / "sys_ws_operation" / "Get_Request_Status"
@@ -860,8 +1067,12 @@ class TestFieldExtensions:
         scope_root.mkdir()
 
         _download_source_types(
-            config, auth, scope="x_app", source_types=["acl"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["acl"],
+            scope_root=scope_root,
+            root=tmp_path,
         )
 
         acl_dir = scope_root / "sys_security_acl" / "x_app_request.read"
@@ -871,6 +1082,7 @@ class TestFieldExtensions:
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
@@ -885,8 +1097,12 @@ class TestEdgeCases:
         scope_root.mkdir()
 
         result = _download_source_types(
-            config, auth, scope="x_app", source_types=["script_include"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
         )
         # Should not crash, last write wins
         assert result["type_results"]["script_include"]["count"] == 2
@@ -898,8 +1114,12 @@ class TestEdgeCases:
         scope_root.mkdir()
 
         _download_source_types(
-            config, auth, scope="x_app", source_types=["script_include"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
             max_per_type=99999,
         )
 
@@ -913,8 +1133,12 @@ class TestEdgeCases:
         scope_root.mkdir()
 
         _download_source_types(
-            config, auth, scope="x_app", source_types=["script_include"],
-            scope_root=scope_root, root=tmp_path,
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
             page_size=999,
         )
 

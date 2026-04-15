@@ -29,40 +29,54 @@ GLIDE_CONSTRUCTOR_RE = re.compile(
     r"\bnew\s+(?:global\.)?(GlideRecord|GlideRecordSecure|GlideAggregate)\s*\(\s*[\"']([a-z][a-z0-9_]{1,79})[\"']\s*\)",
     re.IGNORECASE,
 )
-SCRIPT_INCLUDE_CALL_RE = re.compile(
-    r"\bnew\s+(?:global\.)?([A-Z][A-Za-z0-9_]*)\s*\("
-)
-WIDGET_EMBED_RE = re.compile(
-    r"""<sp-widget\s+id=["']([^"']+)["']""", re.IGNORECASE
-)
-PROVIDER_INJECT_RE = re.compile(
-    r"""\$inject\s*=\s*\[([^\]]+)\]"""
-)
-GR_SET_TABLE_RE = re.compile(
-    r"""\.\s*setTableName\s*\(\s*["']([a-z][a-z0-9_]{1,79})["']\s*\)"""
-)
+SCRIPT_INCLUDE_CALL_RE = re.compile(r"\bnew\s+(?:global\.)?([A-Z][A-Za-z0-9_]*)\s*\(")
+WIDGET_EMBED_RE = re.compile(r"""<sp-widget\s+id=["']([^"']+)["']""", re.IGNORECASE)
+PROVIDER_INJECT_RE = re.compile(r"""\$inject\s*=\s*\[([^\]]+)\]""")
+GR_SET_TABLE_RE = re.compile(r"""\.\s*setTableName\s*\(\s*["']([a-z][a-z0-9_]{1,79})["']\s*\)""")
 ANGULAR_DEPENDENCY_RE = re.compile(
     r"""(?:factory|service|directive|filter|provider)\s*\(\s*["']([^"']+)["']""",
     re.IGNORECASE,
 )
-GS_INCLUDE_RE = re.compile(
-    r"""\bgs\.include\s*\(\s*["']([^"']+)["']\s*\)"""
-)
+GS_INCLUDE_RE = re.compile(r"""\bgs\.include\s*\(\s*["']([^"']+)["']\s*\)""")
 
 IGNORED_CLASSES = {
-    "GlideRecord", "GlideRecordSecure", "GlideAggregate", "GlideDateTime",
-    "GlideDuration", "GlideElement", "GlideAjax", "GlideSession",
-    "GlideSysAttachment", "GlideFilter", "GlidePluginManager",
-    "GlideEncrypter", "GlideUpdateManager", "GlideStringUtil",
-    "Object", "Array", "Date", "RegExp", "Error", "Promise", "Map", "Set",
-    "JSON", "Math", "Number", "String", "Boolean", "Function",
-    "XMLDocument", "XMLHttpRequest",
+    "GlideRecord",
+    "GlideRecordSecure",
+    "GlideAggregate",
+    "GlideDateTime",
+    "GlideDuration",
+    "GlideElement",
+    "GlideAjax",
+    "GlideSession",
+    "GlideSysAttachment",
+    "GlideFilter",
+    "GlidePluginManager",
+    "GlideEncrypter",
+    "GlideUpdateManager",
+    "GlideStringUtil",
+    "Object",
+    "Array",
+    "Date",
+    "RegExp",
+    "Error",
+    "Promise",
+    "Map",
+    "Set",
+    "JSON",
+    "Math",
+    "Number",
+    "String",
+    "Boolean",
+    "Function",
+    "XMLDocument",
+    "XMLHttpRequest",
 }
 
 
 # ---------------------------------------------------------------------------
 # Analysis functions
 # ---------------------------------------------------------------------------
+
 
 def _read_json(path: Path) -> Any:
     try:
@@ -87,8 +101,7 @@ def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
             continue
         record_dir = meta_file.parent
         source_files = [
-            f.name for f in record_dir.iterdir()
-            if f.is_file() and not f.name.startswith("_")
+            f.name for f in record_dir.iterdir() if f.is_file() and not f.name.startswith("_")
         ]
         # Count lines in source files
         total_lines = 0
@@ -99,19 +112,21 @@ def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
                 except Exception:
                     pass
 
-        entries.append({
-            "source_type": meta.get("source_type", ""),
-            "table": meta.get("table", ""),
-            "sys_id": meta.get("sys_id", ""),
-            "name": meta.get("name", record_dir.name),
-            "path": str(record_dir.relative_to(scope_root)),
-            "files": source_files,
-            "lines": total_lines,
-            "active": meta.get("active", "true"),
-            "collection": meta.get("collection", ""),
-            "when": meta.get("when", ""),
-            "order": meta.get("order", ""),
-        })
+        entries.append(
+            {
+                "source_type": meta.get("source_type", ""),
+                "table": meta.get("table", ""),
+                "sys_id": meta.get("sys_id", ""),
+                "name": meta.get("name", record_dir.name),
+                "path": str(record_dir.relative_to(scope_root)),
+                "files": source_files,
+                "lines": total_lines,
+                "active": meta.get("active", "true"),
+                "collection": meta.get("collection", ""),
+                "when": meta.get("when", ""),
+                "order": meta.get("order", ""),
+            }
+        )
     return entries
 
 
@@ -167,8 +182,10 @@ def _build_cross_references(
         name = entry["name"]
         record_dir = scope_root / entry["path"]
         all_refs: Dict[str, Set[str]] = {
-            "tables": set(), "script_includes": set(),
-            "widgets": set(), "providers": set(),
+            "tables": set(),
+            "script_includes": set(),
+            "widgets": set(),
+            "providers": set(),
         }
 
         for sf in record_dir.iterdir():
@@ -215,13 +232,15 @@ def _detect_orphans(
         if source_type not in ("script_include", "widget", "angular_provider"):
             continue
         if name not in incoming and entry.get("active", "true") != "false":
-            orphans.append({
-                "name": name,
-                "source_type": source_type,
-                "sys_id": entry["sys_id"],
-                "lines": entry["lines"],
-                "path": entry["path"],
-            })
+            orphans.append(
+                {
+                    "name": name,
+                    "source_type": source_type,
+                    "sys_id": entry["sys_id"],
+                    "lines": entry["lines"],
+                    "path": entry["path"],
+                }
+            )
 
     return orphans
 
@@ -294,13 +313,19 @@ def _validate_schema_references(
     for key, refs in incoming.items():
         if key.startswith("table:"):
             table = key[6:]
-            if table not in schemas and not table.startswith("sys_") and not table.startswith("cmdb_"):
-                issues.append({
-                    "type": "unknown_table",
-                    "table": table,
-                    "referenced_by": ", ".join(r["name"] for r in refs[:5]),
-                    "ref_count": str(len(refs)),
-                })
+            if (
+                table not in schemas
+                and not table.startswith("sys_")
+                and not table.startswith("cmdb_")
+            ):
+                issues.append(
+                    {
+                        "type": "unknown_table",
+                        "table": table,
+                        "referenced_by": ", ".join(r["name"] for r in refs[:5]),
+                        "ref_count": str(len(refs)),
+                    }
+                )
 
     return issues
 
@@ -505,7 +530,11 @@ def _generate_html_report(
         ("Total Lines", f"{total_lines:,}", "across all files"),
         ("Cross-References", str(total_refs), "outgoing links"),
         ("Orphans", str(len(orphans)), "potentially dead" if orphans else "all referenced"),
-        ("Schema Issues", str(len(schema_issues)), "tables to verify" if schema_issues else "clean"),
+        (
+            "Schema Issues",
+            str(len(schema_issues)),
+            "tables to verify" if schema_issues else "clean",
+        ),
         ("Exec Tables", str(len(execution_order)), "with BR/CS/ACL"),
     ]
     summary_cards = "\n".join(
@@ -522,7 +551,7 @@ def _generate_html_report(
         type_tables[e["source_type"]] = e["table"]
     type_breakdown_rows = "\n".join(
         f'<tr><td>{st}</td><td><code>{type_tables.get(st, "")}</code></td>'
-        f'<td>{type_counts[st]}</td><td>{type_lines[st]:,}</td></tr>'
+        f"<td>{type_counts[st]}</td><td>{type_lines[st]:,}</td></tr>"
         for st in sorted(type_counts, key=lambda x: -type_counts[x])
     )
 
@@ -533,7 +562,9 @@ def _generate_html_report(
             f'<td>{o["lines"]} lines</td><td><code>{o["path"]}</code></td></tr>'
             for o in sorted(orphans, key=lambda x: -x["lines"])
         )
-        orphan_content = f'<table><tr><th>Name</th><th>Size</th><th>Path</th></tr>{orphan_rows}</table>'
+        orphan_content = (
+            f"<table><tr><th>Name</th><th>Size</th><th>Path</th></tr>{orphan_rows}</table>"
+        )
         orphan_badge_class = "status-warn" if len(orphans) < 10 else "status-error"
         orphan_collapsed = ""
     else:
@@ -548,7 +579,7 @@ def _generate_html_report(
             f'<td>{i["referenced_by"]}</td><td>{i["ref_count"]}</td></tr>'
             for i in schema_issues
         )
-        schema_content = f'<table><tr><th>Table</th><th>Referenced By</th><th>Ref Count</th></tr>{schema_rows}</table>'
+        schema_content = f"<table><tr><th>Table</th><th>Referenced By</th><th>Ref Count</th></tr>{schema_rows}</table>"
         schema_badge_class = "status-warn"
         schema_collapsed = ""
     else:
@@ -577,11 +608,15 @@ def _generate_html_report(
                 )
                 parts.append(
                     f'<h4 style="color:var(--text2);font-size:0.85rem;margin:0.5rem 0 0.3rem">{label}</h4>'
-                    f'<table><tr><th>Name</th><th>When</th><th>Order</th><th>Status</th></tr>{rows}</table>'
+                    f"<table><tr><th>Name</th><th>When</th><th>Order</th><th>Status</th></tr>{rows}</table>"
                 )
-        parts.append('</div>')
+        parts.append("</div>")
         exec_parts.append("\n".join(parts))
-    execution_order_content = "\n".join(exec_parts) if exec_parts else '<p class="status-ok">No execution order entries found.</p>'
+    execution_order_content = (
+        "\n".join(exec_parts)
+        if exec_parts
+        else '<p class="status-ok">No execution order entries found.</p>'
+    )
 
     # --- Cross-references ---
     outgoing = cross_refs.get("outgoing", {})
@@ -600,12 +635,13 @@ def _generate_html_report(
             ref_tags.append(_tag("tag-acl", p))
         if ref_tags:
             xref_rows.append(
-                f'<tr><td><strong>{source_name}</strong></td>'
+                f"<tr><td><strong>{source_name}</strong></td>"
                 f'<td><div class="ref-list">{"".join(ref_tags)}</div></td></tr>'
             )
     xref_content = (
         f'<table><tr><th>Source</th><th>References</th></tr>{"".join(xref_rows)}</table>'
-        if xref_rows else '<p class="status-ok">No cross-references found.</p>'
+        if xref_rows
+        else '<p class="status-ok">No cross-references found.</p>'
     )
 
     # --- Source index ---
@@ -673,8 +709,10 @@ def _generate_domain_knowledge(
     # --- Header ---
     sections.append(f"# Domain Knowledge: {scope}\n")
     sections.append(f"> Auto-generated by audit_local_sources at {timestamp}")
-    sections.append(f"> {len(source_index)} sources, {total_lines:,} lines, "
-                     f"{len(execution_order)} tables with server logic\n")
+    sections.append(
+        f"> {len(source_index)} sources, {total_lines:,} lines, "
+        f"{len(execution_order)} tables with server logic\n"
+    )
 
     # --- App Structure Overview ---
     sections.append("## App Structure\n")
@@ -700,8 +738,7 @@ def _generate_domain_knowledge(
             parts = []
             if brs:
                 br_desc = ", ".join(
-                    f"{br['name']}({br.get('when', '?')}/{br.get('order', '?')})"
-                    for br in brs
+                    f"{br['name']}({br.get('when', '?')}/{br.get('order', '?')})" for br in brs
                 )
                 parts.append(f"BR: {br_desc}")
             if css_list:
@@ -724,10 +761,7 @@ def _generate_domain_knowledge(
 
     # --- Script Include Dependency Map ---
     si_entries = [e for e in source_index if e["source_type"] == "script_include"]
-    connected_sis = [
-        e for e in si_entries
-        if outgoing.get(e["name"]) or incoming.get(e["name"])
-    ]
+    connected_sis = [e for e in si_entries if outgoing.get(e["name"]) or incoming.get(e["name"])]
     if connected_sis:
         sections.append("## Script Include Dependencies\n")
         for e in sorted(connected_sis, key=lambda x: -x["lines"]):
@@ -757,7 +791,9 @@ def _generate_domain_knowledge(
             warnings_added = True
         sections.append("### Dead Code Candidates\n")
         for o in sorted(orphans, key=lambda x: -x["lines"]):
-            sections.append(f"- **{o['name']}** ({o['source_type']}, {o['lines']} lines) — not referenced by any source")
+            sections.append(
+                f"- **{o['name']}** ({o['source_type']}, {o['lines']} lines) — not referenced by any source"
+            )
         sections.append("")
 
     complex_sources = [e for e in source_index if e["lines"] > 200]
@@ -772,7 +808,8 @@ def _generate_domain_knowledge(
 
     # --- Hub Scripts (called by 3+ sources) ---
     hubs = [
-        (name, refs) for name, refs in incoming.items()
+        (name, refs)
+        for name, refs in incoming.items()
         if not name.startswith("table:") and len(refs) >= 3
     ]
     if hubs:
@@ -803,6 +840,7 @@ def _generate_domain_knowledge(
 # ---------------------------------------------------------------------------
 # MCP Tool
 # ---------------------------------------------------------------------------
+
 
 class AuditAppSourcesParams(BaseModel):
     source_root: str = Field(
@@ -865,7 +903,12 @@ def audit_local_sources(
 
     # 6. Generate domain knowledge units
     domain_stats = _generate_domain_knowledge(
-        scope_root, scope, source_index, cross_refs, orphans, execution_order,
+        scope_root,
+        scope,
+        source_index,
+        cross_refs,
+        orphans,
+        execution_order,
     )
 
     # 8. Write JSON data files
@@ -873,10 +916,13 @@ def audit_local_sources(
         json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     _dl_write(scope_root / "_source_index.json", source_index)
-    _dl_write(scope_root / "_cross_references.json", {
-        "outgoing": cross_refs["outgoing"],
-        "incoming": cross_refs["incoming"],
-    })
+    _dl_write(
+        scope_root / "_cross_references.json",
+        {
+            "outgoing": cross_refs["outgoing"],
+            "incoming": cross_refs["incoming"],
+        },
+    )
     _dl_write(scope_root / "_orphans.json", orphans)
     _dl_write(scope_root / "_execution_order.json", execution_order)
     if schema_issues:
@@ -892,7 +938,9 @@ def audit_local_sources(
         execution_order=execution_order,
         schema_issues=schema_issues,
     )
-    report_path = Path(params.output_file) if params.output_file else scope_root / "_audit_report.html"
+    report_path = (
+        Path(params.output_file) if params.output_file else scope_root / "_audit_report.html"
+    )
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(html, encoding="utf-8")
 

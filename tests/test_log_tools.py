@@ -93,7 +93,15 @@ class TestGetLogsSystemType(unittest.TestCase):
     @patch("servicenow_mcp.tools.log_tools.sn_query_page")
     def test_system_basic_query(self, mock_qp):
         mock_qp.return_value = (
-            [{"sys_id": "1", "level": "error", "source": "Script", "message": "NullPointerException", "sys_created_on": "2026-04-15"}],
+            [
+                {
+                    "sys_id": "1",
+                    "level": "error",
+                    "source": "Script",
+                    "message": "NullPointerException",
+                    "sys_created_on": "2026-04-15",
+                }
+            ],
             1,
         )
 
@@ -108,9 +116,14 @@ class TestGetLogsSystemType(unittest.TestCase):
     def test_system_level_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="system", level="error",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="system",
+                level="error",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertIn("level=error", kwargs["query"])
@@ -119,9 +132,14 @@ class TestGetLogsSystemType(unittest.TestCase):
     def test_system_source_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="system", source="BusinessRule",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="system",
+                source="BusinessRule",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertIn("sourceLIKEBusinessRule", kwargs["query"])
@@ -130,9 +148,14 @@ class TestGetLogsSystemType(unittest.TestCase):
     def test_system_contains_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="system", contains="NullPointer",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="system",
+                contains="NullPointer",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertIn("messageLIKENullPointer", kwargs["query"])
@@ -141,10 +164,17 @@ class TestGetLogsSystemType(unittest.TestCase):
     def test_system_combined_filters(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="system", level="error", source="BR", contains="fail",
-            timeframe="last_hour",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="system",
+                level="error",
+                source="BR",
+                contains="fail",
+                timeframe="last_hour",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         query = kwargs["query"]
@@ -156,13 +186,26 @@ class TestGetLogsSystemType(unittest.TestCase):
     @patch("servicenow_mcp.tools.log_tools.sn_query_page")
     def test_system_text_truncation(self, mock_qp):
         mock_qp.return_value = (
-            [{"sys_id": "1", "level": "error", "source": "x", "message": "A" * 900, "sys_created_on": "2026-04-15"}],
+            [
+                {
+                    "sys_id": "1",
+                    "level": "error",
+                    "source": "x",
+                    "message": "A" * 900,
+                    "sys_created_on": "2026-04-15",
+                }
+            ],
             1,
         )
 
-        result = get_logs(self.config, self.auth, GetLogsParams(
-            log_type="system", max_text_length=200,
-        ))
+        result = get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="system",
+                max_text_length=200,
+            ),
+        )
 
         self.assertTrue(result["results"][0]["message"].endswith(")"))
         self.assertLessEqual(len(result["results"][0]["message"]), 300)
@@ -179,9 +222,14 @@ class TestGetLogsJournalType(unittest.TestCase):
     def test_journal_table_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="journal", table="incident",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="journal",
+                table="incident",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertEqual(kwargs["table"], "sys_journal_field")
@@ -191,9 +239,14 @@ class TestGetLogsJournalType(unittest.TestCase):
     def test_journal_record_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="journal", record_sys_id="abc123",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="journal",
+                record_sys_id="abc123",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertIn("element_id=abc123", kwargs["query"])
@@ -202,9 +255,14 @@ class TestGetLogsJournalType(unittest.TestCase):
     def test_journal_field_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="journal", field_name="work_notes",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="journal",
+                field_name="work_notes",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertIn("element=work_notes", kwargs["query"])
@@ -213,9 +271,14 @@ class TestGetLogsJournalType(unittest.TestCase):
     def test_journal_created_by_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="journal", created_by="admin",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="journal",
+                created_by="admin",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertIn("sys_created_by=admin", kwargs["query"])
@@ -232,9 +295,14 @@ class TestGetLogsTransactionType(unittest.TestCase):
     def test_transaction_url_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="transaction", url_contains="/api/now/table",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="transaction",
+                url_contains="/api/now/table",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertEqual(kwargs["table"], "syslog_transaction")
@@ -244,9 +312,14 @@ class TestGetLogsTransactionType(unittest.TestCase):
     def test_transaction_status_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="transaction", response_status="500",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="transaction",
+                response_status="500",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertIn("response_status=500", kwargs["query"])
@@ -255,9 +328,14 @@ class TestGetLogsTransactionType(unittest.TestCase):
     def test_transaction_slow_request_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="transaction", min_response_time_ms=5000,
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="transaction",
+                min_response_time_ms=5000,
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertIn("response_time>=5000", kwargs["query"])
@@ -274,9 +352,14 @@ class TestGetLogsBackgroundType(unittest.TestCase):
     def test_background_name_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="background", name="DataMigration",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="background",
+                name="DataMigration",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertEqual(kwargs["table"], "sys_execution_tracker")
@@ -286,9 +369,14 @@ class TestGetLogsBackgroundType(unittest.TestCase):
     def test_background_state_filter(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="background", state="running",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="background",
+                state="running",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertIn("state=running", kwargs["query"])
@@ -311,9 +399,14 @@ class TestGetLogsSafetyAndEdgeCases(unittest.TestCase):
     def test_limit_clamped(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        result = get_logs(self.config, self.auth, GetLogsParams(
-            log_type="system", limit=999,
-        ))
+        result = get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="system",
+                limit=999,
+            ),
+        )
 
         self.assertEqual(result["limit_applied"], 20)
 
@@ -321,9 +414,14 @@ class TestGetLogsSafetyAndEdgeCases(unittest.TestCase):
     def test_offset_applied(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="system", offset=50,
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="system",
+                offset=50,
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertEqual(kwargs["offset"], 50)
@@ -332,9 +430,14 @@ class TestGetLogsSafetyAndEdgeCases(unittest.TestCase):
     def test_timeframe_all(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="system", timeframe="all",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="system",
+                timeframe="all",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         # 'all' means no timeframe filter
@@ -354,9 +457,14 @@ class TestGetLogsSafetyAndEdgeCases(unittest.TestCase):
     def test_raw_query_appended(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="system", query="sys_scope=x_app",
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="system",
+                query="sys_scope=x_app",
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertIn("sys_scope=x_app", kwargs["query"])
@@ -393,11 +501,15 @@ class TestGetLogsSafetyAndEdgeCases(unittest.TestCase):
         """Filters for other log types should not appear in query."""
         mock_qp.return_value = ([], 0)
 
-        get_logs(self.config, self.auth, GetLogsParams(
-            log_type="system",
-            url_contains="/api",  # transaction filter, should be ignored for system
-            record_sys_id="abc",  # journal filter, should be ignored for system
-        ))
+        get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(
+                log_type="system",
+                url_contains="/api",  # transaction filter, should be ignored for system
+                record_sys_id="abc",  # journal filter, should be ignored for system
+            ),
+        )
 
         _, kwargs = mock_qp.call_args
         self.assertNotIn("url", kwargs["query"])
@@ -416,7 +528,9 @@ class TestLogTypeRegistry(unittest.TestCase):
             self.assertIn("filters", cfg, f"{name} missing filters")
 
     def test_four_log_types_exist(self):
-        self.assertEqual(sorted(LOG_TYPES.keys()), ["background", "journal", "system", "transaction"])
+        self.assertEqual(
+            sorted(LOG_TYPES.keys()), ["background", "journal", "system", "transaction"]
+        )
 
     def test_filters_are_tuples(self):
         for name, cfg in LOG_TYPES.items():
