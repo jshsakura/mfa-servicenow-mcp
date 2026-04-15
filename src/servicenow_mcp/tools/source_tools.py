@@ -449,6 +449,44 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         "search_fields": ["id", "template"],
         "lookup_fields": ["sys_id", "id"],
     },
+    "sp_page": {
+        "table": "sp_page",
+        "identifier_field": "id",
+        "summary_fields": [
+            "sys_id",
+            "id",
+            "title",
+            "description",
+            "category",
+            "internal",
+            "public",
+            "sys_scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": [],
+        "search_fields": ["id", "title", "description"],
+        "lookup_fields": ["sys_id", "id"],
+    },
+    "sp_instance": {
+        "table": "sp_instance",
+        "identifier_field": "sys_id",
+        "summary_fields": [
+            "sys_id",
+            "sp_page",
+            "sp_widget",
+            "sp_column",
+            "widget_parameters",
+            "order",
+            "title",
+            "sys_scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": [],
+        "search_fields": ["title", "widget_parameters"],
+        "lookup_fields": ["sys_id"],
+    },
 }
 
 
@@ -1491,6 +1529,7 @@ def _download_source_types(
     page_size: int = DEFAULT_DOWNLOAD_PAGE_SIZE,
     only_active: bool = False,
     extra_query: Optional[Dict[str, str]] = None,
+    include_global: bool = False,
 ) -> Dict[str, Any]:
     """Core download loop shared by all individual download tools.
 
@@ -1516,22 +1555,25 @@ def _download_source_types(
         source_cfg = SOURCE_CONFIG[source_type]
         table = source_cfg["table"]
 
-        query_parts: List[str] = [f"sys_scope.scope={scope}"]
+        if include_global:
+            query_parts: List[str] = [f"sys_scope.scope={scope}^ORsys_scope.scope=global"]
+        else:
+            query_parts: List[str] = [f"sys_scope.scope={scope}"]
         if only_active and table in _ACTIVE_SUPPORTED_TABLES:
             query_parts.append("active=true")
         if source_type in extra_query:
             query_parts.append(extra_query[source_type])
         query = "^".join(query_parts)
 
-        fields = source_cfg["summary_fields"] + source_cfg["source_fields"]
-
+        # --- Pass 1: metadata only (lightweight, large pages OK) ---
+        summary_fields = source_cfg["summary_fields"]
         try:
             records = sn_query_all(
                 config,
                 auth_manager,
                 table=table,
                 query=query,
-                fields=",".join(fields),
+                fields=",".join(summary_fields),
                 page_size=page_size,
                 max_records=max_per_type,
                 display_value=False,
@@ -1551,8 +1593,9 @@ def _download_source_types(
         sync_meta: Dict[str, Dict[str, str]] = {}
         now_iso = datetime.now(timezone.utc).isoformat()
         type_file_count = 0
-        _retry_records: List[tuple] = []
+        source_fields_str = ",".join(source_cfg["source_fields"])
 
+        # --- Pass 2: fetch source per record (1 API call each, no truncation) ---
         for record in records:
             sys_id = str(record.get("sys_id") or "")
             identifier_field = source_cfg["identifier_field"]
@@ -1564,7 +1607,7 @@ def _download_source_types(
                 "table": table,
                 "sys_id": sys_id,
             }
-            for sf in source_cfg["summary_fields"]:
+            for sf in summary_fields:
                 val = record.get(sf)
                 if val is not None:
                     metadata[sf] = str(val) if not isinstance(val, str) else val
@@ -1572,19 +1615,29 @@ def _download_source_types(
             record_dir = type_dir / safe_name
             _dl_write_json(record_dir / "_metadata.json", metadata)
 
-            record_has_source = False
-            for source_field in source_cfg["source_fields"]:
-                content = record.get(source_field)
-                if not content or not isinstance(content, str) or not content.strip():
-                    continue
-                record_has_source = True
-                ext = _FIELD_EXTENSIONS.get(source_field, ".txt")
-                _dl_write_file(record_dir / f"{source_field}{ext}", content)
-                type_file_count += 1
-
-            if not record_has_source and sys_id:
-                # Batch page may have truncated source — retry single record
-                _retry_records.append((sys_id, safe_name, record_dir))
+            if sys_id:
+                try:
+                    src_rows, _ = sn_query_page(
+                        config,
+                        auth_manager,
+                        table=table,
+                        query=f"sys_id={sys_id}",
+                        fields=source_fields_str,
+                        limit=1,
+                        offset=0,
+                        display_value=False,
+                        no_count=True,
+                    )
+                    if src_rows:
+                        for source_field in source_cfg["source_fields"]:
+                            content = src_rows[0].get(source_field)
+                            if not content or not isinstance(content, str) or not content.strip():
+                                continue
+                            ext = _FIELD_EXTENSIONS.get(source_field, ".txt")
+                            _dl_write_file(record_dir / f"{source_field}{ext}", content)
+                            type_file_count += 1
+                except Exception as exc:
+                    warnings.append(f"{source_type}/{safe_name}: source fetch failed — {exc}")
 
             name_map[safe_name] = sys_id
             sync_meta[safe_name] = {
@@ -1602,49 +1655,6 @@ def _download_source_types(
                     "path": str(record_dir.relative_to(root)),
                 }
             )
-
-        # --- Retry: individually re-fetch records whose source came back empty ---
-        if _retry_records:
-            source_fields_str = ",".join(source_cfg["source_fields"])
-            retry_ok = 0
-            for rid, rname, rdir in _retry_records:
-                try:
-                    single_rows, _ = sn_query_page(
-                        config,
-                        auth_manager,
-                        table=table,
-                        query=f"sys_id={rid}",
-                        fields=source_fields_str,
-                        limit=1,
-                        offset=0,
-                        display_value=False,
-                        no_count=True,
-                    )
-                    if single_rows:
-                        row = single_rows[0]
-                        got_source = False
-                        for sf in source_cfg["source_fields"]:
-                            content = row.get(sf)
-                            if content and isinstance(content, str) and content.strip():
-                                got_source = True
-                                ext = _FIELD_EXTENSIONS.get(sf, ".txt")
-                                _dl_write_file(rdir / f"{sf}{ext}", content)
-                                type_file_count += 1
-                        if got_source:
-                            retry_ok += 1
-                        else:
-                            warnings.append(
-                                f"{source_type}/{rname}: source empty even on individual fetch"
-                            )
-                except Exception as exc:
-                    warnings.append(f"{source_type}/{rname}: retry failed — {exc}")
-            if _retry_records:
-                logger.info(
-                    "%s: retried %d empty records, recovered %d",
-                    source_type,
-                    len(_retry_records),
-                    retry_ok,
-                )
 
         _dl_write_json(type_dir / "_map.json", name_map)
         _dl_write_json(type_dir / "_sync_meta.json", sync_meta)
@@ -2167,6 +2177,10 @@ class DownloadAppSourcesParams(BaseModel):
     )
     only_active: bool = Field(default=False, description="Download only active records.")
     acl_script_only: bool = Field(default=True, description="Only download ACLs with scripts.")
+    include_global: bool = Field(
+        default=True,
+        description="Include global scope components (shared widgets, providers, etc.) in addition to the app scope.",
+    )
     output_dir: Optional[str] = Field(default=None, description="Custom output directory.")
 
 
@@ -2252,6 +2266,7 @@ def download_app_sources(
         ["acl"],
         ["fix_script", "scheduled_job", "script_action", "email_notification", "transform_script"],
         ["angular_provider", "sp_header_footer", "sp_css", "ng_template"],
+        ["sp_page", "sp_instance"],
     ]
     extra_query: Dict[str, str] = {}
     if params.acl_script_only:
@@ -2269,6 +2284,7 @@ def download_app_sources(
             page_size=params.page_size,
             only_active=params.only_active,
             extra_query=extra_query,
+            include_global=params.include_global,
         )
         all_type_results.update(dl["type_results"])
         all_manifest_entries.extend(dl["manifest_entries"])
