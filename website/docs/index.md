@@ -67,7 +67,7 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.7;">
-      Works with Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI, and more.<br>
+      Works with Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI, Zed, and more.<br>
       Your AI detects the client and OS, then walks you through setup interactively.<br>
       After setup, <strong>restart your AI client</strong> to load the MCP server.
     </p>

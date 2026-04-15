@@ -37,6 +37,7 @@ You are setting up **mfa-servicenow-mcp** — an MCP server that gives AI agents
 | You are inside Windsurf IDE or `.windsurf/` exists | **windsurf** |
 | You are inside VS Code with Copilot | **vscode-copilot** |
 | You are inside Gemini CLI | **gemini** |
+| You are inside Zed editor or `~/.config/zed/` exists | **zed** |
 | None of the above | Ask the user which client they use |
 
 3. If you cannot auto-detect, ask:
@@ -49,7 +50,8 @@ You are setting up **mfa-servicenow-mcp** — an MCP server that gives AI agents
    > 6. Windsurf
    > 7. VS Code Copilot
    > 8. Gemini CLI
-   > 9. AntiGravity (Google)
+   > 9. Zed
+   > 10. AntiGravity (Google)
 
 Store the result as `$CLIENT`.
 
@@ -375,6 +377,37 @@ Works with Gemini CLI. Config file: `~/.gemini/settings.json` (merge into existi
 
 ---
 
+#### zed
+
+Config file: `~/.config/zed/settings.json` (macOS/Linux)
+
+Merge the `context_servers` block into the existing `settings.json` — do NOT overwrite the entire file.
+
+```json
+{
+  "context_servers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
+        "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "$INSTANCE_URL",
+        "SERVICENOW_AUTH_TYPE": "$AUTH_TYPE",
+        "SERVICENOW_BROWSER_HEADLESS": "$HEADLESS",
+        "SERVICENOW_USERNAME": "$USERNAME",
+        "SERVICENOW_PASSWORD": "$PASSWORD",
+        "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
+      }
+    }
+  }
+}
+```
+
+---
+
 #### antigravity
 
 Config file:
@@ -423,6 +456,7 @@ If yes, determine the skill target from `$CLIENT`:
 | gemini | `gemini` | `.gemini/skills/servicenow/` |
 | cursor | — | Not yet supported (use CLAUDE.md rules instead) |
 | windsurf | — | Not yet supported |
+| zed | — | Not yet supported |
 | vscode-copilot | — | Not yet supported |
 | claude-desktop | — | Not applicable (no project workspace) |
 
