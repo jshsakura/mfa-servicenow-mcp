@@ -67,7 +67,10 @@ def _pick_first_resolved(*values: str | None) -> str | None:
 
 def parse_args():
     """Parse command-line arguments."""
+    from servicenow_mcp.version import get_version
+
     parser = argparse.ArgumentParser(description="ServiceNow MCP Server")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {get_version()}")
 
     # Server configuration
     parser.add_argument(
