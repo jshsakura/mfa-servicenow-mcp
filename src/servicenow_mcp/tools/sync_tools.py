@@ -38,7 +38,40 @@ WIDGET_FILE_FIELD_MAP: Dict[str, str] = {
     "css.scss": "css",
 }
 
-SUPPORTED_TABLES: Set[str] = {"sp_widget", "sp_angular_provider", "sys_script_include"}
+TABLE_FILE_FIELD_MAP: Dict[str, Dict[str, str]] = {
+    "sp_widget": WIDGET_FILE_FIELD_MAP,
+    "sp_angular_provider": {".script.js": "script"},
+    "sys_script_include": {".script.js": "script"},
+    "sp_header_footer": {
+        "template.html": "template",
+        "css.scss": "css",
+    },
+    "sp_css": {".css.scss": "css"},
+    "sp_ng_template": {".template.html": "template"},
+    "sys_ui_page": {
+        "html.html": "html",
+        "client_script.js": "client_script",
+        "processing_script.js": "processing_script",
+    },
+}
+
+FOLDER_TABLES: Set[str] = {"sp_widget", "sp_header_footer", "sys_ui_page"}
+SINGLE_FILE_TABLES: Set[str] = {
+    "sp_angular_provider",
+    "sys_script_include",
+    "sp_css",
+    "sp_ng_template",
+}
+
+SUPPORTED_TABLES: Set[str] = {
+    "sp_widget",
+    "sp_angular_provider",
+    "sys_script_include",
+    "sp_header_footer",
+    "sp_css",
+    "sp_ng_template",
+    "sys_ui_page",
+}
 
 MAX_DIFF_LINES = 120
 
@@ -164,33 +197,42 @@ def _is_download_root(path: Path) -> bool:
 
 
 def _resolve_local_path(path: Path) -> _ResolvedComponent:
-    """Resolve a local file or widget directory to its ServiceNow component identity.
+    """Resolve a local file or directory to its ServiceNow component identity.
 
-    Supported structures:
-      .../sp_widget/<folder>/script.js        -> (sp_widget, field from filename)
-      .../sp_widget/<folder>/                 -> (sp_widget, all editable fields)
-      .../sp_angular_provider/<name>.script.js -> (sp_angular_provider, script)
-      .../sys_script_include/<name>.script.js  -> (sys_script_include, script)
+    Folder-based tables (sp_widget, sp_header_footer, sys_ui_page):
+      .../sp_widget/<folder>/script.js          -> (sp_widget, script)
+      .../sp_header_footer/<folder>/template.html -> (sp_header_footer, template)
+      .../sys_ui_page/<folder>/html.html        -> (sys_ui_page, html)
+
+    Single-file tables (sp_angular_provider, sys_script_include, sp_css, sp_ng_template):
+      .../sp_angular_provider/<name>.script.js   -> (sp_angular_provider, script)
+      .../sp_css/<name>.css.scss                 -> (sp_css, css)
+      .../sp_ng_template/<name>.template.html    -> (sp_ng_template, template)
     """
     path = path.expanduser().resolve()
 
-    # Case 1: widget directory
+    # Case 1: Directory -> folder-based table
     if path.is_dir():
         table_dir = path.parent
-        if table_dir.name != "sp_widget":
+        table_name = table_dir.name
+        if table_name not in FOLDER_TABLES:
             raise ValueError(
-                f"Directory push is only supported for widget folders under sp_widget/. Got: {path}"
+                f"Directory push is only supported for folder-based tables "
+                f"({', '.join(sorted(FOLDER_TABLES))}). Got: {table_name}"
             )
         folder_name = path.name
         map_data = _read_map_json(table_dir)
         sys_id = map_data.get(folder_name)
         if not sys_id:
             raise ValueError(
-                f"Widget '{folder_name}' not found in {table_dir / '_map.json'}. "
+                f"Component '{folder_name}' not found in {table_dir / '_map.json'}. "
                 f"Re-download sources first."
             )
+        file_field_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
         fields: Dict[str, Path] = {}
-        for filename, field_name in WIDGET_FILE_FIELD_MAP.items():
+        for filename, field_name in file_field_map.items():
+            if filename.startswith("."):
+                continue
             fpath = path / filename
             if fpath.exists():
                 fields[field_name] = fpath
@@ -199,7 +241,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         scope_root = table_dir.parent
         settings = _find_settings_json(scope_root)
         return _ResolvedComponent(
-            table="sp_widget",
+            table=table_name,
             sys_id=sys_id,
             name=folder_name,
             fields=fields,
@@ -207,33 +249,34 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             instance_url=settings.get("url", ""),
         )
 
-    # Case 2: single file
+    # Case 2: File
     if not path.is_file():
         raise ValueError(f"Path does not exist: {path}")
 
     parent = path.parent
     grandparent = parent.parent
 
-    # Widget file: .../sp_widget/<folder>/<filename>
-    if grandparent.name == "sp_widget":
-        table = "sp_widget"
+    # Case 2a: File inside a folder-based table directory
+    #   e.g. .../sp_widget/<folder>/script.js
+    #   e.g. .../sp_header_footer/<folder>/template.html
+    if grandparent.name in FOLDER_TABLES:
+        table_name = grandparent.name
         folder_name = parent.name
         table_dir = grandparent
         filename = path.name
-        field_name = WIDGET_FILE_FIELD_MAP.get(filename)  # type: ignore[assignment]
+        file_field_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
+        field_name = file_field_map.get(filename)
         if not field_name:
-            raise ValueError(
-                f"Unknown widget file '{filename}'. "
-                f"Supported: {', '.join(sorted(WIDGET_FILE_FIELD_MAP))}"
-            )
+            supported = ", ".join(k for k in sorted(file_field_map) if not k.startswith("."))
+            raise ValueError(f"Unknown file '{filename}' for {table_name}. Supported: {supported}")
         map_data = _read_map_json(table_dir)
         sys_id = map_data.get(folder_name)
         if not sys_id:
-            raise ValueError(f"Widget '{folder_name}' not found in {table_dir / '_map.json'}")
+            raise ValueError(f"Component '{folder_name}' not found in {table_dir / '_map.json'}")
         scope_root = table_dir.parent
         settings = _find_settings_json(scope_root)
         return _ResolvedComponent(
-            table=table,
+            table=table_name,
             sys_id=sys_id,
             name=folder_name,
             fields={field_name: path},
@@ -241,15 +284,29 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             instance_url=settings.get("url", ""),
         )
 
-    # Provider or SI file: .../sp_angular_provider/<name>.script.js
-    if parent.name in ("sp_angular_provider", "sys_script_include"):
-        table = parent.name
+    # Case 2b: Single file in a single-file table directory
+    #   e.g. .../sp_angular_provider/<name>.script.js
+    #   e.g. .../sp_css/<name>.css.scss
+    if parent.name in SINGLE_FILE_TABLES:
+        table_name = parent.name
         table_dir = parent
         stem = path.name
-        if stem.endswith(".script.js"):
-            component_name = stem[: -len(".script.js")]
-        else:
-            component_name = path.stem
+
+        file_field_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
+        matched_field = None
+        component_name = None
+        for suffix_pattern, field_name in file_field_map.items():
+            if suffix_pattern.startswith(".") and stem.endswith(suffix_pattern):
+                matched_field = field_name
+                component_name = stem[: -len(suffix_pattern)]
+                break
+
+        if not matched_field or not component_name:
+            raise ValueError(
+                f"Cannot parse filename '{stem}' for table {table_name}. "
+                f"Expected suffix: {', '.join(file_field_map.keys())}"
+            )
+
         map_data = _read_map_json(table_dir)
         sys_id = _reverse_lookup_map(map_data, component_name)
         if not sys_id:
@@ -258,17 +315,18 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         scope_root = table_dir.parent
         settings = _find_settings_json(scope_root)
         return _ResolvedComponent(
-            table=table,
+            table=table_name,
             sys_id=sys_id,
             name=original_name or component_name,
-            fields={"script": path},
+            fields={matched_field: path},
             scope_root=scope_root,
             instance_url=settings.get("url", ""),
         )
 
+    supported_tables = sorted(FOLDER_TABLES | SINGLE_FILE_TABLES)
     raise ValueError(
         f"Cannot resolve '{path}' to a ServiceNow component. "
-        f"Expected path under sp_widget/, sp_angular_provider/, or sys_script_include/"
+        f"Expected path under one of: {', '.join(supported_tables)}"
     )
 
 
@@ -381,15 +439,23 @@ def _scan_download_root(
                 remote_updated_on = remote_timestamps.get(sys_id, "")
                 has_sync_meta = bool(local_updated_on)
 
-                if table_name == "sp_widget":
+                if table_name in FOLDER_TABLES:
                     folder = table_dir / _safe_name(name)
+                    file_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
                     local_files = [
-                        str(folder / fn) for fn in WIDGET_FILE_FIELD_MAP if (folder / fn).exists()
+                        str(folder / fn)
+                        for fn in file_map
+                        if not fn.startswith(".") and (folder / fn).exists()
                     ]
                 else:
                     safe = _safe_name(name)
-                    fpath = table_dir / f"{safe}.script.js"
-                    local_files = [str(fpath)] if fpath.exists() else []
+                    file_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
+                    local_files = []
+                    for suffix_pattern in file_map:
+                        if suffix_pattern.startswith("."):
+                            fpath = table_dir / f"{safe}{suffix_pattern}"
+                            if fpath.exists():
+                                local_files.append(str(fpath))
 
                 if not local_files:
                     continue
