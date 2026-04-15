@@ -912,9 +912,10 @@ def audit_local_sources(
     )
 
     # 8. Write JSON data files
-    _dl_write = lambda p, d: p.parent.mkdir(parents=True, exist_ok=True) or p.write_text(
-        json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    def _dl_write(p: Path, d: Any) -> None:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8")
+
     _dl_write(scope_root / "_source_index.json", source_index)
     _dl_write(
         scope_root / "_cross_references.json",

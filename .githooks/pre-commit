@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pre-commit hook: black formatting check
+# Pre-commit hook: isort + black + ruff
 # Install: git config core.hooksPath .githooks
 
 staged_py=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
@@ -8,13 +8,29 @@ if [ -z "$staged_py" ]; then
     exit 0
 fi
 
-echo "pre-commit: checking black formatting..."
-echo "$staged_py" | xargs python3 -m black --check --quiet 2>/dev/null
+echo "pre-commit: checking isort..."
+echo "$staged_py" | xargs python3 -m isort --check-only --quiet 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "BLOCKED: isort required. Run:"
+    echo "  python3 -m isort \$(git diff --cached --name-only | grep '\\.py$')"
+    exit 1
+fi
 
+echo "pre-commit: checking black..."
+echo "$staged_py" | xargs python3 -m black --check --quiet 2>/dev/null
 if [ $? -ne 0 ]; then
     echo ""
     echo "BLOCKED: black formatting required. Run:"
     echo "  python3 -m black \$(git diff --cached --name-only | grep '\\.py$')"
+    exit 1
+fi
+
+echo "pre-commit: checking ruff..."
+echo "$staged_py" | xargs python3 -m ruff check --quiet 2>/dev/null
+if [ $? -ne 0 ]; then
     echo ""
+    echo "BLOCKED: ruff errors found. Run:"
+    echo "  python3 -m ruff check \$(git diff --cached --name-only | grep '\\.py$')"
     exit 1
 fi
