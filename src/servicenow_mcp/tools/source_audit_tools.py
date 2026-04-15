@@ -31,6 +31,13 @@ GLIDE_CONSTRUCTOR_RE = re.compile(
 )
 SCRIPT_INCLUDE_CALL_RE = re.compile(r"\bnew\s+(?:global\.)?([A-Z][A-Za-z0-9_]*)\s*\(")
 WIDGET_EMBED_RE = re.compile(r"""<sp-widget\s+id=["']([^"']+)["']""", re.IGNORECASE)
+# $sp.getWidget('widget-id') — server-side widget loading
+SP_GET_WIDGET_RE = re.compile(r"""\$sp\.getWidget(?:FromInstance)?\s*\(\s*["']([^"']+)["']\s*\)""")
+# Dynamic widget loading pattern: $sp.getWidget(variable) — marks the caller
+# as a "dynamic widget loader" whose referenced widgets live in config tables
+SP_GET_WIDGET_DYNAMIC_RE = re.compile(
+    r"""\$sp\.getWidget(?:FromInstance)?\s*\(\s*(?!["'])([^)]+)\)"""
+)
 PROVIDER_INJECT_RE = re.compile(r"""\$inject\s*=\s*\[([^\]]+)\]""")
 GR_SET_TABLE_RE = re.compile(r"""\.\s*setTableName\s*\(\s*["']([a-z][a-z0-9_]{1,79})["']\s*\)""")
 ANGULAR_DEPENDENCY_RE = re.compile(
@@ -242,6 +249,9 @@ def _extract_references_from_script(script: str) -> Dict[str, Set[str]]:
 
     for widget_id in WIDGET_EMBED_RE.findall(script):
         refs["widgets"].add(widget_id)
+    # $sp.getWidget('literal-id') — server-side widget references
+    for widget_id in SP_GET_WIDGET_RE.findall(script):
+        refs["widgets"].add(widget_id)
 
     for dep in ANGULAR_DEPENDENCY_RE.findall(script):
         refs["providers"].add(dep)
@@ -275,6 +285,9 @@ def _build_cross_references(
             known_si_names.add(name)
         elif entry["source_type"] == "angular_provider":
             known_provider_names.add(name)
+
+    # Track sources that use $sp.getWidget(variable) — dynamic widget loaders
+    dynamic_widget_loaders: Set[str] = set()
 
     for entry in source_index:
         name = entry["name"]
@@ -311,6 +324,9 @@ def _build_cross_references(
                     for si_name in known_si_names:
                         if si_name != name and si_name in script:
                             all_refs["script_includes"].add(si_name)
+                    # Detect dynamic widget loading: $sp.getWidget(variable)
+                    if SP_GET_WIDGET_DYNAMIC_RE.search(script):
+                        dynamic_widget_loaders.add(name)
 
         outgoing[name] = {k: sorted(v) for k, v in all_refs.items() if v}
 
@@ -330,33 +346,115 @@ def _build_cross_references(
         "incoming": dict(incoming),
         "known_names": sorted(known_names),
         "known_si_names": sorted(known_si_names),
+        "dynamic_widget_loaders": sorted(dynamic_widget_loaders),
     }
+
+
+def _collect_instance_widget_refs(
+    scope_root: Path,
+    source_index: List[Dict[str, Any]],
+) -> Set[str]:
+    """Collect widget sys_ids and names referenced by sp_instance records.
+
+    Scans sp_instance _metadata.json files for the sp_widget field, which
+    contains the sys_id of the widget placed on a page.  Also resolves the
+    sys_id back to a widget name using the source_index so orphan detection
+    can match by name.
+    """
+    widget_refs: Set[str] = set()
+    # Build sys_id -> name map for widgets
+    widget_id_to_name: Dict[str, str] = {}
+    for entry in source_index:
+        if entry["source_type"] == "widget" and entry.get("sys_id"):
+            widget_id_to_name[entry["sys_id"]] = entry["name"]
+
+    # Scan all sp_instance metadata
+    for entry in source_index:
+        if entry.get("table") != "sp_instance":
+            continue
+        record_path = scope_root / entry["path"]
+        meta_file = record_path / "_metadata.json" if record_path.is_dir() else None
+        if meta_file and meta_file.exists():
+            meta = _read_json(meta_file)
+            if meta and isinstance(meta, dict):
+                sp_widget = meta.get("sp_widget", "")
+                if sp_widget:
+                    widget_refs.add(sp_widget)
+                    # Also add the widget name if we can resolve it
+                    resolved_name = widget_id_to_name.get(sp_widget)
+                    if resolved_name:
+                        widget_refs.add(resolved_name)
+
+    return widget_refs
 
 
 def _detect_orphans(
     source_index: List[Dict[str, Any]],
     cross_refs: Dict[str, Any],
+    scope_root: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
-    """Find sources that nobody references."""
+    """Find sources that nobody references.
+
+    Checks:
+    1. Code-level cross-references (incoming refs from other sources)
+    2. sp_instance page placements (widget placed on a page is not orphan)
+    3. Dynamic widget loaders ($sp.getWidget(variable)) — widgets in scopes
+       with dynamic loaders are marked as 'suspect' instead of 'orphan'
+    """
     incoming = cross_refs["incoming"]
+    dynamic_loaders = set(cross_refs.get("dynamic_widget_loaders", []))
+    has_dynamic_loaders = len(dynamic_loaders) > 0
+
+    # Collect widgets referenced by sp_instance records (page placements)
+    instance_widget_refs: Set[str] = set()
+    if scope_root:
+        instance_widget_refs = _collect_instance_widget_refs(scope_root, source_index)
+
     orphans: List[Dict[str, Any]] = []
 
     for entry in source_index:
         name = entry["name"]
+        sys_id = entry.get("sys_id", "")
         source_type = entry["source_type"]
         # Only check types where orphans matter
         if source_type not in ("script_include", "widget", "angular_provider"):
             continue
-        if name not in incoming and entry.get("active", "true") != "false":
-            orphans.append(
-                {
-                    "name": name,
-                    "source_type": source_type,
-                    "sys_id": entry["sys_id"],
-                    "lines": entry["lines"],
-                    "path": entry["path"],
-                }
+        if entry.get("active", "true") == "false":
+            continue
+
+        # Check if referenced in code
+        if name in incoming:
+            continue
+
+        # Check if widget is placed on a page via sp_instance
+        if source_type == "widget" and (
+            name in instance_widget_refs or sys_id in instance_widget_refs
+        ):
+            continue
+
+        # Determine confidence level
+        if source_type == "widget" and has_dynamic_loaders:
+            confidence = "suspect"
+            reason = (
+                "No code reference found, but dynamic widget loaders exist "
+                f"({', '.join(sorted(dynamic_loaders)[:3])}). "
+                "This widget may be loaded from a config table at runtime."
             )
+        else:
+            confidence = "orphan"
+            reason = "No incoming references found in any downloaded source."
+
+        orphans.append(
+            {
+                "name": name,
+                "source_type": source_type,
+                "sys_id": sys_id,
+                "lines": entry["lines"],
+                "path": entry["path"],
+                "confidence": confidence,
+                "reason": reason,
+            }
+        )
 
     return orphans
 
@@ -542,6 +640,7 @@ tr:hover td {{ background: var(--surface2); }}
 .tag-table {{ background: #3d2f10; color: #fde68a; }}
 .tag-acl {{ background: #2d1f3d; color: #c4b5fd; }}
 .tag-orphan {{ background: #4a1515; color: var(--red); }}
+.tag-suspect {{ background: #4a3a15; color: #f0c040; font-style: italic; }}
 .tag-issue {{ background: #4a3515; color: var(--yellow); }}
 .ref-list {{ display: flex; flex-wrap: wrap; gap: 0.3rem; }}
 .status-ok {{ color: var(--green); }}
@@ -673,7 +772,16 @@ def _generate_html_report(
         ("Total Sources", str(len(source_index)), f"{len(type_counts)} types"),
         ("Total Lines", f"{total_lines:,}", "across all files"),
         ("Cross-References", str(total_refs), "outgoing links"),
-        ("Orphans", str(len(orphans)), "potentially dead" if orphans else "all referenced"),
+        (
+            "Orphans",
+            str(len(orphans)),
+            (
+                f"{len([o for o in orphans if o.get('confidence') == 'orphan'])} confirmed, "
+                f"{len([o for o in orphans if o.get('confidence') == 'suspect'])} suspect"
+                if orphans
+                else "all referenced"
+            ),
+        ),
         (
             "Schema Issues",
             str(len(schema_issues)),
@@ -700,16 +808,42 @@ def _generate_html_report(
     )
 
     # --- Orphans ---
+    confirmed_orphans = [o for o in orphans if o.get("confidence") == "orphan"]
+    suspect_orphans = [o for o in orphans if o.get("confidence") == "suspect"]
+    dynamic_loaders = cross_refs.get("dynamic_widget_loaders", [])
+
     if orphans:
-        orphan_rows = "\n".join(
-            f'<tr><td>{_tag("tag-orphan", o["source_type"])}{o["name"]}</td>'
-            f'<td>{o["lines"]} lines</td><td><code>{o["path"]}</code></td></tr>'
-            for o in sorted(orphans, key=lambda x: -x["lines"])
-        )
-        orphan_content = (
-            f"<table><tr><th>Name</th><th>Size</th><th>Path</th></tr>{orphan_rows}</table>"
-        )
-        orphan_badge_class = "status-warn" if len(orphans) < 10 else "status-error"
+        orphan_parts: List[str] = []
+        if dynamic_loaders:
+            orphan_parts.append(
+                f'<p class="status-warn">&#x26A0; Dynamic widget loaders detected: '
+                f'<code>{", ".join(dynamic_loaders[:5])}</code>'
+                f'{" ..." if len(dynamic_loaders) > 5 else ""}. '
+                f"Widgets marked <em>suspect</em> may be loaded from config tables at runtime.</p>"
+            )
+        if confirmed_orphans:
+            orphan_parts.append(f"<h4>Confirmed Orphans ({len(confirmed_orphans)})</h4>")
+            rows = "\n".join(
+                f'<tr><td>{_tag("tag-orphan", o["source_type"])}{o["name"]}</td>'
+                f'<td>{o["lines"]} lines</td><td><code>{o["path"]}</code></td></tr>'
+                for o in sorted(confirmed_orphans, key=lambda x: -x["lines"])
+            )
+            orphan_parts.append(
+                f"<table><tr><th>Name</th><th>Size</th><th>Path</th></tr>{rows}</table>"
+            )
+        if suspect_orphans:
+            orphan_parts.append(f"<h4>Suspect — Possibly Dynamic ({len(suspect_orphans)})</h4>")
+            rows = "\n".join(
+                f'<tr><td>{_tag("tag-orphan", o["source_type"])}'
+                f'<span class="tag tag-suspect">suspect</span>{o["name"]}</td>'
+                f'<td>{o["lines"]} lines</td><td><code>{o["path"]}</code></td></tr>'
+                for o in sorted(suspect_orphans, key=lambda x: -x["lines"])
+            )
+            orphan_parts.append(
+                f"<table><tr><th>Name</th><th>Size</th><th>Path</th></tr>{rows}</table>"
+            )
+        orphan_content = "\n".join(orphan_parts)
+        orphan_badge_class = "status-warn" if len(confirmed_orphans) < 10 else "status-error"
         orphan_collapsed = ""
     else:
         orphan_content = '<p class="status-ok">No orphans detected. All sources are referenced.</p>'
@@ -1037,7 +1171,7 @@ def audit_local_sources(
     cross_refs = _build_cross_references(scope_root, source_index)
 
     # 3. Detect orphans
-    orphans = _detect_orphans(source_index, cross_refs)
+    orphans = _detect_orphans(source_index, cross_refs, scope_root)
 
     # 4. Build execution order
     execution_order = _build_execution_order(source_index)
