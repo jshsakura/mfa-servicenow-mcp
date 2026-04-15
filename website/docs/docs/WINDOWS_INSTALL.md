@@ -136,7 +136,7 @@ Config file location: `opencode.json` in your project root.
 
 Config file location: `~/.config/zed/settings.json`
 
-> Zed is primarily macOS/Linux. Open **Settings** > **MCP Servers** and register one server block:
+> Add via **Settings** > **MCP Servers** in Zed:
 
 ```json
 {
