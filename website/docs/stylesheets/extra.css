@@ -296,11 +296,11 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
 .content-wrap {
   max-width: 100%;
   margin: 0 auto;
-  padding: 0 calc((100% - 1200px) / 2 + 48px);
+  padding: 48px calc((100% - 1200px) / 2 + 48px) 0;
   position: relative;
 }
 @media (max-width: 1296px) {
-  .content-wrap { padding: 0 48px; }
+  .content-wrap { padding: 48px 48px 0; }
 }
 
 /* ============================================================
@@ -703,7 +703,7 @@ pre.install-code .c { color: var(--code-comment); }
    RESPONSIVE & SCROLL REVEAL
    ============================================================ */
 @media (max-width: 768px) {
-  .content-wrap { padding: 0 24px; }
+  .content-wrap { padding: 36px 24px 0; }
   .steps-grid { grid-template-columns: 1fr; }
   .hero-stats { gap: 28px; padding: 32px 0; }
   .hero-content { padding: 60px 20px 60px; }
@@ -711,7 +711,7 @@ pre.install-code .c { color: var(--code-comment); }
   .hero-terminal-body { height: 360px; font-size: .72rem; padding: 16px 20px; }
 }
 @media (max-width: 480px) {
-  .content-wrap { padding: 0 16px; }
+  .content-wrap { padding: 32px 16px 0; }
   .hero-stat-value { font-size: 1.5rem; }
   .section { padding: 48px 0; }
   .cta-banner { padding: 48px 16px; }
