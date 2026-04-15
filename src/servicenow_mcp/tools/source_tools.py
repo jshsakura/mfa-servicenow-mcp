@@ -32,7 +32,7 @@ DEFAULT_DEP_SCAN_LIMIT = 500
 DEFAULT_DEP_PAGE_SIZE = 100
 MAX_DOWNLOAD_PER_TYPE = 2000
 DEFAULT_DOWNLOAD_PER_TYPE = 500
-DEFAULT_DOWNLOAD_PAGE_SIZE = 100
+DEFAULT_DOWNLOAD_PAGE_SIZE = 20
 MAX_TABLES_PER_RECORD = 50
 DEFAULT_MAX_LINKED_SI = 20
 MAX_LINKED_SI = 100
@@ -1571,13 +1571,21 @@ def _download_source_types(
             record_dir = type_dir / safe_name
             _dl_write_json(record_dir / "_metadata.json", metadata)
 
+            record_has_source = False
             for source_field in source_cfg["source_fields"]:
                 content = record.get(source_field)
                 if not content or not isinstance(content, str) or not content.strip():
                     continue
+                record_has_source = True
                 ext = _FIELD_EXTENSIONS.get(source_field, ".txt")
                 _dl_write_file(record_dir / f"{source_field}{ext}", content)
                 type_file_count += 1
+
+            if not record_has_source:
+                warnings.append(
+                    f"{source_type}/{safe_name}: all source fields empty "
+                    f"(API may have truncated response — try smaller page_size)"
+                )
 
             name_map[safe_name] = sys_id
             sync_meta[safe_name] = {
@@ -2191,7 +2199,9 @@ def download_app_sources(
             all_warnings.extend(dl["warnings"])
             all_files += dl["total_files"]
 
-    # --- Server-side sources (7 groups — includes portal assets not covered by download_portal_sources) ---
+    # --- Server-side sources (7 groups) ---
+    # angular_provider is always fetched here by scope — download_portal_sources
+    # only fetches widget-linked providers which may be a subset.
     _groups = [
         ["script_include"],
         ["business_rule", "client_script", "catalog_client_script"],
@@ -2199,7 +2209,7 @@ def download_app_sources(
         ["scripted_rest", "processor"],
         ["acl"],
         ["fix_script", "scheduled_job", "script_action", "email_notification", "transform_script"],
-        ["sp_header_footer", "sp_css", "ng_template"],
+        ["angular_provider", "sp_header_footer", "sp_css", "ng_template"],
     ]
     extra_query: Dict[str, str] = {}
     if params.acl_script_only:
