@@ -71,6 +71,10 @@ x_bpm/
 .tmp*/
 .servicenow_mcp/
 
+# External tool artifacts
+.playwright-mcp/
+.sisyphus/
+
 # Website (GitHub Pages)
 website/site/
 website/.cache/
