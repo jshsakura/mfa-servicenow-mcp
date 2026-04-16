@@ -239,7 +239,7 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
 @media (min-width: 1024px) {
   .hero-content {
     max-width: 940px;
-    padding: 138px 24px 100px;
+    padding: 200px 24px 200px;
   }
   .hero-title {
     font-size: clamp(4.4rem, 6.2vw, 5.8rem);
@@ -372,7 +372,7 @@ body:has(.landing-page) .md-footer { margin-top: 0; }
   font-size: .8rem;
   line-height: 1.8;
   color: var(--code-text);
-  height: 420px;
+  height: 445px;
   overflow: hidden;
 }
 .hero-terminal-line {
