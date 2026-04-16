@@ -295,14 +295,14 @@ def _try_processflow_api(
         data = response.json()
         if data and isinstance(data, dict) and data.get("result"):
             return data
+        keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
         logger.warning(
-            "processflow API returned unexpected data for flow %s: keys=%s",
-            flow_id,
-            list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+            "processflow API returned unexpected data for flow %s: keys=%s", flow_id, keys
         )
+        return {"_error": f"unexpected response keys: {keys}"}
     except Exception as e:
         logger.error("processflow API failed for flow %s: %s", flow_id, e)
-    return None
+        return {"_error": str(e)}
 
 
 # ---------------------------------------------------------------------------
@@ -390,11 +390,13 @@ def get_flow_details(
     """
     flow_id = params.flow_id
 
+    pf_error: Optional[str] = None
+
     try:
         # processflow API — only available with browser auth
         if (params.include_structure or params.include_triggers) and _is_browser_auth(config):
             pf_result = _try_processflow_api(config, auth_manager, flow_id)
-            if pf_result:
+            if pf_result and pf_result.get("result"):
                 pf_data = pf_result.get("result", pf_result)
                 result: Dict[str, Any] = {
                     "success": True,
@@ -413,6 +415,12 @@ def get_flow_details(
                 if params.include_triggers:
                     result["triggers"] = pf_data.get("triggerInstances", [])
                 return result
+            else:
+                pf_error = (
+                    pf_result.get("_error", "no result key in response")
+                    if pf_result
+                    else "processflow API returned None"
+                )
 
         # Fallback: Table API
         flows, _ = sn_query_page(
@@ -428,13 +436,22 @@ def get_flow_details(
         )
         flow = flows[0] if flows else {}
 
-        result = {"success": True, "flow": flow}
+        result: Dict[str, Any] = {
+            "success": True,
+            "source": "table_api",
+            "flow": flow,
+        }
+        if pf_error:
+            result["processflow_note"] = pf_error
 
         if params.include_triggers:
             result["triggers"] = _fetch_flow_triggers(config, auth_manager, flow_id)
 
         if params.include_structure:
-            result["structure"] = _fetch_flow_structure(config, auth_manager, flow_id)
+            structure = _fetch_flow_structure(config, auth_manager, flow_id)
+            result["structure"] = structure
+            if not structure.get("success"):
+                result["structure_error"] = structure.get("error", "unknown")
 
         return result
     except Exception as e:
