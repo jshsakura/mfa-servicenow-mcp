@@ -690,16 +690,17 @@ class TestFlowDesignerTools(unittest.TestCase):
         call_args = self.auth_manager.make_request.call_args
         self.assertIn("/api/now/processflow/flow/f1", call_args[0][1])
 
-    def test_try_processflow_api_returns_none_on_error(self):
+    def test_try_processflow_api_returns_error_on_exception(self):
         from servicenow_mcp.tools.flow_designer_tools import _try_processflow_api
 
         self.auth_manager.make_request.side_effect = Exception("Server error")
 
         result = _try_processflow_api(self.config, self.auth_manager, "f1")
 
-        self.assertIsNone(result)
+        self.assertIn("_error", result)
+        self.assertIn("Server error", result["_error"])
 
-    def test_try_processflow_api_returns_none_on_empty_response(self):
+    def test_try_processflow_api_returns_error_on_empty_response(self):
         from servicenow_mcp.tools.flow_designer_tools import _try_processflow_api
 
         mock_resp = MagicMock()
@@ -709,7 +710,7 @@ class TestFlowDesignerTools(unittest.TestCase):
 
         result = _try_processflow_api(self.config, self.auth_manager, "f1")
 
-        self.assertIsNone(result)
+        self.assertIn("_error", result)
 
     # -- _get_snapshot_id direct tests ---------------------------------------
 
