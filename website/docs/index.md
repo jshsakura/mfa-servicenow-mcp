@@ -351,12 +351,13 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="install-block reveal" style="margin-top:40px;">
   <span class="section-label">Keeping Up to Date</span>
+  <h2 class="section-title">Always run the latest version</h2>
   <p class="section-desc" style="margin-bottom:16px;">
     <code>uvx</code> caches the last downloaded version — it does <strong>not</strong> auto-update.<br>
     Upgrade via <code>uv</code> to get the latest release:
   </p>
+  <div class="install-tabs"><button class="install-tab active">Terminal</button></div>
   <div class="install-code-block">
-    <div class="install-tabs"><button class="install-tab active">Terminal</button></div>
     <pre class="install-code"><code>uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version</code></pre>
   </div>
   <p class="section-desc" style="margin-top:12px;font-size:0.9em;">
