@@ -254,12 +254,7 @@ class GetLogsParams(BaseModel):
 @register_tool(
     "get_logs",
     params=GetLogsParams,
-    description=(
-        "Query ServiceNow logs. "
-        "log_type: system (script errors, gs.log), journal (work notes/comments), "
-        "transaction (HTTP requests), background (scheduled jobs). "
-        "Each type has specific filters. Hard-capped at 20 rows."
-    ),
+    description="Query ServiceNow logs. log_type: system/journal/transaction/background. Max 20 rows.",
     serialization="raw_dict",
     return_type=dict,
 )
