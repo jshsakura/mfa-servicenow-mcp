@@ -137,6 +137,8 @@ class TestCreateConfig:
         args.script_execution_api_resource_path = None
         config = create_config(args)
         assert config.auth.type.value == "oauth"
+        assert config.auth.oauth is not None
+        assert config.auth.oauth.token_url is not None
         assert config.auth.oauth.token_url.endswith("/oauth_token.do")
 
     def test_oauth_missing_credentials_raises(self):
@@ -241,6 +243,26 @@ class TestEnsurePlaywrightBrowser:
 
 
 class TestMain:
+    @patch("dotenv.load_dotenv")
+    @patch("servicenow_mcp.setup_installer.main", return_value=0)
+    def test_main_dispatches_setup_subcommand(self, mock_setup_main, mock_dotenv):
+        with patch("sys.argv", ["cli", "setup", "opencode", "--instance-url", "https://x"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        assert exc_info.value.code == 0
+        mock_setup_main.assert_called_once_with(
+            ["opencode", "--instance-url", "https://x"], action="setup"
+        )
+
+    @patch("dotenv.load_dotenv")
+    @patch("servicenow_mcp.setup_installer.main", return_value=0)
+    def test_main_dispatches_remove_subcommand(self, mock_setup_main, mock_dotenv):
+        with patch("sys.argv", ["cli", "remove", "opencode"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        assert exc_info.value.code == 0
+        mock_setup_main.assert_called_once_with(["opencode"], action="remove")
+
     @patch("dotenv.load_dotenv")
     @patch("servicenow_mcp.cli._ensure_playwright_browser")
     @patch("servicenow_mcp.cli._check_for_updates")

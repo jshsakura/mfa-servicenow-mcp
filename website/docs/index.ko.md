@@ -73,12 +73,11 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <div style="margin-top:56px;" class="reveal">
-      <span class="section-label">수동 설치 — 1단계</span>
-      <h2 class="section-title">서버 설치</h2>
+      <span class="section-label">수동 설치 — 한 번에</span>
+      <h2 class="section-title">클라이언트용 setup 실행</h2>
       <p class="section-desc">
-        직접 설치를 원하시나요? 운영체제를 선택하세요.<br>
-        MFA/SSO 로그인을 위한 실제 Chromium 브라우저가 열리며,<br>
-        Okta, Entra ID, SAML 등이 모두 기본으로 지원됩니다.
+        터미널에서 직접 설치하고 싶다면 아래 installer를 사용하세요.<br>
+        클라이언트에 맞는 MCP 설정을 써 주고, 기존 설정은 보존하며, 지원되는 경우 스킬도 함께 설치합니다.
       </p>
     </div>
     <div class="install-block reveal">
@@ -94,11 +93,10 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
             <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-<span class="c"># Run with MFA browser login (Okta, Entra ID, SAML supported)</span>
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+<span class="c"># 클라이언트 설정과 선택 스킬 설치</span>
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"</code></pre>
+  --auth-type "browser"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="install-win">
@@ -106,11 +104,10 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
             <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-<span class="c"># Run with MFA browser login (Okta, Entra ID, SAML supported)</span>
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
+<span class="c"># 클라이언트 설정과 선택 스킬 설치</span>
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser" `
-  --browser-headless "false"</code></pre>
+  --auth-type "browser"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="install-pip">
@@ -145,11 +142,10 @@ servicenow-mcp \
     </div>
 
     <div style="margin-top:56px;" class="reveal">
-      <span class="section-label">수동 설치 — 2단계</span>
-      <h2 class="section-title">AI 클라이언트 설정</h2>
+      <span class="section-label">수동 복구용</span>
+      <h2 class="section-title">클라이언트 설정을 직접 점검하거나 복구하기</h2>
       <p class="section-desc">
-        사용 중인 클라이언트의 설정 코드를 복사해서 붙여넣으세요.<br>
-        모두 같은 MCP 서버를 사용하며 포맷만 다를 뿐입니다.
+        installer가 권장 경로입니다. 아래 원시 설정 예시는 설정 파일을 직접 점검하거나 복구해야 할 때만 사용하세요.
       </p>
     </div>
     <div class="install-block reveal">
@@ -296,7 +292,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <p class="section-desc">
         도구(Tool)만으로는 단순한 API 호출일 뿐입니다.<br>
         안전 장치, 롤백, 문맥 인식을 통한 위임 파이프라인이 포함된 스킬(Skill)들이 결합되었을 때<br>
-        LLM은 진정으로 유용해집니다. 현재 20개 이상의 스킬을 지원하며 릴리스마다 더 추가되고 있습니다.
+        LLM은 진정으로 유용해집니다. 현재 24개 스킬을 지원하며 릴리스마다 더 추가되고 있습니다.
       </p>
     </div>
     <div class="install-block reveal">
@@ -370,7 +366,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">97+</span>
+    <span class="hero-stat-value">150+</span>
     <span class="hero-stat-label">MCP 도구(Tools)</span>
   </div>
   <div class="hero-stat">
@@ -378,7 +374,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     <span class="hero-stat-label">네이티브 지원</span>
   </div>
   <div class="hero-stat">
-    <span class="hero-stat-value">6</span>
+    <span class="hero-stat-value">5</span>
     <span class="hero-stat-label">스킬 패키지</span>
   </div>
   <div class="hero-stat">
