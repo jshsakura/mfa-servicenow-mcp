@@ -52,7 +52,7 @@ class ListFlowsParams(BaseModel):
         default=None, description="Filter by status: Draft, Published, etc."
     )
     name: Optional[str] = Field(default=None, description="Filter by name (contains)")
-    scope: Optional[str] = Field(default=None, description="Filter by application scope name")
+    scope: Optional[str] = Field(default=None, description="Scope namespace to filter by")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(
         default=False,
@@ -146,7 +146,7 @@ class ListActionsParams(BaseModel):
     offset: int = Field(default=0, description="Pagination offset")
     active: Optional[bool] = Field(default=None, description="Filter by active status")
     name: Optional[str] = Field(default=None, description="Filter by name (contains)")
-    scope: Optional[str] = Field(default=None, description="Filter by application scope name")
+    scope: Optional[str] = Field(default=None, description="Scope namespace to filter by")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(
         default=False, description="Return count only without fetching records."
@@ -169,7 +169,7 @@ class ListPlaybooksParams(BaseModel):
     active: Optional[bool] = Field(default=None, description="Filter by active status")
     status: Optional[str] = Field(default=None, description="Filter by status")
     name: Optional[str] = Field(default=None, description="Filter by label/name (contains)")
-    scope: Optional[str] = Field(default=None, description="Filter by application scope name")
+    scope: Optional[str] = Field(default=None, description="Scope namespace to filter by")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(
         default=False, description="Return count only without fetching records."
@@ -191,7 +191,7 @@ class ListDecisionTablesParams(BaseModel):
     offset: int = Field(default=0, description="Pagination offset")
     active: Optional[bool] = Field(default=None, description="Filter by active status")
     name: Optional[str] = Field(default=None, description="Filter by name (contains)")
-    scope: Optional[str] = Field(default=None, description="Filter by application scope name")
+    scope: Optional[str] = Field(default=None, description="Scope namespace to filter by")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(
         default=False, description="Return count only without fetching records."
@@ -321,7 +321,7 @@ def list_flows(
     if params.name:
         query_parts.append(f"nameLIKE{params.name}")
     if params.scope:
-        query_parts.append(f"sys_scopeLIKE{params.scope}")
+        query_parts.append(f"sys_scope.scope={params.scope}")
     if params.query:
         query_parts.append(params.query)
 
@@ -1121,7 +1121,7 @@ def list_actions(
     if params.name:
         query_parts.append(f"nameLIKE{params.name}")
     if params.scope:
-        query_parts.append(f"sys_scopeLIKE{params.scope}")
+        query_parts.append(f"sys_scope.scope={params.scope}")
     if params.query:
         query_parts.append(params.query)
 
@@ -1212,7 +1212,7 @@ def list_playbooks(
     if params.name:
         query_parts.append(f"labelLIKE{params.name}")
     if params.scope:
-        query_parts.append(f"sys_scopeLIKE{params.scope}")
+        query_parts.append(f"sys_scope.scope={params.scope}")
     if params.query:
         query_parts.append(params.query)
 
@@ -1301,7 +1301,7 @@ def list_decision_tables(
     if params.name:
         query_parts.append(f"nameLIKE{params.name}")
     if params.scope:
-        query_parts.append(f"sys_scopeLIKE{params.scope}")
+        query_parts.append(f"sys_scope.scope={params.scope}")
     if params.query:
         query_parts.append(params.query)
 
@@ -1389,13 +1389,13 @@ def _get_flow_for_compare(
     auth_manager: AuthManager,
     flow_id: str,
 ) -> Optional[Dict[str, Any]]:
-    """Fetch flow data for comparison — processflow API or Table API fallback."""
+    """Fetch flow data for comparison — processflow API or Table API with structure."""
     if _is_browser_auth(config):
         pf = _try_processflow_api(config, auth_manager, flow_id)
         if pf:
             return pf.get("result", pf)
 
-    # Table API fallback — get full record + label_cache
+    # Table API — get flow record + structure + triggers
     records, _ = sn_query_page(
         config,
         auth_manager,
@@ -1407,7 +1407,16 @@ def _get_flow_for_compare(
         display_value=True,
         fail_silently=False,
     )
-    return records[0] if records else None
+    if not records:
+        return None
+
+    flow = records[0]
+    # Enrich with structure so comparison isn't shallow
+    structure = _fetch_flow_structure(config, auth_manager, flow_id)
+    if structure.get("success"):
+        flow["_structure"] = structure
+    flow["_triggers"] = _fetch_flow_triggers(config, auth_manager, flow_id)
+    return flow
 
 
 def _extract_comparable(flow_data: Dict[str, Any], include_label_cache: bool) -> Dict[str, Any]:
@@ -1418,16 +1427,16 @@ def _extract_comparable(flow_data: Dict[str, Any], include_label_cache: bool) ->
             {
                 "name": a.get("name", ""),
                 "type": a.get("actionType", ""),
-                "position": a.get("position"),
+                "order": a.get("position"),
             }
             for a in flow_data.get("actionInstances", [])
         ]
         logic = [
-            {"name": n.get("name", ""), "type": n.get("type", ""), "position": n.get("position")}
+            {"name": n.get("name", ""), "type": n.get("type", ""), "order": n.get("position")}
             for n in flow_data.get("flowLogicInstances", [])
         ]
         subflows = [
-            {"name": s.get("name", ""), "position": s.get("position")}
+            {"name": s.get("name", ""), "order": s.get("position")}
             for s in flow_data.get("subFlowInstances", [])
         ]
         result = {
@@ -1437,9 +1446,9 @@ def _extract_comparable(flow_data: Dict[str, Any], include_label_cache: bool) ->
             "scope": flow_data.get("scope", ""),
             "inputs": flow_data.get("inputs", []),
             "outputs": flow_data.get("outputs", []),
-            "actions": sorted(actions, key=lambda x: int(x.get("position") or 0)),
-            "logic": sorted(logic, key=lambda x: int(x.get("position") or 0)),
-            "subflows": sorted(subflows, key=lambda x: int(x.get("position") or 0)),
+            "actions": sorted(actions, key=lambda x: int(x.get("order") or 0)),
+            "logic": sorted(logic, key=lambda x: int(x.get("order") or 0)),
+            "subflows": sorted(subflows, key=lambda x: int(x.get("order") or 0)),
             "trigger_count": len(flow_data.get("triggerInstances", [])),
             "variable_count": len(flow_data.get("flowVariables", [])),
         }
@@ -1448,13 +1457,50 @@ def _extract_comparable(flow_data: Dict[str, Any], include_label_cache: bool) ->
             result["label_cache"] = lc if isinstance(lc, str) else str(lc)
         return result
 
-    # Table API format
-    result = {
+    # Table API format (enriched with _structure and _triggers)
+    result: Dict[str, Any] = {
         "name": flow_data.get("name", ""),
         "status": flow_data.get("status", ""),
         "active": flow_data.get("active", ""),
         "scope": flow_data.get("sys_scope", ""),
     }
+
+    structure = flow_data.get("_structure", {})
+    if structure.get("success"):
+        result["actions"] = [
+            {"name": s.get("name", ""), "type": s.get("action_type", ""), "order": s.get("order")}
+            for s in structure.get("flat_summary", [])
+            if s.get("type") == "action"
+        ]
+        result["logic"] = [
+            {"name": s.get("name", ""), "type": s.get("logic_type", ""), "order": s.get("order")}
+            for s in structure.get("flat_summary", [])
+            if s.get("type") == "logic"
+        ]
+        result["subflows"] = [
+            {"name": s.get("name", ""), "order": s.get("order")}
+            for s in structure.get("flat_summary", [])
+            if s.get("type") == "subflow"
+        ]
+        result["total_actions"] = structure.get("total_actions", 0)
+        result["total_logic"] = structure.get("total_logic", 0)
+        result["total_subflows"] = structure.get("total_subflows", 0)
+        # Actual subflow references (snapshot → master_flow resolution)
+        if structure.get("subflow_bindings"):
+            result["subflow_bindings"] = [
+                {
+                    "order": b.get("order", ""),
+                    "instance_name": b.get("instance_name", ""),
+                    "actual_subflow": b.get("subflow_parent_flow_name", ""),
+                    "actual_subflow_id": b.get("subflow_parent_flow_id", ""),
+                }
+                for b in structure["subflow_bindings"]
+            ]
+
+    triggers = flow_data.get("_triggers", [])
+    if triggers:
+        result["trigger_count"] = len(triggers)
+
     if include_label_cache:
         result["label_cache"] = flow_data.get("label_cache", "")
     return result
@@ -1484,7 +1530,15 @@ def _diff_flows(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
                 entry["only_in_a"] = sorted(a_refs - b_refs)[:50]
                 entry["only_in_b"] = sorted(b_refs - a_refs)[:50]
                 entry["common_count"] = len(a_refs & b_refs)
-                # Don't dump full label_cache (too large)
+                del entry["flow_a"]
+                del entry["flow_b"]
+            # For subflow_bindings, show name-level diff instead of raw list
+            elif key == "subflow_bindings" and isinstance(va, list) and isinstance(vb, list):
+                a_names = {b_item.get("actual_subflow", "") for b_item in va}
+                b_names = {b_item.get("actual_subflow", "") for b_item in vb}
+                entry["only_in_a"] = sorted(a_names - b_names)
+                entry["only_in_b"] = sorted(b_names - a_names)
+                entry["common"] = sorted(a_names & b_names)
                 del entry["flow_a"]
                 del entry["flow_b"]
             differences.append(entry)
@@ -1500,7 +1554,7 @@ def _diff_flows(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 @register_tool(
     name="compare_flows",
     params=CompareFlowsParams,
-    description="Compare two flows/subflows side-by-side. Shows structural diff including label_cache references.",
+    description="Compare two flows/subflows. Diffs structure, subflow bindings, triggers, and label_cache.",
     serialization="json",
     return_type=dict,
 )
