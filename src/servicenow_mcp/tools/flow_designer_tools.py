@@ -220,16 +220,21 @@ def _get_snapshot_id(
     flow_id: str,
 ) -> Optional[str]:
     """Get the published snapshot sys_id for a flow."""
-    snapshots, _ = sn_query_page(
-        config,
-        auth_manager,
-        table=FLOW_SNAPSHOT_TABLE,
-        query=f"master_flow={flow_id}^ORsys_id={flow_id}",
-        fields="sys_id,name,status",
-        limit=5,
-        offset=0,
-        display_value=True,
-    )
+    try:
+        snapshots, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_SNAPSHOT_TABLE,
+            query=f"master_flow={flow_id}^ORsys_id={flow_id}",
+            fields="sys_id,name,status",
+            limit=5,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
+        )
+    except Exception as e:
+        logger.error("Failed to query %s for flow %s: %s", FLOW_SNAPSHOT_TABLE, flow_id, e)
+        return None
     if not snapshots:
         logger.warning("No snapshot found for flow %s in %s", flow_id, FLOW_SNAPSHOT_TABLE)
         return None
@@ -280,12 +285,15 @@ def _try_processflow_api(
         response = auth_manager.make_request("GET", url)
         response.raise_for_status()
         data = response.json()
-        if data and isinstance(data, dict):
-            result = data.get("result", data)
-            if result.get("id") or result.get("name"):
-                return data
-    except Exception:
-        pass
+        if data and isinstance(data, dict) and data.get("result"):
+            return data
+        logger.warning(
+            "processflow API returned unexpected data for flow %s: keys=%s",
+            flow_id,
+            list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+        )
+    except Exception as e:
+        logger.error("processflow API failed for flow %s: %s", flow_id, e)
     return None
 
 
@@ -702,9 +710,9 @@ def _fetch_flow_structure(
             return {
                 "success": False,
                 "error": (
-                    f"No snapshot found for flow {flow_id}. "
-                    "The flow may not be published. "
-                    "Use browser auth mode for unpublished flow structure via processflow API."
+                    f"No snapshot in {FLOW_SNAPSHOT_TABLE} for flow {flow_id}. "
+                    "Possible causes: flow not published, or ACL blocks "
+                    f"{FLOW_SNAPSHOT_TABLE} read. Check server logs for details."
                 ),
             }
 
