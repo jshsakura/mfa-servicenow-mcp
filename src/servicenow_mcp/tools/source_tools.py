@@ -1784,7 +1784,7 @@ def _build_download_result(
 
 
 class _ScopeDownloadParams(BaseModel):
-    scope: str = Field(..., description="Application scope (e.g. x_yergb_bpm).")
+    scope: str = Field(..., description="Application scope namespace.")
     max_records_per_type: int = Field(
         default=DEFAULT_DOWNLOAD_PER_TYPE,
         description=f"Max records per type. Clamped to {MAX_DOWNLOAD_PER_TYPE}.",
@@ -2235,7 +2235,7 @@ def download_table_schema(
 
 
 class DownloadAppSourcesParams(BaseModel):
-    scope: str = Field(..., description="Application scope (e.g. x_yergb_bpm).")
+    scope: str = Field(..., description="Application scope namespace.")
     include_widget_sources: bool = Field(
         default=True,
         description="Download widgets, providers, header/footer, CSS via download_portal_sources.",
