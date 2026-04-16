@@ -294,7 +294,7 @@ def _try_processflow_api(
 @register_tool(
     name="list_flow_designers",
     params=ListFlowsParams,
-    description="List flows/subflows. Use type='subflow' or 'all'. Returns name, status, scope.",
+    description="Search flows/subflows by name or scope. Use compare_flows to diff two results.",
     serialization="json",
     return_type=dict,
 )
@@ -356,7 +356,7 @@ def list_flows(
 @register_tool(
     name="get_flow_designer_detail",
     params=GetFlowDetailsParams,
-    description="Get a single Flow Designer flow by sys_id. Optionally include structure tree and trigger config.",
+    description="Get one flow's structure and triggers. For comparing two flows, use compare_flows instead.",
     serialization="json",
     return_type=dict,
 )
@@ -822,7 +822,7 @@ def _fetch_flow_structure(
 @register_tool(
     name="get_flow_designer_executions",
     params=GetFlowExecutionsParams,
-    description="Get flow execution history or single execution detail. Filter by name, state, or errors.",
+    description="Get flow execution history. Use after compare_flows to check runtime behavior.",
     serialization="json",
     return_type=dict,
 )
@@ -1377,8 +1377,14 @@ def get_decision_table_detail(
 class CompareFlowsParams(BaseModel):
     """Parameters for comparing two Flow Designer flows/subflows."""
 
-    flow_id_a: str = Field(..., description="First flow sys_id")
-    flow_id_b: str = Field(..., description="Second flow sys_id to compare against")
+    flow_id_a: Optional[str] = Field(default=None, description="First flow sys_id")
+    flow_id_b: Optional[str] = Field(default=None, description="Second flow sys_id")
+    name_a: Optional[str] = Field(
+        default=None, description="First flow name (used if flow_id_a empty)"
+    )
+    name_b: Optional[str] = Field(
+        default=None, description="Second flow name (used if flow_id_b empty)"
+    )
     include_label_cache: bool = Field(
         default=True, description="Include label_cache diff (shows child subflow references)"
     )
@@ -1554,10 +1560,49 @@ def _diff_flows(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 @register_tool(
     name="compare_flows",
     params=CompareFlowsParams,
-    description="Compare two flows/subflows. Diffs structure, subflow bindings, triggers, and label_cache.",
+    description="Compare two flows by name or sys_id. Diffs structure, subflow bindings, and triggers.",
     serialization="json",
     return_type=dict,
 )
+def _resolve_flow_id(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    flow_id: Optional[str],
+    name: Optional[str],
+    label: str,
+) -> tuple:
+    """Resolve flow_id from sys_id or name. Returns (sys_id, error_msg)."""
+    if flow_id:
+        return flow_id, None
+    if not name:
+        return None, f"Flow {label}: provide flow_id or name"
+    # Search by exact name first, then contains
+    for op in ("=", "LIKE"):
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_TABLE,
+            query=f"name{op}{name}",
+            fields="sys_id,name",
+            limit=5,
+            offset=0,
+            display_value=True,
+        )
+        if records:
+            if len(records) == 1:
+                return records[0]["sys_id"], None
+            # Multiple matches — try exact match from results
+            exact = [r for r in records if r.get("name", "").lower() == name.lower()]
+            if exact:
+                return exact[0]["sys_id"], None
+            names = [r.get("name", "") for r in records[:5]]
+            return (
+                None,
+                f"Flow {label}: '{name}' matched {len(records)} flows: {names}. Be more specific or use sys_id.",
+            )
+    return None, f"Flow {label}: no flow found with name '{name}'"
+
+
 def compare_flows(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1565,13 +1610,22 @@ def compare_flows(
 ) -> Dict[str, Any]:
     """Compare two Flow Designer flows and return structural diff."""
     try:
-        flow_a = _get_flow_for_compare(config, auth_manager, params.flow_id_a)
-        if not flow_a:
-            return {"success": False, "error": f"Flow A not found: {params.flow_id_a}"}
+        # Resolve flow IDs from sys_id or name
+        id_a, err_a = _resolve_flow_id(config, auth_manager, params.flow_id_a, params.name_a, "A")
+        if err_a:
+            return {"success": False, "error": err_a}
 
-        flow_b = _get_flow_for_compare(config, auth_manager, params.flow_id_b)
+        id_b, err_b = _resolve_flow_id(config, auth_manager, params.flow_id_b, params.name_b, "B")
+        if err_b:
+            return {"success": False, "error": err_b}
+
+        flow_a = _get_flow_for_compare(config, auth_manager, id_a)
+        if not flow_a:
+            return {"success": False, "error": f"Flow A not found: {id_a}"}
+
+        flow_b = _get_flow_for_compare(config, auth_manager, id_b)
         if not flow_b:
-            return {"success": False, "error": f"Flow B not found: {params.flow_id_b}"}
+            return {"success": False, "error": f"Flow B not found: {id_b}"}
 
         comp_a = _extract_comparable(flow_a, params.include_label_cache)
         comp_b = _extract_comparable(flow_b, params.include_label_cache)
@@ -1579,8 +1633,8 @@ def compare_flows(
 
         return {
             "success": True,
-            "flow_a": {"sys_id": params.flow_id_a, "name": comp_a.get("name", "")},
-            "flow_b": {"sys_id": params.flow_id_b, "name": comp_b.get("name", "")},
+            "flow_a": {"sys_id": id_a, "name": comp_a.get("name", "")},
+            "flow_b": {"sys_id": id_b, "name": comp_b.get("name", "")},
             "summary": f"{diff['total_identical']} identical, {diff['total_different']} different",
             **diff,
         }
