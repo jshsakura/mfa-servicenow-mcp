@@ -368,7 +368,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">159</span>
+    <span class="hero-stat-value">150+</span>
     <span class="hero-stat-label">MCP Tools</span>
   </div>
   <div class="hero-stat">
