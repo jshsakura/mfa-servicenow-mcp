@@ -71,7 +71,7 @@ AI가 자동으로:
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **159개 도구**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
+- **150개 이상의 도구**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
 - **24개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
 - `confirm='approve'` 기반 안전한 수정 승인 정책
@@ -550,7 +550,7 @@ uv build
 ## 상세 문서
 
 - [클라이언트 설정 가이드](docs/CLIENT_SETUP.md) — 클라이언트별 복사 붙여넣기 설정
-- [도구 목록](docs/TOOL_INVENTORY.md) — 159개 도구 카테고리/패키지별 전체 목록
+- [도구 목록](docs/TOOL_INVENTORY.md) — 전체 도구 카테고리/패키지별 목록
 - [Windows 설치 가이드](docs/WINDOWS_INSTALL.ko.md)
 - [서비스 카탈로그 가이드](docs/catalog.md) — 카탈로그 CRUD 및 최적화
 - [변경 관리 가이드](docs/change_management.md) — 변경 요청 생명주기 및 승인
