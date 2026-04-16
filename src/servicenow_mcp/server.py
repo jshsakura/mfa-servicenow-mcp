@@ -64,7 +64,13 @@ def _load_packaged_package_definitions() -> Dict[str, List[str]]:
     loaded_config = yaml.safe_load(pkg_file.read_text(encoding="utf-8"))
     if not isinstance(loaded_config, dict):
         raise ValueError(f"Expected dict package config, got {type(loaded_config)}")
-    return {str(k).lower(): v for k, v in loaded_config.items()}
+    result = {str(k).lower(): v for k, v in loaded_config.items()}
+    # Resolve _extends inheritance
+    for pkg_name, pkg_def in list(result.items()):
+        if isinstance(pkg_def, dict) and "_extends" in pkg_def:
+            base = list(result.get(pkg_def["_extends"], []))
+            result[pkg_name] = base + pkg_def.get("_tools", [])
+    return result
 
 
 def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
@@ -253,6 +259,13 @@ class ServiceNowMCP:
                 loaded_config = yaml.safe_load(f)
                 if isinstance(loaded_config, dict):
                     self.package_definitions = {str(k).lower(): v for k, v in loaded_config.items()}
+                    # Resolve _extends inheritance: {_extends: "parent", _tools: [...]}
+                    for pkg_name, pkg_def in list(self.package_definitions.items()):
+                        if isinstance(pkg_def, dict) and "_extends" in pkg_def:
+                            parent = pkg_def["_extends"]
+                            base = list(self.package_definitions.get(parent, []))
+                            extra = pkg_def.get("_tools", [])
+                            self.package_definitions[pkg_name] = base + extra
                     logger.info(
                         f"Successfully loaded {len(self.package_definitions)} package definitions from {config_path}"
                     )

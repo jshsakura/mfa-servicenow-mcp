@@ -1,5 +1,9 @@
 """
 Tools module for the ServiceNow MCP server.
+
+Note: MCP tool registration is handled by @register_tool decorators.
+discover_tools() auto-imports all modules and collects registered tools.
+The imports and __all__ below are for Python module consumers only.
 """
 
 # Import tools as they are implemented
@@ -92,6 +96,54 @@ from servicenow_mcp.tools.portal_tools import (
     search_portal_regex_matches,
     update_portal_component_from_snapshot,
 )
+from servicenow_mcp.tools.project_tools import create_project, list_projects, update_project
+from servicenow_mcp.tools.script_include_tools import (
+    create_script_include,
+    delete_script_include,
+    get_script_include,
+    list_script_includes,
+    update_script_include,
+)
+from servicenow_mcp.tools.scrum_task_tools import (
+    create_scrum_task,
+    list_scrum_tasks,
+    update_scrum_task,
+)
+from servicenow_mcp.tools.source_tools import get_metadata_source, search_server_code
+from servicenow_mcp.tools.story_tools import (
+    create_story,
+    create_story_dependency,
+    delete_story_dependency,
+    list_stories,
+    list_story_dependencies,
+    update_story,
+)
+from servicenow_mcp.tools.user_tools import (
+    add_group_members,
+    create_group,
+    create_user,
+    get_user,
+    list_groups,
+    list_users,
+    remove_group_members,
+    update_group,
+    update_user,
+)
+from servicenow_mcp.tools.workflow_tools import (
+    activate_workflow,
+    add_workflow_activity,
+    create_workflow,
+    deactivate_workflow,
+    delete_workflow,
+    delete_workflow_activity,
+    get_workflow_activities,
+    get_workflow_details,
+    list_workflow_versions,
+    list_workflows,
+    reorder_workflow_activities,
+    update_workflow,
+    update_workflow_activity,
+)
 
 __all__ = [
     # Incident tools
@@ -137,6 +189,7 @@ __all__ = [
     "add_workflow_activity",
     "update_workflow_activity",
     "delete_workflow_activity",
+    "delete_workflow",
     "reorder_workflow_activities",
     # Changeset tools
     "get_changeset_details",
@@ -190,6 +243,7 @@ __all__ = [
     "create_project",
     "update_project",
     "list_projects",
+    # Portal analysis tools
     "search_portal_regex_matches",
     "detect_angular_implicit_globals",
     "analyze_portal_component_update",
@@ -198,7 +252,7 @@ __all__ = [
     "route_portal_component_edit",
     "update_portal_component_from_snapshot",
     "analyze_widget_performance",
-    # Portal CRUD tools (Phase 1-3)
+    # Portal CRUD tools
     "create_widget",
     "create_angular_provider",
     "create_header_footer",
@@ -214,17 +268,9 @@ __all__ = [
     # Flow Designer tools
     "list_flow_designers",
     "get_flow_designer_detail",
-    "get_flow_designer_structure",
     "get_flow_designer_executions",
-    "get_flow_designer_execution_detail",
-    "get_flow_designer_triggers",
     "update_flow_designer",
     "activate_flow_designer",
     "deactivate_flow_designer",
     "list_flow_triggers_by_table",
-    # Future tools
-    # "create_problem",
-    # "update_problem",
-    # "create_request",
-    # "update_request",
 ]

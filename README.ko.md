@@ -71,13 +71,13 @@ AI가 자동으로:
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **101개 도구**, 5개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
+- **154개 도구**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
 - **20개 이상의 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
 - `confirm='approve'` 기반 안전한 수정 승인 정책
 - 페이로드 안전 제한, 필드별 절단, 총 응답 한도 (200K 문자)
 - 일시적 네트워크 오류 자동 재시도 (백오프)
-- 표준 사용자, 운영자, 포탈 개발자, 플랫폼 개발자용 도구 패키지
+- 표준 사용자, 운영자, 포탈 개발자, 플랫폼 개발자, 애자일 PPM, 관리자용 도구 패키지
 - 개발자 도구: 활동 추적, 미커밋 변경사항, 의존성 매핑, 일일 요약
 - 핵심 ServiceNow 아티팩트 테이블 전체 커버리지 ([지원 테이블](#지원하는-servicenow-테이블) 참조)
 - CI/CD: 자동 태깅, PyPI 퍼블리싱, Docker 멀티플랫폼 빌드
@@ -231,15 +231,17 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 `MCP_TOOL_PACKAGE`를 설정하여 도구 세트를 선택할 수 있습니다. 기본값: `standard`
 
-모든 패키지는 읽기 전용 도구 55개를 기본 포함하며, 상위 패키지는 도메인별 수정 권한을 추가합니다.
+모든 패키지는 `_extends`로 `standard` 읽기 전용 도구를 상속하고, 도메인별 쓰기 권한을 추가합니다. YAML 설정에서 상속을 사용하여 중복을 제거했습니다.
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
-| `standard` | 53 | **(기본값)** 읽기 전용 safe mode. 전 도메인 조회/분석/다운로드 도구 포함 |
-| `service_desk` | 57 | standard + 인시던트 생성/처리/해결/코멘트 |
-| `portal_developer` | 69 | standard + 포탈/위젯 수정, Script Include 수정, 체인지셋 커밋/퍼블리시 |
-| `platform_developer` | 77 | standard + 워크플로우 CRUD, UI Policy, 인시던트/변경관리 수정 |
-| `full` | 101 | 전 도메인 수정/삭제 가능 |
+| `standard` | 36 | **(기본값)** 읽기 전용 safe mode. 핵심 API, 워크플로우/플로우 읽기, 포탈 기본, 로그, 검색 |
+| `service_desk` | 46 | standard + 인시던트 생성/처리/해결/코멘트, 변경관리 쓰기 |
+| `portal_developer` | 85 | standard + 포탈 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
+| `platform_developer` | 79 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `agile` | 51 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
+| `admin` | 61 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
+| `full` | 114 | 전 개발 도구 통합 (Agile PPM, Admin은 전용 패키지에서) |
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 
@@ -548,7 +550,7 @@ uv build
 ## 상세 문서
 
 - [클라이언트 설정 가이드](docs/CLIENT_SETUP.md) — 클라이언트별 복사 붙여넣기 설정
-- [도구 목록](docs/TOOL_INVENTORY.md) — 101개 도구 카테고리/패키지별 전체 목록
+- [도구 목록](docs/TOOL_INVENTORY.md) — 154개 도구 카테고리/패키지별 전체 목록
 - [Windows 설치 가이드](docs/WINDOWS_INSTALL.ko.md)
 - [서비스 카탈로그 가이드](docs/catalog.md) — 카탈로그 CRUD 및 최적화
 - [변경 관리 가이드](docs/change_management.md) — 변경 요청 생명주기 및 승인
