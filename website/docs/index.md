@@ -358,6 +358,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     Upgrade via <code>uv</code> to get the latest release:
   </p>
   <div class="install-code-block">
+    <div class="install-tabs"><button class="install-tab active">Terminal</button></div>
     <pre class="install-code"><code>uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version</code></pre>
   </div>
   <p class="section-desc" style="margin-top:12px;font-size:0.9em;">
@@ -367,7 +368,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">97+</span>
+    <span class="hero-stat-value">159</span>
     <span class="hero-stat-label">MCP Tools</span>
   </div>
   <div class="hero-stat">
@@ -375,8 +376,8 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
     <span class="hero-stat-label">Native Support</span>
   </div>
   <div class="hero-stat">
-    <span class="hero-stat-value">6</span>
-    <span class="hero-stat-label">Skill Packages</span>
+    <span class="hero-stat-value">5</span>
+    <span class="hero-stat-label">Skill Categories</span>
   </div>
   <div class="hero-stat">
     <span class="hero-stat-value">0</span>
