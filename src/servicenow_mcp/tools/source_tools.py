@@ -799,6 +799,63 @@ def _find_script_include_by_candidate(
     return rows[0] if rows else None
 
 
+def _batch_resolve_script_includes(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    candidates: List[str],
+    scope: str | None,
+    only_active: bool,
+) -> Dict[str, Dict[str, Any]]:
+    """Resolve multiple SI candidates in batched queries instead of N+1."""
+    if not candidates:
+        return {}
+
+    result_map: Dict[str, Dict[str, Any]] = {}
+    safe_candidates = [(c, _escape_query_fragment(c)) for c in candidates]
+
+    for chunk in _chunked([s for _, s in safe_candidates], 50):
+        name_in = ",".join(chunk)
+        query_parts = [f"nameIN{name_in}^ORapi_nameIN{name_in}"]
+        for sc in chunk:
+            query_parts[0] += f"^ORapi_nameENDSWITH.{sc}"
+        if scope:
+            query_parts.append(f"sys_scope.scope={_escape_query_fragment(scope)}")
+        if only_active:
+            query_parts.append("active=true")
+        query = "^".join(query_parts)
+
+        rows = _make_request(
+            config,
+            auth_manager,
+            table="sys_script_include",
+            query=query,
+            fields=["sys_id", "name", "api_name", "script"],
+            limit=len(chunk) * 3,
+        )
+
+        row_index: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            rname = str(row.get("name") or "")
+            rapi = str(row.get("api_name") or "")
+            if rname:
+                row_index.setdefault(rname, row)
+            if rapi:
+                row_index.setdefault(rapi, row)
+                short = rapi.split(".")[-1]
+                if short:
+                    row_index.setdefault(short, row)
+
+        for orig, safe in safe_candidates:
+            if orig in result_map:
+                continue
+            match = row_index.get(orig) or row_index.get(safe)
+            if match:
+                result_map[orig] = match
+
+    return result_map
+
+
 def _chunked(values: List[str], size: int) -> List[List[str]]:
     return [values[i : i + size] for i in range(0, len(values), size)]
 
@@ -1369,23 +1426,24 @@ def extract_widget_table_dependencies(
     linked_si_limit = _clamp_linked_si_limit(params.max_linked_script_includes)
     if params.include_linked_script_includes and isinstance(widget_script, str):
         si_candidates = sorted(_extract_script_include_candidates(widget_script))[:linked_si_limit]
+        try:
+            si_map = _batch_resolve_script_includes(
+                config,
+                auth_manager,
+                candidates=si_candidates,
+                scope=params.scope,
+                only_active=params.only_active,
+            )
+        except Exception as exc:
+            failed_sources.append(
+                {
+                    "source_type": "script_include_lookup",
+                    "message": f"batch resolve: {exc}",
+                }
+            )
+            si_map = {}
         for candidate in si_candidates:
-            try:
-                si_row = _find_script_include_by_candidate(
-                    config,
-                    auth_manager,
-                    candidate=candidate,
-                    scope=params.scope,
-                    only_active=params.only_active,
-                )
-            except Exception as exc:
-                failed_sources.append(
-                    {
-                        "source_type": "script_include_lookup",
-                        "message": f"{candidate}: {exc}",
-                    }
-                )
-                continue
+            si_row = si_map.get(candidate)
 
             if not si_row:
                 continue
