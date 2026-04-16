@@ -73,10 +73,10 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <div style="margin-top:56px;" class="reveal">
-      <span class="section-label">Manual — Step 1</span>
-      <h2 class="section-title">Install the server</h2>
+      <span class="section-label">Manual — One command installer</span>
+      <h2 class="section-title">Run setup for your client</h2>
       <p class="section-desc">
-        Prefer to do it yourself? Pick your OS. A real Chromium browser opens for MFA/SSO login — Okta, Entra ID, SAML all work out of the box.
+        Prefer to do it yourself in the terminal? Use the installer below. It writes the right MCP config for your client, preserves existing settings, and installs skills when supported.
       </p>
     </div>
     <div class="install-block reveal">
@@ -92,11 +92,10 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
             <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-<span class="c"># Run with MFA browser login (Okta, Entra ID, SAML supported)</span>
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+<span class="c"># Configure your client and install optional skills</span>
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"</code></pre>
+  --auth-type "browser"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="install-win">
@@ -104,11 +103,10 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
             <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-<span class="c"># Run with MFA browser login (Okta, Entra ID, SAML supported)</span>
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
+<span class="c"># Configure your client and install optional skills</span>
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser" `
-  --browser-headless "false"</code></pre>
+  --auth-type "browser"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="install-pip">
@@ -143,10 +141,10 @@ servicenow-mcp \
     </div>
 
     <div style="margin-top:56px;" class="reveal">
-      <span class="section-label">Manual — Step 2</span>
-      <h2 class="section-title">Configure your AI client</h2>
+      <span class="section-label">Manual fallback</span>
+      <h2 class="section-title">Repair or inspect client config manually</h2>
       <p class="section-desc">
-        Paste the config for your client. All use the same MCP server — only the format differs.
+        The installer is the recommended path. Use the raw config examples below only if you need to inspect or repair a client config by hand.
       </p>
     </div>
     <div class="install-block reveal">
@@ -293,7 +291,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <p class="section-desc">
         Tools alone are raw API calls. Skills are what make your LLM actually useful —
         verified pipelines with safety gates, rollback, and context-aware delegation.
-        20+ skills today, more coming with every release.
+        24 skills today, more coming with every release.
       </p>
     </div>
     <div class="install-block reveal">
@@ -409,7 +407,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Connect</h3>
-        <p>Point Claude, Cursor, or any MCP client. 97+ tools ready instantly.</p>
+        <p>Point Claude, Cursor, or any MCP client. 110+ packaged tools ready instantly.</p>
       </div>
     </div>
   </div>
