@@ -196,13 +196,38 @@ body:has(.landing-page) .md-content__inner::before { display: none !important; }
   body:has(.landing-page) .md-sidebar { display: none; }
 }
 body:has(.landing-page) .md-footer { margin-top: 0; }
-.md-copyright {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
+
+/* ============================================================
+   FOOTER — single line, semi-transparent
+   ============================================================ */
+.md-footer-meta {
+  background: transparent !important;
 }
-.md-copyright__highlight { order: 2; }
+.md-footer-meta__inner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px 16px;
+}
+.md-footer-copyright {
+  text-align: center;
+  width: 100%;
+  font-size: .78rem;
+  color: var(--hero-sub);
+  opacity: .8;
+}
+.md-footer-copyright a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.md-footer-copyright a:hover {
+  text-decoration: underline;
+}
+/* Hide Material's default social links in footer (we use our own template) */
+.md-footer-social { display: none; }
+/* Hide the built-in "Made with" that Material adds if not overridden */
+.md-footer-meta .md-footer-built { display: none; }
 
 /* ============================================================
    HERO — banner image with text overlay (always dark)
