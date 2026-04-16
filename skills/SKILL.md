@@ -38,7 +38,6 @@ output: summary|report|diff|data|status|files|action
 | [portal-diagnosis](analyze/portal-diagnosis.md) | high | yes | "포탈 진단", "portal health check" |
 | [provider-audit](analyze/provider-audit.md) | medium | yes | "프로바이더 감사", "find unused providers" |
 | [dependency-analysis](analyze/dependency-analysis.md) | medium | yes | "지워도 돼?", "what depends on this" |
-| [code-detection](analyze/code-detection.md) | medium | yes | "누락된 조건", "missing branches" |
 | [local-source-audit](analyze/local-source-audit.md) | low | yes | "로컬 검수", "dead code", "cross reference" |
 | [esc-page-audit](analyze/esc-page-audit.md) | high | yes | "ESC 구조", "audit ESC" |
 
@@ -86,7 +85,7 @@ output: summary|report|diff|data|status|files|action
 `explore/health-check` → `fix/widget-debugging` → `analyze/widget-analysis` → `fix/widget-patching` → `manage/changeset-workflow`
 
 ### Code Audit Pipeline
-`analyze/portal-diagnosis` → `analyze/provider-audit` → `analyze/code-detection` → `fix/code-review`
+`analyze/portal-diagnosis` → `analyze/provider-audit` → `fix/code-review`
 
 ### New Feature Pipeline
 `analyze/widget-analysis` → `analyze/dependency-analysis` → `fix/widget-patching` → `manage/changeset-workflow` → `deploy/change-lifecycle`
