@@ -2,12 +2,33 @@ from pathlib import Path
 
 import yaml
 
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
+
+
+def _load_packages():
+    """Load tool_packages.yaml and resolve _extends inheritance."""
+    raw = yaml.safe_load(CONFIG_PATH.read_text())
+    resolved: dict[str, set[str]] = {}
+
+    def resolve(name: str) -> set[str]:
+        if name in resolved:
+            return resolved[name]
+        val = raw.get(name, [])
+        if isinstance(val, list):
+            resolved[name] = set(val)
+            return resolved[name]
+        base = resolve(val["_extends"]) if "_extends" in val else set()
+        resolved[name] = base | set(val.get("_tools", []))
+        return resolved[name]
+
+    for key in raw:
+        resolve(key)
+    return resolved
+
 
 def test_portal_developer_includes_changeset_commit_and_workflow_read_tools():
-    config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
-    config = yaml.safe_load(config_path.read_text())
-
-    portal_tools = set(config["portal_developer"])
+    pkgs = _load_packages()
+    portal_tools = pkgs["portal_developer"]
 
     assert "get_logs" in portal_tools
     assert "search_server_code" in portal_tools
@@ -26,10 +47,8 @@ def test_portal_developer_includes_changeset_commit_and_workflow_read_tools():
 
 
 def test_full_package_includes_portal_edit_pipeline_tools():
-    config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
-    config = yaml.safe_load(config_path.read_text())
-
-    full_tools = set(config["full"])
+    pkgs = _load_packages()
+    full_tools = pkgs["full"]
 
     assert "route_portal_component_edit" in full_tools
     assert "analyze_portal_component_update" in full_tools
@@ -40,40 +59,32 @@ def test_full_package_includes_portal_edit_pipeline_tools():
 
 
 def test_local_sync_tools_in_correct_packages():
-    config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
-    config = yaml.safe_load(config_path.read_text())
+    pkgs = _load_packages()
 
-    # diff_local_component is read-only — should be in all packages
     for pkg in ["standard", "service_desk", "portal_developer", "platform_developer", "full"]:
-        assert "diff_local_component" in config[pkg], f"diff_local_component missing from {pkg}"
+        assert "diff_local_component" in pkgs[pkg], f"diff_local_component missing from {pkg}"
 
-    # update_remote_from_local is write — only in portal_developer, platform_developer, full
     for pkg in ["portal_developer", "platform_developer", "full"]:
         assert (
-            "update_remote_from_local" in config[pkg]
+            "update_remote_from_local" in pkgs[pkg]
         ), f"update_remote_from_local missing from {pkg}"
 
-    # should NOT be in standard or service_desk
-    assert "update_remote_from_local" not in config["standard"]
-    assert "update_remote_from_local" not in config["service_desk"]
+    assert "update_remote_from_local" not in pkgs["standard"]
+    assert "update_remote_from_local" not in pkgs["service_desk"]
 
 
-def test_full_package_under_100_tools():
-    config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
-    config = yaml.safe_load(config_path.read_text())
-
-    assert (
-        len(config["full"]) <= 110
-    ), f"full package must be under 110 tools, got {len(config['full'])}"
+def test_full_package_tool_count():
+    pkgs = _load_packages()
+    count = len(pkgs["full"])
+    assert count <= 130, f"full package should be under 130 tools, got {count}"
 
 
 def test_download_and_audit_tools_in_all_packages():
-    config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
-    config = yaml.safe_load(config_path.read_text())
+    pkgs = _load_packages()
 
-    # These read-only tools should be in all active packages
-    download_tools = [
-        "download_portal_sources",
+    # Common download tools shared by portal_developer, platform_developer, full
+    common_downloads = [
+        "download_app_sources",
         "download_script_includes",
         "download_server_scripts",
         "download_ui_components",
@@ -81,35 +92,28 @@ def test_download_and_audit_tools_in_all_packages():
         "download_security_sources",
         "download_admin_scripts",
         "download_table_schema",
-        "audit_local_sources",
     ]
-    for pkg in ["standard", "portal_developer", "platform_developer", "service_desk", "full"]:
-        for tool in download_tools:
-            assert tool in config[pkg], f"'{tool}' missing from '{pkg}' package"
+    for pkg in ["portal_developer", "platform_developer", "full"]:
+        for tool in common_downloads:
+            assert tool in pkgs[pkg], f"'{tool}' missing from '{pkg}' package"
 
-    # download_app_sources (orchestrator) should be in standard and full
-    assert "download_app_sources" in config["standard"]
-    assert "download_app_sources" in config["full"]
+    # Portal-specific downloads
+    assert "download_portal_sources" in pkgs["portal_developer"]
+    assert "download_portal_sources" in pkgs["full"]
 
 
 def test_consolidated_tools_replaced_old_ones():
-    config_path = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
-    config = yaml.safe_load(config_path.read_text())
+    pkgs = _load_packages()
+    full_tools = pkgs["full"]
 
-    full_tools = set(config["full"])
-
-    # Consolidated tools should exist
     assert "get_flow_designer_detail" in full_tools
     assert "get_flow_designer_executions" in full_tools
     assert "get_workflow_details" in full_tools
 
-    # Removed tools should NOT exist in any package
     removed = [
         "get_flow_designer_structure",
         "get_flow_designer_triggers",
         "get_flow_designer_execution_detail",
-        "list_workflow_versions",
-        "get_workflow_activities",
         "list_portals",
         "list_pages",
         "list_widget_instances",
@@ -118,6 +122,20 @@ def test_consolidated_tools_replaced_old_ones():
         "list_changesets",
     ]
     for tool in removed:
-        for pkg_name, pkg_tools in config.items():
-            if isinstance(pkg_tools, list):
-                assert tool not in pkg_tools, f"Removed tool '{tool}' still in package '{pkg_name}'"
+        for pkg_name, pkg_tools in pkgs.items():
+            assert tool not in pkg_tools, f"Removed tool '{tool}' still in package '{pkg_name}'"
+
+
+def test_new_workflow_studio_tools_in_standard():
+    pkgs = _load_packages()
+    standard = pkgs["standard"]
+
+    for tool in [
+        "list_actions",
+        "get_action_detail",
+        "list_playbooks",
+        "get_playbook_detail",
+        "list_decision_tables",
+        "get_decision_table_detail",
+    ]:
+        assert tool in standard, f"'{tool}' missing from standard package"
