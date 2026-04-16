@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import requests
 from pydantic import BaseModel
+from requests import RequestException
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils import json_fast
@@ -40,29 +40,28 @@ class ChangesetResource:
         }
 
         try:
-            response = requests.get(
+            response = self.auth_manager.make_request(
+                "GET",
                 f"{self.config.instance_url}/api/now/table/sys_update_set",
-                headers=self.auth_manager.get_headers(),
                 params=request_params,
             )
             response.raise_for_status()
             return response.text
-        except requests.exceptions.RequestException as exc:
+        except RequestException as exc:
             return json_fast.dumps({"error": str(exc)})
 
     async def get_changeset(self, changeset_id: str) -> str:
         try:
-            headers = self.auth_manager.get_headers()
-            changeset_response = requests.get(
+            changeset_response = self.auth_manager.make_request(
+                "GET",
                 f"{self.config.instance_url}/api/now/table/sys_update_set/{changeset_id}",
-                headers=headers,
             )
             changeset_response.raise_for_status()
             changeset = changeset_response.json().get("result", {})
 
-            changes_response = requests.get(
+            changes_response = self.auth_manager.make_request(
+                "GET",
                 f"{self.config.instance_url}/api/now/table/sys_update_xml",
-                headers=headers,
                 params={"sysparm_query": f"update_set={changeset_id}"},
             )
             changes_response.raise_for_status()
@@ -75,5 +74,5 @@ class ChangesetResource:
                     "change_count": len(changes),
                 }
             )
-        except requests.exceptions.RequestException as exc:
+        except RequestException as exc:
             return json_fast.dumps({"error": str(exc)})

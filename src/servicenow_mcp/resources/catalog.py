@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import requests
 from pydantic import BaseModel
 
 from servicenow_mcp.auth.auth_manager import AuthManager
@@ -89,9 +88,9 @@ class CatalogResource:
         }
 
         try:
-            response = requests.get(
+            response = self.auth_manager.make_request(
+                "GET",
                 f"{self.config.instance_url}/api/now/table/sc_cat_item",
-                headers=self.auth_manager.get_headers(),
                 params=request_params,
             )
             response.raise_for_status()
@@ -115,9 +114,9 @@ class CatalogResource:
 
     async def get_catalog_item(self, item_id: str) -> dict[str, Any]:
         try:
-            response = requests.get(
+            response = self.auth_manager.make_request(
+                "GET",
                 f"{self.config.instance_url}/api/now/table/sc_cat_item/{item_id}",
-                headers=self.auth_manager.get_headers(),
             )
             response.raise_for_status()
             item = response.json().get("result", {})
@@ -136,9 +135,9 @@ class CatalogResource:
     async def get_catalog_item_variables(self, item_id: str) -> list[CatalogItemVariableModel]:
         try:
             request_params: RequestParams = {"sysparm_query": f"cat_item={item_id}^ORDERBYorder"}
-            response = requests.get(
+            response = self.auth_manager.make_request(
+                "GET",
                 f"{self.config.instance_url}/api/now/table/item_option_new",
-                headers=self.auth_manager.get_headers(),
                 params=request_params,
             )
             response.raise_for_status()
@@ -173,9 +172,9 @@ class CatalogResource:
         }
 
         try:
-            response = requests.get(
+            response = self.auth_manager.make_request(
+                "GET",
                 f"{self.config.instance_url}/api/now/table/sc_category",
-                headers=self.auth_manager.get_headers(),
                 params=request_params,
             )
             response.raise_for_status()

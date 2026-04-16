@@ -544,8 +544,8 @@ def _fetch_subflow_bindings(
     Returns ``subflow_bindings`` list and ``mismatch_summary`` comparing
     label_cache labels against actual subflow references.
     """
-    # 1. Get subflow instances with raw sys_ids for reference resolution
-    instances_raw, _ = sn_query_page(
+    # 1. Get subflow instances with both raw and display values in one query
+    instances_all, _ = sn_query_page(
         config,
         auth_manager,
         table=SUBFLOW_V2_TABLE,
@@ -553,35 +553,40 @@ def _fetch_subflow_bindings(
         fields="sys_id,name,order,position,ui_id,parent_ui_id,nesting_parent,subflow",
         limit=100,
         offset=0,
-        display_value=False,
+        display_value="all",
     )
 
-    if not instances_raw:
+    if not instances_all:
         return {
             "subflow_bindings": [],
             "mismatch_summary": {"mismatch_count": 0, "mismatches": []},
         }
 
-    # Also get display values for human-readable names
-    instances_display, _ = sn_query_page(
-        config,
-        auth_manager,
-        table=SUBFLOW_V2_TABLE,
-        query=f"flow={snapshot_id}",
-        fields="sys_id,name,order,ui_id,subflow",
-        limit=100,
-        offset=0,
-        display_value=True,
-    )
-    display_map = {r["sys_id"]: r for r in instances_display}
+    # With display_value=all, reference fields become {"value": "sys_id", "display_value": "name"}.
+    # Non-reference fields remain plain strings. Extract both raw and display views.
+    instances_raw = []
+    display_map: Dict[str, Dict] = {}
+    for inst in instances_all:
+        sid = inst.get("sys_id", "")
+        raw_inst: Dict[str, Any] = {}
+        disp_inst: Dict[str, Any] = {}
+        for k, v in inst.items():
+            if isinstance(v, dict) and "value" in v:
+                raw_inst[k] = v["value"]
+                disp_inst[k] = v.get("display_value", v["value"])
+            else:
+                raw_inst[k] = v
+                disp_inst[k] = v
+        instances_raw.append(raw_inst)
+        display_map[sid] = disp_inst
 
-    # 2. Batch-resolve snapshot references → master_flow
+    # 2. Batch-resolve snapshot references → master_flow (single query with display_value=all)
     snapshot_ids = list({inst.get("subflow", "") for inst in instances_raw if inst.get("subflow")})
     snapshot_map: Dict[str, Dict] = {}
     master_flow_ids: set = set()
 
     if snapshot_ids:
-        snapshots_raw, _ = sn_query_page(
+        snapshots_all, _ = sn_query_page(
             config,
             auth_manager,
             table=FLOW_SNAPSHOT_TABLE,
@@ -589,28 +594,35 @@ def _fetch_subflow_bindings(
             fields="sys_id,name,master_flow",
             limit=100,
             offset=0,
-            display_value=False,
+            display_value="all",
         )
-        for s in snapshots_raw:
-            snapshot_map[s["sys_id"]] = s
-            if s.get("master_flow"):
-                master_flow_ids.add(s["master_flow"])
-
-        # Get display names for snapshots
-        snapshots_display, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=FLOW_SNAPSHOT_TABLE,
-            query=f"sys_idIN{','.join(snapshot_ids)}",
-            fields="sys_id,name,master_flow",
-            limit=100,
-            offset=0,
-            display_value=True,
-        )
-        for sd in snapshots_display:
-            if sd["sys_id"] in snapshot_map:
-                snapshot_map[sd["sys_id"]]["snapshot_display_name"] = sd.get("name", "")
-                snapshot_map[sd["sys_id"]]["master_flow_display"] = sd.get("master_flow", "")
+        for s in snapshots_all:
+            sid = s.get("sys_id", "")
+            master_ref = s.get("master_flow", {})
+            if isinstance(master_ref, dict) and "value" in master_ref:
+                master_id = master_ref["value"]
+                master_display = master_ref.get("display_value", "")
+            else:
+                master_id = master_ref if isinstance(master_ref, str) else ""
+                master_display = ""
+            name_ref = s.get("name", "")
+            raw_name = (
+                name_ref["value"]
+                if isinstance(name_ref, dict) and "value" in name_ref
+                else name_ref
+            )
+            display_name = (
+                name_ref.get("display_value", raw_name) if isinstance(name_ref, dict) else raw_name
+            )
+            snapshot_map[sid] = {
+                "sys_id": sid,
+                "name": raw_name,
+                "master_flow": master_id,
+                "snapshot_display_name": display_name,
+                "master_flow_display": master_display,
+            }
+            if master_id:
+                master_flow_ids.add(master_id)
 
     # 3. Batch-resolve master flow names (if not already in display values)
     master_flow_map: Dict[str, str] = {}
