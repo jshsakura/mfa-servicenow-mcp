@@ -179,28 +179,29 @@ def _build_component_tree(components: List[Dict]) -> List[Dict]:
     return roots
 
 
-def _try_flow_designer_api(
+def _try_processflow_api(
     config: ServerConfig,
     auth_manager: AuthManager,
     flow_id: str,
 ) -> Optional[Dict[str, Any]]:
-    """Try the native Flow Designer REST API (/api/sn_flow/designer/flows/{id}).
+    """Try the processflow REST API — the actual API used by Flow Designer UI.
 
-    Returns the full flow definition if available, None if the API is not present.
+    Endpoint: /api/now/processflow/flow/{flow_id}
+    Returns the full flow definition (68+ fields) including triggers, actions,
+    logic nodes, subflows, variables, and snapshots in a single call.
+    Requires browser session auth (JSESSIONID + x-usertoken).
     """
-    for api_path in [
-        f"/api/sn_flow/designer/flows/{flow_id}",
-        f"/api/sn_fd/designer/flows/{flow_id}",
-    ]:
-        try:
-            url = f"{config.instance_url}{api_path}"
-            response = auth_manager.make_request("GET", url)
-            response.raise_for_status()
-            result = response.json()
-            if result and "result" in result:
-                return result
-        except Exception:
-            continue
+    try:
+        url = f"{config.instance_url}/api/now/processflow/flow/{flow_id}"
+        response = auth_manager.make_request("GET", url)
+        response.raise_for_status()
+        data = response.json()
+        if data and isinstance(data, dict):
+            result = data.get("result", data)
+            if result.get("id") or result.get("name"):
+                return data
+    except Exception:
+        pass
     return None
 
 
@@ -274,10 +275,37 @@ def get_flow_details(
     auth_manager: AuthManager,
     params: GetFlowDetailsParams,
 ) -> Dict[str, Any]:
-    """Get flow details by sys_id, optionally including structure and triggers."""
+    """Get flow details by sys_id, optionally including structure and triggers.
+
+    Tries the processflow API first for complete data. Falls back to Table API.
+    """
     flow_id = params.flow_id
 
     try:
+        # Try processflow API first — returns everything in one call
+        if params.include_structure or params.include_triggers:
+            pf_result = _try_processflow_api(config, auth_manager, flow_id)
+            if pf_result:
+                pf_data = pf_result.get("result", pf_result)
+                result: Dict[str, Any] = {
+                    "success": True,
+                    "source": "processflow_api",
+                    "flow": {
+                        "sys_id": pf_data.get("id", flow_id),
+                        "name": pf_data.get("name", ""),
+                        "description": pf_data.get("description", ""),
+                        "status": pf_data.get("status", ""),
+                        "active": pf_data.get("active", ""),
+                        "scope": pf_data.get("scope", ""),
+                    },
+                }
+                if params.include_structure:
+                    result["structure"] = _extract_processflow_structure(pf_result)
+                if params.include_triggers:
+                    result["triggers"] = pf_data.get("triggerInstances", [])
+                return result
+
+        # Fallback: Table API
         flows, _ = sn_query_page(
             config,
             auth_manager,
@@ -291,7 +319,7 @@ def get_flow_details(
         )
         flow = flows[0] if flows else {}
 
-        result: Dict[str, Any] = {"success": True, "flow": flow}
+        result = {"success": True, "flow": flow}
 
         if params.include_triggers:
             result["triggers"] = _fetch_flow_triggers(config, auth_manager, flow_id)
@@ -305,6 +333,61 @@ def get_flow_details(
         return {"success": False, "error": str(e)}
 
 
+def _extract_processflow_structure(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract a concise structure summary from a processflow API response."""
+    flow_data = result.get("result", result)
+
+    actions = flow_data.get("actionInstances", [])
+    logic = flow_data.get("flowLogicInstances", [])
+    subflows = flow_data.get("subFlowInstances", [])
+    triggers = flow_data.get("triggerInstances", [])
+    variables = flow_data.get("flowVariables", [])
+    inputs_val = flow_data.get("inputs", [])
+    outputs_val = flow_data.get("outputs", [])
+
+    flat_summary = []
+    for a in actions:
+        flat_summary.append(
+            {
+                "order": a.get("position", a.get("order")),
+                "type": "action",
+                "name": a.get("name", ""),
+                "action_type": a.get("actionType", a.get("action_type", "")),
+            }
+        )
+    for node in logic:
+        flat_summary.append(
+            {
+                "order": node.get("position", node.get("order")),
+                "type": "logic",
+                "name": node.get("name", ""),
+                "logic_type": node.get("type", node.get("compilableType", "")),
+            }
+        )
+    for s in subflows:
+        flat_summary.append(
+            {
+                "order": s.get("position", s.get("order")),
+                "type": "subflow",
+                "name": s.get("name", ""),
+            }
+        )
+
+    flat_summary.sort(key=lambda x: int(x.get("order", 0) or 0))
+
+    return {
+        "total_actions": len(actions),
+        "total_logic": len(logic),
+        "total_subflows": len(subflows),
+        "total_triggers": len(triggers),
+        "total_variables": len(variables),
+        "inputs": inputs_val if isinstance(inputs_val, list) else [],
+        "outputs": outputs_val if isinstance(outputs_val, list) else [],
+        "triggers": triggers,
+        "flat_summary": flat_summary,
+    }
+
+
 def _fetch_flow_structure(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -313,22 +396,22 @@ def _fetch_flow_structure(
     """Get the full component tree of a flow (internal helper)."""
 
     # ------------------------------------------------------------------
-    # Strategy 1: Native Flow Designer API (full detail)
+    # Strategy 1: processflow API (full detail, single call)
     # ------------------------------------------------------------------
-    designer_result = _try_flow_designer_api(config, auth_manager, flow_id)
-    if designer_result:
+    pf_result = _try_processflow_api(config, auth_manager, flow_id)
+    if pf_result:
+        structure = _extract_processflow_structure(pf_result)
         return {
             "success": True,
-            "source": "flow_designer_api",
+            "source": "processflow_api",
             "flow_id": flow_id,
-            "data": designer_result.get("result", designer_result),
+            **structure,
         }
 
     # ------------------------------------------------------------------
-    # Strategy 2: Table API fallback (structure only)
+    # Strategy 2: Table API fallback (structure only, no conditions/variables)
     # ------------------------------------------------------------------
     try:
-        # Step 1: Find the published snapshot
         snapshot_id = _get_snapshot_id(config, auth_manager, flow_id)
         if not snapshot_id:
             return {
@@ -336,12 +419,10 @@ def _fetch_flow_structure(
                 "error": (
                     f"No snapshot found for flow {flow_id}. "
                     "The flow may not be published. "
-                    "Also, the native Flow Designer API (/api/sn_flow/designer/) "
-                    "was not available on this instance."
+                    "The processflow API was also not available (requires browser auth)."
                 ),
             }
 
-        # Step 2: Get all components via v2 tables using snapshot_id
         actions, _ = sn_query_page(
             config,
             auth_manager,
@@ -381,14 +462,11 @@ def _fetch_flow_structure(
         for s in subflows:
             s["component_type"] = "subflow"
 
-        # Merge all components
         all_components = actions + logic_nodes + subflows
         all_components.sort(key=lambda c: int(c.get("order", 0)))
 
-        # Build tree
         tree = _build_component_tree(all_components)
 
-        # Flat summary for quick reading
         flat_summary = []
         for comp in all_components:
             entry = {
@@ -414,7 +492,7 @@ def _fetch_flow_structure(
             "total_subflows": len(subflows),
             "note": (
                 "Retrieved via Table API. Conditions and variable mappings may be incomplete. "
-                "The native Flow Designer API was not available on this instance."
+                "Use browser auth to access the processflow API for full detail."
             ),
             "flat_summary": flat_summary,
             "tree": tree,
