@@ -73,7 +73,6 @@ standard:
   - download_table_schema
   - audit_local_sources
   # Detection
-  - detect_missing_profit_company_codes
   # Local Sync (Read)
   - diff_local_component
 
@@ -134,7 +133,6 @@ portal_developer:
   - download_table_schema
   - audit_local_sources
   # Detection
-  - detect_missing_profit_company_codes
   # Local Sync (Read)
   - diff_local_component
   # + Portal writes
@@ -229,7 +227,6 @@ platform_developer:
   - download_table_schema
   - audit_local_sources
   # Detection
-  - detect_missing_profit_company_codes
   # Local Sync (Read)
   - diff_local_component
   # + Workflow writes
@@ -338,7 +335,6 @@ service_desk:
   - download_table_schema
   - audit_local_sources
   # Detection
-  - detect_missing_profit_company_codes
   # Local Sync (Read)
   - diff_local_component
   # + Incident writes
@@ -404,7 +400,6 @@ full:
   - download_table_schema
   - audit_local_sources
   # Detection
-  - detect_missing_profit_company_codes
   # Local Sync (Read)
   - diff_local_component
   # + All writes (full only below this line)

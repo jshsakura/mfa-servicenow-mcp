@@ -142,8 +142,6 @@ portal_developer:
     - download_security_sources
     - download_admin_scripts
     - download_table_schema
-    # Detection
-    - detect_missing_profit_company_codes
     # Dev extras
     - get_uncommitted_changes
     - get_developer_daily_summary
@@ -258,8 +256,10 @@ admin:
     - update_catalog_item_variable
     - get_optimization_recommendations
 
-# --- Full: All development tools (114 tools) ---
-# Excludes: Agile PPM (15) -> agile, Admin (25) -> admin
+# --- Full: Portal-focused development tools ---
+# Excludes: Agile PPM -> agile, Admin -> admin,
+#           UI Policy -> platform_developer, Changeset -> portal_developer,
+#           Detection/Repo -> specialized packages only
 full:
   _extends: standard
   _tools:
@@ -275,12 +275,6 @@ full:
     - submit_change_for_approval
     - approve_change
     - reject_change
-    # Changeset writes
-    - create_changeset
-    - update_changeset
-    - add_file_to_changeset
-    - commit_changeset
-    - publish_changeset
     # Workflow writes
     - create_workflow
     - update_workflow
@@ -332,11 +326,6 @@ full:
     - update_script_include
     - delete_script_include
     - execute_script_include
-    # UI Policy writes
-    - create_ui_policy
-    - create_ui_policy_action
-    # Detection
-    - detect_missing_profit_company_codes
     # Source downloads
     - download_app_sources
     - download_script_includes
@@ -349,10 +338,6 @@ full:
     # Developer extras
     - get_uncommitted_changes
     - get_developer_daily_summary
-    # Repository
-    - get_repo_file_last_modifier
-    - get_repo_recent_commits
-    - get_repo_working_tree_status
     # Sync
     - update_remote_from_local
     - audit_local_sources
