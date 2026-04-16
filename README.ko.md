@@ -71,8 +71,8 @@ AI가 자동으로:
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **154개 도구**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
-- **20개 이상의 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
+- **159개 도구**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
+- **24개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
 - `confirm='approve'` 기반 안전한 수정 승인 정책
 - 페이로드 안전 제한, 필드별 절단, 총 응답 한도 (200K 문자)
@@ -235,13 +235,13 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
-| `standard` | 36 | **(기본값)** 읽기 전용 safe mode. 핵심 API, 워크플로우/플로우 읽기, 포탈 기본, 로그, 검색 |
-| `service_desk` | 46 | standard + 인시던트 생성/처리/해결/코멘트, 변경관리 쓰기 |
-| `portal_developer` | 85 | standard + 포탈 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
-| `platform_developer` | 79 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `agile` | 51 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
-| `admin` | 61 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
-| `full` | 114 | 전 개발 도구 통합 (Agile PPM, Admin은 전용 패키지에서) |
+| `standard` | 42 | **(기본값)** 읽기 전용 safe mode. 핵심 API, 워크플로우/플로우 읽기, 포탈 기본, 로그, 검색 |
+| `service_desk` | 52 | standard + 인시던트 생성/처리/해결/코멘트, 변경관리 쓰기 |
+| `portal_developer` | 90 | standard + 포탈 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
+| `platform_developer` | 85 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `agile` | 57 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
+| `admin` | 67 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
+| `full` | 109 | 포탈 중심 전 개발 도구 통합 (Agile PPM, Admin은 전용 패키지에서) |
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 
@@ -550,7 +550,7 @@ uv build
 ## 상세 문서
 
 - [클라이언트 설정 가이드](docs/CLIENT_SETUP.md) — 클라이언트별 복사 붙여넣기 설정
-- [도구 목록](docs/TOOL_INVENTORY.md) — 154개 도구 카테고리/패키지별 전체 목록
+- [도구 목록](docs/TOOL_INVENTORY.md) — 159개 도구 카테고리/패키지별 전체 목록
 - [Windows 설치 가이드](docs/WINDOWS_INSTALL.ko.md)
 - [서비스 카탈로그 가이드](docs/catalog.md) — 카탈로그 CRUD 및 최적화
 - [변경 관리 가이드](docs/change_management.md) — 변경 요청 생명주기 및 승인
