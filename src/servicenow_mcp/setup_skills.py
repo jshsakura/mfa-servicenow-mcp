@@ -1,14 +1,4 @@
-"""
-Setup skills for MFA ServiceNow MCP.
-
-Downloads portal-specialized skills from the mfa-servicenow-mcp repository
-and installs them into the current project.
-
-Usage:
-    servicenow-mcp-skills claude
-    servicenow-mcp-skills codex
-    servicenow-mcp-skills opencode
-"""
+"""Setup skills for MFA ServiceNow MCP."""
 
 import io
 import shutil
@@ -84,6 +74,42 @@ def _download_skills(dest: Path) -> int:
     return count
 
 
+def install_skills(target: str, dest: Path | None = None) -> int:
+    """Install skills for one supported target and return installed count."""
+    if target not in TARGETS:
+        raise ValueError(f"Unsupported skill target: {target}")
+
+    resolved_dest = dest or (Path.cwd() / TARGETS[target])
+
+    if resolved_dest.exists():
+        _print("  Removing previous installation...")
+        shutil.rmtree(resolved_dest)
+
+    count = _download_skills(resolved_dest)
+    (resolved_dest / "_mcp_info.md").write_text(
+        "# MFA ServiceNow MCP Skills\n\n"
+        "Workflow recipes for the `mfa-servicenow-mcp` MCP server.\n"
+        "Each skill has triggers, decision trees, and exact tool calls.\n\n"
+        f"- Package: `mfa-servicenow-mcp` (PyPI)\n"
+        f"- Repository: https://github.com/{REPO}\n",
+        encoding="utf-8",
+    )
+    return count
+
+
+def remove_skills(target: str, dest: Path | None = None) -> bool:
+    """Remove skills for one supported target and report whether anything changed."""
+    if target not in TARGETS:
+        raise ValueError(f"Unsupported skill target: {target}")
+
+    resolved_dest = dest or (Path.cwd() / TARGETS[target])
+    if not resolved_dest.exists():
+        return False
+
+    shutil.rmtree(resolved_dest)
+    return True
+
+
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] not in TARGETS:
         _print()
@@ -115,23 +141,9 @@ def main() -> None:
     _print(f"  Path:    {dest}")
     _print()
 
-    if dest.exists():
-        _print("  Removing previous installation...")
-        shutil.rmtree(dest)
-
     t0 = time.monotonic()
-    count = _download_skills(dest)
+    count = install_skills(target, dest)
     elapsed = time.monotonic() - t0
-
-    # Marker file
-    (dest / "_mcp_info.md").write_text(
-        "# MFA ServiceNow MCP Skills\n\n"
-        "Workflow recipes for the `mfa-servicenow-mcp` MCP server.\n"
-        "Each skill has triggers, decision trees, and exact tool calls.\n\n"
-        f"- Package: `mfa-servicenow-mcp` (PyPI)\n"
-        f"- Repository: https://github.com/{REPO}\n",
-        encoding="utf-8",
-    )
 
     _print()
     _print(f"Done. {count} skills installed in {elapsed:.1f}s")

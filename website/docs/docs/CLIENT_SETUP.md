@@ -2,6 +2,8 @@
 
 Detailed setup for each MCP client. All clients use the same MCP server — only the config format differs.
 
+> **Recommended first:** run `servicenow-mcp setup <client> --instance-url ...` or use the AI-guided flow in [`llm-setup.md`](llm-setup.md). Use the config snippets below when you need to inspect, repair, or hand-manage an MCP config file.
+
 ---
 
 ## Before You Start
