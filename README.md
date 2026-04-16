@@ -72,13 +72,13 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **101 tools** across 5 role-based packages — from read-only to full CRUD
+- **154 tools** across 7 role-based packages — from read-only to full CRUD
 - **20+ workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
-- Tool packages for standard users, service desk, portal developers, and platform developers
+- Tool packages for standard users, service desk, portal developers, platform developers, agile PPM, and admins
 - Developer productivity tools: activity tracking, uncommitted changes, dependency mapping, daily summary
 - Full coverage of core ServiceNow artifact tables (see [Supported Tables](#supported-servicenow-tables))
 - CI/CD with auto-tagging, PyPI publishing, and Docker multi-platform builds
@@ -235,15 +235,17 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 
 Set `MCP_TOOL_PACKAGE` to choose a specific tool set. Default: `standard`
 
-All packages except `none` include the full set of read-only tools. Higher packages add write capabilities for their domain.
+All packages inherit `standard` read-only tools via `_extends` and add domain-specific writes. The YAML config uses inheritance to avoid duplication — see `config/tool_packages.yaml`.
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `standard` | 53 | **(Default)** Read-only safe mode. All query/analysis/download tools across every domain. |
-| `service_desk` | 57 | standard + incident create/update/resolve/comment |
-| `portal_developer` | 69 | standard + portal/widget updates, script include writes, changeset commit/publish |
-| `platform_developer` | 77 | standard + workflow CRUD, UI policy, incident/change management writes |
-| `full` | 97 | All write operations across every domain |
+| `standard` | 36 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search. |
+| `service_desk` | 46 | standard + incident create/update/resolve/comment, change management writes |
+| `portal_developer` | 85 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
+| `platform_developer` | 79 | standard + workflow CRUD, flow designer, UI policy, incident/change/script writes |
+| `agile` | 51 | standard + epic/story/scrum task/project PPM tools |
+| `admin` | 61 | standard + user/group management, knowledge base, catalog management |
+| `full` | 114 | All development tools (agile PPM and admin tools in their own packages) |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
@@ -564,7 +566,7 @@ uv build
 ## Documentation
 
 - [Client Setup Guide](docs/CLIENT_SETUP.md) — Copy-paste configs for every MCP client
-- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 101 tools by category and package
+- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 154 tools by category and package
 - [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
 - [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization
 - [Change Management](docs/change_management.md) — Change request lifecycle and approval
