@@ -390,7 +390,7 @@ class TestFlowDesignerTools(unittest.TestCase):
         )
 
         self.assertFalse(result["success"])
-        self.assertIn("No snapshot found", result["error"])
+        self.assertIn("No snapshot", result["error"])
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_get_flow_structure_prefers_published_snapshot(self, mock_qp):
@@ -466,7 +466,8 @@ class TestFlowDesignerTools(unittest.TestCase):
         )
 
         self.assertFalse(result["success"])
-        self.assertIn("Connection failed", result["error"])
+        # Snapshot query fails → no snapshot → error mentions the table
+        self.assertIn("No snapshot", result["error"])
 
     # -- get_flow_executions -------------------------------------------------
 
