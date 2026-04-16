@@ -1804,7 +1804,7 @@ def get_widget_bundle(
 @register_tool(
     "get_portal_component_code",
     params=GetPortalComponentParams,
-    description="Fetch one or more code fields from a widget/provider/SI. Lighter than get_widget_bundle when you only need specific fields.",
+    description="Fetch specific code fields from a widget/provider/SI. Lighter than get_widget_bundle.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -3309,11 +3309,7 @@ def _truncate_source(text: str, max_len: int) -> str:
 @register_tool(
     "resolve_widget_chain",
     params=ResolveWidgetChainParams,
-    description=(
-        "Deep-resolve a widget's full dependency chain with source code. "
-        "Returns widget source + linked provider scripts + script include bodies "
-        "in one call. Use when analysis requires cross-component logic tracing."
-    ),
+    description="Resolve widget dependency chain with source code. Returns widget + providers + script includes.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -3550,10 +3546,7 @@ class ResolvePageDependenciesParams(BaseModel):
 @register_tool(
     "resolve_page_dependencies",
     params=ResolvePageDependenciesParams,
-    description=(
-        "Resolve ALL widgets on a page with full dependency chains in one call. "
-        "Deduplicates shared providers/SIs. Use for multi-widget cross-component analysis."
-    ),
+    description="Resolve all widgets on a page with dependency chains. Deduplicates shared providers/SIs.",
     serialization="raw_dict",
     return_type=dict,
 )

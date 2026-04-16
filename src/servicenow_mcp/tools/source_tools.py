@@ -2181,11 +2181,7 @@ def _fetch_and_write_schema(
 @register_tool(
     "download_table_schema",
     params=DownloadTableSchemaParams,
-    description=(
-        "Download sys_dictionary field definitions for ServiceNow tables. "
-        "Specify table names directly, or point to a downloaded source directory "
-        "to auto-detect referenced tables from GlideRecord calls."
-    ),
+    description="Download sys_dictionary field definitions for tables. Specify names or auto-detect from sources.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2263,13 +2259,7 @@ class DownloadAppSourcesParams(BaseModel):
 @register_tool(
     "download_app_sources",
     params=DownloadAppSourcesParams,
-    description=(
-        "Orchestrator: download ALL source code for an application scope. "
-        "Calls download_portal_sources, download_script_includes, download_server_scripts, "
-        "download_ui_components, download_api_sources, download_security_sources, "
-        "download_admin_scripts, and download_table_schema in sequence. "
-        "Returns a unified summary."
-    ),
+    description="Download ALL source code for an app scope. Runs all download_* sub-tools, returns unified summary.",
     serialization="raw_dict",
     return_type=dict,
 )

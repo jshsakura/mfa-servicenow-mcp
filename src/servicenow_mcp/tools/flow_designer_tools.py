@@ -294,7 +294,7 @@ def _try_processflow_api(
 @register_tool(
     name="list_flow_designers",
     params=ListFlowsParams,
-    description="List Flow Designer flows and/or subflows. Use type='subflow' for subflows, 'all' for both. Returns name, status, scope, and trigger type.",
+    description="List flows/subflows. Use type='subflow' or 'all'. Returns name, status, scope.",
     serialization="json",
     return_type=dict,
 )
@@ -812,7 +812,7 @@ def deactivate_flow_designer(
 @register_tool(
     name="list_flow_triggers_by_table",
     params=ListFlowTriggersByTableParams,
-    description="Find flow triggers for a given table. Returns triggers with linked flow info. Answers: 'what flows fire when this table changes?'",
+    description="Find flow triggers for a table. Returns triggers with linked flow info.",
     serialization="json",
     return_type=dict,
 )
@@ -881,7 +881,7 @@ def list_flow_triggers_by_table(
 @register_tool(
     name="list_actions",
     params=ListActionsParams,
-    description="List Flow Designer custom action definitions (sys_hub_action_type_definition). Use to find action sys_ids before calling get_action_detail.",
+    description="List Flow Designer action definitions. Use to find sys_ids for get_action_detail.",
     serialization="json",
     return_type=dict,
 )
@@ -970,7 +970,7 @@ def get_action_detail(
 @register_tool(
     name="list_playbooks",
     params=ListPlaybooksParams,
-    description="List Process Automation Playbooks (sys_pd_process_definition). Playbooks automate multi-step processes. Use to find playbook sys_ids.",
+    description="List Playbooks (process automation). Use to find sys_ids for get_playbook_detail.",
     serialization="json",
     return_type=dict,
 )
