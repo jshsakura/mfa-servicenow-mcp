@@ -40,6 +40,13 @@ standard:
   - get_flow_designer_detail
   - get_flow_designer_executions
   - list_flow_triggers_by_table
+  # Actions / Playbooks / Decision Tables (Read)
+  - list_actions
+  - get_action_detail
+  - list_playbooks
+  - get_playbook_detail
+  - list_decision_tables
+  - get_decision_table_detail
   # Portal (Read - basics)
   - get_portal
   - get_page
