@@ -1,32 +1,66 @@
-"""Tests for flow_designer_tools.py — shared query helper migration."""
+"""Tests for flow_designer_tools.py — full Workflow Studio coverage."""
 
 import unittest
 from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.flow_designer_tools import (
+    GetActionDetailParams,
+    GetDecisionTableDetailParams,
     GetFlowDetailsParams,
     GetFlowExecutionsParams,
+    GetPlaybookDetailParams,
+    ListActionsParams,
+    ListDecisionTablesParams,
     ListFlowsParams,
+    ListPlaybooksParams,
     _fetch_flow_structure,
     _fetch_flow_triggers,
+    get_action_detail,
+    get_decision_table_detail,
     get_flow_details,
     get_flow_executions,
+    get_playbook_detail,
+    list_actions,
+    list_decision_tables,
     list_flows,
+    list_playbooks,
 )
-from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
+from servicenow_mcp.utils.config import (
+    AuthConfig,
+    AuthType,
+    BasicAuthConfig,
+    BrowserAuthConfig,
+    ServerConfig,
+)
+
+
+def _make_basic_config():
+    """Create a test config with basic auth (Table API only)."""
+    return ServerConfig(
+        instance_url="https://test.service-now.com",
+        auth=AuthConfig(
+            type=AuthType.BASIC,
+            basic=BasicAuthConfig(username="test_user", password="test_password"),
+        ),
+    )
+
+
+def _make_browser_config():
+    """Create a test config with browser auth (processflow API available)."""
+    return ServerConfig(
+        instance_url="https://test.service-now.com",
+        auth=AuthConfig(
+            type=AuthType.BROWSER,
+            browser=BrowserAuthConfig(),
+        ),
+    )
 
 
 class TestFlowDesignerTools(unittest.TestCase):
     def setUp(self):
-        self.auth_config = AuthConfig(
-            type=AuthType.BASIC,
-            basic=BasicAuthConfig(username="test_user", password="test_password"),
-        )
-        self.config = ServerConfig(
-            instance_url="https://test.service-now.com",
-            auth=self.auth_config,
-        )
+        self.config = _make_basic_config()
+        self.browser_config = _make_browser_config()
         self.auth_manager = MagicMock(spec=AuthManager)
         self.auth_manager.get_headers.return_value = {
             "Authorization": "Bearer test",
@@ -212,34 +246,54 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("API error", result["error"])
 
-    # -- get_flow_structure --------------------------------------------------
+    # -- get_flow_structure (browser auth → processflow API) ------------------
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
-    @patch("servicenow_mcp.tools.flow_designer_tools._try_flow_designer_api")
-    def test_get_flow_structure_designer_api(self, mock_designer_api, mock_qp):
-        mock_designer_api.return_value = {
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_get_flow_structure_processflow_api_browser_auth(self, mock_processflow, mock_qp):
+        """Browser auth → processflow API returns full structure in one call."""
+        mock_processflow.return_value = {
             "result": {
-                "flow_id": "flow1",
-                "actions": [{"name": "Log"}],
+                "id": "flow1",
+                "name": "Test Flow",
+                "actionInstances": [{"name": "Log", "position": "1"}],
+                "flowLogicInstances": [],
+                "subFlowInstances": [],
+                "triggerInstances": [{"name": "Record Trigger"}],
+                "flowVariables": [],
+                "inputs": [],
+                "outputs": [],
             }
         }
 
         result = _fetch_flow_structure(
-            self.config,
+            self.browser_config,
             self.auth_manager,
             "flow1",
         )
 
         self.assertTrue(result["success"])
-        self.assertEqual(result["source"], "flow_designer_api")
-        self.assertIn("data", result)
+        self.assertEqual(result["source"], "processflow_api")
+        self.assertEqual(result["total_actions"], 1)
+        self.assertEqual(result["total_triggers"], 1)
+        self.assertIn("flat_summary", result)
         mock_qp.assert_not_called()
 
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
-    @patch("servicenow_mcp.tools.flow_designer_tools._try_flow_designer_api")
-    def test_get_flow_structure_table_api_fallback(self, mock_designer_api, mock_qp):
-        mock_designer_api.return_value = None
+    def test_get_flow_structure_basic_auth_skips_processflow(self, mock_qp, mock_processflow):
+        """Basic auth → processflow API is never called."""
+        mock_qp.return_value = ([], 0)
 
+        _fetch_flow_structure(self.config, self.auth_manager, "flow1")
+
+        mock_processflow.assert_not_called()
+
+    # -- get_flow_structure (basic auth → Table API) -------------------------
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_flow_structure_table_api_fallback(self, mock_qp):
+        """Basic auth uses Table API (snapshot + components)."""
         snapshot_data = [{"sys_id": "snap1", "name": "Flow v1", "status": "Published"}]
         actions_data = [
             {"sys_id": "a1", "name": "Log Action", "order": "100", "nesting_parent": ""},
@@ -286,9 +340,7 @@ class TestFlowDesignerTools(unittest.TestCase):
                 self.assertIn("logic_type", entry)
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
-    @patch("servicenow_mcp.tools.flow_designer_tools._try_flow_designer_api")
-    def test_get_flow_structure_no_snapshot(self, mock_designer_api, mock_qp):
-        mock_designer_api.return_value = None
+    def test_get_flow_structure_no_snapshot(self, mock_qp):
         mock_qp.return_value = ([], 0)
 
         result = _fetch_flow_structure(
@@ -301,10 +353,7 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertIn("No snapshot found", result["error"])
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
-    @patch("servicenow_mcp.tools.flow_designer_tools._try_flow_designer_api")
-    def test_get_flow_structure_prefers_published_snapshot(self, mock_designer_api, mock_qp):
-        mock_designer_api.return_value = None
-
+    def test_get_flow_structure_prefers_published_snapshot(self, mock_qp):
         snapshot_data = [
             {"sys_id": "snap_draft", "name": "Flow v1", "status": "Draft"},
             {"sys_id": "snap_pub", "name": "Flow v2", "status": "Published"},
@@ -326,10 +375,7 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertEqual(result["snapshot_id"], "snap_pub")
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
-    @patch("servicenow_mcp.tools.flow_designer_tools._try_flow_designer_api")
-    def test_get_flow_structure_nesting(self, mock_designer_api, mock_qp):
-        mock_designer_api.return_value = None
-
+    def test_get_flow_structure_nesting(self, mock_qp):
         snapshot_data = [{"sys_id": "snap1", "status": "Published"}]
         actions_data = [
             {
@@ -366,9 +412,7 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertEqual(result["tree"][0]["children"][0]["sys_id"], "a2")
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
-    @patch("servicenow_mcp.tools.flow_designer_tools._try_flow_designer_api")
-    def test_get_flow_structure_error(self, mock_designer_api, mock_qp):
-        mock_designer_api.return_value = None
+    def test_get_flow_structure_error(self, mock_qp):
         mock_qp.side_effect = RuntimeError("Connection failed")
 
         result = _fetch_flow_structure(
@@ -583,44 +627,42 @@ class TestFlowDesignerTools(unittest.TestCase):
         trigger_query = mock_qp.call_args_list[1][1]["query"]
         self.assertEqual(trigger_query, "flow=flow1")
 
-    # -- _try_flow_designer_api direct tests ---------------------------------
+    # -- _try_processflow_api direct tests ---------------------------------
 
-    def test_try_flow_designer_api_success(self):
-        from servicenow_mcp.tools.flow_designer_tools import _try_flow_designer_api
+    def test_try_processflow_api_success(self):
+        from servicenow_mcp.tools.flow_designer_tools import _try_processflow_api
 
         mock_resp = MagicMock()
-        mock_resp.json.return_value = {"result": {"flow_id": "f1", "actions": []}}
+        mock_resp.json.return_value = {"result": {"id": "f1", "name": "Test Flow"}}
         mock_resp.raise_for_status.return_value = None
         self.auth_manager.make_request.return_value = mock_resp
 
-        result = _try_flow_designer_api(self.config, self.auth_manager, "f1")
-
-        assert result is not None
-        self.assertIn("result", result)
-
-    def test_try_flow_designer_api_falls_back_to_second_path(self):
-        from servicenow_mcp.tools.flow_designer_tools import _try_flow_designer_api
-
-        fail_resp = MagicMock()
-        fail_resp.raise_for_status.side_effect = Exception("Not found")
-
-        success_resp = MagicMock()
-        success_resp.json.return_value = {"result": {"flow_id": "f1"}}
-        success_resp.raise_for_status.return_value = None
-
-        self.auth_manager.make_request.side_effect = [fail_resp, success_resp]
-
-        result = _try_flow_designer_api(self.config, self.auth_manager, "f1")
+        result = _try_processflow_api(self.config, self.auth_manager, "f1")
 
         self.assertIsNotNone(result)
-        self.assertEqual(self.auth_manager.make_request.call_count, 2)
+        self.assertIn("result", result)
+        # Verify correct endpoint
+        call_args = self.auth_manager.make_request.call_args
+        self.assertIn("/api/now/processflow/flow/f1", call_args[0][1])
 
-    def test_try_flow_designer_api_returns_none_when_both_fail(self):
-        from servicenow_mcp.tools.flow_designer_tools import _try_flow_designer_api
+    def test_try_processflow_api_returns_none_on_error(self):
+        from servicenow_mcp.tools.flow_designer_tools import _try_processflow_api
 
         self.auth_manager.make_request.side_effect = Exception("Server error")
 
-        result = _try_flow_designer_api(self.config, self.auth_manager, "f1")
+        result = _try_processflow_api(self.config, self.auth_manager, "f1")
+
+        self.assertIsNone(result)
+
+    def test_try_processflow_api_returns_none_on_empty_response(self):
+        from servicenow_mcp.tools.flow_designer_tools import _try_processflow_api
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"result": {}}
+        mock_resp.raise_for_status.return_value = None
+        self.auth_manager.make_request.return_value = mock_resp
+
+        result = _try_processflow_api(self.config, self.auth_manager, "f1")
 
         self.assertIsNone(result)
 
@@ -699,6 +741,447 @@ class TestFlowDesignerTools(unittest.TestCase):
         tree = _build_component_tree([])
 
         self.assertEqual(tree, [])
+
+    # -- list_flows type filter -----------------------------------------------
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_flows_default_excludes_subflows(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_flows(self.config, self.auth_manager, ListFlowsParams())
+
+        query = mock_qp.call_args[1]["query"]
+        self.assertIn("type!=subflow", query)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_flows_type_flow_excludes_subflows(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_flows(self.config, self.auth_manager, ListFlowsParams(type="flow"))
+
+        query = mock_qp.call_args[1]["query"]
+        self.assertIn("type!=subflow", query)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_flows_type_subflow(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_flows(self.config, self.auth_manager, ListFlowsParams(type="subflow"))
+
+        query = mock_qp.call_args[1]["query"]
+        self.assertIn("type=subflow", query)
+        self.assertIn("substatusISEMPTY", query)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_flows_type_all(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_flows(self.config, self.auth_manager, ListFlowsParams(type="all"))
+
+        query = mock_qp.call_args[1]["query"]
+        self.assertNotIn("type!=subflow", query)
+        self.assertNotIn("type=subflow", query)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_count")
+    def test_list_flows_type_subflow_count_only(self, mock_cnt):
+        mock_cnt.return_value = 311
+
+        result = list_flows(
+            self.config,
+            self.auth_manager,
+            ListFlowsParams(type="subflow", count_only=True),
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 311)
+        call_query = mock_cnt.call_args[0][3]
+        self.assertIn("type=subflow", call_query)
+
+
+class TestActionTools(unittest.TestCase):
+    def setUp(self):
+        self.auth_config = AuthConfig(
+            type=AuthType.BASIC,
+            basic=BasicAuthConfig(username="test_user", password="test_password"),
+        )
+        self.config = ServerConfig(
+            instance_url="https://test.service-now.com",
+            auth=self.auth_config,
+        )
+        self.auth_manager = MagicMock(spec=AuthManager)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_actions_happy(self, mock_qp):
+        actions = [
+            {"sys_id": "a1", "name": "Custom Action", "active": "true", "status": "Published"},
+        ]
+        mock_qp.return_value = (actions, 1)
+
+        result = list_actions(self.config, self.auth_manager, ListActionsParams())
+
+        self.assertTrue(result["success"])
+        self.assertEqual(len(result["actions"]), 1)
+        self.assertEqual(result["count"], 1)
+        mock_qp.assert_called_once()
+        self.assertEqual(mock_qp.call_args[1]["table"], "sys_hub_action_type_definition")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_count")
+    def test_list_actions_count_only(self, mock_cnt):
+        mock_cnt.return_value = 25
+
+        result = list_actions(self.config, self.auth_manager, ListActionsParams(count_only=True))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 25)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_actions_with_filters(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_actions(
+            self.config,
+            self.auth_manager,
+            ListActionsParams(active=True, name="Custom", scope="global"),
+        )
+
+        query = mock_qp.call_args[1]["query"]
+        self.assertIn("active=true", query)
+        self.assertIn("nameLIKECustom", query)
+        self.assertIn("sys_scopeLIKEglobal", query)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_actions_error(self, mock_qp):
+        mock_qp.side_effect = RuntimeError("Network error")
+
+        result = list_actions(self.config, self.auth_manager, ListActionsParams())
+
+        self.assertFalse(result["success"])
+        self.assertIn("Network error", result["error"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_actions_limit_capped(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_actions(self.config, self.auth_manager, ListActionsParams(limit=500))
+
+        self.assertEqual(mock_qp.call_args[1]["limit"], 100)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_actions_empty_results(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        result = list_actions(self.config, self.auth_manager, ListActionsParams())
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["actions"], [])
+        self.assertEqual(result["count"], 0)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_actions_with_query_and_offset(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_actions(
+            self.config,
+            self.auth_manager,
+            ListActionsParams(query="sys_created_on>=2024-01-01", offset=20),
+        )
+
+        call_kwargs = mock_qp.call_args[1]
+        self.assertIn("sys_created_on>=2024-01-01", call_kwargs["query"])
+        self.assertEqual(call_kwargs["offset"], 20)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_action_detail_happy(self, mock_qp):
+        action = {"sys_id": "a1", "name": "Custom Action", "description": "Does stuff"}
+        mock_qp.return_value = ([action], 1)
+
+        result = get_action_detail(
+            self.config, self.auth_manager, GetActionDetailParams(action_id="a1")
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["action"]["name"], "Custom Action")
+        self.assertEqual(mock_qp.call_args[1]["table"], "sys_hub_action_type_definition")
+        self.assertEqual(mock_qp.call_args[1]["query"], "sys_id=a1")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_action_detail_not_found(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        result = get_action_detail(
+            self.config, self.auth_manager, GetActionDetailParams(action_id="missing")
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("not found", result["error"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_action_detail_error(self, mock_qp):
+        mock_qp.side_effect = RuntimeError("API error")
+
+        result = get_action_detail(
+            self.config, self.auth_manager, GetActionDetailParams(action_id="a1")
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("API error", result["error"])
+
+
+class TestPlaybookTools(unittest.TestCase):
+    def setUp(self):
+        self.auth_config = AuthConfig(
+            type=AuthType.BASIC,
+            basic=BasicAuthConfig(username="test_user", password="test_password"),
+        )
+        self.config = ServerConfig(
+            instance_url="https://test.service-now.com",
+            auth=self.auth_config,
+        )
+        self.auth_manager = MagicMock(spec=AuthManager)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_playbooks_happy(self, mock_qp):
+        playbooks = [
+            {"sys_id": "p1", "label": "Incident Playbook", "active": "true", "status": "Published"},
+        ]
+        mock_qp.return_value = (playbooks, 1)
+
+        result = list_playbooks(self.config, self.auth_manager, ListPlaybooksParams())
+
+        self.assertTrue(result["success"])
+        self.assertEqual(len(result["playbooks"]), 1)
+        self.assertEqual(mock_qp.call_args[1]["table"], "sys_pd_process_definition")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_count")
+    def test_list_playbooks_count_only(self, mock_cnt):
+        mock_cnt.return_value = 42
+
+        result = list_playbooks(
+            self.config, self.auth_manager, ListPlaybooksParams(count_only=True)
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 42)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_playbooks_with_filters(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_playbooks(
+            self.config,
+            self.auth_manager,
+            ListPlaybooksParams(active=True, status="Published", name="Incident", scope="global"),
+        )
+
+        query = mock_qp.call_args[1]["query"]
+        self.assertIn("active=true", query)
+        self.assertIn("status=Published", query)
+        self.assertIn("labelLIKEIncident", query)
+        self.assertIn("sys_scopeLIKEglobal", query)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_playbooks_error(self, mock_qp):
+        mock_qp.side_effect = RuntimeError("Timeout")
+
+        result = list_playbooks(self.config, self.auth_manager, ListPlaybooksParams())
+
+        self.assertFalse(result["success"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_playbooks_empty_results(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        result = list_playbooks(self.config, self.auth_manager, ListPlaybooksParams())
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["playbooks"], [])
+        self.assertEqual(result["count"], 0)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_playbooks_limit_capped_and_offset(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_playbooks(self.config, self.auth_manager, ListPlaybooksParams(limit=999, offset=50))
+
+        call_kwargs = mock_qp.call_args[1]
+        self.assertEqual(call_kwargs["limit"], 100)
+        self.assertEqual(call_kwargs["offset"], 50)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_playbooks_with_query(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_playbooks(
+            self.config,
+            self.auth_manager,
+            ListPlaybooksParams(query="sys_created_on>=2024-01-01"),
+        )
+
+        self.assertIn("sys_created_on>=2024-01-01", mock_qp.call_args[1]["query"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_playbook_detail_happy(self, mock_qp):
+        pb = {"sys_id": "p1", "label": "Incident Playbook", "description": "Handles incidents"}
+        mock_qp.return_value = ([pb], 1)
+
+        result = get_playbook_detail(
+            self.config, self.auth_manager, GetPlaybookDetailParams(playbook_id="p1")
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["playbook"]["label"], "Incident Playbook")
+        self.assertEqual(mock_qp.call_args[1]["table"], "sys_pd_process_definition")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_playbook_detail_not_found(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        result = get_playbook_detail(
+            self.config, self.auth_manager, GetPlaybookDetailParams(playbook_id="missing")
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("not found", result["error"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_playbook_detail_error(self, mock_qp):
+        mock_qp.side_effect = RuntimeError("Connection error")
+
+        result = get_playbook_detail(
+            self.config, self.auth_manager, GetPlaybookDetailParams(playbook_id="p1")
+        )
+
+        self.assertFalse(result["success"])
+
+
+class TestDecisionTableTools(unittest.TestCase):
+    def setUp(self):
+        self.auth_config = AuthConfig(
+            type=AuthType.BASIC,
+            basic=BasicAuthConfig(username="test_user", password="test_password"),
+        )
+        self.config = ServerConfig(
+            instance_url="https://test.service-now.com",
+            auth=self.auth_config,
+        )
+        self.auth_manager = MagicMock(spec=AuthManager)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_decision_tables_happy(self, mock_qp):
+        tables = [
+            {"sys_id": "d1", "name": "Priority Matrix", "active": "true"},
+        ]
+        mock_qp.return_value = (tables, 1)
+
+        result = list_decision_tables(self.config, self.auth_manager, ListDecisionTablesParams())
+
+        self.assertTrue(result["success"])
+        self.assertEqual(len(result["decision_tables"]), 1)
+        self.assertEqual(mock_qp.call_args[1]["table"], "sys_decision")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_count")
+    def test_list_decision_tables_count_only(self, mock_cnt):
+        mock_cnt.return_value = 15
+
+        result = list_decision_tables(
+            self.config, self.auth_manager, ListDecisionTablesParams(count_only=True)
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 15)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_decision_tables_with_filters(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_decision_tables(
+            self.config,
+            self.auth_manager,
+            ListDecisionTablesParams(active=True, name="Priority", scope="global"),
+        )
+
+        query = mock_qp.call_args[1]["query"]
+        self.assertIn("active=true", query)
+        self.assertIn("nameLIKEPriority", query)
+        self.assertIn("sys_scopeLIKEglobal", query)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_decision_tables_error(self, mock_qp):
+        mock_qp.side_effect = RuntimeError("Timeout")
+
+        result = list_decision_tables(self.config, self.auth_manager, ListDecisionTablesParams())
+
+        self.assertFalse(result["success"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_decision_tables_empty_results(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        result = list_decision_tables(self.config, self.auth_manager, ListDecisionTablesParams())
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["decision_tables"], [])
+        self.assertEqual(result["count"], 0)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_decision_tables_limit_capped_and_offset(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_decision_tables(
+            self.config, self.auth_manager, ListDecisionTablesParams(limit=999, offset=30)
+        )
+
+        call_kwargs = mock_qp.call_args[1]
+        self.assertEqual(call_kwargs["limit"], 100)
+        self.assertEqual(call_kwargs["offset"], 30)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_decision_tables_with_query(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        list_decision_tables(
+            self.config,
+            self.auth_manager,
+            ListDecisionTablesParams(query="sys_updated_on>=2024-06-01"),
+        )
+
+        self.assertIn("sys_updated_on>=2024-06-01", mock_qp.call_args[1]["query"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_decision_table_detail_happy(self, mock_qp):
+        dt = {"sys_id": "d1", "name": "Priority Matrix", "label": "Priority"}
+        mock_qp.return_value = ([dt], 1)
+
+        result = get_decision_table_detail(
+            self.config, self.auth_manager, GetDecisionTableDetailParams(decision_table_id="d1")
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["decision_table"]["name"], "Priority Matrix")
+        self.assertEqual(mock_qp.call_args[1]["table"], "sys_decision")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_decision_table_detail_not_found(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        result = get_decision_table_detail(
+            self.config,
+            self.auth_manager,
+            GetDecisionTableDetailParams(decision_table_id="missing"),
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("not found", result["error"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_decision_table_detail_error(self, mock_qp):
+        mock_qp.side_effect = RuntimeError("API error")
+
+        result = get_decision_table_detail(
+            self.config, self.auth_manager, GetDecisionTableDetailParams(decision_table_id="d1")
+        )
+
+        self.assertFalse(result["success"])
 
 
 if __name__ == "__main__":
