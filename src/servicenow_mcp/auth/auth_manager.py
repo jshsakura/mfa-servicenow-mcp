@@ -737,24 +737,28 @@ class AuthManager:
             if not self.config.browser:
                 raise ValueError("Browser auth configuration is required")
             if not self._browser_cookie_header or self._is_browser_session_expired():
-                if self._try_restore_browser_session(self.config.browser):
-                    # Restore succeeded — reset failure state
-                    self._browser_reauth_failure_count = 0
-                    self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
-                    if not self._keepalive_thread:
-                        self._start_keepalive()
-                    headers["Cookie"] = self._browser_cookie_header or ""
-                    if self._browser_user_agent:
-                        headers["User-Agent"] = self._browser_user_agent
-                    if self._browser_session_token:
-                        headers["X-UserToken"] = self._browser_session_token
-                    return headers
+                # Fast path: try disk reload first (no browser needed, no lock needed).
+                # Another process may have already written a fresh session to disk.
+                if self._reload_session_from_disk():
+                    if self._browser_cookie_header and not self._is_browser_session_expired():
+                        logger.info("Session restored from disk (fast path) — skipping browser.")
+                        self._browser_reauth_failure_count = 0
+                        self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
+                        if not self._keepalive_thread:
+                            self._start_keepalive()
+                        headers["Cookie"] = self._browser_cookie_header or ""
+                        if self._browser_user_agent:
+                            headers["User-Agent"] = self._browser_user_agent
+                        if self._browser_session_token:
+                            headers["X-UserToken"] = self._browser_session_token
+                        return headers
+
                 # In-process lock: prevent concurrent tool calls from opening
-                # multiple browser windows while the first login is in progress.
+                # multiple browser windows (both restore AND login are serialized).
                 acquired = self._browser_login_lock.acquire(timeout=0)
                 if not acquired:
                     # Another thread in this process is already logging in — wait for it.
-                    logger.info("Browser login in progress in another thread — waiting...")
+                    logger.info("Browser login/restore in progress in another thread — waiting...")
                     self._browser_login_lock.acquire()  # Block until login finishes
                     self._browser_login_lock.release()
                     # Login should be done now — return headers if session is valid
@@ -771,6 +775,49 @@ class AuthManager:
                     )
                 # We hold the in-process lock from here.
                 try:
+                    # Double-check: another thread may have completed login while we waited.
+                    if self._browser_cookie_header and not self._is_browser_session_expired():
+                        headers["Cookie"] = self._browser_cookie_header or ""
+                        if self._browser_user_agent:
+                            headers["User-Agent"] = self._browser_user_agent
+                        if self._browser_session_token:
+                            headers["X-UserToken"] = self._browser_session_token
+                        return headers
+
+                    # Try browser profile restore (opens Playwright) — now under lock.
+                    if self._try_restore_browser_session(self.config.browser):
+                        self._browser_reauth_failure_count = 0
+                        self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
+                        if not self._keepalive_thread:
+                            self._start_keepalive()
+                        headers["Cookie"] = self._browser_cookie_header or ""
+                        if self._browser_user_agent:
+                            headers["User-Agent"] = self._browser_user_agent
+                        if self._browser_session_token:
+                            headers["X-UserToken"] = self._browser_session_token
+                        return headers
+
+                    # Post-restore disk check: another process may have completed
+                    # login while our _try_restore_browser_session was running.
+                    if self._reload_session_from_disk():
+                        if self._browser_cookie_header and not self._is_browser_session_expired():
+                            logger.info(
+                                "Session appeared on disk after restore attempt — "
+                                "another process completed login."
+                            )
+                            self._browser_reauth_failure_count = 0
+                            self._browser_reauth_cooldown_seconds = (
+                                self._browser_reauth_cooldown_base
+                            )
+                            if not self._keepalive_thread:
+                                self._start_keepalive()
+                            headers["Cookie"] = self._browser_cookie_header or ""
+                            if self._browser_user_agent:
+                                headers["User-Agent"] = self._browser_user_agent
+                            if self._browser_session_token:
+                                headers["X-UserToken"] = self._browser_session_token
+                            return headers
+
                     # Browser auth is user-driven (MFA/SSO). Always keep interactive mode.
                     if self._browser_login_in_progress:
                         self._browser_login_lock.release()
@@ -1092,9 +1139,12 @@ class AuthManager:
         try:
             with sync_playwright() as playwright:
                 effective_user_data_dir = f"{browser_config.user_data_dir}-{os.getpid()}"
+                # Always headless for restore — this only checks cookies,
+                # no user interaction needed.  Avoids a visible browser flash
+                # that looks like a second login prompt.
                 context = playwright.chromium.launch_persistent_context(
                     effective_user_data_dir,
-                    headless=browser_config.headless,
+                    headless=True,
                 )
                 page = context.pages[0] if context.pages else context.new_page()
                 try:
