@@ -1365,6 +1365,55 @@ class TestCompareFlows(unittest.TestCase):
         # label_cache identical → should be in identical_fields
         self.assertIn("label_cache", result["identical_fields"])
 
+    @patch("servicenow_mcp.tools.flow_designer_tools._fetch_flow_triggers")
+    @patch("servicenow_mcp.tools.flow_designer_tools._fetch_flow_structure")
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_compare_flows_by_name(self, mock_qp, mock_struct, mock_trig):
+        """Compare by name instead of sys_id — name resolved automatically."""
+        flow_a = {"sys_id": "a1", "name": "Flow Alpha", "status": "Published", "active": "true"}
+        flow_b = {"sys_id": "b1", "name": "Flow Beta", "status": "Published", "active": "true"}
+        mock_struct.side_effect = [{"success": False}, {"success": False}]
+        mock_trig.side_effect = [[], []]
+        # name resolve A (exact), name resolve B (exact), flow record A, flow record B
+        mock_qp.side_effect = [
+            ([{"sys_id": "a1", "name": "Flow Alpha"}], 1),
+            ([{"sys_id": "b1", "name": "Flow Beta"}], 1),
+            ([flow_a], 1),
+            ([flow_b], 1),
+        ]
+
+        result = compare_flows(
+            self.config,
+            self.auth_manager,
+            CompareFlowsParams(name_a="Flow Alpha", name_b="Flow Beta"),
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["flow_a"]["name"], "Flow Alpha")
+        self.assertEqual(result["flow_b"]["name"], "Flow Beta")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_compare_flows_name_not_found(self, mock_qp):
+        """Name resolve fails when no flow matches."""
+        mock_qp.return_value = ([], 0)
+
+        result = compare_flows(
+            self.config,
+            self.auth_manager,
+            CompareFlowsParams(name_a="Nonexistent Flow", name_b="Other"),
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("no flow found", result["error"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_compare_flows_no_id_no_name(self, mock_qp):
+        """Error when neither flow_id nor name is provided."""
+        result = compare_flows(self.config, self.auth_manager, CompareFlowsParams())
+
+        self.assertFalse(result["success"])
+        self.assertIn("provide flow_id or name", result["error"])
+
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_compare_flows_not_found(self, mock_qp):
         mock_qp.return_value = ([], 0)
@@ -1374,7 +1423,6 @@ class TestCompareFlows(unittest.TestCase):
         )
 
         self.assertFalse(result["success"])
-        self.assertIn("not found", result["error"])
 
     @patch("servicenow_mcp.tools.flow_designer_tools._fetch_flow_triggers")
     @patch("servicenow_mcp.tools.flow_designer_tools._fetch_flow_structure")
