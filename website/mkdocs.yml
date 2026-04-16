@@ -62,6 +62,7 @@ plugins:
           nav_translations:
             Home: 홈
             Getting Started: 시작하기
+            AI-Assisted Setup: AI 자동 설치
             Client Setup: 클라이언트 설정
             Windows Installation: 윈도우 설치
             Features & Tools: 기능 및 도구
@@ -126,6 +127,7 @@ hooks:
 nav:
   - Home: index.md
   - Getting Started:
+      - AI-Assisted Setup: docs/llm-setup.md
       - Client Setup: docs/CLIENT_SETUP.md
       - Windows Installation: docs/WINDOWS_INSTALL.md
   - Features & Tools:

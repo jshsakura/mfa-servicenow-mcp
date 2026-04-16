@@ -190,7 +190,7 @@ Config file location: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
 
 ## Step 4: Install Skills (Optional)
 
-Skills are AI execution blueprints — verified pipelines with safety gates that turn raw MCP tools into reliable workflows. 20+ skills across 5 categories.
+Skills are AI execution blueprints — verified pipelines with safety gates that turn raw MCP tools into reliable workflows. 24 skills across 5 categories.
 
 ```powershell
 # Claude Code
@@ -220,8 +220,9 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 | `deploy/` | 2 | Change request lifecycle, incident triage |
 | `explore/` | 4 | Health check, schema discovery, route tracing, ESC catalog flow |
 
-**Update:** Re-run the same install command to update all skill files.
-**Remove:** Delete the install directory (e.g., `Remove-Item -Recurse .claude\commands\servicenow\`).
+**Update:** Re-run the same install command to replace all existing skill files.
+**Remove full setup:** `uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove claude-code`
+**Remove skills only:** delete the skill directory manually (for example `Remove-Item -Recurse .claude\commands\servicenow\`) if you intentionally want to keep the MCP config.
 
 ---
 
@@ -264,12 +265,14 @@ This stores cookies and login state in the directory for longer session persiste
 Set `MCP_TOOL_PACKAGE` to choose a tool set. Default: `standard` (read-only).
 
 | Package | Tools | Description |
-|---------|-------|-------------|
-| `standard` | 55 | **(Default)** Read-only safe mode. All query tools included |
-| `portal_developer` | 70 | standard + portal/widget/changeset writes |
-| `platform_developer` | 78 | standard + workflow/incident/change management writes |
-| `service_desk` | 59 | standard + incident create/resolve |
-| `full` | 98 | All capabilities (including delete) |
+|---------|:-----:|-------------|
+| `standard` | 43 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search |
+| `service_desk` | 53 | standard + incident create/update/resolve/comment, change management writes |
+| `portal_developer` | 91 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
+| `platform_developer` | 86 | standard + workflow CRUD, Flow Designer, UI Policy, incident/change/script writes |
+| `agile` | 58 | standard + epic/story/scrum task/project PPM tools |
+| `admin` | 68 | standard + user/group management, knowledge base, catalog management |
+| `full` | 110 | Portal-focused development tools (agile PPM and admin stay in their own packages) |
 
 To change, update the `MCP_TOOL_PACKAGE` value:
 
@@ -336,7 +339,9 @@ Remove-Item "$env:USERPROFILE\.servicenow_mcp\session_*.json"
 ```
 
 ### Version Update
-`uvx` automatically fetches the latest version on every run. To force a cache refresh:
+`uvx` reuses the last cached version it downloaded. It does **not** automatically refresh to a newer release on every run. To pull the latest published version into cache:
 ```powershell
 uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 ```
+
+After refreshing, fully restart your MCP client so it launches the new cached version.

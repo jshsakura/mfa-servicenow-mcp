@@ -114,7 +114,7 @@ Ask the user these questions one by one. Provide defaults in brackets.
    > 2. service_desk — Standard + assignment, SLA, escalation
    > 3. portal_developer — Standard + portal widgets, pages, themes
    > 4. platform_developer — Standard + scripts, flows, update sets
-   > 5. full — Everything (97+ tools)
+   > 5. full — Everything (110+ tools)
 
    Store as `$TOOL_PACKAGE`. Default: `standard`
 
@@ -124,386 +124,80 @@ Ask the user these questions one by one. Provide defaults in brackets.
 
    Store as `$HEADLESS`. Default: `false`
 
-### Step 4 — Configure MCP for the client
+### Step 4 — Run the installer command
 
-**IMPORTANT: Always default to project-local installation.** Write config files in the user's current working directory (project root). Only use global/user-level config if the user explicitly asks for it. Each project should have its own ServiceNow instance configuration.
+**IMPORTANT: Always default to project-local installation when the client supports it.** Use `--scope global` only if the user explicitly asks for a global install.
 
-Based on `$CLIENT`, write the config file in the current directory. Replace all `$VARIABLES` with collected values.
+Build a single installer command and run it from the current project root. The installer now owns:
+- client-specific config file paths
+- merge/update behavior for existing config files
+- optional skills installation for supported clients
 
----
+Base command:
 
-#### claude-code
-
-**Default: Project-local install.** Write `.mcp.json` in the current project root. This is the recommended approach — each project gets its own ServiceNow instance config.
-
-Ask the user: "Install to this project, or globally for all projects?"
-- **Project (default):** Write `.mcp.json` in the current project root
-- **Global:** Use `claude mcp add --global` or write to `~/.claude.json`
-
-If global, run:
 ```bash
-claude mcp add --global servicenow -- \
-  uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup "$CLIENT" \
   --instance-url "$INSTANCE_URL" \
   --auth-type "$AUTH_TYPE" \
+  --tool-package "$TOOL_PACKAGE" \
   --browser-headless "$HEADLESS"
 ```
 
-For project-local (default), write `.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "$INSTANCE_URL",
-        "--auth-type", "$AUTH_TYPE",
-        "--browser-headless", "$HEADLESS"
-      ],
-      "env": {
-        "SERVICENOW_USERNAME": "$USERNAME",
-        "SERVICENOW_PASSWORD": "$PASSWORD",
-        "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
-      }
-    }
-  }
-}
-```
+Add flags only when needed:
 
-Remove `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` from `env` if the user left them blank.
+- If the user provided username: `--username "$USERNAME"`
+- If the user provided password: `--password "$PASSWORD"`
+- For OAuth: add `--client-id`, `--client-secret`, and optionally `--token-url`
+- For API key: add `--api-key` and optionally `--api-key-header`
+- If the user wants global install: add `--scope global`
+- If the user does **not** want skills: add `--skip-skills`
 
----
+Examples:
 
-#### claude-desktop
-
-Config file location:
-- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux:** `~/.config/Claude/claude_desktop_config.json`
-
-If the file already exists, **merge** into the existing `mcpServers` object — do NOT overwrite other servers.
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "$INSTANCE_URL",
-        "--auth-type", "$AUTH_TYPE",
-        "--browser-headless", "$HEADLESS"
-      ],
-      "env": {
-        "SERVICENOW_USERNAME": "$USERNAME",
-        "SERVICENOW_PASSWORD": "$PASSWORD",
-        "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
-      }
-    }
-  }
-}
-```
-
----
-
-#### cursor
-
-Config file: `.cursor/mcp.json` in project root.
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "$INSTANCE_URL",
-        "--auth-type", "$AUTH_TYPE",
-        "--browser-headless", "$HEADLESS"
-      ],
-      "env": {
-        "SERVICENOW_USERNAME": "$USERNAME",
-        "SERVICENOW_PASSWORD": "$PASSWORD",
-        "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
-      }
-    }
-  }
-}
-```
-
----
-
-#### vscode-copilot
-
-Config file: `.vscode/mcp.json` in project root.
-
-```json
-{
-  "servers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "$INSTANCE_URL",
-        "--auth-type", "$AUTH_TYPE",
-        "--browser-headless", "$HEADLESS"
-      ],
-      "env": {
-        "SERVICENOW_USERNAME": "$USERNAME",
-        "SERVICENOW_PASSWORD": "$PASSWORD",
-        "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
-      }
-    }
-  }
-}
-```
-
----
-
-#### opencode
-
-Config file: `opencode.json` in project root. Key differences: uses `environment` (not `env`), passes config via environment variables, wraps command in array.
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright",
-        "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "enabled": true,
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "$INSTANCE_URL",
-        "SERVICENOW_AUTH_TYPE": "$AUTH_TYPE",
-        "SERVICENOW_BROWSER_HEADLESS": "$HEADLESS",
-        "SERVICENOW_USERNAME": "$USERNAME",
-        "SERVICENOW_PASSWORD": "$PASSWORD",
-        "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
-      }
-    }
-  }
-}
-```
-
----
-
-#### codex
-
-Config file: `.codex/config.toml` in project root (or `~/.codex/config.toml` for global).
-
-```toml
-[mcp_servers.servicenow]
-command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-  "--instance-url", "$INSTANCE_URL",
-  "--auth-type", "$AUTH_TYPE",
-  "--browser-headless", "$HEADLESS",
-  "--tool-package", "$TOOL_PACKAGE",
-]
-```
-
----
-
-#### windsurf
-
-Config file: `~/.codeium/windsurf/mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp",
-        "--instance-url", "$INSTANCE_URL",
-        "--auth-type", "$AUTH_TYPE",
-        "--browser-headless", "$HEADLESS"
-      ],
-      "env": {
-        "SERVICENOW_USERNAME": "$USERNAME",
-        "SERVICENOW_PASSWORD": "$PASSWORD",
-        "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
-      }
-    }
-  }
-}
-```
-
----
-
-#### gemini
-
-Works with Gemini CLI. Config file: `~/.gemini/settings.json` (merge into existing).
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx", "--with", "playwright",
-        "--from", "mfa-servicenow-mcp", "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "$INSTANCE_URL",
-        "SERVICENOW_AUTH_TYPE": "$AUTH_TYPE",
-        "SERVICENOW_BROWSER_HEADLESS": "$HEADLESS",
-        "SERVICENOW_USERNAME": "$USERNAME",
-        "SERVICENOW_PASSWORD": "$PASSWORD",
-        "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
-      },
-      "enabled": true
-    }
-  }
-}
-```
-
----
-
-#### zed
-
-Config: `~/.config/zed/settings.json`. Add via **Settings** > **MCP Servers** in Zed:
-
-```json
-{
-  "servicenow": {
-    "command": "uvx",
-    "args": [
-      "--with", "playwright",
-      "--from", "mfa-servicenow-mcp",
-      "servicenow-mcp"
-    ],
-    "env": {
-      "SERVICENOW_INSTANCE_URL": "$INSTANCE_URL",
-      "SERVICENOW_AUTH_TYPE": "$AUTH_TYPE",
-      "SERVICENOW_BROWSER_HEADLESS": "$HEADLESS",
-      "SERVICENOW_USERNAME": "$USERNAME",
-      "SERVICENOW_PASSWORD": "$PASSWORD",
-      "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
-    }
-  }
-}
-```
-
----
-
-#### antigravity
-
-Config file:
-- **macOS / Linux:** `~/.gemini/antigravity/mcp_config.json`
-- **Windows:** `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "$INSTANCE_URL",
-        "SERVICENOW_AUTH_TYPE": "$AUTH_TYPE",
-        "SERVICENOW_BROWSER_HEADLESS": "$HEADLESS",
-        "SERVICENOW_USERNAME": "$USERNAME",
-        "SERVICENOW_PASSWORD": "$PASSWORD",
-        "MCP_TOOL_PACKAGE": "$TOOL_PACKAGE"
-      }
-    }
-  }
-}
-```
-
----
-
-### Step 5 — Install skills (if supported)
-
-Skills are LLM execution blueprints — verified pipelines with safety gates and exact tool calls. They are available for clients that support custom commands/skills.
-
-Ask the user:
-> Install ServiceNow skills (20+ workflow recipes for analysis, debugging, deployment)? [Y/n]
-
-If yes, determine the skill target from `$CLIENT`:
-
-| Client | Skill target | Install path |
-|--------|-------------|--------------|
-| claude-code | `claude` | `.claude/commands/servicenow/` |
-| codex | `codex` | `.codex/skills/servicenow/` |
-| opencode | `opencode` | `.opencode/skills/servicenow/` |
-| gemini | `gemini` | `.gemini/skills/servicenow/` |
-| cursor | — | Not yet supported (use CLAUDE.md rules instead) |
-| windsurf | — | Not yet supported |
-| zed | — | Not yet supported |
-| vscode-copilot | — | Not yet supported |
-| claude-desktop | — | Not applicable (no project workspace) |
-
-For supported clients, run:
 ```bash
-uvx --from mfa-servicenow-mcp servicenow-mcp-skills $SKILL_TARGET
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+  --instance-url "https://your-instance.service-now.com"
 ```
 
-For unsupported clients, inform the user:
-> Skills are not yet supported for $CLIENT. MCP tools (97+) are fully available — skills support will be added in a future release.
-
-### Step 6 — Verify installation
-
-1. **Check uv:** `uv --version`
-2. **Check playwright:** `uvx --with playwright playwright --version`
-3. **Check config file exists:** Read the config file created in Step 4
-4. **Check skills (if installed):** List the skill files to confirm they're in place
-
-Report a summary to the user:
-
-```
-Setup complete!
-
-  Client:       $CLIENT
-  Instance:     $INSTANCE_URL
-  Auth:         $AUTH_TYPE
-  Tool package: $TOOL_PACKAGE
-  Skills:       $SKILL_COUNT installed (or "not applicable")
-  Config:       $CONFIG_FILE_PATH
+```bash
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup codex \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type basic \
+  --username "your.username" \
+  --password "your-password"
 ```
 
-**Next: Restart required**
+```bash
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup claude-code \
+  --instance-url "https://your-instance.service-now.com" \
+  --scope global \
+  --skip-skills
+```
 
-After completing all installation steps above, tell the user:
+### Step 5 — Verify installation
+
+1. Confirm the installer exited successfully
+2. Read the config file path reported by the installer summary
+3. If skills were installed, confirm the installed skills directory exists
+4. Do **not** manually rewrite the config unless the installer failed and you are explicitly repairing it
+
+### Step 6 — Tell the user what happens next
+
+After installation, tell the user:
 
 > **Installation is complete!**
-> To start using ServiceNow MCP tools, **restart your AI client** (or reload MCP servers).
+> Restart your AI client (or reload MCP servers) so it picks up the new configuration.
 >
-> The MCP server loads when your client starts up. After restarting:
->
-> 1. A browser window will open on the first tool call for MFA/SSO login
-> 2. Complete the login — the session persists after that
-> 3. Try: "Run a health check on my ServiceNow instance"
-> 4. Full docs: https://jshsakura.github.io/mfa-servicenow-mcp/
+> On the first browser-authenticated tool call, a browser window will open for MFA/SSO login.
+> After login, try: `Run a health check on my ServiceNow instance`
+> Full docs: https://jshsakura.github.io/mfa-servicenow-mcp/
 
-This is the end of setup. Do NOT attempt to call ServiceNow MCP tools (`sn_health`, `sn_query`, etc.) in this session — they won't be available until the client restarts and loads the server process. Do not try to work around this by running the server via shell commands.
+Do **not** attempt to call ServiceNow MCP tools in the current session after setup. The client must restart first.
 
 ### Important notes for the LLM
 
 - **Never hardcode credentials** in config files without asking. If the user skips credentials, omit them entirely from the config.
-- **Always merge** into existing config files — never overwrite other MCP servers the user has configured.
+- The installer merges into existing config files. Do not hand-roll config merges unless recovery is needed.
 - **Windows paths** use backslashes. Use the correct path separator for the OS.
 - If any step fails, diagnose the error and help the user fix it before moving on.
 - Keep the conversation friendly and concise. Don't dump walls of text.
