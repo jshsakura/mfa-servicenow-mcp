@@ -1137,12 +1137,7 @@ class AuditAppSourcesParams(BaseModel):
 @register_tool(
     "audit_local_sources",
     params=AuditAppSourcesParams,
-    description=(
-        "Analyze downloaded app sources locally (NO API calls). "
-        "Generates cross-reference graph, orphan/dead code detection, "
-        "execution order map, schema validation, and a self-contained HTML report. "
-        "Returns only a summary to the conversation context."
-    ),
+    description="Analyze downloaded sources locally (no API). Generates cross-ref graph, dead code, HTML report.",
     serialization="raw_dict",
     return_type=dict,
 )
