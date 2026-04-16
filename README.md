@@ -72,7 +72,7 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **150+ tools** across 7 role-based packages — from read-only to full CRUD
+- **110+ tools** across 7 role-based packages — from read-only to full CRUD
 - **24 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - Safe write confirmation with `confirm='approve'`
@@ -239,13 +239,13 @@ All packages inherit `standard` read-only tools via `_extends` and add domain-sp
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `standard` | 42 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search |
-| `service_desk` | 52 | standard + incident create/update/resolve/comment, change management writes |
-| `portal_developer` | 90 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
-| `platform_developer` | 85 | standard + workflow CRUD, flow designer, UI policy, incident/change/script writes |
-| `agile` | 57 | standard + epic/story/scrum task/project PPM tools |
-| `admin` | 67 | standard + user/group management, knowledge base, catalog management |
-| `full` | 109 | Portal-focused development tools (agile PPM and admin in their own packages) |
+| `standard` | 43 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search |
+| `service_desk` | 53 | standard + incident create/update/resolve/comment, change management writes |
+| `portal_developer` | 91 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
+| `platform_developer` | 86 | standard + workflow CRUD, flow designer, UI policy, incident/change/script writes |
+| `agile` | 58 | standard + epic/story/scrum task/project PPM tools |
+| `admin` | 68 | standard + user/group management, knowledge base, catalog management |
+| `full` | 110 | Portal-focused development tools (agile PPM and admin in their own packages) |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
@@ -312,7 +312,27 @@ After refreshing, **restart your MCP client** (Claude Code, Cursor, etc.) to loa
 ### Pinning a specific version
 
 ```bash
-uvx --from "mfa-servicenow-mcp==1.5.0" servicenow-mcp --version
+# Example: pin to 1.8.17
+uvx --from "mfa-servicenow-mcp==1.8.17" servicenow-mcp --version
+```
+
+To pin in an MCP client config, use the `--from` constraint in the command:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mfa-servicenow-mcp==1.8.17",
+        "servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "browser"
+      ]
+    }
+  }
+}
 ```
 
 ### Version release process
@@ -471,11 +491,11 @@ The installer downloads 20+ skill files from this repository's `skills/` directo
 
 | Category | Skills | Purpose |
 |----------|--------|---------|
-| `analyze/` | 7 | Widget analysis, portal diagnosis, provider audit, dependency mapping, code detection, ESC audit, **local source audit** |
+| `analyze/` | 6 | Widget analysis, portal diagnosis, provider audit, dependency mapping, ESC audit, **local source audit** |
 | `fix/` | 3 | Widget patching (staged gates), debugging, code review |
-| `manage/` | 7 | Page layout, script includes, source export, **app source download**, changeset workflow, local sync, **skill management** |
+| `manage/` | 8 | Page layout, script includes, source export, **app source download**, changeset workflow, local sync, workflow management, **skill management** |
 | `deploy/` | 2 | Change request lifecycle, incident triage |
-| `explore/` | 4 | Health check, schema discovery, route tracing, ESC catalog flow |
+| `explore/` | 5 | Health check, schema discovery, route tracing, flow trigger tracing, ESC catalog flow |
 
 ### Skill Metadata
 

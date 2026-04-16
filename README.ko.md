@@ -71,7 +71,7 @@ AI가 자동으로:
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **150개 이상의 도구**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
+- **110개 이상의 도구**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
 - **24개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
 - `confirm='approve'` 기반 안전한 수정 승인 정책
@@ -235,13 +235,13 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
-| `standard` | 42 | **(기본값)** 읽기 전용 safe mode. 핵심 API, 워크플로우/플로우 읽기, 포탈 기본, 로그, 검색 |
-| `service_desk` | 52 | standard + 인시던트 생성/처리/해결/코멘트, 변경관리 쓰기 |
-| `portal_developer` | 90 | standard + 포탈 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
-| `platform_developer` | 85 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `agile` | 57 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
-| `admin` | 67 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
-| `full` | 109 | 포탈 중심 전 개발 도구 통합 (Agile PPM, Admin은 전용 패키지에서) |
+| `standard` | 43 | **(기본값)** 읽기 전용 safe mode. 핵심 API, 워크플로우/플로우 읽기, 포탈 기본, 로그, 검색 |
+| `service_desk` | 53 | standard + 인시던트 생성/처리/해결/코멘트, 변경관리 쓰기 |
+| `portal_developer` | 91 | standard + 포탈 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
+| `platform_developer` | 86 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `agile` | 58 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
+| `admin` | 68 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
+| `full` | 110 | 포탈 중심 전 개발 도구 통합 (Agile PPM, Admin은 전용 패키지에서) |
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 
@@ -304,6 +304,32 @@ uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 ```
 
 갱신 후 **MCP 클라이언트를 재시작**해야 새 버전이 적용됩니다 (Claude Code, Cursor 등).
+
+### 특정 버전 고정
+
+```bash
+# 예시: 1.8.17 버전으로 고정
+uvx --from "mfa-servicenow-mcp==1.8.17" servicenow-mcp --version
+```
+
+MCP 클라이언트 설정에서 버전을 고정하려면 명령어에 `--from` 제약 조건을 추가하세요:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mfa-servicenow-mcp==1.8.17",
+        "servicenow-mcp",
+        "--instance-url", "https://your-instance.service-now.com",
+        "--auth-type", "browser"
+      ]
+    }
+  }
+}
+```
 
 ---
 
@@ -455,11 +481,11 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 | 카테고리 | 스킬 수 | 용도 |
 |----------|---------|------|
-| `analyze/` | 7 | 위젯 분석, 포탈 진단, 프로바이더 감사, 의존성 매핑, 코드 감지, ESC 감사, **로컬 소스 검수** |
+| `analyze/` | 6 | 위젯 분석, 포탈 진단, 프로바이더 감사, 의존성 매핑, ESC 감사, **로컬 소스 검수** |
 | `fix/` | 3 | 위젯 패치 (단계별 게이트), 디버깅, 코드 리뷰 |
-| `manage/` | 7 | 페이지 레이아웃, SI 관리, 소스 내보내기, **앱 소스 다운로드**, 체인지셋, 로컬 동기화, **스킬 관리** |
+| `manage/` | 8 | 페이지 레이아웃, SI 관리, 소스 내보내기, **앱 소스 다운로드**, 체인지셋, 로컬 동기화, 워크플로우 관리, **스킬 관리** |
 | `deploy/` | 2 | 변경 요청 생명주기, 인시던트 분류 |
-| `explore/` | 4 | 헬스 체크, 스키마 탐색, 라우트 추적, ESC 카탈로그 흐름 |
+| `explore/` | 5 | 헬스 체크, 스키마 탐색, 라우트 추적, 플로우 트리거 추적, ESC 카탈로그 흐름 |
 
 ### 스킬 메타데이터
 
