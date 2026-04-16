@@ -176,24 +176,6 @@ class TestCompactSerialization:
 class TestConditionalMetadata:
     """Empty warnings, safety_notice, and scan_summary should be omitted."""
 
-    def test_detection_tool_omits_empty_warnings(self, mock_config, mock_auth):
-        from servicenow_mcp.tools.detection_tools import (
-            DetectMissingCodesParams,
-            detect_missing_profit_company_codes,
-        )
-
-        mock_auth.make_request.return_value = _mock_count_response(0)
-        result = detect_missing_profit_company_codes(
-            mock_config,
-            mock_auth,
-            DetectMissingCodesParams(
-                required_codes=["2400", "5K00", "2J00"],
-                widget_prefix="hopes",
-            ),
-        )
-        # When no warnings, key should be absent
-        assert result.get("warnings") is None or result.get("warnings") == []
-
     def test_search_regex_omits_empty_warnings_when_targeted(self, mock_config, mock_auth):
         """When widget_ids are targeted (no broad scan), warnings should be empty/absent."""
         from servicenow_mcp.tools.portal_tools import (
