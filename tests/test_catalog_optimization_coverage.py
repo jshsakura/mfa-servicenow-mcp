@@ -3,9 +3,7 @@ Additional tests for catalog_optimization to increase coverage to 80%+.
 
 Covers: get_optimization_recommendations exception path, empty recommendation
 results, update_catalog_item with all fields (active, order, description,
-category), _get_high_abandonment_items with category filter and error,
-_get_slow_fulfillment_items with category and error, _get_low_usage_items
-with category and error, _get_poor_description_items with vague terms / error.
+category), _get_poor_description_items with vague terms / error.
 """
 
 import json
@@ -16,10 +14,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.catalog_optimization import (
     OptimizationRecommendationsParams,
     UpdateCatalogItemParams,
-    _get_high_abandonment_items,
-    _get_low_usage_items,
     _get_poor_description_items,
-    _get_slow_fulfillment_items,
     get_optimization_recommendations,
     update_catalog_item,
 )
@@ -59,7 +54,7 @@ class TestGetOptimizationRecommendationsEdgeCases(unittest.TestCase):
 
     @patch("servicenow_mcp.tools.catalog_optimization._get_inactive_items")
     def test_exception_path(self, mock_inactive):
-        """Cover lines 173-175: exception in get_optimization_recommendations."""
+        """Cover exception in get_optimization_recommendations."""
         mock_inactive.side_effect = Exception("DB down")
         params = OptimizationRecommendationsParams(recommendation_types=["inactive_items"])
         result = get_optimization_recommendations(self.config, self.auth, params)
@@ -83,7 +78,7 @@ class TestUpdateCatalogItemEdgeCases(unittest.TestCase):
 
     @patch("servicenow_mcp.tools.catalog_optimization.invalidate_query_cache")
     def test_all_fields(self, mock_cache):
-        """Cover lines 213, 215, 219, 221: description, category, active, order fields."""
+        """Cover description, category, active, order fields."""
         resp = _ok_response(
             {"result": {"sys_id": "item1", "name": "Laptop", "active": "false", "order": "5"}}
         )
@@ -108,103 +103,13 @@ class TestUpdateCatalogItemEdgeCases(unittest.TestCase):
         self.assertEqual(call_kwargs["order"], "5")
 
 
-class TestGetHighAbandonmentItems(unittest.TestCase):
-    def setUp(self):
-        self.config = _make_config()
-        self.auth = _make_auth()
-
-    @patch("random.randint", return_value=50)
-    @patch("random.sample")
-    def test_with_category(self, mock_sample, mock_randint):
-        """Cover lines 320-343: high abandonment with category filter."""
-        resp = _ok_response(
-            {
-                "result": [
-                    {"sys_id": "i1", "name": "Item1", "short_description": "Desc", "category": "hw"}
-                ]
-            }
-        )
-        self.auth.make_request.return_value = resp
-        mock_sample.return_value = [
-            {"sys_id": "i1", "name": "Item1", "short_description": "Desc", "category": "hw"}
-        ]
-
-        result = _get_high_abandonment_items(self.config, self.auth, "cat1")
-        self.assertEqual(len(result), 1)
-        self.assertIn("abandonment_rate", result[0])
-        self.assertIn("cart_adds", result[0])
-        self.assertIn("orders", result[0])
-
-    def test_error_path(self):
-        """Cover line 342-343: exception returns []."""
-        self.auth.make_request.side_effect = Exception("Fail")
-        result = _get_high_abandonment_items(self.config, self.auth)
-        self.assertEqual(result, [])
-
-
-class TestGetSlowFulfillmentItems(unittest.TestCase):
-    def setUp(self):
-        self.config = _make_config()
-        self.auth = _make_auth()
-
-    @patch("random.uniform", return_value=8.0)
-    @patch("random.sample")
-    def test_with_category(self, mock_sample, mock_uniform):
-        """Cover line 363: slow fulfillment with category."""
-        resp = _ok_response(
-            {"result": [{"sys_id": "i1", "name": "HW", "short_description": "D", "category": "hw"}]}
-        )
-        self.auth.make_request.return_value = resp
-        mock_sample.return_value = [
-            {"sys_id": "i1", "name": "HW", "short_description": "D", "category": "hw"}
-        ]
-
-        result = _get_slow_fulfillment_items(self.config, self.auth, "cat1")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["avg_fulfillment_time"], 8.0)
-
-    def test_error_path(self):
-        """Cover lines 381-383."""
-        self.auth.make_request.side_effect = Exception("Fail")
-        result = _get_slow_fulfillment_items(self.config, self.auth)
-        self.assertEqual(result, [])
-
-
-class TestGetLowUsageItems(unittest.TestCase):
-    def setUp(self):
-        self.config = _make_config()
-        self.auth = _make_auth()
-
-    @patch("random.randint", return_value=3)
-    @patch("random.sample")
-    def test_with_category(self, mock_sample, mock_randint):
-        """Cover line 289: low usage with category filter."""
-        resp = _ok_response(
-            {"result": [{"sys_id": "i1", "name": "SW", "short_description": "D", "category": "sw"}]}
-        )
-        self.auth.make_request.return_value = resp
-        mock_sample.return_value = [
-            {"sys_id": "i1", "name": "SW", "short_description": "D", "category": "sw"}
-        ]
-
-        result = _get_low_usage_items(self.config, self.auth, "cat1")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["order_count"], 3)
-
-    def test_error_path(self):
-        """Cover lines 301-303."""
-        self.auth.make_request.side_effect = Exception("Fail")
-        result = _get_low_usage_items(self.config, self.auth)
-        self.assertEqual(result, [])
-
-
 class TestGetPoorDescriptionItems(unittest.TestCase):
     def setUp(self):
         self.config = _make_config()
         self.auth = _make_auth()
 
     def test_vague_terms(self):
-        """Cover lines 432-433: vague terms detection."""
+        """Cover vague terms detection."""
         resp = _ok_response(
             {
                 "result": [
@@ -223,7 +128,7 @@ class TestGetPoorDescriptionItems(unittest.TestCase):
         self.assertIn("Contains vague terms", result[0]["quality_issues"])
 
     def test_with_category(self):
-        """Cover line 403: category filter."""
+        """Cover category filter."""
         resp = _ok_response(
             {
                 "result": [
@@ -237,7 +142,7 @@ class TestGetPoorDescriptionItems(unittest.TestCase):
         self.assertEqual(result[0]["description_quality"], 0)
 
     def test_error_path(self):
-        """Cover lines 446-448."""
+        """Cover exception returns []."""
         self.auth.make_request.side_effect = Exception("Fail")
         result = _get_poor_description_items(self.config, self.auth)
         self.assertEqual(result, [])

@@ -22,7 +22,7 @@ standard:
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
-  - get_optimization_recommendations
+  # catalog optimization removed (fake data cleaned up)
   # Change Management (Read)
   - get_change_request_details
   # Changeset (Read)
@@ -91,7 +91,7 @@ portal_developer:
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
-  - get_optimization_recommendations
+  # catalog optimization removed (fake data cleaned up)
   - get_change_request_details
   - get_changeset_details
   - list_workflows
@@ -172,7 +172,7 @@ platform_developer:
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
-  - get_optimization_recommendations
+  # catalog optimization removed (fake data cleaned up)
   - get_change_request_details
   - get_changeset_details
   - list_workflows
@@ -227,6 +227,7 @@ platform_developer:
   - update_workflow_activity
   - delete_workflow_activity
   - reorder_workflow_activities
+  - delete_workflow
   # + UI Policy writes
   - create_ui_policy
   - create_ui_policy_action
@@ -264,7 +265,7 @@ service_desk:
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
-  - get_optimization_recommendations
+  # catalog optimization removed (fake data cleaned up)
   - get_change_request_details
   - get_changeset_details
   - list_workflows
@@ -330,7 +331,7 @@ full:
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
-  - get_optimization_recommendations
+  # catalog optimization removed (fake data cleaned up)
   - get_change_request_details
   - get_changeset_details
   - list_workflows
@@ -406,6 +407,7 @@ full:
   - update_workflow_activity
   - delete_workflow_activity
   - reorder_workflow_activities
+  - delete_workflow
   - update_flow_designer
   - activate_flow_designer
   - deactivate_flow_designer
