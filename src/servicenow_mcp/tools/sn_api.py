@@ -172,7 +172,7 @@ def _cache_key(
     limit: int,
     offset: int,
     *,
-    display_value: bool,
+    display_value: "bool | str",
     no_count: bool,
     orderby: Optional[str],
 ) -> _CacheKey:
@@ -234,7 +234,7 @@ def sn_query_page(
     fields: str,
     limit: int,
     offset: int,
-    display_value: bool = False,
+    display_value: "bool | str" = False,
     no_count: bool = False,
     orderby: Optional[str] = None,
     fail_silently: bool = True,
@@ -248,7 +248,9 @@ def sn_query_page(
     Args:
         display_value: When False (default for internal use), skips expensive
             server-side reference joins.  Set True only when callers need
-            human-readable display values.
+            human-readable display values.  Pass ``"all"`` to get both raw
+            and display values (each reference field becomes a dict with
+            ``value`` and ``display_value`` keys).
         no_count: When True, sends ``sysparm_no_count=true`` to skip
             server-side total count computation for faster responses.
 
@@ -273,7 +275,9 @@ def sn_query_page(
     params: Dict[str, Any] = {
         "sysparm_limit": limit,
         "sysparm_offset": offset,
-        "sysparm_display_value": "true" if display_value else "false",
+        "sysparm_display_value": (
+            "all" if display_value == "all" else ("true" if display_value else "false")
+        ),
         "sysparm_exclude_reference_link": "true",
     }
     if no_count:
@@ -317,7 +321,7 @@ def sn_query_all(
     page_size: int = 50,
     max_records: int = 100,
     parallel: bool = True,
-    display_value: bool = False,
+    display_value: "bool | str" = False,
 ) -> List[Dict[str, Any]]:
     """Paginated fetch with optional parallel page retrieval.
 

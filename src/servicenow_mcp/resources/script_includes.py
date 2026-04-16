@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import requests
 from pydantic import BaseModel
+from requests import RequestException
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils import json_fast
@@ -40,33 +40,32 @@ class ScriptIncludeResource:
         }
 
         try:
-            response = requests.get(
+            response = self.auth_manager.make_request(
+                "GET",
                 f"{self.config.instance_url}/api/now/table/sys_script_include",
-                headers=self.auth_manager.get_headers(),
                 params=request_params,
             )
             if response.status_code >= 400:
-                raise requests.RequestException(f"HTTP {response.status_code}")
+                raise RequestException(f"HTTP {response.status_code}")
             return response.text
-        except requests.RequestException as exc:
+        except RequestException as exc:
             return json_fast.dumps({"error": f"Error listing script includes: {exc}"})
 
     async def get_script_include(self, identifier: str) -> str:
         try:
-            headers = self.auth_manager.get_headers()
             if identifier.startswith("sys_id:"):
-                response = requests.get(
+                response = self.auth_manager.make_request(
+                    "GET",
                     f"{self.config.instance_url}/api/now/table/sys_script_include/{identifier.removeprefix('sys_id:')}",
-                    headers=headers,
                 )
             else:
-                response = requests.get(
+                response = self.auth_manager.make_request(
+                    "GET",
                     f"{self.config.instance_url}/api/now/table/sys_script_include",
-                    headers=headers,
                     params={"sysparm_query": f"name={identifier}"},
                 )
             if response.status_code >= 400:
-                raise requests.RequestException(f"HTTP {response.status_code}")
+                raise RequestException(f"HTTP {response.status_code}")
             return response.text
-        except requests.RequestException as exc:
+        except RequestException as exc:
             return json_fast.dumps({"error": f"Error getting script include: {exc}"})
