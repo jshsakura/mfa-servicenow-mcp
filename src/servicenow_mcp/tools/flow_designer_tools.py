@@ -52,7 +52,7 @@ class ListFlowsParams(BaseModel):
         default=None, description="Filter by status: Draft, Published, etc."
     )
     name: Optional[str] = Field(default=None, description="Filter by name (contains)")
-    scope: Optional[str] = Field(default=None, description="Scope namespace to filter by")
+    scope: Optional[str] = Field(default=None, description="Scope namespace or display name")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(
         default=False,
@@ -146,7 +146,7 @@ class ListActionsParams(BaseModel):
     offset: int = Field(default=0, description="Pagination offset")
     active: Optional[bool] = Field(default=None, description="Filter by active status")
     name: Optional[str] = Field(default=None, description="Filter by name (contains)")
-    scope: Optional[str] = Field(default=None, description="Scope namespace to filter by")
+    scope: Optional[str] = Field(default=None, description="Scope namespace or display name")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(
         default=False, description="Return count only without fetching records."
@@ -169,7 +169,7 @@ class ListPlaybooksParams(BaseModel):
     active: Optional[bool] = Field(default=None, description="Filter by active status")
     status: Optional[str] = Field(default=None, description="Filter by status")
     name: Optional[str] = Field(default=None, description="Filter by label/name (contains)")
-    scope: Optional[str] = Field(default=None, description="Scope namespace to filter by")
+    scope: Optional[str] = Field(default=None, description="Scope namespace or display name")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(
         default=False, description="Return count only without fetching records."
@@ -191,7 +191,7 @@ class ListDecisionTablesParams(BaseModel):
     offset: int = Field(default=0, description="Pagination offset")
     active: Optional[bool] = Field(default=None, description="Filter by active status")
     name: Optional[str] = Field(default=None, description="Filter by name (contains)")
-    scope: Optional[str] = Field(default=None, description="Scope namespace to filter by")
+    scope: Optional[str] = Field(default=None, description="Scope namespace or display name")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(
         default=False, description="Return count only without fetching records."
@@ -230,12 +230,15 @@ def _get_snapshot_id(
         offset=0,
         display_value=True,
     )
+    if not snapshots:
+        logger.warning("No snapshot found for flow %s in %s", flow_id, FLOW_SNAPSHOT_TABLE)
+        return None
     # Prefer published snapshot
     for snap in snapshots:
         if snap.get("status") == "Published":
             return snap["sys_id"]
     # Fallback to first available
-    return snapshots[0]["sys_id"] if snapshots else None
+    return snapshots[0]["sys_id"]
 
 
 def _build_component_tree(components: List[Dict]) -> List[Dict]:
@@ -321,7 +324,7 @@ def list_flows(
     if params.name:
         query_parts.append(f"nameLIKE{params.name}")
     if params.scope:
-        query_parts.append(f"sys_scope.scope={params.scope}")
+        query_parts.append(f"sys_scope.scope={params.scope}^ORsys_scope.name={params.scope}")
     if params.query:
         query_parts.append(params.query)
 
@@ -1048,7 +1051,7 @@ def list_flow_triggers_by_table(
     """List flow record triggers for a specific table, with linked flow details."""
     query_parts: List[str] = [f"table={params.table_name}"]
     if params.scope:
-        query_parts.append(f"sys_scope.scope={params.scope}")
+        query_parts.append(f"sys_scope.scope={params.scope}^ORsys_scope.name={params.scope}")
 
     query_string = "^".join(query_parts)
 
@@ -1121,7 +1124,7 @@ def list_actions(
     if params.name:
         query_parts.append(f"nameLIKE{params.name}")
     if params.scope:
-        query_parts.append(f"sys_scope.scope={params.scope}")
+        query_parts.append(f"sys_scope.scope={params.scope}^ORsys_scope.name={params.scope}")
     if params.query:
         query_parts.append(params.query)
 
@@ -1212,7 +1215,7 @@ def list_playbooks(
     if params.name:
         query_parts.append(f"labelLIKE{params.name}")
     if params.scope:
-        query_parts.append(f"sys_scope.scope={params.scope}")
+        query_parts.append(f"sys_scope.scope={params.scope}^ORsys_scope.name={params.scope}")
     if params.query:
         query_parts.append(params.query)
 
@@ -1301,7 +1304,7 @@ def list_decision_tables(
     if params.name:
         query_parts.append(f"nameLIKE{params.name}")
     if params.scope:
-        query_parts.append(f"sys_scope.scope={params.scope}")
+        query_parts.append(f"sys_scope.scope={params.scope}^ORsys_scope.name={params.scope}")
     if params.query:
         query_parts.append(params.query)
 
