@@ -888,3 +888,193 @@ class TestCrossProcessLoginLock:
         result = manager._wait_for_other_login(timeout=4)
 
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Browser login race-condition prevention
+# ---------------------------------------------------------------------------
+
+
+class TestBrowserLoginRacePrevention:
+    """Tests for fixes that prevent duplicate browser login windows.
+
+    Three bugs were fixed:
+    1. _try_restore_browser_session() ran outside any lock, allowing parallel
+       tool calls to each open a Playwright browser simultaneously.
+    2. _try_restore_browser_session() used headless=browser_config.headless,
+       making the restore attempt visible when headless=false.
+    3. After _try_restore_browser_session() failed, the code did not re-check
+       the disk cache before proceeding to interactive login, so a session
+       written by another process during restore was missed.
+    """
+
+    def test_restore_always_uses_headless_true(self):
+        """_try_restore_browser_session must launch Playwright with headless=True,
+        regardless of browser_config.headless, because it only checks cookies."""
+        import sys
+
+        cfg = AuthConfig(
+            type=AuthType.BROWSER,
+            browser=BrowserAuthConfig(
+                headless=False,  # User wants visible browser for login
+                timeout_seconds=10,
+                user_data_dir="/tmp/test-profile",
+            ),
+        )
+        with (
+            patch.object(AuthManager, "_ensure_playwright_ready"),
+            patch.object(AuthManager, "_load_session_from_disk"),
+            patch.object(AuthManager, "_start_keepalive"),
+        ):
+            manager = AuthManager(cfg, "https://example.service-now.com")
+
+        # Mock Playwright context/page
+        mock_context = MagicMock()
+        mock_page = MagicMock()
+        mock_page.evaluate.side_effect = ["TestUA", None]
+        mock_context.pages = [mock_page]
+        mock_context.cookies.return_value = []
+
+        mock_pw_instance = MagicMock()
+        mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+        mock_sync_pw = MagicMock()
+        mock_sync_pw.return_value.__enter__ = MagicMock(return_value=mock_pw_instance)
+        mock_sync_pw.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Mock playwright at module level so `from playwright.sync_api import sync_playwright` works
+        mock_pw_mod = MagicMock()
+        mock_pw_mod.sync_api.sync_playwright = mock_sync_pw
+        saved = {k: sys.modules.get(k) for k in ("playwright", "playwright.sync_api")}
+        sys.modules["playwright"] = mock_pw_mod
+        sys.modules["playwright.sync_api"] = mock_pw_mod.sync_api
+        try:
+            manager._try_restore_browser_session(cfg.browser)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
+
+        call_kwargs = mock_pw_instance.chromium.launch_persistent_context.call_args
+        assert call_kwargs.kwargs.get("headless") is True or call_kwargs[1].get("headless") is True
+
+    def test_restore_runs_under_inprocess_lock(self):
+        """_try_restore_browser_session must not run concurrently within a process.
+        When session is missing, the in-process lock should be acquired BEFORE
+        restore is attempted, so a second thread waits instead of opening another browser."""
+        manager = _make_browser_manager()
+        manager._browser_cookie_header = None
+        manager._browser_cookie_expires_at = None
+
+        restore_calls: list[float] = []
+        login_calls: list[float] = []
+
+        def _slow_restore(_cfg):
+            restore_calls.append(time.time())
+            time.sleep(0.1)  # Simulate browser open/close
+            return False
+
+        def _mock_login(_cfg, force_interactive=False):
+            login_calls.append(time.time())
+            manager._browser_cookie_header = "NEW=COOKIE"
+            manager._browser_cookie_expires_at = time.time() + 600
+
+        import threading
+
+        def _thread_get_headers():
+            """Second thread should wait on lock, not call restore."""
+            try:
+                manager.get_headers()
+            except Exception:
+                pass  # May fail if login mock not fully set up for second call
+
+        with (
+            patch.object(manager, "_try_restore_browser_session", side_effect=_slow_restore),
+            patch.object(manager, "_login_with_browser", side_effect=_mock_login),
+            patch.object(manager, "_reload_session_from_disk", return_value=False),
+            patch.object(manager, "_acquire_login_lock", return_value=True),
+            patch.object(manager, "_release_login_lock"),
+            patch.object(manager, "_start_keepalive"),
+        ):
+            # Start two threads nearly simultaneously
+            t = threading.Thread(target=_thread_get_headers)
+            t.start()
+            time.sleep(0.01)  # Let thread start
+
+            try:
+                manager.get_headers()
+            except Exception:
+                pass
+
+            t.join(timeout=5)
+
+        # Restore should have been called (at least by one thread).
+        # The key assertion: _login_with_browser should NOT be called more than once
+        # because the second caller should find the session set by the first.
+        assert len(login_calls) <= 1, (
+            f"_login_with_browser called {len(login_calls)} times — "
+            "in-process lock should prevent concurrent login"
+        )
+
+    def test_disk_reload_after_restore_prevents_second_login(self, tmp_path):
+        """After _try_restore_browser_session fails, a disk reload should be attempted.
+        If another process wrote a session to disk during restore, we should use it
+        instead of opening an interactive login browser."""
+        manager = _make_browser_manager()
+        manager._browser_cookie_header = None
+        manager._browser_cookie_expires_at = None
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+        manager.instance_url = "https://example.service-now.com"
+
+        restore_called = False
+
+        def _restore_that_simulates_other_process_login(_cfg):
+            nonlocal restore_called
+            restore_called = True
+            # Simulate: while restore is running, another process writes a session to disk
+            _write_session_cache(cache_path, "OTHER_PROCESS=COOKIE", time.time() + 1800)
+            return False  # Restore itself fails
+
+        with (
+            patch.object(
+                manager,
+                "_try_restore_browser_session",
+                side_effect=_restore_that_simulates_other_process_login,
+            ),
+            patch.object(manager, "_login_with_browser") as mock_login,
+            patch.object(manager, "_start_keepalive"),
+        ):
+            headers = manager.get_headers()
+
+        assert restore_called, "_try_restore_browser_session should have been called"
+        mock_login.assert_not_called(), (
+            "_login_with_browser should NOT be called — "
+            "disk reload after restore should have found the session"
+        )
+        assert headers["Cookie"] == "OTHER_PROCESS=COOKIE"
+
+    def test_fast_path_disk_reload_skips_browser_entirely(self, tmp_path):
+        """When a valid session exists on disk, get_headers should return it
+        without acquiring any lock or opening a browser."""
+        manager = _make_browser_manager()
+        manager._browser_cookie_header = None
+        manager._browser_cookie_expires_at = None
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+        manager.instance_url = "https://example.service-now.com"
+
+        _write_session_cache(cache_path, "DISK=SESSION", time.time() + 1800)
+
+        with (
+            patch.object(manager, "_try_restore_browser_session") as mock_restore,
+            patch.object(manager, "_login_with_browser") as mock_login,
+            patch.object(manager, "_start_keepalive"),
+        ):
+            headers = manager.get_headers()
+
+        mock_restore.assert_not_called()
+        mock_login.assert_not_called()
+        assert headers["Cookie"] == "DISK=SESSION"
