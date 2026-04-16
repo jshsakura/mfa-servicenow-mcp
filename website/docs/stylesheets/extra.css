@@ -196,6 +196,7 @@ body:has(.landing-page) .md-content__inner::before { display: none !important; }
   body:has(.landing-page) .md-sidebar { display: none; }
 }
 body:has(.landing-page) .md-footer { margin-top: 0; }
+.md-copyright { text-align: center; }
 
 /* ============================================================
    HERO — banner image with text overlay (always dark)
