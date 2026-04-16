@@ -251,6 +251,7 @@ class AuthManager:
         self._browser_reauth_cooldown_max = 120
         self._browser_reauth_failure_count = 0
         self._browser_login_in_progress = False  # True while browser window is open for MFA
+        self._browser_login_lock = threading.Lock()  # Prevent concurrent browser login attempts
         self._keepalive_thread: Optional[threading.Thread] = None
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
@@ -748,74 +749,99 @@ class AuthManager:
                     if self._browser_session_token:
                         headers["X-UserToken"] = self._browser_session_token
                     return headers
-                # Browser auth is user-driven (MFA/SSO). Always keep interactive mode.
-                if self._browser_login_in_progress:
-                    raise ValueError(
-                        "Browser login is currently in progress — the user is completing MFA/SSO authentication. "
-                        "Please wait for the user to finish and then retry this request. "
-                        "Do NOT start a new login attempt."
-                    )
-                # Cross-process lock: another terminal may already be logging in.
-                if not self._acquire_login_lock():
-                    # Another process is logging in — wait for it instead of opening a second browser.
-                    if self._wait_for_other_login(timeout=self.config.browser.timeout_seconds + 60):
-                        if not self._keepalive_thread:
-                            self._start_keepalive()
+                # In-process lock: prevent concurrent tool calls from opening
+                # multiple browser windows while the first login is in progress.
+                acquired = self._browser_login_lock.acquire(timeout=0)
+                if not acquired:
+                    # Another thread in this process is already logging in — wait for it.
+                    logger.info("Browser login in progress in another thread — waiting...")
+                    self._browser_login_lock.acquire()  # Block until login finishes
+                    self._browser_login_lock.release()
+                    # Login should be done now — return headers if session is valid
+                    if self._browser_cookie_header:
                         headers["Cookie"] = self._browser_cookie_header or ""
                         if self._browser_user_agent:
                             headers["User-Agent"] = self._browser_user_agent
                         if self._browser_session_token:
                             headers["X-UserToken"] = self._browser_session_token
                         return headers
-                    # Timed out waiting — fall through to try login ourselves
-                    if not self._acquire_login_lock():
-                        raise ValueError(
-                            "Browser login is in progress in another terminal. "
-                            "Please complete MFA/SSO there, or close that browser window first."
-                        )
-                if not self._can_attempt_browser_reauth():
-                    self._release_login_lock()
-                    cooldown_remaining = self._get_reauth_cooldown_remaining()
                     raise ValueError(
-                        f"Browser session expired. Re-login will be attempted automatically "
-                        f"in {cooldown_remaining}s. "
-                        f"(Attempt {self._browser_reauth_failure_count} failed — "
-                        f"cooldown {self._browser_reauth_cooldown_seconds}s) "
-                        "If the browser login window appeared, please complete MFA/SSO authentication. "
-                        "You can also retry this tool call after the cooldown to trigger a new login."
+                        "Browser login completed in another thread but session is not available. "
+                        "Please retry this request."
                     )
-                logger.info(
-                    "Opening browser in interactive mode for login/MFA. "
-                    "(attempt #%d, cooldown=%ds)",
-                    self._browser_reauth_failure_count + 1,
-                    self._browser_reauth_cooldown_seconds,
-                )
-                self._mark_browser_reauth_attempt()
-                self._browser_login_in_progress = True
+                # We hold the in-process lock from here.
                 try:
-                    self._login_with_browser(self.config.browser, force_interactive=True)
-                    # Login succeeded — reset failure state
-                    self._browser_reauth_failure_count = 0
-                    self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
-                    self._browser_login_in_progress = False
-                    self._release_login_lock()
-                    if not self._keepalive_thread:
-                        self._start_keepalive()
-                except Exception as exc:
-                    error_text = str(exc).lower()
-                    if "still in progress" in error_text or "still be completing" in error_text:
-                        # Thread join timed out but browser is still open for user MFA.
-                        # Keep _browser_login_in_progress=True so concurrent calls
-                        # see "login in progress" and don't open duplicate windows.
-                        # Keep lock held — browser is still open.
-                        logger.info(
-                            "Browser login thread still running — keeping login_in_progress=True"
+                    # Browser auth is user-driven (MFA/SSO). Always keep interactive mode.
+                    if self._browser_login_in_progress:
+                        self._browser_login_lock.release()
+                        raise ValueError(
+                            "Browser login is currently in progress — the user is completing MFA/SSO authentication. "
+                            "Please wait for the user to finish and then retry this request. "
+                            "Do NOT start a new login attempt."
                         )
-                    else:
+                    # Cross-process lock: another terminal may already be logging in.
+                    if not self._acquire_login_lock():
+                        # Another process is logging in — wait for it instead of opening a second browser.
+                        if self._wait_for_other_login(
+                            timeout=self.config.browser.timeout_seconds + 60
+                        ):
+                            if not self._keepalive_thread:
+                                self._start_keepalive()
+                            headers["Cookie"] = self._browser_cookie_header or ""
+                            if self._browser_user_agent:
+                                headers["User-Agent"] = self._browser_user_agent
+                            if self._browser_session_token:
+                                headers["X-UserToken"] = self._browser_session_token
+                            return headers
+                        # Timed out waiting — fall through to try login ourselves
+                        if not self._acquire_login_lock():
+                            raise ValueError(
+                                "Browser login is in progress in another terminal. "
+                                "Please complete MFA/SSO there, or close that browser window first."
+                            )
+                    if not self._can_attempt_browser_reauth():
+                        self._release_login_lock()
+                        cooldown_remaining = self._get_reauth_cooldown_remaining()
+                        raise ValueError(
+                            f"Browser session expired. Re-login will be attempted automatically "
+                            f"in {cooldown_remaining}s. "
+                            f"(Attempt {self._browser_reauth_failure_count} failed — "
+                            f"cooldown {self._browser_reauth_cooldown_seconds}s) "
+                            "If the browser login window appeared, please complete MFA/SSO authentication. "
+                            "You can also retry this tool call after the cooldown to trigger a new login."
+                        )
+                    logger.info(
+                        "Opening browser in interactive mode for login/MFA. "
+                        "(attempt #%d, cooldown=%ds)",
+                        self._browser_reauth_failure_count + 1,
+                        self._browser_reauth_cooldown_seconds,
+                    )
+                    self._mark_browser_reauth_attempt()
+                    self._browser_login_in_progress = True
+                    try:
+                        self._login_with_browser(self.config.browser, force_interactive=True)
+                        # Login succeeded — reset failure state
+                        self._browser_reauth_failure_count = 0
+                        self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
                         self._browser_login_in_progress = False
                         self._release_login_lock()
-                        # User closed the browser manually — not a real failure.
-                        # Reset cooldown so next tool call can retry immediately.
+                        if not self._keepalive_thread:
+                            self._start_keepalive()
+                    except Exception as exc:
+                        error_text = str(exc).lower()
+                        if "still in progress" in error_text or "still be completing" in error_text:
+                            # Thread join timed out but browser is still open for user MFA.
+                            # Keep _browser_login_in_progress=True so concurrent calls
+                            # see "login in progress" and don't open duplicate windows.
+                            # Keep lock held — browser is still open.
+                            logger.info(
+                                "Browser login thread still running — keeping login_in_progress=True"
+                            )
+                        else:
+                            self._browser_login_in_progress = False
+                            self._release_login_lock()
+                            # User closed the browser manually — not a real failure.
+                            # Reset cooldown so next tool call can retry immediately.
                         user_closed = any(
                             marker in error_text
                             for marker in [
@@ -847,7 +873,12 @@ class AuthManager:
                                 self._browser_reauth_failure_count,
                                 self._browser_reauth_cooldown_seconds,
                             )
-                    raise
+                        raise
+                finally:
+                    try:
+                        self._browser_login_lock.release()
+                    except RuntimeError:
+                        pass  # Already released
             elif self._should_validate_browser_session():
                 if not self._is_browser_session_valid(self.config.browser):
                     logger.info(

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.flow_designer_tools import (
+    CompareFlowsParams,
     GetActionDetailParams,
     GetDecisionTableDetailParams,
     GetFlowDetailsParams,
@@ -16,6 +17,7 @@ from servicenow_mcp.tools.flow_designer_tools import (
     ListPlaybooksParams,
     _fetch_flow_structure,
     _fetch_flow_triggers,
+    compare_flows,
     get_action_detail,
     get_decision_table_detail,
     get_flow_details,
@@ -1182,6 +1184,147 @@ class TestDecisionTableTools(unittest.TestCase):
         )
 
         self.assertFalse(result["success"])
+
+
+class TestCompareFlows(unittest.TestCase):
+    def setUp(self):
+        self.config = _make_basic_config()
+        self.browser_config = _make_browser_config()
+        self.auth_manager = MagicMock(spec=AuthManager)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_compare_flows_basic_auth_table_api(self, mock_qp):
+        """Basic auth — compare via Table API."""
+        flow_a = {
+            "sys_id": "a1",
+            "name": "YEA Quote RMD",
+            "status": "Published",
+            "active": "true",
+            "label_cache": "ref1:YEA Quote Depart,ref2:common",
+        }
+        flow_b = {
+            "sys_id": "b1",
+            "name": "YKO Quote RMD",
+            "status": "Published",
+            "active": "true",
+            "label_cache": "ref1:YKO Quote Depart,ref2:common",
+        }
+        mock_qp.side_effect = [([flow_a], 1), ([flow_b], 1)]
+
+        result = compare_flows(
+            self.config, self.auth_manager, CompareFlowsParams(flow_id_a="a1", flow_id_b="b1")
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["flow_a"]["name"], "YEA Quote RMD")
+        self.assertEqual(result["flow_b"]["name"], "YKO Quote RMD")
+        self.assertGreater(result["total_different"], 0)
+        # label_cache diff should show only_in_a / only_in_b
+        lc_diff = next(d for d in result["differences"] if d["field"] == "label_cache")
+        self.assertTrue(len(lc_diff["only_in_a"]) > 0 or len(lc_diff["only_in_b"]) > 0)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_compare_flows_browser_auth_processflow(self, mock_pf):
+        """Browser auth — compare via processflow API."""
+        pf_a = {
+            "result": {
+                "id": "a1",
+                "name": "YEA Flow",
+                "status": "Published",
+                "active": True,
+                "scope": "global",
+                "actionInstances": [{"name": "Log", "actionType": "log", "position": "1"}],
+                "flowLogicInstances": [],
+                "subFlowInstances": [],
+                "triggerInstances": [{"name": "Record"}],
+                "flowVariables": [],
+                "inputs": [{"name": "input1"}],
+                "outputs": [],
+                "label_cache": "common_ref",
+            }
+        }
+        pf_b = {
+            "result": {
+                "id": "b1",
+                "name": "YKO Flow",
+                "status": "Published",
+                "active": True,
+                "scope": "global",
+                "actionInstances": [
+                    {"name": "Log", "actionType": "log", "position": "1"},
+                    {"name": "Extra", "actionType": "custom", "position": "2"},
+                ],
+                "flowLogicInstances": [],
+                "subFlowInstances": [],
+                "triggerInstances": [{"name": "Record"}],
+                "flowVariables": [],
+                "inputs": [{"name": "input1"}],
+                "outputs": [],
+                "label_cache": "common_ref",
+            }
+        }
+        mock_pf.side_effect = [pf_a, pf_b]
+
+        result = compare_flows(
+            self.browser_config,
+            self.auth_manager,
+            CompareFlowsParams(flow_id_a="a1", flow_id_b="b1"),
+        )
+
+        self.assertTrue(result["success"])
+        # actions differ (1 vs 2)
+        action_diff = next(d for d in result["differences"] if d["field"] == "actions")
+        self.assertNotEqual(action_diff["flow_a"], action_diff["flow_b"])
+        # label_cache identical → should be in identical_fields
+        self.assertIn("label_cache", result["identical_fields"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_compare_flows_not_found(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+
+        result = compare_flows(
+            self.config, self.auth_manager, CompareFlowsParams(flow_id_a="missing", flow_id_b="b1")
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("not found", result["error"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_compare_flows_identical(self, mock_qp):
+        """Two identical flows should have 0 differences."""
+        flow = {
+            "sys_id": "x1",
+            "name": "Same Flow",
+            "status": "Published",
+            "active": "true",
+            "label_cache": "same_labels",
+        }
+        mock_qp.side_effect = [([flow], 1), ([{**flow}], 1)]
+
+        result = compare_flows(
+            self.config, self.auth_manager, CompareFlowsParams(flow_id_a="x1", flow_id_b="x1")
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["total_different"], 0)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_compare_flows_without_label_cache(self, mock_qp):
+        flow_a = {"sys_id": "a1", "name": "Flow A", "status": "Published", "active": "true"}
+        flow_b = {"sys_id": "b1", "name": "Flow B", "status": "Published", "active": "true"}
+        mock_qp.side_effect = [([flow_a], 1), ([flow_b], 1)]
+
+        result = compare_flows(
+            self.config,
+            self.auth_manager,
+            CompareFlowsParams(flow_id_a="a1", flow_id_b="b1", include_label_cache=False),
+        )
+
+        self.assertTrue(result["success"])
+        # label_cache should not appear in diff
+        fields = [d["field"] for d in result["differences"]]
+        self.assertNotIn("label_cache", fields)
+        self.assertNotIn("label_cache", result["identical_fields"])
 
 
 if __name__ == "__main__":
