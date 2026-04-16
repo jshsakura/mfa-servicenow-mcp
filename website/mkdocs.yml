@@ -5,7 +5,6 @@ site_url: https://jshsakura.github.io/mfa-servicenow-mcp/
 
 theme:
   name: material
-  custom_dir: overrides
   language: en
   font:
     text: Inter
@@ -80,7 +79,7 @@ plugins:
         background_color: "#18181b"
         color: "#fafafa"
 
-copyright: "© jshsakura — Husband of Rebekah"
+copyright: Husband of Rebekah
 
 extra:
   alternate:
