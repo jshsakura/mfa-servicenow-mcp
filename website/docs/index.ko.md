@@ -352,10 +352,12 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="install-block reveal" style="margin-top:40px;">
   <span class="section-label">최신 버전 유지</span>
+  <h2 class="section-title">항상 최신 버전으로 업데이트하기</h2>
   <p class="section-desc" style="margin-bottom:16px;">
     <code>uvx</code>는 마지막으로 다운로드한 버전을 캐시하여 계속 재사용합니다 — <strong>자동 업데이트되지 않습니다.</strong><br>
     <code>uv</code>를 통해 업그레이드하세요:
   </p>
+  <div class="install-tabs"><button class="install-tab active">Terminal</button></div>
   <div class="install-code-block">
     <pre class="install-code"><code>uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version</code></pre>
   </div>
