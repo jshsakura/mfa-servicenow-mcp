@@ -433,6 +433,19 @@ def main():
 
     load_dotenv()
 
+    if len(sys.argv) > 1 and sys.argv[1] in {"setup", "remove", "uninstall"}:
+        from servicenow_mcp import setup_installer
+
+        action = sys.argv[1]
+        if action == "uninstall":
+            action = "remove"
+
+        try:
+            raise SystemExit(setup_installer.main(sys.argv[2:], action=action))
+        except ValueError as e:
+            logger.error(f"{action.capitalize()} error: {e}")
+            raise SystemExit(1) from e
+
     try:
         # Parse command-line arguments
         args = parse_args()

@@ -12,11 +12,9 @@ MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so 
 [![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-live-blue?logo=github)](https://jshsakura.github.io/mfa-servicenow-mcp/)
 
 ```bash
-# One command — MFA/SSO browser login, works on macOS/Linux/Windows
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
+# Paste this into any AI coding assistant for fully guided setup
+Install and configure mfa-servicenow-mcp by following the instructions here:
+curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md
 ```
 
 ---
@@ -58,7 +56,7 @@ Your AI will:
 1. Install **uv** and **Playwright** (if needed)
 2. Ask for your ServiceNow instance URL, auth type, and tool package
 3. Generate the correct MCP config file for your client
-4. Install **20+ workflow skills** (if supported)
+4. Install **24 workflow skills** (if supported)
 
 No manual config editing. No format differences to worry about. Works on macOS, Linux, and Windows.
 
@@ -108,6 +106,7 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 | Portal Header/Footer | `sp_header_footer` | ✅ | ⬜ | ⬜ |
 | Portal CSS | `sp_css` | ✅ | ⬜ | ⬜ |
 | Angular Template | `sp_ng_template` | ✅ | ⬜ | ⬜ |
+| Metadata / XML Definitions | `sys_metadata` | ✅ | ⬜ | 🛡️ |
 | Update XML | `sys_update_xml` | ✅ | ⬜ | ⬜ |
 
 ---
@@ -134,20 +133,37 @@ Restart your terminal after installation. That's it — no Python install, no pi
 
 ## Quick Start
 
+Recommended manual path: let the installer write the right MCP config for your client.
+
 No clone needed. One command — works on macOS, Linux, and Windows:
 
 ```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"
+  --auth-type "browser"
 ```
 
-A browser window opens on the first tool call for Okta/Entra ID/SAML/MFA login. Chromium is auto-installed if missing. Session persists after login — no need to re-authenticate every time.
+Replace `opencode` with your client (`claude-code`, `codex`, `cursor`, `gemini`, etc.). The installer merges the ServiceNow entry into your existing client config and installs skills when supported.
+
+Add `--scope global` only if you want a global install instead of the default project-local setup.
+
+To remove the setup later, run the matching client uninstall command:
+
+```bash
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove opencode
+```
+
+Add `--scope global` when removing a global install. Add `--keep-skills` if you only want to remove the MCP config entry and keep installed skills.
+
+A browser window opens on the first browser-authenticated tool call for Okta/Entra ID/SAML/MFA login. Chromium is auto-installed if missing. Session persists after login — no need to re-authenticate every time.
+
+> Want AI-guided setup instead? Use [AI-Powered Setup](#ai-powered-setup). Want raw server execution without writing client config? See [CLI Reference](#cli-reference).
 
 ---
 
 ## MCP Client Configuration
+
+> Recommended: use the AI-guided flow above or run `servicenow-mcp setup <client> ...`. Use the copy-paste configs below when you need to inspect, repair, or hand-manage a client config file.
 
 Each project can connect to a different ServiceNow instance. Set the config in your **project directory** so each project has its own instance URL and credentials.
 
@@ -447,7 +463,7 @@ All downloads write full source to disk with zero truncation. Only a summary is 
 
 Tools are raw API calls. Skills are what make your LLM actually useful — verified pipelines with safety gates, rollback, and context-aware sub-agent delegation. **MCP server + skills is the complete setup** for LLM-driven ServiceNow automation.
 
-20+ skills today, more coming with every release.
+24 skills today, more coming with every release.
 
 | | Tools Only | Tools + Skills |
 |---|---|---|
@@ -472,7 +488,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills opencode
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills gemini
 ```
 
-The installer downloads 20+ skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
+The installer downloads 24 skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
 
 | Client | Install Path | Auto-Discovery |
 |--------|-------------|----------------|
@@ -485,7 +501,9 @@ The installer downloads 20+ skill files from this repository's `skills/` directo
 
 **Update:** Re-run the same install command — it replaces all existing skill files (clean install, no merge).
 
-**Remove:** Delete the install directory (e.g., `rm -rf .claude/commands/servicenow/`).
+**Remove full setup:** `uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove claude-code`
+
+**Remove skills only:** delete the skill install directory manually (for example `rm -rf .claude/commands/servicenow/`) if you intentionally want to keep the MCP config entry.
 
 ### Skill Categories
 
@@ -585,7 +603,8 @@ uv build
 
 ## Documentation
 
-- [Client Setup Guide](docs/CLIENT_SETUP.md) — Copy-paste configs for every MCP client
+- [LLM Setup Guide](docs/llm-setup.md) — AI-guided one-line installation flow
+- [Client Setup Guide](docs/CLIENT_SETUP.md) — Installer-first setup plus fallback client configs
 - [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete tool list by category and package
 - [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
 - [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization

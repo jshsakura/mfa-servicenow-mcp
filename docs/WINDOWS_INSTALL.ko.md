@@ -220,8 +220,9 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 | `deploy/` | 2 | 변경 요청 라이프사이클, 인시던트 트리아지 |
 | `explore/` | 4 | 헬스체크, 스키마 탐색, 라우트 추적, ESC 카탈로그 흐름 |
 
-**업데이트:** 같은 설치 명령어를 다시 실행하면 모든 스킬 파일이 업데이트됩니다.
-**삭제:** 설치 디렉터리를 삭제하세요 (예: `Remove-Item -Recurse .claude\commands\servicenow\`).
+**업데이트:** 같은 설치 명령어를 다시 실행하면 기존 스킬 파일을 통째로 교체합니다.
+**전체 제거:** `uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove claude-code`
+**스킬만 제거:** MCP 설정은 유지하고 싶다면 스킬 디렉터리만 직접 삭제하세요 (예: `Remove-Item -Recurse .claude\commands\servicenow\`).
 
 ---
 
@@ -264,12 +265,14 @@ TTL을 변경하려면 `--browser-session-ttl` 옵션을 사용하세요 (단위
 `MCP_TOOL_PACKAGE` 값으로 사용할 도구 세트를 선택합니다. 기본값은 `standard`(읽기 전용)입니다.
 
 | 패키지 | 도구 수 | 설명 |
-|--------|---------|------|
-| `standard` | 55 | **(기본값)** 읽기 전용 safe mode. 모든 조회 도구 포함 |
-| `portal_developer` | 70 | standard + 포탈/위젯/체인지셋 수정 |
-| `platform_developer` | 78 | standard + 워크플로우/인시던트/변경관리 수정 |
-| `service_desk` | 59 | standard + 인시던트 생성/처리 |
-| `full` | 98 | 전체 기능 (수정/삭제 포함) |
+|--------|:------:|------|
+| `standard` | 43 | **(기본값)** 읽기 전용 safe mode. 핵심 조회, 워크플로우/플로우 읽기, 포털 기본, 로그, 검색 |
+| `service_desk` | 53 | standard + 인시던트 생성/수정/해결/코멘트, 변경관리 쓰기 |
+| `portal_developer` | 91 | standard + 포털 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
+| `platform_developer` | 86 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `agile` | 58 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
+| `admin` | 68 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
+| `full` | 110 | 포털 중심 개발 도구 전체 묶음 (Agile PPM, Admin은 전용 패키지 유지) |
 
 수정 권한이 필요하면 `MCP_TOOL_PACKAGE` 값만 바꾸면 됩니다:
 
@@ -336,7 +339,9 @@ Remove-Item "$env:USERPROFILE\.servicenow_mcp\session_*.json"
 ```
 
 ### 버전 업데이트
-`uvx`는 실행할 때마다 최신 버전을 자동으로 받습니다. 캐시를 강제로 갱신하려면:
+`uvx`는 마지막으로 받은 버전을 캐시에 저장해 재사용합니다. 실행할 때마다 최신 릴리스를 자동으로 받지는 않습니다. 최신 배포본을 다시 받으려면:
 ```powershell
 uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 ```
+
+갱신 후에는 MCP 클라이언트를 완전히 재시작해야 새 캐시 버전으로 실행됩니다.
