@@ -129,7 +129,7 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertIn("active=true", query)
         self.assertIn("status=Published", query)
         self.assertIn("nameLIKEIncident", query)
-        self.assertIn("sys_scope.scope=global", query)
+        self.assertIn("sys_scope.scope=global^ORsys_scope.name=global", query)
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_list_flows_error(self, mock_qp):
@@ -891,7 +891,7 @@ class TestActionTools(unittest.TestCase):
         query = mock_qp.call_args[1]["query"]
         self.assertIn("active=true", query)
         self.assertIn("nameLIKECustom", query)
-        self.assertIn("sys_scope.scope=global", query)
+        self.assertIn("sys_scope.scope=global^ORsys_scope.name=global", query)
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_list_actions_error(self, mock_qp):
@@ -1021,7 +1021,7 @@ class TestPlaybookTools(unittest.TestCase):
         self.assertIn("active=true", query)
         self.assertIn("status=Published", query)
         self.assertIn("labelLIKEIncident", query)
-        self.assertIn("sys_scope.scope=global", query)
+        self.assertIn("sys_scope.scope=global^ORsys_scope.name=global", query)
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_list_playbooks_error(self, mock_qp):
@@ -1147,7 +1147,7 @@ class TestDecisionTableTools(unittest.TestCase):
         query = mock_qp.call_args[1]["query"]
         self.assertIn("active=true", query)
         self.assertIn("nameLIKEPriority", query)
-        self.assertIn("sys_scope.scope=global", query)
+        self.assertIn("sys_scope.scope=global^ORsys_scope.name=global", query)
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_list_decision_tables_error(self, mock_qp):
