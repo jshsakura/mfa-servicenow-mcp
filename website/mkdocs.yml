@@ -78,6 +78,8 @@ plugins:
         background_color: "#18181b"
         color: "#fafafa"
 
+copyright: Made with Material for MkDocs & Husband of Rebekah
+
 extra:
   alternate:
     - name: English
