@@ -47,7 +47,9 @@ class ListFlowsParams(BaseModel):
 
     limit: int = Field(default=20, description="Maximum number of records (max 100)")
     offset: int = Field(default=0, description="Pagination offset")
-    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    include_inactive: bool = Field(
+        default=False, description="Include inactive records (default: active only)"
+    )
     status: Optional[str] = Field(
         default=None, description="Filter by status: Draft, Published, etc."
     )
@@ -144,7 +146,9 @@ class ListActionsParams(BaseModel):
 
     limit: int = Field(default=20, description="Maximum number of records (max 100)")
     offset: int = Field(default=0, description="Pagination offset")
-    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    include_inactive: bool = Field(
+        default=False, description="Include inactive records (default: active only)"
+    )
     name: Optional[str] = Field(default=None, description="Filter by name (contains)")
     scope: Optional[str] = Field(default=None, description="Scope namespace or display name")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
@@ -166,7 +170,9 @@ class ListPlaybooksParams(BaseModel):
 
     limit: int = Field(default=20, description="Maximum number of records (max 100)")
     offset: int = Field(default=0, description="Pagination offset")
-    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    include_inactive: bool = Field(
+        default=False, description="Include inactive records (default: active only)"
+    )
     status: Optional[str] = Field(default=None, description="Filter by status")
     name: Optional[str] = Field(default=None, description="Filter by label/name (contains)")
     scope: Optional[str] = Field(default=None, description="Scope namespace or display name")
@@ -189,7 +195,9 @@ class ListDecisionTablesParams(BaseModel):
 
     limit: int = Field(default=20, description="Maximum number of records (max 100)")
     offset: int = Field(default=0, description="Pagination offset")
-    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    include_inactive: bool = Field(
+        default=False, description="Include inactive records (default: active only)"
+    )
     name: Optional[str] = Field(default=None, description="Filter by name (contains)")
     scope: Optional[str] = Field(default=None, description="Scope namespace or display name")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
@@ -325,8 +333,8 @@ def list_flows(
         # Default: exclude subflows
         query_parts.append("type!=subflow")
 
-    if params.active is not None:
-        query_parts.append(f"active={str(params.active).lower()}")
+    if not params.include_inactive:
+        query_parts.append("active=true")
     if params.status:
         query_parts.append(f"status={params.status}")
     if params.name:
@@ -1127,8 +1135,8 @@ def list_actions(
 ) -> Dict[str, Any]:
     """List Flow Designer action type definitions."""
     query_parts: List[str] = []
-    if params.active is not None:
-        query_parts.append(f"active={str(params.active).lower()}")
+    if not params.include_inactive:
+        query_parts.append("active=true")
     if params.name:
         query_parts.append(f"nameLIKE{params.name}")
     if params.scope:
@@ -1216,8 +1224,8 @@ def list_playbooks(
 ) -> Dict[str, Any]:
     """List playbook definitions."""
     query_parts: List[str] = []
-    if params.active is not None:
-        query_parts.append(f"active={str(params.active).lower()}")
+    if not params.include_inactive:
+        query_parts.append("active=true")
     if params.status:
         query_parts.append(f"status={params.status}")
     if params.name:
@@ -1307,8 +1315,8 @@ def list_decision_tables(
 ) -> Dict[str, Any]:
     """List decision tables."""
     query_parts: List[str] = []
-    if params.active is not None:
-        query_parts.append(f"active={str(params.active).lower()}")
+    if not params.include_inactive:
+        query_parts.append("active=true")
     if params.name:
         query_parts.append(f"nameLIKE{params.name}")
     if params.scope:

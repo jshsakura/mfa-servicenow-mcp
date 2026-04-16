@@ -120,7 +120,7 @@ class TestFlowDesignerTools(unittest.TestCase):
         result = list_flows(
             self.config,
             self.auth_manager,
-            ListFlowsParams(active=True, status="Published", name="Incident", scope="global"),
+            ListFlowsParams(status="Published", name="Incident", scope="global"),
         )
 
         self.assertTrue(result["success"])
@@ -886,7 +886,7 @@ class TestActionTools(unittest.TestCase):
         list_actions(
             self.config,
             self.auth_manager,
-            ListActionsParams(active=True, name="Custom", scope="global"),
+            ListActionsParams(name="Custom", scope="global"),
         )
 
         query = mock_qp.call_args[1]["query"]
@@ -1015,7 +1015,7 @@ class TestPlaybookTools(unittest.TestCase):
         list_playbooks(
             self.config,
             self.auth_manager,
-            ListPlaybooksParams(active=True, status="Published", name="Incident", scope="global"),
+            ListPlaybooksParams(status="Published", name="Incident", scope="global"),
         )
 
         query = mock_qp.call_args[1]["query"]
@@ -1142,7 +1142,7 @@ class TestDecisionTableTools(unittest.TestCase):
         list_decision_tables(
             self.config,
             self.auth_manager,
-            ListDecisionTablesParams(active=True, name="Priority", scope="global"),
+            ListDecisionTablesParams(name="Priority", scope="global"),
         )
 
         query = mock_qp.call_args[1]["query"]
