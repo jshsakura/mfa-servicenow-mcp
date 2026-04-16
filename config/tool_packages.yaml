@@ -40,6 +40,7 @@ standard:
   - get_flow_designer_detail
   - get_flow_designer_executions
   - list_flow_triggers_by_table
+  - compare_flows
   # Actions / Playbooks / Decision Tables (Read)
   - list_actions
   - get_action_detail
