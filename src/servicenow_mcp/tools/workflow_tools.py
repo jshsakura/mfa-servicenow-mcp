@@ -127,6 +127,32 @@ class ReorderWorkflowActivitiesParams(BaseModel):
     activity_ids: List[str] = Field(..., description="List of activity IDs in the desired order")
 
 
+class ListWorkflowVersionsParams(BaseModel):
+    """Parameters for listing workflow versions."""
+
+    workflow_id: str = Field(..., description="Workflow sys_id")
+    limit: int = Field(default=20, description="Maximum number of versions to return")
+    offset: int = Field(default=0, description="Pagination offset")
+    published_only: bool = Field(
+        default=False,
+        description="Only return published versions",
+    )
+
+
+class GetWorkflowActivitiesParams(BaseModel):
+    """Parameters for getting workflow activities."""
+
+    workflow_id: str = Field(
+        ...,
+        description="Workflow sys_id. Used to find the latest published version unless version_id is specified.",
+    )
+    version_id: Optional[str] = Field(
+        default=None,
+        description="Specific version sys_id. If omitted, uses the latest published version.",
+    )
+    limit: int = Field(default=100, description="Maximum number of activities to return")
+
+
 class DeleteWorkflowParams(BaseModel):
     """Parameters for deleting a workflow."""
 
@@ -1009,4 +1035,91 @@ def delete_workflow(
         }
     except Exception as e:
         logger.error(f"Error deleting workflow: {e}")
+        return {"error": str(e)}
+
+
+@register_tool(
+    name="list_workflow_versions",
+    params=ListWorkflowVersionsParams,
+    description="List version history for a workflow (wf_workflow_version). Shows version number, published status, and timestamps.",
+    serialization="json",
+    return_type=str,
+)
+def list_workflow_versions(
+    auth_manager: AuthManager,
+    server_config: ServerConfig,
+    params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """List version history for a workflow."""
+    params = _unwrap_params(params, ListWorkflowVersionsParams)
+
+    try:
+        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
+    except ValueError as e:
+        return {"error": str(e)}
+
+    workflow_id = params.get("workflow_id")
+    if not workflow_id:
+        return {"error": "Workflow ID is required"}
+
+    query = f"workflow={workflow_id}"
+    if params.get("published_only"):
+        query += "^published=true"
+
+    try:
+        rows, total = sn_query_page(
+            server_config,
+            auth_manager,
+            table="wf_workflow_version",
+            query=query,
+            fields="",
+            limit=params.get("limit", 20),
+            offset=params.get("offset", 0),
+            orderby="-version",
+            display_value=False,
+            fail_silently=False,
+        )
+        return {
+            "versions": rows,
+            "count": len(rows),
+            "total": total or 0,
+            "workflow_id": workflow_id,
+        }
+    except Exception as e:
+        logger.error(f"Error listing workflow versions: {e}")
+        return {"error": str(e)}
+
+
+@register_tool(
+    name="get_workflow_activities",
+    params=GetWorkflowActivitiesParams,
+    description="Get ordered activity list for a workflow. Uses latest published version unless version_id is specified.",
+    serialization="json",
+    return_type=str,
+)
+def get_workflow_activities(
+    auth_manager: AuthManager,
+    server_config: ServerConfig,
+    params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Get activities for a workflow version."""
+    params = _unwrap_params(params, GetWorkflowActivitiesParams)
+
+    try:
+        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
+    except ValueError as e:
+        return {"error": str(e)}
+
+    workflow_id = params.get("workflow_id")
+    if not workflow_id:
+        return {"error": "Workflow ID is required"}
+
+    try:
+        result = _fetch_workflow_activities(
+            server_config, auth_manager, workflow_id, params.get("version_id")
+        )
+        result["workflow_id"] = workflow_id
+        return result
+    except Exception as e:
+        logger.error(f"Error getting workflow activities: {e}")
         return {"error": str(e)}
