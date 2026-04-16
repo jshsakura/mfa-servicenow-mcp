@@ -313,30 +313,25 @@ class TestFlowDesignerTools(unittest.TestCase):
         subflow_data = [
             {"sys_id": "s1", "name": "SubFlow Call", "order": "300", "nesting_parent": ""},
         ]
-        # Binding resolution: raw instances, display instances, raw snapshots, display snapshots
-        binding_raw = [
+        # Binding resolution: display_value=all returns dicts for reference fields
+        binding_all = [
             {
                 "sys_id": "s1",
                 "name": "SubFlow Call",
                 "order": "300",
+                "position": "",
                 "ui_id": "ui1",
                 "parent_ui_id": "",
                 "nesting_parent": "",
-                "subflow": "snap_sub1",
+                "subflow": {"value": "snap_sub1", "display_value": "SubFlow Call"},
             },
         ]
-        binding_display = [
+        snap_all = [
             {
-                "sys_id": "s1",
-                "name": "SubFlow Call",
-                "order": "300",
-                "ui_id": "ui1",
-                "subflow": "SubFlow Call",
-            },
-        ]
-        snap_raw = [{"sys_id": "snap_sub1", "name": "SubFlow v1", "master_flow": "mf1"}]
-        snap_display = [
-            {"sys_id": "snap_sub1", "name": "SubFlow v1", "master_flow": "SubFlow Master"}
+                "sys_id": "snap_sub1",
+                "name": "SubFlow v1",
+                "master_flow": {"value": "mf1", "display_value": "SubFlow Master"},
+            }
         ]
 
         mock_qp.side_effect = [
@@ -345,10 +340,8 @@ class TestFlowDesignerTools(unittest.TestCase):
             (actions_data, 1),
             (logic_data, 1),
             (subflow_data, 1),
-            (binding_raw, 1),
-            (binding_display, 1),
-            (snap_raw, 1),
-            (snap_display, 1),
+            (binding_all, 1),
+            (snap_all, 1),
         ]
 
         result = _fetch_flow_structure(
@@ -1491,44 +1484,30 @@ class TestSubflowBindings(unittest.TestCase):
         """subflow_bindings should trace instance → snapshot → master_flow."""
         from servicenow_mcp.tools.flow_designer_tools import _fetch_subflow_bindings
 
-        # Raw instances (display_value=False)
-        raw_instances = [
+        # display_value=all: reference fields become {value, display_value}
+        instances_all = [
             {
                 "sys_id": "inst1",
-                "name": "sf1",
+                "name": {"value": "sf1", "display_value": "New Approval Step"},
                 "order": "100",
+                "position": "",
                 "ui_id": "ui_001",
                 "parent_ui_id": "",
                 "nesting_parent": "",
-                "subflow": "snap_new",
+                "subflow": {"value": "snap_new", "display_value": "New Approval Step v2"},
             },
         ]
-        # Display instances
-        display_instances = [
-            {
-                "sys_id": "inst1",
-                "name": "New Approval Step",
-                "order": "100",
-                "ui_id": "ui_001",
-                "subflow": "New Approval Step v2",
-            },
-        ]
-        # Snapshot raw
-        snap_raw = [{"sys_id": "snap_new", "name": "New Approval Step v2", "master_flow": "mf_new"}]
-        # Snapshot display
-        snap_display = [
+        snap_all = [
             {
                 "sys_id": "snap_new",
                 "name": "New Approval Step v2",
-                "master_flow": "New Approval Step",
+                "master_flow": {"value": "mf_new", "display_value": "New Approval Step"},
             }
         ]
 
         mock_qp.side_effect = [
-            (raw_instances, 1),
-            (display_instances, 1),
-            (snap_raw, 1),
-            (snap_display, 1),
+            (instances_all, 1),
+            (snap_all, 1),
         ]
 
         result = _fetch_subflow_bindings(self.config, self.auth_manager, "snap1", "")
@@ -1544,36 +1523,29 @@ class TestSubflowBindings(unittest.TestCase):
         """Mismatch: label_cache says Old but actual binding points to New."""
         from servicenow_mcp.tools.flow_designer_tools import _fetch_subflow_bindings
 
-        raw_instances = [
+        instances_all = [
             {
                 "sys_id": "inst1",
-                "name": "sf1",
+                "name": {"value": "sf1", "display_value": "Approval Call"},
                 "order": "100",
+                "position": "",
                 "ui_id": "ui_001",
                 "parent_ui_id": "",
                 "nesting_parent": "",
-                "subflow": "snap_new",
+                "subflow": {"value": "snap_new", "display_value": "New Approval Step"},
             },
         ]
-        display_instances = [
+        snap_all = [
             {
-                "sys_id": "inst1",
-                "name": "Approval Call",
-                "order": "100",
-                "ui_id": "ui_001",
-                "subflow": "New Approval Step",
-            },
-        ]
-        snap_raw = [{"sys_id": "snap_new", "name": "New Approval Step", "master_flow": "mf_new"}]
-        snap_display = [
-            {"sys_id": "snap_new", "name": "New Approval Step", "master_flow": "New Approval Step"}
+                "sys_id": "snap_new",
+                "name": "New Approval Step",
+                "master_flow": {"value": "mf_new", "display_value": "New Approval Step"},
+            }
         ]
 
         mock_qp.side_effect = [
-            (raw_instances, 1),
-            (display_instances, 1),
-            (snap_raw, 1),
-            (snap_display, 1),
+            (instances_all, 1),
+            (snap_all, 1),
         ]
 
         # label_cache says "Old Approval Step" but actual binding is "New Approval Step"
@@ -1592,36 +1564,29 @@ class TestSubflowBindings(unittest.TestCase):
         """No mismatch when label_cache matches actual bindings."""
         from servicenow_mcp.tools.flow_designer_tools import _fetch_subflow_bindings
 
-        raw_instances = [
+        instances_all = [
             {
                 "sys_id": "inst1",
-                "name": "sf1",
+                "name": {"value": "sf1", "display_value": "New Approval Call"},
                 "order": "100",
+                "position": "",
                 "ui_id": "ui_001",
                 "parent_ui_id": "",
                 "nesting_parent": "",
-                "subflow": "snap_new",
+                "subflow": {"value": "snap_new", "display_value": "New Approval Step"},
             },
         ]
-        display_instances = [
+        snap_all = [
             {
-                "sys_id": "inst1",
-                "name": "New Approval Call",
-                "order": "100",
-                "ui_id": "ui_001",
-                "subflow": "New Approval Step",
-            },
-        ]
-        snap_raw = [{"sys_id": "snap_new", "name": "New Approval Step", "master_flow": "mf_new"}]
-        snap_display = [
-            {"sys_id": "snap_new", "name": "New Approval Step", "master_flow": "New Approval Step"}
+                "sys_id": "snap_new",
+                "name": "New Approval Step",
+                "master_flow": {"value": "mf_new", "display_value": "New Approval Step"},
+            }
         ]
 
         mock_qp.side_effect = [
-            (raw_instances, 1),
-            (display_instances, 1),
-            (snap_raw, 1),
-            (snap_display, 1),
+            (instances_all, 1),
+            (snap_all, 1),
         ]
 
         # label_cache matches actual binding
@@ -1655,29 +1620,26 @@ class TestSubflowBindings(unittest.TestCase):
         subflows_display = [
             {"sys_id": "s1", "name": "Sub Call", "order": "100", "nesting_parent": ""},
         ]
-        # Binding queries
-        bind_raw = [
+        # Binding queries (display_value=all format)
+        bind_all = [
             {
                 "sys_id": "s1",
-                "name": "Sub Call",
+                "name": {"value": "Sub Call", "display_value": "Sub Call"},
                 "order": "100",
+                "position": "",
                 "ui_id": "u1",
                 "parent_ui_id": "",
                 "nesting_parent": "",
-                "subflow": "snp1",
+                "subflow": {"value": "snp1", "display_value": "New Actual Sub"},
             }
         ]
-        bind_disp = [
+        snp_all = [
             {
-                "sys_id": "s1",
-                "name": "Sub Call",
-                "order": "100",
-                "ui_id": "u1",
-                "subflow": "New Actual Sub",
+                "sys_id": "snp1",
+                "name": "New Actual Sub",
+                "master_flow": {"value": "mf1", "display_value": "New Actual Sub"},
             }
         ]
-        snp_raw = [{"sys_id": "snp1", "name": "New Actual Sub", "master_flow": "mf1"}]
-        snp_disp = [{"sys_id": "snp1", "name": "New Actual Sub", "master_flow": "New Actual Sub"}]
 
         mock_qp.side_effect = [
             (snapshot, 1),
@@ -1685,10 +1647,8 @@ class TestSubflowBindings(unittest.TestCase):
             (actions, 0),
             (logic, 0),
             (subflows_display, 1),
-            (bind_raw, 1),
-            (bind_disp, 1),
-            (snp_raw, 1),
-            (snp_disp, 1),
+            (bind_all, 1),
+            (snp_all, 1),
         ]
 
         result = _fetch_flow_structure(self.config, self.auth_manager, "flow1")
