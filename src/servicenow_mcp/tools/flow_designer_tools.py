@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.config import AuthType, ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
 from .sn_api import invalidate_query_cache, sn_count, sn_query_page
@@ -33,6 +33,9 @@ SUBFLOW_V2_TABLE = "sys_hub_sub_flow_instance_v2"
 FLOW_CONTEXT_TABLE = "sys_flow_context"
 TRIGGER_TABLE = "sys_hub_trigger_instance"
 RECORD_TRIGGER_TABLE = "sys_flow_record_trigger"
+ACTION_TYPE_TABLE = "sys_hub_action_type_definition"
+PLAYBOOK_TABLE = "sys_pd_process_definition"
+DECISION_TABLE = "sys_decision"
 
 # ---------------------------------------------------------------------------
 # Parameter Models
@@ -54,6 +57,14 @@ class ListFlowsParams(BaseModel):
     count_only: bool = Field(
         default=False,
         description="Return count only without fetching records.",
+    )
+    type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Filter by type: 'flow' (default — excludes subflows), "
+            "'subflow' (subflows only), 'all' (both flows and subflows). "
+            "If not set, returns flows only."
+        ),
     )
 
 
@@ -128,9 +139,79 @@ class ListFlowTriggersByTableParams(BaseModel):
     limit: int = Field(default=50, description="Maximum number of trigger records (max 200)")
 
 
+class ListActionsParams(BaseModel):
+    """Parameters for listing Flow Designer actions (sys_hub_action_type_definition)."""
+
+    limit: int = Field(default=20, description="Maximum number of records (max 100)")
+    offset: int = Field(default=0, description="Pagination offset")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    name: Optional[str] = Field(default=None, description="Filter by name (contains)")
+    scope: Optional[str] = Field(default=None, description="Filter by application scope name")
+    query: Optional[str] = Field(default=None, description="Additional encoded query")
+    count_only: bool = Field(
+        default=False, description="Return count only without fetching records."
+    )
+
+
+class GetActionDetailParams(BaseModel):
+    """Parameters for getting a single action definition."""
+
+    action_id: str = Field(
+        ..., description="Action sys_id from sys_hub_action_type_definition table"
+    )
+
+
+class ListPlaybooksParams(BaseModel):
+    """Parameters for listing Playbooks (sys_pd_process_definition)."""
+
+    limit: int = Field(default=20, description="Maximum number of records (max 100)")
+    offset: int = Field(default=0, description="Pagination offset")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    status: Optional[str] = Field(default=None, description="Filter by status")
+    name: Optional[str] = Field(default=None, description="Filter by label/name (contains)")
+    scope: Optional[str] = Field(default=None, description="Filter by application scope name")
+    query: Optional[str] = Field(default=None, description="Additional encoded query")
+    count_only: bool = Field(
+        default=False, description="Return count only without fetching records."
+    )
+
+
+class GetPlaybookDetailParams(BaseModel):
+    """Parameters for getting a single playbook."""
+
+    playbook_id: str = Field(
+        ..., description="Playbook sys_id from sys_pd_process_definition table"
+    )
+
+
+class ListDecisionTablesParams(BaseModel):
+    """Parameters for listing Decision Tables (sys_decision)."""
+
+    limit: int = Field(default=20, description="Maximum number of records (max 100)")
+    offset: int = Field(default=0, description="Pagination offset")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    name: Optional[str] = Field(default=None, description="Filter by name (contains)")
+    scope: Optional[str] = Field(default=None, description="Filter by application scope name")
+    query: Optional[str] = Field(default=None, description="Additional encoded query")
+    count_only: bool = Field(
+        default=False, description="Return count only without fetching records."
+    )
+
+
+class GetDecisionTableDetailParams(BaseModel):
+    """Parameters for getting a single decision table."""
+
+    decision_table_id: str = Field(..., description="Decision table sys_id from sys_decision table")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _is_browser_auth(config: ServerConfig) -> bool:
+    """Check if current auth type is browser (required for processflow API)."""
+    return config.auth.type == AuthType.BROWSER
 
 
 def _get_snapshot_id(
@@ -213,7 +294,7 @@ def _try_processflow_api(
 @register_tool(
     name="list_flow_designers",
     params=ListFlowsParams,
-    description="List Flow Designer flows with optional filters. Returns name, status, scope, and trigger type.",
+    description="List Flow Designer flows and/or subflows. Use type='subflow' for subflows, 'all' for both. Returns name, status, scope, and trigger type.",
     serialization="json",
     return_type=dict,
 )
@@ -222,8 +303,17 @@ def list_flows(
     auth_manager: AuthManager,
     params: ListFlowsParams,
 ) -> Dict[str, Any]:
-    """List Flow Designer flows."""
+    """List Flow Designer flows (and/or subflows)."""
     query_parts: List[str] = []
+
+    # Type filter: flow (default), subflow, all
+    flow_type = (params.type or "flow").lower()
+    if flow_type == "subflow":
+        query_parts.append("type=subflow^substatusISEMPTY")
+    elif flow_type != "all":
+        # Default: exclude subflows
+        query_parts.append("type!=subflow")
+
     if params.active is not None:
         query_parts.append(f"active={str(params.active).lower()}")
     if params.status:
@@ -282,8 +372,8 @@ def get_flow_details(
     flow_id = params.flow_id
 
     try:
-        # Try processflow API first — returns everything in one call
-        if params.include_structure or params.include_triggers:
+        # processflow API — only available with browser auth
+        if (params.include_structure or params.include_triggers) and _is_browser_auth(config):
             pf_result = _try_processflow_api(config, auth_manager, flow_id)
             if pf_result:
                 pf_data = pf_result.get("result", pf_result)
@@ -396,9 +486,11 @@ def _fetch_flow_structure(
     """Get the full component tree of a flow (internal helper)."""
 
     # ------------------------------------------------------------------
-    # Strategy 1: processflow API (full detail, single call)
+    # Strategy 1: processflow API (browser auth only, full detail)
     # ------------------------------------------------------------------
-    pf_result = _try_processflow_api(config, auth_manager, flow_id)
+    pf_result = (
+        _try_processflow_api(config, auth_manager, flow_id) if _is_browser_auth(config) else None
+    )
     if pf_result:
         structure = _extract_processflow_structure(pf_result)
         return {
@@ -419,7 +511,7 @@ def _fetch_flow_structure(
                 "error": (
                     f"No snapshot found for flow {flow_id}. "
                     "The flow may not be published. "
-                    "The processflow API was also not available (requires browser auth)."
+                    "Use browser auth mode for unpublished flow structure via processflow API."
                 ),
             }
 
@@ -491,8 +583,9 @@ def _fetch_flow_structure(
             "total_logic": len(logic_nodes),
             "total_subflows": len(subflows),
             "note": (
-                "Retrieved via Table API. Conditions and variable mappings may be incomplete. "
-                "Use browser auth to access the processflow API for full detail."
+                "Retrieved via Table API (basic auth). "
+                "Conditions and variable mappings are incomplete. "
+                "Switch to browser auth for full detail via processflow API."
             ),
             "flat_summary": flat_summary,
             "tree": tree,
@@ -777,4 +870,276 @@ def list_flow_triggers_by_table(
         }
     except Exception as e:
         logger.error(f"Error listing flow triggers by table: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Actions (sys_hub_action_type_definition)
+# ---------------------------------------------------------------------------
+
+
+@register_tool(
+    name="list_actions",
+    params=ListActionsParams,
+    description="List Flow Designer custom action definitions (sys_hub_action_type_definition). Use to find action sys_ids before calling get_action_detail.",
+    serialization="json",
+    return_type=dict,
+)
+def list_actions(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ListActionsParams,
+) -> Dict[str, Any]:
+    """List Flow Designer action type definitions."""
+    query_parts: List[str] = []
+    if params.active is not None:
+        query_parts.append(f"active={str(params.active).lower()}")
+    if params.name:
+        query_parts.append(f"nameLIKE{params.name}")
+    if params.scope:
+        query_parts.append(f"sys_scopeLIKE{params.scope}")
+    if params.query:
+        query_parts.append(params.query)
+
+    query_string = "^".join(query_parts) if query_parts else ""
+
+    if params.count_only:
+        count = sn_count(config, auth_manager, ACTION_TYPE_TABLE, query_string)
+        return {"success": True, "count": count}
+
+    try:
+        records, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table=ACTION_TYPE_TABLE,
+            query=query_string,
+            fields="sys_id,name,description,active,sys_scope,sys_updated_on,sys_updated_by,status",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+        )
+        return {
+            "success": True,
+            "actions": records,
+            "count": len(records),
+            "total": total_count if total_count is not None else len(records),
+        }
+    except Exception as e:
+        logger.error(f"Error listing actions: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@register_tool(
+    name="get_action_detail",
+    params=GetActionDetailParams,
+    description="Get a single Flow Designer action definition by sys_id. Returns all fields. Use list_actions first to find the sys_id.",
+    serialization="json",
+    return_type=dict,
+)
+def get_action_detail(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: GetActionDetailParams,
+) -> Dict[str, Any]:
+    """Get action type definition detail by sys_id."""
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=ACTION_TYPE_TABLE,
+            query=f"sys_id={params.action_id}",
+            fields="",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
+        )
+        if not records:
+            return {"success": False, "error": f"Action not found: {params.action_id}"}
+        return {"success": True, "action": records[0]}
+    except Exception as e:
+        logger.error(f"Error getting action detail: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Playbooks (sys_pd_process_definition)
+# ---------------------------------------------------------------------------
+
+
+@register_tool(
+    name="list_playbooks",
+    params=ListPlaybooksParams,
+    description="List Process Automation Playbooks (sys_pd_process_definition). Playbooks automate multi-step processes. Use to find playbook sys_ids.",
+    serialization="json",
+    return_type=dict,
+)
+def list_playbooks(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ListPlaybooksParams,
+) -> Dict[str, Any]:
+    """List playbook definitions."""
+    query_parts: List[str] = []
+    if params.active is not None:
+        query_parts.append(f"active={str(params.active).lower()}")
+    if params.status:
+        query_parts.append(f"status={params.status}")
+    if params.name:
+        query_parts.append(f"labelLIKE{params.name}")
+    if params.scope:
+        query_parts.append(f"sys_scopeLIKE{params.scope}")
+    if params.query:
+        query_parts.append(params.query)
+
+    query_string = "^".join(query_parts) if query_parts else ""
+
+    if params.count_only:
+        count = sn_count(config, auth_manager, PLAYBOOK_TABLE, query_string)
+        return {"success": True, "count": count}
+
+    try:
+        records, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table=PLAYBOOK_TABLE,
+            query=query_string,
+            fields="sys_id,label,description,active,sys_scope,status,sys_updated_on,sys_updated_by,sys_created_on",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+        )
+        return {
+            "success": True,
+            "playbooks": records,
+            "count": len(records),
+            "total": total_count if total_count is not None else len(records),
+        }
+    except Exception as e:
+        logger.error(f"Error listing playbooks: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@register_tool(
+    name="get_playbook_detail",
+    params=GetPlaybookDetailParams,
+    description="Get a single Playbook by sys_id. Returns all fields. Use list_playbooks first to find the sys_id.",
+    serialization="json",
+    return_type=dict,
+)
+def get_playbook_detail(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: GetPlaybookDetailParams,
+) -> Dict[str, Any]:
+    """Get playbook detail by sys_id."""
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=PLAYBOOK_TABLE,
+            query=f"sys_id={params.playbook_id}",
+            fields="",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
+        )
+        if not records:
+            return {"success": False, "error": f"Playbook not found: {params.playbook_id}"}
+        return {"success": True, "playbook": records[0]}
+    except Exception as e:
+        logger.error(f"Error getting playbook detail: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Decision Tables (sys_decision)
+# ---------------------------------------------------------------------------
+
+
+@register_tool(
+    name="list_decision_tables",
+    params=ListDecisionTablesParams,
+    description="List Decision Tables (sys_decision) used in Flow Designer for routing logic. Use to find decision table sys_ids.",
+    serialization="json",
+    return_type=dict,
+)
+def list_decision_tables(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ListDecisionTablesParams,
+) -> Dict[str, Any]:
+    """List decision tables."""
+    query_parts: List[str] = []
+    if params.active is not None:
+        query_parts.append(f"active={str(params.active).lower()}")
+    if params.name:
+        query_parts.append(f"nameLIKE{params.name}")
+    if params.scope:
+        query_parts.append(f"sys_scopeLIKE{params.scope}")
+    if params.query:
+        query_parts.append(params.query)
+
+    query_string = "^".join(query_parts) if query_parts else ""
+
+    if params.count_only:
+        count = sn_count(config, auth_manager, DECISION_TABLE, query_string)
+        return {"success": True, "count": count}
+
+    try:
+        records, total_count = sn_query_page(
+            config,
+            auth_manager,
+            table=DECISION_TABLE,
+            query=query_string,
+            fields="sys_id,name,label,description,active,sys_scope,sys_updated_on,sys_updated_by",
+            limit=min(params.limit, 100),
+            offset=params.offset,
+            display_value=True,
+        )
+        return {
+            "success": True,
+            "decision_tables": records,
+            "count": len(records),
+            "total": total_count if total_count is not None else len(records),
+        }
+    except Exception as e:
+        logger.error(f"Error listing decision tables: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@register_tool(
+    name="get_decision_table_detail",
+    params=GetDecisionTableDetailParams,
+    description="Get a single Decision Table by sys_id. Returns all fields. Use list_decision_tables first to find the sys_id.",
+    serialization="json",
+    return_type=dict,
+)
+def get_decision_table_detail(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: GetDecisionTableDetailParams,
+) -> Dict[str, Any]:
+    """Get decision table detail by sys_id."""
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=DECISION_TABLE,
+            query=f"sys_id={params.decision_table_id}",
+            fields="",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
+        )
+        if not records:
+            return {
+                "success": False,
+                "error": f"Decision table not found: {params.decision_table_id}",
+            }
+        return {"success": True, "decision_table": records[0]}
+    except Exception as e:
+        logger.error(f"Error getting decision table detail: {e}")
         return {"success": False, "error": str(e)}
