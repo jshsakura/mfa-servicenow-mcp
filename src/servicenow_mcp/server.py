@@ -73,15 +73,14 @@ def _load_packaged_package_definitions() -> Dict[str, List[str]]:
     return result
 
 
-_MAX_DEFAULT_LEN = 60  # Truncate long default values in tool schemas
+_MAX_DEFAULT_STR = 60  # Truncate long string defaults
+_MAX_PARAM_DESC = 80  # Truncate long parameter descriptions
 
 
 def _compact_schema(schema: Any) -> Any:
     """Strip Pydantic noise from JSON schema to minimize LLM context tokens.
 
-    1. Remove ``title`` — redundant when ``description`` exists.
-    2. Flatten ``anyOf`` nullable unions.
-    3. Truncate long string ``default`` values (>60 chars).
+    Removes: title, long defaults (str/list), verbose anyOf, long descriptions.
     """
     if isinstance(schema, list):
         return [_compact_schema(i) for i in schema]
@@ -101,9 +100,16 @@ def _compact_schema(schema: Any) -> Any:
     for k, v in schema.items():
         if k == "title":
             continue
+        # Strip default arrays/lists — LLM infers from description
+        if k == "default" and isinstance(v, list):
+            continue
         # Truncate long default strings
-        if k == "default" and isinstance(v, str) and len(v) > _MAX_DEFAULT_LEN:
-            result[k] = v[:_MAX_DEFAULT_LEN] + "…"
+        if k == "default" and isinstance(v, str) and len(v) > _MAX_DEFAULT_STR:
+            result[k] = v[:_MAX_DEFAULT_STR] + "…"
+            continue
+        # Truncate verbose param descriptions
+        if k == "description" and isinstance(v, str) and len(v) > _MAX_PARAM_DESC:
+            result[k] = v[:_MAX_PARAM_DESC].rstrip() + "…"
             continue
         result[k] = _compact_schema(v)
     return result
