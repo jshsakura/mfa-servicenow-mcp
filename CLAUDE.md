@@ -31,10 +31,15 @@ Tool definitions are sent to the LLM on every request. Every character costs tok
 - Gate browser-only calls behind `_is_browser_auth(config)`.
 - Never silently try browser-only APIs with basic auth — it wastes a network round-trip.
 
-## Version Bumps
+## Version Bumps & Git Tags
 
 - Always patch increment: `x.y.z` → `x.y.(z+1)`.
 - Never jump minor/major unless explicitly asked.
+- **After every version bump commit, immediately create and push the git tag:**
+  ```
+  git tag v{version} && git push origin main v{version}
+  ```
+- Never push a version bump commit without its corresponding tag.
 
 ## Schema Optimization
 
