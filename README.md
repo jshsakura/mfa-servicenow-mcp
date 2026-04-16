@@ -72,8 +72,8 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **154 tools** across 7 role-based packages — from read-only to full CRUD
-- **20+ workflow skills** with safety gates, sub-agent delegation, and verified pipelines
+- **159 tools** across 7 role-based packages — from read-only to full CRUD
+- **24 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
@@ -239,13 +239,13 @@ All packages inherit `standard` read-only tools via `_extends` and add domain-sp
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `standard` | 36 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search. |
-| `service_desk` | 46 | standard + incident create/update/resolve/comment, change management writes |
-| `portal_developer` | 85 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
-| `platform_developer` | 79 | standard + workflow CRUD, flow designer, UI policy, incident/change/script writes |
-| `agile` | 51 | standard + epic/story/scrum task/project PPM tools |
-| `admin` | 61 | standard + user/group management, knowledge base, catalog management |
-| `full` | 114 | All development tools (agile PPM and admin tools in their own packages) |
+| `standard` | 42 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search |
+| `service_desk` | 52 | standard + incident create/update/resolve/comment, change management writes |
+| `portal_developer` | 90 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
+| `platform_developer` | 85 | standard + workflow CRUD, flow designer, UI policy, incident/change/script writes |
+| `agile` | 57 | standard + epic/story/scrum task/project PPM tools |
+| `admin` | 67 | standard + user/group management, knowledge base, catalog management |
+| `full` | 109 | Portal-focused development tools (agile PPM and admin in their own packages) |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
@@ -566,7 +566,7 @@ uv build
 ## Documentation
 
 - [Client Setup Guide](docs/CLIENT_SETUP.md) — Copy-paste configs for every MCP client
-- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 154 tools by category and package
+- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete list of 159 tools by category and package
 - [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
 - [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization
 - [Change Management](docs/change_management.md) — Change request lifecycle and approval
