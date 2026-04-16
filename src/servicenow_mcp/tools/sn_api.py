@@ -598,6 +598,35 @@ class NaturalLanguageParams(BaseModel):
     confirm: bool = Field(default=False, description="Confirmation for destructive operations")
 
 
+def _generate_query_hint(query: str, error_msg: str) -> Optional[str]:
+    """Generate a diagnostic hint for common sn_query failure patterns."""
+    hints: List[str] = []
+    if "IN" in query and "&" in query:
+        hints.append(
+            "Query contains '&' inside an IN clause — ServiceNow may split "
+            "the parameter. Use sys_idIN instead of nameIN, or encode '&' as '%26'."
+        )
+    if "nameIN" in query and ("'" in query or '"' in query):
+        hints.append(
+            "nameIN with quotes may cause parse errors. "
+            "Remove surrounding quotes from name values."
+        )
+    if "LIKE" in query and len(query) > 500:
+        hints.append("Very long LIKE query — consider breaking into multiple smaller queries.")
+    error_lower = error_msg.lower()
+    if "timeout" in error_lower or "timed out" in error_lower:
+        hints.append(
+            "Request timed out. Try reducing limit, adding more specific filters, "
+            "or querying by sys_id instead of name."
+        )
+    if "401" in error_lower or "unauthorized" in error_lower:
+        hints.append(
+            "Authentication failed. Session may have expired — "
+            "retry to trigger re-authentication."
+        )
+    return " | ".join(hints) if hints else None
+
+
 def _safe_json(response: requests.Response) -> Dict[str, Any]:
     try:
         if response.content:
@@ -749,11 +778,16 @@ def sn_query(
 
         return response_data
     except Exception as exc:
-        return {
+        response: Dict[str, Any] = {
             "success": False,
             "table": params.table,
             "message": f"Query failed: {exc}",
+            "query_echo": params.query or "",
         }
+        hint = _generate_query_hint(params.query or "", str(exc))
+        if hint:
+            response["hint"] = hint
+        return response
 
 
 @register_tool(
