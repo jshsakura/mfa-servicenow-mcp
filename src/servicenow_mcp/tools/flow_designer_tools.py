@@ -293,13 +293,14 @@ def _try_processflow_api(
         response = auth_manager.make_request("GET", url)
         response.raise_for_status()
         data = response.json()
-        if data and isinstance(data, dict) and data.get("result"):
-            return data
-        keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
-        logger.warning(
-            "processflow API returned unexpected data for flow %s: keys=%s", flow_id, keys
-        )
-        return {"_error": f"unexpected response keys: {keys}"}
+        if data and isinstance(data, dict):
+            result = data.get("result")
+            if isinstance(result, dict) and (result.get("name") or result.get("id")):
+                return data
+            # result exists but empty/useless — report what we got
+            result_keys = list(result.keys()) if isinstance(result, dict) else "missing"
+            return {"_error": f"processflow returned empty result (keys: {result_keys})"}
+        return {"_error": "processflow returned non-dict response"}
     except Exception as e:
         logger.error("processflow API failed for flow %s: %s", flow_id, e)
         return {"_error": str(e)}
