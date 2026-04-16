@@ -957,6 +957,13 @@ def reorder_workflow_activities(
         return {"error": str(e)}
 
 
+@register_tool(
+    name="delete_workflow",
+    params=DeleteWorkflowParams,
+    description="Delete a workflow by sys_id. Irreversible.",
+    serialization="str",
+    return_type=str,
+)
 def delete_workflow(
     auth_manager: AuthManager,
     server_config: ServerConfig,
