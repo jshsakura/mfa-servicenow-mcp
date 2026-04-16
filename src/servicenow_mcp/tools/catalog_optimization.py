@@ -1,13 +1,11 @@
 """
 Tools for optimizing the ServiceNow Service Catalog.
 
-This module provides tools for analyzing and optimizing the ServiceNow Service Catalog,
-including identifying inactive items, items with low usage, high abandonment rates,
-slow fulfillment times, and poor descriptions.
+This module provides tools for analyzing the ServiceNow Service Catalog,
+including identifying inactive items and items with poor descriptions.
 """
 
 import logging
-import random
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel
@@ -44,7 +42,7 @@ def _fetch_catalog_items(
 class OptimizationRecommendationsParams(BaseModel):
     """Parameters for getting optimization recommendations."""
 
-    recommendation_types: List[str]
+    recommendation_types: List[str] = ["inactive_items", "description_quality"]
     category_id: Optional[str] = None
 
 
@@ -64,7 +62,7 @@ class UpdateCatalogItemParams(BaseModel):
 @register_tool(
     name="get_optimization_recommendations",
     params=OptimizationRecommendationsParams,
-    description="Analyze catalog structure — inactive items, low usage, abandonment, fulfillment time. Returns improvement suggestions.",
+    description="Analyze catalog structure — find inactive items and items with poor descriptions. Returns improvement suggestions.",
     serialization="json",
     return_type=str,
 )
@@ -102,51 +100,6 @@ def get_optimization_recommendations(
                             "impact": "medium",
                             "effort": "low",
                             "action": "Review and either update or remove these items",
-                        }
-                    )
-
-            elif rec_type == "low_usage":
-                items = _get_low_usage_items(config, auth_manager, category_id)
-                if items:
-                    recommendations.append(
-                        {
-                            "type": "low_usage",
-                            "title": "Low Usage Catalog Items",
-                            "description": "Items that have very few orders",
-                            "items": items,
-                            "impact": "medium",
-                            "effort": "medium",
-                            "action": "Consider promoting these items or removing them if no longer needed",
-                        }
-                    )
-
-            elif rec_type == "high_abandonment":
-                items = _get_high_abandonment_items(config, auth_manager, category_id)
-                if items:
-                    recommendations.append(
-                        {
-                            "type": "high_abandonment",
-                            "title": "High Abandonment Rate Items",
-                            "description": "Items that are frequently added to cart but not ordered",
-                            "items": items,
-                            "impact": "high",
-                            "effort": "medium",
-                            "action": "Simplify the request process or improve the item description",
-                        }
-                    )
-
-            elif rec_type == "slow_fulfillment":
-                items = _get_slow_fulfillment_items(config, auth_manager, category_id)
-                if items:
-                    recommendations.append(
-                        {
-                            "type": "slow_fulfillment",
-                            "title": "Slow Fulfillment Items",
-                            "description": "Items that take longer than average to fulfill",
-                            "items": items,
-                            "impact": "high",
-                            "effort": "high",
-                            "action": "Review the fulfillment process and identify bottlenecks",
                         }
                     )
 
@@ -266,120 +219,6 @@ def _get_inactive_items(
 
     except Exception as e:
         logger.error(f"Error getting inactive items: {e}")
-        return []
-
-
-def _get_low_usage_items(
-    config: ServerConfig, auth_manager: AuthManager, category_id: Optional[str] = None
-) -> List[Dict]:
-    """
-    Get catalog items with low usage.
-
-    Args:
-        config: The server configuration
-        auth_manager: The authentication manager
-        category_id: Optional category ID to filter by
-
-    Returns:
-        A list of catalog items with low usage
-    """
-    try:
-        query = "active=true"
-        if category_id:
-            query += f"^category={category_id}"
-        items = _fetch_catalog_items(config, auth_manager, query=query)
-
-        # Select a random subset of items to mark as low usage
-        low_usage_items = random.sample(items, min(len(items), 5))
-
-        # Add usage data to the items
-        for item in low_usage_items:
-            item["order_count"] = random.randint(1, 5)  # Low number of orders
-
-        return low_usage_items
-
-    except Exception as e:
-        logger.error(f"Error getting low usage items: {e}")
-        return []
-
-
-def _get_high_abandonment_items(
-    config: ServerConfig, auth_manager: AuthManager, category_id: Optional[str] = None
-) -> List[Dict]:
-    """
-    Get catalog items with high abandonment rates.
-
-    Args:
-        config: The server configuration
-        auth_manager: The authentication manager
-        category_id: Optional category ID to filter by
-
-    Returns:
-        A list of catalog items with high abandonment rates
-    """
-    try:
-        query = "active=true"
-        if category_id:
-            query += f"^category={category_id}"
-        items = _fetch_catalog_items(config, auth_manager, query=query)
-
-        # Select a random subset of items to mark as high abandonment
-        high_abandonment_items = random.sample(items, min(len(items), 5))
-
-        # Add abandonment data to the items
-        for item in high_abandonment_items:
-            abandonment_rate = random.randint(40, 80)  # High abandonment rate (40-80%)
-            cart_adds = random.randint(20, 100)  # Number of cart adds
-            orders = int(cart_adds * (1 - abandonment_rate / 100))  # Number of completed orders
-
-            item["abandonment_rate"] = abandonment_rate
-            item["cart_adds"] = cart_adds
-            item["orders"] = orders
-
-        return high_abandonment_items
-
-    except Exception as e:
-        logger.error(f"Error getting high abandonment items: {e}")
-        return []
-
-
-def _get_slow_fulfillment_items(
-    config: ServerConfig, auth_manager: AuthManager, category_id: Optional[str] = None
-) -> List[Dict]:
-    """
-    Get catalog items with slow fulfillment times.
-
-    Args:
-        config: The server configuration
-        auth_manager: The authentication manager
-        category_id: Optional category ID to filter by
-
-    Returns:
-        A list of catalog items with slow fulfillment times
-    """
-    try:
-        query = "active=true"
-        if category_id:
-            query += f"^category={category_id}"
-        items = _fetch_catalog_items(config, auth_manager, query=query)
-
-        # Select a random subset of items to mark as slow fulfillment
-        slow_fulfillment_items = random.sample(items, min(len(items), 5))
-
-        # Add fulfillment data to the items
-        catalog_avg_time = 2.5  # Average fulfillment time for the catalog (in days)
-
-        for item in slow_fulfillment_items:
-            # Generate a fulfillment time that's significantly higher than the catalog average
-            fulfillment_time = random.uniform(5.0, 10.0)  # 5-10 days
-
-            item["avg_fulfillment_time"] = fulfillment_time
-            item["avg_fulfillment_time_vs_catalog"] = round(fulfillment_time / catalog_avg_time, 1)
-
-        return slow_fulfillment_items
-
-    except Exception as e:
-        logger.error(f"Error getting slow fulfillment items: {e}")
         return []
 
 
