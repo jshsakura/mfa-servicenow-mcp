@@ -301,16 +301,7 @@ def _try_processflow_api(
             result = data.get("result")
             if isinstance(result, dict) and (result.get("name") or result.get("id")):
                 return data
-            # result exists but empty/useless — dump for diagnosis
-            if isinstance(result, dict):
-                # Show first 10 keys + sample non-empty values
-                sample = {k: (str(v)[:80] if v else v) for k, v in list(result.items())[:15]}
-                return {
-                    "_error": "processflow result has no name/id",
-                    "_result_sample": sample,
-                    "_result_key_count": len(result),
-                }
-            return {"_error": f"processflow result type: {type(result).__name__}"}
+            return {"_error": "processflow result has no name/id"}
         return {"_error": "processflow returned non-dict response"}
     except Exception as e:
         logger.error("processflow API failed for flow %s: %s", flow_id, e)
