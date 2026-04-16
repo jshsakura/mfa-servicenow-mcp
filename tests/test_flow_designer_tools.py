@@ -297,6 +297,7 @@ class TestFlowDesignerTools(unittest.TestCase):
     def test_get_flow_structure_table_api_fallback(self, mock_qp):
         """Basic auth uses Table API (snapshot + components)."""
         snapshot_data = [{"sys_id": "snap1", "name": "Flow v1", "status": "Published"}]
+        flow_record = [{"sys_id": "flow1", "name": "Test Flow", "label_cache": ""}]
         actions_data = [
             {"sys_id": "a1", "name": "Log Action", "order": "100", "nesting_parent": ""},
         ]
@@ -312,12 +313,42 @@ class TestFlowDesignerTools(unittest.TestCase):
         subflow_data = [
             {"sys_id": "s1", "name": "SubFlow Call", "order": "300", "nesting_parent": ""},
         ]
+        # Binding resolution: raw instances, display instances, raw snapshots, display snapshots
+        binding_raw = [
+            {
+                "sys_id": "s1",
+                "name": "SubFlow Call",
+                "order": "300",
+                "ui_id": "ui1",
+                "parent_ui_id": "",
+                "nesting_parent": "",
+                "subflow": "snap_sub1",
+            },
+        ]
+        binding_display = [
+            {
+                "sys_id": "s1",
+                "name": "SubFlow Call",
+                "order": "300",
+                "ui_id": "ui1",
+                "subflow": "SubFlow Call",
+            },
+        ]
+        snap_raw = [{"sys_id": "snap_sub1", "name": "SubFlow v1", "master_flow": "mf1"}]
+        snap_display = [
+            {"sys_id": "snap_sub1", "name": "SubFlow v1", "master_flow": "SubFlow Master"}
+        ]
 
         mock_qp.side_effect = [
             (snapshot_data, 1),
+            (flow_record, 1),
             (actions_data, 1),
             (logic_data, 1),
             (subflow_data, 1),
+            (binding_raw, 1),
+            (binding_display, 1),
+            (snap_raw, 1),
+            (snap_display, 1),
         ]
 
         result = _fetch_flow_structure(
@@ -334,6 +365,13 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertEqual(result["total_subflows"], 1)
         self.assertIn("flat_summary", result)
         self.assertIn("tree", result)
+        # Subflow bindings should be present when subflows exist
+        self.assertIn("subflow_bindings", result)
+        self.assertIn("mismatch_summary", result)
+        self.assertEqual(len(result["subflow_bindings"]), 1)
+        binding = result["subflow_bindings"][0]
+        self.assertEqual(binding["subflow_snapshot_id"], "snap_sub1")
+        self.assertEqual(binding["subflow_parent_flow_name"], "SubFlow Master")
 
         for entry in result["flat_summary"]:
             if entry["type"] == "action":
@@ -360,8 +398,10 @@ class TestFlowDesignerTools(unittest.TestCase):
             {"sys_id": "snap_draft", "name": "Flow v1", "status": "Draft"},
             {"sys_id": "snap_pub", "name": "Flow v2", "status": "Published"},
         ]
+        flow_record = [{"sys_id": "flow1", "name": "Test Flow", "label_cache": ""}]
         mock_qp.side_effect = [
             (snapshot_data, 2),
+            (flow_record, 1),
             ([], 0),
             ([], 0),
             ([], 0),
@@ -379,6 +419,7 @@ class TestFlowDesignerTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_get_flow_structure_nesting(self, mock_qp):
         snapshot_data = [{"sys_id": "snap1", "status": "Published"}]
+        flow_record = [{"sys_id": "flow1", "name": "Test Flow", "label_cache": ""}]
         actions_data = [
             {
                 "sys_id": "a1",
@@ -397,6 +438,7 @@ class TestFlowDesignerTools(unittest.TestCase):
         ]
         mock_qp.side_effect = [
             (snapshot_data, 1),
+            (flow_record, 1),
             (actions_data, 2),
             ([], 0),
             ([], 0),
@@ -1325,6 +1367,274 @@ class TestCompareFlows(unittest.TestCase):
         fields = [d["field"] for d in result["differences"]]
         self.assertNotIn("label_cache", fields)
         self.assertNotIn("label_cache", result["identical_fields"])
+
+
+class TestSubflowBindings(unittest.TestCase):
+    """Tests for subflow binding resolution and mismatch detection."""
+
+    def setUp(self):
+        self.config = _make_basic_config()
+        self.auth_manager = MagicMock(spec=AuthManager)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_subflow_bindings_resolve_snapshot_to_master(self, mock_qp):
+        """subflow_bindings should trace instance → snapshot → master_flow."""
+        from servicenow_mcp.tools.flow_designer_tools import _fetch_subflow_bindings
+
+        # Raw instances (display_value=False)
+        raw_instances = [
+            {
+                "sys_id": "inst1",
+                "name": "sf1",
+                "order": "100",
+                "ui_id": "ui_001",
+                "parent_ui_id": "",
+                "nesting_parent": "",
+                "subflow": "snap_yko",
+            },
+        ]
+        # Display instances
+        display_instances = [
+            {
+                "sys_id": "inst1",
+                "name": "YKO Quote Depart",
+                "order": "100",
+                "ui_id": "ui_001",
+                "subflow": "YKO Quote Depart v2",
+            },
+        ]
+        # Snapshot raw
+        snap_raw = [{"sys_id": "snap_yko", "name": "YKO Quote Depart v2", "master_flow": "mf_yko"}]
+        # Snapshot display
+        snap_display = [
+            {"sys_id": "snap_yko", "name": "YKO Quote Depart v2", "master_flow": "YKO Quote Depart"}
+        ]
+
+        mock_qp.side_effect = [
+            (raw_instances, 1),
+            (display_instances, 1),
+            (snap_raw, 1),
+            (snap_display, 1),
+        ]
+
+        result = _fetch_subflow_bindings(self.config, self.auth_manager, "snap1", "")
+
+        bindings = result["subflow_bindings"]
+        self.assertEqual(len(bindings), 1)
+        self.assertEqual(bindings[0]["subflow_snapshot_id"], "snap_yko")
+        self.assertEqual(bindings[0]["subflow_parent_flow_id"], "mf_yko")
+        self.assertEqual(bindings[0]["subflow_parent_flow_name"], "YKO Quote Depart")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_mismatch_detected_label_vs_binding(self, mock_qp):
+        """Mismatch: label_cache says YEA but actual binding points to YKO."""
+        from servicenow_mcp.tools.flow_designer_tools import _fetch_subflow_bindings
+
+        raw_instances = [
+            {
+                "sys_id": "inst1",
+                "name": "sf1",
+                "order": "100",
+                "ui_id": "ui_001",
+                "parent_ui_id": "",
+                "nesting_parent": "",
+                "subflow": "snap_yko",
+            },
+        ]
+        display_instances = [
+            {
+                "sys_id": "inst1",
+                "name": "Quote Depart Call",
+                "order": "100",
+                "ui_id": "ui_001",
+                "subflow": "YKO Quote Depart",
+            },
+        ]
+        snap_raw = [{"sys_id": "snap_yko", "name": "YKO Quote Depart", "master_flow": "mf_yko"}]
+        snap_display = [
+            {"sys_id": "snap_yko", "name": "YKO Quote Depart", "master_flow": "YKO Quote Depart"}
+        ]
+
+        mock_qp.side_effect = [
+            (raw_instances, 1),
+            (display_instances, 1),
+            (snap_raw, 1),
+            (snap_display, 1),
+        ]
+
+        # label_cache contains "YEA" reference — doesn't match actual "YKO" binding
+        label_cache = "Quote Depart Call: YEA Quote Depart\nother label"
+
+        result = _fetch_subflow_bindings(self.config, self.auth_manager, "snap1", label_cache)
+
+        summary = result["mismatch_summary"]
+        self.assertGreater(summary["mismatch_count"], 0)
+        mismatch = summary["mismatches"][0]
+        self.assertIn("YEA", mismatch["label"])
+        self.assertIn("YKO", mismatch["actual_subflow"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_no_mismatch_when_consistent(self, mock_qp):
+        """No mismatch when label_cache matches actual bindings."""
+        from servicenow_mcp.tools.flow_designer_tools import _fetch_subflow_bindings
+
+        raw_instances = [
+            {
+                "sys_id": "inst1",
+                "name": "sf1",
+                "order": "100",
+                "ui_id": "ui_001",
+                "parent_ui_id": "",
+                "nesting_parent": "",
+                "subflow": "snap_yko",
+            },
+        ]
+        display_instances = [
+            {
+                "sys_id": "inst1",
+                "name": "YKO Quote Call",
+                "order": "100",
+                "ui_id": "ui_001",
+                "subflow": "YKO Quote Depart",
+            },
+        ]
+        snap_raw = [{"sys_id": "snap_yko", "name": "YKO Quote Depart", "master_flow": "mf_yko"}]
+        snap_display = [
+            {"sys_id": "snap_yko", "name": "YKO Quote Depart", "master_flow": "YKO Quote Depart"}
+        ]
+
+        mock_qp.side_effect = [
+            (raw_instances, 1),
+            (display_instances, 1),
+            (snap_raw, 1),
+            (snap_display, 1),
+        ]
+
+        # label_cache matches actual binding
+        label_cache = "YKO Quote Call: YKO Quote Depart"
+
+        result = _fetch_subflow_bindings(self.config, self.auth_manager, "snap1", label_cache)
+
+        self.assertEqual(result["mismatch_summary"]["mismatch_count"], 0)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_empty_subflows_returns_empty_bindings(self, mock_qp):
+        """No subflow instances → empty bindings, no mismatches."""
+        from servicenow_mcp.tools.flow_designer_tools import _fetch_subflow_bindings
+
+        mock_qp.return_value = ([], 0)
+
+        result = _fetch_subflow_bindings(self.config, self.auth_manager, "snap1", "some labels")
+
+        self.assertEqual(result["subflow_bindings"], [])
+        self.assertEqual(result["mismatch_summary"]["mismatch_count"], 0)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_structure_fallback_includes_bindings_when_subflows_exist(self, mock_qp):
+        """_fetch_flow_structure table_api_fallback includes subflow_bindings."""
+        snapshot = [{"sys_id": "snap1", "name": "Flow v1", "status": "Published"}]
+        flow_rec = [
+            {"sys_id": "flow1", "name": "Test Flow", "label_cache": "Sub Call: YEA Actual Sub"}
+        ]
+        actions = []
+        logic = []
+        subflows_display = [
+            {"sys_id": "s1", "name": "Sub Call", "order": "100", "nesting_parent": ""},
+        ]
+        # Binding queries
+        bind_raw = [
+            {
+                "sys_id": "s1",
+                "name": "Sub Call",
+                "order": "100",
+                "ui_id": "u1",
+                "parent_ui_id": "",
+                "nesting_parent": "",
+                "subflow": "snp1",
+            }
+        ]
+        bind_disp = [
+            {
+                "sys_id": "s1",
+                "name": "Sub Call",
+                "order": "100",
+                "ui_id": "u1",
+                "subflow": "YKO Actual Sub",
+            }
+        ]
+        snp_raw = [{"sys_id": "snp1", "name": "YKO Actual Sub", "master_flow": "mf1"}]
+        snp_disp = [{"sys_id": "snp1", "name": "YKO Actual Sub", "master_flow": "YKO Actual Sub"}]
+
+        mock_qp.side_effect = [
+            (snapshot, 1),
+            (flow_rec, 1),
+            (actions, 0),
+            (logic, 0),
+            (subflows_display, 1),
+            (bind_raw, 1),
+            (bind_disp, 1),
+            (snp_raw, 1),
+            (snp_disp, 1),
+        ]
+
+        result = _fetch_flow_structure(self.config, self.auth_manager, "flow1")
+
+        self.assertTrue(result["success"])
+        self.assertIn("subflow_bindings", result)
+        self.assertIn("mismatch_summary", result)
+        # Should detect mismatch: label has YEA but binding is YKO
+        self.assertIn("MISMATCH", result.get("note", "").upper())
+
+
+class TestSnQueryHints(unittest.TestCase):
+    """Tests for sn_query query_echo and hint diagnostics."""
+
+    def test_hint_ampersand_in_IN_query(self):
+        from servicenow_mcp.tools.sn_api import _generate_query_hint
+
+        hint = _generate_query_hint("nameINFoo&Bar,Baz", "400 Bad Request")
+        self.assertIsNotNone(hint)
+        self.assertIn("&", hint)
+        self.assertIn("sys_idIN", hint)
+
+    def test_hint_timeout(self):
+        from servicenow_mcp.tools.sn_api import _generate_query_hint
+
+        hint = _generate_query_hint("nameLIKEtest", "Request timed out")
+        self.assertIsNotNone(hint)
+        self.assertIn("timed out", hint.lower())
+
+    def test_hint_unauthorized(self):
+        from servicenow_mcp.tools.sn_api import _generate_query_hint
+
+        hint = _generate_query_hint("active=true", "401 Unauthorized")
+        self.assertIsNotNone(hint)
+        self.assertIn("expired", hint.lower())
+
+    def test_no_hint_for_normal_query(self):
+        from servicenow_mcp.tools.sn_api import _generate_query_hint
+
+        hint = _generate_query_hint("active=true", "Some unknown error")
+        self.assertIsNone(hint)
+
+    @patch("servicenow_mcp.tools.sn_api.sn_query_page")
+    def test_sn_query_error_includes_query_echo(self, mock_qp):
+        from servicenow_mcp.tools.sn_api import GenericQueryParams, sn_query
+
+        mock_qp.side_effect = RuntimeError("Connection failed")
+        config = _make_basic_config()
+        auth = MagicMock(spec=AuthManager)
+
+        result = sn_query(
+            config,
+            auth,
+            GenericQueryParams(table="incident", query="nameINFoo&Bar"),
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["query_echo"], "nameINFoo&Bar")
+        self.assertIn("hint", result)
+        self.assertIn("&", result["hint"])
 
 
 if __name__ == "__main__":
