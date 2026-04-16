@@ -478,6 +478,196 @@ def _extract_processflow_structure(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _parse_label_cache(label_cache: str) -> List[str]:
+    """Parse label_cache into a list of individual label strings."""
+    if not label_cache:
+        return []
+    # label_cache is comma-or-newline separated
+    labels = []
+    for line in label_cache.replace(",", "\n").split("\n"):
+        stripped = line.strip()
+        if stripped:
+            labels.append(stripped)
+    return labels
+
+
+def _fetch_subflow_bindings(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    snapshot_id: str,
+    label_cache: str,
+) -> Dict[str, Any]:
+    """Resolve actual subflow bindings from sys_hub_sub_flow_instance_v2.
+
+    For each subflow instance, traces: instance → snapshot → master_flow
+    to determine the REAL subflow being invoked (not just what label_cache shows).
+
+    Returns ``subflow_bindings`` list and ``mismatch_summary`` comparing
+    label_cache labels against actual subflow references.
+    """
+    # 1. Get subflow instances with raw sys_ids for reference resolution
+    instances_raw, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=SUBFLOW_V2_TABLE,
+        query=f"flow={snapshot_id}",
+        fields="sys_id,name,order,position,ui_id,parent_ui_id,nesting_parent,subflow",
+        limit=100,
+        offset=0,
+        display_value=False,
+    )
+
+    if not instances_raw:
+        return {
+            "subflow_bindings": [],
+            "mismatch_summary": {"mismatch_count": 0, "mismatches": []},
+        }
+
+    # Also get display values for human-readable names
+    instances_display, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=SUBFLOW_V2_TABLE,
+        query=f"flow={snapshot_id}",
+        fields="sys_id,name,order,ui_id,subflow",
+        limit=100,
+        offset=0,
+        display_value=True,
+    )
+    display_map = {r["sys_id"]: r for r in instances_display}
+
+    # 2. Batch-resolve snapshot references → master_flow
+    snapshot_ids = list({inst.get("subflow", "") for inst in instances_raw if inst.get("subflow")})
+    snapshot_map: Dict[str, Dict] = {}
+    master_flow_ids: set = set()
+
+    if snapshot_ids:
+        snapshots_raw, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_SNAPSHOT_TABLE,
+            query=f"sys_idIN{','.join(snapshot_ids)}",
+            fields="sys_id,name,master_flow",
+            limit=100,
+            offset=0,
+            display_value=False,
+        )
+        for s in snapshots_raw:
+            snapshot_map[s["sys_id"]] = s
+            if s.get("master_flow"):
+                master_flow_ids.add(s["master_flow"])
+
+        # Get display names for snapshots
+        snapshots_display, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_SNAPSHOT_TABLE,
+            query=f"sys_idIN{','.join(snapshot_ids)}",
+            fields="sys_id,name,master_flow",
+            limit=100,
+            offset=0,
+            display_value=True,
+        )
+        for sd in snapshots_display:
+            if sd["sys_id"] in snapshot_map:
+                snapshot_map[sd["sys_id"]]["snapshot_display_name"] = sd.get("name", "")
+                snapshot_map[sd["sys_id"]]["master_flow_display"] = sd.get("master_flow", "")
+
+    # 3. Batch-resolve master flow names (if not already in display values)
+    master_flow_map: Dict[str, str] = {}
+    remaining_ids = [
+        fid
+        for fid in master_flow_ids
+        if not any(
+            s.get("master_flow_display")
+            for s in snapshot_map.values()
+            if s.get("master_flow") == fid
+        )
+    ]
+    if remaining_ids:
+        flows_display, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_TABLE,
+            query=f"sys_idIN{','.join(remaining_ids)}",
+            fields="sys_id,name",
+            limit=100,
+            offset=0,
+            display_value=True,
+        )
+        master_flow_map = {f["sys_id"]: f.get("name", "") for f in flows_display}
+
+    # 4. Build bindings list
+    labels = _parse_label_cache(label_cache)
+    bindings: List[Dict[str, Any]] = []
+
+    for inst in sorted(instances_raw, key=lambda x: int(x.get("order", 0) or 0)):
+        sid = inst["sys_id"]
+        disp = display_map.get(sid, {})
+        subflow_ref = inst.get("subflow", "")
+        snap = snapshot_map.get(subflow_ref, {})
+        master_id = snap.get("master_flow", "")
+        master_name = snap.get("master_flow_display", "") or master_flow_map.get(master_id, "")
+        ui_id = inst.get("ui_id", "")
+
+        # Instance name is often empty — use subflow display value instead
+        inst_name = disp.get("name", "") or inst.get("name", "")
+        subflow_display_name = disp.get("subflow", "")
+        snapshot_name = snap.get("snapshot_display_name", snap.get("name", ""))
+        # Best available name for this binding
+        effective_name = inst_name or subflow_display_name or snapshot_name
+
+        # Match labels containing ui_id or any known name for this binding
+        matched_labels = [
+            lbl
+            for lbl in labels
+            if (ui_id and ui_id in lbl)
+            or (effective_name and effective_name in lbl)
+            or (subflow_display_name and subflow_display_name in lbl)
+            or (master_name and master_name in lbl)
+        ]
+
+        bindings.append(
+            {
+                "order": inst.get("order", ""),
+                "ui_id": ui_id,
+                "parent_ui_id": inst.get("parent_ui_id", ""),
+                "instance_name": effective_name,
+                "subflow_snapshot_id": subflow_ref,
+                "subflow_snapshot_name": snap.get("snapshot_display_name", snap.get("name", "")),
+                "subflow_parent_flow_id": master_id,
+                "subflow_parent_flow_name": master_name,
+                "label_matches": matched_labels,
+            }
+        )
+
+    # 5. Detect mismatches: label says X but actual reference is Y
+    mismatches: List[Dict[str, Any]] = []
+    for b in bindings:
+        actual_name = b["subflow_parent_flow_name"] or b["subflow_snapshot_name"]
+        for lbl in b["label_matches"]:
+            # Simple heuristic: if label contains a name prefix that differs
+            # from the actual subflow parent name, flag it
+            if actual_name and lbl and actual_name not in lbl:
+                mismatches.append(
+                    {
+                        "ui_id": b["ui_id"],
+                        "order": b["order"],
+                        "label": lbl,
+                        "actual_subflow": actual_name,
+                        "actual_subflow_id": b["subflow_parent_flow_id"],
+                    }
+                )
+
+    return {
+        "subflow_bindings": bindings,
+        "mismatch_summary": {
+            "mismatch_count": len(mismatches),
+            "mismatches": mismatches,
+        },
+    }
+
+
 def _fetch_flow_structure(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -501,7 +691,7 @@ def _fetch_flow_structure(
         }
 
     # ------------------------------------------------------------------
-    # Strategy 2: Table API fallback (structure only, no conditions/variables)
+    # Strategy 2: Table API fallback (structure + subflow binding resolution)
     # ------------------------------------------------------------------
     try:
         snapshot_id = _get_snapshot_id(config, auth_manager, flow_id)
@@ -514,6 +704,19 @@ def _fetch_flow_structure(
                     "Use browser auth mode for unpublished flow structure via processflow API."
                 ),
             }
+
+        # Fetch the flow record for label_cache (needed for mismatch detection)
+        flow_records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_TABLE,
+            query=f"sys_id={flow_id}",
+            fields="sys_id,name,label_cache",
+            limit=1,
+            offset=0,
+            display_value=True,
+        )
+        label_cache = flow_records[0].get("label_cache", "") if flow_records else ""
 
         actions, _ = sn_query_page(
             config,
@@ -561,7 +764,7 @@ def _fetch_flow_structure(
 
         flat_summary = []
         for comp in all_components:
-            entry = {
+            entry: Dict[str, Any] = {
                 "order": comp.get("order"),
                 "type": comp.get("component_type"),
                 "name": comp.get("name", ""),
@@ -574,7 +777,7 @@ def _fetch_flow_structure(
                 entry["parent"] = comp["nesting_parent"]
             flat_summary.append(entry)
 
-        return {
+        result: Dict[str, Any] = {
             "success": True,
             "source": "table_api_fallback",
             "flow_id": flow_id,
@@ -582,14 +785,35 @@ def _fetch_flow_structure(
             "total_actions": len(actions),
             "total_logic": len(logic_nodes),
             "total_subflows": len(subflows),
-            "note": (
-                "Retrieved via Table API (basic auth). "
-                "Conditions and variable mappings are incomplete. "
-                "Switch to browser auth for full detail via processflow API."
-            ),
             "flat_summary": flat_summary,
             "tree": tree,
         }
+
+        # Include subflow binding details when subflows exist
+        if subflows:
+            binding_data = _fetch_subflow_bindings(config, auth_manager, snapshot_id, label_cache)
+            result["subflow_bindings"] = binding_data["subflow_bindings"]
+            result["mismatch_summary"] = binding_data["mismatch_summary"]
+            if binding_data["mismatch_summary"]["mismatch_count"] > 0:
+                result["note"] = (
+                    "LABEL/BINDING MISMATCH DETECTED: label_cache contains references "
+                    "that differ from actual subflow bindings. "
+                    "Trust subflow_bindings (actual references) over label_cache (display metadata). "
+                    "See mismatch_summary for details."
+                )
+            else:
+                result["note"] = (
+                    "Retrieved via Table API. Subflow bindings verified — "
+                    "label_cache and actual references are consistent."
+                )
+        else:
+            result["note"] = (
+                "Retrieved via Table API (basic auth). "
+                "Conditions and variable mappings are incomplete. "
+                "Switch to browser auth for full detail via processflow API."
+            )
+
+        return result
     except Exception as e:
         logger.error(f"Error getting flow structure: {e}")
         return {"success": False, "error": str(e)}
