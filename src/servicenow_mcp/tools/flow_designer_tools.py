@@ -1143,3 +1143,169 @@ def get_decision_table_detail(
     except Exception as e:
         logger.error(f"Error getting decision table detail: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Compare Flows (browser auth: processflow API, basic auth: Table API)
+# ---------------------------------------------------------------------------
+
+
+class CompareFlowsParams(BaseModel):
+    """Parameters for comparing two Flow Designer flows/subflows."""
+
+    flow_id_a: str = Field(..., description="First flow sys_id")
+    flow_id_b: str = Field(..., description="Second flow sys_id to compare against")
+    include_label_cache: bool = Field(
+        default=True, description="Include label_cache diff (shows child subflow references)"
+    )
+
+
+def _get_flow_for_compare(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    flow_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Fetch flow data for comparison — processflow API or Table API fallback."""
+    if _is_browser_auth(config):
+        pf = _try_processflow_api(config, auth_manager, flow_id)
+        if pf:
+            return pf.get("result", pf)
+
+    # Table API fallback — get full record + label_cache
+    records, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=FLOW_TABLE,
+        query=f"sys_id={flow_id}",
+        fields="",
+        limit=1,
+        offset=0,
+        display_value=True,
+        fail_silently=False,
+    )
+    return records[0] if records else None
+
+
+def _extract_comparable(flow_data: Dict[str, Any], include_label_cache: bool) -> Dict[str, Any]:
+    """Extract comparable fields from flow data."""
+    # processflow API format
+    if "actionInstances" in flow_data:
+        actions = [
+            {
+                "name": a.get("name", ""),
+                "type": a.get("actionType", ""),
+                "position": a.get("position"),
+            }
+            for a in flow_data.get("actionInstances", [])
+        ]
+        logic = [
+            {"name": n.get("name", ""), "type": n.get("type", ""), "position": n.get("position")}
+            for n in flow_data.get("flowLogicInstances", [])
+        ]
+        subflows = [
+            {"name": s.get("name", ""), "position": s.get("position")}
+            for s in flow_data.get("subFlowInstances", [])
+        ]
+        result = {
+            "name": flow_data.get("name", ""),
+            "status": flow_data.get("status", ""),
+            "active": flow_data.get("active", ""),
+            "scope": flow_data.get("scope", ""),
+            "inputs": flow_data.get("inputs", []),
+            "outputs": flow_data.get("outputs", []),
+            "actions": sorted(actions, key=lambda x: int(x.get("position") or 0)),
+            "logic": sorted(logic, key=lambda x: int(x.get("position") or 0)),
+            "subflows": sorted(subflows, key=lambda x: int(x.get("position") or 0)),
+            "trigger_count": len(flow_data.get("triggerInstances", [])),
+            "variable_count": len(flow_data.get("flowVariables", [])),
+        }
+        if include_label_cache:
+            lc = flow_data.get("label_cache") or flow_data.get("labelCache", "")
+            result["label_cache"] = lc if isinstance(lc, str) else str(lc)
+        return result
+
+    # Table API format
+    result = {
+        "name": flow_data.get("name", ""),
+        "status": flow_data.get("status", ""),
+        "active": flow_data.get("active", ""),
+        "scope": flow_data.get("sys_scope", ""),
+    }
+    if include_label_cache:
+        result["label_cache"] = flow_data.get("label_cache", "")
+    return result
+
+
+def _diff_flows(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+    """Compute structural diff between two comparable flow dicts."""
+    differences = []
+    identical = []
+
+    all_keys = sorted(set(list(a.keys()) + list(b.keys())))
+    for key in all_keys:
+        va = a.get(key)
+        vb = b.get(key)
+        if va == vb:
+            identical.append(key)
+        else:
+            entry: Dict[str, Any] = {"field": key, "flow_a": va, "flow_b": vb}
+            # For label_cache, extract differing references
+            if key == "label_cache" and isinstance(va, str) and isinstance(vb, str):
+                a_refs = set(
+                    line.strip() for line in va.replace(",", "\n").split("\n") if line.strip()
+                )
+                b_refs = set(
+                    line.strip() for line in vb.replace(",", "\n").split("\n") if line.strip()
+                )
+                entry["only_in_a"] = sorted(a_refs - b_refs)[:50]
+                entry["only_in_b"] = sorted(b_refs - a_refs)[:50]
+                entry["common_count"] = len(a_refs & b_refs)
+                # Don't dump full label_cache (too large)
+                del entry["flow_a"]
+                del entry["flow_b"]
+            differences.append(entry)
+
+    return {
+        "identical_fields": identical,
+        "differences": differences,
+        "total_identical": len(identical),
+        "total_different": len(differences),
+    }
+
+
+@register_tool(
+    name="compare_flows",
+    params=CompareFlowsParams,
+    description="Compare two flows/subflows side-by-side. Shows structural diff including label_cache references.",
+    serialization="json",
+    return_type=dict,
+)
+def compare_flows(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: CompareFlowsParams,
+) -> Dict[str, Any]:
+    """Compare two Flow Designer flows and return structural diff."""
+    try:
+        flow_a = _get_flow_for_compare(config, auth_manager, params.flow_id_a)
+        if not flow_a:
+            return {"success": False, "error": f"Flow A not found: {params.flow_id_a}"}
+
+        flow_b = _get_flow_for_compare(config, auth_manager, params.flow_id_b)
+        if not flow_b:
+            return {"success": False, "error": f"Flow B not found: {params.flow_id_b}"}
+
+        comp_a = _extract_comparable(flow_a, params.include_label_cache)
+        comp_b = _extract_comparable(flow_b, params.include_label_cache)
+        diff = _diff_flows(comp_a, comp_b)
+
+        return {
+            "success": True,
+            "flow_a": {"sys_id": params.flow_id_a, "name": comp_a.get("name", "")},
+            "flow_b": {"sys_id": params.flow_id_b, "name": comp_b.get("name", "")},
+            "summary": f"{diff['total_identical']} identical, {diff['total_different']} different",
+            **diff,
+        }
+    except Exception as e:
+        logger.error(f"Error comparing flows: {e}")
+        return {"success": False, "error": str(e)}

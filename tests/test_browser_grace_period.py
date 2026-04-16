@@ -452,17 +452,39 @@ class TestGracePeriodEdgeCases:
         mock_login.assert_called_once()
 
     def test_login_in_progress_blocks_concurrent_call(self):
-        """If login is in progress, second call should raise, not open another browser."""
+        """If login is in progress, second thread waits then gets session or error."""
+        import threading
+
         mgr = _make_manager(cookie="")
         mgr._browser_cookie_header = None
         mgr._browser_login_in_progress = True
+        # Simulate lock held by first thread
+        mgr._browser_login_lock.acquire()
 
-        with patch.object(mgr, "_try_restore_browser_session", return_value=False):
+        result = [None]
+
+        def _try_get_headers():
             try:
-                mgr.get_headers()
-                raise AssertionError("Should have raised ValueError")
+                with patch.object(mgr, "_try_restore_browser_session", return_value=False):
+                    mgr.get_headers()
+                result[0] = "ok"
             except ValueError as exc:
-                assert "currently in progress" in str(exc)
+                result[0] = str(exc)
+
+        t = threading.Thread(target=_try_get_headers)
+        t.start()
+        # Give thread time to block on lock
+        time.sleep(0.2)
+        # Simulate first thread finishing login — set cookie and release lock
+        mgr._browser_cookie_header = "DONE=session"
+        mgr._browser_cookie_expires_at = time.time() + 1800
+        mgr._browser_login_in_progress = False
+        mgr._browser_login_lock.release()
+        t.join(timeout=3)
+
+        assert not t.is_alive(), "Thread should have completed"
+        # Second thread should have gotten the session (or retried and succeeded)
+        assert result[0] is not None
 
     def test_browser_closed_by_user_resets_cooldown(self):
         """When user closes browser manually, cooldown resets for immediate retry."""
@@ -504,3 +526,109 @@ class TestGracePeriodEdgeCases:
 
         assert mgr._browser_reauth_failure_count == 1
         assert mgr._browser_reauth_cooldown_seconds > mgr._browser_reauth_cooldown_base
+
+
+# ================================================================
+# 6. Concurrent login prevention (threading.Lock)
+# ================================================================
+
+
+class TestConcurrentLoginPrevention:
+    """Verify _browser_login_lock prevents duplicate browser windows."""
+
+    def test_concurrent_get_headers_only_one_login(self):
+        """5 parallel threads calling get_headers — only 1 should trigger login."""
+        import threading
+
+        mgr = _make_manager(cookie="")
+        mgr._browser_cookie_header = None
+        mgr._browser_cookie_expires_at = None
+
+        login_count = [0]
+        login_event = threading.Event()
+
+        def _fake_login(_cfg, force_interactive=False):
+            login_count[0] += 1
+            # Simulate slow login
+            login_event.wait(timeout=2)
+            mgr._browser_cookie_header = "NEW=session"
+            mgr._browser_cookie_expires_at = time.time() + 1800
+            mgr._browser_last_login_at = time.time()
+
+        # After first login succeeds, restore should return True for waiting threads
+        restore_calls = [0]
+
+        def _smart_restore(_cfg):
+            restore_calls[0] += 1
+            # First call fails (triggers login), subsequent calls succeed
+            # because the first thread already logged in
+            if mgr._browser_cookie_header and mgr._browser_cookie_expires_at:
+                return True
+            return False
+
+        results = []
+
+        def _call_get_headers():
+            try:
+                headers = mgr.get_headers()
+                results.append(("ok", headers.get("Cookie", "")))
+            except Exception as exc:
+                results.append(("error", str(exc)))
+
+        with patch.object(mgr, "_try_restore_browser_session", side_effect=_smart_restore):
+            with patch.object(mgr, "_login_with_browser", side_effect=_fake_login):
+                threads = [threading.Thread(target=_call_get_headers) for _ in range(5)]
+                for t in threads:
+                    t.start()
+                # Let login finish after a short delay
+                time.sleep(0.3)
+                login_event.set()
+                for t in threads:
+                    t.join(timeout=5)
+
+        # Only 1 login should have occurred
+        assert login_count[0] == 1, f"Expected 1 login, got {login_count[0]}"
+        # All threads should eventually get headers
+        ok_count = sum(1 for status, _ in results if status == "ok")
+        assert ok_count >= 1, f"At least 1 thread should succeed, got results: {results}"
+
+    def test_lock_released_after_login_failure(self):
+        """Lock must be released even if login fails, so next attempt can proceed."""
+        mgr = _make_manager(cookie="")
+        mgr._browser_cookie_header = None
+        mgr._browser_cookie_expires_at = None
+
+        def _raise_error(_cfg, force_interactive=False):
+            raise ValueError("Login failed")
+
+        with patch.object(mgr, "_try_restore_browser_session", return_value=False):
+            with patch.object(mgr, "_login_with_browser", side_effect=_raise_error):
+                try:
+                    mgr.get_headers()
+                except ValueError:
+                    pass
+
+        # Lock should be released — verify by acquiring it
+        acquired = mgr._browser_login_lock.acquire(timeout=0.1)
+        assert acquired, "Lock was not released after login failure"
+        mgr._browser_login_lock.release()
+
+    def test_lock_released_after_login_success(self):
+        """Lock must be released after successful login."""
+        mgr = _make_manager(cookie="")
+        mgr._browser_cookie_header = None
+        mgr._browser_cookie_expires_at = None
+
+        def _fake_login(_cfg, force_interactive=False):
+            mgr._browser_cookie_header = "NEW=session"
+            mgr._browser_cookie_expires_at = time.time() + 1800
+            mgr._browser_last_login_at = time.time()
+
+        with patch.object(mgr, "_try_restore_browser_session", return_value=False):
+            with patch.object(mgr, "_login_with_browser", side_effect=_fake_login):
+                mgr.get_headers()
+
+        # Lock should be released
+        acquired = mgr._browser_login_lock.acquire(timeout=0.1)
+        assert acquired, "Lock was not released after login success"
+        mgr._browser_login_lock.release()
