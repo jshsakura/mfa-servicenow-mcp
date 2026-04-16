@@ -51,6 +51,10 @@ Tool definitions are sent to the LLM on every request. Every character costs tok
 
 This saves ~25% context tokens across all tools. Don't bypass this.
 
+## No Company-Specific Data in Code
+
+This is a **public open-source** repo. Never put real company names, scope namespaces, company codes, or any customer-identifiable information in source code, tests, examples, descriptions, or comments. Use generic placeholders instead (e.g. "my_app", "Old Flow", "New Flow").
+
 ## Pre-commit
 
 - `isort` + `black` + `ruff` run on commit. Format before committing.
