@@ -73,11 +73,50 @@ def _load_packaged_package_definitions() -> Dict[str, List[str]]:
     return result
 
 
+_MAX_DEFAULT_LEN = 60  # Truncate long default values in tool schemas
+
+
+def _compact_schema(schema: Any) -> Any:
+    """Strip Pydantic noise from JSON schema to minimize LLM context tokens.
+
+    1. Remove ``title`` — redundant when ``description`` exists.
+    2. Flatten ``anyOf`` nullable unions.
+    3. Truncate long string ``default`` values (>60 chars).
+    """
+    if isinstance(schema, list):
+        return [_compact_schema(i) for i in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    # Flatten anyOf nullable (Optional[X] → X)
+    if "anyOf" in schema:
+        types = schema["anyOf"]
+        non_null = [t for t in types if t.get("type") != "null"]
+        if len(non_null) == 1:
+            merged = {k: v for k, v in schema.items() if k != "anyOf"}
+            merged.update(non_null[0])
+            return _compact_schema(merged)
+
+    result = {}
+    for k, v in schema.items():
+        if k == "title":
+            continue
+        # Truncate long default strings
+        if k == "default" and isinstance(v, str) and len(v) > _MAX_DEFAULT_LEN:
+            result[k] = v[:_MAX_DEFAULT_LEN] + "…"
+            continue
+        result[k] = _compact_schema(v)
+    return result
+
+
 def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
-    """Cache Pydantic schema generation across server instances."""
+    """Cache compacted Pydantic schema for LLM-optimal context usage."""
     cached_schema = _TOOL_SCHEMA_CACHE.get(params_model)
     if cached_schema is None:
-        cached_schema = params_model.model_json_schema()
+        raw = params_model.model_json_schema()
+        cached_schema = _compact_schema(raw)
+        # Remove top-level docstring (tool description covers this)
+        cached_schema.pop("description", None)
         _TOOL_SCHEMA_CACHE[params_model] = cached_schema
     return cached_schema
 
