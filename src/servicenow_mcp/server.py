@@ -76,11 +76,28 @@ def _load_packaged_package_definitions() -> Dict[str, List[str]]:
 _MAX_DEFAULT_STR = 60  # Truncate long string defaults
 _MAX_PARAM_DESC = 80  # Truncate long parameter descriptions
 
+# Fields whose name is self-explanatory — description is redundant for the LLM.
+# Keep this list VERY conservative: name must be unambiguous across every tool that
+# uses it. Anything domain-specific (e.g. "scope", "name") stays descripted.
+_SELF_EXPLANATORY_FIELDS = frozenset(
+    {
+        "dry_run",
+        "count_only",
+        "limit",
+        "offset",
+        "page_size",
+        "only_active",
+        "include_schema",
+    }
+)
 
-def _compact_schema(schema: Any) -> Any:
+
+def _compact_schema(schema: Any, *, _top_level: bool = False) -> Any:
     """Strip Pydantic noise from JSON schema to minimize LLM context tokens.
 
-    Removes: title, long defaults (str/list), verbose anyOf, long descriptions.
+    Removes: title, long defaults (str/list), verbose anyOf, long descriptions,
+    redundant top-level boilerplate, and descriptions of universally-understood
+    parameter names (dry_run, limit, etc.).
     """
     if isinstance(schema, list):
         return [_compact_schema(i) for i in schema]
@@ -94,14 +111,23 @@ def _compact_schema(schema: Any) -> Any:
         if len(non_null) == 1:
             merged = {k: v for k, v in schema.items() if k != "anyOf"}
             merged.update(non_null[0])
-            return _compact_schema(merged)
+            return _compact_schema(merged, _top_level=_top_level)
 
     result = {}
     for k, v in schema.items():
         if k == "title":
             continue
-        # Strip default arrays/lists — LLM infers from description
-        if k == "default" and isinstance(v, list):
+        # Drop empty required arrays at top level (noise)
+        if _top_level and k == "required" and isinstance(v, list) and not v:
+            continue
+        # Drop additionalProperties=false — MCP clients assume it
+        if k == "additionalProperties" and v is False:
+            continue
+        # Drop self-evident defaults: None/False/0/empty-list/empty-dict.
+        # These add no information the LLM can't infer from the description/type.
+        # Non-empty list/dict defaults are preserved because they often carry
+        # domain meaning (e.g. default source_types=["widget"]).
+        if k == "default" and (v is None or v is False or v == 0 or v == [] or v == {}):
             continue
         # Truncate long default strings
         if k == "default" and isinstance(v, str) and len(v) > _MAX_DEFAULT_STR:
@@ -111,8 +137,24 @@ def _compact_schema(schema: Any) -> Any:
         if k == "description" and isinstance(v, str) and len(v) > _MAX_PARAM_DESC:
             result[k] = v[:_MAX_PARAM_DESC].rstrip() + "…"
             continue
+        # Recurse into properties with per-field filler stripping
+        if k == "properties" and isinstance(v, dict):
+            result[k] = {
+                prop_name: _strip_field_filler(prop_name, _compact_schema(prop_schema))
+                for prop_name, prop_schema in v.items()
+            }
+            continue
         result[k] = _compact_schema(v)
     return result
+
+
+def _strip_field_filler(field_name: str, field_schema: Any) -> Any:
+    """Remove description for universally-understood field names."""
+    if not isinstance(field_schema, dict):
+        return field_schema
+    if field_name in _SELF_EXPLANATORY_FIELDS and "description" in field_schema:
+        field_schema = {k: v for k, v in field_schema.items() if k != "description"}
+    return field_schema
 
 
 def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
@@ -120,7 +162,7 @@ def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
     cached_schema = _TOOL_SCHEMA_CACHE.get(params_model)
     if cached_schema is None:
         raw = params_model.model_json_schema()
-        cached_schema = _compact_schema(raw)
+        cached_schema = _compact_schema(raw, _top_level=True)
         # Remove top-level docstring (tool description covers this)
         cached_schema.pop("description", None)
         _TOOL_SCHEMA_CACHE[params_model] = cached_schema
@@ -324,35 +366,71 @@ class ServiceNowMCP:
             self.package_definitions = {}
 
     def _determine_enabled_tools(self):
-        """Determine which tool package and tools to enable based on environment variable."""
-        # Get raw environment variable
+        """Determine which tool packages and tools to enable based on environment variable.
+
+        MCP_TOOL_PACKAGE accepts either a single package name ("service_desk") or a
+        comma-separated list ("standard,workflow_write,incident_ops"). When multiple
+        packages are given, their tool sets are merged (preserving order, de-duplicated).
+        Unknown package names emit a warning and are skipped — the merge continues so
+        one typo does not wipe out the session.
+        """
         env_package = os.getenv("MCP_TOOL_PACKAGE")
 
         if env_package:
-            requested_package = env_package.strip().lower()
-            logger.info(
-                f"MCP_TOOL_PACKAGE environment variable found: '{env_package}' (normalized to '{requested_package}')"
-            )
+            raw = env_package.strip()
+            logger.info(f"MCP_TOOL_PACKAGE found: '{raw}'")
         else:
-            requested_package = "standard"
-            logger.info("MCP_TOOL_PACKAGE environment variable not set, defaulting to 'standard'")
+            raw = "standard"
+            logger.info("MCP_TOOL_PACKAGE not set, defaulting to 'standard'")
 
-        # Check if the requested package exists in our definitions
-        if requested_package in self.package_definitions:
-            self.current_package_name = requested_package
-            self.enabled_tool_names = self.package_definitions[requested_package]
-            logger.info(
-                f"Successfully loaded package '{self.current_package_name}' with {len(self.enabled_tool_names)} tools."
-            )
-        else:
-            # Fallback to none if an invalid package was requested
+        requested = [p.strip().lower() for p in raw.split(",") if p.strip()]
+
+        if len(requested) == 1:
+            name = requested[0]
+            if name in self.package_definitions:
+                self.current_package_name = name
+                self.enabled_tool_names = self.package_definitions[name]
+                logger.info(f"Loaded package '{name}' with {len(self.enabled_tool_names)} tools.")
+                return
+            # Single unknown package → same fallback behavior as before
             self.current_package_name = "none"
             self.enabled_tool_names = []
             available = list(self.package_definitions.keys())
             logger.warning(
-                f"Requested package '{requested_package}' not found in configuration. "
-                f"Available packages: {available}. Loading 'none' (no tools enabled)."
+                f"Requested package '{name}' not found. Available: {available}. "
+                "Loading 'none' (no tools enabled)."
             )
+            return
+
+        # Multi-package merge
+        merged: List[str] = []
+        seen: set = set()
+        resolved_names: List[str] = []
+        for name in requested:
+            if name not in self.package_definitions:
+                logger.warning(f"Skipping unknown package '{name}' in multi-package config")
+                continue
+            resolved_names.append(name)
+            for t in self.package_definitions[name]:
+                if t not in seen:
+                    merged.append(t)
+                    seen.add(t)
+
+        if not resolved_names:
+            self.current_package_name = "none"
+            self.enabled_tool_names = []
+            logger.warning(
+                f"No valid packages in '{raw}'. Loading 'none'. "
+                f"Available: {list(self.package_definitions.keys())}"
+            )
+            return
+
+        self.current_package_name = "+".join(resolved_names)
+        self.enabled_tool_names = merged
+        logger.info(
+            f"Loaded {len(resolved_names)} packages ({self.current_package_name}) "
+            f"with {len(self.enabled_tool_names)} merged tools."
+        )
 
     @staticmethod
     def _is_blocked_mutating_tool(tool_name: str) -> bool:
@@ -385,7 +463,7 @@ class ServiceNowMCP:
     def _augment_tool_description(self, tool_name: str, description: str) -> str:
         """Append confirmation notice and skill guide hint (if any) to description."""
         if self._tool_requires_confirmation(tool_name):
-            description = f"{description} Requires confirm='approve' for write/destructive actions."
+            description = f"{description} (confirm='approve')"
         # Append skill guide hint — lightweight pointer, ~5 tokens.
         # Skip generic tools referenced by 3+ skills (e.g. sn_query) — hint would be arbitrary.
         skill_uris = self._tool_to_skills.get(tool_name)
