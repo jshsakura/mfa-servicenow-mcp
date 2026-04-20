@@ -1942,10 +1942,10 @@ def _resolve_scope_root(
     output_dir: Optional[str],
 ) -> tuple[Path, Path]:
     """Returns (root, scope_root) paths."""
+    instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
     if output_dir:
-        root = Path(output_dir).expanduser().resolve()
+        root = Path(output_dir).expanduser().resolve() / instance_name
     else:
-        instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
         root = Path.cwd() / "temp" / instance_name
     scope_name = _safe_filename(scope)
     scope_root = root / scope_name

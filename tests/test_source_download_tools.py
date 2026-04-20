@@ -265,8 +265,8 @@ class TestSafeFilename:
 class TestResolveScopeRoot:
     def test_custom_output_dir(self, config, tmp_path):
         root, scope_root = _resolve_scope_root(config, "x_app", str(tmp_path))
-        assert root == tmp_path
-        assert scope_root == tmp_path / "x_app"
+        assert root == tmp_path / "test"  # instance name always appended
+        assert scope_root == tmp_path / "test" / "x_app"
         assert scope_root.is_dir()
 
     def test_default_output_dir(self, config):
@@ -299,8 +299,8 @@ class TestDownloadSourceTypes:
             return [], None
 
         mock_query_page.side_effect = _page_side_effect
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         result = _download_source_types(
             config,
@@ -340,8 +340,8 @@ class TestDownloadSourceTypes:
     ):
         mock_query_all.return_value = _strip_source(_si_records())
         mock_query_page.side_effect = _page_side_effect_for(_si_records())
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         _download_source_types(
             config,
@@ -364,8 +364,8 @@ class TestDownloadSourceTypes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_empty_results(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = []
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         result = _download_source_types(
             config,
@@ -382,8 +382,8 @@ class TestDownloadSourceTypes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_api_error_captured_as_warning(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.side_effect = Exception("Connection timeout")
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         result = _download_source_types(
             config,
@@ -401,8 +401,8 @@ class TestDownloadSourceTypes:
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_unknown_source_type_warning(self, mock_query_all, config, auth, tmp_path):
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         result = _download_source_types(
             config,
@@ -421,8 +421,8 @@ class TestDownloadSourceTypes:
     def test_only_active_filter(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _strip_source(_br_records())
         mock_query_page.return_value = ([], None)
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         _download_source_types(
             config,
@@ -442,8 +442,8 @@ class TestDownloadSourceTypes:
     def test_extra_query_for_acl(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _strip_source(_acl_records())
         mock_query_page.return_value = ([], None)
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         _download_source_types(
             config,
@@ -463,8 +463,8 @@ class TestDownloadSourceTypes:
     def test_multiple_source_types(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.side_effect = [_strip_source(_br_records()), [], []]
         mock_query_page.return_value = ([], None)
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         result = _download_source_types(
             config,
@@ -498,8 +498,8 @@ class TestDownloadSourceTypes:
         mock_query_all.return_value = meta_records
         # Pass 2 returns empty script
         mock_query_page.return_value = ([{"script": ""}], None)
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         result = _download_source_types(
             config,
@@ -522,8 +522,8 @@ class TestDownloadSourceTypes:
     ):
         mock_query_all.return_value = _strip_source(_si_records()[:1])
         mock_query_page.return_value = ([], None)
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         result = _download_source_types(
             config,
@@ -660,7 +660,7 @@ class TestDownloadUIComponents:
             ),
         )
 
-        page_dir = tmp_path / "x_app" / "sys_ui_page" / "custom_page"
+        page_dir = tmp_path / "test" / "x_app" / "sys_ui_page" / "custom_page"
         assert (page_dir / "html.html").exists()
         assert (page_dir / "client_script.client.js").exists()
         assert (page_dir / "processing_script.server.js").exists()
@@ -686,7 +686,7 @@ class TestDownloadAPISources:
         assert result["success"] is True
         assert result["source_types"]["scripted_rest"]["count"] == 1
 
-        rest_dir = tmp_path / "x_app" / "sys_ws_operation" / "Get_Request_Status"
+        rest_dir = tmp_path / "test" / "x_app" / "sys_ws_operation" / "Get_Request_Status"
         assert (rest_dir / "operation_script.js").exists()
         script = (rest_dir / "operation_script.js").read_text()
         assert "x_app_request" in script
@@ -974,7 +974,7 @@ class TestDownloadAppSources:
             ),
         )
 
-        manifest_path = tmp_path / "x_app" / "_manifest.json"
+        manifest_path = tmp_path / "test" / "x_app" / "_manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
         assert manifest["scope"] == "x_app"
@@ -1119,8 +1119,8 @@ class TestFieldExtensions:
     ):
         mock_query_all.return_value = _strip_source(_br_records())
         mock_query_page.side_effect = _page_side_effect_for(_br_records())
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         _download_source_types(
             config,
@@ -1141,8 +1141,8 @@ class TestFieldExtensions:
     ):
         mock_query_all.return_value = _strip_source(_rest_records())
         mock_query_page.side_effect = _page_side_effect_for(_rest_records())
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         _download_source_types(
             config,
@@ -1161,8 +1161,8 @@ class TestFieldExtensions:
     def test_acl_script_extension(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _strip_source(_acl_records())
         mock_query_page.side_effect = _page_side_effect_for(_acl_records())
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         _download_source_types(
             config,
@@ -1195,8 +1195,8 @@ class TestEdgeCases:
         ]
         mock_query_all.return_value = _strip_source(full_records)
         mock_query_page.side_effect = _page_side_effect_for(full_records)
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         result = _download_source_types(
             config,
@@ -1212,8 +1212,8 @@ class TestEdgeCases:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_max_records_clamped(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = []
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         _download_source_types(
             config,
@@ -1231,8 +1231,8 @@ class TestEdgeCases:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_page_size_clamped(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = []
-        scope_root = tmp_path / "x_app"
-        scope_root.mkdir()
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
 
         _download_source_types(
             config,
