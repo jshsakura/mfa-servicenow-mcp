@@ -9,11 +9,13 @@ from unittest.mock import MagicMock
 import requests
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import invalidate_query_cache
 from servicenow_mcp.tools.workflow_tools import (
     activate_workflow,
     add_workflow_activity,
     create_workflow,
     deactivate_workflow,
+    delete_workflow,
     delete_workflow_activity,
     get_workflow_details,
     list_workflows,
@@ -335,6 +337,39 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["workflow"]["name"], "New Workflow")
         self.assertEqual(result["message"], "Workflow created successfully")
 
+    def test_update_workflow_dry_run(self):
+        """dry_run=True returns proposed_changes diff and issues no PATCH."""
+        invalidate_query_cache()
+        fetch_response = MagicMock()
+        fetch_response.json.return_value = {
+            "result": [
+                {
+                    "sys_id": "wf_dry",
+                    "name": "Old Name",
+                    "active": "true",
+                    "description": "old",
+                }
+            ]
+        }
+        self._finalize_response(fetch_response)
+        self.auth_manager.make_request.return_value = fetch_response
+
+        params = {
+            "workflow_id": "wf_dry",
+            "name": "New Name",
+            "description": "new",
+            "dry_run": True,
+        }
+        result = update_workflow(self.auth_manager, self.server_config, params)
+
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(result["operation"], "update")
+        self.assertIn("name", result["proposed_changes"])
+        self.assertEqual(result["proposed_changes"]["name"]["before"], "Old Name")
+        self.assertEqual(result["proposed_changes"]["name"]["after"], "New Name")
+        for call in self.auth_manager.make_request.call_args_list:
+            self.assertEqual(call.args[0], "GET")
+
     def test_update_workflow_success(self):
         """Test updating a workflow successfully."""
         # Mock the response
@@ -444,6 +479,29 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["activity"]["name"], "New Activity")
         self.assertEqual(result["message"], "Workflow activity added successfully")
 
+    def test_update_workflow_activity_dry_run_no_op(self):
+        """dry_run with identical values flags no-op fields."""
+        invalidate_query_cache()
+        fetch_response = MagicMock()
+        fetch_response.json.return_value = {
+            "result": [{"sys_id": "act_dry", "name": "Same", "description": "Same desc"}]
+        }
+        self._finalize_response(fetch_response)
+        self.auth_manager.make_request.return_value = fetch_response
+
+        params = {
+            "activity_id": "act_dry",
+            "name": "Same",
+            "description": "Same desc",
+            "dry_run": True,
+        }
+        result = update_workflow_activity(self.auth_manager, self.server_config, params)
+
+        self.assertTrue(result["dry_run"])
+        self.assertIn("name", result["no_op_fields"])
+        self.assertIn("description", result["no_op_fields"])
+        self.assertEqual(result["proposed_changes"], {})
+
     def test_update_workflow_activity_success(self):
         """Test updating a workflow activity successfully."""
         # Mock the response
@@ -487,6 +545,62 @@ class TestWorkflowTools(unittest.TestCase):
         # Verify the result
         self.assertEqual(result["message"], "Activity deleted successfully")
         self.assertEqual(result["activity_id"], "activity123")
+
+    def test_delete_workflow_activity_dry_run(self):
+        """dry_run=True must return a preview and issue no DELETE."""
+        invalidate_query_cache()
+        # Target fetch (sn_query_page): return a matching row
+        fetch_response = MagicMock()
+        fetch_response.json.return_value = {
+            "result": [{"sys_id": "activity_dry", "name": "Approve Request"}]
+        }
+        self._finalize_response(fetch_response)
+        self.auth_manager.make_request.return_value = fetch_response
+
+        params = {"activity_id": "activity_dry", "dry_run": True}
+        result = delete_workflow_activity(self.auth_manager, self.server_config, params)
+
+        self.assertTrue(result.get("dry_run"))
+        self.assertEqual(result["operation"], "delete")
+        self.assertEqual(result["target"]["table"], "wf_activity")
+        self.assertTrue(result["target_found"])
+        self.assertIn("precision_notes", result)
+        # No DELETE request was issued — every call was a GET
+        for call in self.auth_manager.make_request.call_args_list:
+            self.assertEqual(call.args[0], "GET")
+
+    def test_delete_workflow_dry_run_with_dependencies(self):
+        """dry_run=True on delete_workflow returns dependency counts."""
+        invalidate_query_cache()
+
+        def _mock_request(method, url, **kwargs):
+            resp = MagicMock()
+            resp.headers = {}
+            if "/api/now/stats/" in url:
+                # Aggregate API for dependency count
+                resp.json.return_value = {"result": {"stats": {"count": "5"}}}
+            else:
+                # Target fetch
+                resp.json.return_value = {"result": [{"sys_id": "wf_dry", "name": "Onboarding"}]}
+            resp.content = json.dumps(resp.json.return_value).encode("utf-8")
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        self.auth_manager.make_request.side_effect = _mock_request
+
+        params = {"workflow_id": "wf_dry", "dry_run": True}
+        result = delete_workflow(self.auth_manager, self.server_config, params)
+
+        self.assertTrue(result.get("dry_run"))
+        self.assertEqual(result["target"]["table"], "wf_workflow")
+        self.assertTrue(result["target_found"])
+        self.assertIn("versions", result["dependencies"])
+        self.assertIn("activities", result["dependencies"])
+        self.assertIn("running_contexts", result["dependencies"])
+        self.assertTrue(result["precision_notes"]["dependency_check"])
+        # No DELETE request was issued
+        for call in self.auth_manager.make_request.call_args_list:
+            self.assertEqual(call.args[0], "GET")
 
     def test_reorder_workflow_activities_success(self):
         """Test reordering workflow activities successfully."""

@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
@@ -70,6 +71,10 @@ class UpdateScriptIncludeParams(BaseModel):
     )
     active: Optional[bool] = Field(default=None, description="Whether the script include is active")
     access: Optional[str] = Field(default=None, description="Access level of the script include")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
+    )
 
 
 class ExecuteScriptIncludeParams(BaseModel):
@@ -439,6 +444,16 @@ def update_script_include(
             message=f"No changes to update for script include: {script_include['name']}",
             script_include_id=sys_id,
             script_include_name=script_include["name"],
+        )
+
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="sys_script_include",
+            sys_id=sys_id,
+            proposed=body,
+            identifier_fields=["name", "api_name", "active"],
         )
 
     # Make the request

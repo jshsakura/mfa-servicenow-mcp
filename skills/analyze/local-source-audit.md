@@ -28,7 +28,9 @@ No API calls are made — everything is read from local files.
 ## Prerequisites
 
 Sources must be downloaded first via:
-- download_app_sources (full app)
+- download_app_sources (full app — default `auto_resolve_deps=true` also pulls
+  cross-scope SI/widget/provider/ui_macro referenced from the app; these
+  appear in the same tree with `"is_dependency": true`)
 - download_portal_sources + individual download tools (selective)
 
 ## Pipeline

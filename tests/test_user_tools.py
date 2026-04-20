@@ -103,6 +103,43 @@ class TestUserTools(unittest.TestCase):
         mock_invalidate_query_cache.assert_called_once_with(table="sys_user")
 
     @patch("servicenow_mcp.tools.user_tools.invalidate_query_cache")
+    def test_update_user_dry_run_omits_password(self, mock_invalidate):
+        """dry_run=True returns diff and never echoes password."""
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "result": [
+                {
+                    "sys_id": "user_dry",
+                    "user_name": "alice",
+                    "title": "Doctor",
+                    "active": "true",
+                }
+            ]
+        }
+        mock_response.content = json.dumps(mock_response.json.return_value).encode("utf-8")
+        mock_response.headers = {}
+        self.auth_manager.make_request.return_value = mock_response
+
+        params = UpdateUserParams(
+            user_id="user_dry",
+            title="Senior Doctor",
+            password="secret123",
+            roles=["admin"],
+            dry_run=True,
+        )
+        result = update_user(self.config, self.auth_manager, params)
+
+        self.assertTrue(result["dry_run"])
+        self.assertIn("title", result["proposed_changes"])
+        self.assertNotIn("user_password", result["proposed_changes"])
+        self.assertIn("password change proposed", " ".join(result.get("warnings", [])))
+        self.assertEqual(result.get("proposed_roles"), ["admin"])
+        mock_invalidate.assert_not_called()
+        for call in self.auth_manager.make_request.call_args_list:
+            self.assertEqual(call.args[0], "GET")
+
+    @patch("servicenow_mcp.tools.user_tools.invalidate_query_cache")
     def test_update_user(self, mock_invalidate_query_cache):
         """Test update_user function."""
         # Configure mock
@@ -470,6 +507,32 @@ class TestUserTools(unittest.TestCase):
         self.assertEqual(call_args[1]["json"]["group"], "group123")
         self.assertEqual(call_args[1]["json"]["user"], "user123")
         mock_invalidate_query_cache.assert_called_once_with(table="sys_user_grmember")
+
+    @patch("servicenow_mcp.tools.user_tools.get_user")
+    def test_remove_group_members_dry_run(self, mock_get_user):
+        """dry_run=True returns preview and issues no DELETE."""
+        mock_get_response = MagicMock()
+        mock_get_response.raise_for_status = MagicMock()
+        mock_get_response.json.return_value = {"result": [{"sys_id": "member_dry"}]}
+        self.auth_manager.make_request.return_value = mock_get_response
+        mock_get_user.return_value = {
+            "success": True,
+            "user": {"sys_id": "user_dry"},
+        }
+
+        params = RemoveGroupMembersParams(
+            group_id="group_dry",
+            members=["alice.radiology"],
+            dry_run=True,
+        )
+        result = remove_group_members(self.config, self.auth_manager, params)
+
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(len(result["would_remove"]), 1)
+        self.assertEqual(result["would_remove"][0]["membership_id"], "member_dry")
+        # No DELETE was issued — only the GET
+        for call in self.auth_manager.make_request.call_args_list:
+            self.assertEqual(call.args[0], "GET")
 
     @patch("servicenow_mcp.tools.user_tools.get_user")
     @patch("servicenow_mcp.tools.user_tools.invalidate_query_cache")
