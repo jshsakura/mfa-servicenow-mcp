@@ -82,7 +82,10 @@ IF "비활성화" or "deactivate":
 ## Pipeline: Modify
 
 IF "수정" or "update":
-  IF wf_workflow: CALL update_workflow(workflow_id=INPUT, name/description/table/active, confirm="approve")
+  # 1. Preview — no side effects, shows field-level diff
+  IF wf_workflow: CALL update_workflow(workflow_id=INPUT, <fields>, dry_run=True)
+  # 2. Show user `proposed_changes` + `no_op_fields`, then apply
+  IF wf_workflow: CALL update_workflow(workflow_id=INPUT, <fields>, confirm="approve")
   IF sys_hub_flow: CALL update_flow_designer(flow_id=INPUT, name/description/active, confirm="approve")
 
 > Flow Designer note: action/subflow structure changes require the Flow Designer UI + Publish. MCP can modify metadata and state only.

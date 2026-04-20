@@ -14,6 +14,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
+from ._preview import build_update_preview
 from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,10 @@ class UpdateChangeRequestParams(BaseModel):
     )
     work_notes: Optional[str] = Field(
         default=None, description="Work notes to add to the change request"
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
     )
 
 
@@ -130,6 +135,10 @@ class ApproveChangeParams(BaseModel):
     change_id: str = Field(..., description="Change request ID or sys_id")
     approver_id: Optional[str] = Field(default=None, description="ID of the approver")
     approval_comments: Optional[str] = Field(default=None, description="Comments for the approval")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview approval-record and change-request transitions without executing.",
+    )
 
 
 class RejectChangeParams(BaseModel):
@@ -138,6 +147,10 @@ class RejectChangeParams(BaseModel):
     change_id: str = Field(..., description="Change request ID or sys_id")
     approver_id: Optional[str] = Field(default=None, description="ID of the approver")
     rejection_reason: str = Field(..., description="Reason for rejection")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview rejection transitions without executing.",
+    )
 
 
 @register_tool(
@@ -232,6 +245,16 @@ def update_change_request(
             data[field_name] = value
 
     url = f"{config.api_url}/table/change_request/{params.change_id}"
+
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="change_request",
+            sys_id=params.change_id,
+            proposed=data,
+            identifier_fields=["number", "short_description", "state"],
+        )
 
     try:
         response = auth_manager.make_request(
@@ -518,6 +541,36 @@ def approve_change(
 
         approval_id = approval_rows[0]["sys_id"]
 
+        if params.dry_run:
+            change_rows, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="change_request",
+                query=f"sys_id={params.change_id}",
+                fields="sys_id,number,state,short_description",
+                limit=1,
+                offset=0,
+            )
+            current_change = change_rows[0] if change_rows else {}
+            return {
+                "dry_run": True,
+                "operation": "approve_change",
+                "target": {"table": "change_request", "sys_id": params.change_id},
+                "approval_record": {"sys_id": approval_id, "new_state": "approved"},
+                "change_record": {
+                    "current": current_change,
+                    "proposed_state": "implement",
+                },
+                "warnings": (
+                    [] if change_rows else [f"change_request {params.change_id} not found"]
+                ),
+                "precision_notes": {
+                    "count_source": "table_api",
+                    "dependency_check": False,
+                    "acl_checked": False,
+                },
+            }
+
         headers = {"Content-Type": "application/json"}
 
         # Step 2: PATCH approval record to "approved"
@@ -595,6 +648,40 @@ def reject_change(
             }
 
         approval_id = approval_rows[0]["sys_id"]
+
+        if params.dry_run:
+            change_rows, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="change_request",
+                query=f"sys_id={params.change_id}",
+                fields="sys_id,number,state,short_description",
+                limit=1,
+                offset=0,
+            )
+            current_change = change_rows[0] if change_rows else {}
+            return {
+                "dry_run": True,
+                "operation": "reject_change",
+                "target": {"table": "change_request", "sys_id": params.change_id},
+                "approval_record": {
+                    "sys_id": approval_id,
+                    "new_state": "rejected",
+                    "rejection_reason": params.rejection_reason,
+                },
+                "change_record": {
+                    "current": current_change,
+                    "proposed_state": "canceled",
+                },
+                "warnings": (
+                    [] if change_rows else [f"change_request {params.change_id} not found"]
+                ),
+                "precision_notes": {
+                    "count_source": "table_api",
+                    "dependency_check": False,
+                    "acl_checked": False,
+                },
+            }
 
         headers = {"Content-Type": "application/json"}
 

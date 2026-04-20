@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -75,6 +76,10 @@ class UpdateProjectParams(BaseModel):
     assigned_to: Optional[str] = Field(default=None, description="User assigned to the project")
     start_date: Optional[str] = Field(default=None, description="Start date for the project")
     end_date: Optional[str] = Field(default=None, description="End date for the project")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
+    )
 
 
 class ListProjectsParams(BaseModel):
@@ -210,6 +215,16 @@ def update_project(
         data["end_date"] = params.end_date
 
     url = f"{config.instance_url}/api/now/table/pm_project/{params.project_id}"
+
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="pm_project",
+            sys_id=params.project_id,
+            proposed=data,
+            identifier_fields=["number", "short_description", "state"],
+        )
 
     try:
         response = auth_manager.make_request("PUT", url, json=data)

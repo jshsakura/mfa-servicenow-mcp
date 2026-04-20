@@ -13,6 +13,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
+from ._preview import build_update_preview
 from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,10 @@ class UpdateCatalogCategoryParams(BaseModel):
     icon: Optional[str] = Field(default=None, description="Icon for the category")
     active: Optional[bool] = Field(default=None, description="Whether the category is active")
     order: Optional[int] = Field(default=None, description="Order of the category")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
+    )
 
 
 class MoveCatalogItemsParams(BaseModel):
@@ -516,6 +521,16 @@ def update_catalog_category(
         body["active"] = str(params.active).lower()
     if params.order is not None:
         body["order"] = str(params.order)
+
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="sc_category",
+            sys_id=params.category_id,
+            proposed=body,
+            identifier_fields=["title", "active", "order"],
+        )
 
     # Make the API request
     headers = auth_manager.get_headers()

@@ -41,6 +41,11 @@ IF entire scope:
     - include_linked_angular_providers = true
     - include_linked_script_includes = true
 
+IF full app (server + portal + schema + cross-scope deps):
+  → Use `manage/app-source-download` skill (download_app_sources).
+    That path runs auto_resolve_deps by default so global-scope
+    SI/widget/provider/ui_macro referenced from the app are pulled too.
+
 → RETURN: file count and output path
 
 ## Output Structure

@@ -72,6 +72,8 @@ AI가 자동으로:
 - **110개 이상의 도구**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
 - **24개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
+- **크로스-스코프 의존성 자동 해석** — `download_app_sources`가 앱 코드에서 참조하는 글로벌 스코프의 Script Include, Widget, Angular Provider, UI Macro까지 함께 받아 로컬 번들을 분석에 자족적으로 만듭니다
+- **Dry-run 프리뷰** — 모든 쓰기 도구에서 `dry_run=True` 지원. 실행 전 필드 단위 diff, 의존성 카운트, 정확도 노트를 반환합니다. 읽기 전용 API만 사용하므로 모든 인증 모드에서 동작.
 - `confirm='approve'` 기반 안전한 수정 승인 정책
 - 페이로드 안전 제한, 필드별 절단, 총 응답 한도 (200K 문자)
 - 일시적 네트워크 오류 자동 재시도 (백오프)
@@ -413,9 +415,15 @@ MCP 클라이언트 설정에서 버전을 고정하려면 명령어에 `--from`
 ServiceNow 앱의 전체 소스를 로컬에 다운로드하고 분석합니다 — 반복적인 API 호출 없이, 컨텍스트 낭비 없이.
 
 ```
-Step 1: download_app_sources(scope="x_company_app")    → 서버사이드 코드 전체를 디스크에
+Step 1: download_app_sources(scope="x_company_app")    → 서버사이드 코드 + 크로스-스코프 의존성까지 디스크에
 Step 2: audit_local_sources(source_root="temp/...")     → 분석 + HTML 리포트
 ```
+
+Step 1은 기본값 `auto_resolve_deps=True`로 동작합니다: 인-스코프 다운로드 후 모든
+`.js/.html/.xml` 파일을 스캔해 번들에 없는 `sys_script_include`, `sp_widget`,
+`sp_angular_provider`, `sys_ui_macro`를 스코프 상관없이 추가로 받아옵니다. 끌어온 의존성은
+같은 트리에 저장되며 `_metadata.json`에 `"is_dependency": true`로 표시되어 Step 2 감사가
+완전한 호출 그래프를 보게 됩니다. 인-스코프만 받고 싶으면 `auto_resolve_deps=False`로 설정.
 
 ### 생성되는 파일
 
