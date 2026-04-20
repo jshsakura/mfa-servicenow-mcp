@@ -46,9 +46,25 @@ CALL download_app_sources
   - scope = INPUT_SCOPE
   - include_widget_sources = true
   - include_schema = true
+  - auto_resolve_deps = true  # default; pulls cross-scope SI/widget/provider/ui_macro
   - max_records_per_type = 500
 
-→ RETURN: summary with counts and output_root path
+→ RETURN: summary with counts, `dep_summary` (cross-scope deps fetched), and output_root path
+
+#### What auto_resolve_deps does (v1.8.21+)
+
+After the in-scope download, the tool scans every `.js/.html/.xml` file and
+fetches any referenced records not already in the bundle. Saved into the
+same tree with `is_dependency: true` in `_metadata.json`. Covered types:
+
+| Ref pattern | Resolves to |
+|-------------|-------------|
+| `new X()`, `gs.include('X')`, `new GlideAjax('X')` | sys_script_include |
+| `<sp-widget id="X">`, `$sp.getWidget('X')` | sp_widget |
+| `$inject=[...]`, `angular.module(..., [...])` | sp_angular_provider |
+| `<g:X>`, `<g2:X>` Jelly (excl. builtins) | sys_ui_macro |
+
+Set `auto_resolve_deps=false` to skip this pass if you only want in-scope records.
 
 ### Individual Group Download
 
@@ -91,8 +107,12 @@ temp/<instance>/<scope>/
   sys_ws_operation/    ← download_api_sources
   sys_security_acl/    ← download_security_sources
   sys_script_fix/      ← download_admin_scripts
+  sys_ui_macro/        ← auto_resolve_deps (if any macros referenced)
   _schema/             ← download_table_schema
   _manifest.json       ← unified inventory
+
+  # Cross-scope deps (if auto_resolve_deps=true):
+  # records marked `"is_dependency": true` in their _metadata.json.
 ```
 
 ## ON ERROR
