@@ -28,6 +28,43 @@ required_input: what user must provide
 output: summary|report|diff|data|status|files|action
 ```
 
+## Dry-Run Preview (write tools, v1.8.22+)
+
+All mutating tools (update_*, delete_*, add_*, remove_*, reorder_*) accept
+`dry_run=True`. When set, the tool issues only read-only Table/Aggregate API
+calls and returns a structured preview — no side effects. Shape:
+
+```
+{
+  "dry_run": true,
+  "operation": "update"|"delete"|...,
+  "target": {"table": "...", "sys_id": "..."},
+  "target_found": bool,
+  "proposed_changes": {"field": {"before": x, "after": y}},  # update
+  "no_op_fields": [...],                                      # update
+  "dependencies": {"activities": N, "versions": N},           # delete
+  "warnings": [...],
+  "precision_notes": {"count_source": "table_api", ...}
+}
+```
+
+Recommended flow for any write: **dry_run=True → show diff → confirm=approve**.
+Works under every auth type (basic/OAuth/API key/browser) — read-only APIs only.
+
+## Cross-Scope Dep Auto-Resolve (v1.8.21+)
+
+`download_app_sources(auto_resolve_deps=True)` (default) scans downloaded
+sources and pulls referenced cross-scope records from global/other scopes:
+
+- Script Includes — `new X()`, `gs.include('X')`, `new GlideAjax('X')`
+- Widgets — `<sp-widget id="X">`, `$sp.getWidget('X')`
+- Angular Providers — `$inject`, `angular.module(..., [...])`
+- UI Macros — `<g:macro>` / `<g2:macro>` Jelly tags (excl. builtins)
+
+Pulled records are saved into the same scope tree with `is_dependency: true`
+in `_metadata.json`. Business rules / client scripts / UI actions are **not**
+auto-resolved (table-bound, not referenced by name from code).
+
 ## Skill Index
 
 ### analyze/ — Understand before you touch

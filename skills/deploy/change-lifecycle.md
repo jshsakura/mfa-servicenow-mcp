@@ -37,6 +37,8 @@ IF "만들기" or "create":
     - confirm = "approve"
 
 IF "작업 추가" or "add task":
+  # Preview first (field diff + dependency counts)
+  CALL update_change_request(..., dry_run=True) for scope-changing edits
   CALL add_change_task
     - change_id, short_description, assignment_group
     - confirm = "approve"

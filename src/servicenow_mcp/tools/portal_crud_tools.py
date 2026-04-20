@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -542,6 +543,10 @@ class UpdatePageParams(BaseModel):
     internal: Optional[bool] = Field(default=None, description="Toggle internal flag")
     public: Optional[bool] = Field(default=None, description="Toggle public access")
     draft: Optional[bool] = Field(default=None, description="Toggle draft status")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
+    )
 
 
 @register_tool(
@@ -572,6 +577,16 @@ def update_page(
 
     if not body:
         return {"success": False, "message": "No fields to update"}
+
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="sp_page",
+            sys_id=params.sys_id,
+            proposed=body,
+            identifier_fields=["title", "id", "public"],
+        )
 
     url = f"{config.instance_url}/api/now/table/sp_page/{params.sys_id}"
     headers = auth_manager.get_headers()

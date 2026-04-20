@@ -73,6 +73,8 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 - **110+ tools** across 7 role-based packages — from read-only to full CRUD
 - **24 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
+- **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
+- **Dry-run preview** on every write tool (`dry_run=True`) — returns field-level diff, dependency counts, and precision notes before any side effect. Uses read-only APIs, works under all auth modes.
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
@@ -425,9 +427,16 @@ The server includes several layers of performance optimization to minimize laten
 Download and analyze your entire ServiceNow application locally — no repeated API calls, no context waste.
 
 ```
-Step 1: download_app_sources(scope="x_company_app")    → All server-side code to disk
+Step 1: download_app_sources(scope="x_company_app")    → All server-side code + cross-scope deps to disk
 Step 2: audit_local_sources(source_root="temp/...")     → Analysis + HTML report
 ```
+
+Step 1 runs `auto_resolve_deps=True` by default: after the in-scope download it scans every
+`.js/.html/.xml` file and fetches any referenced `sys_script_include`, `sp_widget`,
+`sp_angular_provider`, or `sys_ui_macro` records not already in the bundle — no matter
+what scope they live in. Pulled deps are saved into the same tree with
+`"is_dependency": true` in their `_metadata.json`, so the audit in Step 2 sees the
+complete call graph. Set `auto_resolve_deps=False` if you only want in-scope records.
 
 ### What Gets Generated
 
