@@ -1556,6 +1556,371 @@ def _clamp_download_per_type(value: int) -> int:
     return max(1, min(value, MAX_DOWNLOAD_PER_TYPE))
 
 
+# ---------------------------------------------------------------------------
+# Dependency reference extraction patterns (cross-scope resolution)
+# ---------------------------------------------------------------------------
+
+_DEP_GS_INCLUDE_RE = re.compile(r"""\bgs\.include\s*\(\s*["']([^"']+)["']\s*\)""")
+_DEP_WIDGET_EMBED_RE = re.compile(r"""<sp-widget\s+id=["']([^"']+)["']""", re.IGNORECASE)
+_DEP_SP_WIDGET_RE = re.compile(r"""\$sp\.getWidget(?:FromInstance)?\s*\(\s*["']([^"']+)["']\s*\)""")
+_DEP_INJECT_RE = re.compile(r"""\$inject\s*=\s*\[([^\]]+)\]""")
+_DEP_ANGULAR_REQUIRES_RE = re.compile(
+    r"""angular\.module\s*\(\s*["'][^"']*["']\s*,\s*\[([^\]]+)\]"""
+)
+# Client-side SI lookup: new GlideAjax('ScriptIncludeName')
+_DEP_GLIDE_AJAX_RE = re.compile(r"""\bGlideAjax\s*\(\s*["']([A-Za-z_$][\w$.]*)["']""")
+# Jelly macro references: <g:macro_name …> or <g2:macro_name …> (UI macros in global)
+_DEP_JELLY_MACRO_RE = re.compile(r"""<g2?:([a-z][a-z0-9_]*)\b""", re.IGNORECASE)
+_JELLY_BUILTIN_TAGS: Set[str] = {
+    "evaluate",
+    "if",
+    "else",
+    "elseif",
+    "set",
+    "include",
+    "include_script",
+    "insert",
+    "call",
+    "declare",
+    "foreach",
+    "for_each",
+    "while",
+    "break",
+    "switch",
+    "case",
+    "default",
+    "try",
+    "catch",
+    "throw",
+    "return",
+    "choose",
+    "when",
+    "otherwise",
+    "ui_form",
+    "ui_input_field",
+    "ui_reference",
+    "xml_to_json",
+    "comment",
+    "form",
+    "panel",
+    "tab",
+    "section",
+}
+
+
+def _scan_scope_dep_refs(scope_root: Path) -> Dict[str, Set[str]]:
+    """Scan downloaded source files for cross-scope (SI/widget/provider/ui_macro) refs."""
+    si_refs: Set[str] = set()
+    widget_refs: Set[str] = set()
+    provider_refs: Set[str] = set()
+    ui_macro_refs: Set[str] = set()
+
+    for src_file in scope_root.rglob("*"):
+        if not src_file.is_file():
+            continue
+        # Skip _deps folder to avoid re-scanning fetched deps
+        if "_deps" in src_file.parts:
+            continue
+        if src_file.suffix.lower() not in {".js", ".html", ".xml"}:
+            continue
+        try:
+            text = src_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        for m in SCRIPT_INCLUDE_INSTANCE_RE.finditer(text):
+            cls = m.group(1).split(".")[-1]
+            if cls and cls[0].isupper() and cls not in IGNORED_CLASS_NAMES:
+                si_refs.add(cls)
+        for m in _DEP_GS_INCLUDE_RE.finditer(text):
+            n = m.group(1).strip()
+            if n:
+                si_refs.add(n)
+        for m in _DEP_GLIDE_AJAX_RE.finditer(text):
+            n = m.group(1).strip()
+            if n:
+                si_refs.add(n)
+        for wid in _DEP_WIDGET_EMBED_RE.findall(text):
+            if wid:
+                widget_refs.add(wid)
+        for wid in _DEP_SP_WIDGET_RE.findall(text):
+            if wid:
+                widget_refs.add(wid)
+        for block in _DEP_INJECT_RE.findall(text):
+            for n in re.findall(r'["\']([^"\']+)["\']', block):
+                if n:
+                    provider_refs.add(n)
+        for block in _DEP_ANGULAR_REQUIRES_RE.findall(text):
+            for n in re.findall(r'["\']([^"\']+)["\']', block):
+                if n:
+                    provider_refs.add(n)
+        # Jelly macros only appear in .xml / .html (legacy UI macros)
+        if src_file.suffix.lower() in {".xml", ".html"}:
+            for name in _DEP_JELLY_MACRO_RE.findall(text):
+                n = name.lower()
+                if n and n not in _JELLY_BUILTIN_TAGS:
+                    ui_macro_refs.add(n)
+
+    return {
+        "script_includes": si_refs,
+        "widgets": widget_refs,
+        "angular_providers": provider_refs,
+        "ui_macros": ui_macro_refs,
+    }
+
+
+def _collect_downloaded_names(scope_root: Path, table: str, id_field: str) -> Set[str]:
+    """Read _metadata.json files to get set of identifier values already downloaded."""
+    names: Set[str] = set()
+    table_dir = scope_root / table
+    if not table_dir.is_dir():
+        return names
+    for meta_file in table_dir.rglob("_metadata.json"):
+        try:
+            data = json.loads(meta_file.read_text(encoding="utf-8"))
+            val = data.get(id_field) or data.get("name")
+            if val:
+                names.add(str(val))
+                names.add(str(val).split(".")[-1])
+        except Exception:
+            pass
+    return names
+
+
+_DEP_MAX_WORKERS = 3  # max concurrent API calls during dep resolution
+_DEP_CHUNK_SIZE = 30  # names per API query chunk (smaller = safer under rate limits)
+_DEP_MAX_DEPTH = 2  # transitive resolution passes
+
+
+def _download_dep_records(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    source_type: str,
+    id_field: str,
+    names: List[str],
+    scope_root: Path,
+    page_size: int,
+) -> Dict[str, int]:
+    """Fetch records by name (no scope filter); save into scope_root/{table}/ (same structure).
+
+    Parallel chunk queries are bounded by _DEP_MAX_WORKERS.
+    Already-present files are skipped (idempotent / concurrency-safe).
+    """
+    if not names:
+        return {"count": 0, "files": 0}
+
+    cfg = SOURCE_CONFIG[source_type]
+    table = cfg["table"]
+    all_fields = list(cfg["summary_fields"]) + list(cfg["source_fields"])
+    effective_page_size = min(page_size, 10) if cfg["source_fields"] else page_size
+
+    chunks = _chunked(names, _DEP_CHUNK_SIZE)
+
+    def _fetch_chunk(chunk: List[str]) -> List[Dict[str, Any]]:
+        escaped = ",".join(_escape_query_fragment(n) for n in chunk)
+        try:
+            return sn_query_all(
+                config,
+                auth_manager,
+                table=table,
+                query=f"{id_field}IN{escaped}",
+                fields=",".join(all_fields),
+                page_size=effective_page_size,
+                max_records=500,
+                display_value=False,
+            )
+        except Exception as exc:
+            logger.warning("dep fetch %s chunk: %s", source_type, exc)
+            return []
+
+    all_rows: List[Dict[str, Any]] = []
+    if len(chunks) <= 1:
+        all_rows = _fetch_chunk(chunks[0]) if chunks else []
+    else:
+        with ThreadPoolExecutor(max_workers=_DEP_MAX_WORKERS) as pool:
+            for batch in pool.map(_fetch_chunk, chunks):
+                all_rows.extend(batch)
+
+    fetched = 0
+    file_count = 0
+
+    for record in all_rows:
+        sys_id = str(record.get("sys_id") or "")
+        id_val = str(record.get(id_field) or record.get("name") or sys_id)
+        safe_name = _safe_filename(id_val)
+        rec_dir = scope_root / table / safe_name
+        meta_path = rec_dir / "_metadata.json"
+
+        # Skip if already present (idempotent — safe under concurrent calls)
+        if meta_path.exists():
+            continue
+
+        metadata: Dict[str, Any] = {
+            "source_type": source_type,
+            "table": table,
+            "sys_id": sys_id,
+            "is_dependency": True,
+        }
+        for sf in cfg["summary_fields"]:
+            val = record.get(sf)
+            if val is not None:
+                metadata[sf] = str(val) if not isinstance(val, str) else val
+        _dl_write_json(meta_path, metadata)
+        fetched += 1
+
+        for sf in cfg["source_fields"]:
+            content = record.get(sf)
+            if content and isinstance(content, str) and content.strip():
+                ext = _FIELD_EXTENSIONS.get(sf, ".txt")
+                dest = rec_dir / f"{sf}{ext}"
+                if not dest.exists():
+                    _dl_write_file(dest, content)
+                    file_count += 1
+
+    return {"count": fetched, "files": file_count}
+
+
+def _auto_resolve_deps(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    scope_root: Path,
+    page_size: int,
+) -> Dict[str, Any]:
+    """Scan downloaded scope and fetch missing cross-scope SI/widget/provider/ui_macro deps.
+
+    Saves deps into scope_root/{table}/ (same structure as main scope, marked
+    with is_dependency=true in _metadata.json). Runs up to _DEP_MAX_DEPTH passes
+    to catch transitive dependencies. Names already attempted are never re-queried.
+    """
+    # Track all names ever attempted (avoids re-querying unfound names on next pass)
+    attempted_si: Set[str] = set()
+    attempted_widgets: Set[str] = set()
+    attempted_providers: Set[str] = set()
+    attempted_ui_macros: Set[str] = set()
+
+    total_counts: Dict[str, Dict[str, int]] = {
+        "script_include": {"count": 0, "files": 0},
+        "widget": {"count": 0, "files": 0},
+        "angular_provider": {"count": 0, "files": 0},
+        "ui_macro": {"count": 0, "files": 0},
+    }
+    total_refs: Dict[str, int] = {
+        "script_includes": 0,
+        "widgets": 0,
+        "angular_providers": 0,
+        "ui_macros": 0,
+    }
+
+    def _saved_names(table: str, id_field: str) -> Set[str]:
+        names: Set[str] = set()
+        tdir = scope_root / table
+        if not tdir.is_dir():
+            return names
+        for meta in tdir.rglob("_metadata.json"):
+            try:
+                d = json.loads(meta.read_text(encoding="utf-8"))
+                v = d.get(id_field) or d.get("name")
+                if v:
+                    names.add(str(v))
+                    names.add(str(v).split(".")[-1])
+            except Exception:
+                pass
+        return names
+
+    for depth in range(_DEP_MAX_DEPTH):
+        # Scan all files in scope_root (including newly fetched deps from prior passes)
+        refs = _scan_scope_dep_refs(scope_root)
+
+        if depth == 0:
+            total_refs["script_includes"] = len(refs["script_includes"])
+            total_refs["widgets"] = len(refs["widgets"])
+            total_refs["angular_providers"] = len(refs["angular_providers"])
+            total_refs["ui_macros"] = len(refs.get("ui_macros", set()))
+
+        si_saved = _saved_names("sys_script_include", "api_name")
+        widget_saved = _saved_names("sp_widget", "id")
+        provider_saved = _saved_names("sp_angular_provider", "name")
+        ui_macro_saved = _saved_names("sys_ui_macro", "name")
+
+        missing_si = [
+            n for n in refs["script_includes"] if n not in si_saved and n not in attempted_si
+        ]
+        missing_widgets = [
+            n for n in refs["widgets"] if n not in widget_saved and n not in attempted_widgets
+        ]
+        missing_providers = [
+            n
+            for n in refs["angular_providers"]
+            if n not in provider_saved and n not in attempted_providers
+        ]
+        missing_ui_macros = [
+            n
+            for n in refs.get("ui_macros", set())
+            if n not in ui_macro_saved and n not in attempted_ui_macros
+        ]
+
+        # Mark attempted before fetching — prevents infinite loops on not-found names
+        attempted_si.update(missing_si)
+        attempted_widgets.update(missing_widgets)
+        attempted_providers.update(missing_providers)
+        attempted_ui_macros.update(missing_ui_macros)
+
+        if (
+            not missing_si
+            and not missing_widgets
+            and not missing_providers
+            and not missing_ui_macros
+        ):
+            break
+
+        if missing_si:
+            r = _download_dep_records(
+                config, auth_manager, "script_include", "name", missing_si, scope_root, page_size
+            )
+            total_counts["script_include"]["count"] += r["count"]
+            total_counts["script_include"]["files"] += r["files"]
+
+        if missing_widgets:
+            r = _download_dep_records(
+                config, auth_manager, "widget", "id", missing_widgets, scope_root, page_size
+            )
+            total_counts["widget"]["count"] += r["count"]
+            total_counts["widget"]["files"] += r["files"]
+
+        if missing_providers:
+            r = _download_dep_records(
+                config,
+                auth_manager,
+                "angular_provider",
+                "name",
+                missing_providers,
+                scope_root,
+                page_size,
+            )
+            total_counts["angular_provider"]["count"] += r["count"]
+            total_counts["angular_provider"]["files"] += r["files"]
+
+        if missing_ui_macros:
+            r = _download_dep_records(
+                config,
+                auth_manager,
+                "ui_macro",
+                "name",
+                missing_ui_macros,
+                scope_root,
+                page_size,
+            )
+            total_counts["ui_macro"]["count"] += r["count"]
+            total_counts["ui_macro"]["files"] += r["files"]
+
+    total_new = sum(v["count"] for v in total_counts.values())
+    return {
+        "refs_found": total_refs,
+        "downloaded": {k: v for k, v in total_counts.items() if v["count"] > 0},
+        "total_new_records": total_new,
+    }
+
+
 def _safe_filename(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
     return safe.strip("._") or "unnamed"
@@ -2311,6 +2676,10 @@ class DownloadAppSourcesParams(BaseModel):
     )
     only_active: bool = Field(default=False, description="Download only active records.")
     acl_script_only: bool = Field(default=True, description="Only download ACLs with scripts.")
+    auto_resolve_deps: bool = Field(
+        default=True,
+        description="After download, scan sources and fetch missing cross-scope SI/widget/provider/ui_macro deps.",
+    )
     output_dir: Optional[str] = Field(default=None, description="Custom output directory.")
 
 
@@ -2431,6 +2800,16 @@ def download_app_sources(
             }
             all_warnings.extend(schema_warnings)
 
+    # --- Auto-resolve cross-scope dependencies ---
+    dep_summary: Optional[Dict[str, Any]] = None
+    if params.auto_resolve_deps:
+        try:
+            dep_summary = _auto_resolve_deps(config, auth_manager, scope_root, params.page_size)
+            if dep_summary.get("total_new_records", 0) > 0:
+                all_files += dep_summary["total_new_records"]
+        except Exception as exc:
+            all_warnings.append(f"dep_resolve: {exc}")
+
     # --- Write unified manifest ---
     _dl_write_json(
         scope_root / "_manifest.json",
@@ -2460,6 +2839,8 @@ def download_app_sources(
         summary["widget_summary"] = widget_summary.get("summary")
     if schema_summary:
         summary["schema_summary"] = schema_summary
+    if dep_summary:
+        summary["dep_summary"] = dep_summary
     if all_warnings:
         summary["warnings"] = all_warnings
     summary["safety_notice"] = (
