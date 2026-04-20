@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -92,6 +93,10 @@ class UpdateScrumTaskParams(BaseModel):
     assigned_to: Optional[str] = Field(default=None, description="User assigned to the scrum task")
     work_notes: Optional[str] = Field(
         default=None, description="Work notes to add to the scrum task"
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
     )
 
 
@@ -232,6 +237,16 @@ def update_scrum_task(
         data["work_notes"] = params.work_notes
 
     url = f"{config.instance_url}/api/now/table/rm_scrum_task/{params.scrum_task_id}"
+
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="rm_scrum_task",
+            sys_id=params.scrum_task_id,
+            proposed=data,
+            identifier_fields=["number", "short_description", "state"],
+        )
 
     try:
         headers = auth_manager.get_headers()

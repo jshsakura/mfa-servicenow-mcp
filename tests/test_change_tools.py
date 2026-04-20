@@ -393,6 +393,40 @@ class TestChangeTools(unittest.TestCase):
         self.auth_manager.make_request.assert_not_called()
         mock_invalidate.assert_not_called()
 
+    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
+    def test_approve_change_dry_run(self, mock_query_page):
+        """dry_run=True returns a preview and issues no PATCH."""
+        mock_query_page.side_effect = [
+            ([{"sys_id": "approval123"}], 1),
+            ([{"sys_id": "cr123", "number": "CHG0001", "state": "assess"}], 1),
+        ]
+        params = ApproveChangeParams(change_id="cr123", dry_run=True)
+        result = approve_change(self.config, self.auth_manager, params)
+
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(result["operation"], "approve_change")
+        self.assertEqual(result["approval_record"]["new_state"], "approved")
+        self.assertEqual(result["change_record"]["proposed_state"], "implement")
+        self.auth_manager.make_request.assert_not_called()
+
+    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
+    def test_reject_change_dry_run(self, mock_query_page):
+        """dry_run=True returns rejection preview without PATCH."""
+        mock_query_page.side_effect = [
+            ([{"sys_id": "approval456"}], 1),
+            ([{"sys_id": "cr456", "number": "CHG0002", "state": "assess"}], 1),
+        ]
+        params = RejectChangeParams(
+            change_id="cr456", rejection_reason="risk too high", dry_run=True
+        )
+        result = reject_change(self.config, self.auth_manager, params)
+
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(result["approval_record"]["new_state"], "rejected")
+        self.assertEqual(result["change_record"]["proposed_state"], "canceled")
+        self.assertEqual(result["approval_record"]["rejection_reason"], "risk too high")
+        self.auth_manager.make_request.assert_not_called()
+
     @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
     @patch("servicenow_mcp.tools.change_tools.sn_query_page")
     def test_approve_change_error(self, mock_query_page, mock_invalidate):

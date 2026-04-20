@@ -13,6 +13,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
+from ._preview import build_update_preview
 from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,10 @@ class UpdateIncidentParams(BaseModel):
         default=None, description="Close notes to add to the incident"
     )
     close_code: Optional[str] = Field(default=None, description="Close code for the incident")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
+    )
 
 
 class AddCommentParams(BaseModel):
@@ -78,6 +83,10 @@ class ResolveIncidentParams(BaseModel):
     incident_id: str = Field(..., description="Incident ID or sys_id")
     resolution_code: str = Field(..., description="Resolution code for the incident")
     resolution_notes: str = Field(..., description="Resolution notes for the incident")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview state transition without executing.",
+    )
 
 
 class GetIncidentByNumberParams(BaseModel):
@@ -244,7 +253,17 @@ def update_incident(
     api_url = f"{config.api_url}/table/incident/{sys_id}"
 
     # Build request data - only include provided fields
-    data = params.model_dump(exclude={"incident_id"}, exclude_none=True)
+    data = params.model_dump(exclude={"incident_id", "dry_run"}, exclude_none=True)
+
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="incident",
+            sys_id=sys_id,
+            proposed=data,
+            identifier_fields=["number", "short_description", "state"],
+        )
 
     # Make request
     try:
@@ -372,6 +391,16 @@ def resolve_incident(
         "close_notes": params.resolution_notes,
         "resolved_at": "now",
     }
+
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="incident",
+            sys_id=sys_id,
+            proposed=data,
+            identifier_fields=["number", "short_description", "state"],
+        )
 
     # Make request
     try:

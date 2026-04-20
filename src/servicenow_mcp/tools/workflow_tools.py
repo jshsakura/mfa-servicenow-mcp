@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Type, TypeVar, Union, cast
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools._preview import build_delete_preview, build_update_preview
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -75,6 +76,10 @@ class UpdateWorkflowParams(BaseModel):
     attributes: Optional[Dict[str, Any]] = Field(
         default=None, description="Additional attributes for the workflow"
     )
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
+    )
 
 
 class ActivateWorkflowParams(BaseModel):
@@ -112,12 +117,20 @@ class UpdateWorkflowActivityParams(BaseModel):
     attributes: Optional[Dict[str, Any]] = Field(
         default=None, description="Additional attributes for the activity"
     )
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
+    )
 
 
 class DeleteWorkflowActivityParams(BaseModel):
     """Parameters for deleting a workflow activity."""
 
     activity_id: str = Field(..., description="Activity ID or sys_id")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview deletion scope without executing.",
+    )
 
 
 class ReorderWorkflowActivitiesParams(BaseModel):
@@ -157,6 +170,10 @@ class DeleteWorkflowParams(BaseModel):
     """Parameters for deleting a workflow."""
 
     workflow_id: str = Field(..., description="Workflow ID or sys_id")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview deletion scope without executing.",
+    )
 
 
 def _unwrap_params(params: Any, param_class: Type[T]) -> Dict[str, Any]:
@@ -553,6 +570,16 @@ def update_workflow(
     if not data:
         return {"error": "No update parameters provided"}
 
+    if params.get("dry_run"):
+        return build_update_preview(
+            server_config,
+            auth_manager,
+            table="wf_workflow",
+            sys_id=workflow_id,
+            proposed=data,
+            identifier_fields=["name", "active", "published"],
+        )
+
     # Make the API request
     try:
         headers = auth_manager.get_headers()
@@ -824,6 +851,16 @@ def update_workflow_activity(
     if not data:
         return {"error": "No update parameters provided"}
 
+    if params.get("dry_run"):
+        return build_update_preview(
+            server_config,
+            auth_manager,
+            table="wf_activity",
+            sys_id=activity_id,
+            proposed=data,
+            identifier_fields=["name", "activity_definition", "workflow_version"],
+        )
+
     # Make the API request
     try:
         headers = auth_manager.get_headers()
@@ -879,6 +916,15 @@ def delete_workflow_activity(
     activity_id = params.get("activity_id")
     if not activity_id:
         return {"error": "Activity ID is required"}
+
+    if params.get("dry_run"):
+        return build_delete_preview(
+            server_config,
+            auth_manager,
+            table="wf_activity",
+            sys_id=activity_id,
+            identifier_fields=["name", "activity_definition", "workflow_version"],
+        )
 
     # Make the API request
     try:
@@ -1019,6 +1065,24 @@ def delete_workflow(
     workflow_id = params.get("workflow_id")
     if not workflow_id:
         return {"error": "Workflow ID is required"}
+
+    if params.get("dry_run"):
+        return build_delete_preview(
+            server_config,
+            auth_manager,
+            table="wf_workflow",
+            sys_id=workflow_id,
+            identifier_fields=["name", "description", "active", "published"],
+            dependency_checks=[
+                {"table": "wf_workflow_version", "field": "workflow", "label": "versions"},
+                {
+                    "table": "wf_activity",
+                    "field": "workflow_version.workflow",
+                    "label": "activities",
+                },
+                {"table": "wf_context", "field": "workflow", "label": "running_contexts"},
+            ],
+        )
 
     # Make the API request
     try:

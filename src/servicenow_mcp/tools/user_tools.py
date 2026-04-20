@@ -5,11 +5,12 @@ This module provides tools for managing users and groups in ServiceNow.
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -56,6 +57,10 @@ class UpdateUserParams(BaseModel):
     location: Optional[str] = Field(default=None, description="Location of the user")
     password: Optional[str] = Field(default=None, description="Password for the user account")
     active: Optional[bool] = Field(default=None, description="Whether the user account is active")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
+    )
 
 
 class GetUserParams(BaseModel):
@@ -113,6 +118,10 @@ class UpdateGroupParams(BaseModel):
     type: Optional[str] = Field(default=None, description="Type of the group")
     email: Optional[str] = Field(default=None, description="Email address for the group")
     active: Optional[bool] = Field(default=None, description="Whether the group is active")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
+    )
 
 
 class AddGroupMembersParams(BaseModel):
@@ -130,6 +139,10 @@ class RemoveGroupMembersParams(BaseModel):
     group_id: str = Field(..., description="Group ID or sys_id")
     members: List[str] = Field(
         default=..., description="List of user sys_ids or usernames to remove as members"
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Preview resolved memberships without deleting.",
     )
 
 
@@ -298,6 +311,25 @@ def update_user(
         data["user_password"] = params.password
     if params.active is not None:
         data["active"] = str(params.active).lower()
+
+    if params.dry_run:
+        # Exclude password from preview — don't echo secrets in the diff
+        preview_data = {k: v for k, v in data.items() if k != "user_password"}
+        preview = build_update_preview(
+            config,
+            auth_manager,
+            table="sys_user",
+            sys_id=params.user_id,
+            proposed=preview_data,
+            identifier_fields=["user_name", "email", "active"],
+        )
+        if params.password:
+            preview.setdefault("warnings", []).append(
+                "password change proposed (value omitted from preview)"
+            )
+        if params.roles:
+            preview["proposed_roles"] = list(params.roles)
+        return preview
 
     # Make request
     try:
@@ -778,6 +810,16 @@ def update_group(
     if params.active is not None:
         data["active"] = str(params.active).lower()
 
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="sys_user_group",
+            sys_id=params.group_id,
+            proposed=data,
+            identifier_fields=["name", "description", "active"],
+        )
+
     # Make request
     try:
         response = auth_manager.make_request(
@@ -910,6 +952,7 @@ def remove_group_members(
     """
     success = True
     failed_members = []
+    dry_run_removals: List[Dict[str, Any]] = []
 
     for member in params.members:
         # Get user ID if username is provided
@@ -950,8 +993,16 @@ def remove_group_members(
                 failed_members.append(member)
                 continue
 
-            # Then delete the membership record
             membership_id = result[0].get("sys_id")
+
+            if params.dry_run:
+                # Record what would be deleted — no DELETE call issued
+                dry_run_removals.append(
+                    {"member": member, "user_id": user_id, "membership_id": membership_id}
+                )
+                continue
+
+            # Then delete the membership record
             delete_url = f"{api_url}/{membership_id}"
 
             response = auth_manager.make_request(
@@ -966,6 +1017,23 @@ def remove_group_members(
             logger.error(f"Failed to remove member '{member}' from group: {e}")
             success = False
             failed_members.append(member)
+
+    if params.dry_run:
+        return {
+            "dry_run": True,
+            "operation": "delete",
+            "target": {"table": "sys_user_grmember", "group_id": params.group_id},
+            "would_remove": dry_run_removals,
+            "unresolved_members": failed_members,
+            "warnings": (
+                [f"{len(failed_members)} member(s) could not be resolved"] if failed_members else []
+            ),
+            "precision_notes": {
+                "count_source": "table_api",
+                "dependency_check": False,
+                "acl_checked": False,
+            },
+        }
 
     if failed_members:
         message = f"Some members could not be removed from the group: {', '.join(failed_members)}"
