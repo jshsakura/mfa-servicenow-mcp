@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -57,6 +58,7 @@ class UpdateCatalogItemParams(BaseModel):
     price: Optional[str] = None
     active: Optional[bool] = None
     order: Optional[int] = None
+    dry_run: bool = False
 
 
 @register_tool(
@@ -172,6 +174,16 @@ def update_catalog_item(
             body["active"] = str(params.active).lower()
         if params.order is not None:
             body["order"] = str(params.order)
+
+        if params.dry_run:
+            return build_update_preview(
+                config,
+                auth_manager,
+                table="sc_cat_item",
+                sys_id=params.item_id,
+                proposed=body,
+                identifier_fields=["name", "category", "active"],
+            )
 
         # Make the API request
         url = f"{config.instance_url}/api/now/table/sc_cat_item/{params.item_id}"

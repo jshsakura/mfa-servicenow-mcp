@@ -13,6 +13,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
+from ._preview import build_update_preview
 from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,10 @@ class UpdateChangesetParams(BaseModel):
     state: Optional[str] = Field(default=None, description="State of the changeset")
     developer: Optional[str] = Field(
         default=None, description="Developer responsible for the changeset"
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
     )
 
 
@@ -283,6 +288,17 @@ def update_changeset(
         }
 
     url = f"{config.api_url}/table/sys_update_set/{params.changeset_id}"
+
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="sys_update_set",
+            sys_id=params.changeset_id,
+            proposed=data,
+            identifier_fields=["name", "state", "application"],
+        )
+
     headers = auth_manager.get_headers()
     headers["Content-Type"] = "application/json"
 

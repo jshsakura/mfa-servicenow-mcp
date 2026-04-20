@@ -289,6 +289,41 @@ class TestIncidentTools(unittest.TestCase):
     # --- resolve_incident ---
 
     @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
+    def test_resolve_incident_dry_run(self, mock_invalidate):
+        """dry_run=True returns a diff preview and issues no PUT."""
+        # _resolve_incident_sys_id → accepts sys_id directly, no extra call.
+        # Preview then calls sn_query_page → fetch current record.
+        fetch_response = self._mock_response(
+            {
+                "result": [
+                    {
+                        "sys_id": "sys_dry",
+                        "number": "INC999",
+                        "state": "1",
+                        "close_code": "",
+                        "close_notes": "",
+                    }
+                ]
+            }
+        )
+        self.auth_manager.make_request.return_value = fetch_response
+
+        params = ResolveIncidentParams(
+            incident_id="sys_dry",
+            resolution_code="Solved (Permanently)",
+            resolution_notes="Fixed in prod",
+            dry_run=True,
+        )
+        result = resolve_incident(self.config, self.auth_manager, params)
+
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(result["proposed_changes"]["state"]["after"], "6")
+        self.assertEqual(result["proposed_changes"]["close_code"]["after"], "Solved (Permanently)")
+        mock_invalidate.assert_not_called()
+        for call in self.auth_manager.make_request.call_args_list:
+            self.assertEqual(call.args[0], "GET")
+
+    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
     def test_resolve_incident_success(self, mock_invalidate):
         resolve_response = self._mock_response({"result": [{"sys_id": "sys123"}]})
         put_response = self._mock_response({"result": {"sys_id": "sys123", "number": "INC001"}})

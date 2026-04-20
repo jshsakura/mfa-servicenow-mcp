@@ -43,6 +43,9 @@ IF "만들기" or "create":
     - confirm = "approve"
 
 IF "수정" or "update":
+  # 1. Preview field-level diff (no side effects)
+  CALL update_script_include(script_include_id=INPUT, <fields>, dry_run=True)
+  # 2. Show `proposed_changes` + `no_op_fields`, then apply
   CALL update_script_include
     - script_include_id = INPUT
     - fields to update

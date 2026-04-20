@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -92,6 +93,10 @@ class UpdateArticleParams(BaseModel):
     short_description: Optional[str] = Field(default=None, description="Updated short description")
     category: Optional[str] = Field(default=None, description="Updated category for the article")
     keywords: Optional[str] = Field(default=None, description="Updated keywords for search")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview field-level changes without executing.",
+    )
 
 
 class PublishArticleParams(BaseModel):
@@ -532,6 +537,16 @@ def update_article(
         data["kb_category"] = params.category
     if params.keywords:
         data["keywords"] = params.keywords
+
+    if params.dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="kb_knowledge",
+            sys_id=params.article_id,
+            proposed=data,
+            identifier_fields=["short_description", "kb_category", "workflow_state"],
+        )
 
     # Make request
     try:
