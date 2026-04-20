@@ -47,9 +47,6 @@ theme:
 extra_css:
   - stylesheets/extra.css
 
-extra_javascript:
-  - javascripts/effects.js
-
 # Plugins for enhanced beauty and functionality
 plugins:
   - search
