@@ -1105,7 +1105,10 @@ class AuthManager:
         if not self.instance_url:
             raise ValueError("Instance URL is required for browser authentication")
 
-        probe_target = browser_config.probe_path or "/api/now/table/sys_user"
+        probe_target = (
+            browser_config.probe_path
+            or "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
+        )
         parsed_probe = urlparse(probe_target)
         probe_url = (
             probe_target
