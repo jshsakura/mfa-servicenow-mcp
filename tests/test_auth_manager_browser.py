@@ -735,6 +735,37 @@ class TestLoadSessionFromDisk:
         # Server rejected → not loaded
         assert manager._browser_cookie_header is None
 
+    def test_load_expired_session_probe_401_discards_session(self, tmp_path):
+        """Disk TTL expired + probe 401 must NOT extend the session.
+
+        Before the fix probe.status_code was not checked — only whether the
+        response indicated a login redirect. A 401 with no login.do redirect
+        was treated as 'ACL restriction, session still valid' and the stale
+        cookie was silently reloaded, causing every subsequent real API call
+        to fail with 401.
+
+        After the fix HTTP 200 is required before extending TTL, so 401 is
+        unambiguously treated as 'session invalid'.
+        """
+        manager = _make_browser_manager()
+        manager._browser_cookie_header = None
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+
+        _write_session_cache(cache_path, "STALE=COOKIE", time.time() - 100)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.is_redirect = False
+        mock_response.headers = {}
+        mock_response.url = "https://example.service-now.com/api/now/table/sys_user"
+
+        with patch.object(manager._http_session, "get", return_value=mock_response):
+            manager._load_session_from_disk()
+
+        # 401 probe must NOT extend the session — cookie stays discarded
+        assert manager._browser_cookie_header is None
+
     def test_load_wrong_instance_ignored(self, tmp_path):
         manager = _make_browser_manager()
         manager._browser_cookie_header = None
@@ -1078,3 +1109,117 @@ class TestBrowserLoginRacePrevention:
         mock_restore.assert_not_called()
         mock_login.assert_not_called()
         assert headers["Cookie"] == "DISK=SESSION"
+
+
+# ---------------------------------------------------------------------------
+# _try_restore_browser_session probe-response handling
+# ---------------------------------------------------------------------------
+
+
+class TestTryRestoreBrowserSessionProbe:
+    """Validates probe-response handling in _try_restore_browser_session().
+
+    Before the fix: a 401 response with no login.do redirect was treated as
+    'ACL restriction — session still valid' because
+    _response_indicates_authenticated_session only checked for login redirects.
+    The browser profile cookies were accepted and every subsequent real API
+    call failed with 401 (the double-login root cause).
+
+    After the fix: 401 and 403 probe responses during cold restore immediately
+    return False, forcing an interactive login.
+    """
+
+    # A minimal valid cookie for example.service-now.com
+    _INSTANCE_COOKIES = [
+        {
+            "name": "glide_session_store",
+            "value": "abc123",
+            "domain": "example.service-now.com",
+            "path": "/",
+        }
+    ]
+
+    def _make_manager_and_pw_patch(self, tmp_path, cookies):
+        """Return (cfg, manager, mock_pw_mod) wired for _try_restore_browser_session tests."""
+        cfg = AuthConfig(
+            type=AuthType.BROWSER,
+            browser=BrowserAuthConfig(
+                headless=False,
+                timeout_seconds=10,
+                user_data_dir=str(tmp_path / "profile"),
+            ),
+        )
+        with (
+            patch.object(AuthManager, "_ensure_playwright_ready"),
+            patch.object(AuthManager, "_load_session_from_disk"),
+            patch.object(AuthManager, "_start_keepalive"),
+        ):
+            manager = AuthManager(cfg, "https://example.service-now.com")
+
+        mock_context = MagicMock()
+        mock_page = MagicMock()
+        mock_page.evaluate.side_effect = ["TestUA", None]
+        mock_context.pages = [mock_page]
+        mock_context.cookies.return_value = cookies
+
+        mock_pw_instance = MagicMock()
+        mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+        mock_sync_pw = MagicMock()
+        mock_sync_pw.return_value.__enter__ = MagicMock(return_value=mock_pw_instance)
+        mock_sync_pw.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_pw_mod = MagicMock()
+        mock_pw_mod.sync_api.sync_playwright = mock_sync_pw
+
+        return cfg, manager, mock_pw_mod
+
+    def _run_restore(self, manager, cfg, mock_pw_mod, probe_status: int) -> bool:
+        """Run _try_restore_browser_session with a probe that returns probe_status."""
+        import sys
+
+        mock_probe = MagicMock()
+        mock_probe.status_code = probe_status
+        mock_probe.is_redirect = False
+        mock_probe.headers = {}
+        mock_probe.url = "https://example.service-now.com/api/now/table/sys_user"
+
+        saved = {k: sys.modules.get(k) for k in ("playwright", "playwright.sync_api")}
+        sys.modules["playwright"] = mock_pw_mod
+        sys.modules["playwright.sync_api"] = mock_pw_mod.sync_api
+        try:
+            with patch.object(manager, "_probe_browser_api_with_cookie", return_value=mock_probe):
+                return manager._try_restore_browser_session(cfg.browser)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
+
+    def test_restore_probe_401_returns_false(self, tmp_path):
+        """401 probe during restore must return False — stale browser cookies rejected."""
+        cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
+            tmp_path, self._INSTANCE_COOKIES
+        )
+        result = self._run_restore(manager, cfg, mock_pw_mod, probe_status=401)
+        assert result is False
+        # Cookie header must NOT have been populated from the stale browser profile
+        assert manager._browser_cookie_header is None
+
+    def test_restore_probe_403_returns_false(self, tmp_path):
+        """403 probe during restore must return False — treat as invalid session."""
+        cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
+            tmp_path, self._INSTANCE_COOKIES
+        )
+        result = self._run_restore(manager, cfg, mock_pw_mod, probe_status=403)
+        assert result is False
+
+    def test_restore_probe_200_returns_true_and_loads_cookie(self, tmp_path):
+        """200 probe during restore must return True and populate browser cookie header."""
+        cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
+            tmp_path, self._INSTANCE_COOKIES
+        )
+        result = self._run_restore(manager, cfg, mock_pw_mod, probe_status=200)
+        assert result is True
+        assert manager._browser_cookie_header == "glide_session_store=abc123"

@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import sys
+import urllib.parse
 import urllib.request
 
 from .server import ServiceNowMCP
@@ -164,10 +165,7 @@ def parse_args():
     browser_group.add_argument(
         "--browser-probe-path",
         help="Probe path used to validate browser-authenticated API sessions",
-        default=os.environ.get(
-            "SERVICENOW_BROWSER_PROBE_PATH",
-            "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id",
-        ),
+        default=os.environ.get("SERVICENOW_BROWSER_PROBE_PATH"),
     )
     browser_group.add_argument(
         "--browser-headless",
@@ -320,10 +318,21 @@ def create_config(args) -> ServerConfig:
             os.getenv("SERVICENOW_PASSWORD"),
         )
         browser_login_url = args.browser_login_url or os.getenv("SERVICENOW_BROWSER_LOGIN_URL")
-        browser_probe_path = args.browser_probe_path or os.getenv(
-            "SERVICENOW_BROWSER_PROBE_PATH",
-            "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id",
-        )
+        _explicit_probe = args.browser_probe_path or os.getenv("SERVICENOW_BROWSER_PROBE_PATH")
+        if _explicit_probe:
+            browser_probe_path = _explicit_probe
+        elif browser_username:
+            # Build a user-specific probe so the endpoint always returns 200 for valid
+            # sessions. Listing all sys_user records requires admin and returns 401 for
+            # regular users, making it impossible to distinguish "session expired" from
+            # "ACL restriction" when the probe returns 401.
+            _enc = urllib.parse.quote(browser_username, safe="")
+            browser_probe_path = (
+                f"/api/now/table/sys_user"
+                f"?sysparm_query=user_name%3D{_enc}&sysparm_limit=1&sysparm_fields=sys_id"
+            )
+        else:
+            browser_probe_path = "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id"
         browser_headless = str(args.browser_headless).lower() == "true"
         browser_timeout = args.browser_timeout or int(
             os.getenv("SERVICENOW_BROWSER_TIMEOUT", "120")

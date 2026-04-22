@@ -192,6 +192,90 @@ class TestCreateConfig:
         config = create_config(args)
         assert config.auth.type.value == "browser"
 
+    def test_browser_probe_path_auto_generated_from_username(self):
+        """When no explicit probe_path is given but username is set, build a
+        user-specific probe URL that returns 200 for valid sessions.
+
+        Listing all sys_user records requires admin role and returns 401 for
+        regular users, making 401 ambiguous (expired vs. ACL restriction).
+        Querying by user_name returns the user's own record — always 200 for
+        valid sessions — so 401 unambiguously means the session is expired.
+        """
+        args = MagicMock()
+        args.instance_url = "https://test.service-now.com"
+        args.auth_type = "browser"
+        args.browser_username = "admin@example.com"
+        args.browser_password = "pass"
+        args.browser_login_url = None
+        args.browser_probe_path = None
+        args.browser_headless = "false"
+        args.browser_timeout = 120
+        args.browser_user_data_dir = None
+        args.browser_session_ttl = 30
+        args.debug = False
+        args.timeout = 30
+        args.script_execution_api_resource_path = None
+
+        with patch.dict(os.environ, {"SERVICENOW_BROWSER_PROBE_PATH": ""}):
+            config = create_config(args)
+
+        probe = config.auth.browser.probe_path
+        assert "user_name" in probe
+        assert "admin%40example.com" in probe  # @ must be percent-encoded
+
+    def test_browser_probe_path_generic_fallback_when_no_username(self):
+        """When neither probe_path nor username is provided, use the generic
+        sys_user list probe (admin-only, but best we can do without credentials)."""
+        args = MagicMock()
+        args.instance_url = "https://test.service-now.com"
+        args.auth_type = "browser"
+        args.browser_username = None
+        args.browser_password = None
+        args.browser_login_url = None
+        args.browser_probe_path = None
+        args.browser_headless = "false"
+        args.browser_timeout = 120
+        args.browser_user_data_dir = None
+        args.browser_session_ttl = 30
+        args.debug = False
+        args.timeout = 30
+        args.script_execution_api_resource_path = None
+
+        with patch.dict(
+            os.environ,
+            {
+                "SERVICENOW_BROWSER_PROBE_PATH": "",
+                "SERVICENOW_BROWSER_USERNAME": "",
+                "SERVICENOW_USERNAME": "",
+            },
+        ):
+            config = create_config(args)
+
+        probe = config.auth.browser.probe_path
+        assert probe == "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id"
+        assert "user_name" not in probe
+
+    def test_browser_probe_path_explicit_takes_priority_over_username(self):
+        """An explicit browser_probe_path must win over the auto-generated one."""
+        args = MagicMock()
+        args.instance_url = "https://test.service-now.com"
+        args.auth_type = "browser"
+        args.browser_username = "admin"
+        args.browser_password = "pass"
+        args.browser_login_url = None
+        args.browser_probe_path = "/api/now/table/incident?sysparm_limit=1"
+        args.browser_headless = "false"
+        args.browser_timeout = 120
+        args.browser_user_data_dir = None
+        args.browser_session_ttl = 30
+        args.debug = False
+        args.timeout = 30
+        args.script_execution_api_resource_path = None
+
+        config = create_config(args)
+
+        assert config.auth.browser.probe_path == "/api/now/table/incident?sysparm_limit=1"
+
     def test_unsupported_auth_type_raises(self):
         args = MagicMock()
         args.instance_url = "https://test.service-now.com"
