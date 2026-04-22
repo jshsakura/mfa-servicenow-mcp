@@ -332,7 +332,9 @@ def create_config(args) -> ServerConfig:
                 f"?sysparm_query=user_name%3D{_enc}&sysparm_limit=1&sysparm_fields=sys_id"
             )
         else:
-            browser_probe_path = "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id"
+            browser_probe_path = (
+                "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
+            )
         browser_headless = str(args.browser_headless).lower() == "true"
         browser_timeout = args.browser_timeout or int(
             os.getenv("SERVICENOW_BROWSER_TIMEOUT", "120")
