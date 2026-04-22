@@ -202,7 +202,7 @@ class DownloadPortalSourcesParams(BaseModel):
     )
     max_widgets: int = Field(
         default=25,
-        description="Maximum widgets to export (default 25, clamped to 100)",
+        description="Maximum widgets to export (default 25, clamped to 500)",
     )
     page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
 
@@ -1231,7 +1231,7 @@ def _portal_scan_warnings(
         )
     if requested_max_widgets is not None and requested_max_widgets > 25:
         warnings.append(
-            "Broad widget scans should be used only when a targeted widget or small widget set is not available."
+            "Info: max_widgets>25 will fetch a wider set; this is allowed and not blocked."
         )
 
     return warnings
