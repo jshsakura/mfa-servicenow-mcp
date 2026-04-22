@@ -252,7 +252,7 @@ class TestCreateConfig:
             config = create_config(args)
 
         probe = config.auth.browser.probe_path
-        assert probe == "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id"
+        assert probe == "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
         assert "user_name" not in probe
 
     def test_browser_probe_path_explicit_takes_priority_over_username(self):
