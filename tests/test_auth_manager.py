@@ -2001,14 +2001,12 @@ class TestTryRestoreBrowserSessionDeep:
         assert result is False
 
     def test_restore_probe_acl_restricted(self):
-        """Probe returns 403 during restore => False (requires fresh interactive login).
+        """Probe returns 403 without login redirect during restore => True.
 
-        403 during a cold restore is treated as 'invalid session' because we
-        cannot distinguish 'ACL restriction on probe endpoint' from 'session
-        expired and server returned 403'. With a user-specific probe path
-        (user_name query) a 403 only occurs when the session is genuinely
-        invalid, so returning False here is safe and prevents silently accepting
-        stale cookies.
+        403 without a login redirect indicates the session is authenticated
+        but the user lacks ACL access to the probe endpoint. Since the session
+        is valid, we accept it — consistent with runtime validation which also
+        treats 403-without-redirect as authenticated.
         """
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
@@ -2042,7 +2040,7 @@ class TestTryRestoreBrowserSessionDeep:
                 with patch.object(mgr, "_save_session_to_disk"):
                     result = mgr._try_restore_browser_session(browser_cfg)
 
-        assert result is False
+        assert result is True
 
     def test_restore_context_launch_fails(self):
         """When launching persistent context fails, return False."""
