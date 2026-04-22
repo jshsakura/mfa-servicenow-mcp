@@ -1084,7 +1084,7 @@ def test_search_portal_regex_matches_warns_and_clamps_broad_requests(
     assert result["scan_summary"]["max_widgets"] == 100
     assert result["scan_summary"]["max_matches"] == 100
     assert any("reduced to 100" in warning for warning in result["warnings"])
-    assert any("Broad widget scans" in warning for warning in result["warnings"])
+    assert any("max_widgets>25" in warning for warning in result["warnings"])
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
