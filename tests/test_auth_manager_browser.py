@@ -735,17 +735,11 @@ class TestLoadSessionFromDisk:
         # Server rejected → not loaded
         assert manager._browser_cookie_header is None
 
-    def test_load_expired_session_probe_401_discards_session(self, tmp_path):
-        """Disk TTL expired + probe 401 must NOT extend the session.
+    def test_load_expired_session_probe_401_extends_session(self, tmp_path):
+        """Disk TTL expired + probe 401 without login redirect extends the session.
 
-        Before the fix probe.status_code was not checked — only whether the
-        response indicated a login redirect. A 401 with no login.do redirect
-        was treated as 'ACL restriction, session still valid' and the stale
-        cookie was silently reloaded, causing every subsequent real API call
-        to fail with 401.
-
-        After the fix HTTP 200 is required before extending TTL, so 401 is
-        unambiguously treated as 'session invalid'.
+        With unified validation, any non-redirect response (including 401/403)
+        indicates an authenticated session — consistent with runtime validation.
         """
         manager = _make_browser_manager()
         manager._browser_cookie_header = None
@@ -758,13 +752,12 @@ class TestLoadSessionFromDisk:
         mock_response.status_code = 401
         mock_response.is_redirect = False
         mock_response.headers = {}
-        mock_response.url = "https://example.service-now.com/api/now/table/sys_user"
+        mock_response.url = "https://example.service-now.com/api/now/table/sys_user_preference"
 
         with patch.object(manager._http_session, "get", return_value=mock_response):
             manager._load_session_from_disk()
 
-        # 401 probe must NOT extend the session — cookie stays discarded
-        assert manager._browser_cookie_header is None
+        assert manager._browser_cookie_header == "STALE=COOKIE"
 
     def test_load_wrong_instance_ignored(self, tmp_path):
         manager = _make_browser_manager()
@@ -1156,6 +1149,11 @@ class TestTryRestoreBrowserSessionProbe:
         ):
             manager = AuthManager(cfg, "https://example.service-now.com")
 
+        # Redirect session cache to tmp_path to avoid polluting the real
+        # ~/.servicenow_mcp/ directory (which breaks other tests that call
+        # _reload_session_from_disk via get_headers).
+        manager._session_cache_path = str(tmp_path / "session.json")
+
         mock_context = MagicMock()
         mock_page = MagicMock()
         mock_page.evaluate.side_effect = ["TestUA", None]
@@ -1197,23 +1195,22 @@ class TestTryRestoreBrowserSessionProbe:
                 else:
                     sys.modules[k] = v
 
-    def test_restore_probe_401_returns_false(self, tmp_path):
-        """401 probe during restore must return False — stale browser cookies rejected."""
+    def test_restore_probe_401_returns_true_and_loads_cookie(self, tmp_path):
+        """401 probe without login redirect during restore means authenticated but unauthorized."""
         cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
             tmp_path, self._INSTANCE_COOKIES
         )
         result = self._run_restore(manager, cfg, mock_pw_mod, probe_status=401)
-        assert result is False
-        # Cookie header must NOT have been populated from the stale browser profile
-        assert manager._browser_cookie_header is None
+        assert result is True
+        assert manager._browser_cookie_header is not None
 
-    def test_restore_probe_403_returns_false(self, tmp_path):
-        """403 probe during restore must return False — treat as invalid session."""
+    def test_restore_probe_403_returns_true_and_loads_cookie(self, tmp_path):
+        """403 probe without login redirect during restore means authenticated but unauthorized."""
         cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
             tmp_path, self._INSTANCE_COOKIES
         )
         result = self._run_restore(manager, cfg, mock_pw_mod, probe_status=403)
-        assert result is False
+        assert result is True
 
     def test_restore_probe_200_returns_true_and_loads_cookie(self, tmp_path):
         """200 probe during restore must return True and populate browser cookie header."""

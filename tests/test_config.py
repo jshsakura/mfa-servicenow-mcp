@@ -64,7 +64,10 @@ def test_api_key_config():
 def test_browser_auth_config():
     """Test the BrowserAuthConfig class."""
     config = BrowserAuthConfig()
-    assert config.probe_path == "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id"
+    assert (
+        config.probe_path
+        == "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
+    )
 
     config = BrowserAuthConfig(probe_path="/api/now/table/incident?sysparm_limit=1")
     assert config.probe_path == "/api/now/table/incident?sysparm_limit=1"
