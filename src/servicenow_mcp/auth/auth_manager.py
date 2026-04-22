@@ -505,15 +505,8 @@ class AuthManager:
                             timeout_seconds=10,
                             browser_config=self.config.browser,
                         )
-                        if probe.status_code == 200 and _response_indicates_authenticated_session(
-                            probe
-                        ):
-                            # Session confirmed alive (HTTP 200) — extend TTL and reuse.
-                            # Require an explicit 200 rather than "not a login redirect"
-                            # because 401 is ambiguous: it might mean "session expired and
-                            # the API returned 401" rather than "ACL restriction on this
-                            # path with an otherwise valid session". Being conservative
-                            # here prevents stale cookies from being silently reused.
+                        if _response_indicates_authenticated_session(probe):
+                            # Non-redirect = authenticated (matches runtime validation).
                             new_ttl = (self.config.browser.session_ttl_minutes or 30) * 60
                             self._browser_cookie_header = cookie_header
                             self._browser_cookie_expires_at = time.time() + new_ttl
@@ -527,7 +520,7 @@ class AuthManager:
                             )
                             return
                         logger.info(
-                            "Disk session expired probe returned non-200 (status=%s) — "
+                            "Disk session expired probe returned login redirect (status=%s) — "
                             "discarding cached session and requiring fresh login.",
                             probe.status_code,
                         )
@@ -1204,20 +1197,14 @@ class AuthManager:
                 probe.status_code,
             )
             return False
+
         if probe.status_code in (401, 403):
-            # During a cold restore we cannot verify whether 401 means "session
-            # expired" or "ACL restriction on the probe endpoint". Being
-            # conservative: discard the restore and require fresh interactive
-            # login. With a well-chosen probe path (e.g. the user's own
-            # sys_user record via user_name query) this case only occurs when
-            # the session is genuinely invalid.
             logger.info(
-                "Browser session restore probe returned %s — treating as invalid session "
-                "(probe_path=%s). Will trigger interactive login.",
+                "Browser session restore probe returned %s — authenticated but unauthorized "
+                "for probe path (probe_path=%s). Accepting session.",
                 probe.status_code,
                 browser_config.probe_path,
             )
-            return False
 
         self._browser_cookie_header = cookie_header
         self._browser_cookie_expires_at = time.time() + (browser_config.session_ttl_minutes * 60)

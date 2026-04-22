@@ -660,7 +660,7 @@ def _is_login_redirect_response(response: requests.Response) -> bool:
 def sn_health(
     config: ServerConfig, auth_manager: AuthManager, params: HealthCheckParams
 ) -> Dict[str, Any]:
-    probe_path = "/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id"
+    probe_path = "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
     if config.auth.type.value == "browser" and config.auth.browser:
         probe_path = config.auth.browser.probe_path
     probe_path = probe_path.lstrip("/")
