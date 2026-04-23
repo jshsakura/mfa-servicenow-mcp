@@ -54,6 +54,7 @@ Thumbs.db
 
 # Notebook metadata
 .ipynb_checkpoints/
+*.ipynb
 
 # Lint cache
 .ruff_cache/
