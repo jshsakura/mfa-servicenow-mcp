@@ -56,6 +56,45 @@ def _build_http_session() -> requests.Session:
     return session
 
 
+_PROFILE_LOCK_HINTS = (
+    "singletonlock",
+    "profile directory is already",
+    "already in use",
+    "failed to create /",
+    "process already exists",
+)
+
+
+def _launch_persistent_with_retry(chromium, user_data_dir: str, *, headless: bool):
+    """Launch a persistent Chromium context, retrying briefly if the profile
+    directory is locked by a concurrent MCP process.
+
+    With a per-instance shared profile path, two processes starting at the
+    same time can briefly race on the Chromium profile lock (the losing side
+    typically releases within 1-2s after a quick headless probe). Without a
+    retry we would surface that transient lock as a login failure.
+    """
+    attempts = 5
+    backoff = 1.5
+    for attempt in range(1, attempts + 1):
+        try:
+            return chromium.launch_persistent_context(user_data_dir, headless=headless)
+        except Exception as exc:
+            msg = str(exc).lower()
+            if attempt == attempts or not any(hint in msg for hint in _PROFILE_LOCK_HINTS):
+                raise
+            logger.info(
+                "Chromium profile locked by another process "
+                "(attempt %d/%d): %s — retrying in %.1fs",
+                attempt,
+                attempts,
+                exc,
+                backoff,
+            )
+            time.sleep(backoff)
+            backoff *= 1.5
+
+
 USERNAME_SELECTORS = (
     "input#user_name",
     "input[name='user_name']",
@@ -356,6 +395,29 @@ class AuthManager:
         elif self.config.basic and self.config.basic.username:
             username = f"_{self.config.basic.username.replace('.', '_').replace('@', '_')}"
         return os.path.join(cache_dir, f"session_{instance_id}{username}.json")
+
+    def _get_default_user_data_dir(self) -> str:
+        """Per-instance default Playwright profile directory.
+
+        Scoped by instance host (and username) so repeated MCP starts for the
+        same instance share the same profile — preserving SSO/IDP cookies so
+        re-login is silent when the ServiceNow session expires. Different
+        instances/users get isolated profiles.
+        """
+        home = os.path.expanduser("~")
+        cache_dir = os.path.join(home, ".servicenow_mcp")
+        os.makedirs(cache_dir, exist_ok=True)
+        instance_id = "default"
+        if self.instance_url:
+            instance_id = (urlparse(self.instance_url).hostname or "default").replace(".", "_")
+        username = ""
+        if self.config.browser and self.config.browser.username:
+            username = f"_{self.config.browser.username.replace('.', '_').replace('@', '_')}"
+        return os.path.join(cache_dir, f"profile_{instance_id}{username}")
+
+    def _resolve_user_data_dir(self, browser_config: BrowserAuthConfig) -> str:
+        """Return the configured Playwright profile dir, or the per-instance default."""
+        return browser_config.user_data_dir or self._get_default_user_data_dir()
 
     # ------------------------------------------------------------------
     # Cross-process login lock (disk-based)
@@ -1129,7 +1191,7 @@ class AuthManager:
         )
 
     def _try_restore_browser_session(self, browser_config: BrowserAuthConfig) -> bool:
-        if not self.instance_url or not browser_config.user_data_dir:
+        if not self.instance_url:
             return False
         instance_url = self.instance_url
         instance_host = (urlparse(instance_url).hostname or "").lower()
@@ -1139,18 +1201,19 @@ class AuthManager:
         except Exception:
             return False
 
+        effective_user_data_dir = self._resolve_user_data_dir(browser_config)
         logger.info(
             "Attempting browser session restore from persistent profile: host=%s user_data_dir=%s",
             instance_host,
-            browser_config.user_data_dir,
+            effective_user_data_dir,
         )
         try:
             with sync_playwright() as playwright:
-                effective_user_data_dir = f"{browser_config.user_data_dir}-{os.getpid()}"
                 # Always headless for restore — this only checks cookies,
                 # no user interaction needed.  Avoids a visible browser flash
                 # that looks like a second login prompt.
-                context = playwright.chromium.launch_persistent_context(
+                context = _launch_persistent_with_retry(
+                    playwright.chromium,
                     effective_user_data_dir,
                     headless=True,
                 )
@@ -1452,41 +1515,17 @@ class AuthManager:
         # 세션 만료 시 강제로 브라우저 표시 (headless 설정 무시)
         use_headless = browser_config.headless and not force_interactive
 
-        if use_headless and not self._browser_cookie_header and not browser_config.user_data_dir:
-            raise ValueError(
-                "Initial MFA/SSO bootstrap should run with headless=false for interactive login "
-                "unless SERVICENOW_BROWSER_USER_DATA_DIR is set."
-            )
+        effective_user_data_dir = self._resolve_user_data_dir(browser_config)
         with sync_playwright() as playwright:
-            if browser_config.user_data_dir:
-                # Use PID-scoped directory to prevent Playwright lock conflicts
-                # when multiple MCP processes run simultaneously.
-                effective_user_data_dir = f"{browser_config.user_data_dir}-{os.getpid()}"
-                context = playwright.chromium.launch_persistent_context(
-                    effective_user_data_dir,
-                    headless=use_headless,
-                )
-                page = context.pages[0] if context.pages else context.new_page()
-            else:
-                browser = playwright.chromium.launch(headless=use_headless)
-                context = browser.new_context()
-                page = context.new_page()
+            context = _launch_persistent_with_retry(
+                playwright.chromium,
+                effective_user_data_dir,
+                headless=use_headless,
+            )
+            page = context.pages[0] if context.pages else context.new_page()
 
             # Store the User-Agent from the browser to match in subsequent requests
             self._browser_user_agent = page.evaluate("navigator.userAgent")
-
-            # For persistent profiles, keep existing cookies to allow session reuse.
-            # For ephemeral contexts, clear only instance cookies to avoid stale session conflicts.
-            if not browser_config.user_data_dir:
-                existing_cookies = context.cookies()
-                idp_cookies = [
-                    cookie
-                    for cookie in existing_cookies
-                    if not self._is_instance_cookie(cookie, instance_host)  # type: ignore[arg-type]
-                ]
-                context.clear_cookies()
-                if idp_cookies:
-                    context.add_cookies(idp_cookies)  # type: ignore[arg-type]
 
             page.goto(login_url, timeout=timeout_ms, wait_until="load")
 
