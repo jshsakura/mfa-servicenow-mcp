@@ -1446,10 +1446,13 @@ class TestTryRestoreBrowserSession:
         browser_cfg = BrowserAuthConfig(timeout_seconds=10, user_data_dir="/tmp/data")
         assert mgr._try_restore_browser_session(browser_cfg) is False
 
-    def test_no_user_data_dir(self):
+    def test_no_user_data_dir_falls_back_to_default(self):
+        """When user_data_dir is unset, the per-instance default path is used
+        so repeated MCP starts for the same instance share the SSO profile."""
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(timeout_seconds=10, user_data_dir=None)
-        assert mgr._try_restore_browser_session(browser_cfg) is False
+        resolved = mgr._resolve_user_data_dir(browser_cfg)
+        assert resolved.endswith("profile_example_service-now_com")
 
 
 # ===========================================================================
