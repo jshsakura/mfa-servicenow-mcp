@@ -296,25 +296,37 @@ def _try_processflow_api(
             headers={"x-transaction-source": "Interface=Web"},
         )
         response.raise_for_status()
-        data = response.json()
-        if not data or not isinstance(data, dict):
+        raw = response.json()
+        if not isinstance(raw, dict):
             return {"_error": "processflow returned non-dict response"}
-        # Surface API-level errors before attempting to parse flow data
-        if data.get("errorMessage") or data.get("errorCode"):
+
+        # ServiceNow standard REST wrapper: {"result": {...}, "session": {...}}
+        outer = raw.get("result") if isinstance(raw.get("result"), dict) else raw
+
+        # Yokohama wraps flow data with error metadata at this level
+        err_msg = outer.get("errorMessage")
+        err_code = outer.get("errorCode")
+        if err_msg or (isinstance(err_code, int) and err_code != 0):
             return {
-                "_error": data.get("errorMessage", "processflow API error"),
-                "_error_code": data.get("errorCode"),
-                "_plugin_active": data.get("integrationsPluginActive"),
-                "_raw_keys": list(data.keys()),
+                "_error": err_msg or f"processflow API error code {err_code}",
+                "_error_code": err_code,
+                "_plugin_active": outer.get("integrationsPluginActive"),
+                "_raw_keys": list(outer.keys()),
             }
-        # Yokohama uses "data" key; older versions use "result"
-        flow_payload = data.get("result") or data.get("data")
+
+        # Yokohama: flow is under outer.data. Older versions: outer is the flow.
+        if isinstance(outer.get("data"), dict) and outer["data"]:
+            flow_payload = outer["data"]
+        else:
+            flow_payload = outer
+
         if not isinstance(flow_payload, dict) or not flow_payload:
             return {
-                "_error": f"processflow: no result/data in response keys={list(data.keys())}",
-                "_raw": data,
+                "_error": f"processflow: no flow data, keys={list(outer.keys())}",
+                "_raw_keys": list(outer.keys()),
             }
-        # Normalise to always return under "result" key so callers stay consistent
+
+        # Normalise: always return under "result" key so callers stay consistent
         return {"result": flow_payload}
     except Exception as e:
         logger.error("processflow API failed for flow %s: %s", flow_id, e)
