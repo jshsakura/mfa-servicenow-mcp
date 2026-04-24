@@ -1,6 +1,6 @@
 # ServiceNow MCP - Tool Inventory
 
-Registered tools: **154**
+Registered tools: **151**
 
 ## Package Summary
 
@@ -9,11 +9,11 @@ Registered tools: **154**
 | `none` | 0 | Disabled |
 | `standard` | 36 | Read-only safe mode **(default)** |
 | `service_desk` | 46 | standard + Incident/Change writes |
-| `portal_developer` | 85 | standard + Portal/Source/Changeset domain |
-| `platform_developer` | 79 | standard + Workflow/Flow/Script/ITSM writes |
+| `portal_developer` | 84 | standard + Portal/Source/Changeset domain |
+| `platform_developer` | 77 | standard + Workflow/Flow/Script/ITSM writes |
 | `agile` | 51 | standard + Epic/Story/Scrum/Project PPM |
 | `admin` | 61 | standard + User/Knowledge/Catalog management |
-| `full` | 114 | All development tools (excludes Agile PPM and Admin) |
+| `full` | 101 | All development tools (excludes Agile PPM and Admin) |
 
 ## Tools by Category
 
@@ -113,16 +113,14 @@ Registered tools: **154**
 |------|-----|-------------|----------|
 | `detect_missing_profit_company_codes` | R | Detect missing profit_company_code branch values in widget/provider conditional ... | `portal_developer`, `full` |
 
-### Flow Designer (7)
+### Flow Designer (5)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `activate_flow_designer` | W | Set a Flow Designer flow to active state by sys_id. | `platform_developer`, `full` |
-| `deactivate_flow_designer` | W | Set a Flow Designer flow to inactive state by sys_id. | `platform_developer`, `full` |
+| `compare_flows` | R | Compare two flows by name or sys_id. Diffs structure, subflow bindings, and trig... | `standard`, `service_desk`, `portal_developer`, `platform_developer`, `agile`, `admin`, `full` |
 | `get_flow_designer_detail` | R | Get a single Flow Designer flow by sys_id. Optionally include structure tree and... | `standard`, `service_desk`, `portal_developer`, `platform_developer`, `agile`, `admin`, `full` |
 | `get_flow_designer_executions` | R | Get flow execution history or single execution detail. Filter by name, state, or... | `standard`, `service_desk`, `portal_developer`, `platform_developer`, `agile`, `admin`, `full` |
 | `list_flow_designers` | R | List Flow Designer flows with optional filters. Returns name, status, scope, and... | `standard`, `service_desk`, `portal_developer`, `platform_developer`, `agile`, `admin`, `full` |
-| `list_flow_triggers_by_table` | R | Find flow triggers for a given table. Returns triggers with linked flow info. An... | `standard`, `service_desk`, `portal_developer`, `platform_developer`, `agile`, `admin`, `full` |
 | `update_flow_designer` | W | Update a Flow Designer flow name, description, or active status by sys_id. | `platform_developer`, `full` |
 
 ### Incident Management (5)
@@ -315,4 +313,3 @@ Registered tools: **154**
 | `reorder_workflow_activities` | W | Reorder workflow activities by providing activity sys_ids in desired sequence. | `platform_developer`, `full` |
 | `update_workflow` | W | Update workflow name, description, table, or active status by sys_id. | `platform_developer`, `full` |
 | `update_workflow_activity` | W | Update activity name, description, or attributes by activity sys_id. | `platform_developer`, `full` |
-
