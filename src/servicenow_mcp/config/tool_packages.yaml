@@ -34,8 +34,7 @@ standard:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
-  - get_flow_full_detail
-  - list_flow_triggers_by_table
+  - compare_flows
   # Portal (Read)
   - get_portal
   - get_page
@@ -100,8 +99,7 @@ portal_developer:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
-  - get_flow_full_detail
-  - list_flow_triggers_by_table
+  - compare_flows
   - get_portal
   - get_page
   - get_widget_bundle
@@ -195,8 +193,7 @@ platform_developer:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
-  - get_flow_full_detail
-  - list_flow_triggers_by_table
+  - compare_flows
   - get_portal
   - get_page
   - get_widget_bundle
@@ -243,8 +240,6 @@ platform_developer:
   - reorder_workflow_activities
   # + Flow Designer writes
   - update_flow_designer
-  - activate_flow_designer
-  - deactivate_flow_designer
   # + UI Policy writes
   - create_ui_policy
   - create_ui_policy_action
@@ -304,8 +299,7 @@ service_desk:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
-  - get_flow_full_detail
-  - list_flow_triggers_by_table
+  - compare_flows
   - get_portal
   - get_page
   - get_widget_bundle
@@ -370,8 +364,7 @@ full:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
-  - get_flow_full_detail
-  - list_flow_triggers_by_table
+  - compare_flows
   - get_portal
   - get_page
   - get_widget_bundle
@@ -438,8 +431,6 @@ full:
   - delete_workflow_activity
   - reorder_workflow_activities
   - update_flow_designer
-  - activate_flow_designer
-  - deactivate_flow_designer
   - update_portal_component
   - create_widget_instance
   - update_widget_instance
