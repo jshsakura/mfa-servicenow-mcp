@@ -1421,6 +1421,152 @@ def get_decision_table_detail(
 
 
 # ---------------------------------------------------------------------------
+# Full Flow Detail — actions+inputs, logic conditions, variables (processflow)
+# ---------------------------------------------------------------------------
+
+
+class GetFlowFullDetailParams(BaseModel):
+    """Parameters for getting complete flow internals from processflow API."""
+
+    flow_id: str = Field(..., description="Flow or subflow sys_id from sys_hub_flow")
+    action_type_filter: Optional[str] = Field(
+        default=None, description="Filter actions by type name (contains)"
+    )
+    include_subflow_inputs: bool = Field(
+        default=True, description="Include subflow instance input bindings"
+    )
+
+
+@register_tool(
+    name="get_flow_full_detail",
+    params=GetFlowFullDetailParams,
+    description="Full flow internals: triggers, variables, actions+inputs, logic conditions. Requires browser auth.",
+    serialization="json",
+    return_type=dict,
+)
+def get_flow_full_detail(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: GetFlowFullDetailParams,
+) -> Dict[str, Any]:
+    """Get complete flow internals from processflow API.
+
+    Returns triggers, flow variables, all action instances with full input/output
+    bindings, all logic condition nodes, and subflow instance inputs in one call.
+    Requires browser auth — processflow API is session-only.
+    """
+    if not _is_browser_auth(config):
+        return {
+            "success": False,
+            "error": (
+                "get_flow_full_detail requires browser auth (processflow API). "
+                "Switch auth type to browser."
+            ),
+        }
+
+    pf_result = _try_processflow_api(config, auth_manager, params.flow_id)
+    if not pf_result or pf_result.get("_error"):
+        return {
+            "success": False,
+            "error": (
+                pf_result.get("_error", "processflow API failed")
+                if pf_result
+                else "processflow API returned None"
+            ),
+        }
+
+    flow_data = pf_result.get("result", pf_result)
+
+    # --- Actions ---
+    raw_actions = flow_data.get("actionInstances", [])
+    type_filter = (params.action_type_filter or "").lower()
+    actions: List[Dict[str, Any]] = []
+    for a in sorted(raw_actions, key=lambda x: int(x.get("position", x.get("order", 0)) or 0)):
+        action_type = a.get("actionType", a.get("action_type", ""))
+        if type_filter and (
+            type_filter not in action_type.lower() and type_filter not in a.get("name", "").lower()
+        ):
+            continue
+        actions.append(
+            {
+                "position": a.get("position", a.get("order")),
+                "id": a.get("id", a.get("sys_id", "")),
+                "name": a.get("name", ""),
+                "action_type": action_type,
+                "inputs": a.get("inputs", []),
+                "outputs": a.get("outputs", []),
+                "nesting_parent": a.get("nestingParent", a.get("nesting_parent", "")),
+            }
+        )
+
+    # --- Logic nodes (if / else-if / for-each / etc.) ---
+    raw_logic = flow_data.get("flowLogicInstances", [])
+    logic_nodes: List[Dict[str, Any]] = []
+    for node in sorted(raw_logic, key=lambda x: int(x.get("position", x.get("order", 0)) or 0)):
+        logic_nodes.append(
+            {
+                "position": node.get("position", node.get("order")),
+                "id": node.get("id", node.get("sys_id", "")),
+                "name": node.get("name", ""),
+                "type": node.get("type", node.get("compilableType", "")),
+                "conditions": node.get("conditions", []),
+                "condition_script": node.get("conditionScript", node.get("condition_script", "")),
+                "nesting_parent": node.get("nestingParent", node.get("nesting_parent", "")),
+            }
+        )
+
+    # --- Subflow instances ---
+    raw_subflows = flow_data.get("subFlowInstances", [])
+    subflow_instances: List[Dict[str, Any]] = []
+    if params.include_subflow_inputs:
+        for s in sorted(raw_subflows, key=lambda x: int(x.get("position", x.get("order", 0)) or 0)):
+            subflow_instances.append(
+                {
+                    "position": s.get("position", s.get("order")),
+                    "id": s.get("id", s.get("sys_id", "")),
+                    "name": s.get("name", ""),
+                    "subflow_id": s.get("subflow", s.get("subflowId", "")),
+                    "inputs": s.get("inputs", []),
+                    "outputs": s.get("outputs", []),
+                    "nesting_parent": s.get("nestingParent", s.get("nesting_parent", "")),
+                }
+            )
+
+    flow_inputs = flow_data.get("inputs", [])
+    flow_outputs = flow_data.get("outputs", [])
+    flow_variables = flow_data.get("flowVariables", [])
+    triggers = flow_data.get("triggerInstances", [])
+
+    return {
+        "success": True,
+        "source": "processflow_api",
+        "flow": {
+            "sys_id": flow_data.get("id", params.flow_id),
+            "name": flow_data.get("name", ""),
+            "status": flow_data.get("status", ""),
+            "active": flow_data.get("active", ""),
+            "scope": flow_data.get("scope", ""),
+        },
+        "triggers": triggers,
+        "inputs": flow_inputs if isinstance(flow_inputs, list) else [],
+        "outputs": flow_outputs if isinstance(flow_outputs, list) else [],
+        "variables": flow_variables,
+        "actions": actions,
+        "logic": logic_nodes,
+        "subflows": subflow_instances,
+        "counts": {
+            "triggers": len(triggers),
+            "inputs": len(flow_inputs) if isinstance(flow_inputs, list) else 0,
+            "outputs": len(flow_outputs) if isinstance(flow_outputs, list) else 0,
+            "variables": len(flow_variables),
+            "actions": len(actions),
+            "logic": len(logic_nodes),
+            "subflows": len(subflow_instances),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Compare Flows (browser auth: processflow API, basic auth: Table API)
 # ---------------------------------------------------------------------------
 
