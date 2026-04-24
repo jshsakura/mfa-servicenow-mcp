@@ -1505,92 +1505,154 @@ def get_flow_full_detail(
 
     flow_data = pf_result.get("result", pf_result)
 
-    # --- Actions ---
+    def _order(x: Dict[str, Any]) -> int:
+        v = x.get("order") or x.get("position") or 0
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+
+    def _action_type_name(a: Dict[str, Any]) -> str:
+        at = a.get("actionType")
+        if isinstance(at, dict):
+            return at.get("name") or at.get("internal_name") or ""
+        if isinstance(at, str):
+            return at
+        return ""
+
+    # --- Actions (full inputs + data pill bindings + parent UI for nesting) ---
     raw_actions = flow_data.get("actionInstances", [])
     type_filter = (params.action_type_filter or "").lower()
     actions: List[Dict[str, Any]] = []
-    for a in sorted(raw_actions, key=lambda x: int(x.get("position", x.get("order", 0)) or 0)):
-        action_type = a.get("actionType", a.get("action_type", ""))
+    for a in sorted(raw_actions, key=_order):
+        at_name = _action_type_name(a)
         if type_filter and (
-            type_filter not in action_type.lower() and type_filter not in a.get("name", "").lower()
+            type_filter not in at_name.lower() and type_filter not in (a.get("name") or "").lower()
         ):
             continue
         actions.append(
             {
-                "position": a.get("position", a.get("order")),
-                "id": a.get("id", a.get("sys_id", "")),
+                "order": a.get("order") or a.get("position"),
+                "ui_id": a.get("uiUniqueIdentifier", ""),
+                "parent_ui_id": a.get("parent", ""),
+                "id": a.get("id", ""),
+                "action_type_sys_id": a.get("actionTypeSysId", ""),
+                "action_type_name": at_name,
                 "name": a.get("name", ""),
-                "action_type": action_type,
+                "internal_name": a.get("internalName", ""),
+                "deleted": a.get("deleted", False),
+                "comment": a.get("comment", ""),
                 "inputs": a.get("inputs", []),
                 "outputs": a.get("outputs", []),
-                "nesting_parent": a.get("nestingParent", a.get("nesting_parent", "")),
             }
         )
 
-    # --- Logic nodes (if / else-if / for-each / etc.) ---
+    # --- Logic nodes (IF/ELSEIF/END/ASSIGNSUBFLOWOUTPUTS/etc.) ---
     raw_logic = flow_data.get("flowLogicInstances", [])
     logic_nodes: List[Dict[str, Any]] = []
-    for node in sorted(raw_logic, key=lambda x: int(x.get("position", x.get("order", 0)) or 0)):
+    for node in sorted(raw_logic, key=_order):
+        defn = (
+            node.get("flowLogicDefinition")
+            if isinstance(node.get("flowLogicDefinition"), dict)
+            else {}
+        )
+        # Condition expression lives in inputs[name==condition].value
+        condition_label = ""
+        condition_expr = ""
+        for inp in node.get("inputs", []) or []:
+            if not isinstance(inp, dict):
+                continue
+            n = inp.get("name", "")
+            if n == "condition_name":
+                condition_label = inp.get("value", "") or inp.get("displayValue", "")
+            elif n == "condition":
+                condition_expr = inp.get("value", "") or inp.get("displayValue", "")
         logic_nodes.append(
             {
-                "position": node.get("position", node.get("order")),
-                "id": node.get("id", node.get("sys_id", "")),
-                "name": node.get("name", ""),
-                "type": node.get("type", node.get("compilableType", "")),
-                "conditions": node.get("conditions", []),
-                "condition_script": node.get("conditionScript", node.get("condition_script", "")),
-                "nesting_parent": node.get("nestingParent", node.get("nesting_parent", "")),
+                "order": node.get("order") or node.get("position"),
+                "ui_id": node.get("uiUniqueIdentifier", ""),
+                "parent_ui_id": node.get("parent", ""),
+                "id": node.get("id", ""),
+                "logic_type": defn.get("type", ""),  # IF, ELSEIF, END, ASSIGNSUBFLOWOUTPUTS, ...
+                "logic_name": defn.get("name", "") or node.get("name", ""),
+                "condition_label": condition_label,
+                "condition": condition_expr,
+                "connected_to": node.get("connectedTo", ""),
+                "outputs_to_assign": node.get("outputsToAssign", []),
+                "flow_block_id": node.get("flowBlockId", ""),
+                "definition_id": node.get("definitionId", ""),
             }
         )
 
-    # --- Subflow instances ---
+    # --- Subflow instances (calls to other subflows) ---
     raw_subflows = flow_data.get("subFlowInstances", [])
     subflow_instances: List[Dict[str, Any]] = []
     if params.include_subflow_inputs:
-        for s in sorted(raw_subflows, key=lambda x: int(x.get("position", x.get("order", 0)) or 0)):
+        for s in sorted(raw_subflows, key=_order):
+            sub_meta = s.get("subFlow") if isinstance(s.get("subFlow"), dict) else {}
             subflow_instances.append(
                 {
-                    "position": s.get("position", s.get("order")),
-                    "id": s.get("id", s.get("sys_id", "")),
-                    "name": s.get("name", ""),
-                    "subflow_id": s.get("subflow", s.get("subflowId", "")),
+                    "order": s.get("order") or s.get("position"),
+                    "ui_id": s.get("uiUniqueIdentifier", ""),
+                    "parent_ui_id": s.get("parent", ""),
+                    "id": s.get("id", ""),
+                    "subflow_sys_id": s.get("subflowSysId", "") or sub_meta.get("id", ""),
+                    "subflow_name": sub_meta.get("name", "") or s.get("name", ""),
+                    "subflow_internal_name": sub_meta.get("internalName", "")
+                    or s.get("internalName", ""),
+                    "subflow_scope": sub_meta.get("scopeName", "") or sub_meta.get("scope", ""),
                     "inputs": s.get("inputs", []),
-                    "outputs": s.get("outputs", []),
-                    "nesting_parent": s.get("nestingParent", s.get("nesting_parent", "")),
                 }
             )
 
-    flow_inputs = flow_data.get("inputs", [])
-    flow_outputs = flow_data.get("outputs", [])
-    flow_variables = flow_data.get("flowVariables", [])
-    triggers = flow_data.get("triggerInstances", [])
+    flow_inputs = flow_data.get("inputs", []) or []
+    flow_outputs = flow_data.get("outputs", []) or []
+    flow_variables = flow_data.get("flowVariables", []) or []
+    triggers = flow_data.get("triggerInstances", []) or []
+    label_cache = flow_data.get("label_cache", []) or []
+    deleted_logic = flow_data.get("deletedFlowLogicInstances", []) or []
 
     return {
         "success": True,
         "source": "processflow_api",
         "flow": {
-            "sys_id": flow_data.get("id") or flow_data.get("sys_id") or params.flow_id,
-            "name": flow_data.get("name")
-            or flow_data.get("internalName")
-            or flow_data.get("internal_name")
-            or "",
+            "sys_id": flow_data.get("id") or params.flow_id,
+            "name": flow_data.get("name", ""),
+            "internal_name": flow_data.get("internalName", ""),
+            "description": flow_data.get("description", ""),
             "status": flow_data.get("status", ""),
             "active": flow_data.get("active", ""),
+            "type": flow_data.get("type", ""),
             "scope": flow_data.get("scope", ""),
-            "_raw_keys": list(flow_data.keys()),
+            "scope_name": flow_data.get("scopeName", ""),
+            "scope_display_name": flow_data.get("scopeDisplayName", ""),
+            "master_snapshot_id": flow_data.get("masterSnapshotId", ""),
+            "latest_snapshot": flow_data.get("latestSnapshot", ""),
+            "version": flow_data.get("version", ""),
+            "flow_priority": flow_data.get("flowPriority", ""),
+            "compiler_build": flow_data.get("compilerBuild", ""),
+            "is_published": flow_data.get("isPublished"),
+            "master_snapshot": flow_data.get("masterSnapshot"),
+            "run_as": flow_data.get("runAs", ""),
+            "created": flow_data.get("created", ""),
+            "updated": flow_data.get("updated", ""),
+            "updated_by": flow_data.get("updatedBy", ""),
         },
         "triggers": triggers,
-        "inputs": flow_inputs if isinstance(flow_inputs, list) else [],
-        "outputs": flow_outputs if isinstance(flow_outputs, list) else [],
+        "inputs": flow_inputs,
+        "outputs": flow_outputs,
         "variables": flow_variables,
+        "label_cache": label_cache,
+        "deleted_flow_logic_instances": deleted_logic,
         "actions": actions,
         "logic": logic_nodes,
         "subflows": subflow_instances,
         "counts": {
             "triggers": len(triggers),
-            "inputs": len(flow_inputs) if isinstance(flow_inputs, list) else 0,
-            "outputs": len(flow_outputs) if isinstance(flow_outputs, list) else 0,
+            "inputs": len(flow_inputs),
+            "outputs": len(flow_outputs),
             "variables": len(flow_variables),
+            "label_cache": len(label_cache),
             "actions": len(actions),
             "logic": len(logic_nodes),
             "subflows": len(subflow_instances),

@@ -1724,29 +1724,39 @@ class TestGetFlowFullDetail(unittest.TestCase):
     def _pf_response(self, extra_actions=None, extra_logic=None, extra_subflows=None):
         actions = [
             {
-                "position": 2,
+                "order": "2",
                 "id": "act001",
-                "name": "Ask For Approval - Step 2",
-                "actionType": "Ask For Approval",
+                "uiUniqueIdentifier": "uuid-step2",
+                "parent": "uuid-parent-if",
+                "name": "Ask For Approval",
+                "actionTypeSysId": "at-approval",
+                "actionType": {"name": "Ask For Approval", "internal_name": "ask_for_approval"},
                 "inputs": [{"name": "approver", "value": "subflow.dept_head"}],
                 "outputs": [],
             },
             {
-                "position": 8,
+                "order": "8",
                 "id": "act002",
-                "name": "Ask For Approval - Step 8",
-                "actionType": "Ask For Approval",
+                "uiUniqueIdentifier": "uuid-step8",
+                "parent": "uuid-parent-if",
+                "name": "Ask For Approval",
+                "actionTypeSysId": "at-approval",
+                "actionType": {"name": "Ask For Approval", "internal_name": "ask_for_approval"},
                 "inputs": [{"name": "approver", "value": "subflow.dept_head"}],
                 "outputs": [],
             },
         ] + (extra_actions or [])
         logic = [
             {
-                "position": 5,
+                "order": "5",
                 "id": "logic001",
-                "name": "If rank check",
-                "type": "if",
-                "conditions": [{"field": "rank", "operator": "==", "value": "12"}],
+                "uiUniqueIdentifier": "uuid-if",
+                "parent": "",
+                "flowLogicDefinition": {"name": "If", "type": "IF"},
+                "inputs": [
+                    {"name": "condition_name", "value": "rank == 12"},
+                    {"name": "condition", "value": "{{subflow.rank}}=12"},
+                ],
             }
         ] + (extra_logic or [])
         subflows = extra_subflows or []
@@ -1757,10 +1767,14 @@ class TestGetFlowFullDetail(unittest.TestCase):
                 "status": "Published",
                 "active": True,
                 "scope": "global",
+                "scopeName": "global",
+                "masterSnapshotId": "snap-master",
+                "latestSnapshot": "snap-latest",
                 "triggerInstances": [],
                 "inputs": [{"name": "sales_manager", "type": "GlideRecord"}],
                 "outputs": [],
                 "flowVariables": [{"name": "dept", "type": "string"}],
+                "label_cache": [{"name": "subflow.dept_head", "label": "Dept Head"}],
                 "actionInstances": actions,
                 "flowLogicInstances": logic,
                 "subFlowInstances": subflows,
@@ -1800,10 +1814,12 @@ class TestGetFlowFullDetail(unittest.TestCase):
     def test_action_type_filter(self, mock_pf):
         extra = [
             {
-                "position": 3,
+                "order": "3",
                 "id": "act003",
+                "uiUniqueIdentifier": "uuid-setvals",
+                "parent": "",
                 "name": "Set Values",
-                "actionType": "Set Values",
+                "actionType": {"name": "Set Values", "internal_name": "set_values"},
                 "inputs": [],
                 "outputs": [],
             }
@@ -1817,7 +1833,7 @@ class TestGetFlowFullDetail(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(len(result["actions"]), 2)
         for a in result["actions"]:
-            self.assertIn("Approval", a["action_type"])
+            self.assertIn("Approval", a["action_type_name"])
 
     @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
     def test_logic_conditions_present(self, mock_pf):
@@ -1827,17 +1843,20 @@ class TestGetFlowFullDetail(unittest.TestCase):
             self.auth_manager,
             GetFlowFullDetailParams(flow_id="flow123"),
         )
-        self.assertEqual(result["logic"][0]["type"], "if")
-        self.assertEqual(result["logic"][0]["conditions"][0]["field"], "rank")
+        self.assertEqual(result["logic"][0]["logic_type"], "IF")
+        self.assertEqual(result["logic"][0]["condition_label"], "rank == 12")
+        self.assertEqual(result["logic"][0]["condition"], "{{subflow.rank}}=12")
 
     @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
     def test_subflow_inputs_included(self, mock_pf):
         subflows = [
             {
-                "position": 10,
+                "order": "10",
                 "id": "sf001",
-                "name": "Child Sub",
-                "subflow": "sub123",
+                "uiUniqueIdentifier": "uuid-sub1",
+                "parent": "",
+                "subflowSysId": "sub123",
+                "subFlow": {"id": "sub123", "name": "Child Sub", "internalName": "child_sub"},
                 "inputs": [{"name": "param1", "value": "trigger.record"}],
                 "outputs": [],
             }
@@ -1850,15 +1869,19 @@ class TestGetFlowFullDetail(unittest.TestCase):
         )
         self.assertEqual(len(result["subflows"]), 1)
         self.assertEqual(result["subflows"][0]["inputs"][0]["value"], "trigger.record")
+        self.assertEqual(result["subflows"][0]["subflow_name"], "Child Sub")
+        self.assertEqual(result["subflows"][0]["subflow_sys_id"], "sub123")
 
     @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
     def test_subflow_inputs_excluded(self, mock_pf):
         subflows = [
             {
-                "position": 10,
+                "order": "10",
                 "id": "sf001",
-                "name": "Child Sub",
-                "subflow": "sub123",
+                "uiUniqueIdentifier": "uuid-sub1",
+                "parent": "",
+                "subflowSysId": "sub123",
+                "subFlow": {"id": "sub123", "name": "Child Sub"},
                 "inputs": [{"name": "param1", "value": "trigger.record"}],
                 "outputs": [],
             }
@@ -1903,25 +1926,29 @@ class TestGetFlowFullDetail(unittest.TestCase):
         self.assertIn("None", result["error"])
 
     @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
-    def test_actions_sorted_by_position(self, mock_pf):
+    def test_actions_sorted_by_order(self, mock_pf):
         mock_pf.return_value = {
             "result": {
                 "id": "f1",
                 "name": "F",
                 "actionInstances": [
                     {
-                        "position": 8,
+                        "order": "8",
                         "id": "a8",
+                        "uiUniqueIdentifier": "u8",
+                        "parent": "",
                         "name": "B",
-                        "actionType": "T",
+                        "actionType": {"name": "T"},
                         "inputs": [],
                         "outputs": [],
                     },
                     {
-                        "position": 2,
+                        "order": "2",
                         "id": "a2",
+                        "uiUniqueIdentifier": "u2",
+                        "parent": "",
                         "name": "A",
-                        "actionType": "T",
+                        "actionType": {"name": "T"},
                         "inputs": [],
                         "outputs": [],
                     },
@@ -1939,8 +1966,24 @@ class TestGetFlowFullDetail(unittest.TestCase):
             self.auth_manager,
             GetFlowFullDetailParams(flow_id="f1"),
         )
-        self.assertEqual(result["actions"][0]["position"], 2)
-        self.assertEqual(result["actions"][1]["position"], 8)
+        self.assertEqual(result["actions"][0]["order"], "2")
+        self.assertEqual(result["actions"][1]["order"], "8")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_label_cache_and_metadata_preserved(self, mock_pf):
+        mock_pf.return_value = self._pf_response()
+        result = get_flow_full_detail(
+            self.browser_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="flow123"),
+        )
+        self.assertEqual(len(result["label_cache"]), 1)
+        self.assertEqual(result["flow"]["master_snapshot_id"], "snap-master")
+        self.assertEqual(result["flow"]["latest_snapshot"], "snap-latest")
+        # Actions expose UI identifiers for nesting analysis
+        self.assertEqual(result["actions"][0]["ui_id"], "uuid-step2")
+        self.assertEqual(result["actions"][0]["parent_ui_id"], "uuid-parent-if")
+        self.assertEqual(result["actions"][0]["action_type_name"], "Ask For Approval")
 
 
 if __name__ == "__main__":
