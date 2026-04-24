@@ -1543,11 +1543,15 @@ def get_flow_full_detail(
         "success": True,
         "source": "processflow_api",
         "flow": {
-            "sys_id": flow_data.get("id", params.flow_id),
-            "name": flow_data.get("name", ""),
+            "sys_id": flow_data.get("id") or flow_data.get("sys_id") or params.flow_id,
+            "name": flow_data.get("name")
+            or flow_data.get("internalName")
+            or flow_data.get("internal_name")
+            or "",
             "status": flow_data.get("status", ""),
             "active": flow_data.get("active", ""),
             "scope": flow_data.get("scope", ""),
+            "_raw_keys": list(flow_data.keys()),
         },
         "triggers": triggers,
         "inputs": flow_inputs if isinstance(flow_inputs, list) else [],
@@ -1645,7 +1649,10 @@ def _extract_comparable(flow_data: Dict[str, Any], include_label_cache: bool) ->
             for s in flow_data.get("subFlowInstances", [])
         ]
         result = {
-            "name": flow_data.get("name", ""),
+            "name": flow_data.get("name")
+            or flow_data.get("internalName")
+            or flow_data.get("internal_name")
+            or "",
             "status": flow_data.get("status", ""),
             "active": flow_data.get("active", ""),
             "scope": flow_data.get("scope", ""),
