@@ -126,16 +126,29 @@ def test_consolidated_tools_replaced_old_ones():
             assert tool not in pkg_tools, f"Removed tool '{tool}' still in package '{pkg_name}'"
 
 
-def test_new_workflow_studio_tools_in_standard():
+def test_consolidated_flow_designer_tools_in_standard():
     pkgs = _load_packages()
     standard = pkgs["standard"]
 
     for tool in [
+        "list_flow_designers",
+        "get_flow_designer_detail",
+        "get_flow_designer_executions",
+        "compare_flows",
+    ]:
+        assert tool in standard, f"'{tool}' missing from standard package"
+
+    removed = [
+        "get_flow_full_detail",
+        "list_flow_triggers_by_table",
+        "activate_flow_designer",
+        "deactivate_flow_designer",
         "list_actions",
         "get_action_detail",
         "list_playbooks",
         "get_playbook_detail",
         "list_decision_tables",
         "get_decision_table_detail",
-    ]:
-        assert tool in standard, f"'{tool}' missing from standard package"
+    ]
+    for tool in removed:
+        assert tool not in standard, f"'{tool}' should not be in standard package"
