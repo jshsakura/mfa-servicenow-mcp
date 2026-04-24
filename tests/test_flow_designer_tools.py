@@ -10,6 +10,7 @@ from servicenow_mcp.tools.flow_designer_tools import (
     GetDecisionTableDetailParams,
     GetFlowDetailsParams,
     GetFlowExecutionsParams,
+    GetFlowFullDetailParams,
     GetPlaybookDetailParams,
     ListActionsParams,
     ListDecisionTablesParams,
@@ -22,6 +23,7 @@ from servicenow_mcp.tools.flow_designer_tools import (
     get_decision_table_detail,
     get_flow_details,
     get_flow_executions,
+    get_flow_full_detail,
     get_playbook_detail,
     list_actions,
     list_decision_tables,
@@ -1709,6 +1711,236 @@ class TestSnQueryHints(unittest.TestCase):
         self.assertEqual(result["query_echo"], "nameINFoo&Bar")
         self.assertIn("hint", result)
         self.assertIn("&", result["hint"])
+
+
+class TestGetFlowFullDetail(unittest.TestCase):
+    """Tests for get_flow_full_detail (processflow API)."""
+
+    def setUp(self):
+        self.basic_config = _make_basic_config()
+        self.browser_config = _make_browser_config()
+        self.auth_manager = MagicMock(spec=AuthManager)
+
+    def _pf_response(self, extra_actions=None, extra_logic=None, extra_subflows=None):
+        actions = [
+            {
+                "position": 2,
+                "id": "act001",
+                "name": "Ask For Approval - Step 2",
+                "actionType": "Ask For Approval",
+                "inputs": [{"name": "approver", "value": "subflow.dept_head"}],
+                "outputs": [],
+            },
+            {
+                "position": 8,
+                "id": "act002",
+                "name": "Ask For Approval - Step 8",
+                "actionType": "Ask For Approval",
+                "inputs": [{"name": "approver", "value": "subflow.dept_head"}],
+                "outputs": [],
+            },
+        ] + (extra_actions or [])
+        logic = [
+            {
+                "position": 5,
+                "id": "logic001",
+                "name": "If rank check",
+                "type": "if",
+                "conditions": [{"field": "rank", "operator": "==", "value": "12"}],
+            }
+        ] + (extra_logic or [])
+        subflows = extra_subflows or []
+        return {
+            "result": {
+                "id": "flow123",
+                "name": "Approval Subflow",
+                "status": "Published",
+                "active": True,
+                "scope": "global",
+                "triggerInstances": [],
+                "inputs": [{"name": "sales_manager", "type": "GlideRecord"}],
+                "outputs": [],
+                "flowVariables": [{"name": "dept", "type": "string"}],
+                "actionInstances": actions,
+                "flowLogicInstances": logic,
+                "subFlowInstances": subflows,
+            }
+        }
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_happy_path_returns_all_sections(self, mock_pf):
+        mock_pf.return_value = self._pf_response()
+        result = get_flow_full_detail(
+            self.browser_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="flow123"),
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "processflow_api")
+        self.assertEqual(len(result["actions"]), 2)
+        self.assertEqual(len(result["logic"]), 1)
+        self.assertEqual(len(result["variables"]), 1)
+        self.assertEqual(result["counts"]["actions"], 2)
+        self.assertEqual(result["counts"]["logic"], 1)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_action_inputs_present(self, mock_pf):
+        mock_pf.return_value = self._pf_response()
+        result = get_flow_full_detail(
+            self.browser_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="flow123"),
+        )
+        self.assertTrue(result["success"])
+        approvers = [a["inputs"] for a in result["actions"]]
+        self.assertEqual(approvers[0][0]["value"], "subflow.dept_head")
+        self.assertEqual(approvers[1][0]["value"], "subflow.dept_head")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_action_type_filter(self, mock_pf):
+        extra = [
+            {
+                "position": 3,
+                "id": "act003",
+                "name": "Set Values",
+                "actionType": "Set Values",
+                "inputs": [],
+                "outputs": [],
+            }
+        ]
+        mock_pf.return_value = self._pf_response(extra_actions=extra)
+        result = get_flow_full_detail(
+            self.browser_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="flow123", action_type_filter="approval"),
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(len(result["actions"]), 2)
+        for a in result["actions"]:
+            self.assertIn("Approval", a["action_type"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_logic_conditions_present(self, mock_pf):
+        mock_pf.return_value = self._pf_response()
+        result = get_flow_full_detail(
+            self.browser_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="flow123"),
+        )
+        self.assertEqual(result["logic"][0]["type"], "if")
+        self.assertEqual(result["logic"][0]["conditions"][0]["field"], "rank")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_subflow_inputs_included(self, mock_pf):
+        subflows = [
+            {
+                "position": 10,
+                "id": "sf001",
+                "name": "Child Sub",
+                "subflow": "sub123",
+                "inputs": [{"name": "param1", "value": "trigger.record"}],
+                "outputs": [],
+            }
+        ]
+        mock_pf.return_value = self._pf_response(extra_subflows=subflows)
+        result = get_flow_full_detail(
+            self.browser_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="flow123", include_subflow_inputs=True),
+        )
+        self.assertEqual(len(result["subflows"]), 1)
+        self.assertEqual(result["subflows"][0]["inputs"][0]["value"], "trigger.record")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_subflow_inputs_excluded(self, mock_pf):
+        subflows = [
+            {
+                "position": 10,
+                "id": "sf001",
+                "name": "Child Sub",
+                "subflow": "sub123",
+                "inputs": [{"name": "param1", "value": "trigger.record"}],
+                "outputs": [],
+            }
+        ]
+        mock_pf.return_value = self._pf_response(extra_subflows=subflows)
+        result = get_flow_full_detail(
+            self.browser_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="flow123", include_subflow_inputs=False),
+        )
+        self.assertEqual(len(result["subflows"]), 0)
+
+    def test_requires_browser_auth(self):
+        result = get_flow_full_detail(
+            self.basic_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="flow123"),
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("browser auth", result["error"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_api_error_propagated(self, mock_pf):
+        mock_pf.return_value = {"_error": "HTTP 403 Forbidden"}
+        result = get_flow_full_detail(
+            self.browser_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="flow123"),
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("403", result["error"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_api_returns_none(self, mock_pf):
+        mock_pf.return_value = None
+        result = get_flow_full_detail(
+            self.browser_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="flow123"),
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("None", result["error"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api")
+    def test_actions_sorted_by_position(self, mock_pf):
+        mock_pf.return_value = {
+            "result": {
+                "id": "f1",
+                "name": "F",
+                "actionInstances": [
+                    {
+                        "position": 8,
+                        "id": "a8",
+                        "name": "B",
+                        "actionType": "T",
+                        "inputs": [],
+                        "outputs": [],
+                    },
+                    {
+                        "position": 2,
+                        "id": "a2",
+                        "name": "A",
+                        "actionType": "T",
+                        "inputs": [],
+                        "outputs": [],
+                    },
+                ],
+                "flowLogicInstances": [],
+                "subFlowInstances": [],
+                "triggerInstances": [],
+                "inputs": [],
+                "outputs": [],
+                "flowVariables": [],
+            }
+        }
+        result = get_flow_full_detail(
+            self.browser_config,
+            self.auth_manager,
+            GetFlowFullDetailParams(flow_id="f1"),
+        )
+        self.assertEqual(result["actions"][0]["position"], 2)
+        self.assertEqual(result["actions"][1]["position"], 8)
 
 
 if __name__ == "__main__":
