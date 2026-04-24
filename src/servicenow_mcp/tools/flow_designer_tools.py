@@ -32,10 +32,6 @@ LOGIC_V2_TABLE = "sys_hub_flow_logic_instance_v2"
 SUBFLOW_V2_TABLE = "sys_hub_sub_flow_instance_v2"
 FLOW_CONTEXT_TABLE = "sys_flow_context"
 TRIGGER_TABLE = "sys_hub_trigger_instance"
-RECORD_TRIGGER_TABLE = "sys_flow_record_trigger"
-ACTION_TYPE_TABLE = "sys_hub_action_type_definition"
-PLAYBOOK_TABLE = "sys_pd_process_definition"
-DECISION_TABLE = "sys_decision"
 
 # ---------------------------------------------------------------------------
 # Parameter Models
@@ -82,6 +78,18 @@ class GetFlowDetailsParams(BaseModel):
         default=False,
         description="Include trigger configuration (what events start this flow)",
     )
+    include_executions_summary: bool = Field(
+        default=False,
+        description="Include counts and recent executions summary",
+    )
+    trace_pill: Optional[str] = Field(
+        default=None,
+        description="Trace a data pill string across actions, logic, and subflows",
+    )
+    include_subflow_tree: bool = Field(
+        default=False,
+        description="Include recursive subflow call tree",
+    )
 
 
 class GetFlowExecutionsParams(BaseModel):
@@ -117,99 +125,6 @@ class UpdateFlowDesignerParams(BaseModel):
     name: Optional[str] = Field(default=None, description="New name for the flow")
     description: Optional[str] = Field(default=None, description="New description for the flow")
     active: Optional[bool] = Field(default=None, description="Set active status")
-
-
-class ActivateFlowDesignerParams(BaseModel):
-    """Parameters for activating a Flow Designer flow."""
-
-    flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
-
-
-class DeactivateFlowDesignerParams(BaseModel):
-    """Parameters for deactivating a Flow Designer flow."""
-
-    flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
-
-
-class ListFlowTriggersByTableParams(BaseModel):
-    """Parameters for listing flow triggers by table name."""
-
-    table_name: str = Field(..., description="ServiceNow table name (e.g. 'incident')")
-    scope: Optional[str] = Field(
-        default=None, description="Filter by application scope (e.g. 'global')"
-    )
-    limit: int = Field(default=50, description="Maximum number of trigger records (max 200)")
-
-
-class ListActionsParams(BaseModel):
-    """Parameters for listing Flow Designer actions (sys_hub_action_type_definition)."""
-
-    limit: int = Field(default=20, description="Maximum number of records (max 100)")
-    offset: int = Field(default=0, description="Pagination offset")
-    include_inactive: bool = Field(
-        default=False, description="Include inactive records (default: active only)"
-    )
-    name: Optional[str] = Field(default=None, description="Filter by name (contains)")
-    scope: Optional[str] = Field(default=None, description="Scope namespace or display name")
-    query: Optional[str] = Field(default=None, description="Additional encoded query")
-    count_only: bool = Field(
-        default=False, description="Return count only without fetching records."
-    )
-
-
-class GetActionDetailParams(BaseModel):
-    """Parameters for getting a single action definition."""
-
-    action_id: str = Field(
-        ..., description="Action sys_id from sys_hub_action_type_definition table"
-    )
-
-
-class ListPlaybooksParams(BaseModel):
-    """Parameters for listing Playbooks (sys_pd_process_definition)."""
-
-    limit: int = Field(default=20, description="Maximum number of records (max 100)")
-    offset: int = Field(default=0, description="Pagination offset")
-    include_inactive: bool = Field(
-        default=False, description="Include inactive records (default: active only)"
-    )
-    status: Optional[str] = Field(default=None, description="Filter by status")
-    name: Optional[str] = Field(default=None, description="Filter by label/name (contains)")
-    scope: Optional[str] = Field(default=None, description="Scope namespace or display name")
-    query: Optional[str] = Field(default=None, description="Additional encoded query")
-    count_only: bool = Field(
-        default=False, description="Return count only without fetching records."
-    )
-
-
-class GetPlaybookDetailParams(BaseModel):
-    """Parameters for getting a single playbook."""
-
-    playbook_id: str = Field(
-        ..., description="Playbook sys_id from sys_pd_process_definition table"
-    )
-
-
-class ListDecisionTablesParams(BaseModel):
-    """Parameters for listing Decision Tables (sys_decision)."""
-
-    limit: int = Field(default=20, description="Maximum number of records (max 100)")
-    offset: int = Field(default=0, description="Pagination offset")
-    include_inactive: bool = Field(
-        default=False, description="Include inactive records (default: active only)"
-    )
-    name: Optional[str] = Field(default=None, description="Filter by name (contains)")
-    scope: Optional[str] = Field(default=None, description="Scope namespace or display name")
-    query: Optional[str] = Field(default=None, description="Additional encoded query")
-    count_only: bool = Field(
-        default=False, description="Return count only without fetching records."
-    )
-
-
-class GetDecisionTableDetailParams(BaseModel):
-    """Parameters for getting a single decision table."""
-
-    decision_table_id: str = Field(..., description="Decision table sys_id from sys_decision table")
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +189,333 @@ def _build_component_tree(components: List[Dict]) -> List[Dict]:
             roots.append(comp)
 
     return roots
+
+
+def _safe_int(value: Any) -> int:
+    """Convert a mixed order/position value to int safely."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _action_type_name(action: Dict[str, Any]) -> str:
+    """Return a stable action type label from processflow action data."""
+    action_type = action.get("actionType")
+    if isinstance(action_type, dict):
+        return action_type.get("name") or action_type.get("internal_name") or ""
+    if isinstance(action_type, str):
+        return action_type
+    return ""
+
+
+def _extract_pill_matches(value: Any, pill: str, path: str = "") -> List[Dict[str, str]]:
+    """Recursively extract string values containing the target pill string."""
+    matches: List[Dict[str, str]] = []
+    lowered = pill.lower()
+
+    if isinstance(value, str):
+        if lowered in value.lower():
+            matches.append({"path": path or "$", "value": value})
+        return matches
+
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            next_path = f"{path}[{index}]" if path else f"[{index}]"
+            matches.extend(_extract_pill_matches(item, pill, next_path))
+        return matches
+
+    if isinstance(value, dict):
+        for key, item in value.items():
+            next_path = f"{path}.{key}" if path else str(key)
+            matches.extend(_extract_pill_matches(item, pill, next_path))
+    return matches
+
+
+def _build_processflow_detail(
+    flow_data: Dict[str, Any],
+    include_subflow_inputs: bool = True,
+) -> Dict[str, Any]:
+    """Build the rich processflow detail payload reused by detail and compare paths."""
+
+    def _order(item: Dict[str, Any]) -> int:
+        return _safe_int(item.get("order") or item.get("position"))
+
+    raw_actions = flow_data.get("actionInstances", [])
+    actions: List[Dict[str, Any]] = []
+    for action in sorted(raw_actions, key=_order):
+        actions.append(
+            {
+                "order": action.get("order") or action.get("position"),
+                "ui_id": action.get("uiUniqueIdentifier", ""),
+                "parent_ui_id": action.get("parent", ""),
+                "id": action.get("id", ""),
+                "action_type_sys_id": action.get("actionTypeSysId", ""),
+                "action_type_name": _action_type_name(action),
+                "name": action.get("name", ""),
+                "internal_name": action.get("internalName", ""),
+                "deleted": action.get("deleted", False),
+                "comment": action.get("comment", ""),
+                "inputs": action.get("inputs", []),
+                "outputs": action.get("outputs", []),
+            }
+        )
+
+    raw_logic = flow_data.get("flowLogicInstances", [])
+    logic_nodes: List[Dict[str, Any]] = []
+    for node in sorted(raw_logic, key=_order):
+        definition = (
+            node.get("flowLogicDefinition")
+            if isinstance(node.get("flowLogicDefinition"), dict)
+            else {}
+        )
+        condition_label = ""
+        condition_expr = ""
+        for inp in node.get("inputs", []) or []:
+            if not isinstance(inp, dict):
+                continue
+            if inp.get("name") == "condition_name":
+                condition_label = inp.get("value", "") or inp.get("displayValue", "")
+            elif inp.get("name") == "condition":
+                condition_expr = inp.get("value", "") or inp.get("displayValue", "")
+        logic_nodes.append(
+            {
+                "order": node.get("order") or node.get("position"),
+                "ui_id": node.get("uiUniqueIdentifier", ""),
+                "parent_ui_id": node.get("parent", ""),
+                "id": node.get("id", ""),
+                "logic_type": definition.get("type", ""),
+                "logic_name": definition.get("name", "") or node.get("name", ""),
+                "condition_label": condition_label,
+                "condition": condition_expr,
+                "connected_to": node.get("connectedTo", ""),
+                "outputs_to_assign": node.get("outputsToAssign", []),
+                "flow_block_id": node.get("flowBlockId", ""),
+                "definition_id": node.get("definitionId", ""),
+                "inputs": node.get("inputs", []),
+            }
+        )
+
+    raw_subflows = flow_data.get("subFlowInstances", [])
+    subflow_instances: List[Dict[str, Any]] = []
+    for subflow in sorted(raw_subflows, key=_order):
+        sub_meta = subflow.get("subFlow") if isinstance(subflow.get("subFlow"), dict) else {}
+        subflow_instances.append(
+            {
+                "order": subflow.get("order") or subflow.get("position"),
+                "ui_id": subflow.get("uiUniqueIdentifier", ""),
+                "parent_ui_id": subflow.get("parent", ""),
+                "id": subflow.get("id", ""),
+                "subflow_sys_id": subflow.get("subflowSysId", "") or sub_meta.get("id", ""),
+                "subflow_name": sub_meta.get("name", "") or subflow.get("name", ""),
+                "subflow_internal_name": sub_meta.get("internalName", "")
+                or subflow.get("internalName", ""),
+                "subflow_scope": sub_meta.get("scopeName", "") or sub_meta.get("scope", ""),
+                "inputs": subflow.get("inputs", []) if include_subflow_inputs else [],
+            }
+        )
+
+    flow_inputs = flow_data.get("inputs", []) or []
+    flow_outputs = flow_data.get("outputs", []) or []
+    flow_variables = flow_data.get("flowVariables", []) or []
+    triggers = flow_data.get("triggerInstances", []) or []
+    label_cache = flow_data.get("label_cache") or flow_data.get("labelCache", []) or []
+    deleted_logic = flow_data.get("deletedFlowLogicInstances", []) or []
+
+    return {
+        "triggers": triggers,
+        "inputs": flow_inputs,
+        "outputs": flow_outputs,
+        "variables": flow_variables,
+        "label_cache": label_cache,
+        "deleted_flow_logic_instances": deleted_logic,
+        "actions": actions,
+        "logic": logic_nodes,
+        "subflows": subflow_instances,
+        "counts": {
+            "triggers": len(triggers),
+            "inputs": len(flow_inputs),
+            "outputs": len(flow_outputs),
+            "variables": len(flow_variables),
+            "label_cache": (
+                len(label_cache) if isinstance(label_cache, list) else len(str(label_cache))
+            ),
+            "actions": len(actions),
+            "logic": len(logic_nodes),
+            "subflows": len(subflow_instances),
+        },
+    }
+
+
+def _trace_pill_usage(flow_data: Dict[str, Any], pill: str) -> Dict[str, Any]:
+    """Trace a data pill string through processflow action, logic, and subflow payloads."""
+    detail = _build_processflow_detail(flow_data)
+    matches: List[Dict[str, Any]] = []
+
+    for component_type, items in (
+        ("action", detail["actions"]),
+        ("logic", detail["logic"]),
+        ("subflow", detail["subflows"]),
+    ):
+        for item in items:
+            hits = _extract_pill_matches(item, pill)
+            if hits:
+                matches.append(
+                    {
+                        "component_type": component_type,
+                        "name": item.get("name")
+                        or item.get("logic_name")
+                        or item.get("subflow_name")
+                        or "",
+                        "order": item.get("order", ""),
+                        "ui_id": item.get("ui_id", ""),
+                        "matches": hits,
+                    }
+                )
+
+    return {
+        "pill": pill,
+        "match_count": len(matches),
+        "components": matches,
+    }
+
+
+def _fetch_execution_summary(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    flow_id: str,
+) -> Dict[str, Any]:
+    """Return count and recent-history summary for a flow's executions."""
+    snapshot_id = _get_snapshot_id(config, auth_manager, flow_id)
+    flow_refs = [flow_id]
+    if snapshot_id and snapshot_id not in flow_refs:
+        flow_refs.append(snapshot_id)
+    flow_query = "^OR".join(f"flow={ref}" for ref in flow_refs)
+
+    counts = {
+        "total": sn_count(config, auth_manager, FLOW_CONTEXT_TABLE, flow_query),
+        "error_like": sn_count(
+            config,
+            auth_manager,
+            FLOW_CONTEXT_TABLE,
+            f"({flow_query})^stateINError,Cancelled^ORerror_messageISNOTEMPTY",
+        ),
+    }
+    for state in ["Complete", "Error", "Cancelled", "Waiting", "In Progress"]:
+        key = state.lower().replace(" ", "_")
+        counts[key] = sn_count(
+            config,
+            auth_manager,
+            FLOW_CONTEXT_TABLE,
+            f"({flow_query})^state={state}",
+        )
+
+    recent, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=FLOW_CONTEXT_TABLE,
+        query=flow_query,
+        fields="sys_id,name,state,error_message,error_state,sys_created_on,source_table,source_record,run_time,flow",
+        limit=5,
+        offset=0,
+        display_value=True,
+        orderby="-sys_created_on",
+    )
+    return {"counts": counts, "recent": recent}
+
+
+def _build_subflow_tree(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    flow_id: str,
+    visited: Optional[set[str]] = None,
+) -> Dict[str, Any]:
+    """Recursively build a subflow call tree from processflow or table data."""
+    seen = set(visited or set())
+    if flow_id in seen:
+        return {"flow_id": flow_id, "cycle_detected": True, "children": []}
+    seen.add(flow_id)
+
+    flow_name = ""
+    flow_type = ""
+    scope = ""
+    child_refs: List[Dict[str, Any]] = []
+
+    if _is_browser_auth(config):
+        pf_result = _try_processflow_api(config, auth_manager, flow_id)
+        if pf_result and pf_result.get("result"):
+            flow_data = pf_result["result"]
+            flow_name = flow_data.get("name", "")
+            flow_type = flow_data.get("type", "")
+            scope = flow_data.get("scope", "")
+            for subflow in sorted(
+                flow_data.get("subFlowInstances", []),
+                key=lambda item: _safe_int(item.get("order") or item.get("position")),
+            ):
+                sub_meta = (
+                    subflow.get("subFlow") if isinstance(subflow.get("subFlow"), dict) else {}
+                )
+                child_id = subflow.get("subflowSysId", "") or sub_meta.get("id", "")
+                child_refs.append(
+                    {
+                        "order": subflow.get("order") or subflow.get("position"),
+                        "ui_id": subflow.get("uiUniqueIdentifier", ""),
+                        "flow_id": child_id,
+                        "name": sub_meta.get("name", "") or subflow.get("name", ""),
+                    }
+                )
+    if not flow_name:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_TABLE,
+            query=f"sys_id={flow_id}",
+            fields="sys_id,name,type,sys_scope,label_cache",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
+        )
+        if records:
+            flow = records[0]
+            flow_name = flow.get("name", "")
+            flow_type = flow.get("type", "")
+            scope = flow.get("sys_scope", "")
+            structure = _fetch_flow_structure(config, auth_manager, flow_id)
+            for binding in structure.get("subflow_bindings", []):
+                child_refs.append(
+                    {
+                        "order": binding.get("order", ""),
+                        "ui_id": binding.get("ui_id", ""),
+                        "flow_id": binding.get("subflow_parent_flow_id", ""),
+                        "name": binding.get("subflow_parent_flow_name", "")
+                        or binding.get("subflow_snapshot_name", ""),
+                    }
+                )
+
+    children: List[Dict[str, Any]] = []
+    for child in child_refs:
+        child_id = child.get("flow_id", "")
+        node = {
+            "order": child.get("order", ""),
+            "ui_id": child.get("ui_id", ""),
+            "flow_id": child_id,
+            "name": child.get("name", ""),
+        }
+        if child_id:
+            node["children"] = _build_subflow_tree(config, auth_manager, child_id, seen)["children"]
+        else:
+            node["children"] = []
+        children.append(node)
+
+    return {
+        "flow_id": flow_id,
+        "name": flow_name,
+        "type": flow_type,
+        "scope": scope,
+        "children": children,
+        "cycle_detected": False,
+    }
 
 
 def _try_processflow_api(
@@ -419,13 +661,22 @@ def get_flow_details(
     flow_id = params.flow_id
 
     pf_error: Optional[str] = None
+    needs_processflow = any(
+        [
+            params.include_structure,
+            params.include_triggers,
+            params.include_subflow_tree,
+            bool(params.trace_pill),
+        ]
+    )
 
     try:
-        # processflow API — only available with browser auth
-        if (params.include_structure or params.include_triggers) and _is_browser_auth(config):
+        # processflow API — preferred when rich structure analysis is requested
+        if needs_processflow and _is_browser_auth(config):
             pf_result = _try_processflow_api(config, auth_manager, flow_id)
             if pf_result and pf_result.get("result"):
                 pf_data = pf_result.get("result", pf_result)
+                detail = _build_processflow_detail(pf_data)
                 result: Dict[str, Any] = {
                     "success": True,
                     "source": "processflow_api",
@@ -439,9 +690,17 @@ def get_flow_details(
                     },
                 }
                 if params.include_structure:
-                    result["structure"] = _extract_processflow_structure(pf_result)
+                    result["structure"] = detail
                 if params.include_triggers:
-                    result["triggers"] = pf_data.get("triggerInstances", [])
+                    result["triggers"] = detail["triggers"]
+                if params.include_executions_summary:
+                    result["executions_summary"] = _fetch_execution_summary(
+                        config, auth_manager, flow_id
+                    )
+                if params.trace_pill:
+                    result["pill_trace"] = _trace_pill_usage(pf_data, params.trace_pill)
+                if params.include_subflow_tree:
+                    result["subflow_tree"] = _build_subflow_tree(config, auth_manager, flow_id)
                 return result
             else:
                 pf_error = (
@@ -480,6 +739,20 @@ def get_flow_details(
             result["structure"] = structure
             if not structure.get("success"):
                 result["structure_error"] = structure.get("error", "unknown")
+
+        if params.include_executions_summary:
+            result["executions_summary"] = _fetch_execution_summary(config, auth_manager, flow_id)
+
+        if params.include_subflow_tree:
+            result["subflow_tree"] = _build_subflow_tree(config, auth_manager, flow_id)
+
+        if params.trace_pill:
+            result["pill_trace"] = {
+                "pill": params.trace_pill,
+                "match_count": 0,
+                "components": [],
+                "note": "Data pill tracing requires browser auth via processflow API.",
+            }
 
         return result
     except Exception as e:
@@ -1043,623 +1316,6 @@ def update_flow_designer(
         return {"success": False, "error": str(e)}
 
 
-@register_tool(
-    name="activate_flow_designer",
-    params=ActivateFlowDesignerParams,
-    description="Set a Flow Designer flow to active state by sys_id.",
-    serialization="json",
-    return_type=dict,
-)
-def activate_flow_designer(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: ActivateFlowDesignerParams,
-) -> Dict[str, Any]:
-    """Activate a Flow Designer flow by sys_id."""
-    flow_id = params.flow_id
-    data = {"active": "true"}
-
-    try:
-        url = f"{config.instance_url}/api/now/table/{FLOW_TABLE}/{flow_id}"
-        response = auth_manager.make_request("PATCH", url, json=data)
-        response.raise_for_status()
-
-        result = response.json()
-        invalidate_query_cache(table=FLOW_TABLE)
-        return {
-            "success": True,
-            "flow": result.get("result", {}),
-            "message": "Flow activated successfully",
-        }
-    except Exception as e:
-        logger.error(f"Error activating flow designer: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@register_tool(
-    name="deactivate_flow_designer",
-    params=DeactivateFlowDesignerParams,
-    description="Set a Flow Designer flow to inactive state by sys_id.",
-    serialization="json",
-    return_type=dict,
-)
-def deactivate_flow_designer(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: DeactivateFlowDesignerParams,
-) -> Dict[str, Any]:
-    """Deactivate a Flow Designer flow by sys_id."""
-    flow_id = params.flow_id
-    data = {"active": "false"}
-
-    try:
-        url = f"{config.instance_url}/api/now/table/{FLOW_TABLE}/{flow_id}"
-        response = auth_manager.make_request("PATCH", url, json=data)
-        response.raise_for_status()
-
-        result = response.json()
-        invalidate_query_cache(table=FLOW_TABLE)
-        return {
-            "success": True,
-            "flow": result.get("result", {}),
-            "message": "Flow deactivated successfully",
-        }
-    except Exception as e:
-        logger.error(f"Error deactivating flow designer: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@register_tool(
-    name="list_flow_triggers_by_table",
-    params=ListFlowTriggersByTableParams,
-    description="Find flow triggers for a table. Returns triggers with linked flow info.",
-    serialization="json",
-    return_type=dict,
-)
-def list_flow_triggers_by_table(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: ListFlowTriggersByTableParams,
-) -> Dict[str, Any]:
-    """List flow record triggers for a specific table, with linked flow details."""
-    query_parts: List[str] = [f"table={params.table_name}"]
-    if params.scope:
-        query_parts.append(f"sys_scope.scope={params.scope}^ORsys_scope.name={params.scope}")
-
-    query_string = "^".join(query_parts)
-
-    try:
-        triggers, total = sn_query_page(
-            config,
-            auth_manager,
-            table=RECORD_TRIGGER_TABLE,
-            query=query_string,
-            fields="sys_id,table,remote_trigger_id,condition,sys_scope,sys_name",
-            limit=min(params.limit, 200),
-            offset=0,
-            display_value=True,
-        )
-
-        # Look up linked flows via remote_trigger_id
-        results: List[Dict[str, Any]] = []
-        for trigger in triggers:
-            entry: Dict[str, Any] = {"trigger": trigger}
-            remote_id = trigger.get("remote_trigger_id", "")
-            if remote_id:
-                flows, _ = sn_query_page(
-                    config,
-                    auth_manager,
-                    table=FLOW_TABLE,
-                    query=f"sys_id={remote_id}",
-                    fields="sys_id,name,status,active,trigger_type,sys_scope,description",
-                    limit=1,
-                    offset=0,
-                    display_value=True,
-                )
-                entry["flow"] = flows[0] if flows else None
-            else:
-                entry["flow"] = None
-            results.append(entry)
-
-        return {
-            "success": True,
-            "table": params.table_name,
-            "triggers": results,
-            "count": len(results),
-            "total": total if total is not None else len(results),
-        }
-    except Exception as e:
-        logger.error(f"Error listing flow triggers by table: {e}")
-        return {"success": False, "error": str(e)}
-
-
-# ---------------------------------------------------------------------------
-# Actions (sys_hub_action_type_definition)
-# ---------------------------------------------------------------------------
-
-
-@register_tool(
-    name="list_actions",
-    params=ListActionsParams,
-    description="List Flow Designer action definitions. Use to find sys_ids for get_action_detail.",
-    serialization="json",
-    return_type=dict,
-)
-def list_actions(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: ListActionsParams,
-) -> Dict[str, Any]:
-    """List Flow Designer action type definitions."""
-    query_parts: List[str] = []
-    if not params.include_inactive:
-        query_parts.append("active=true")
-    if params.name:
-        query_parts.append(f"nameLIKE{params.name}")
-    if params.scope:
-        query_parts.append(f"sys_scope.scope={params.scope}^ORsys_scope.name={params.scope}")
-    if params.query:
-        query_parts.append(params.query)
-
-    query_string = "^".join(query_parts) if query_parts else ""
-
-    if params.count_only:
-        count = sn_count(config, auth_manager, ACTION_TYPE_TABLE, query_string)
-        return {"success": True, "count": count}
-
-    try:
-        records, total_count = sn_query_page(
-            config,
-            auth_manager,
-            table=ACTION_TYPE_TABLE,
-            query=query_string,
-            fields="sys_id,name,description,active,sys_scope,sys_updated_on,sys_updated_by,status",
-            limit=min(params.limit, 100),
-            offset=params.offset,
-            display_value=True,
-        )
-        return {
-            "success": True,
-            "actions": records,
-            "count": len(records),
-            "total": total_count if total_count is not None else len(records),
-        }
-    except Exception as e:
-        logger.error(f"Error listing actions: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@register_tool(
-    name="get_action_detail",
-    params=GetActionDetailParams,
-    description="Get a single Flow Designer action definition by sys_id. Returns all fields. Use list_actions first to find the sys_id.",
-    serialization="json",
-    return_type=dict,
-)
-def get_action_detail(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetActionDetailParams,
-) -> Dict[str, Any]:
-    """Get action type definition detail by sys_id."""
-    try:
-        records, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=ACTION_TYPE_TABLE,
-            query=f"sys_id={params.action_id}",
-            fields="",
-            limit=1,
-            offset=0,
-            display_value=True,
-            fail_silently=False,
-        )
-        if not records:
-            return {"success": False, "error": f"Action not found: {params.action_id}"}
-        return {"success": True, "action": records[0]}
-    except Exception as e:
-        logger.error(f"Error getting action detail: {e}")
-        return {"success": False, "error": str(e)}
-
-
-# ---------------------------------------------------------------------------
-# Playbooks (sys_pd_process_definition)
-# ---------------------------------------------------------------------------
-
-
-@register_tool(
-    name="list_playbooks",
-    params=ListPlaybooksParams,
-    description="List Playbooks (process automation). Use to find sys_ids for get_playbook_detail.",
-    serialization="json",
-    return_type=dict,
-)
-def list_playbooks(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: ListPlaybooksParams,
-) -> Dict[str, Any]:
-    """List playbook definitions."""
-    query_parts: List[str] = []
-    if not params.include_inactive:
-        query_parts.append("active=true")
-    if params.status:
-        query_parts.append(f"status={params.status}")
-    if params.name:
-        query_parts.append(f"labelLIKE{params.name}")
-    if params.scope:
-        query_parts.append(f"sys_scope.scope={params.scope}^ORsys_scope.name={params.scope}")
-    if params.query:
-        query_parts.append(params.query)
-
-    query_string = "^".join(query_parts) if query_parts else ""
-
-    if params.count_only:
-        count = sn_count(config, auth_manager, PLAYBOOK_TABLE, query_string)
-        return {"success": True, "count": count}
-
-    try:
-        records, total_count = sn_query_page(
-            config,
-            auth_manager,
-            table=PLAYBOOK_TABLE,
-            query=query_string,
-            fields="sys_id,label,description,active,sys_scope,status,sys_updated_on,sys_updated_by,sys_created_on",
-            limit=min(params.limit, 100),
-            offset=params.offset,
-            display_value=True,
-        )
-        return {
-            "success": True,
-            "playbooks": records,
-            "count": len(records),
-            "total": total_count if total_count is not None else len(records),
-        }
-    except Exception as e:
-        logger.error(f"Error listing playbooks: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@register_tool(
-    name="get_playbook_detail",
-    params=GetPlaybookDetailParams,
-    description="Get a single Playbook by sys_id. Returns all fields. Use list_playbooks first to find the sys_id.",
-    serialization="json",
-    return_type=dict,
-)
-def get_playbook_detail(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetPlaybookDetailParams,
-) -> Dict[str, Any]:
-    """Get playbook detail by sys_id."""
-    try:
-        records, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=PLAYBOOK_TABLE,
-            query=f"sys_id={params.playbook_id}",
-            fields="",
-            limit=1,
-            offset=0,
-            display_value=True,
-            fail_silently=False,
-        )
-        if not records:
-            return {"success": False, "error": f"Playbook not found: {params.playbook_id}"}
-        return {"success": True, "playbook": records[0]}
-    except Exception as e:
-        logger.error(f"Error getting playbook detail: {e}")
-        return {"success": False, "error": str(e)}
-
-
-# ---------------------------------------------------------------------------
-# Decision Tables (sys_decision)
-# ---------------------------------------------------------------------------
-
-
-@register_tool(
-    name="list_decision_tables",
-    params=ListDecisionTablesParams,
-    description="List Decision Tables (sys_decision) used in Flow Designer for routing logic. Use to find decision table sys_ids.",
-    serialization="json",
-    return_type=dict,
-)
-def list_decision_tables(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: ListDecisionTablesParams,
-) -> Dict[str, Any]:
-    """List decision tables."""
-    query_parts: List[str] = []
-    if not params.include_inactive:
-        query_parts.append("active=true")
-    if params.name:
-        query_parts.append(f"nameLIKE{params.name}")
-    if params.scope:
-        query_parts.append(f"sys_scope.scope={params.scope}^ORsys_scope.name={params.scope}")
-    if params.query:
-        query_parts.append(params.query)
-
-    query_string = "^".join(query_parts) if query_parts else ""
-
-    if params.count_only:
-        count = sn_count(config, auth_manager, DECISION_TABLE, query_string)
-        return {"success": True, "count": count}
-
-    try:
-        records, total_count = sn_query_page(
-            config,
-            auth_manager,
-            table=DECISION_TABLE,
-            query=query_string,
-            fields="sys_id,name,label,description,active,sys_scope,sys_updated_on,sys_updated_by",
-            limit=min(params.limit, 100),
-            offset=params.offset,
-            display_value=True,
-        )
-        return {
-            "success": True,
-            "decision_tables": records,
-            "count": len(records),
-            "total": total_count if total_count is not None else len(records),
-        }
-    except Exception as e:
-        logger.error(f"Error listing decision tables: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@register_tool(
-    name="get_decision_table_detail",
-    params=GetDecisionTableDetailParams,
-    description="Get a single Decision Table by sys_id. Returns all fields. Use list_decision_tables first to find the sys_id.",
-    serialization="json",
-    return_type=dict,
-)
-def get_decision_table_detail(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetDecisionTableDetailParams,
-) -> Dict[str, Any]:
-    """Get decision table detail by sys_id."""
-    try:
-        records, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=DECISION_TABLE,
-            query=f"sys_id={params.decision_table_id}",
-            fields="",
-            limit=1,
-            offset=0,
-            display_value=True,
-            fail_silently=False,
-        )
-        if not records:
-            return {
-                "success": False,
-                "error": f"Decision table not found: {params.decision_table_id}",
-            }
-        return {"success": True, "decision_table": records[0]}
-    except Exception as e:
-        logger.error(f"Error getting decision table detail: {e}")
-        return {"success": False, "error": str(e)}
-
-
-# ---------------------------------------------------------------------------
-# Full Flow Detail — actions+inputs, logic conditions, variables (processflow)
-# ---------------------------------------------------------------------------
-
-
-class GetFlowFullDetailParams(BaseModel):
-    """Parameters for getting complete flow internals from processflow API."""
-
-    flow_id: str = Field(..., description="Flow or subflow sys_id from sys_hub_flow")
-    action_type_filter: Optional[str] = Field(
-        default=None, description="Filter actions by type name (contains)"
-    )
-    include_subflow_inputs: bool = Field(
-        default=True, description="Include subflow instance input bindings"
-    )
-
-
-@register_tool(
-    name="get_flow_full_detail",
-    params=GetFlowFullDetailParams,
-    description="Full flow internals: triggers, variables, actions+inputs, logic conditions. Requires browser auth.",
-    serialization="json",
-    return_type=dict,
-)
-def get_flow_full_detail(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetFlowFullDetailParams,
-) -> Dict[str, Any]:
-    """Get complete flow internals from processflow API.
-
-    Returns triggers, flow variables, all action instances with full input/output
-    bindings, all logic condition nodes, and subflow instance inputs in one call.
-    Requires browser auth — processflow API is session-only.
-    """
-    if not _is_browser_auth(config):
-        return {
-            "success": False,
-            "error": (
-                "get_flow_full_detail requires browser auth (processflow API). "
-                "Switch auth type to browser."
-            ),
-        }
-
-    pf_result = _try_processflow_api(config, auth_manager, params.flow_id)
-    if not pf_result or pf_result.get("_error"):
-        return {
-            "success": False,
-            "error": (
-                pf_result.get("_error", "processflow API failed")
-                if pf_result
-                else "processflow API returned None"
-            ),
-            "error_code": pf_result.get("_error_code") if pf_result else None,
-            "plugin_active": pf_result.get("_plugin_active") if pf_result else None,
-            "raw_keys": pf_result.get("_raw_keys") if pf_result else None,
-        }
-
-    flow_data = pf_result.get("result", pf_result)
-
-    def _order(x: Dict[str, Any]) -> int:
-        v = x.get("order") or x.get("position") or 0
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            return 0
-
-    def _action_type_name(a: Dict[str, Any]) -> str:
-        at = a.get("actionType")
-        if isinstance(at, dict):
-            return at.get("name") or at.get("internal_name") or ""
-        if isinstance(at, str):
-            return at
-        return ""
-
-    # --- Actions (full inputs + data pill bindings + parent UI for nesting) ---
-    raw_actions = flow_data.get("actionInstances", [])
-    type_filter = (params.action_type_filter or "").lower()
-    actions: List[Dict[str, Any]] = []
-    for a in sorted(raw_actions, key=_order):
-        at_name = _action_type_name(a)
-        if type_filter and (
-            type_filter not in at_name.lower() and type_filter not in (a.get("name") or "").lower()
-        ):
-            continue
-        actions.append(
-            {
-                "order": a.get("order") or a.get("position"),
-                "ui_id": a.get("uiUniqueIdentifier", ""),
-                "parent_ui_id": a.get("parent", ""),
-                "id": a.get("id", ""),
-                "action_type_sys_id": a.get("actionTypeSysId", ""),
-                "action_type_name": at_name,
-                "name": a.get("name", ""),
-                "internal_name": a.get("internalName", ""),
-                "deleted": a.get("deleted", False),
-                "comment": a.get("comment", ""),
-                "inputs": a.get("inputs", []),
-                "outputs": a.get("outputs", []),
-            }
-        )
-
-    # --- Logic nodes (IF/ELSEIF/END/ASSIGNSUBFLOWOUTPUTS/etc.) ---
-    raw_logic = flow_data.get("flowLogicInstances", [])
-    logic_nodes: List[Dict[str, Any]] = []
-    for node in sorted(raw_logic, key=_order):
-        defn = (
-            node.get("flowLogicDefinition")
-            if isinstance(node.get("flowLogicDefinition"), dict)
-            else {}
-        )
-        # Condition expression lives in inputs[name==condition].value
-        condition_label = ""
-        condition_expr = ""
-        for inp in node.get("inputs", []) or []:
-            if not isinstance(inp, dict):
-                continue
-            n = inp.get("name", "")
-            if n == "condition_name":
-                condition_label = inp.get("value", "") or inp.get("displayValue", "")
-            elif n == "condition":
-                condition_expr = inp.get("value", "") or inp.get("displayValue", "")
-        logic_nodes.append(
-            {
-                "order": node.get("order") or node.get("position"),
-                "ui_id": node.get("uiUniqueIdentifier", ""),
-                "parent_ui_id": node.get("parent", ""),
-                "id": node.get("id", ""),
-                "logic_type": defn.get("type", ""),  # IF, ELSEIF, END, ASSIGNSUBFLOWOUTPUTS, ...
-                "logic_name": defn.get("name", "") or node.get("name", ""),
-                "condition_label": condition_label,
-                "condition": condition_expr,
-                "connected_to": node.get("connectedTo", ""),
-                "outputs_to_assign": node.get("outputsToAssign", []),
-                "flow_block_id": node.get("flowBlockId", ""),
-                "definition_id": node.get("definitionId", ""),
-            }
-        )
-
-    # --- Subflow instances (calls to other subflows) ---
-    raw_subflows = flow_data.get("subFlowInstances", [])
-    subflow_instances: List[Dict[str, Any]] = []
-    if params.include_subflow_inputs:
-        for s in sorted(raw_subflows, key=_order):
-            sub_meta = s.get("subFlow") if isinstance(s.get("subFlow"), dict) else {}
-            subflow_instances.append(
-                {
-                    "order": s.get("order") or s.get("position"),
-                    "ui_id": s.get("uiUniqueIdentifier", ""),
-                    "parent_ui_id": s.get("parent", ""),
-                    "id": s.get("id", ""),
-                    "subflow_sys_id": s.get("subflowSysId", "") or sub_meta.get("id", ""),
-                    "subflow_name": sub_meta.get("name", "") or s.get("name", ""),
-                    "subflow_internal_name": sub_meta.get("internalName", "")
-                    or s.get("internalName", ""),
-                    "subflow_scope": sub_meta.get("scopeName", "") or sub_meta.get("scope", ""),
-                    "inputs": s.get("inputs", []),
-                }
-            )
-
-    flow_inputs = flow_data.get("inputs", []) or []
-    flow_outputs = flow_data.get("outputs", []) or []
-    flow_variables = flow_data.get("flowVariables", []) or []
-    triggers = flow_data.get("triggerInstances", []) or []
-    label_cache = flow_data.get("label_cache", []) or []
-    deleted_logic = flow_data.get("deletedFlowLogicInstances", []) or []
-
-    return {
-        "success": True,
-        "source": "processflow_api",
-        "flow": {
-            "sys_id": flow_data.get("id") or params.flow_id,
-            "name": flow_data.get("name", ""),
-            "internal_name": flow_data.get("internalName", ""),
-            "description": flow_data.get("description", ""),
-            "status": flow_data.get("status", ""),
-            "active": flow_data.get("active", ""),
-            "type": flow_data.get("type", ""),
-            "scope": flow_data.get("scope", ""),
-            "scope_name": flow_data.get("scopeName", ""),
-            "scope_display_name": flow_data.get("scopeDisplayName", ""),
-            "master_snapshot_id": flow_data.get("masterSnapshotId", ""),
-            "latest_snapshot": flow_data.get("latestSnapshot", ""),
-            "version": flow_data.get("version", ""),
-            "flow_priority": flow_data.get("flowPriority", ""),
-            "compiler_build": flow_data.get("compilerBuild", ""),
-            "is_published": flow_data.get("isPublished"),
-            "master_snapshot": flow_data.get("masterSnapshot"),
-            "run_as": flow_data.get("runAs", ""),
-            "created": flow_data.get("created", ""),
-            "updated": flow_data.get("updated", ""),
-            "updated_by": flow_data.get("updatedBy", ""),
-        },
-        "triggers": triggers,
-        "inputs": flow_inputs,
-        "outputs": flow_outputs,
-        "variables": flow_variables,
-        "label_cache": label_cache,
-        "deleted_flow_logic_instances": deleted_logic,
-        "actions": actions,
-        "logic": logic_nodes,
-        "subflows": subflow_instances,
-        "counts": {
-            "triggers": len(triggers),
-            "inputs": len(flow_inputs),
-            "outputs": len(flow_outputs),
-            "variables": len(flow_variables),
-            "label_cache": len(label_cache),
-            "actions": len(actions),
-            "logic": len(logic_nodes),
-            "subflows": len(subflow_instances),
-        },
-    }
-
-
 # ---------------------------------------------------------------------------
 # Compare Flows (browser auth: processflow API, basic auth: Table API)
 # ---------------------------------------------------------------------------
@@ -1851,13 +1507,6 @@ def _diff_flows(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@register_tool(
-    name="compare_flows",
-    params=CompareFlowsParams,
-    description="Compare two flows by name or sys_id. Diffs structure, subflow bindings, and triggers.",
-    serialization="json",
-    return_type=dict,
-)
 def _resolve_flow_id(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1897,6 +1546,13 @@ def _resolve_flow_id(
     return None, f"Flow {label}: no flow found with name '{name}'"
 
 
+@register_tool(
+    name="compare_flows",
+    params=CompareFlowsParams,
+    description="Compare two flows by name or sys_id. Diffs structure, subflow bindings, and triggers.",
+    serialization="json",
+    return_type=dict,
+)
 def compare_flows(
     config: ServerConfig,
     auth_manager: AuthManager,
