@@ -297,12 +297,14 @@ def _try_processflow_api(
         )
         response.raise_for_status()
         data = response.json()
-        if data and isinstance(data, dict):
-            result = data.get("result")
-            if isinstance(result, dict) and (result.get("name") or result.get("id")):
-                return data
-            return {"_error": "processflow result has no name/id"}
-        return {"_error": "processflow returned non-dict response"}
+        if not data or not isinstance(data, dict):
+            return {"_error": "processflow returned non-dict response"}
+        result = data.get("result")
+        if not isinstance(result, dict):
+            return {"_error": f"processflow result is not a dict: keys={list(data.keys())}"}
+        if not result:
+            return {"_error": "processflow result is empty dict"}
+        return data
     except Exception as e:
         logger.error("processflow API failed for flow %s: %s", flow_id, e)
         return {"_error": str(e)}
