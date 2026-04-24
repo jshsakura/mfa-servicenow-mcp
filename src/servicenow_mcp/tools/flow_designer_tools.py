@@ -299,12 +299,23 @@ def _try_processflow_api(
         data = response.json()
         if not data or not isinstance(data, dict):
             return {"_error": "processflow returned non-dict response"}
-        result = data.get("result")
-        if not isinstance(result, dict):
-            return {"_error": f"processflow result is not a dict: keys={list(data.keys())}"}
-        if not result:
-            return {"_error": "processflow result is empty dict"}
-        return data
+        # Surface API-level errors before attempting to parse flow data
+        if data.get("errorMessage") or data.get("errorCode"):
+            return {
+                "_error": data.get("errorMessage", "processflow API error"),
+                "_error_code": data.get("errorCode"),
+                "_plugin_active": data.get("integrationsPluginActive"),
+                "_raw_keys": list(data.keys()),
+            }
+        # Yokohama uses "data" key; older versions use "result"
+        flow_payload = data.get("result") or data.get("data")
+        if not isinstance(flow_payload, dict) or not flow_payload:
+            return {
+                "_error": f"processflow: no result/data in response keys={list(data.keys())}",
+                "_raw": data,
+            }
+        # Normalise to always return under "result" key so callers stay consistent
+        return {"result": flow_payload}
     except Exception as e:
         logger.error("processflow API failed for flow %s: %s", flow_id, e)
         return {"_error": str(e)}
@@ -1475,6 +1486,9 @@ def get_flow_full_detail(
                 if pf_result
                 else "processflow API returned None"
             ),
+            "error_code": pf_result.get("_error_code") if pf_result else None,
+            "plugin_active": pf_result.get("_plugin_active") if pf_result else None,
+            "raw_keys": pf_result.get("_raw_keys") if pf_result else None,
         }
 
     flow_data = pf_result.get("result", pf_result)
