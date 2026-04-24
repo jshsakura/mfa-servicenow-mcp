@@ -69,7 +69,7 @@ AI가 자동으로:
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **110개 이상의 도구**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
+- **등록 도구 151개**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
 - **24개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
 - **크로스-스코프 의존성 자동 해석** — `download_app_sources`가 앱 코드에서 참조하는 글로벌 스코프의 Script Include, Widget, Angular Provider, UI Macro까지 함께 받아 로컬 번들을 분석에 자족적으로 만듭니다
@@ -252,17 +252,17 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
-| `standard` | 43 | **(기본값)** 읽기 전용 safe mode. 핵심 API, 워크플로우/플로우 읽기, 포탈 기본, 로그, 검색 |
-| `service_desk` | 53 | standard + 인시던트 생성/처리/해결/코멘트, 변경관리 쓰기 |
-| `portal_developer` | 91 | standard + 포탈 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
-| `platform_developer` | 86 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `agile` | 58 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
-| `admin` | 68 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
-| `full` | 110 | 포탈 중심 전 개발 도구 통합 (Agile PPM, Admin은 전용 패키지에서) |
+| `standard` | 36 | **(기본값)** 읽기 전용 safe mode. 핵심 API, 워크플로우/플로우 읽기, 포탈 기본, 로그, 검색 |
+| `service_desk` | 46 | standard + 인시던트 생성/처리/해결/코멘트, 변경관리 쓰기 |
+| `portal_developer` | 84 | standard + 포탈 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
+| `platform_developer` | 77 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `agile` | 51 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
+| `admin` | 61 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
+| `full` | 101 | 포탈 중심 전 개발 도구 통합 (Agile PPM, Admin은 전용 패키지에서) |
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 
-카테고리별 전체 도구 목록은 [Tool Inventory](docs/TOOL_INVENTORY.md)에서 확인할 수 있습니다.
+카테고리별 전체 도구 목록은 [도구 목록](docs/TOOL_INVENTORY.ko.md)에서 확인할 수 있습니다.
 
 ---
 

@@ -266,13 +266,13 @@ TTL을 변경하려면 `--browser-session-ttl` 옵션을 사용하세요 (단위
 
 | 패키지 | 도구 수 | 설명 |
 |--------|:------:|------|
-| `standard` | 43 | **(기본값)** 읽기 전용 safe mode. 핵심 조회, 워크플로우/플로우 읽기, 포털 기본, 로그, 검색 |
-| `service_desk` | 53 | standard + 인시던트 생성/수정/해결/코멘트, 변경관리 쓰기 |
-| `portal_developer` | 91 | standard + 포털 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
-| `platform_developer` | 86 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `agile` | 58 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
-| `admin` | 68 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
-| `full` | 110 | 포털 중심 개발 도구 전체 묶음 (Agile PPM, Admin은 전용 패키지 유지) |
+| `standard` | 36 | **(기본값)** 읽기 전용 safe mode. 핵심 조회, 워크플로우/플로우 읽기, 포털 기본, 로그, 검색 |
+| `service_desk` | 46 | standard + 인시던트 생성/수정/해결/코멘트, 변경관리 쓰기 |
+| `portal_developer` | 84 | standard + 포털 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
+| `platform_developer` | 77 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `agile` | 51 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
+| `admin` | 61 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
+| `full` | 101 | 포털 중심 개발 도구 전체 묶음 (Agile PPM, Admin은 전용 패키지 유지) |
 
 수정 권한이 필요하면 `MCP_TOOL_PACKAGE` 값만 바꾸면 됩니다:
 

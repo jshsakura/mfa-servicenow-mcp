@@ -70,7 +70,7 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **110+ tools** across 7 role-based packages — from read-only to full CRUD
+- **151 registered tools** across 7 role-based packages — from read-only to full CRUD
 - **24 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
@@ -257,13 +257,13 @@ All packages inherit `standard` read-only tools via `_extends` and add domain-sp
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `standard` | 43 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search |
-| `service_desk` | 53 | standard + incident create/update/resolve/comment, change management writes |
-| `portal_developer` | 91 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
-| `platform_developer` | 86 | standard + workflow CRUD, flow designer, UI policy, incident/change/script writes |
-| `agile` | 58 | standard + epic/story/scrum task/project PPM tools |
-| `admin` | 68 | standard + user/group management, knowledge base, catalog management |
-| `full` | 110 | Portal-focused development tools (agile PPM and admin in their own packages) |
+| `standard` | 36 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search |
+| `service_desk` | 46 | standard + incident create/update/resolve/comment, change management writes |
+| `portal_developer` | 84 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
+| `platform_developer` | 77 | standard + workflow CRUD, flow designer, UI policy, incident/change/script writes |
+| `agile` | 51 | standard + epic/story/scrum task/project PPM tools |
+| `admin` | 61 | standard + user/group management, knowledge base, catalog management |
+| `full` | 101 | Portal-focused development tools (agile PPM and admin in their own packages) |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
