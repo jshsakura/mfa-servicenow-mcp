@@ -266,13 +266,13 @@ Set `MCP_TOOL_PACKAGE` to choose a tool set. Default: `standard` (read-only).
 
 | Package | Tools | Description |
 |---------|:-----:|-------------|
-| `standard` | 43 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search |
-| `service_desk` | 53 | standard + incident create/update/resolve/comment, change management writes |
-| `portal_developer` | 91 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
-| `platform_developer` | 86 | standard + workflow CRUD, Flow Designer, UI Policy, incident/change/script writes |
-| `agile` | 58 | standard + epic/story/scrum task/project PPM tools |
-| `admin` | 68 | standard + user/group management, knowledge base, catalog management |
-| `full` | 110 | Portal-focused development tools (agile PPM and admin stay in their own packages) |
+| `standard` | 36 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search |
+| `service_desk` | 46 | standard + incident create/update/resolve/comment, change management writes |
+| `portal_developer` | 84 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
+| `platform_developer` | 77 | standard + workflow CRUD, Flow Designer, UI Policy, incident/change/script writes |
+| `agile` | 51 | standard + epic/story/scrum task/project PPM tools |
+| `admin` | 61 | standard + user/group management, knowledge base, catalog management |
+| `full` | 101 | Portal-focused development tools (agile PPM and admin stay in their own packages) |
 
 To change, update the `MCP_TOOL_PACKAGE` value:
 
