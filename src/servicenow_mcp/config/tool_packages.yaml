@@ -34,6 +34,7 @@ standard:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
+  - get_flow_full_detail
   - list_flow_triggers_by_table
   # Portal (Read)
   - get_portal
@@ -99,6 +100,7 @@ portal_developer:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
+  - get_flow_full_detail
   - list_flow_triggers_by_table
   - get_portal
   - get_page
@@ -193,6 +195,7 @@ platform_developer:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
+  - get_flow_full_detail
   - list_flow_triggers_by_table
   - get_portal
   - get_page
@@ -301,6 +304,7 @@ service_desk:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
+  - get_flow_full_detail
   - list_flow_triggers_by_table
   - get_portal
   - get_page
@@ -366,6 +370,7 @@ full:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
+  - get_flow_full_detail
   - list_flow_triggers_by_table
   - get_portal
   - get_page
