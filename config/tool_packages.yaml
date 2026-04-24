@@ -39,16 +39,7 @@ standard:
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
-  - get_flow_full_detail
-  - list_flow_triggers_by_table
   - compare_flows
-  # Actions / Playbooks / Decision Tables (Read)
-  - list_actions
-  - get_action_detail
-  - list_playbooks
-  - get_playbook_detail
-  - list_decision_tables
-  - get_decision_table_detail
   # Portal (Read - basics)
   - get_portal
   - get_page
@@ -164,8 +155,6 @@ platform_developer:
     - delete_workflow
     # Flow Designer writes
     - update_flow_designer
-    - activate_flow_designer
-    - deactivate_flow_designer
     # UI Policy writes
     - create_ui_policy
     - create_ui_policy_action
@@ -289,8 +278,6 @@ full:
     - delete_workflow
     # Flow Designer writes
     - update_flow_designer
-    - activate_flow_designer
-    - deactivate_flow_designer
     # Portal analysis
     - download_portal_sources
     - search_portal_regex_matches
