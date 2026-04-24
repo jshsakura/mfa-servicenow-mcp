@@ -7,7 +7,7 @@ delegatable: yes
 required_input: table name (e.g. incident, sc_req_item)
 output: report
 tools:
-  - list_flow_triggers_by_table
+  - sn_query
   - list_workflows
   - list_flow_designers
   - get_workflow_details
@@ -34,8 +34,8 @@ You are tracing all automation (workflows + flows) that fire when a specific tab
    - If user gives a record number (e.g. INC0012345), resolve the table first
 
 2. TRACE Flow Designer triggers
-   CALL list_flow_triggers_by_table(table_name=TARGET_TABLE, scope=SCOPE_IF_PROVIDED)
-   → Returns triggers + linked flows from `sys_flow_record_trigger`
+   CALL sn_query(table="sys_flow_record_trigger", query="table=TARGET_TABLE^scope filter if provided", fields="sys_id,table,remote_trigger_id,condition,sys_scope,sys_name")
+   → Returns trigger records from `sys_flow_record_trigger`; use `remote_trigger_id` to identify linked flows
 
 3. TRACE Workflow Engine
    CALL list_workflows(table=TARGET_TABLE, active=true)
@@ -46,7 +46,7 @@ You are tracing all automation (workflows + flows) that fire when a specific tab
    ## Automation on [table_name]
 
    ### Flow Designer (sys_hub_flow)
-   | Flow Name | Trigger Condition | Active | Scope |
+    | Flow Name | Trigger Condition | Active | Scope |
    |-----------|-------------------|--------|-------|
    | ...       | ...               | ...    | ...   |
 

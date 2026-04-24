@@ -20,8 +20,6 @@ tools:
   - list_flow_designers
   - get_flow_designer_detail
   - update_flow_designer
-  - activate_flow_designer
-  - deactivate_flow_designer
   - get_flow_designer_executions
 triggers:
   - "워크플로우 목록"
@@ -73,11 +71,11 @@ IF "상세" or "details":
 
 IF "활성화" or "activate":
   IF wf_workflow: CALL activate_workflow(workflow_id=INPUT, confirm="approve")
-  IF sys_hub_flow: CALL activate_flow_designer(flow_id=INPUT, confirm="approve")
+  IF sys_hub_flow: CALL update_flow_designer(flow_id=INPUT, active=true, confirm="approve")
 
 IF "비활성화" or "deactivate":
   IF wf_workflow: CALL deactivate_workflow(workflow_id=INPUT, confirm="approve")
-  IF sys_hub_flow: CALL deactivate_flow_designer(flow_id=INPUT, confirm="approve")
+  IF sys_hub_flow: CALL update_flow_designer(flow_id=INPUT, active=false, confirm="approve")
 
 ## Pipeline: Modify
 
