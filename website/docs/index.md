@@ -408,7 +408,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Connect</h3>
-        <p>Point Claude, Cursor, or any MCP client. 110+ packaged tools ready instantly.</p>
+        <p>Point Claude, Cursor, or any MCP client. 151 registered tools ready instantly through role-based packages.</p>
       </div>
     </div>
   </div>
