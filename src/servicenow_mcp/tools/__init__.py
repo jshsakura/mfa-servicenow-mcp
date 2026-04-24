@@ -42,15 +42,11 @@ from servicenow_mcp.tools.changeset_tools import (
     update_changeset,
 )
 from servicenow_mcp.tools.epic_tools import create_epic, list_epics, update_epic
-from servicenow_mcp.tools.flow_designer_tools import (
-    activate_flow_designer,
-    deactivate_flow_designer,
-)
+from servicenow_mcp.tools.flow_designer_tools import compare_flows
 from servicenow_mcp.tools.flow_designer_tools import get_flow_details as get_flow_designer_detail
 from servicenow_mcp.tools.flow_designer_tools import (
     get_flow_executions as get_flow_designer_executions,
 )
-from servicenow_mcp.tools.flow_designer_tools import list_flow_triggers_by_table
 from servicenow_mcp.tools.flow_designer_tools import list_flows as list_flow_designers
 from servicenow_mcp.tools.flow_designer_tools import update_flow_designer
 from servicenow_mcp.tools.incident_tools import (
@@ -269,8 +265,6 @@ __all__ = [
     "list_flow_designers",
     "get_flow_designer_detail",
     "get_flow_designer_executions",
+    "compare_flows",
     "update_flow_designer",
-    "activate_flow_designer",
-    "deactivate_flow_designer",
-    "list_flow_triggers_by_table",
 ]
