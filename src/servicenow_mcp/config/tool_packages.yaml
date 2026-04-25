@@ -1,15 +1,16 @@
 # ServiceNow MCP Tool Packages Configuration
 #
 # Packages:
-#   core       — Minimal read-only (tables, schemas, discovery). ~20 tools.
-#   standard   — All reads, no writes. ~67 tools. Default.
-#   portal_developer — standard + portal/changeset/script writes.
+#   none               — Disabled profile for intentionally turning tools off.
+#   core               — Minimal read-only essentials.
+#   standard           — Broad read-only surface. Default.
+#   service_desk       — standard + operational incident/change writes.
+#   portal_developer   — standard + portal/changeset/script/local-sync writes.
 #   platform_developer — standard + workflow/incident/change/script writes.
-#   service_desk — standard + incident writes.
-#   full       — All tools.
+#   full               — Broadest packaged surface, including bundled manage_* flows.
 #
 # All write-capable packages use _extends: standard to avoid duplication.
-# Tools not in any package (Agile/PPM, User/Group, Knowledge) → use sn_query.
+# Some registered tools are intentionally left unpackaged; see docs/TOOL_INVENTORY.md.
 
 none: []
 
