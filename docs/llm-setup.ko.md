@@ -114,7 +114,7 @@ uvx --with playwright playwright install chromium
    > 2. service_desk — standard + assignment, SLA, escalation
    > 3. portal_developer — standard + portal widgets, pages, themes
    > 4. platform_developer — standard + scripts, flows, update sets
-   > 5. full — 통합 개발자 패키지 전체 (101개 도구)
+   > 5. full — 가장 넓은 패키지 표면, 번들 워크플로우 포함 (124개 도구)
 
    값을 `$TOOL_PACKAGE`에 저장합니다. 기본값은 `standard`입니다.
 
