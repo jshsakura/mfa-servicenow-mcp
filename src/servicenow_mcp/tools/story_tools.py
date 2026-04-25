@@ -6,7 +6,7 @@ This module provides tools for managing stories in ServiceNow.
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,9 +27,11 @@ class CreateStoryParams(BaseModel):
     description: Optional[str] = Field(
         default=None, description="Detailed description of the story"
     )
-    state: Optional[str] = Field(
+    # -6 Draft, -7 Ready for Testing, -8 Testing, 1 Ready,
+    # 2 Work in progress, 3 Complete, 4 Cancelled.
+    state: Optional[Literal["-6", "-7", "-8", "1", "2", "3", "4"]] = Field(
         default=None,
-        description="State of story (-6 is Draft,-7 is Ready for Testing,-8 is Testing,1 is Ready, 2 is Work in progress, 3 is Complete, 4 is Cancelled)",
+        description="Story state code.",
     )
     assignment_group: Optional[str] = Field(default=None, description="Group assigned to the story")
     story_points: Optional[int] = Field(default=10, description="Points value for the story")
@@ -64,9 +66,11 @@ class UpdateStoryParams(BaseModel):
     description: Optional[str] = Field(
         default=None, description="Detailed description of the story"
     )
-    state: Optional[str] = Field(
+    # -6 Draft, -7 Ready for Testing, -8 Testing, 1 Ready,
+    # 2 Work in progress, 3 Complete, 4 Cancelled.
+    state: Optional[Literal["-6", "-7", "-8", "1", "2", "3", "4"]] = Field(
         default=None,
-        description="State of story (-6 is Draft,-7 is Ready for Testing,-8 is Testing,1 is Ready, 2 is Work in progress, 3 is Complete, 4 is Cancelled)",
+        description="Story state code.",
     )
     assignment_group: Optional[str] = Field(default=None, description="Group assigned to the story")
     story_points: Optional[int] = Field(default=None, description="Points value for the story")

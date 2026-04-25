@@ -199,6 +199,48 @@ class TestGetToolSchema:
             os.environ.pop("MCP_SCHEMA_DETAIL", None)
             _TOOL_SCHEMA_CACHE.pop(Params, None)
 
+    def test_strips_nested_defs_descriptions(self):
+        """Sub-model docstrings inside $defs leak otherwise."""
+        from pydantic import BaseModel, Field
+
+        class Inner(BaseModel):
+            """Inner submodel doc — should be stripped."""
+
+            v: str = Field(description="value")
+
+        class Outer(BaseModel):
+            inner: Inner
+
+        schema = _get_tool_schema(Outer)
+        defs = schema.get("$defs") or schema.get("definitions") or {}
+        for sub in defs.values():
+            assert "description" not in sub, sub
+
+    def test_schema_cache_keys_by_detail_level(self):
+        """Regression: cache was keyed only by model type, so switching
+        MCP_SCHEMA_DETAIL at runtime returned stale schemas for the same model."""
+        import os
+
+        from pydantic import BaseModel, Field
+
+        class Params(BaseModel):
+            note: str = Field(description="A note")
+
+        try:
+            os.environ["MCP_SCHEMA_DETAIL"] = "minimal"
+            minimal = _get_tool_schema(Params)
+            assert "description" not in minimal["properties"]["note"]
+
+            os.environ["MCP_SCHEMA_DETAIL"] = "full"
+            full = _get_tool_schema(Params)
+            assert "description" in full["properties"]["note"]
+
+            os.environ["MCP_SCHEMA_DETAIL"] = "minimal"
+            minimal_again = _get_tool_schema(Params)
+            assert "description" not in minimal_again["properties"]["note"]
+        finally:
+            os.environ.pop("MCP_SCHEMA_DETAIL", None)
+
 
 # ---------------------------------------------------------------------------
 # ServiceNowMCP static methods
@@ -600,6 +642,26 @@ class TestCallToolImpl:
         async def _check():
             with pytest.raises(ValueError, match="not available in the current package"):
                 await server._call_tool_impl("my_tool", {})
+
+        asyncio.run(_check())
+
+    def test_call_disabled_tool_lazy_not_loaded(self):
+        """Regression: with lazy discovery, tool_definitions only holds enabled
+        tools. The 'available in <pkg>' message must still fire even when the
+        called tool was never lazy-loaded."""
+        import asyncio
+
+        # tool_defs empty simulates the real lazy-load path (disabled tool never imported)
+        server = self._make_server(
+            tool_defs={},
+            enabled=[],
+            package="standard",
+            pkg_defs={"full": ["create_incident"], "standard": []},
+        )
+
+        async def _check():
+            with pytest.raises(ValueError, match="not available in the current package"):
+                await server._call_tool_impl("create_incident", {})
 
         asyncio.run(_check())
 

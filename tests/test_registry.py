@@ -51,18 +51,18 @@ def test_discover_tools_lazy_with_none_delegates():
 
 
 def test_discover_tools_lazy_import_error(caplog):
-    """discover_tools_lazy handles import errors in tool modules gracefully."""
+    """discover_tools_lazy handles import errors in tool modules gracefully.
 
-    # Create a fake module iterator that will fail on import
-    fake_modules = [
-        (None, "__test_bad_module__", False),
-    ]
+    Lazy discovery now uses a static tool→module index (no pkgutil walk), so
+    we mock the index to point a known tool at a non-existent module.
+    """
+    fake_index = {"my_tool": "__test_bad_module__"}
     with (
-        patch("pkgutil.iter_modules", return_value=fake_modules),
+        patch("servicenow_mcp.utils.registry._get_tool_module_index", return_value=fake_index),
         patch("importlib.import_module", side_effect=ImportError("no such module")),
         caplog.at_level(logging.WARNING),
     ):
-        discover_tools_lazy(enabled_names={"nonexistent_tool"})
+        discover_tools_lazy(enabled_names={"my_tool"})
     assert any("Failed to import" in r.message for r in caplog.records)
 
 
