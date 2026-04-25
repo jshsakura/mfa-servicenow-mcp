@@ -21,6 +21,7 @@ core:
   - sn_schema
   - sn_discover
   - sn_nl
+  - sn_resolve_url
   - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
@@ -46,6 +47,7 @@ standard:
   - sn_schema
   - sn_discover
   - sn_nl
+  - sn_resolve_url
   # Incident (Read)
   - get_incident_by_number
   # Catalog (Read)
@@ -210,6 +212,8 @@ service_desk:
 full:
   _extends: standard
   _tools:
+    # Generic write primitive (denylisted sys_* internally)
+    - sn_write
     # Incident writes
     - create_incident
     - update_incident

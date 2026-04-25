@@ -47,7 +47,7 @@ MUTATING_TOOL_PREFIXES = (
     "assign_",
 )
 # Tools that need confirmation but don't match a prefix above.
-MUTATING_TOOL_NAMES = {"sn_batch"}
+MUTATING_TOOL_NAMES = {"sn_batch", "sn_write"}
 
 CONFIRM_FIELD = "confirm"
 CONFIRM_VALUE = "approve"
