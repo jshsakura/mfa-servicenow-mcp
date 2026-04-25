@@ -335,7 +335,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       </div>
       <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
-        <p>5 skills — page layout, script includes, source export, changeset workflow</p>
+        <p>8 skills — page layout, script includes, source export, app source download, changeset workflow, local sync, workflow management, skill management</p>
       </div>
       <div class="step-card" style="--i:4">
         <h3>🚀 deploy/</h3>
@@ -343,7 +343,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       </div>
       <div class="step-card" style="--i:5">
         <h3>🧭 explore/</h3>
-        <p>4 skills — health check, schema discovery, route tracing, ESC catalog flow</p>
+        <p>5 skills — health check, schema discovery, route tracing, flow trigger tracing, ESC catalog flow</p>
       </div>
     </div>
   </div>
@@ -367,7 +367,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">150+</span>
+    <span class="hero-stat-value">165</span>
     <span class="hero-stat-label">MCP Tools</span>
   </div>
   <div class="hero-stat">
@@ -408,7 +408,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Connect</h3>
-        <p>Point Claude, Cursor, or any MCP client. 151 registered tools ready instantly through role-based packages.</p>
+        <p>Point Claude, Cursor, or any MCP client. 165 registered tools ready instantly through active package profiles.</p>
       </div>
     </div>
   </div>
