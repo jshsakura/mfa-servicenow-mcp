@@ -5,9 +5,9 @@ This module provides tools for managing users and groups in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
@@ -1047,4 +1047,234 @@ def remove_group_members(
         success=success,
         message=message,
         group_id=params.group_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# manage_user — bundled CRUD + read for sys_user
+#
+# Read actions ('get', 'list') are exempted from the manage_* confirm gate
+# via server.MANAGE_READ_ACTIONS.
+# ---------------------------------------------------------------------------
+
+_USER_UPDATE_FIELDS = (
+    "user_name",
+    "first_name",
+    "last_name",
+    "email",
+    "title",
+    "department",
+    "manager",
+    "roles",
+    "phone",
+    "mobile_phone",
+    "location",
+    "password",
+    "active",
+)
+
+
+class ManageUserParams(BaseModel):
+    """Manage users — table: sys_user."""
+
+    action: Literal["create", "update", "get", "list"] = Field(...)
+    user_id: Optional[str] = Field(default=None)
+    user_name: Optional[str] = Field(default=None)
+    first_name: Optional[str] = Field(default=None)
+    last_name: Optional[str] = Field(default=None)
+    email: Optional[str] = Field(default=None)
+    title: Optional[str] = Field(default=None)
+    department: Optional[str] = Field(default=None)
+    manager: Optional[str] = Field(default=None)
+    roles: Optional[List[str]] = Field(default=None)
+    phone: Optional[str] = Field(default=None)
+    mobile_phone: Optional[str] = Field(default=None)
+    location: Optional[str] = Field(default=None)
+    password: Optional[str] = Field(default=None)
+    active: Optional[bool] = Field(default=None)
+    limit: int = Field(default=10)
+    offset: int = Field(default=0)
+    query: Optional[str] = Field(default=None)
+    count_only: bool = Field(default=False)
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManageUserParams":
+        a = self.action
+        if a == "create":
+            for f in ("user_name", "first_name", "last_name", "email"):
+                if not getattr(self, f):
+                    raise ValueError(f"{f} is required for action='create'")
+        elif a == "update":
+            if not self.user_id:
+                raise ValueError("user_id is required for action='update'")
+            if not any(getattr(self, f) is not None for f in _USER_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update'")
+        elif a == "get":
+            if not (self.user_id or self.user_name or self.email):
+                raise ValueError("user_id, user_name, or email is required for action='get'")
+        return self
+
+
+@register_tool(
+    name="manage_user",
+    params=ManageUserParams,
+    description="User CRUD + lookup (table: sys_user). Read actions skip confirm.",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def manage_user(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageUserParams,
+) -> Dict[str, Any]:
+    a = params.action
+    if a == "create":
+        kwargs: Dict[str, Any] = {
+            "user_name": params.user_name,
+            "first_name": params.first_name,
+            "last_name": params.last_name,
+            "email": params.email,
+        }
+        for f in (
+            "title",
+            "department",
+            "manager",
+            "roles",
+            "phone",
+            "mobile_phone",
+            "location",
+            "password",
+            "active",
+        ):
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return create_user(config, auth_manager, CreateUserParams(**kwargs))
+    if a == "update":
+        kwargs = {"user_id": params.user_id, "dry_run": params.dry_run}
+        for f in _USER_UPDATE_FIELDS:
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return update_user(config, auth_manager, UpdateUserParams(**kwargs))
+    if a == "get":
+        return get_user(
+            config,
+            auth_manager,
+            GetUserParams(
+                user_id=params.user_id,
+                user_name=params.user_name,
+                email=params.email,
+            ),
+        )
+    return list_users(
+        config,
+        auth_manager,
+        ListUsersParams(
+            limit=params.limit,
+            offset=params.offset,
+            active=params.active,
+            department=params.department,
+            query=params.query,
+            count_only=params.count_only,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# manage_group — bundled CRUD + membership ops for sys_user_group
+# ---------------------------------------------------------------------------
+
+_GROUP_UPDATE_FIELDS = ("name", "description", "manager", "parent", "type", "email", "active")
+
+
+class ManageGroupParams(BaseModel):
+    """Manage groups — table: sys_user_group."""
+
+    action: Literal["create", "update", "list", "add_members", "remove_members"] = Field(...)
+    group_id: Optional[str] = Field(default=None)
+    name: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    manager: Optional[str] = Field(default=None)
+    parent: Optional[str] = Field(default=None)
+    type: Optional[str] = Field(default=None)
+    email: Optional[str] = Field(default=None)
+    active: Optional[bool] = Field(default=None)
+    members: Optional[List[str]] = Field(default=None)
+    limit: int = Field(default=10)
+    offset: int = Field(default=0)
+    query: Optional[str] = Field(default=None)
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManageGroupParams":
+        a = self.action
+        if a == "create":
+            if not self.name:
+                raise ValueError("name is required for action='create'")
+        elif a == "update":
+            if not self.group_id:
+                raise ValueError("group_id is required for action='update'")
+            if not any(getattr(self, f) is not None for f in _GROUP_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update'")
+        elif a in ("add_members", "remove_members"):
+            if not self.group_id:
+                raise ValueError(f"group_id is required for action='{a}'")
+            if not self.members:
+                raise ValueError(f"members is required for action='{a}'")
+        return self
+
+
+@register_tool(
+    name="manage_group",
+    params=ManageGroupParams,
+    description="Group CRUD + membership ops (table: sys_user_group). list skips confirm.",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def manage_group(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageGroupParams,
+) -> Dict[str, Any]:
+    a = params.action
+    if a == "create":
+        kwargs: Dict[str, Any] = {"name": params.name}
+        for f in ("description", "manager", "parent", "type", "email", "members", "active"):
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return create_group(config, auth_manager, CreateGroupParams(**kwargs))
+    if a == "update":
+        kwargs = {"group_id": params.group_id, "dry_run": params.dry_run}
+        for f in _GROUP_UPDATE_FIELDS:
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return update_group(config, auth_manager, UpdateGroupParams(**kwargs))
+    if a == "list":
+        return list_groups(
+            config,
+            auth_manager,
+            ListGroupsParams(
+                limit=params.limit,
+                offset=params.offset,
+                active=params.active,
+                query=params.query,
+                type=params.type,
+            ),
+        )
+    if a == "add_members":
+        return add_group_members(
+            config,
+            auth_manager,
+            AddGroupMembersParams(group_id=params.group_id, members=params.members),
+        )
+    return remove_group_members(
+        config,
+        auth_manager,
+        RemoveGroupMembersParams(
+            group_id=params.group_id, members=params.members, dry_run=params.dry_run
+        ),
     )

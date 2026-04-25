@@ -5,9 +5,9 @@ This module provides tools for managing script includes in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
@@ -649,3 +649,130 @@ def execute_script_include(
             "success": False,
             "message": f"Error executing script include: {str(e)}",
         }
+
+
+# ---------------------------------------------------------------------------
+# manage_script_include — bundled CRUD + execute for sys_script_include
+# ---------------------------------------------------------------------------
+
+_SI_UPDATE_FIELDS = (
+    "script",
+    "description",
+    "api_name",
+    "client_callable",
+    "active",
+    "access",
+)
+
+
+class ManageScriptIncludeParams(BaseModel):
+    """Manage script includes — table: sys_script_include.
+
+    Required per action:
+      create:  name, script
+      update:  script_include_id, at least one field
+      delete:  script_include_id
+      execute: name (and optionally method, exec_params)
+    """
+
+    action: Literal["create", "update", "delete", "execute"] = Field(...)
+
+    # Identifier (update/delete uses script_include_id; create/execute use name)
+    script_include_id: Optional[str] = Field(
+        default=None, description="sys_id or name (update/delete)"
+    )
+    name: Optional[str] = Field(default=None, description="SI name (create/execute)")
+
+    # Create + update
+    script: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    api_name: Optional[str] = Field(default=None)
+    client_callable: Optional[bool] = Field(default=None)
+    active: Optional[bool] = Field(default=None)
+    access: Optional[str] = Field(default=None)
+
+    # Execute-specific
+    method: Optional[str] = Field(default=None, description="Method to invoke (execute)")
+    # Renamed from `params` to avoid clash with the outer Pydantic-arg name
+    # convention; mapped onto ExecuteScriptIncludeParams.params at dispatch.
+    exec_params: Optional[Dict[str, str]] = Field(
+        default=None, description="Key-value args for the executed method"
+    )
+
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManageScriptIncludeParams":
+        if self.action == "create":
+            if not self.name:
+                raise ValueError("name is required for action='create'")
+            if not self.script:
+                raise ValueError("script is required for action='create'")
+        elif self.action == "update":
+            if not self.script_include_id:
+                raise ValueError("script_include_id is required for action='update'")
+            if not any(getattr(self, f) is not None for f in _SI_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update'")
+        elif self.action == "delete":
+            if not self.script_include_id:
+                raise ValueError("script_include_id is required for action='delete'")
+        elif self.action == "execute":
+            if not self.name:
+                raise ValueError("name is required for action='execute'")
+        return self
+
+
+@register_tool(
+    name="manage_script_include",
+    params=ManageScriptIncludeParams,
+    description="Create/update/delete/execute a script include (table: sys_script_include).",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def manage_script_include(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageScriptIncludeParams,
+) -> Dict[str, Any]:
+    if params.action == "create":
+        return create_script_include(
+            config,
+            auth_manager,
+            CreateScriptIncludeParams(
+                name=params.name,
+                script=params.script,
+                description=params.description,
+                api_name=params.api_name,
+                client_callable=(
+                    params.client_callable if params.client_callable is not None else False
+                ),
+                active=params.active if params.active is not None else True,
+                access=params.access if params.access is not None else "package_private",
+            ),
+        )
+    if params.action == "update":
+        kwargs: Dict[str, Any] = {
+            "script_include_id": params.script_include_id,
+            "dry_run": params.dry_run,
+        }
+        for f in _SI_UPDATE_FIELDS:
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return update_script_include(config, auth_manager, UpdateScriptIncludeParams(**kwargs))
+    if params.action == "delete":
+        return delete_script_include(
+            config,
+            auth_manager,
+            DeleteScriptIncludeParams(script_include_id=params.script_include_id),
+        )
+    # execute
+    return execute_script_include(
+        config,
+        auth_manager,
+        ExecuteScriptIncludeParams(
+            name=params.name,
+            method=params.method or "execute",
+            params=params.exec_params,
+        ),
+    )
