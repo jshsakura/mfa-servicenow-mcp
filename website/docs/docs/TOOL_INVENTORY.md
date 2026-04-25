@@ -2,9 +2,10 @@
 
 This page is the web summary of the current tool surface.
 
-- Registered tools: **151**
-- Default package `standard`: **36** read-only tools
-- Broadest developer package `full`: **101** tools
+- Registered tools: **165**
+- Default package `standard`: **54** read-only tools
+- Broadest packaged developer surface `full`: **124** tools
+- Registered but unpackaged tools: **41**
 - Canonical full row-by-row inventory source in the repo: `docs/TOOL_INVENTORY.md`
 
 ## Package Summary
@@ -12,13 +13,12 @@ This page is the web summary of the current tool surface.
 | Package | Tools | Description |
 |---------|------:|-------------|
 | `none` | 0 | Disabled |
-| `standard` | 36 | Read-only safe mode **(default)** |
-| `service_desk` | 46 | standard + incident/change writes |
-| `portal_developer` | 84 | standard + portal/source/changeset development |
-| `platform_developer` | 77 | standard + workflow/flow/script/ITSM writes |
-| `agile` | 51 | standard + Epic/Story/Scrum/Project PPM |
-| `admin` | 61 | standard + user/knowledge/catalog management |
-| `full` | 101 | Combined developer package (excludes Agile PPM and Admin) |
+| `core` | 22 | Minimal read-only essentials |
+| `standard` | 54 | Read-only safe mode **(default)** |
+| `service_desk` | 59 | standard + incident/change operational writes |
+| `portal_developer` | 86 | standard + portal/source/changeset/local-sync development |
+| `platform_developer` | 99 | standard + workflow/flow/script/ITSM writes |
+| `full` | 124 | Broadest packaged surface with bundled `manage_*` workflows |
 
 ## Flow Designer Surface
 
@@ -36,4 +36,4 @@ Specialized Flow Designer reads removed from the public surface should now be ha
 
 ## Maintenance Note
 
-To reduce drift, this website page stays compact. When you need the full category-by-category matrix with package membership, use the canonical repository inventory in `docs/TOOL_INVENTORY.md`.
+To reduce drift, this website page stays compact. When you need the full category-by-category matrix with package membership, use the auto-generated repository inventory in `docs/TOOL_INVENTORY.md`.
