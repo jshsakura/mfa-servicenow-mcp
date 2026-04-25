@@ -7,7 +7,7 @@ This module provides tools for managing knowledge bases, categories, and article
 import logging
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
@@ -998,3 +998,111 @@ def list_categories(
             "limit": params.limit,
             "offset": params.offset,
         }
+
+
+# ---------------------------------------------------------------------------
+# manage_kb_article — bundled CRUD for knowledge articles
+# ---------------------------------------------------------------------------
+
+
+class ManageKbArticleParams(BaseModel):
+    """Manage KB articles — table: kb_knowledge.
+
+    Required per action:
+      create:  title, text, short_description, knowledge_base, category
+      update:  article_id, at least one field
+      publish: article_id
+    """
+
+    action: Literal["create", "update", "publish"] = Field(...)
+    article_id: Optional[str] = Field(default=None, description="sys_id for update/publish")
+
+    # Create-only required
+    title: Optional[str] = Field(default=None)
+    text: Optional[str] = Field(default=None)
+    short_description: Optional[str] = Field(default=None)
+    knowledge_base: Optional[str] = Field(default=None, description="KB sys_id (create)")
+    category: Optional[str] = Field(default=None)
+    keywords: Optional[str] = Field(default=None)
+    article_type: Optional[Literal["html", "text", "wiki"]] = Field(
+        default=None, description="Article body markup type (create)"
+    )
+
+    # Publish-specific
+    workflow_state: Optional[str] = Field(default=None, description="Publish target state")
+    workflow_version: Optional[str] = Field(default=None)
+
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManageKbArticleParams":
+        if self.action == "create":
+            missing = [
+                f
+                for f in ("title", "text", "short_description", "knowledge_base", "category")
+                if getattr(self, f) is None
+            ]
+            if missing:
+                raise ValueError(f"action='create' requires: {', '.join(missing)}")
+        elif self.action == "update":
+            if not self.article_id:
+                raise ValueError("article_id is required for action='update'")
+            if not any(
+                getattr(self, f) is not None
+                for f in ("title", "text", "short_description", "category", "keywords")
+            ):
+                raise ValueError("at least one field must be provided for action='update'")
+        elif self.action == "publish":
+            if not self.article_id:
+                raise ValueError("article_id is required for action='publish'")
+        return self
+
+
+@register_tool(
+    "manage_kb_article",
+    params=ManageKbArticleParams,
+    description="Create/update/publish a knowledge article (table: kb_knowledge).",
+    serialization="json_dict",
+    return_type=str,
+)
+def manage_kb_article(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageKbArticleParams,
+) -> ArticleResponse:
+    if params.action == "create":
+        kwargs: Dict[str, Any] = {
+            "title": params.title,
+            "text": params.text,
+            "short_description": params.short_description,
+            "knowledge_base": params.knowledge_base,
+            "category": params.category,
+        }
+        if params.keywords is not None:
+            kwargs["keywords"] = params.keywords
+        if params.article_type is not None:
+            kwargs["article_type"] = params.article_type
+        return create_article(config, auth_manager, CreateArticleParams(**kwargs))
+
+    if params.action == "update":
+        return update_article(
+            config,
+            auth_manager,
+            UpdateArticleParams(
+                article_id=params.article_id,
+                title=params.title,
+                text=params.text,
+                short_description=params.short_description,
+                category=params.category,
+                keywords=params.keywords,
+                dry_run=params.dry_run,
+            ),
+        )
+
+    # publish
+    pub_kwargs: Dict[str, Any] = {"article_id": params.article_id}
+    if params.workflow_state is not None:
+        pub_kwargs["workflow_state"] = params.workflow_state
+    if params.workflow_version is not None:
+        pub_kwargs["workflow_version"] = params.workflow_version
+    return publish_article(config, auth_manager, PublishArticleParams(**pub_kwargs))

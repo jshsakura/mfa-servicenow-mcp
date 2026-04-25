@@ -45,7 +45,16 @@ MUTATING_TOOL_PREFIXES = (
     "reorder_",
     "execute_",
     "assign_",
+    # All manage_X tools are write bundles. Read-only sub-actions (e.g. future
+    # manage_user.action='list') get exempted via the per-action allowlist
+    # below — keep this list tight to that.
+    "manage_",
 )
+# manage_<X>: per-tool set of action values that are read-only (no confirm).
+# Phase 2 manage_X bundles (incident/change/kb_article) are write-only, so the
+# map is empty for now. Populated in later phases (e.g. manage_user) where
+# list/get sub-actions need to bypass the gate.
+MANAGE_READ_ACTIONS: Dict[str, set[str]] = {}
 # Tools that need confirmation but don't match a prefix above.
 MUTATING_TOOL_NAMES = {"sn_batch", "sn_write"}
 
@@ -693,6 +702,13 @@ class ServiceNowMCP:
         requires_confirmation = self._is_blocked_mutating_tool(name) or (
             name == "sn_nl" and bool(arguments.get("execute", False))
         )
+        # manage_X tools: bypass confirm for declared read-only sub-actions.
+        # This keeps the prefix-based gate simple while still letting the
+        # bundle host list/get without per-call confirm friction.
+        if requires_confirmation and name.startswith("manage_"):
+            read_actions = MANAGE_READ_ACTIONS.get(name)
+            if read_actions and arguments.get("action") in read_actions:
+                requires_confirmation = False
 
         if requires_confirmation:
             confirmation = str(arguments.get(CONFIRM_FIELD, "")).lower().strip()
