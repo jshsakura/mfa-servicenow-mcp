@@ -56,7 +56,7 @@ Multi-query, joins, state machines, bulk loops, pipelines. Dropping these would 
 | `manage_portal_layout` | `create_widget_instance`, `update_widget_instance`, `update_page`, `create_page`, `create_container`, `create_row`, `create_column` | place_widget, move_widget, update_page, create_page, add_container, add_row, add_column |
 | `manage_portal_component` | `create_widget`, `create_angular_provider`, `create_header_footer`, `create_css_theme`, `create_ng_template`, `create_ui_page`, `update_portal_component` | create_widget, create_provider, create_header_footer, create_theme, create_ng_template, create_ui_page, update_code |
 | `manage_ui_policy` | `create_ui_policy`, `create_ui_policy_action` | create, add_action |
-| `manage_agile` (orphan) | `create_epic`, `update_epic`, `list_epics`, `create_story`, `update_story`, `list_stories`, `create_story_dependency`, `delete_story_dependency`, `list_story_dependencies`, `create_scrum_task`, `update_scrum_task`, `list_scrum_tasks`, `create_project`, `update_project`, `list_projects` | epic_*, story_*, story_dep_*, scrum_*, project_* |
+| ~~`manage_agile`~~ (DEFERRED) | epic/story/scrum_task/project/story_dependency CRUD | Orphan domain — none of these tools are in any package, so consolidating them yields zero LLM-token win today. Revisit if/when agile gets its own package. |
 
 (15 new manage_X tools replacing ~70 wrappers.)
 

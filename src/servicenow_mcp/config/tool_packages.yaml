@@ -115,6 +115,8 @@ portal_developer:
     # Bundled (Phase 3)
     - manage_changeset
     - manage_script_include
+    - manage_portal_layout
+    - manage_portal_component
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update
@@ -192,6 +194,9 @@ platform_developer:
     - manage_workflow
     - manage_script_include
     - manage_changeset
+    - manage_ui_policy
+    - manage_portal_layout
+    - manage_portal_component
     # Incident writes (legacy)
     - update_incident
     - resolve_incident
@@ -234,6 +239,10 @@ full:
     - manage_workflow
     - manage_user
     - manage_group
+    - manage_catalog
+    - manage_portal_layout
+    - manage_portal_component
+    - manage_ui_policy
     # --- Legacy wrappers below (kept for one cycle; deprecated in 1.11.0) ---
     # Incident writes
     - create_incident
