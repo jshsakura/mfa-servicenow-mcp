@@ -128,6 +128,77 @@ class TestGetToolSchema:
         schema2 = _get_tool_schema(TestParams)
         assert schema1 is schema2  # same object = cached
 
+    def test_strips_self_explanatory_field_descriptions(self):
+        from pydantic import BaseModel, Field
+
+        class TestParams(BaseModel):
+            query: str = Field(description="Additional query string")
+            active: bool = Field(description="Whether the record is active")
+            table: str = Field(description="Target table name")
+
+        schema = _get_tool_schema(TestParams)
+
+        assert "description" not in schema["properties"]["query"]
+        assert "description" not in schema["properties"]["active"]
+        assert "description" not in schema["properties"]["table"]
+
+    def test_strips_implied_boolean_and_range_descriptions(self):
+        from pydantic import BaseModel, Field
+
+        class TestParams(BaseModel):
+            include_details: bool = Field(description="Whether to include detailed results")
+            errors_only: bool = Field(description="Whether to return only errors")
+            max_results: int = Field(description="Maximum results to return")
+            min_score: int = Field(description="Minimum score threshold")
+
+        schema = _get_tool_schema(TestParams)
+
+        assert "description" not in schema["properties"]["include_details"]
+        assert "description" not in schema["properties"]["errors_only"]
+        assert "description" not in schema["properties"]["max_results"]
+        assert "description" not in schema["properties"]["min_score"]
+
+    def test_schema_detail_minimal_strips_all_descriptions(self):
+        import os
+
+        from pydantic import BaseModel, Field
+
+        class Params(BaseModel):
+            incident_id: str = Field(description="The incident sys_id")
+            state: str = Field(description="New state value")
+            work_notes: str = Field(description="Internal notes")
+
+        os.environ["MCP_SCHEMA_DETAIL"] = "minimal"
+        from servicenow_mcp.server import _TOOL_SCHEMA_CACHE
+
+        _TOOL_SCHEMA_CACHE.pop(Params, None)
+        try:
+            schema = _get_tool_schema(Params)
+            for prop in schema["properties"].values():
+                assert "description" not in prop
+        finally:
+            os.environ.pop("MCP_SCHEMA_DETAIL", None)
+            _TOOL_SCHEMA_CACHE.pop(Params, None)
+
+    def test_schema_detail_full_preserves_descriptions(self):
+        import os
+
+        from pydantic import BaseModel, Field
+
+        class Params(BaseModel):
+            incident_id: str = Field(description="The incident sys_id")
+
+        os.environ["MCP_SCHEMA_DETAIL"] = "full"
+        from servicenow_mcp.server import _TOOL_SCHEMA_CACHE
+
+        _TOOL_SCHEMA_CACHE.pop(Params, None)
+        try:
+            schema = _get_tool_schema(Params)
+            assert "description" in schema["properties"]["incident_id"]
+        finally:
+            os.environ.pop("MCP_SCHEMA_DETAIL", None)
+            _TOOL_SCHEMA_CACHE.pop(Params, None)
+
 
 # ---------------------------------------------------------------------------
 # ServiceNowMCP static methods
@@ -221,15 +292,13 @@ class TestServiceNowMCPInit:
 
 class TestAsyncHandlers:
     def _run(self, coro):
-        """Run an async coroutine synchronously using anyio."""
-        import anyio
+        """Run an async coroutine synchronously."""
 
         result = [None]
 
         async def _wrapper():
             result[0] = await coro
 
-        anyio.from_thread.run_sync(lambda: None)
         import asyncio
 
         asyncio.run(_wrapper())
@@ -424,6 +493,23 @@ class TestAugmentDescription:
         server = ServiceNowMCP(config)
         desc = server._augment_tool_description("create_incident", "Create an incident")
         assert "confirm" in desc.lower()
+        assert "skill://manage/create-incident" not in desc
+
+    @patch.dict("os.environ", {"MCP_INCLUDE_SKILL_HINTS": "true"}, clear=False)
+    @patch("servicenow_mcp.server.AuthManager")
+    @patch("servicenow_mcp.server.get_tool_definitions")
+    @patch("servicenow_mcp.server.load_skills", return_value=[])
+    @patch(
+        "servicenow_mcp.server.build_tool_to_skills_map",
+        return_value={
+            "create_incident": ["skill://manage/create-incident"],
+        },
+    )
+    def test_skill_hint_can_be_opted_in(self, mock_btsm, mock_ls, mock_gtd, mock_am):
+        mock_gtd.return_value = {}
+        config = _make_config()
+        server = ServiceNowMCP(config)
+        desc = server._augment_tool_description("create_incident", "Create an incident")
         assert "skill://manage/create-incident" in desc
 
     @patch("servicenow_mcp.server.AuthManager")
