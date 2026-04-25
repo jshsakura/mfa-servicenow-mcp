@@ -3,8 +3,8 @@
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional
-from urllib.parse import parse_qsl
+from typing import Any, Dict, List, Literal, Optional
+from urllib.parse import parse_qs, parse_qsl, unquote, urlparse
 
 import requests
 from pydantic import BaseModel, Field
@@ -1028,3 +1028,253 @@ def sn_nl(
         display_value=True,
     )
     return sn_query(config, auth_manager, query_params)
+
+
+# ---------------------------------------------------------------------------
+# sn_write — generic Table-API CRUD with hard-coded denylist
+# ---------------------------------------------------------------------------
+
+# Tables an LLM should never write to via the generic primitive. ACL/scope/
+# user/role tables and the sys_remote_update_set staging area can corrupt the
+# instance if mishandled. Deletes against any sys_* table are also blocked.
+# Denylist is intentionally code-baked (not config) — a junior must use the
+# matching specialized tool (e.g. update_user) to touch these.
+SN_WRITE_DENY_TABLES = frozenset(
+    {
+        "sys_user",
+        "sys_user_group",
+        "sys_user_has_role",
+        "sys_user_grmember",
+        "sys_security_acl",
+        "sys_app",
+        "sys_scope",
+        "sys_dictionary",
+        "sys_db_object",
+        "sys_remote_update_set",
+        "sys_update_set",
+    }
+)
+
+
+class SnWriteParams(BaseModel):
+    table: str = Field(..., description="Target table name")
+    action: Literal["create", "update", "delete"] = Field(...)
+    sys_id: Optional[str] = Field(default=None, description="Required for update/delete")
+    fields: Optional[Dict[str, Any]] = Field(
+        default=None, description="Field values for create/update"
+    )
+    dry_run: bool = Field(default=False, description="Preview without committing")
+
+
+def _sn_write_denied(table: str, action: str) -> Optional[str]:
+    """Return a denial reason if this table+action is blocked, else None."""
+    if table in SN_WRITE_DENY_TABLES:
+        return (
+            f"Table '{table}' is blocked from sn_write. Use a domain-specific "
+            f"tool (e.g. manage_user, manage_group) for ACL-protected tables."
+        )
+    if action == "delete" and table.startswith("sys_"):
+        return (
+            f"delete blocked on sys_* tables (got '{table}'). System metadata "
+            "deletes must go through the platform UI or update sets."
+        )
+    return None
+
+
+@register_tool(
+    name="sn_write",
+    params=SnWriteParams,
+    description="Generic create/update/delete on any table. Use when no manage_X tool fits. (confirm='approve')",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def sn_write(
+    config: ServerConfig, auth_manager: AuthManager, params: SnWriteParams
+) -> Dict[str, Any]:
+    deny = _sn_write_denied(params.table, params.action)
+    if deny:
+        return {"success": False, "table": params.table, "action": params.action, "error": deny}
+
+    if params.action in ("update", "delete") and not params.sys_id:
+        return {
+            "success": False,
+            "table": params.table,
+            "action": params.action,
+            "error": f"sys_id is required for action='{params.action}'.",
+        }
+    if params.action in ("create", "update") and not params.fields:
+        return {
+            "success": False,
+            "table": params.table,
+            "action": params.action,
+            "error": f"fields is required for action='{params.action}'.",
+        }
+
+    if params.dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "table": params.table,
+            "action": params.action,
+            "sys_id": params.sys_id,
+            "fields": params.fields,
+            "message": "Preview only — no changes committed.",
+        }
+
+    base = f"{config.instance_url}/api/now/table/{params.table}"
+    try:
+        if params.action == "create":
+            response = auth_manager.make_request(
+                "POST", base, json=params.fields, timeout=config.timeout
+            )
+        elif params.action == "update":
+            response = auth_manager.make_request(
+                "PATCH",
+                f"{base}/{params.sys_id}",
+                json=params.fields,
+                timeout=config.timeout,
+            )
+        else:  # delete
+            response = auth_manager.make_request(
+                "DELETE", f"{base}/{params.sys_id}", timeout=config.timeout
+            )
+        response.raise_for_status()
+    except Exception as exc:
+        return {
+            "success": False,
+            "table": params.table,
+            "action": params.action,
+            "sys_id": params.sys_id,
+            "error": f"sn_write {params.action} failed: {exc}",
+        }
+
+    body = _safe_json(response) if params.action != "delete" else {}
+    return {
+        "success": True,
+        "table": params.table,
+        "action": params.action,
+        "sys_id": params.sys_id or (body.get("result") or {}).get("sys_id"),
+        "result": body.get("result") if params.action != "delete" else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# sn_resolve_url — parse a ServiceNow URL → table + sys_id + suggested next tool
+# ---------------------------------------------------------------------------
+
+# Maps ServiceNow form table names to the recommended next tool. Custom tables
+# (x_*/u_*) and unknown OOTB tables fall through to sn_query/sn_write.
+_TABLE_TO_TOOL: Dict[str, str] = {
+    "incident": "manage_incident",
+    "change_request": "manage_change",
+    "kb_knowledge": "manage_kb_article",
+    "sys_update_set": "manage_changeset",
+    "sys_script_include": "manage_script_include",
+    "wf_workflow": "manage_workflow",
+    "sys_hub_flow": "get_flow_designer_detail",
+    "sp_widget": "get_widget_bundle",
+    "sp_page": "get_page",
+    "sp_portal": "get_portal",
+}
+
+
+class SnResolveUrlParams(BaseModel):
+    url: str = Field(..., description="A ServiceNow screen URL to inspect")
+
+
+def _resolve_servicenow_url(url: str) -> Dict[str, Any]:
+    """Pure URL parser — no network calls. Returns table/sys_id/scope hints."""
+    parsed = urlparse(url.strip())
+    path = parsed.path or ""
+    fragment = parsed.fragment or ""
+    query_str = parsed.query or ""
+    qs = parse_qs(query_str, keep_blank_values=True)
+
+    out: Dict[str, Any] = {"url": url, "table": None, "sys_id": None, "scope": None}
+
+    # nav_to.do?uri=incident.do?sys_id=XXX  (uri is itself URL-encoded)
+    if "nav_to.do" in path and "uri" in qs:
+        inner = unquote(qs["uri"][0])
+        m = re.match(r"^([a-z][a-z0-9_]*)\.do(?:\?(.*))?", inner)
+        if m:
+            out["table"] = m.group(1)
+            inner_qs = parse_qs(m.group(2) or "")
+            if "sys_id" in inner_qs:
+                out["sys_id"] = inner_qs["sys_id"][0]
+            return _enrich_resolution(out, "record_form")
+
+    # /sp?id=widget_editor&sys_id=XXX  (Service Portal)
+    if path.endswith("/sp") or path.endswith("/sp.do") or path == "/sp":
+        page = (qs.get("id") or [""])[0]
+        out["sys_id"] = (qs.get("sys_id") or [None])[0]
+        out["page"] = page
+        out["table"] = "sp_page"
+        return _enrich_resolution(out, "portal_page")
+
+    # /esc?id=... (Employee Center)
+    if path.endswith("/esc"):
+        out["page"] = (qs.get("id") or [""])[0]
+        out["sys_id"] = (qs.get("sys_id") or [None])[0]
+        out["table"] = "sp_page"
+        return _enrich_resolution(out, "esc_page")
+
+    # /kb_view.do?sysparm_article=KB0001234
+    if "kb_view.do" in path:
+        out["table"] = "kb_knowledge"
+        out["article_number"] = (qs.get("sysparm_article") or [None])[0]
+        return _enrich_resolution(out, "kb_article")
+
+    # /sys_app_studio.do#/foo/bar/<scope>
+    if "sys_app_studio" in path:
+        scope_match = re.search(r"scope=([^&/]+)", fragment) or re.search(
+            r"/([a-z]_[a-z0-9_]+)/", fragment
+        )
+        if scope_match:
+            out["scope"] = scope_match.group(1)
+        out["table"] = "sys_app"
+        return _enrich_resolution(out, "studio")
+
+    # /incident_list.do — check BEFORE the generic .do form pattern below,
+    # otherwise "incident_list" gets captured as the table name.
+    m = re.search(r"/?([a-z][a-z0-9_]*)_list\.do$", path)
+    if m:
+        out["table"] = m.group(1)
+        return _enrich_resolution(out, "record_list")
+
+    # Direct form: incident.do?sys_id=XXX  or  /incident.do?sys_id=XXX
+    m = re.match(r"^/?([a-z][a-z0-9_]*)\.do$", path)
+    if m:
+        out["table"] = m.group(1)
+        if "sys_id" in qs:
+            out["sys_id"] = qs["sys_id"][0]
+        return _enrich_resolution(out, "record_form")
+
+    return _enrich_resolution(out, "unknown")
+
+
+def _enrich_resolution(out: Dict[str, Any], context: str) -> Dict[str, Any]:
+    out["context"] = context
+    table = out.get("table")
+    if table:
+        out["suggested_tool"] = _TABLE_TO_TOOL.get(table) or (
+            "sn_query" if context.endswith("_form") or context.endswith("_list") else None
+        )
+        # Suggest action: sys_id present → 'get' / record-form; list view → 'list'
+        if out.get("sys_id") and table in _TABLE_TO_TOOL:
+            out["suggested_action"] = "get"
+        elif context == "record_list":
+            out["suggested_action"] = "list"
+    return out
+
+
+@register_tool(
+    name="sn_resolve_url",
+    params=SnResolveUrlParams,
+    description="Parse a ServiceNow URL → table, sys_id, scope, suggested next tool. Read-only.",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def sn_resolve_url(
+    config: ServerConfig, auth_manager: AuthManager, params: SnResolveUrlParams
+) -> Dict[str, Any]:
+    return _resolve_servicenow_url(params.url)
