@@ -6,9 +6,9 @@ This module provides tools for managing change requests in ServiceNow.
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
@@ -729,3 +729,148 @@ def reject_change(
             "success": False,
             "message": f"Error rejecting change: {str(e)}",
         }
+
+
+# ---------------------------------------------------------------------------
+# manage_change — bundled CRUD for change_request
+#
+# Note: approve_change, reject_change, submit_change_for_approval are kept as
+# separate tools (state-machine orchestrators with 4+ API calls each), not
+# folded into manage_change.
+# ---------------------------------------------------------------------------
+
+_CHANGE_CREATE_FIELDS = (
+    "short_description",
+    "description",
+    "risk",
+    "impact",
+    "category",
+    "requested_by",
+    "assignment_group",
+    "start_date",
+    "end_date",
+)
+_CHANGE_UPDATE_FIELDS = (
+    "short_description",
+    "description",
+    "state",
+    "risk",
+    "impact",
+    "category",
+    "assignment_group",
+    "start_date",
+    "end_date",
+    "work_notes",
+)
+
+
+class ManageChangeParams(BaseModel):
+    """Manage change requests — table: change_request.
+
+    Required per action:
+      create:   short_description, type ('normal' | 'standard' | 'emergency')
+      update:   change_id, at least one field
+      add_task: change_id, task_short_description
+    """
+
+    action: Literal["create", "update", "add_task"] = Field(...)
+    change_id: Optional[str] = Field(
+        default=None, description="sys_id or CHG number for update/add_task"
+    )
+
+    # Create-only required
+    type: Optional[Literal["normal", "standard", "emergency"]] = Field(
+        default=None, description="Required for create"
+    )
+
+    # Common create + update
+    short_description: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    risk: Optional[str] = Field(default=None)
+    impact: Optional[str] = Field(default=None)
+    category: Optional[str] = Field(default=None)
+    assignment_group: Optional[str] = Field(default=None)
+    start_date: Optional[str] = Field(default=None)
+    end_date: Optional[str] = Field(default=None)
+    requested_by: Optional[str] = Field(default=None, description="Create only")
+    state: Optional[str] = Field(default=None, description="Update only")
+    work_notes: Optional[str] = Field(default=None, description="Update only")
+
+    # add_task-specific
+    task_short_description: Optional[str] = Field(default=None, description="Required for add_task")
+    task_description: Optional[str] = Field(default=None)
+    task_assigned_to: Optional[str] = Field(default=None)
+    task_planned_start_date: Optional[str] = Field(default=None)
+    task_planned_end_date: Optional[str] = Field(default=None)
+
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManageChangeParams":
+        if self.action == "create":
+            if not self.short_description:
+                raise ValueError("short_description is required for action='create'")
+            if not self.type:
+                raise ValueError("type is required for action='create' (normal/standard/emergency)")
+        elif self.action == "update":
+            if not self.change_id:
+                raise ValueError("change_id is required for action='update'")
+            if not any(getattr(self, f) is not None for f in _CHANGE_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update'")
+        elif self.action == "add_task":
+            if not self.change_id:
+                raise ValueError("change_id is required for action='add_task'")
+            if not self.task_short_description:
+                raise ValueError("task_short_description is required for action='add_task'")
+        return self
+
+
+def _project_change(params: ManageChangeParams, fields: tuple[str, ...]) -> Dict[str, Any]:
+    return {f: getattr(params, f) for f in fields if getattr(params, f) is not None}
+
+
+@register_tool(
+    name="manage_change",
+    params=ManageChangeParams,
+    description="Create/update a change request or add a change task (table: change_request).",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def manage_change(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageChangeParams,
+) -> Dict[str, Any]:
+    if params.action == "create":
+        return create_change_request(
+            config,
+            auth_manager,
+            CreateChangeRequestParams(
+                short_description=params.short_description,
+                type=params.type,
+                **_project_change(params, _CHANGE_CREATE_FIELDS[1:]),
+            ),
+        )
+    if params.action == "update":
+        return update_change_request(
+            config,
+            auth_manager,
+            UpdateChangeRequestParams(
+                change_id=params.change_id,
+                dry_run=params.dry_run,
+                **_project_change(params, _CHANGE_UPDATE_FIELDS),
+            ),
+        )
+    # add_task
+    return add_change_task(
+        config,
+        auth_manager,
+        AddChangeTaskParams(
+            change_id=params.change_id,
+            short_description=params.task_short_description,
+            description=params.task_description,
+            assigned_to=params.task_assigned_to,
+            planned_start_date=params.task_planned_start_date,
+            planned_end_date=params.task_planned_end_date,
+        ),
+    )
