@@ -2,9 +2,10 @@
 
 이 페이지는 현재 도구 표면을 빠르게 확인하기 위한 웹 요약본입니다.
 
-- 전체 등록 도구: **151**
-- 기본 패키지 `standard`: **36**개 읽기 전용 도구
-- 가장 넓은 개발 패키지 `full`: **101**개 도구
+- 전체 등록 도구: **165**
+- 기본 패키지 `standard`: **54**개 읽기 전용 도구
+- 가장 넓은 개발 패키지 `full`: **124**개 패키지 정의 도구
+- 현재 어떤 패키지에도 묶이지 않은 등록 도구: **41**개
 - 전체 행 단위 기준 인벤토리: 저장소의 `docs/TOOL_INVENTORY.md`
 
 ## 패키지 요약
@@ -12,13 +13,12 @@
 | 패키지 | 도구 수 | 설명 |
 |---------|-------:|------|
 | `none` | 0 | 비활성화 |
-| `standard` | 36 | 읽기 전용 safe mode **(기본값)** |
-| `service_desk` | 46 | standard + 인시던트/변경관리 쓰기 |
-| `portal_developer` | 84 | standard + 포털/소스/체인지셋 개발 |
-| `platform_developer` | 77 | standard + 워크플로우/플로우/스크립트/ITSM 쓰기 |
-| `agile` | 51 | standard + Epic/Story/Scrum/Project PPM |
-| `admin` | 61 | standard + 사용자/지식베이스/카탈로그 관리 |
-| `full` | 101 | 통합 개발자 패키지 (Agile PPM/Admin 제외) |
+| `core` | 22 | 최소 읽기 전용 핵심 도구 |
+| `standard` | 54 | 읽기 전용 safe mode **(기본값)** |
+| `service_desk` | 59 | standard + 인시던트/변경 운영 쓰기 |
+| `portal_developer` | 86 | standard + 포털/체인지셋/Script Include/로컬 동기화 개발 |
+| `platform_developer` | 99 | standard + 워크플로우/플로우/스크립트/ITSM 쓰기 |
+| `full` | 124 | 가장 넓은 패키지 표면 (번들 `manage_*` 워크플로우 포함) |
 
 ## Flow Designer 표면
 
