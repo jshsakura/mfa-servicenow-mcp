@@ -5,9 +5,9 @@ This module provides tools for viewing and managing workflows in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Type, TypeVar, Union, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_delete_preview, build_update_preview
@@ -1187,3 +1187,178 @@ def get_workflow_activities(
     except Exception as e:
         logger.error(f"Error getting workflow activities: {e}")
         return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# manage_workflow — bundled CRUD + lifecycle + activity ops for wf_workflow
+# ---------------------------------------------------------------------------
+
+_WORKFLOW_UPDATE_FIELDS = ("name", "description", "table", "active", "attributes")
+_ACTIVITY_UPDATE_FIELDS = ("activity_name", "activity_description", "attributes")
+
+
+class ManageWorkflowParams(BaseModel):
+    """Manage workflows + activities — table: wf_workflow / wf_activity.
+
+    Required per action:
+      create:             name
+      update:             workflow_id, at least one workflow field
+      activate:           workflow_id
+      deactivate:         workflow_id
+      delete:             workflow_id
+      add_activity:       workflow_version_id, activity_name, activity_type
+      update_activity:    activity_id, at least one activity field
+      delete_activity:    activity_id
+      reorder_activities: workflow_id, activity_ids (list)
+    """
+
+    action: Literal[
+        "create",
+        "update",
+        "activate",
+        "deactivate",
+        "delete",
+        "add_activity",
+        "update_activity",
+        "delete_activity",
+        "reorder_activities",
+    ] = Field(...)
+
+    # Workflow identifier
+    workflow_id: Optional[str] = Field(default=None)
+    workflow_version_id: Optional[str] = Field(default=None, description="add_activity")
+
+    # Activity identifier
+    activity_id: Optional[str] = Field(default=None)
+
+    # Workflow create/update fields
+    name: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    table: Optional[str] = Field(default=None)
+    active: Optional[bool] = Field(default=None)
+    attributes: Optional[Dict[str, Any]] = Field(default=None)
+
+    # Activity-specific (prefixed to avoid clashing with workflow `name`/`description`)
+    activity_name: Optional[str] = Field(default=None)
+    activity_description: Optional[str] = Field(default=None)
+    activity_type: Optional[str] = Field(default=None, description="add_activity only")
+
+    # reorder_activities
+    activity_ids: Optional[List[str]] = Field(default=None)
+
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManageWorkflowParams":
+        a = self.action
+        if a == "create":
+            if not self.name:
+                raise ValueError("name is required for action='create'")
+        elif a == "update":
+            if not self.workflow_id:
+                raise ValueError("workflow_id is required for action='update'")
+            if not any(getattr(self, f) is not None for f in _WORKFLOW_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update'")
+        elif a in ("activate", "deactivate", "delete"):
+            if not self.workflow_id:
+                raise ValueError(f"workflow_id is required for action='{a}'")
+        elif a == "add_activity":
+            if not self.workflow_version_id:
+                raise ValueError("workflow_version_id is required for action='add_activity'")
+            if not self.activity_name:
+                raise ValueError("activity_name is required for action='add_activity'")
+            if not self.activity_type:
+                raise ValueError("activity_type is required for action='add_activity'")
+        elif a == "update_activity":
+            if not self.activity_id:
+                raise ValueError("activity_id is required for action='update_activity'")
+            if not any(getattr(self, f) is not None for f in _ACTIVITY_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update_activity'")
+        elif a == "delete_activity":
+            if not self.activity_id:
+                raise ValueError("activity_id is required for action='delete_activity'")
+        elif a == "reorder_activities":
+            if not self.workflow_id:
+                raise ValueError("workflow_id is required for action='reorder_activities'")
+            if not self.activity_ids:
+                raise ValueError("activity_ids is required for action='reorder_activities'")
+        return self
+
+
+@register_tool(
+    name="manage_workflow",
+    params=ManageWorkflowParams,
+    description="Workflow CRUD + lifecycle + activity ops (table: wf_workflow / wf_activity).",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def manage_workflow(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageWorkflowParams,
+) -> Dict[str, Any]:
+    a = params.action
+    if a == "create":
+        kwargs: Dict[str, Any] = {"name": params.name}
+        for f in ("description", "table", "active", "attributes"):
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return create_workflow(config, auth_manager, CreateWorkflowParams(**kwargs))
+    if a == "update":
+        kwargs = {"workflow_id": params.workflow_id, "dry_run": params.dry_run}
+        for f in _WORKFLOW_UPDATE_FIELDS:
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return update_workflow(config, auth_manager, UpdateWorkflowParams(**kwargs))
+    if a == "activate":
+        return activate_workflow(
+            config, auth_manager, ActivateWorkflowParams(workflow_id=params.workflow_id)
+        )
+    if a == "deactivate":
+        return deactivate_workflow(
+            config, auth_manager, DeactivateWorkflowParams(workflow_id=params.workflow_id)
+        )
+    if a == "delete":
+        return delete_workflow(
+            config,
+            auth_manager,
+            DeleteWorkflowParams(workflow_id=params.workflow_id, dry_run=params.dry_run),
+        )
+    if a == "add_activity":
+        kwargs = {
+            "workflow_version_id": params.workflow_version_id,
+            "name": params.activity_name,
+            "activity_type": params.activity_type,
+        }
+        if params.activity_description is not None:
+            kwargs["description"] = params.activity_description
+        if params.attributes is not None:
+            kwargs["attributes"] = params.attributes
+        return add_workflow_activity(config, auth_manager, AddWorkflowActivityParams(**kwargs))
+    if a == "update_activity":
+        kwargs = {"activity_id": params.activity_id, "dry_run": params.dry_run}
+        if params.activity_name is not None:
+            kwargs["name"] = params.activity_name
+        if params.activity_description is not None:
+            kwargs["description"] = params.activity_description
+        if params.attributes is not None:
+            kwargs["attributes"] = params.attributes
+        return update_workflow_activity(
+            config, auth_manager, UpdateWorkflowActivityParams(**kwargs)
+        )
+    if a == "delete_activity":
+        return delete_workflow_activity(
+            config,
+            auth_manager,
+            DeleteWorkflowActivityParams(activity_id=params.activity_id, dry_run=params.dry_run),
+        )
+    # reorder_activities
+    return reorder_workflow_activities(
+        config,
+        auth_manager,
+        ReorderWorkflowActivitiesParams(
+            workflow_id=params.workflow_id, activity_ids=params.activity_ids
+        ),
+    )

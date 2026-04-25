@@ -112,6 +112,9 @@ standard:
 portal_developer:
   _extends: standard
   _tools:
+    # Bundled (Phase 3)
+    - manage_changeset
+    - manage_script_include
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update
@@ -183,9 +186,12 @@ platform_developer:
     - update_script_include
     - delete_script_include
     - execute_script_include
-    # Bundled (Phase 2)
+    # Bundled (Phase 2 + 3)
     - manage_incident
     - manage_change
+    - manage_workflow
+    - manage_script_include
+    - manage_changeset
     # Incident writes (legacy)
     - update_incident
     - resolve_incident
@@ -219,10 +225,15 @@ full:
   _tools:
     # Generic write primitive (denylisted sys_* internally)
     - sn_write
-    # Bundled CRUD (Phase 2 — preferred surface)
+    # Bundled CRUD (Phase 2 + 3 — preferred surface)
     - manage_incident
     - manage_change
     - manage_kb_article
+    - manage_changeset
+    - manage_script_include
+    - manage_workflow
+    - manage_user
+    - manage_group
     # --- Legacy wrappers below (kept for one cycle; deprecated in 1.11.0) ---
     # Incident writes
     - create_incident
