@@ -126,6 +126,35 @@ def test_consolidated_tools_replaced_old_ones():
             assert tool not in pkg_tools, f"Removed tool '{tool}' still in package '{pkg_name}'"
 
 
+def test_core_package_exists_and_is_small():
+    pkgs = _load_packages()
+    assert "core" in pkgs
+    core = pkgs["core"]
+    essential = ["sn_health", "sn_query", "sn_schema", "sn_discover", "sn_nl", "sn_aggregate"]
+    for tool in essential:
+        assert tool in core, f"'{tool}' missing from core package"
+    assert len(core) <= 25, f"core package should stay under 25 tools, got {len(core)}"
+
+
+def test_core_tools_subset_of_standard():
+    pkgs = _load_packages()
+    core = pkgs["core"]
+    standard = pkgs["standard"]
+    assert core < standard, "core should be a proper subset of standard"
+
+
+def test_extends_resolves_correctly():
+    pkgs = _load_packages()
+    standard = pkgs["standard"]
+    for pkg_name in ["portal_developer", "platform_developer", "service_desk", "full"]:
+        pkg = pkgs[pkg_name]
+        # All standard tools must be present in extending packages
+        for tool in standard:
+            assert tool in pkg, f"standard tool '{tool}' missing from {pkg_name} (via _extends)"
+        # Package must have MORE tools than standard (writes added)
+        assert len(pkg) > len(standard), f"{pkg_name} should have more tools than standard"
+
+
 def test_consolidated_flow_designer_tools_in_standard():
     pkgs = _load_packages()
     standard = pkgs["standard"]

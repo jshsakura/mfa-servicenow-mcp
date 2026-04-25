@@ -1,10 +1,41 @@
 # ServiceNow MCP Tool Packages Configuration
 #
-# Default: standard (safe mode - all reads, no writes)
-# All other packages inherit standard's read tools and add domain-specific writes.
+# Packages:
+#   core       — Minimal read-only (tables, schemas, discovery). ~20 tools.
+#   standard   — All reads, no writes. ~67 tools. Default.
+#   portal_developer — standard + portal/changeset/script writes.
+#   platform_developer — standard + workflow/incident/change/script writes.
+#   service_desk — standard + incident writes.
+#   full       — All tools.
+#
+# All write-capable packages use _extends: standard to avoid duplication.
 # Tools not in any package (Agile/PPM, User/Group, Knowledge) → use sn_query.
 
 none: []
+
+# --- Core: minimal read-only essentials ---
+core:
+  - sn_health
+  - sn_query
+  - sn_aggregate
+  - sn_schema
+  - sn_discover
+  - sn_nl
+  - get_incident_by_number
+  - list_catalog_items
+  - get_catalog_item
+  - list_catalog_categories
+  - get_change_request_details
+  - get_changeset_details
+  - list_workflows
+  - get_workflow_details
+  - list_flow_designers
+  - get_portal
+  - get_page
+  - get_logs
+  - search_server_code
+  - get_script_include
+  - list_script_includes
 
 # --- Safe Mode: Read-only across all domains ---
 standard:
@@ -72,391 +103,178 @@ standard:
   - download_admin_scripts
   - download_table_schema
   - audit_local_sources
-  # Detection
   # Local Sync (Read)
   - diff_local_component
 
 # --- Portal Developer: standard + portal/changeset/script writes ---
 portal_developer:
-  # standard (all reads)
-  - sn_health
-  - sn_query
-  - sn_aggregate
-  - sn_schema
-  - sn_discover
-  - sn_nl
-  - get_incident_by_number
-  - list_catalog_items
-  - get_catalog_item
-  - list_catalog_categories
-  - list_catalog_item_variables
-  - get_optimization_recommendations
-  - get_change_request_details
-  - get_changeset_details
-  - list_workflows
-  - get_workflow_details
-  # Flow Designer (Read)
-  - list_flow_designers
-  - get_flow_designer_detail
-  - get_flow_designer_executions
-  - compare_flows
-  - get_portal
-  - get_page
-  - get_widget_bundle
-  - get_portal_component_code
-  - get_widget_instance
-  - download_portal_sources
-  - search_portal_regex_matches
-  - trace_portal_route_targets
-  - detect_angular_implicit_globals
-  - get_provider_dependency_map
-  - analyze_widget_performance
-  - extract_widget_table_dependencies
-  - resolve_widget_chain
-  - resolve_page_dependencies
-  - list_script_includes
-  - get_script_include
-  - get_developer_changes
-  - audit_pending_changes
-  - get_repo_change_report
-  - get_logs
-  - search_server_code
-  - get_metadata_source
-  - extract_table_dependencies
-  - download_app_sources
-  - download_script_includes
-  - download_server_scripts
-  - download_ui_components
-  - download_api_sources
-  - download_security_sources
-  - download_admin_scripts
-  - download_table_schema
-  - audit_local_sources
-  # Detection
-  # Local Sync (Read)
-  - diff_local_component
-  # + Portal writes
-  - route_portal_component_edit
-  - analyze_portal_component_update
-  - create_portal_component_snapshot
-  - preview_portal_component_update
-  - update_portal_component
-  - update_portal_component_from_snapshot
-  - create_widget_instance
-  - update_widget_instance
-  # + Portal CRUD (Phase 1: Component Create)
-  - create_widget
-  - create_angular_provider
-  - create_header_footer
-  - create_css_theme
-  - create_ng_template
-  - create_ui_page
-  # + Portal CRUD (Phase 3: Page/Layout)
-  - create_page
-  - update_page
-  - create_container
-  - create_row
-  - create_column
-  - scaffold_page
-  # + Script Include writes
-  - create_script_include
-  - update_script_include
-  # + Changeset writes
-  - create_changeset
-  - update_changeset
-  - add_file_to_changeset
-  - commit_changeset
-  - publish_changeset
-  # + Local Sync writes
-  - update_remote_from_local
+  _extends: standard
+  _tools:
+    # Portal writes
+    - route_portal_component_edit
+    - analyze_portal_component_update
+    - create_portal_component_snapshot
+    - preview_portal_component_update
+    - update_portal_component
+    - update_portal_component_from_snapshot
+    - create_widget_instance
+    - update_widget_instance
+    # Portal CRUD (Component Create)
+    - create_widget
+    - create_angular_provider
+    - create_header_footer
+    - create_css_theme
+    - create_ng_template
+    - create_ui_page
+    # Portal CRUD (Page/Layout)
+    - create_page
+    - update_page
+    - create_container
+    - create_row
+    - create_column
+    - scaffold_page
+    # Script Include writes
+    - create_script_include
+    - update_script_include
+    # Changeset writes
+    - create_changeset
+    - update_changeset
+    - add_file_to_changeset
+    - commit_changeset
+    - publish_changeset
+    # Local Sync writes
+    - update_remote_from_local
 
 # --- Platform Developer: standard + workflow/incident/change/script writes ---
 platform_developer:
-  # standard (all reads)
-  - sn_health
-  - sn_query
-  - sn_aggregate
-  - sn_schema
-  - sn_discover
-  - sn_nl
-  - get_incident_by_number
-  - list_catalog_items
-  - get_catalog_item
-  - list_catalog_categories
-  - list_catalog_item_variables
-  - get_optimization_recommendations
-  - get_change_request_details
-  - get_changeset_details
-  - list_workflows
-  - get_workflow_details
-  # Flow Designer (Read)
-  - list_flow_designers
-  - get_flow_designer_detail
-  - get_flow_designer_executions
-  - compare_flows
-  - get_portal
-  - get_page
-  - get_widget_bundle
-  - get_portal_component_code
-  - get_widget_instance
-  - download_portal_sources
-  - search_portal_regex_matches
-  - trace_portal_route_targets
-  - detect_angular_implicit_globals
-  - get_provider_dependency_map
-  - analyze_widget_performance
-  - extract_widget_table_dependencies
-  - resolve_widget_chain
-  - resolve_page_dependencies
-  - list_script_includes
-  - get_script_include
-  - get_developer_changes
-  - audit_pending_changes
-  - get_repo_change_report
-  - get_logs
-  - search_server_code
-  - get_metadata_source
-  - extract_table_dependencies
-  - download_app_sources
-  - download_script_includes
-  - download_server_scripts
-  - download_ui_components
-  - download_api_sources
-  - download_security_sources
-  - download_admin_scripts
-  - download_table_schema
-  - audit_local_sources
-  # Detection
-  # Local Sync (Read)
-  - diff_local_component
-  # + Workflow writes
-  - create_workflow
-  - update_workflow
-  - activate_workflow
-  - deactivate_workflow
-  - add_workflow_activity
-  - update_workflow_activity
-  - delete_workflow_activity
-  - reorder_workflow_activities
-  # + Flow Designer writes
-  - update_flow_designer
-  # + UI Policy writes
-  - create_ui_policy
-  - create_ui_policy_action
-  # + Portal CRUD
-  - create_widget
-  - create_angular_provider
-  - create_header_footer
-  - create_css_theme
-  - create_ng_template
-  - create_ui_page
-  - create_page
-  - update_page
-  - create_container
-  - create_row
-  - create_column
-  - scaffold_page
-  # + Script Include writes (full)
-  - create_script_include
-  - update_script_include
-  - delete_script_include
-  - execute_script_include
-  # + Incident writes
-  - update_incident
-  - resolve_incident
-  # + Change Management writes
-  - update_change_request
-  - submit_change_for_approval
-  # + Changeset writes
-  - create_changeset
-  - update_changeset
-  - add_file_to_changeset
-  - commit_changeset
-  - publish_changeset
-  # + Local Sync writes
-  - update_remote_from_local
+  _extends: standard
+  _tools:
+    # Workflow writes
+    - create_workflow
+    - update_workflow
+    - activate_workflow
+    - deactivate_workflow
+    - add_workflow_activity
+    - update_workflow_activity
+    - delete_workflow_activity
+    - reorder_workflow_activities
+    # Flow Designer writes
+    - update_flow_designer
+    # UI Policy writes
+    - create_ui_policy
+    - create_ui_policy_action
+    # Portal CRUD
+    - create_widget
+    - create_angular_provider
+    - create_header_footer
+    - create_css_theme
+    - create_ng_template
+    - create_ui_page
+    - create_page
+    - update_page
+    - create_container
+    - create_row
+    - create_column
+    - scaffold_page
+    # Script Include writes (full)
+    - create_script_include
+    - update_script_include
+    - delete_script_include
+    - execute_script_include
+    # Incident writes
+    - update_incident
+    - resolve_incident
+    # Change Management writes
+    - update_change_request
+    - submit_change_for_approval
+    # Changeset writes
+    - create_changeset
+    - update_changeset
+    - add_file_to_changeset
+    - commit_changeset
+    - publish_changeset
+    # Local Sync writes
+    - update_remote_from_local
 
 # --- Service Desk: standard + incident writes ---
 service_desk:
-  # standard (all reads)
-  - sn_health
-  - sn_query
-  - sn_aggregate
-  - sn_schema
-  - sn_discover
-  - sn_nl
-  - get_incident_by_number
-  - list_catalog_items
-  - get_catalog_item
-  - list_catalog_categories
-  - list_catalog_item_variables
-  - get_optimization_recommendations
-  - get_change_request_details
-  - get_changeset_details
-  - list_workflows
-  - get_workflow_details
-  # Flow Designer (Read)
-  - list_flow_designers
-  - get_flow_designer_detail
-  - get_flow_designer_executions
-  - compare_flows
-  - get_portal
-  - get_page
-  - get_widget_bundle
-  - get_portal_component_code
-  - get_widget_instance
-  - download_portal_sources
-  - search_portal_regex_matches
-  - trace_portal_route_targets
-  - detect_angular_implicit_globals
-  - get_provider_dependency_map
-  - analyze_widget_performance
-  - extract_widget_table_dependencies
-  - resolve_widget_chain
-  - resolve_page_dependencies
-  - list_script_includes
-  - get_script_include
-  - get_developer_changes
-  - audit_pending_changes
-  - get_repo_change_report
-  - get_logs
-  - search_server_code
-  - get_metadata_source
-  - extract_table_dependencies
-  - download_app_sources
-  - download_script_includes
-  - download_server_scripts
-  - download_ui_components
-  - download_api_sources
-  - download_security_sources
-  - download_admin_scripts
-  - download_table_schema
-  - audit_local_sources
-  # Detection
-  # Local Sync (Read)
-  - diff_local_component
-  # + Incident writes
-  - create_incident
-  - update_incident
-  - add_comment
-  - resolve_incident
+  _extends: standard
+  _tools:
+    # Incident writes
+    - create_incident
+    - update_incident
+    - add_comment
+    - resolve_incident
 
 # --- Full: all tools ---
 full:
-  # standard (all reads)
-  - sn_health
-  - sn_query
-  - sn_aggregate
-  - sn_schema
-  - sn_discover
-  - sn_nl
-  - get_incident_by_number
-  - list_catalog_items
-  - get_catalog_item
-  - list_catalog_categories
-  - list_catalog_item_variables
-  - get_optimization_recommendations
-  - get_change_request_details
-  - get_changeset_details
-  - list_workflows
-  - get_workflow_details
-  # Flow Designer (Read)
-  - list_flow_designers
-  - get_flow_designer_detail
-  - get_flow_designer_executions
-  - compare_flows
-  - get_portal
-  - get_page
-  - get_widget_bundle
-  - get_portal_component_code
-  - get_widget_instance
-  - download_portal_sources
-  - search_portal_regex_matches
-  - trace_portal_route_targets
-  - detect_angular_implicit_globals
-  - get_provider_dependency_map
-  - analyze_widget_performance
-  - extract_widget_table_dependencies
-  - resolve_widget_chain
-  - resolve_page_dependencies
-  - list_script_includes
-  - get_script_include
-  - get_developer_changes
-  - audit_pending_changes
-  - get_repo_change_report
-  - get_logs
-  - search_server_code
-  - get_metadata_source
-  - extract_table_dependencies
-  - download_app_sources
-  - download_script_includes
-  - download_server_scripts
-  - download_ui_components
-  - download_api_sources
-  - download_security_sources
-  - download_admin_scripts
-  - download_table_schema
-  - audit_local_sources
-  # Detection
-  # Local Sync (Read)
-  - diff_local_component
-  # + All writes (full only below this line)
-  - create_incident
-  - update_incident
-  - add_comment
-  - resolve_incident
-  - create_catalog_category
-  - update_catalog_category
-  - move_catalog_items
-  - update_catalog_item
-  - create_catalog_item_variable
-  - update_catalog_item_variable
-  - create_change_request
-  - update_change_request
-  - add_change_task
-  - submit_change_for_approval
-  - approve_change
-  - reject_change
-  - create_changeset
-  - update_changeset
-  - add_file_to_changeset
-  - commit_changeset
-  - publish_changeset
-  - create_workflow
-  - update_workflow
-  - activate_workflow
-  - deactivate_workflow
-  - add_workflow_activity
-  - update_workflow_activity
-  - delete_workflow_activity
-  - reorder_workflow_activities
-  - update_flow_designer
-  - update_portal_component
-  - create_widget_instance
-  - update_widget_instance
-  - route_portal_component_edit
-  - analyze_portal_component_update
-  - create_portal_component_snapshot
-  - preview_portal_component_update
-  - update_portal_component_from_snapshot
-  # + Portal CRUD
-  - create_widget
-  - create_angular_provider
-  - create_header_footer
-  - create_css_theme
-  - create_ng_template
-  - create_ui_page
-  - create_page
-  - update_page
-  - create_container
-  - create_row
-  - create_column
-  - scaffold_page
-  - create_script_include
-  - update_script_include
-  - delete_script_include
-  - execute_script_include
-  - create_ui_policy
-  - create_ui_policy_action
-  # + Local Sync writes
-  - update_remote_from_local
+  _extends: standard
+  _tools:
+    # Incident writes
+    - create_incident
+    - update_incident
+    - add_comment
+    - resolve_incident
+    # Catalog writes
+    - create_catalog_category
+    - update_catalog_category
+    - move_catalog_items
+    - update_catalog_item
+    - create_catalog_item_variable
+    - update_catalog_item_variable
+    # Change Management writes
+    - create_change_request
+    - update_change_request
+    - add_change_task
+    - submit_change_for_approval
+    - approve_change
+    - reject_change
+    # Changeset writes
+    - create_changeset
+    - update_changeset
+    - add_file_to_changeset
+    - commit_changeset
+    - publish_changeset
+    # Workflow writes
+    - create_workflow
+    - update_workflow
+    - activate_workflow
+    - deactivate_workflow
+    - add_workflow_activity
+    - update_workflow_activity
+    - delete_workflow_activity
+    - reorder_workflow_activities
+    # Flow Designer writes
+    - update_flow_designer
+    # Portal writes
+    - update_portal_component
+    - create_widget_instance
+    - update_widget_instance
+    - route_portal_component_edit
+    - analyze_portal_component_update
+    - create_portal_component_snapshot
+    - preview_portal_component_update
+    - update_portal_component_from_snapshot
+    # Portal CRUD
+    - create_widget
+    - create_angular_provider
+    - create_header_footer
+    - create_css_theme
+    - create_ng_template
+    - create_ui_page
+    - create_page
+    - update_page
+    - create_container
+    - create_row
+    - create_column
+    - scaffold_page
+    # Script Include writes (full)
+    - create_script_include
+    - update_script_include
+    - delete_script_include
+    - execute_script_include
+    # UI Policy writes
+    - create_ui_policy
+    - create_ui_policy_action
+    # Local Sync writes
+    - update_remote_from_local
