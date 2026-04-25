@@ -10,12 +10,19 @@ Safety features:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
+from servicenow_mcp.tools.portal_management_tools import (
+    CreateWidgetInstanceParams,
+    UpdateWidgetInstanceParams,
+    create_widget_instance,
+    update_widget_instance,
+)
+from servicenow_mcp.tools.portal_tools import UpdatePortalComponentParams, update_portal_component
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -996,3 +1003,356 @@ def scaffold_page(
             "to identify orphaned records for manual cleanup or retry."
         )
     return result
+
+
+# ---------------------------------------------------------------------------
+# manage_portal_layout — page + container/row/column + widget instance ops
+# ---------------------------------------------------------------------------
+
+_PAGE_UPDATE_FIELDS = ("title", "description", "css", "internal", "public", "draft")
+
+
+class ManagePortalLayoutParams(BaseModel):
+    """Manage Service Portal layout — pages, containers, rows, columns, widget instances.
+
+    Required per action:
+      create_page:    page_id, title, scope
+      update_page:    sys_id, at least one field
+      add_container:  sp_page
+      add_row:        sp_container
+      add_column:     sp_row
+      place_widget:   sp_widget, sp_column
+      move_widget:    instance_id (and at least one of sp_column/order/widget_parameters/css)
+    """
+
+    action: Literal[
+        "create_page",
+        "update_page",
+        "add_container",
+        "add_row",
+        "add_column",
+        "place_widget",
+        "move_widget",
+    ] = Field(...)
+
+    # Page identity
+    page_id: Optional[str] = Field(default=None, description="URL path (create_page)")
+    title: Optional[str] = Field(default=None)
+    sys_id: Optional[str] = Field(default=None, description="page sys_id (update_page)")
+    description: Optional[str] = Field(default=None)
+    css: Optional[str] = Field(default=None)
+    internal: Optional[bool] = Field(default=None)
+    public: Optional[bool] = Field(default=None)
+    draft: Optional[bool] = Field(default=None)
+    category: Optional[str] = Field(default=None)
+    scope: Optional[str] = Field(default=None, description="sys_scope sys_id (create_page)")
+
+    # Layout container/row/column
+    sp_page: Optional[str] = Field(default=None)
+    sp_container: Optional[str] = Field(default=None)
+    sp_row: Optional[str] = Field(default=None)
+    order: Optional[int] = Field(default=None)
+    width: Optional[str] = Field(default=None)
+    css_class: Optional[str] = Field(default=None)
+    background_color: Optional[str] = Field(default=None)
+    size: Optional[int] = Field(default=None, description="Bootstrap col size 1-12")
+
+    # Widget instance
+    sp_widget: Optional[str] = Field(default=None)
+    sp_column: Optional[str] = Field(default=None)
+    instance_id: Optional[str] = Field(default=None)
+    widget_parameters: Optional[str] = Field(default=None, description="JSON string")
+    instance_css: Optional[str] = Field(default=None, description="Instance-level CSS")
+
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManagePortalLayoutParams":
+        a = self.action
+        if a == "create_page":
+            for f in ("page_id", "title", "scope"):
+                if not getattr(self, f):
+                    raise ValueError(f"{f} is required for action='create_page'")
+        elif a == "update_page":
+            if not self.sys_id:
+                raise ValueError("sys_id is required for action='update_page'")
+            if not any(getattr(self, f) is not None for f in _PAGE_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update_page'")
+        elif a == "add_container":
+            if not self.sp_page:
+                raise ValueError("sp_page is required for action='add_container'")
+        elif a == "add_row":
+            if not self.sp_container:
+                raise ValueError("sp_container is required for action='add_row'")
+        elif a == "add_column":
+            if not self.sp_row:
+                raise ValueError("sp_row is required for action='add_column'")
+        elif a == "place_widget":
+            if not self.sp_widget:
+                raise ValueError("sp_widget is required for action='place_widget'")
+            if not self.sp_column:
+                raise ValueError("sp_column is required for action='place_widget'")
+        elif a == "move_widget":
+            if not self.instance_id:
+                raise ValueError("instance_id is required for action='move_widget'")
+        return self
+
+
+@register_tool(
+    name="manage_portal_layout",
+    params=ManagePortalLayoutParams,
+    description="Portal layout: page CRUD + container/row/column + widget instance placement.",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def manage_portal_layout(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManagePortalLayoutParams,
+) -> Dict[str, Any]:
+    a = params.action
+    if a == "create_page":
+        kwargs: Dict[str, Any] = {
+            "id": params.page_id,
+            "title": params.title,
+            "scope": params.scope,
+        }
+        for f in ("description", "css", "internal", "public", "draft", "category"):
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return create_page(config, auth_manager, CreatePageParams(**kwargs))
+    if a == "update_page":
+        kwargs = {"sys_id": params.sys_id, "dry_run": params.dry_run}
+        for f in _PAGE_UPDATE_FIELDS:
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return update_page(config, auth_manager, UpdatePageParams(**kwargs))
+    if a == "add_container":
+        kwargs = {"sp_page": params.sp_page}
+        if params.order is not None:
+            kwargs["order"] = params.order
+        for f in ("width", "css_class", "background_color"):
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return create_container(config, auth_manager, CreateContainerParams(**kwargs))
+    if a == "add_row":
+        kwargs = {"sp_container": params.sp_container}
+        if params.order is not None:
+            kwargs["order"] = params.order
+        if params.css_class is not None:
+            kwargs["css_class"] = params.css_class
+        return create_row(config, auth_manager, CreateRowParams(**kwargs))
+    if a == "add_column":
+        kwargs = {"sp_row": params.sp_row}
+        if params.order is not None:
+            kwargs["order"] = params.order
+        if params.size is not None:
+            kwargs["size"] = params.size
+        if params.css_class is not None:
+            kwargs["css_class"] = params.css_class
+        return create_column(config, auth_manager, CreateColumnParams(**kwargs))
+    if a == "place_widget":
+        kwargs = {"sp_widget": params.sp_widget, "sp_column": params.sp_column}
+        if params.order is not None:
+            kwargs["order"] = params.order
+        if params.widget_parameters is not None:
+            kwargs["widget_parameters"] = params.widget_parameters
+        if params.instance_css is not None:
+            kwargs["css"] = params.instance_css
+        return create_widget_instance(config, auth_manager, CreateWidgetInstanceParams(**kwargs))
+    # move_widget
+    kwargs = {"instance_id": params.instance_id}
+    for src, dst in (
+        ("sp_column", "sp_column"),
+        ("order", "order"),
+        ("widget_parameters", "widget_parameters"),
+        ("instance_css", "css"),
+    ):
+        v = getattr(params, src)
+        if v is not None:
+            kwargs[dst] = v
+    return update_widget_instance(config, auth_manager, UpdateWidgetInstanceParams(**kwargs))
+
+
+# ---------------------------------------------------------------------------
+# manage_portal_component — widget/provider/header_footer/theme/ng_template/
+# ui_page/update_code
+# ---------------------------------------------------------------------------
+
+
+class ManagePortalComponentParams(BaseModel):
+    """Manage Service Portal components.
+
+    Required per action:
+      create_widget:        name, scope
+      create_provider:      name, script, scope
+      create_header_footer: name, scope
+      create_theme:         name, scope
+      create_ng_template:   template_id, template, scope
+      create_ui_page:       name, scope
+      update_code:          table, sys_id, update_data
+    """
+
+    action: Literal[
+        "create_widget",
+        "create_provider",
+        "create_header_footer",
+        "create_theme",
+        "create_ng_template",
+        "create_ui_page",
+        "update_code",
+    ] = Field(...)
+
+    # Common fields
+    name: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    scope: Optional[str] = Field(default=None, description="sys_scope sys_id")
+
+    # widget
+    widget_id: Optional[str] = Field(
+        default=None, description="Widget technical id (auto if omitted)"
+    )
+    template: Optional[str] = Field(default=None)
+    css: Optional[str] = Field(default=None)
+    script: Optional[str] = Field(default=None)
+    client_script: Optional[str] = Field(default=None)
+    link: Optional[str] = Field(default=None)
+    internal: bool = Field(default=False)
+    data_table: Optional[str] = Field(default=None)
+
+    # provider
+    provider_type: Optional[str] = Field(
+        default=None, description="factory|service|provider|directive|filter"
+    )
+
+    # ng_template
+    template_id: Optional[str] = Field(default=None, description="ng-include id")
+
+    # ui_page
+    html: Optional[str] = Field(default=None)
+    processing_script: Optional[str] = Field(default=None)
+    category: Optional[str] = Field(default=None)
+
+    # update_code
+    table: Optional[str] = Field(default=None)
+    sys_id: Optional[str] = Field(default=None)
+    update_data: Optional[Dict[str, str]] = Field(default=None)
+
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManagePortalComponentParams":
+        a = self.action
+        if a in (
+            "create_widget",
+            "create_header_footer",
+            "create_theme",
+            "create_ui_page",
+        ):
+            if not self.name:
+                raise ValueError(f"name is required for action='{a}'")
+            if not self.scope:
+                raise ValueError(f"scope is required for action='{a}'")
+        elif a == "create_provider":
+            if not self.name:
+                raise ValueError("name is required for action='create_provider'")
+            if not self.script:
+                raise ValueError("script is required for action='create_provider'")
+            if not self.scope:
+                raise ValueError("scope is required for action='create_provider'")
+        elif a == "create_ng_template":
+            if not self.template_id:
+                raise ValueError("template_id is required for action='create_ng_template'")
+            if not self.template:
+                raise ValueError("template is required for action='create_ng_template'")
+            if not self.scope:
+                raise ValueError("scope is required for action='create_ng_template'")
+        elif a == "update_code":
+            if not self.table:
+                raise ValueError("table is required for action='update_code'")
+            if not self.sys_id:
+                raise ValueError("sys_id is required for action='update_code'")
+            if not self.update_data:
+                raise ValueError("update_data is required for action='update_code'")
+        return self
+
+
+@register_tool(
+    name="manage_portal_component",
+    params=ManagePortalComponentParams,
+    description="Portal component create (widget/provider/theme/etc.) + update_code.",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def manage_portal_component(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManagePortalComponentParams,
+) -> Dict[str, Any]:
+    a = params.action
+    if a == "create_widget":
+        kwargs: Dict[str, Any] = {"name": params.name, "scope": params.scope}
+        if params.widget_id is not None:
+            kwargs["id"] = params.widget_id
+        for f in (
+            "template",
+            "css",
+            "script",
+            "client_script",
+            "link",
+            "internal",
+            "data_table",
+            "description",
+        ):
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return create_widget(config, auth_manager, CreateWidgetParams(**kwargs))
+    if a == "create_provider":
+        kwargs = {
+            "name": params.name,
+            "script": params.script,
+            "scope": params.scope,
+        }
+        if params.provider_type is not None:
+            kwargs["type"] = params.provider_type
+        if params.description is not None:
+            kwargs["description"] = params.description
+        return create_angular_provider(config, auth_manager, CreateAngularProviderParams(**kwargs))
+    if a == "create_header_footer":
+        kwargs = {"name": params.name, "scope": params.scope}
+        for f in ("template", "css"):
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return create_header_footer(config, auth_manager, CreateHeaderFooterParams(**kwargs))
+    if a == "create_theme":
+        kwargs = {"name": params.name, "scope": params.scope}
+        if params.css is not None:
+            kwargs["css"] = params.css
+        return create_css_theme(config, auth_manager, CreateCssThemeParams(**kwargs))
+    if a == "create_ng_template":
+        kwargs = {
+            "id": params.template_id,
+            "template": params.template,
+            "scope": params.scope,
+        }
+        return create_ng_template(config, auth_manager, CreateNgTemplateParams(**kwargs))
+    if a == "create_ui_page":
+        kwargs = {"name": params.name, "scope": params.scope}
+        for f in ("html", "client_script", "processing_script", "description", "category"):
+            v = getattr(params, f)
+            if v is not None:
+                kwargs[f] = v
+        return create_ui_page(config, auth_manager, CreateUiPageParams(**kwargs))
+    # update_code
+    return update_portal_component(
+        config,
+        auth_manager,
+        UpdatePortalComponentParams(
+            table=params.table, sys_id=params.sys_id, update_data=params.update_data
+        ),
+    )
