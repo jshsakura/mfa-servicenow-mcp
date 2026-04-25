@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Literal, Optional, Set
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
@@ -71,7 +71,59 @@ IGNORED_CLASS_NAMES = {
 }
 
 SOURCE_TYPE_ALL = "all"
+# Canonical list of supported source types. Also exposed to the LLM as the
+# Literal on SearchServerCodeParams/GetMetadataSourceParams below, so adding a
+# type here automatically updates the JSON-schema enum.
 DEFAULT_SOURCE_TYPE_ORDER = [
+    "script_include",
+    "widget",
+    "angular_provider",
+    "business_rule",
+    "client_script",
+    "catalog_client_script",
+    "ui_action",
+    "ui_script",
+    "ui_page",
+    "ui_macro",
+    "scripted_rest",
+    "fix_script",
+    "scheduled_job",
+    "script_action",
+    "email_notification",
+    "acl",
+    "transform_script",
+    "processor",
+    "sp_header_footer",
+    "sp_css",
+    "ng_template",
+    "update_xml",
+]
+SourceType = Literal[
+    "all",
+    "script_include",
+    "widget",
+    "angular_provider",
+    "business_rule",
+    "client_script",
+    "catalog_client_script",
+    "ui_action",
+    "ui_script",
+    "ui_page",
+    "ui_macro",
+    "scripted_rest",
+    "fix_script",
+    "scheduled_job",
+    "script_action",
+    "email_notification",
+    "acl",
+    "transform_script",
+    "processor",
+    "sp_header_footer",
+    "sp_css",
+    "ng_template",
+    "update_xml",
+]
+SpecificSourceType = Literal[
     "script_include",
     "widget",
     "angular_provider",
@@ -493,9 +545,9 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
 
 class SearchServerCodeParams(BaseModel):
     query: str = Field(..., description="Text to search in names, identifiers, and source fields")
-    source_type: str = Field(
+    source_type: SourceType = Field(
         default=SOURCE_TYPE_ALL,
-        description="'all' or a specific type: script_include, widget, angular_provider, business_rule, client_script, catalog_client_script, ui_action, ui_script, ui_page, ui_macro, scripted_rest, fix_script, scheduled_job, script_action, email_notification, acl, transform_script, processor, sp_header_footer, sp_css, ng_template, update_xml",
+        description="Source type to search; 'all' covers every supported type.",
     )
     limit: int = Field(
         default=5,
@@ -509,9 +561,9 @@ class SearchServerCodeParams(BaseModel):
 
 
 class GetMetadataSourceParams(BaseModel):
-    source_type: str = Field(
+    source_type: SpecificSourceType = Field(
         default=...,
-        description="Specific source type (e.g. script_include, widget, business_rule, acl, scheduled_job). Same types as search_server_code.",
+        description="Specific source type (not 'all').",
     )
     source_id: str = Field(..., description="sys_id, name, or logical identifier")
     max_field_length: int = Field(

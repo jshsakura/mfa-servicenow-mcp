@@ -390,10 +390,11 @@ class TestGetLogsSafetyAndEdgeCases(unittest.TestCase):
         self.auth = MagicMock()
 
     def test_invalid_log_type(self):
-        result = get_logs(self.config, self.auth, GetLogsParams(log_type="invalid"))
-        self.assertFalse(result["success"])
-        self.assertIn("Unknown log_type", result["message"])
-        self.assertIn("available_types", result)
+        # log_type is now a Literal — Pydantic rejects unknown values at parse time.
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            GetLogsParams(log_type="invalid")
 
     @patch("servicenow_mcp.tools.log_tools.sn_query_page")
     def test_limit_clamped(self, mock_qp):

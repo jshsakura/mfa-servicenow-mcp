@@ -6,7 +6,7 @@ LLM selects log_type based on intent — no ambiguity about which tool to call.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -179,24 +179,20 @@ _LOG_TYPE_NAMES = ", ".join(sorted(LOG_TYPES.keys()))
 
 
 class GetLogsParams(BaseModel):
-    log_type: str = Field(
+    # system=script errors/gs.log | journal=work notes/comments |
+    # transaction=HTTP req/resp | background=scheduled job/fix script runs.
+    log_type: Literal["system", "journal", "transaction", "background"] = Field(
         ...,
-        description=(
-            "Log type to query. One of: system, journal, transaction, background. "
-            "system = script errors, gs.log output. "
-            "journal = work notes/comments on records. "
-            "transaction = HTTP request/response. "
-            "background = scheduled job/fix script runs."
-        ),
+        description="Log type (see enum values).",
     )
     limit: int = Field(
         default=DEFAULT_LOG_LIMIT,
         description=f"Max records. Clamped to {MAX_LOG_LIMIT}.",
     )
     offset: int = Field(default=0, description="Pagination offset.")
-    timeframe: str = Field(
+    timeframe: Literal["last_hour", "last_24h", "last_7d", "all"] = Field(
         default="last_24h",
-        description="Time filter: last_hour, last_24h, last_7d, all",
+        description="Time filter.",
     )
     # --- Universal filter ---
     contains: Optional[str] = Field(

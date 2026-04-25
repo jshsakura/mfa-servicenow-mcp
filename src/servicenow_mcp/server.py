@@ -52,7 +52,7 @@ MUTATING_TOOL_NAMES = {"sn_batch"}
 CONFIRM_FIELD = "confirm"
 CONFIRM_VALUE = "approve"
 
-_TOOL_SCHEMA_CACHE: Dict[type[Any], Dict[str, Any]] = {}
+_TOOL_SCHEMA_CACHE: Dict[tuple[type[Any], str], Dict[str, Any]] = {}
 
 
 @lru_cache(maxsize=1)
@@ -141,9 +141,11 @@ def _compact_schema(schema: Any, *, _top_level: bool = False) -> Any:
         # domain meaning (e.g. default source_types=["widget"]).
         if k == "default" and (v is None or v is False or v == 0 or v == [] or v == {}):
             continue
-        # Truncate long default strings
+        # Drop long string defaults entirely — never truncate.
+        # A truncated default is a value the LLM might copy-paste back, so
+        # "…" inside a regex/path/JSON would corrupt the tool call. Dropping
+        # the key signals "omit to use server-side default".
         if k == "default" and isinstance(v, str) and len(v) > _MAX_DEFAULT_STR:
-            result[k] = v[:_MAX_DEFAULT_STR] + "…"
             continue
         # Truncate verbose param descriptions
         if k == "description" and isinstance(v, str) and len(v) > _MAX_PARAM_DESC:
@@ -190,11 +192,16 @@ def _get_schema_detail() -> str:
 
 
 def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
-    """Cache compacted Pydantic schema for LLM-optimal context usage."""
-    cached_schema = _TOOL_SCHEMA_CACHE.get(params_model)
+    """Cache compacted Pydantic schema for LLM-optimal context usage.
+
+    Cache key includes the MCP_SCHEMA_DETAIL level so runtime changes
+    (e.g. tests flipping the env var) don't return stale schemas.
+    """
+    detail = _get_schema_detail()
+    cache_key = (params_model, detail)
+    cached_schema = _TOOL_SCHEMA_CACHE.get(cache_key)
     if cached_schema is None:
         raw = params_model.model_json_schema()
-        detail = _get_schema_detail()
         if detail == _SCHEMA_DETAIL_FULL:
             cached_schema = raw
         else:
@@ -207,7 +214,17 @@ def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
                         prop_schema.pop("description", None)
         # Remove top-level docstring (tool description covers this)
         cached_schema.pop("description", None)
-        _TOOL_SCHEMA_CACHE[params_model] = cached_schema
+        # Strip docstrings that survived inside $defs/definitions (nested
+        # Pydantic submodels). They restate model-level docstrings the LLM
+        # doesn't need — leaf field descriptions are still preserved.
+        if detail != _SCHEMA_DETAIL_FULL:
+            for defs_key in ("$defs", "definitions"):
+                sub = cached_schema.get(defs_key)
+                if isinstance(sub, dict):
+                    for sub_schema in sub.values():
+                        if isinstance(sub_schema, dict):
+                            sub_schema.pop("description", None)
+        _TOOL_SCHEMA_CACHE[cache_key] = cached_schema
     return cached_schema
 
 
@@ -646,11 +663,10 @@ class ServiceNowMCP:
             # Return a list with a TextContent object
             return [types.TextContent(type="text", text=serialized_string)]
 
-        # Check if the tool exists and is enabled
-        if name not in self.tool_definitions:
-            raise ValueError(f"Unknown tool: {name}")
+        # Check enabled-set FIRST. With lazy discovery `tool_definitions` only
+        # holds enabled tools, so the "Unknown tool" check below would eclipse
+        # the friendlier "available in <pkg>" message if we checked it first.
         if name not in self.enabled_tool_names:
-            # Find which packages DO include this tool
             available_in = [
                 pkg
                 for pkg, tools in self.package_definitions.items()
@@ -663,11 +679,15 @@ class ServiceNowMCP:
                     f"Switch by setting MCP_TOOL_PACKAGE environment variable. "
                     f"Alternatively, use sn_query for basic read operations."
                 )
-            else:
-                raise ValueError(
-                    f"Tool '{name}' exists but is not included in any active package. "
-                    f"Use sn_query to access the underlying table directly."
-                )
+            # Tool name is genuinely unknown OR registered but not packaged
+            if name not in self.tool_definitions:
+                raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(
+                f"Tool '{name}' exists but is not included in any active package. "
+                f"Use sn_query to access the underlying table directly."
+            )
+        if name not in self.tool_definitions:
+            raise ValueError(f"Unknown tool: {name}")
 
         # Safety check for mutating actions: require confirmation
         requires_confirmation = self._is_blocked_mutating_tool(name) or (
