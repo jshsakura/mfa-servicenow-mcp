@@ -114,7 +114,7 @@ Ask the user these questions one by one. Provide defaults in brackets.
    > 2. service_desk — Standard + assignment, SLA, escalation
    > 3. portal_developer — Standard + portal widgets, pages, themes
    > 4. platform_developer — Standard + scripts, flows, update sets
-   > 5. full — Everything in the combined developer package (101 tools)
+   > 5. full — Broadest packaged surface with bundled workflows (124 tools)
 
    Store as `$TOOL_PACKAGE`. Default: `standard`
 

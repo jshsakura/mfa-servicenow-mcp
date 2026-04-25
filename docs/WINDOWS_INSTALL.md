@@ -216,9 +216,9 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 |----------|--------|---------|
 | `analyze/` | 6 | Widget analysis, portal diagnosis, dependency mapping, code detection |
 | `fix/` | 3 | Widget patching (staged safety gates), debugging, code review |
-| `manage/` | 5 | Page layout, script includes, source export, changeset workflow |
+| `manage/` | 8 | Page layout, script includes, source export, app source download, changeset workflow, local sync, workflow management, skill management |
 | `deploy/` | 2 | Change request lifecycle, incident triage |
-| `explore/` | 4 | Health check, schema discovery, route tracing, ESC catalog flow |
+| `explore/` | 5 | Health check, schema discovery, route tracing, flow trigger tracing, ESC catalog flow |
 
 **Update:** Re-run the same install command to replace all existing skill files.
 **Remove full setup:** `uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove claude-code`
@@ -266,13 +266,12 @@ Set `MCP_TOOL_PACKAGE` to choose a tool set. Default: `standard` (read-only).
 
 | Package | Tools | Description |
 |---------|:-----:|-------------|
-| `standard` | 36 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search |
-| `service_desk` | 46 | standard + incident create/update/resolve/comment, change management writes |
-| `portal_developer` | 84 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
-| `platform_developer` | 77 | standard + workflow CRUD, Flow Designer, UI Policy, incident/change/script writes |
-| `agile` | 51 | standard + epic/story/scrum task/project PPM tools |
-| `admin` | 61 | standard + user/group management, knowledge base, catalog management |
-| `full` | 101 | Portal-focused development tools (agile PPM and admin stay in their own packages) |
+| `core` | 22 | Minimal read-only essentials for health, schema, discovery, and key lookups |
+| `standard` | 54 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 59 | standard + incident and change operational writes |
+| `portal_developer` | 86 | standard + portal, changeset, script include, and local-sync delivery workflows |
+| `platform_developer` | 99 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 124 | Broadest packaged surface: bundled `manage_*` workflows plus legacy compatibility wrappers |
 
 To change, update the `MCP_TOOL_PACKAGE` value:
 

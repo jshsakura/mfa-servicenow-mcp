@@ -70,7 +70,7 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **151 registered tools** across 7 role-based packages — from read-only to full CRUD
+- **165 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **24 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
@@ -78,7 +78,7 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
-- Tool packages for standard users, service desk, portal developers, platform developers, agile PPM, and admins
+- Tool packages for core, standard, service desk, portal developers, platform developers, and the broad `full` developer surface
 - Developer productivity tools: activity tracking, uncommitted changes, dependency mapping, daily summary
 - Full coverage of core ServiceNow artifact tables (see [Supported Tables](#supported-servicenow-tables))
 - CI/CD with auto-tagging, PyPI publishing, and Docker multi-platform builds
@@ -257,13 +257,13 @@ All packages inherit `standard` read-only tools via `_extends` and add domain-sp
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `standard` | 36 | **(Default)** Read-only safe mode. Core query, workflow/flow reads, portal basics, logs, search |
-| `service_desk` | 46 | standard + incident create/update/resolve/comment, change management writes |
-| `portal_developer` | 84 | standard + portal analysis/CRUD, source downloads, changeset, script include writes |
-| `platform_developer` | 77 | standard + workflow CRUD, flow designer, UI policy, incident/change/script writes |
-| `agile` | 51 | standard + epic/story/scrum task/project PPM tools |
-| `admin` | 61 | standard + user/group management, knowledge base, catalog management |
-| `full` | 101 | Portal-focused development tools (agile PPM and admin in their own packages) |
+| `none` | 0 | Disabled profile for intentionally turning tools off |
+| `core` | 22 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
+| `standard` | 54 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 59 | standard + incident and change operational writes |
+| `portal_developer` | 86 | standard + portal, changeset, script include, and local-sync delivery workflows |
+| `platform_developer` | 99 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 124 | Broadest packaged surface: bundled `manage_*` workflows plus legacy compatibility wrappers |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
