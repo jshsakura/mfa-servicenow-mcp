@@ -216,9 +216,9 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 |---------|---------|------|
 | `analyze/` | 6 | 위젯 분석, 포탈 진단, 의존성 매핑, 코드 탐지 |
 | `fix/` | 3 | 위젯 패칭 (단계별 안전 게이트), 디버깅, 코드 리뷰 |
-| `manage/` | 5 | 페이지 레이아웃, 스크립트 인클루드, 소스 내보내기, 체인지셋 워크플로우 |
+| `manage/` | 8 | 페이지 레이아웃, 스크립트 인클루드, 소스 내보내기, 앱 소스 다운로드, 체인지셋 워크플로우, 로컬 동기화, 워크플로우 관리, 스킬 관리 |
 | `deploy/` | 2 | 변경 요청 라이프사이클, 인시던트 트리아지 |
-| `explore/` | 4 | 헬스체크, 스키마 탐색, 라우트 추적, ESC 카탈로그 흐름 |
+| `explore/` | 5 | 헬스체크, 스키마 탐색, 라우트 추적, 플로우 트리거 추적, ESC 카탈로그 흐름 |
 
 **업데이트:** 같은 설치 명령어를 다시 실행하면 기존 스킬 파일을 통째로 교체합니다.
 **전체 제거:** `uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove claude-code`
@@ -266,13 +266,12 @@ TTL을 변경하려면 `--browser-session-ttl` 옵션을 사용하세요 (단위
 
 | 패키지 | 도구 수 | 설명 |
 |--------|:------:|------|
-| `standard` | 36 | **(기본값)** 읽기 전용 safe mode. 핵심 조회, 워크플로우/플로우 읽기, 포털 기본, 로그, 검색 |
-| `service_desk` | 46 | standard + 인시던트 생성/수정/해결/코멘트, 변경관리 쓰기 |
-| `portal_developer` | 84 | standard + 포털 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
-| `platform_developer` | 77 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `agile` | 51 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
-| `admin` | 61 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
-| `full` | 101 | 포털 중심 개발 도구 전체 묶음 (Agile PPM, Admin은 전용 패키지 유지) |
+| `core` | 22 | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
+| `standard` | 54 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 전반의 읽기 전용 패키지 |
+| `service_desk` | 59 | standard + 인시던트/변경 운영 쓰기 |
+| `portal_developer` | 86 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
+| `platform_developer` | 99 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `full` | 124 | 가장 넓은 패키지 표면: 번들 `manage_*` 워크플로우 + 레거시 호환 래퍼 |
 
 수정 권한이 필요하면 `MCP_TOOL_PACKAGE` 값만 바꾸면 됩니다:
 
