@@ -69,7 +69,7 @@ AI가 자동으로:
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **등록 도구 151개**, 7개 역할 기반 패키지 — 읽기 전용부터 전체 CRUD까지
+- **등록 도구 165개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
 - **24개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
 - **크로스-스코프 의존성 자동 해석** — `download_app_sources`가 앱 코드에서 참조하는 글로벌 스코프의 Script Include, Widget, Angular Provider, UI Macro까지 함께 받아 로컬 번들을 분석에 자족적으로 만듭니다
@@ -77,7 +77,7 @@ AI가 자동으로:
 - `confirm='approve'` 기반 안전한 수정 승인 정책
 - 페이로드 안전 제한, 필드별 절단, 총 응답 한도 (200K 문자)
 - 일시적 네트워크 오류 자동 재시도 (백오프)
-- 표준 사용자, 운영자, 포탈 개발자, 플랫폼 개발자, 애자일 PPM, 관리자용 도구 패키지
+- core, standard, service desk, 포탈 개발자, 플랫폼 개발자, 그리고 가장 넓은 `full` 개발 패키지 제공
 - 개발자 도구: 활동 추적, 미커밋 변경사항, 의존성 매핑, 일일 요약
 - 핵심 ServiceNow 아티팩트 테이블 전체 커버리지 ([지원 테이블](#지원하는-servicenow-테이블) 참조)
 - CI/CD: 자동 태깅, PyPI 퍼블리싱, Docker 멀티플랫폼 빌드
@@ -252,13 +252,13 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
-| `standard` | 36 | **(기본값)** 읽기 전용 safe mode. 핵심 API, 워크플로우/플로우 읽기, 포탈 기본, 로그, 검색 |
-| `service_desk` | 46 | standard + 인시던트 생성/처리/해결/코멘트, 변경관리 쓰기 |
-| `portal_developer` | 84 | standard + 포탈 분석/CRUD, 소스 다운로드, 체인지셋, Script Include 쓰기 |
-| `platform_developer` | 77 | standard + 워크플로우 CRUD, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `agile` | 51 | standard + Epic/Story/Scrum Task/Project PPM 도구 |
-| `admin` | 61 | standard + 사용자/그룹 관리, 지식베이스, 카탈로그 관리 |
-| `full` | 101 | 포탈 중심 전 개발 도구 통합 (Agile PPM, Admin은 전용 패키지에서) |
+| `none` | 0 | 도구를 의도적으로 비활성화하는 프로필 |
+| `core` | 22 | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
+| `standard` | 54 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 전반의 읽기 전용 패키지 |
+| `service_desk` | 59 | standard + 인시던트/변경 운영 쓰기 |
+| `portal_developer` | 86 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
+| `platform_developer` | 99 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `full` | 124 | 가장 넓은 패키지 표면: 번들 `manage_*` 워크플로우 + 레거시 호환 래퍼 |
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 
