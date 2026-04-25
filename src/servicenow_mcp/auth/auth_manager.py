@@ -271,6 +271,7 @@ class AuthManager:
         """
         self.config = config
         self.instance_url = instance_url
+        self.logger = logger
         self._http_session: requests.Session = _build_http_session()
         self.token: Optional[str] = None
         self.token_type: Optional[str] = None
@@ -481,10 +482,14 @@ class AuthManager:
         """
         logger.info("Waiting up to %ds for another terminal to complete login...", timeout)
         deadline = time.time() + timeout
+        saw_lock = os.path.exists(self._login_lock_path)
         while time.time() < deadline:
             time.sleep(3)
-            # Check if lock was released
-            if not os.path.exists(self._login_lock_path):
+            lock_exists = os.path.exists(self._login_lock_path)
+            if lock_exists:
+                saw_lock = True
+            # Only treat a missing lock as "released" if one was observed first.
+            if saw_lock and not lock_exists:
                 if self._reload_session_from_disk():
                     logger.info("Other terminal completed login — session reloaded.")
                     return True
@@ -804,22 +809,6 @@ class AuthManager:
             if not self.config.browser:
                 raise ValueError("Browser auth configuration is required")
             if not self._browser_cookie_header or self._is_browser_session_expired():
-                # Fast path: try disk reload first (no browser needed, no lock needed).
-                # Another process may have already written a fresh session to disk.
-                if self._reload_session_from_disk():
-                    if self._browser_cookie_header and not self._is_browser_session_expired():
-                        logger.info("Session restored from disk (fast path) — skipping browser.")
-                        self._browser_reauth_failure_count = 0
-                        self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
-                        if not self._keepalive_thread:
-                            self._start_keepalive()
-                        headers["Cookie"] = self._browser_cookie_header or ""
-                        if self._browser_user_agent:
-                            headers["User-Agent"] = self._browser_user_agent
-                        if self._browser_session_token:
-                            headers["X-UserToken"] = self._browser_session_token
-                        return headers
-
                 # In-process lock: prevent concurrent tool calls from opening
                 # multiple browser windows (both restore AND login are serialized).
                 acquired = self._browser_login_lock.acquire(timeout=0)
@@ -829,7 +818,7 @@ class AuthManager:
                     self._browser_login_lock.acquire()  # Block until login finishes
                     self._browser_login_lock.release()
                     # Login should be done now — return headers if session is valid
-                    if self._browser_cookie_header:
+                    if self._browser_cookie_header and not self._is_browser_session_expired():
                         headers["Cookie"] = self._browser_cookie_header or ""
                         if self._browser_user_agent:
                             headers["User-Agent"] = self._browser_user_agent
@@ -850,6 +839,26 @@ class AuthManager:
                         if self._browser_session_token:
                             headers["X-UserToken"] = self._browser_session_token
                         return headers
+
+                    # Fast path: try disk reload before opening Playwright.
+                    # Another process may have already written a fresh session to disk.
+                    if self._reload_session_from_disk():
+                        if self._browser_cookie_header and not self._is_browser_session_expired():
+                            logger.info(
+                                "Session restored from disk (fast path) — skipping browser."
+                            )
+                            self._browser_reauth_failure_count = 0
+                            self._browser_reauth_cooldown_seconds = (
+                                self._browser_reauth_cooldown_base
+                            )
+                            if not self._keepalive_thread:
+                                self._start_keepalive()
+                            headers["Cookie"] = self._browser_cookie_header or ""
+                            if self._browser_user_agent:
+                                headers["User-Agent"] = self._browser_user_agent
+                            if self._browser_session_token:
+                                headers["X-UserToken"] = self._browser_session_token
+                            return headers
 
                     # Try browser profile restore (opens Playwright) — now under lock.
                     if self._try_restore_browser_session(self.config.browser):
@@ -1622,7 +1631,7 @@ class AuthManager:
                 # Detect browser closed by user — break immediately instead of
                 # looping for minutes until wait_budget_ms expires.
                 try:
-                    if page.is_closed() or context.pages == []:
+                    if page.is_closed():
                         raise ValueError(
                             "Browser was closed before login completed. "
                             "The next tool call will re-open the login window."
@@ -1779,12 +1788,20 @@ class AuthManager:
             self._save_session_to_disk()
             # Final validation before closing browser: avoid storing UI-only cookies that
             # still fail API auth and cause immediate 401/reopen loops.
-            final_probe = self._probe_browser_api_with_cookie(
-                self._browser_cookie_header,
-                timeout_seconds=10,
-                browser_config=browser_config,
-            )
-            if not _response_indicates_authenticated_session(final_probe):
+            try:
+                final_probe = self._probe_browser_api_with_cookie(
+                    self._browser_cookie_header,
+                    timeout_seconds=10,
+                    browser_config=browser_config,
+                )
+            except requests.RequestException as exc:
+                logger.warning(
+                    "Final browser API probe failed after login confirmation; "
+                    "keeping session based on browser state: %s",
+                    exc,
+                )
+                final_probe = None
+            if final_probe and not _response_indicates_authenticated_session(final_probe):
                 self.invalidate_browser_session()
                 # Include more detail for debugging auth failures
                 probe_url = final_probe.url
@@ -1793,7 +1810,7 @@ class AuthManager:
                     f"Browser login completed, but API auth is still unauthorized. "
                     f"Status: {final_probe.status_code}, URL: {probe_url}, Response: {probe_text}"
                 )
-            if final_probe.status_code in (401, 403):
+            if final_probe and final_probe.status_code in (401, 403):
                 logger.info(
                     "Browser login completed and session is authenticated, but probe path is unauthorized: "
                     "status=%s probe_path=%s",
