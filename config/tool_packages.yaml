@@ -1,18 +1,45 @@
 # ServiceNow MCP Tool Packages Configuration
 #
-# Packages use _extends to inherit from a parent package:
-#   child_package:
-#     _extends: parent_package
-#     _tools:
-#       - extra_tool_1
+# Packages:
+#   core       — Minimal read-only (tables, schemas, discovery). ~20 tools.
+#   standard   — All reads, no writes. ~67 tools. Default.
+#   portal_developer — standard + portal/changeset/script writes.
+#   platform_developer — standard + workflow/incident/change/script writes.
+#   service_desk — standard + incident writes.
+#   full       — All tools.
 #
-# Default: standard (safe read-only mode)
+# All write-capable packages use _extends: standard to avoid duplication.
+# Tools not in any package (Agile/PPM, User/Group, Knowledge) → use sn_query.
 
 none: []
 
-# --- Standard: Read-only across all domains (base for all other packages) ---
+# --- Core: minimal read-only essentials ---
+core:
+  - sn_health
+  - sn_query
+  - sn_aggregate
+  - sn_schema
+  - sn_discover
+  - sn_nl
+  - get_incident_by_number
+  - list_catalog_items
+  - get_catalog_item
+  - list_catalog_categories
+  - get_change_request_details
+  - get_changeset_details
+  - list_workflows
+  - get_workflow_details
+  - list_flow_designers
+  - get_portal
+  - get_page
+  - get_logs
+  - search_server_code
+  - get_script_include
+  - list_script_includes
+
+# --- Safe Mode: Read-only across all domains ---
 standard:
-  # Core API
+  # Core
   - sn_health
   - sn_query
   - sn_aggregate
@@ -26,6 +53,7 @@ standard:
   - get_catalog_item
   - list_catalog_categories
   - list_catalog_item_variables
+  - get_optimization_recommendations
   # Change Management (Read)
   - get_change_request_details
   # Changeset (Read)
@@ -33,65 +61,55 @@ standard:
   # Workflow (Read)
   - list_workflows
   - get_workflow_details
-  - list_workflow_versions
-  - get_workflow_activities
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
   - get_flow_designer_executions
   - compare_flows
-  # Portal (Read - basics)
+  # Portal (Read)
   - get_portal
   - get_page
   - get_widget_bundle
   - get_portal_component_code
   - get_widget_instance
+  - download_portal_sources
+  - search_portal_regex_matches
+  - trace_portal_route_targets
+  - detect_angular_implicit_globals
+  - get_provider_dependency_map
+  - analyze_widget_performance
+  - extract_widget_table_dependencies
+  - resolve_widget_chain
+  - resolve_page_dependencies
   # Script Include (Read)
   - list_script_includes
   - get_script_include
-  # Logs & Search
-  - get_logs
-  - search_server_code
-  - get_metadata_source
-  - extract_table_dependencies
-  # Developer Productivity
+  # Developer Productivity (Read)
   - get_developer_changes
   - audit_pending_changes
   - get_repo_change_report
+  # Logs
+  - get_logs
+  # Search & Analysis
+  - search_server_code
+  - get_metadata_source
+  - extract_table_dependencies
+  - download_app_sources
+  - download_script_includes
+  - download_server_scripts
+  - download_ui_components
+  - download_api_sources
+  - download_security_sources
+  - download_admin_scripts
+  - download_table_schema
+  - audit_local_sources
   # Local Sync (Read)
   - diff_local_component
 
-# --- Service Desk: standard + incident/change writes ---
-service_desk:
-  _extends: standard
-  _tools:
-    # Incident writes
-    - create_incident
-    - update_incident
-    - add_comment
-    - resolve_incident
-    # Change Management writes
-    - create_change_request
-    - update_change_request
-    - add_change_task
-    - submit_change_for_approval
-    - approve_change
-    - reject_change
-
-# --- Portal Developer: standard + portal/source/changeset domain ---
+# --- Portal Developer: standard + portal/changeset/script writes ---
 portal_developer:
   _extends: standard
   _tools:
-    # Portal analysis
-    - download_portal_sources
-    - search_portal_regex_matches
-    - trace_portal_route_targets
-    - detect_angular_implicit_globals
-    - get_provider_dependency_map
-    - analyze_widget_performance
-    - extract_widget_table_dependencies
-    - resolve_widget_chain
-    - resolve_page_dependencies
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update
@@ -101,13 +119,14 @@ portal_developer:
     - update_portal_component_from_snapshot
     - create_widget_instance
     - update_widget_instance
-    # Portal CRUD
+    # Portal CRUD (Component Create)
     - create_widget
     - create_angular_provider
     - create_header_footer
     - create_css_theme
     - create_ng_template
     - create_ui_page
+    # Portal CRUD (Page/Layout)
     - create_page
     - update_page
     - create_container
@@ -125,21 +144,8 @@ portal_developer:
     - publish_changeset
     # Local Sync writes
     - update_remote_from_local
-    - audit_local_sources
-    # Source downloads
-    - download_app_sources
-    - download_script_includes
-    - download_server_scripts
-    - download_ui_components
-    - download_api_sources
-    - download_security_sources
-    - download_admin_scripts
-    - download_table_schema
-    # Dev extras
-    - get_uncommitted_changes
-    - get_developer_daily_summary
 
-# --- Platform Developer: standard + workflow/flow/script/incident/change ---
+# --- Platform Developer: standard + workflow/incident/change/script writes ---
 platform_developer:
   _extends: standard
   _tools:
@@ -152,22 +158,70 @@ platform_developer:
     - update_workflow_activity
     - delete_workflow_activity
     - reorder_workflow_activities
-    - delete_workflow
     # Flow Designer writes
     - update_flow_designer
     # UI Policy writes
     - create_ui_policy
     - create_ui_policy_action
+    # Portal CRUD
+    - create_widget
+    - create_angular_provider
+    - create_header_footer
+    - create_css_theme
+    - create_ng_template
+    - create_ui_page
+    - create_page
+    - update_page
+    - create_container
+    - create_row
+    - create_column
+    - scaffold_page
     # Script Include writes (full)
     - create_script_include
     - update_script_include
     - delete_script_include
     - execute_script_include
     # Incident writes
+    - update_incident
+    - resolve_incident
+    # Change Management writes
+    - update_change_request
+    - submit_change_for_approval
+    # Changeset writes
+    - create_changeset
+    - update_changeset
+    - add_file_to_changeset
+    - commit_changeset
+    - publish_changeset
+    # Local Sync writes
+    - update_remote_from_local
+
+# --- Service Desk: standard + incident writes ---
+service_desk:
+  _extends: standard
+  _tools:
+    # Incident writes
     - create_incident
     - update_incident
     - add_comment
     - resolve_incident
+
+# --- Full: all tools ---
+full:
+  _extends: standard
+  _tools:
+    # Incident writes
+    - create_incident
+    - update_incident
+    - add_comment
+    - resolve_incident
+    # Catalog writes
+    - create_catalog_category
+    - update_catalog_category
+    - move_catalog_items
+    - update_catalog_item
+    - create_catalog_item_variable
+    - update_catalog_item_variable
     # Change Management writes
     - create_change_request
     - update_change_request
@@ -181,91 +235,6 @@ platform_developer:
     - add_file_to_changeset
     - commit_changeset
     - publish_changeset
-    # Local Sync writes
-    - update_remote_from_local
-    - audit_local_sources
-    # Source downloads
-    - download_app_sources
-    - download_script_includes
-    - download_server_scripts
-    - download_ui_components
-    - download_api_sources
-    - download_security_sources
-    - download_admin_scripts
-    - download_table_schema
-
-# --- Agile: standard + PPM (Epic/Story/Scrum/Project) ---
-agile:
-  _extends: standard
-  _tools:
-    - create_epic
-    - update_epic
-    - list_epics
-    - create_story
-    - update_story
-    - list_stories
-    - list_story_dependencies
-    - create_story_dependency
-    - delete_story_dependency
-    - create_scrum_task
-    - update_scrum_task
-    - list_scrum_tasks
-    - create_project
-    - update_project
-    - list_projects
-
-# --- Admin: standard + user/group/knowledge/catalog management ---
-admin:
-  _extends: standard
-  _tools:
-    # User management
-    - create_user
-    - update_user
-    - get_user
-    - list_users
-    - create_group
-    - update_group
-    - list_groups
-    - add_group_members
-    - remove_group_members
-    # Knowledge Base
-    - create_knowledge_base
-    - list_knowledge_bases
-    - create_category
-    - list_categories
-    - create_article
-    - update_article
-    - publish_article
-    - list_articles
-    - get_article
-    # Catalog management
-    - create_catalog_category
-    - update_catalog_category
-    - move_catalog_items
-    - update_catalog_item
-    - create_catalog_item_variable
-    - update_catalog_item_variable
-    - get_optimization_recommendations
-
-# --- Full: Portal-focused development tools ---
-# Excludes: Agile PPM -> agile, Admin -> admin,
-#           UI Policy -> platform_developer, Changeset -> portal_developer,
-#           Detection/Repo -> specialized packages only
-full:
-  _extends: standard
-  _tools:
-    # Incident writes
-    - create_incident
-    - update_incident
-    - add_comment
-    - resolve_incident
-    # Change Management writes
-    - create_change_request
-    - update_change_request
-    - add_change_task
-    - submit_change_for_approval
-    - approve_change
-    - reject_change
     # Workflow writes
     - create_workflow
     - update_workflow
@@ -275,19 +244,8 @@ full:
     - update_workflow_activity
     - delete_workflow_activity
     - reorder_workflow_activities
-    - delete_workflow
     # Flow Designer writes
     - update_flow_designer
-    # Portal analysis
-    - download_portal_sources
-    - search_portal_regex_matches
-    - trace_portal_route_targets
-    - detect_angular_implicit_globals
-    - get_provider_dependency_map
-    - analyze_widget_performance
-    - extract_widget_table_dependencies
-    - resolve_widget_chain
-    - resolve_page_dependencies
     # Portal writes
     - update_portal_component
     - create_widget_instance
@@ -310,23 +268,13 @@ full:
     - create_row
     - create_column
     - scaffold_page
-    # Script Include writes
+    # Script Include writes (full)
     - create_script_include
     - update_script_include
     - delete_script_include
     - execute_script_include
-    # Source downloads
-    - download_app_sources
-    - download_script_includes
-    - download_server_scripts
-    - download_ui_components
-    - download_api_sources
-    - download_security_sources
-    - download_admin_scripts
-    - download_table_schema
-    # Developer extras
-    - get_uncommitted_changes
-    - get_developer_daily_summary
-    # Sync
+    # UI Policy writes
+    - create_ui_policy
+    - create_ui_policy_action
+    # Local Sync writes
     - update_remote_from_local
-    - audit_local_sources
