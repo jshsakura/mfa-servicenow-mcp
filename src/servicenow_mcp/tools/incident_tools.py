@@ -5,9 +5,9 @@ This module provides tools for managing incidents in ServiceNow.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
@@ -570,3 +570,169 @@ def get_incident_by_number(
     except Exception as e:
         logger.error(f"Failed to list incidents: {e}")
         return {"success": False, "message": f"Failed to list incidents: {str(e)}", "incidents": []}
+
+
+# ---------------------------------------------------------------------------
+# manage_incident — bundled CRUD for the incident table
+# ---------------------------------------------------------------------------
+
+# Fields that map straight from manage_incident params → CreateIncidentParams /
+# UpdateIncidentParams. Defined once so the dispatch helpers stay terse and a
+# new field gets picked up automatically.
+_INCIDENT_CREATE_FIELDS = (
+    "short_description",
+    "description",
+    "caller_id",
+    "category",
+    "subcategory",
+    "priority",
+    "impact",
+    "urgency",
+    "assigned_to",
+    "assignment_group",
+)
+_INCIDENT_UPDATE_FIELDS = (
+    "short_description",
+    "description",
+    "state",
+    "category",
+    "subcategory",
+    "priority",
+    "impact",
+    "urgency",
+    "assigned_to",
+    "assignment_group",
+    "work_notes",
+    "close_notes",
+    "close_code",
+)
+
+
+class ManageIncidentParams(BaseModel):
+    """Manage incidents — table: incident.
+
+    Required per action:
+      create:  short_description
+      update:  incident_id, at least one field to change
+      comment: incident_id, comment
+      resolve: incident_id, resolution_code, resolution_notes
+    """
+
+    action: Literal["create", "update", "comment", "resolve"] = Field(
+        ..., description="Operation to perform"
+    )
+
+    # Identifier (update/comment/resolve)
+    incident_id: Optional[str] = Field(
+        default=None, description="sys_id or INC number for update/comment/resolve"
+    )
+
+    # Create + update common fields
+    short_description: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    caller_id: Optional[str] = Field(default=None)
+    category: Optional[str] = Field(default=None)
+    subcategory: Optional[str] = Field(default=None)
+    priority: Optional[str] = Field(default=None)
+    impact: Optional[str] = Field(default=None)
+    urgency: Optional[str] = Field(default=None)
+    assigned_to: Optional[str] = Field(default=None)
+    assignment_group: Optional[str] = Field(default=None)
+    state: Optional[str] = Field(default=None, description="Update only")
+    work_notes: Optional[str] = Field(default=None, description="Update only")
+    close_notes: Optional[str] = Field(default=None, description="Update only")
+    close_code: Optional[str] = Field(default=None, description="Update only")
+
+    # Comment-specific
+    comment: Optional[str] = Field(default=None, description="Body for comment action")
+    is_work_note: bool = Field(
+        default=False, description="True = internal work note, False = customer comment"
+    )
+
+    # Resolve-specific
+    resolution_code: Optional[str] = Field(default=None, description="Required for resolve")
+    resolution_notes: Optional[str] = Field(default=None, description="Required for resolve")
+
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManageIncidentParams":
+        if self.action == "create":
+            if not self.short_description:
+                raise ValueError("short_description is required for action='create'")
+        elif self.action == "update":
+            if not self.incident_id:
+                raise ValueError("incident_id is required for action='update'")
+            if not any(getattr(self, f) is not None for f in _INCIDENT_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update'")
+        elif self.action == "comment":
+            if not self.incident_id:
+                raise ValueError("incident_id is required for action='comment'")
+            if not self.comment:
+                raise ValueError("comment is required for action='comment'")
+        elif self.action == "resolve":
+            if not self.incident_id:
+                raise ValueError("incident_id is required for action='resolve'")
+            if not self.resolution_code or not self.resolution_notes:
+                raise ValueError(
+                    "resolution_code and resolution_notes are required for action='resolve'"
+                )
+        return self
+
+
+def _project(params: ManageIncidentParams, fields: tuple[str, ...]) -> Dict[str, Any]:
+    return {f: getattr(params, f) for f in fields if getattr(params, f) is not None}
+
+
+@register_tool(
+    "manage_incident",
+    params=ManageIncidentParams,
+    description="Create/update/comment/resolve an incident (table: incident). One call, no schema lookup needed.",
+    serialization="str",
+    return_type=str,
+)
+def manage_incident(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageIncidentParams,
+) -> IncidentResponse:
+    """Dispatch to the legacy create/update/add_comment/resolve_incident impls
+    based on `action`. Reusing the existing wrappers keeps a single source of
+    truth — bug fixes only need to land in one place."""
+    if params.action == "create":
+        return create_incident(
+            config,
+            auth_manager,
+            CreateIncidentParams(**_project(params, _INCIDENT_CREATE_FIELDS)),
+        )
+    if params.action == "update":
+        return update_incident(
+            config,
+            auth_manager,
+            UpdateIncidentParams(
+                incident_id=params.incident_id,
+                dry_run=params.dry_run,
+                **_project(params, _INCIDENT_UPDATE_FIELDS),
+            ),
+        )
+    if params.action == "comment":
+        return add_comment(
+            config,
+            auth_manager,
+            AddCommentParams(
+                incident_id=params.incident_id,
+                comment=params.comment,
+                is_work_note=params.is_work_note,
+            ),
+        )
+    # resolve
+    return resolve_incident(
+        config,
+        auth_manager,
+        ResolveIncidentParams(
+            incident_id=params.incident_id,
+            resolution_code=params.resolution_code,
+            resolution_notes=params.resolution_notes,
+            dry_run=params.dry_run,
+        ),
+    )
