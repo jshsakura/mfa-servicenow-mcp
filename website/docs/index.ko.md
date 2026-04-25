@@ -336,7 +336,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       </div>
       <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
-        <p>5개 스킬 — 페이지 레이아웃, 스크립트 인클루드, 소스 내보내기, 변경 집합(Changeset) 워크플로우</p>
+        <p>8개 스킬 — 페이지 레이아웃, 스크립트 인클루드, 소스 내보내기, 앱 소스 다운로드, 변경 집합(Changeset) 워크플로우, 로컬 동기화, 워크플로우 관리, 스킬 관리</p>
       </div>
       <div class="step-card" style="--i:4">
         <h3>🚀 deploy/</h3>
@@ -344,7 +344,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       </div>
       <div class="step-card" style="--i:5">
         <h3>🧭 explore/</h3>
-        <p>4개 스킬 — 상태 점검(Health check), 스키마 탐색, 라우트 추적, ESC 카탈로그 흐름</p>
+        <p>5개 스킬 — 상태 점검(Health check), 스키마 탐색, 라우트 추적, 플로우 트리거 추적, ESC 카탈로그 흐름</p>
       </div>
     </div>
   </div>
@@ -368,7 +368,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">150+</span>
+    <span class="hero-stat-value">165</span>
     <span class="hero-stat-label">MCP 도구(Tools)</span>
   </div>
   <div class="hero-stat">
