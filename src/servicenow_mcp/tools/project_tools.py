@@ -6,7 +6,7 @@ This module provides tools for managing projects in ServiceNow.
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -29,9 +29,11 @@ class CreateProjectParams(BaseModel):
     status: Optional[str] = Field(
         default=None, description="Status of the project (green, yellow, red)"
     )
-    state: Optional[str] = Field(
+    # -5 Pending, 1 Open, 2 Work in progress, 3 Closed Complete,
+    # 4 Closed Incomplete, 5 Closed Skipped.
+    state: Optional[Literal["-5", "1", "2", "3", "4", "5"]] = Field(
         default=None,
-        description="State of project (-5 is Pending,1 is Open, 2 is Work in progress, 3 is Closed Complete, 4 is Closed Incomplete, 5 is Closed Skipped)",
+        description="Project state code.",
     )
     project_manager: Optional[str] = Field(
         default=None, description="Project manager for the project"
@@ -60,9 +62,11 @@ class UpdateProjectParams(BaseModel):
     status: Optional[str] = Field(
         default=None, description="Status of the project (green, yellow, red)"
     )
-    state: Optional[str] = Field(
+    # -5 Pending, 1 Open, 2 Work in progress, 3 Closed Complete,
+    # 4 Closed Incomplete, 5 Closed Skipped.
+    state: Optional[Literal["-5", "1", "2", "3", "4", "5"]] = Field(
         default=None,
-        description="State of project (-5 is Pending,1 is Open, 2 is Work in progress, 3 is Closed Complete, 4 is Closed Incomplete, 5 is Closed Skipped)",
+        description="Project state code.",
     )
     project_manager: Optional[str] = Field(
         default=None, description="Project manager for the project"
