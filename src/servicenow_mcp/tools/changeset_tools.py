@@ -5,9 +5,9 @@ This module provides tools for managing changesets in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
@@ -452,3 +452,136 @@ def add_file_to_changeset(
             "success": False,
             "message": f"Error adding file to changeset: {str(e)}",
         }
+
+
+# ---------------------------------------------------------------------------
+# manage_changeset — bundled CRUD + lifecycle for sys_update_set
+# ---------------------------------------------------------------------------
+
+_CHANGESET_UPDATE_FIELDS = ("name", "description", "state", "developer")
+
+
+class ManageChangesetParams(BaseModel):
+    """Manage update sets — table: sys_update_set.
+
+    Required per action:
+      create:   name, application
+      update:   changeset_id, at least one field
+      commit:   changeset_id
+      publish:  changeset_id
+      add_file: changeset_id, file_path, file_content
+    """
+
+    action: Literal["create", "update", "commit", "publish", "add_file"] = Field(...)
+    changeset_id: Optional[str] = Field(
+        default=None, description="sys_id (update/commit/publish/add_file)"
+    )
+
+    # Create + update
+    name: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    application: Optional[str] = Field(default=None, description="Required for create")
+    developer: Optional[str] = Field(default=None)
+    state: Optional[str] = Field(default=None, description="Update only")
+
+    # Commit-specific
+    commit_message: Optional[str] = Field(default=None)
+
+    # Publish-specific
+    publish_notes: Optional[str] = Field(default=None)
+
+    # add_file-specific
+    file_path: Optional[str] = Field(default=None)
+    file_content: Optional[str] = Field(default=None)
+
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManageChangesetParams":
+        if self.action == "create":
+            if not self.name:
+                raise ValueError("name is required for action='create'")
+            if not self.application:
+                raise ValueError("application is required for action='create'")
+        elif self.action == "update":
+            if not self.changeset_id:
+                raise ValueError("changeset_id is required for action='update'")
+            if not any(getattr(self, f) is not None for f in _CHANGESET_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update'")
+        elif self.action in ("commit", "publish"):
+            if not self.changeset_id:
+                raise ValueError(f"changeset_id is required for action='{self.action}'")
+        elif self.action == "add_file":
+            if not self.changeset_id:
+                raise ValueError("changeset_id is required for action='add_file'")
+            if not self.file_path:
+                raise ValueError("file_path is required for action='add_file'")
+            if not self.file_content:
+                raise ValueError("file_content is required for action='add_file'")
+        return self
+
+
+@register_tool(
+    name="manage_changeset",
+    params=ManageChangesetParams,
+    description="Create/update/commit/publish/add_file on an update set (table: sys_update_set).",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def manage_changeset(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageChangesetParams,
+) -> Dict[str, Any]:
+    if params.action == "create":
+        return create_changeset(
+            config,
+            auth_manager,
+            CreateChangesetParams(
+                name=params.name,
+                application=params.application,
+                description=params.description,
+                developer=params.developer,
+            ),
+        )
+    if params.action == "update":
+        return update_changeset(
+            config,
+            auth_manager,
+            UpdateChangesetParams(
+                changeset_id=params.changeset_id,
+                name=params.name,
+                description=params.description,
+                state=params.state,
+                developer=params.developer,
+                dry_run=params.dry_run,
+            ),
+        )
+    if params.action == "commit":
+        return commit_changeset(
+            config,
+            auth_manager,
+            CommitChangesetParams(
+                changeset_id=params.changeset_id,
+                commit_message=params.commit_message,
+            ),
+        )
+    if params.action == "publish":
+        return publish_changeset(
+            config,
+            auth_manager,
+            PublishChangesetParams(
+                changeset_id=params.changeset_id,
+                publish_notes=params.publish_notes,
+            ),
+        )
+    # add_file
+    return add_file_to_changeset(
+        config,
+        auth_manager,
+        AddFileToChangesetParams(
+            changeset_id=params.changeset_id,
+            file_path=params.file_path,
+            file_content=params.file_content,
+        ),
+    )

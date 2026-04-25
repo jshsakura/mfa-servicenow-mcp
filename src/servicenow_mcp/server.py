@@ -51,10 +51,12 @@ MUTATING_TOOL_PREFIXES = (
     "manage_",
 )
 # manage_<X>: per-tool set of action values that are read-only (no confirm).
-# Phase 2 manage_X bundles (incident/change/kb_article) are write-only, so the
-# map is empty for now. Populated in later phases (e.g. manage_user) where
-# list/get sub-actions need to bypass the gate.
-MANAGE_READ_ACTIONS: Dict[str, set[str]] = {}
+# Bundles whose actions are all writes (incident/change/kb_article/changeset/
+# script_include/workflow) don't appear here — the prefix gate applies.
+MANAGE_READ_ACTIONS: Dict[str, set[str]] = {
+    "manage_user": {"get", "list"},
+    "manage_group": {"list"},
+}
 # Tools that need confirmation but don't match a prefix above.
 MUTATING_TOOL_NAMES = {"sn_batch", "sn_write"}
 
