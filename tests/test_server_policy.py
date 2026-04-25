@@ -68,9 +68,9 @@ def test_list_tools_injects_confirm_field_for_mutating_tools(
     confirm_schema = create_incident_schema["properties"]["confirm"]
 
     assert confirm_schema["enum"] == ["approve"]
-    assert "modify data" in confirm_schema["description"]
+    assert confirm_schema["description"] == "Pass 'approve' for writes."
     assert "confirm" in create_incident_schema["required"]
-    assert "confirm='approve'" in tools["create_incident"].description
+    assert "confirm='approve'" in (tools["create_incident"].description or "")
 
 
 def test_list_tools_injects_confirm_field_for_sn_nl(monkeypatch: pytest.MonkeyPatch, tmp_path):
@@ -80,7 +80,7 @@ def test_list_tools_injects_confirm_field_for_sn_nl(monkeypatch: pytest.MonkeyPa
 
     sn_nl_schema = tools["sn_nl"].inputSchema
     assert sn_nl_schema["properties"]["confirm"]["enum"] == ["approve"]
-    assert "confirm='approve'" in tools["sn_nl"].description
+    assert "confirm='approve'" in (tools["sn_nl"].description or "")
 
 
 def test_call_tool_blocks_mutating_tool_without_confirmation(
