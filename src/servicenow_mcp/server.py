@@ -75,6 +75,13 @@ def _load_packaged_package_definitions() -> Dict[str, List[str]]:
 
 _MAX_DEFAULT_STR = 60  # Truncate long string defaults
 _MAX_PARAM_DESC = 80  # Truncate long parameter descriptions
+_INCLUDE_SKILL_HINTS_ENV = "MCP_INCLUDE_SKILL_HINTS"
+
+# Schema verbosity: minimal (no descriptions), compact (default), full (all details).
+_SCHEMA_DETAIL_ENV = "MCP_SCHEMA_DETAIL"
+_SCHEMA_DETAIL_MINIMAL = "minimal"
+_SCHEMA_DETAIL_COMPACT = "compact"
+_SCHEMA_DETAIL_FULL = "full"
 
 # Fields whose name is self-explanatory — description is redundant for the LLM.
 # Keep this list VERY conservative: name must be unambiguous across every tool that
@@ -88,6 +95,11 @@ _SELF_EXPLANATORY_FIELDS = frozenset(
         "page_size",
         "only_active",
         "include_schema",
+        "active",
+        "query",
+        "table",
+        "fields",
+        "order",
     }
 )
 
@@ -152,9 +164,29 @@ def _strip_field_filler(field_name: str, field_schema: Any) -> Any:
     """Remove description for universally-understood field names."""
     if not isinstance(field_schema, dict):
         return field_schema
-    if field_name in _SELF_EXPLANATORY_FIELDS and "description" in field_schema:
+    if _is_self_explanatory_field(field_name, field_schema) and "description" in field_schema:
         field_schema = {k: v for k, v in field_schema.items() if k != "description"}
     return field_schema
+
+
+def _is_self_explanatory_field(field_name: str, field_schema: Dict[str, Any]) -> bool:
+    """Return True when the field name/type already tells the LLM enough."""
+    if field_name in _SELF_EXPLANATORY_FIELDS:
+        return True
+
+    field_type = field_schema.get("type")
+    if field_type == "boolean" and (
+        field_name.startswith("include_") or field_name.endswith("_only")
+    ):
+        return True
+    if field_type == "integer" and (field_name.startswith("max_") or field_name.startswith("min_")):
+        return True
+    return False
+
+
+def _get_schema_detail() -> str:
+    """Read schema verbosity level from env. Returns 'minimal', 'compact', or 'full'."""
+    return os.getenv(_SCHEMA_DETAIL_ENV, _SCHEMA_DETAIL_COMPACT).strip().lower()
 
 
 def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
@@ -162,7 +194,17 @@ def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
     cached_schema = _TOOL_SCHEMA_CACHE.get(params_model)
     if cached_schema is None:
         raw = params_model.model_json_schema()
-        cached_schema = _compact_schema(raw, _top_level=True)
+        detail = _get_schema_detail()
+        if detail == _SCHEMA_DETAIL_FULL:
+            cached_schema = raw
+        else:
+            cached_schema = _compact_schema(raw, _top_level=True)
+            if detail == _SCHEMA_DETAIL_MINIMAL:
+                # Strip ALL property descriptions — field names + types are enough.
+                props = cached_schema.get("properties", {})
+                for prop_schema in props.values():
+                    if isinstance(prop_schema, dict):
+                        prop_schema.pop("description", None)
         # Remove top-level docstring (tool description covers this)
         cached_schema.pop("description", None)
         _TOOL_SCHEMA_CACHE[params_model] = cached_schema
@@ -246,6 +288,12 @@ class ServiceNowMCP:
         self.enabled_tool_names: List[str] = []
         self.current_package_name: str = "none"
         self._tool_list_cache: List[types.Tool] | None = None
+        self._include_skill_hints = os.getenv(_INCLUDE_SKILL_HINTS_ENV, "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         self._skill_entries = load_skills()
         self._tool_to_skills = build_tool_to_skills_map()
         self._load_package_config()
@@ -348,9 +396,11 @@ class ServiceNowMCP:
                     self.package_definitions = {str(k).lower(): v for k, v in loaded_config.items()}
                     # Resolve _extends inheritance: {_extends: "parent", _tools: [...]}
                     for pkg_name, pkg_def in list(self.package_definitions.items()):
-                        if isinstance(pkg_def, dict) and "_extends" in pkg_def:
-                            parent = pkg_def["_extends"]
-                            base = list(self.package_definitions.get(parent, []))
+                        if isinstance(pkg_def, dict):
+                            parent = pkg_def.get("_extends")
+                            if parent is None:
+                                continue
+                            base = list(self.package_definitions.get(str(parent), []))
                             extra = pkg_def.get("_tools", [])
                             self.package_definitions[pkg_name] = base + extra
                     logger.info(
@@ -449,9 +499,7 @@ class ServiceNowMCP:
         properties[CONFIRM_FIELD] = {
             "type": "string",
             "enum": [CONFIRM_VALUE],
-            "description": (
-                "Required only for operations that modify data. Pass 'approve' to confirm intent."
-            ),
+            "description": "Pass 'approve' for writes.",
         }
         schema_with_confirm["properties"] = properties
         required = list(schema.get("required", []))
@@ -467,7 +515,7 @@ class ServiceNowMCP:
         # Append skill guide hint — lightweight pointer, ~5 tokens.
         # Skip generic tools referenced by 3+ skills (e.g. sn_query) — hint would be arbitrary.
         skill_uris = self._tool_to_skills.get(tool_name)
-        if skill_uris and len(skill_uris) <= 2:
+        if self._include_skill_hints and skill_uris and len(skill_uris) <= 2:
             description = f"{description} → {skill_uris[0]}"
         return description
 
