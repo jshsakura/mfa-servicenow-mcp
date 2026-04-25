@@ -9,7 +9,7 @@ Provides read-only tools for analyzing Flow Designer flows:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -56,13 +56,11 @@ class ListFlowsParams(BaseModel):
         default=False,
         description="Return count only without fetching records.",
     )
-    type: Optional[str] = Field(
+    # 'flow' excludes subflows; 'subflow' = subflows only; 'all' = both.
+    # None (default) behaves like 'flow'.
+    type: Optional[Literal["flow", "subflow", "all"]] = Field(
         default=None,
-        description=(
-            "Filter by type: 'flow' (default — excludes subflows), "
-            "'subflow' (subflows only), 'all' (both flows and subflows). "
-            "If not set, returns flows only."
-        ),
+        description="Filter by type (None = flows only).",
     )
 
 
