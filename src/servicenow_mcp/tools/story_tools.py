@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
@@ -135,36 +135,17 @@ class DeleteStoryDependencyParams(BaseModel):
     dependency_id: str = Field(..., description="Sys_id of the dependency is required")
 
 
-@register_tool(
-    name="create_story",
-    params=CreateStoryParams,
-    description="Create a story (rm_story). Requires short_description. Optional: points, sprint, epic, state.",
-    serialization="str",
-    return_type=str,
-)
 def create_story(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: CreateStoryParams,
 ) -> Dict[str, Any]:
-    """
-    Create a new story in ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for creating the story.
-
-    Returns:
-        The created story.
-    """
-    # Prepare the request data
+    """Create a new story in ServiceNow."""
     data: Dict[str, Any] = {
         "short_description": params.short_description,
         "acceptance_criteria": params.acceptance_criteria,
     }
 
-    # Add optional fields if provided
     if params.description:
         data["description"] = params.description
     if params.state:
@@ -187,11 +168,8 @@ def create_story(
     try:
         response = auth_manager.make_request("POST", url, json=data)
         response.raise_for_status()
-
         result = response.json()
-
         invalidate_query_cache(table="rm_story")
-
         return {
             "success": True,
             "message": "Story created successfully",
@@ -199,39 +177,17 @@ def create_story(
         }
     except Exception as e:
         logger.error(f"Error creating story: {e}")
-        return {
-            "success": False,
-            "message": f"Error creating story: {str(e)}",
-        }
+        return {"success": False, "message": f"Error creating story: {str(e)}"}
 
 
-@register_tool(
-    name="update_story",
-    params=UpdateStoryParams,
-    description="Update a story by sys_id. Supports points, sprint, state, and assignment fields.",
-    serialization="str",
-    return_type=str,
-)
 def update_story(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: UpdateStoryParams,
 ) -> Dict[str, Any]:
-    """
-    Update an existing story in ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for updating the story.
-
-    Returns:
-        The updated story.
-    """
-    # Prepare the request data
+    """Update an existing story in ServiceNow."""
     data: Dict[str, Any] = {}
 
-    # Add optional fields if provided
     if params.short_description:
         data["short_description"] = params.short_description
     if params.acceptance_criteria:
@@ -268,11 +224,8 @@ def update_story(
     try:
         response = auth_manager.make_request("PUT", url, json=data)
         response.raise_for_status()
-
         result = response.json()
-
         invalidate_query_cache(table="rm_story")
-
         return {
             "success": True,
             "message": "Story updated successfully",
@@ -280,36 +233,15 @@ def update_story(
         }
     except Exception as e:
         logger.error(f"Error updating story: {e}")
-        return {
-            "success": False,
-            "message": f"Error updating story: {str(e)}",
-        }
+        return {"success": False, "message": f"Error updating story: {str(e)}"}
 
 
-@register_tool(
-    name="list_stories",
-    params=ListStoriesParams,
-    description="List stories with optional sprint/epic/state/assignment filters.",
-    serialization="json",
-    return_type=str,
-)
 def list_stories(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: ListStoriesParams,
 ) -> Dict[str, Any]:
-    """
-    List stories from ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for listing stories.
-
-    Returns:
-        A list of stories.
-    """
-    # Build the query
+    """List stories from ServiceNow."""
     query_parts: List[str] = []
 
     if params.state:
@@ -317,7 +249,6 @@ def list_stories(
     if params.assignment_group:
         query_parts.append(f"assignment_group={params.assignment_group}")
 
-    # Handle timeframe filtering
     if params.timeframe:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if params.timeframe == "upcoming":
@@ -327,11 +258,9 @@ def list_stories(
         elif params.timeframe == "completed":
             query_parts.append(f"end_date<{now}")
 
-    # Add any additional query string
     if params.query:
         query_parts.append(params.query)
 
-    # Combine query parts
     query = "^".join(query_parts) if query_parts else ""
 
     try:
@@ -346,7 +275,6 @@ def list_stories(
             display_value=True,
             fail_silently=False,
         )
-
         return {
             "success": True,
             "stories": rows,
@@ -355,48 +283,24 @@ def list_stories(
         }
     except Exception as e:
         logger.error(f"Error listing stories: {e}")
-        return {
-            "success": False,
-            "message": f"Error listing stories: {str(e)}",
-        }
+        return {"success": False, "message": f"Error listing stories: {str(e)}"}
 
 
-@register_tool(
-    name="list_story_dependencies",
-    params=ListStoryDependenciesParams,
-    description="List story dependencies. Returns blocking/blocked-by relationships with story details.",
-    serialization="json",
-    return_type=str,
-)
 def list_story_dependencies(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: ListStoryDependenciesParams,
 ) -> Dict[str, Any]:
-    """
-    List story dependencies from ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for listing story dependencies.
-
-    Returns:
-        A list of story dependencies.
-    """
-    # Build the query
+    """List story dependencies from ServiceNow."""
     query_parts: List[str] = []
 
     if params.dependent_story:
         query_parts.append(f"dependent_story={params.dependent_story}")
     if params.prerequisite_story:
         query_parts.append(f"prerequisite_story={params.prerequisite_story}")
-
-    # Add any additional query string
     if params.query:
         query_parts.append(params.query)
 
-    # Combine query parts
     query = "^".join(query_parts) if query_parts else ""
 
     try:
@@ -411,7 +315,6 @@ def list_story_dependencies(
             display_value=True,
             fail_silently=False,
         )
-
         return {
             "success": True,
             "story_dependencies": rows,
@@ -420,36 +323,15 @@ def list_story_dependencies(
         }
     except Exception as e:
         logger.error(f"Error listing story dependencies: {e}")
-        return {
-            "success": False,
-            "message": f"Error listing story dependencies: {str(e)}",
-        }
+        return {"success": False, "message": f"Error listing story dependencies: {str(e)}"}
 
 
-@register_tool(
-    name="create_story_dependency",
-    params=CreateStoryDependencyParams,
-    description="Create a blocking dependency between two stories. Requires parent and child story sys_ids.",
-    serialization="str",
-    return_type=str,
-)
 def create_story_dependency(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: CreateStoryDependencyParams,
 ) -> Dict[str, Any]:
-    """
-    Create a dependency between two stories in ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for creating a story dependency.
-
-    Returns:
-        The created story dependency.
-    """
-    # Prepare the request data
+    """Create a dependency between two stories in ServiceNow."""
     data = {
         "dependent_story": params.dependent_story,
         "prerequisite_story": params.prerequisite_story,
@@ -460,10 +342,8 @@ def create_story_dependency(
     try:
         response = auth_manager.make_request("POST", url, json=data)
         response.raise_for_status()
-
         result = response.json()
         invalidate_query_cache(table="m2m_story_dependencies")
-
         return {
             "success": True,
             "message": "Story dependency created successfully",
@@ -471,50 +351,188 @@ def create_story_dependency(
         }
     except Exception as e:
         logger.error(f"Error creating story dependency: {e}")
-        return {
-            "success": False,
-            "message": f"Error creating story dependency: {str(e)}",
-        }
+        return {"success": False, "message": f"Error creating story dependency: {str(e)}"}
 
 
-@register_tool(
-    name="delete_story_dependency",
-    params=DeleteStoryDependencyParams,
-    description="Delete a story dependency by sys_id. Irreversible.",
-    serialization="str",
-    return_type=str,
-)
 def delete_story_dependency(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: DeleteStoryDependencyParams,
 ) -> Dict[str, Any]:
-    """
-    Delete a story dependency in ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for deleting a story dependency.
-
-    Returns:
-        The deleted story dependency.
-    """
+    """Delete a story dependency in ServiceNow."""
     url = f"{config.instance_url}/api/now/table/m2m_story_dependencies/{params.dependency_id}"
 
     try:
         response = auth_manager.make_request("DELETE", url)
         response.raise_for_status()
-
         invalidate_query_cache(table="m2m_story_dependencies")
-
-        return {
-            "success": True,
-            "message": "Story dependency deleted successfully",
-        }
+        return {"success": True, "message": "Story dependency deleted successfully"}
     except Exception as e:
         logger.error(f"Error deleting story dependency: {e}")
-        return {
-            "success": False,
-            "message": f"Error deleting story dependency: {str(e)}",
-        }
+        return {"success": False, "message": f"Error deleting story dependency: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
+# manage_story — bundled CRUD + dependency ops for rm_story
+# ---------------------------------------------------------------------------
+
+_STORY_UPDATE_FIELDS = (
+    "short_description",
+    "acceptance_criteria",
+    "description",
+    "state",
+    "assignment_group",
+    "story_points",
+    "assigned_to",
+    "epic",
+    "project",
+    "work_notes",
+)
+
+
+class ManageStoryParams(BaseModel):
+    """Manage stories — tables: rm_story, m2m_story_dependencies."""
+
+    action: Literal[
+        "list", "create", "update", "list_dependencies", "create_dependency", "delete_dependency"
+    ] = Field(...)
+    story_id: Optional[str] = Field(default=None)
+    short_description: Optional[str] = Field(default=None)
+    acceptance_criteria: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    state: Optional[Literal["-6", "-7", "-8", "1", "2", "3", "4"]] = Field(
+        default=None, description="Story state code"
+    )
+    assignment_group: Optional[str] = Field(default=None)
+    story_points: Optional[int] = Field(default=None)
+    assigned_to: Optional[str] = Field(default=None)
+    epic: Optional[str] = Field(default=None, description="Epic sys_id")
+    project: Optional[str] = Field(default=None, description="Project sys_id")
+    work_notes: Optional[str] = Field(default=None)
+    dependent_story: Optional[str] = Field(
+        default=None, description="Dependent story sys_id (dependency ops)"
+    )
+    prerequisite_story: Optional[str] = Field(
+        default=None, description="Prerequisite story sys_id (dependency ops)"
+    )
+    dependency_id: Optional[str] = Field(
+        default=None, description="Dependency sys_id (delete_dependency)"
+    )
+    limit: int = Field(default=10)
+    offset: int = Field(default=0)
+    timeframe: Optional[str] = Field(default=None, description="upcoming | in-progress | completed")
+    query: Optional[str] = Field(default=None)
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManageStoryParams":
+        a = self.action
+        if a == "create":
+            if not self.short_description:
+                raise ValueError("short_description is required for action='create'")
+            if not self.acceptance_criteria:
+                raise ValueError("acceptance_criteria is required for action='create'")
+        elif a == "update":
+            if not self.story_id:
+                raise ValueError("story_id is required for action='update'")
+            if not any(getattr(self, f) is not None for f in _STORY_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update'")
+        elif a == "create_dependency":
+            if not self.dependent_story:
+                raise ValueError("dependent_story is required for action='create_dependency'")
+            if not self.prerequisite_story:
+                raise ValueError("prerequisite_story is required for action='create_dependency'")
+        elif a == "delete_dependency":
+            if not self.dependency_id:
+                raise ValueError("dependency_id is required for action='delete_dependency'")
+        return self
+
+
+@register_tool(
+    name="manage_story",
+    params=ManageStoryParams,
+    description="Story CRUD + dependency ops (rm_story/m2m_story_dependencies). list/list_dependencies skip confirm.",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def manage_story(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageStoryParams,
+) -> Dict[str, Any]:
+    a = params.action
+    if a == "create":
+        return create_story(
+            config,
+            auth_manager,
+            CreateStoryParams(
+                short_description=params.short_description,
+                acceptance_criteria=params.acceptance_criteria,
+                description=params.description,
+                state=params.state,
+                assignment_group=params.assignment_group,
+                story_points=params.story_points,
+                assigned_to=params.assigned_to,
+                epic=params.epic,
+                project=params.project,
+                work_notes=params.work_notes,
+            ),
+        )
+    if a == "update":
+        return update_story(
+            config,
+            auth_manager,
+            UpdateStoryParams(
+                story_id=params.story_id,
+                short_description=params.short_description,
+                acceptance_criteria=params.acceptance_criteria,
+                description=params.description,
+                state=params.state,
+                assignment_group=params.assignment_group,
+                story_points=params.story_points,
+                assigned_to=params.assigned_to,
+                epic=params.epic,
+                project=params.project,
+                work_notes=params.work_notes,
+                dry_run=params.dry_run,
+            ),
+        )
+    if a == "list_dependencies":
+        return list_story_dependencies(
+            config,
+            auth_manager,
+            ListStoryDependenciesParams(
+                limit=params.limit,
+                offset=params.offset,
+                query=params.query,
+                dependent_story=params.dependent_story,
+                prerequisite_story=params.prerequisite_story,
+            ),
+        )
+    if a == "create_dependency":
+        return create_story_dependency(
+            config,
+            auth_manager,
+            CreateStoryDependencyParams(
+                dependent_story=params.dependent_story,
+                prerequisite_story=params.prerequisite_story,
+            ),
+        )
+    if a == "delete_dependency":
+        return delete_story_dependency(
+            config,
+            auth_manager,
+            DeleteStoryDependencyParams(dependency_id=params.dependency_id),
+        )
+    return list_stories(
+        config,
+        auth_manager,
+        ListStoriesParams(
+            limit=params.limit,
+            offset=params.offset,
+            state=params.state,
+            assignment_group=params.assignment_group,
+            timeframe=params.timeframe,
+            query=params.query,
+        ),
+    )
