@@ -200,7 +200,7 @@ ServiceNow 환경에 맞는 인증 방식을 선택하세요.
 | `--browser-timeout` | `SERVICENOW_BROWSER_TIMEOUT` | `120` | 로그인 타임아웃 (초) |
 | `--browser-session-ttl` | `SERVICENOW_BROWSER_SESSION_TTL` | `30` | 세션 TTL (분) |
 | `--browser-user-data-dir` | `SERVICENOW_BROWSER_USER_DATA_DIR` | — | 영구 브라우저 프로파일 경로 |
-| `--browser-probe-path` | `SERVICENOW_BROWSER_PROBE_PATH` | `/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id` | 세션 검증 엔드포인트 |
+| `--browser-probe-path` | `SERVICENOW_BROWSER_PROBE_PATH` | 사용자명을 알 수 있는 경우 사용자별 `sys_user` 조회, 그 외에는 `/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id` | 세션 검증 엔드포인트 (비관리자 세션 401 회피) |
 | `--browser-login-url` | `SERVICENOW_BROWSER_LOGIN_URL` | — | 커스텀 로그인 페이지 URL |
 
 ### Basic 인증
@@ -556,7 +556,7 @@ docker run -it --rm \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
 
-SSE 모드 및 로컬 빌드 방법: [클라이언트 설정 가이드](docs/CLIENT_SETUP.md#docker-api-key-only)
+로컬 빌드 방법: [클라이언트 설정 가이드](docs/CLIENT_SETUP.md#docker-api-key-only)
 
 ## 개발용 설치
 
