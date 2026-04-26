@@ -1,0 +1,7 @@
+{
+  "message": "Created UI policy: Hide field on close",
+  "short_description": "Hide field on close",
+  "success": true,
+  "table": "incident",
+  "ui_policy_id": "uip_001"
+}

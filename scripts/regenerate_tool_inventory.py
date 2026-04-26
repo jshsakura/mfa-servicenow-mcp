@@ -28,7 +28,7 @@ PACKAGE_DESCRIPTIONS = {
     "service_desk": "standard plus incident and change write workflows for operational support.",
     "portal_developer": "standard plus portal, changeset, script include, and local-sync delivery workflows.",
     "platform_developer": "standard plus workflow, Flow Designer, UI policy, incident/change, and script writes.",
-    "full": "Broadest packaged surface: all bundled manage_* workflows plus legacy compatibility wrappers.",
+    "full": "Broadest packaged surface: all manage_* workflows plus advanced operations.",
 }
 
 READ_ONLY_OVERRIDES = {

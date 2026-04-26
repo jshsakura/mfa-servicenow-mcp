@@ -1,0 +1,10 @@
+{
+  "action_id": "act_001",
+  "disabled": null,
+  "field": "resolution_code",
+  "mandatory": null,
+  "message": "Created UI policy action for field 'resolution_code'",
+  "success": true,
+  "ui_policy": "uip_001",
+  "visible": "false"
+}
