@@ -8,10 +8,7 @@ required_input: changeset name or sys_id
 output: status
 tools:
   - get_changeset_details
-  - create_changeset
-  - get_changeset_details
-  - commit_changeset
-  - publish_changeset
+  - manage_changeset
 triggers:
   - "체인지셋"
   - "업데이트 셋"
@@ -36,7 +33,7 @@ You are managing an update set. This is a STAGED pipeline.
 ## Pipeline
 
 IF "만들기" or "create":
-  CALL create_changeset(name=INPUT, description=INPUT_DESC, confirm="approve")
+  CALL manage_changeset(action="create", name=INPUT, application=APP, description=INPUT_DESC)
   → RETURN sys_id
 
 IF "내용 확인" or "review":
@@ -47,11 +44,11 @@ IF "커밋" or "commit":
   GATE 1: CALL get_changeset_details(changeset_id=INPUT)
   → SHOW contents to user
   GATE 2: ASK "Commit this changeset?"
-  → ONLY on confirm: CALL commit_changeset(changeset_id=INPUT, confirm="approve")
+  → ONLY on confirm: CALL manage_changeset(action="commit", changeset_id=INPUT)
 
 IF "퍼블리시" or "publish":
   GATE 3: ASK "Publish to remote?"
-  → ONLY on confirm: CALL publish_changeset(changeset_id=INPUT, confirm="approve")
+  → ONLY on confirm: CALL manage_changeset(action="publish", changeset_id=INPUT)
 
 IF "목록" or "list":
   CALL get_changeset_details(state="in progress", limit=10)
