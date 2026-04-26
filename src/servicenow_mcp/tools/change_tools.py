@@ -11,68 +11,13 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.services import change as change_service
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from ._preview import build_update_preview
 from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
-
-
-class CreateChangeRequestParams(BaseModel):
-    """Parameters for creating a change request."""
-
-    short_description: str = Field(..., description="Short description of the change request")
-    description: Optional[str] = Field(
-        default=None, description="Detailed description of the change request"
-    )
-    type: str = Field(..., description="Type of change (normal, standard, emergency)")
-    risk: Optional[str] = Field(default=None, description="Risk level of the change")
-    impact: Optional[str] = Field(default=None, description="Impact of the change")
-    category: Optional[str] = Field(default=None, description="Category of the change")
-    requested_by: Optional[str] = Field(default=None, description="User who requested the change")
-    assignment_group: Optional[str] = Field(
-        default=None, description="Group assigned to the change"
-    )
-    start_date: Optional[str] = Field(
-        default=None, description="Planned start date (YYYY-MM-DD HH:MM:SS)"
-    )
-    end_date: Optional[str] = Field(
-        default=None, description="Planned end date (YYYY-MM-DD HH:MM:SS)"
-    )
-
-
-class UpdateChangeRequestParams(BaseModel):
-    """Parameters for updating a change request."""
-
-    change_id: str = Field(..., description="Change request ID or sys_id")
-    short_description: Optional[str] = Field(
-        default=None, description="Short description of the change request"
-    )
-    description: Optional[str] = Field(
-        default=None, description="Detailed description of the change request"
-    )
-    state: Optional[str] = Field(default=None, description="State of the change request")
-    risk: Optional[str] = Field(default=None, description="Risk level of the change")
-    impact: Optional[str] = Field(default=None, description="Impact of the change")
-    category: Optional[str] = Field(default=None, description="Category of the change")
-    assignment_group: Optional[str] = Field(
-        default=None, description="Group assigned to the change"
-    )
-    start_date: Optional[str] = Field(
-        default=None, description="Planned start date (YYYY-MM-DD HH:MM:SS)"
-    )
-    end_date: Optional[str] = Field(
-        default=None, description="Planned end date (YYYY-MM-DD HH:MM:SS)"
-    )
-    work_notes: Optional[str] = Field(
-        default=None, description="Work notes to add to the change request"
-    )
-    dry_run: bool = Field(
-        default=False,
-        description="Preview field-level changes without executing.",
-    )
 
 
 class GetChangeRequestDetailsParams(BaseModel):
@@ -102,21 +47,6 @@ class GetChangeRequestDetailsParams(BaseModel):
     count_only: bool = Field(
         default=False,
         description="Return count only without fetching records. Uses lightweight Aggregate API. (list mode)",
-    )
-
-
-class AddChangeTaskParams(BaseModel):
-    """Parameters for adding a task to a change request."""
-
-    change_id: str = Field(..., description="Change request ID or sys_id")
-    short_description: str = Field(..., description="Short description of the task")
-    description: Optional[str] = Field(default=None, description="Detailed description of the task")
-    assigned_to: Optional[str] = Field(default=None, description="User assigned to the task")
-    planned_start_date: Optional[str] = Field(
-        default=None, description="Planned start date (YYYY-MM-DD HH:MM:SS)"
-    )
-    planned_end_date: Optional[str] = Field(
-        default=None, description="Planned end date (YYYY-MM-DD HH:MM:SS)"
     )
 
 
@@ -151,135 +81,6 @@ class RejectChangeParams(BaseModel):
         default=False,
         description="Preview rejection transitions without executing.",
     )
-
-
-@register_tool(
-    name="create_change_request",
-    params=CreateChangeRequestParams,
-    description="Create a change request. Requires short_description and type (normal/standard/emergency).",
-    serialization="str",
-    return_type=str,
-)
-def create_change_request(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateChangeRequestParams,
-) -> Dict[str, Any]:
-    """Create a new change request in ServiceNow."""
-    data: Dict[str, Any] = {
-        "short_description": params.short_description,
-        "type": params.type,
-    }
-
-    for field_name in (
-        "description",
-        "risk",
-        "impact",
-        "category",
-        "requested_by",
-        "assignment_group",
-        "start_date",
-        "end_date",
-    ):
-        value = getattr(params, field_name)
-        if value:
-            data[field_name] = value
-
-    url = f"{config.api_url}/table/change_request"
-
-    try:
-        response = auth_manager.make_request(
-            "POST",
-            url,
-            json=data,
-            headers={"Content-Type": "application/json"},
-        )
-        response.raise_for_status()
-
-        result = response.json()
-
-        invalidate_query_cache(table="change_request")
-
-        return {
-            "success": True,
-            "message": "Change request created successfully",
-            "change_request": result["result"],
-        }
-    except Exception as e:
-        logger.error(f"Error creating change request: {e}")
-        return {
-            "success": False,
-            "message": f"Error creating change request: {str(e)}",
-        }
-
-
-@register_tool(
-    name="update_change_request",
-    params=UpdateChangeRequestParams,
-    description="Update a change request by sys_id. Supports state, description, risk, impact, dates, and work notes.",
-    serialization="str",
-    return_type=str,
-)
-def update_change_request(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: UpdateChangeRequestParams,
-) -> Dict[str, Any]:
-    """Update an existing change request in ServiceNow."""
-    data: Dict[str, Any] = {}
-
-    for field_name in (
-        "short_description",
-        "description",
-        "state",
-        "risk",
-        "impact",
-        "category",
-        "assignment_group",
-        "start_date",
-        "end_date",
-        "work_notes",
-    ):
-        value = getattr(params, field_name)
-        if value:
-            data[field_name] = value
-
-    url = f"{config.api_url}/table/change_request/{params.change_id}"
-
-    if params.dry_run:
-        return build_update_preview(
-            config,
-            auth_manager,
-            table="change_request",
-            sys_id=params.change_id,
-            proposed=data,
-            identifier_fields=["number", "short_description", "state"],
-        )
-
-    try:
-        response = auth_manager.make_request(
-            "PUT",
-            url,
-            json=data,
-            headers={"Content-Type": "application/json"},
-        )
-        response.raise_for_status()
-
-        result = response.json()
-
-        invalidate_query_cache(table="change_request")
-
-        return {
-            "success": True,
-            "message": "Change request updated successfully",
-            "change_request": result["result"],
-        }
-    except Exception as e:
-        logger.error(f"Error updating change request: {e}")
-        return {
-            "success": False,
-            "message": f"Error updating change request: {str(e)}",
-        }
 
 
 @register_tool(
@@ -395,57 +196,6 @@ def get_change_request_details(
                 "success": False,
                 "message": f"Error listing change requests: {str(e)}",
             }
-
-
-@register_tool(
-    name="add_change_task",
-    params=AddChangeTaskParams,
-    description="Create a change_task under a change request. Requires change_id and short_description.",
-    serialization="json_dict",
-    return_type=str,
-)
-def add_change_task(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: AddChangeTaskParams,
-) -> Dict[str, Any]:
-    """Add a task to a change request in ServiceNow."""
-    data: Dict[str, Any] = {
-        "change_request": params.change_id,
-        "short_description": params.short_description,
-    }
-
-    for field_name in ("description", "assigned_to", "planned_start_date", "planned_end_date"):
-        value = getattr(params, field_name)
-        if value:
-            data[field_name] = value
-
-    url = f"{config.api_url}/table/change_task"
-
-    try:
-        response = auth_manager.make_request(
-            "POST",
-            url,
-            json=data,
-            headers={"Content-Type": "application/json"},
-        )
-        response.raise_for_status()
-
-        result = response.json()
-
-        invalidate_query_cache(table="change_task")
-
-        return {
-            "success": True,
-            "message": "Change task added successfully",
-            "change_task": result["result"],
-        }
-    except Exception as e:
-        logger.error(f"Error adding change task: {e}")
-        return {
-            "success": False,
-            "message": f"Error adding change task: {str(e)}",
-        }
 
 
 @register_tool(
@@ -842,35 +592,29 @@ def manage_change(
     params: ManageChangeParams,
 ) -> Dict[str, Any]:
     if params.action == "create":
-        return create_change_request(
+        return change_service.create(
             config,
             auth_manager,
-            CreateChangeRequestParams(
-                short_description=params.short_description,
-                type=params.type,
-                **_project_change(params, _CHANGE_CREATE_FIELDS[1:]),
-            ),
+            short_description=params.short_description,
+            type=params.type,
+            **_project_change(params, _CHANGE_CREATE_FIELDS[1:]),
         )
     if params.action == "update":
-        return update_change_request(
+        return change_service.update(
             config,
             auth_manager,
-            UpdateChangeRequestParams(
-                change_id=params.change_id,
-                dry_run=params.dry_run,
-                **_project_change(params, _CHANGE_UPDATE_FIELDS),
-            ),
+            change_id=params.change_id,
+            dry_run=params.dry_run,
+            **_project_change(params, _CHANGE_UPDATE_FIELDS),
         )
     # add_task
-    return add_change_task(
+    return change_service.add_task(
         config,
         auth_manager,
-        AddChangeTaskParams(
-            change_id=params.change_id,
-            short_description=params.task_short_description,
-            description=params.task_description,
-            assigned_to=params.task_assigned_to,
-            planned_start_date=params.task_planned_start_date,
-            planned_end_date=params.task_planned_end_date,
-        ),
+        change_id=params.change_id,
+        short_description=params.task_short_description,
+        description=params.task_description,
+        assigned_to=params.task_assigned_to,
+        planned_start_date=params.task_planned_start_date,
+        planned_end_date=params.task_planned_end_date,
     )

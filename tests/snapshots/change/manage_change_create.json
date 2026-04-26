@@ -1,0 +1,9 @@
+{
+  "change_request": {
+    "number": "CHG0001",
+    "state": "new",
+    "sys_id": "ch_001"
+  },
+  "message": "Change request created successfully",
+  "success": true
+}

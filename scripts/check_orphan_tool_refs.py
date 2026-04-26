@@ -106,6 +106,7 @@ ALLOWLIST: set[str] = {
     "sn_query_all",
     # Action enum values inside manage_X tool descriptions (e.g. "create/update/add_file")
     "add_file",
+    "add_task",
     "update_code",
     # Placeholder syntax in CLAUDE.md ("Use <list_tool> first to find...")
     "list_tool",
