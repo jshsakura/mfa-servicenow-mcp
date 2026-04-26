@@ -54,6 +54,7 @@ MUTATING_TOOL_PREFIXES = (
 # Bundles whose actions are all writes (incident/change/kb_article/changeset/
 # script_include/workflow) don't appear here — the prefix gate applies.
 MANAGE_READ_ACTIONS: Dict[str, set[str]] = {
+    "manage_incident": {"get"},
     "manage_user": {"get", "list"},
     "manage_group": {"list"},
 }

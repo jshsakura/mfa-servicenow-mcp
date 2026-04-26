@@ -268,7 +268,7 @@ class TestLazyToolLoading:
 
         eager = discover_tools()
         # Pick a subset
-        subset = {"sn_health", "sn_query", "get_incident_by_number"}
+        subset = {"sn_health", "sn_query", "manage_incident"}
         lazy = discover_tools_lazy(enabled_names=subset)
 
         for name in subset:
