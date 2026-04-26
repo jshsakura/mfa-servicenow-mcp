@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .sn_api import GenericQueryParams, invalidate_query_cache, sn_query
+from .sn_api import GenericQueryParams, sn_query
 
 logger = logging.getLogger(__name__)
 
@@ -433,32 +433,6 @@ class GetWidgetInstanceParams(BaseModel):
     offset: int = Field(default=0, description="Pagination offset for list mode")
 
 
-class CreateWidgetInstanceParams(BaseModel):
-    """Parameters for placing a widget on a page column."""
-
-    sp_widget: str = Field(..., description="sys_id of the widget to place")
-    sp_column: str = Field(..., description="sys_id of the target column")
-    order: int = Field(default=0, description="Display order within the column")
-    widget_parameters: Optional[str] = Field(
-        default=None, description="JSON string of widget instance options"
-    )
-    css: Optional[str] = Field(default=None, description="Instance-level CSS overrides")
-
-
-class UpdateWidgetInstanceParams(BaseModel):
-    """Parameters for updating a widget instance."""
-
-    instance_id: str = Field(..., description="sys_id of the widget instance")
-    order: Optional[int] = Field(default=None, description="Display order within the column")
-    sp_column: Optional[str] = Field(
-        default=None, description="Move to a different column (sys_id)"
-    )
-    widget_parameters: Optional[str] = Field(
-        default=None, description="JSON string of widget instance options"
-    )
-    css: Optional[str] = Field(default=None, description="Instance-level CSS overrides")
-
-
 @register_tool(
     name="get_widget_instance",
     params=GetWidgetInstanceParams,
@@ -545,110 +519,3 @@ def get_widget_instance(
             }
         )
     return {"success": True, "instances": instances, "total": response.get("total_count")}
-
-
-@register_tool(
-    name="create_widget_instance",
-    params=CreateWidgetInstanceParams,
-    description="Place a widget on a portal page column with order and config.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_widget_instance(
-    config: ServerConfig, auth_manager: AuthManager, params: CreateWidgetInstanceParams
-) -> Dict[str, Any]:
-    """Create a widget instance (place a widget on a column)."""
-    url = f"{config.instance_url}/api/now/table/{INSTANCE_TABLE}"
-
-    body: Dict[str, Any] = {
-        "sp_widget": params.sp_widget,
-        "sp_column": params.sp_column,
-        "order": str(params.order),
-    }
-    if params.widget_parameters:
-        body["widget_parameters"] = params.widget_parameters
-    if params.css:
-        body["css"] = params.css
-
-    headers = auth_manager.get_headers()
-
-    try:
-        response = auth_manager.make_request(
-            "POST",
-            url,
-            json=body,
-            headers=headers,
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        if "result" not in data:
-            return {"success": False, "message": "Failed to create widget instance"}
-
-        result = data["result"]
-        invalidate_query_cache(table=INSTANCE_TABLE)
-        return {
-            "success": True,
-            "message": "Created widget instance",
-            "instance_id": result.get("sys_id"),
-            "widget": result.get("sp_widget"),
-            "column": result.get("sp_column"),
-        }
-    except Exception as e:
-        logger.error(f"Error creating widget instance: {e}")
-        return {"success": False, "message": f"Error creating widget instance: {str(e)}"}
-
-
-@register_tool(
-    name="update_widget_instance",
-    params=UpdateWidgetInstanceParams,
-    description="Move, reorder, or update options/CSS of an existing widget instance on a page.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def update_widget_instance(
-    config: ServerConfig, auth_manager: AuthManager, params: UpdateWidgetInstanceParams
-) -> Dict[str, Any]:
-    """Update a widget instance."""
-    url = f"{config.instance_url}/api/now/table/{INSTANCE_TABLE}/{params.instance_id}"
-
-    body: Dict[str, Any] = {}
-    if params.order is not None:
-        body["order"] = str(params.order)
-    if params.sp_column is not None:
-        body["sp_column"] = params.sp_column
-    if params.widget_parameters is not None:
-        body["widget_parameters"] = params.widget_parameters
-    if params.css is not None:
-        body["css"] = params.css
-
-    if not body:
-        return {"success": True, "message": "No changes to update"}
-
-    headers = auth_manager.get_headers()
-
-    try:
-        response = auth_manager.make_request(
-            "PATCH",
-            url,
-            json=body,
-            headers=headers,
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        if "result" not in data:
-            return {"success": False, "message": "Failed to update widget instance"}
-
-        result = data["result"]
-        invalidate_query_cache(table=INSTANCE_TABLE)
-        return {
-            "success": True,
-            "message": f"Updated widget instance {params.instance_id}",
-            "instance_id": result.get("sys_id"),
-        }
-    except Exception as e:
-        logger.error(f"Error updating widget instance: {e}")
-        return {"success": False, "message": f"Error updating widget instance: {str(e)}"}

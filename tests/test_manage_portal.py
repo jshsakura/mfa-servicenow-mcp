@@ -69,7 +69,7 @@ class TestLayoutValidation:
 
 class TestLayoutDispatch:
     def test_create_page(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_page") as m:
+        with patch("servicenow_mcp.services.portal_layout.create_page") as m:
             m.return_value = {"success": True}
             manage_portal_layout(
                 _config(),
@@ -82,14 +82,14 @@ class TestLayoutDispatch:
                     public=True,
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.id == "landing"
-            assert inner.title == "Landing"
-            assert inner.scope == "s1"
-            assert inner.public is True
+            kw = m.call_args.kwargs
+            assert kw["page_id"] == "landing"
+            assert kw["title"] == "Landing"
+            assert kw["scope"] == "s1"
+            assert kw["public"] is True
 
     def test_update_page(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.update_page") as m:
+        with patch("servicenow_mcp.services.portal_layout.update_page") as m:
             m.return_value = {"success": True}
             manage_portal_layout(
                 _config(),
@@ -98,13 +98,13 @@ class TestLayoutDispatch:
                     action="update_page", sys_id="abc", title="New", dry_run=True
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.sys_id == "abc"
-            assert inner.title == "New"
-            assert inner.dry_run is True
+            kw = m.call_args.kwargs
+            assert kw["sys_id"] == "abc"
+            assert kw["title"] == "New"
+            assert kw["dry_run"] is True
 
     def test_add_container(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_container") as m:
+        with patch("servicenow_mcp.services.portal_layout.create_container") as m:
             m.return_value = {"success": True}
             manage_portal_layout(
                 _config(),
@@ -113,37 +113,37 @@ class TestLayoutDispatch:
                     action="add_container", sp_page="p1", order=10, width="container-fluid"
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.sp_page == "p1"
-            assert inner.order == 10
-            assert inner.width == "container-fluid"
+            kw = m.call_args.kwargs
+            assert kw["sp_page"] == "p1"
+            assert kw["order"] == 10
+            assert kw["width"] == "container-fluid"
 
     def test_add_row(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_row") as m:
+        with patch("servicenow_mcp.services.portal_layout.create_row") as m:
             m.return_value = {"success": True}
             manage_portal_layout(
                 _config(),
                 MagicMock(),
                 ManagePortalLayoutParams(action="add_row", sp_container="c1", order=5),
             )
-            inner = m.call_args[0][2]
-            assert inner.sp_container == "c1"
-            assert inner.order == 5
+            kw = m.call_args.kwargs
+            assert kw["sp_container"] == "c1"
+            assert kw["order"] == 5
 
     def test_add_column(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_column") as m:
+        with patch("servicenow_mcp.services.portal_layout.create_column") as m:
             m.return_value = {"success": True}
             manage_portal_layout(
                 _config(),
                 MagicMock(),
                 ManagePortalLayoutParams(action="add_column", sp_row="r1", order=2, size=6),
             )
-            inner = m.call_args[0][2]
-            assert inner.sp_row == "r1"
-            assert inner.size == 6
+            kw = m.call_args.kwargs
+            assert kw["sp_row"] == "r1"
+            assert kw["size"] == 6
 
     def test_place_widget(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_widget_instance") as m:
+        with patch("servicenow_mcp.services.portal_layout.place_widget") as m:
             m.return_value = {"success": True}
             manage_portal_layout(
                 _config(),
@@ -156,13 +156,13 @@ class TestLayoutDispatch:
                     widget_parameters='{"x":1}',
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.sp_widget == "w1"
-            assert inner.sp_column == "c1"
-            assert inner.widget_parameters == '{"x":1}'
+            kw = m.call_args.kwargs
+            assert kw["sp_widget"] == "w1"
+            assert kw["sp_column"] == "c1"
+            assert kw["widget_parameters"] == '{"x":1}'
 
     def test_move_widget(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.update_widget_instance") as m:
+        with patch("servicenow_mcp.services.portal_layout.move_widget") as m:
             m.return_value = {"success": True}
             manage_portal_layout(
                 _config(),
@@ -174,9 +174,9 @@ class TestLayoutDispatch:
                     order=3,
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.instance_id == "i1"
-            assert inner.sp_column == "c2"
+            kw = m.call_args.kwargs
+            assert kw["instance_id"] == "i1"
+            assert kw["sp_column"] == "c2"
 
 
 # ---------------------------------------------------------------------------

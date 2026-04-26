@@ -1,19 +1,14 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import ValidationError
 
 from servicenow_mcp.tools.portal_management_tools import (
-    CreateWidgetInstanceParams,
     GetPageParams,
     GetPortalParams,
     GetWidgetInstanceParams,
-    UpdateWidgetInstanceParams,
-    create_widget_instance,
     get_page,
     get_portal,
     get_widget_instance,
-    update_widget_instance,
 )
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -463,117 +458,6 @@ class TestGetWidgetInstance:
         assert result["success"] is False
 
 
-class TestCreateWidgetInstance:
-    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
-    def test_success(self, mock_invalidate, mock_config, mock_auth_manager):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "result": {"sys_id": "inst-new", "sp_widget": "wid-1", "sp_column": "col-1"}
-        }
-        mock_resp.raise_for_status = MagicMock()
-        mock_auth_manager.make_request.return_value = mock_resp
-
-        params = CreateWidgetInstanceParams(sp_widget="wid-1", sp_column="col-1", order=0)
-        result = create_widget_instance(mock_config, mock_auth_manager, params)
-
-        assert result["success"] is True
-        assert result["instance_id"] == "inst-new"
-        mock_invalidate.assert_called_once_with(table="sp_instance")
-
-        call_args = mock_auth_manager.make_request.call_args
-        assert call_args[0][0] == "POST"
-        body = call_args[1]["json"]
-        assert body["sp_widget"] == "wid-1"
-        assert body["sp_column"] == "col-1"
-
-    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
-    def test_with_options(self, mock_invalidate, mock_config, mock_auth_manager):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "result": {"sys_id": "inst-new", "sp_widget": "wid-1", "sp_column": "col-1"}
-        }
-        mock_resp.raise_for_status = MagicMock()
-        mock_auth_manager.make_request.return_value = mock_resp
-
-        params = CreateWidgetInstanceParams(
-            sp_widget="wid-1",
-            sp_column="col-1",
-            order=2,
-            widget_parameters='{"title":"Test"}',
-            css=".w { color: blue; }",
-        )
-        result = create_widget_instance(mock_config, mock_auth_manager, params)
-
-        assert result["success"] is True
-        mock_invalidate.assert_called_once_with(table="sp_instance")
-        body = mock_auth_manager.make_request.call_args[1]["json"]
-        assert body["widget_parameters"] == '{"title":"Test"}'
-        assert body["css"] == ".w { color: blue; }"
-
-    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
-    def test_error(self, mock_invalidate, mock_config, mock_auth_manager):
-        mock_auth_manager.make_request.side_effect = Exception("Connection failed")
-
-        params = CreateWidgetInstanceParams(sp_widget="wid-1", sp_column="col-1")
-        result = create_widget_instance(mock_config, mock_auth_manager, params)
-
-        assert result["success"] is False
-        assert "Connection failed" in result["message"]
-        mock_invalidate.assert_not_called()
-
-
-class TestUpdateWidgetInstance:
-    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
-    def test_success(self, mock_invalidate, mock_config, mock_auth_manager):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"result": {"sys_id": "inst-1"}}
-        mock_resp.raise_for_status = MagicMock()
-        mock_auth_manager.make_request.return_value = mock_resp
-
-        params = UpdateWidgetInstanceParams(instance_id="inst-1", order=5)
-        result = update_widget_instance(mock_config, mock_auth_manager, params)
-
-        assert result["success"] is True
-        mock_invalidate.assert_called_once_with(table="sp_instance")
-        call_args = mock_auth_manager.make_request.call_args
-        assert call_args[0][0] == "PATCH"
-        assert call_args[1]["json"]["order"] == "5"
-
-    def test_no_changes(self, mock_config, mock_auth_manager):
-        params = UpdateWidgetInstanceParams(instance_id="inst-1")
-        result = update_widget_instance(mock_config, mock_auth_manager, params)
-
-        assert result["success"] is True
-        assert "No changes" in result["message"]
-        mock_auth_manager.make_request.assert_not_called()
-
-    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
-    def test_move_column(self, mock_invalidate, mock_config, mock_auth_manager):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"result": {"sys_id": "inst-1"}}
-        mock_resp.raise_for_status = MagicMock()
-        mock_auth_manager.make_request.return_value = mock_resp
-
-        params = UpdateWidgetInstanceParams(instance_id="inst-1", sp_column="col-new")
-        result = update_widget_instance(mock_config, mock_auth_manager, params)
-
-        assert result["success"] is True
-        mock_invalidate.assert_called_once_with(table="sp_instance")
-        body = mock_auth_manager.make_request.call_args[1]["json"]
-        assert body["sp_column"] == "col-new"
-
-    @patch("servicenow_mcp.tools.portal_management_tools.invalidate_query_cache")
-    def test_error(self, mock_invalidate, mock_config, mock_auth_manager):
-        mock_auth_manager.make_request.side_effect = Exception("Timeout")
-
-        params = UpdateWidgetInstanceParams(instance_id="inst-1", order=1)
-        result = update_widget_instance(mock_config, mock_auth_manager, params)
-
-        assert result["success"] is False
-        assert "Timeout" in result["message"]
-        mock_invalidate.assert_not_called()
-
-
 # ---------------------------------------------------------------------------
 # Param Validation Tests
 # ---------------------------------------------------------------------------
@@ -589,13 +473,3 @@ class TestParamValidation:
     def test_get_page_defaults(self):
         p = GetPageParams(page_id="test")
         assert p.include_layout is True
-
-    def test_create_widget_instance_required(self):
-        with pytest.raises(ValidationError):
-            CreateWidgetInstanceParams()
-
-    def test_create_widget_instance_defaults(self):
-        p = CreateWidgetInstanceParams(sp_widget="w", sp_column="c")
-        assert p.order == 0
-        assert p.widget_parameters is None
-        assert p.css is None

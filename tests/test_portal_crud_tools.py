@@ -7,32 +7,22 @@ from pydantic import ValidationError
 
 from servicenow_mcp.tools.portal_crud_tools import (
     CreateAngularProviderParams,
-    CreateColumnParams,
-    CreateContainerParams,
     CreateCssThemeParams,
     CreateHeaderFooterParams,
     CreateNgTemplateParams,
-    CreatePageParams,
-    CreateRowParams,
     CreateUiPageParams,
     CreateWidgetParams,
     ScaffoldPageParams,
     ScaffoldRowDef,
-    UpdatePageParams,
     _check_duplicate,
     _create_record,
     create_angular_provider,
-    create_column,
-    create_container,
     create_css_theme,
     create_header_footer,
     create_ng_template,
-    create_page,
-    create_row,
     create_ui_page,
     create_widget,
     scaffold_page,
-    update_page,
 )
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -146,10 +136,6 @@ class TestScopeRequired:
     def test_create_ui_page_requires_scope(self):
         with pytest.raises(ValidationError):
             CreateUiPageParams(name="pg")
-
-    def test_create_page_requires_scope(self):
-        with pytest.raises(ValidationError):
-            CreatePageParams(id="p", title="T")
 
     def test_scaffold_page_requires_scope(self):
         with pytest.raises(ValidationError):
@@ -385,203 +371,6 @@ class TestCreateUiPage:
         assert call_body["client_script"] == "cs()"
         assert call_body["processing_script"] == "ps()"
         assert call_body["category"] == "general"
-
-
-# ---------------------------------------------------------------------------
-# create_page
-# ---------------------------------------------------------------------------
-class TestCreatePage:
-    @patch("servicenow_mcp.tools.portal_crud_tools._check_duplicate", return_value=None)
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_minimal(self, mock_cache, mock_dup, mock_config, mock_auth):
-        mock_auth.make_request.return_value = _mock_response(
-            {"result": {"sys_id": "pg1", "id": "landing", "title": "Landing"}}
-        )
-        params = CreatePageParams(id="landing", title="Landing", scope=SCOPE)
-        result = create_page(mock_config, mock_auth, params)
-        assert result["success"] is True
-        assert result["sys_id"] == "pg1"
-        assert "hint" in result
-
-    @patch("servicenow_mcp.tools.portal_crud_tools._check_duplicate", return_value=None)
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_all_options(self, mock_cache, mock_dup, mock_config, mock_auth):
-        mock_auth.make_request.return_value = _mock_response(
-            {"result": {"sys_id": "pg2", "id": "pub", "title": "Public"}}
-        )
-        params = CreatePageParams(
-            id="pub",
-            title="Public",
-            description="desc",
-            css=".x{}",
-            internal=True,
-            public=True,
-            draft=True,
-            category="cat-1",
-            scope=SCOPE,
-        )
-        result = create_page(mock_config, mock_auth, params)
-        assert result["success"] is True
-        call_body = mock_auth.make_request.call_args[1]["json"]
-        assert call_body["public"] == "true"
-        assert call_body["internal"] == "true"
-        assert call_body["draft"] == "true"
-        assert call_body["category"] == "cat-1"
-
-    @patch(
-        "servicenow_mcp.tools.portal_crud_tools._check_duplicate",
-        return_value={"sys_id": "dup-pg", "sys_scope": "s1"},
-    )
-    def test_duplicate_page_id(self, mock_dup, mock_config, mock_auth):
-        params = CreatePageParams(id="existing", title="Dup", scope=SCOPE)
-        result = create_page(mock_config, mock_auth, params)
-        assert result["success"] is False
-        assert "already exists" in result["message"]
-
-
-# ---------------------------------------------------------------------------
-# update_page
-# ---------------------------------------------------------------------------
-class TestUpdatePage:
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_success(self, mock_cache, mock_config, mock_auth):
-        mock_auth.make_request.return_value = _mock_response(
-            {"result": {"sys_id": "pg1", "title": "Updated"}}
-        )
-        params = UpdatePageParams(sys_id="pg1", title="Updated")
-        result = update_page(mock_config, mock_auth, params)
-        assert result["success"] is True
-        mock_cache.assert_called_once_with(table="sp_page")
-
-    def test_no_fields(self, mock_config, mock_auth):
-        params = UpdatePageParams(sys_id="pg1")
-        result = update_page(mock_config, mock_auth, params)
-        assert result["success"] is False
-        assert "No fields" in result["message"]
-
-    def test_api_error(self, mock_config, mock_auth):
-        resp = MagicMock()
-        resp.status_code = 500
-        resp.text = "Internal error"
-        resp.raise_for_status.side_effect = Exception("500 Server Error")
-        mock_auth.make_request.return_value = resp
-        params = UpdatePageParams(sys_id="pg1", title="X")
-        result = update_page(mock_config, mock_auth, params)
-        assert result["success"] is False
-        assert "Error updating page" in result["message"]
-
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_all_flags(self, mock_cache, mock_config, mock_auth):
-        mock_auth.make_request.return_value = _mock_response(
-            {"result": {"sys_id": "pg1", "title": "T"}}
-        )
-        params = UpdatePageParams(
-            sys_id="pg1",
-            title="T",
-            description="D",
-            css=".c{}",
-            internal=False,
-            public=True,
-            draft=False,
-        )
-        result = update_page(mock_config, mock_auth, params)
-        assert result["success"] is True
-        call_body = mock_auth.make_request.call_args[1]["json"]
-        assert call_body["internal"] == "false"
-        assert call_body["public"] == "true"
-        assert call_body["draft"] == "false"
-
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_exception(self, mock_cache, mock_config, mock_auth):
-        mock_auth.make_request.side_effect = Exception("Network error")
-        params = UpdatePageParams(sys_id="pg1", title="X")
-        result = update_page(mock_config, mock_auth, params)
-        assert result["success"] is False
-        assert "Network error" in result["message"]
-
-
-# ---------------------------------------------------------------------------
-# create_container
-# ---------------------------------------------------------------------------
-class TestCreateContainer:
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_minimal(self, mock_cache, mock_config, mock_auth):
-        mock_auth.make_request.return_value = _mock_response({"result": {"sys_id": "ct1"}})
-        params = CreateContainerParams(sp_page="pg1")
-        result = create_container(mock_config, mock_auth, params)
-        assert result["success"] is True
-        assert result["page"] == "pg1"
-
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_all_options(self, mock_cache, mock_config, mock_auth):
-        mock_auth.make_request.return_value = _mock_response({"result": {"sys_id": "ct2"}})
-        params = CreateContainerParams(
-            sp_page="pg1",
-            order=200,
-            width="container-fluid",
-            css_class="hero",
-            background_color="#000",
-        )
-        result = create_container(mock_config, mock_auth, params)
-        assert result["success"] is True
-        call_body = mock_auth.make_request.call_args[1]["json"]
-        assert call_body["width"] == "container-fluid"
-        assert call_body["css_class"] == "hero"
-        assert call_body["background_color"] == "#000"
-
-
-# ---------------------------------------------------------------------------
-# create_row
-# ---------------------------------------------------------------------------
-class TestCreateRow:
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_minimal(self, mock_cache, mock_config, mock_auth):
-        mock_auth.make_request.return_value = _mock_response({"result": {"sys_id": "rw1"}})
-        params = CreateRowParams(sp_container="ct1")
-        result = create_row(mock_config, mock_auth, params)
-        assert result["success"] is True
-
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_with_css_class(self, mock_cache, mock_config, mock_auth):
-        mock_auth.make_request.return_value = _mock_response({"result": {"sys_id": "rw2"}})
-        params = CreateRowParams(sp_container="ct1", css_class="row-eq-height")
-        result = create_row(mock_config, mock_auth, params)
-        assert result["success"] is True
-        call_body = mock_auth.make_request.call_args[1]["json"]
-        assert call_body["css_class"] == "row-eq-height"
-
-
-# ---------------------------------------------------------------------------
-# create_column
-# ---------------------------------------------------------------------------
-class TestCreateColumn:
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_success(self, mock_cache, mock_config, mock_auth):
-        mock_auth.make_request.return_value = _mock_response({"result": {"sys_id": "cl1"}})
-        params = CreateColumnParams(sp_row="rw1", size=6)
-        result = create_column(mock_config, mock_auth, params)
-        assert result["success"] is True
-        assert result["size"] == 6
-
-    def test_invalid_size_zero(self, mock_config, mock_auth):
-        params = CreateColumnParams(sp_row="rw1", size=0)
-        result = create_column(mock_config, mock_auth, params)
-        assert result["success"] is False
-        assert "1 and 12" in result["message"]
-
-    def test_invalid_size_13(self, mock_config, mock_auth):
-        params = CreateColumnParams(sp_row="rw1", size=13)
-        result = create_column(mock_config, mock_auth, params)
-        assert result["success"] is False
-
-    @patch("servicenow_mcp.tools.portal_crud_tools.invalidate_query_cache")
-    def test_with_css_class(self, mock_cache, mock_config, mock_auth):
-        mock_auth.make_request.return_value = _mock_response({"result": {"sys_id": "cl2"}})
-        params = CreateColumnParams(sp_row="rw1", size=4, css_class="col-custom")
-        result = create_column(mock_config, mock_auth, params)
-        assert result["success"] is True
-        call_body = mock_auth.make_request.call_args[1]["json"]
-        assert call_body["css_class"] == "col-custom"
 
 
 # ---------------------------------------------------------------------------
