@@ -56,6 +56,7 @@ MUTATING_TOOL_PREFIXES = (
 MANAGE_READ_ACTIONS: Dict[str, set[str]] = {
     "manage_incident": {"get"},
     "manage_change": {"get"},
+    "manage_changeset": {"get"},
     "manage_user": {"get", "list"},
     "manage_group": {"list"},
 }
