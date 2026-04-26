@@ -39,16 +39,8 @@ The ServiceNow MCP server provides the following change management tools:
      - `end_date`: Planned end date (YYYY-MM-DD HH:MM:SS)
      - `work_notes`: Work notes to add to the change request
 
-3. **list_change_requests** - List change requests with filtering options
-   - Parameters:
-     - `limit`: Maximum number of records to return (default: 10)
-     - `offset`: Offset to start from (default: 0)
-     - `state`: Filter by state
-     - `type`: Filter by type (normal, standard, emergency)
-     - `category`: Filter by category
-     - `assignment_group`: Filter by assignment group
-     - `timeframe`: Filter by timeframe (upcoming, in-progress, completed)
-     - `query`: Additional query string
+3. **`sn_query`** (with `table=change_request`) - List change requests with arbitrary filters
+   - Use the generic table-query primitive for listing change requests. See [Tool Inventory](TOOL_INVENTORY.md) for `sn_query` parameters.
 
 4. **get_change_request_details** - Get detailed information about a specific change request
    - Parameters:
