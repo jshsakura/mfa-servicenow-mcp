@@ -169,8 +169,6 @@ platform_developer:
     # Flow Designer writes
     - update_flow_designer
     # UI Policy writes
-    - create_ui_policy
-    - create_ui_policy_action
     # Portal CRUD
     - create_widget
     - create_angular_provider
@@ -294,7 +292,5 @@ full:
     - delete_script_include
     - execute_script_include
     # UI Policy writes
-    - create_ui_policy
-    - create_ui_policy_action
     # Local Sync writes
     - update_remote_from_local
