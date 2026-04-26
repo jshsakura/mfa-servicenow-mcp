@@ -10,9 +10,9 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
-from servicenow_mcp.utils import json_fast
+from servicenow_mcp.services import script_include as _si_svc
+from servicenow_mcp.services.script_include import ScriptIncludeResponse
+from servicenow_mcp.tools.sn_api import sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -91,19 +91,6 @@ class DeleteScriptIncludeParams(BaseModel):
     """Parameters for deleting a script include."""
 
     script_include_id: str = Field(..., description="Script include ID or name")
-
-
-class ScriptIncludeResponse(BaseModel):
-    """Response from script include operations."""
-
-    success: bool = Field(..., description="Whether the operation was successful")
-    message: str = Field(..., description="Message describing the result")
-    script_include_id: Optional[str] = Field(
-        default=None, description="ID of the affected script include"
-    )
-    script_include_name: Optional[str] = Field(
-        default=None, description="Name of the affected script include"
-    )
 
 
 @register_tool(
@@ -309,73 +296,17 @@ def create_script_include(
     auth_manager: AuthManager,
     params: CreateScriptIncludeParams,
 ) -> ScriptIncludeResponse:
-    """Create a new script include in ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for the request.
-
-    Returns:
-        A response indicating the result of the operation.
-    """
-    # Build the URL
-    url = f"{config.instance_url}/api/now/table/sys_script_include"
-
-    # Build the request body
-    body = {
-        "name": params.name,
-        "script": params.script,
-        "active": str(params.active).lower(),
-        "client_callable": str(params.client_callable).lower(),
-        "access": params.access,
-    }
-
-    if params.description:
-        body["description"] = params.description
-
-    if params.api_name:
-        body["api_name"] = params.api_name
-
-    # Make the request
-    headers = auth_manager.get_headers()
-
-    try:
-        response = auth_manager.make_request(
-            "POST",
-            url,
-            json=body,
-            headers=headers,
-            timeout=30,
-        )
-        response.raise_for_status()
-
-        # Parse the response
-        data = response.json()
-
-        if "result" not in data:
-            return ScriptIncludeResponse(
-                success=False,
-                message="Failed to create script include",
-            )
-
-        result = data["result"]
-
-        invalidate_query_cache(table="sys_script_include")
-
-        return ScriptIncludeResponse(
-            success=True,
-            message=f"Created script include: {result.get('name')}",
-            script_include_id=result.get("sys_id"),
-            script_include_name=result.get("name"),
-        )
-
-    except Exception as e:
-        logger.error(f"Error creating script include: {e}")
-        return ScriptIncludeResponse(
-            success=False,
-            message=f"Error creating script include: {str(e)}",
-        )
+    return _si_svc.create(
+        config,
+        auth_manager,
+        name=params.name,
+        script=params.script,
+        description=params.description,
+        api_name=params.api_name,
+        client_callable=params.client_callable,
+        active=params.active,
+        access=params.access,
+    )
 
 
 @register_tool(
@@ -390,111 +321,18 @@ def update_script_include(
     auth_manager: AuthManager,
     params: UpdateScriptIncludeParams,
 ) -> ScriptIncludeResponse:
-    """Update an existing script include in ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for the request.
-
-    Returns:
-        A response indicating the result of the operation.
-    """
-    # First, get the script include to update
-    get_params = GetScriptIncludeParams(script_include_id=params.script_include_id)
-    get_result = get_script_include(config, auth_manager, get_params)
-
-    if not get_result["success"]:
-        return ScriptIncludeResponse(
-            success=False,
-            message=get_result["message"],
-        )
-
-    script_include = get_result["script_include"]
-    sys_id = script_include["sys_id"]
-
-    # Build the URL
-    url = f"{config.instance_url}/api/now/table/sys_script_include/{sys_id}"
-
-    # Build the request body
-    body = {}
-
-    if params.script is not None:
-        body["script"] = params.script
-
-    if params.description is not None:
-        body["description"] = params.description
-
-    if params.api_name is not None:
-        body["api_name"] = params.api_name
-
-    if params.client_callable is not None:
-        body["client_callable"] = str(params.client_callable).lower()
-
-    if params.active is not None:
-        body["active"] = str(params.active).lower()
-
-    if params.access is not None:
-        body["access"] = params.access
-
-    # If no fields to update, return success
-    if not body:
-        return ScriptIncludeResponse(
-            success=True,
-            message=f"No changes to update for script include: {script_include['name']}",
-            script_include_id=sys_id,
-            script_include_name=script_include["name"],
-        )
-
-    if params.dry_run:
-        return build_update_preview(
-            config,
-            auth_manager,
-            table="sys_script_include",
-            sys_id=sys_id,
-            proposed=body,
-            identifier_fields=["name", "api_name", "active"],
-        )
-
-    # Make the request
-    headers = auth_manager.get_headers()
-
-    try:
-        response = auth_manager.make_request(
-            "PATCH",
-            url,
-            json=body,
-            headers=headers,
-            timeout=30,
-        )
-        response.raise_for_status()
-
-        # Parse the response
-        data = response.json()
-
-        if "result" not in data:
-            return ScriptIncludeResponse(
-                success=False,
-                message=f"Failed to update script include: {script_include['name']}",
-            )
-
-        result = data["result"]
-
-        invalidate_query_cache(table="sys_script_include")
-
-        return ScriptIncludeResponse(
-            success=True,
-            message=f"Updated script include: {result.get('name')}",
-            script_include_id=result.get("sys_id"),
-            script_include_name=result.get("name"),
-        )
-
-    except Exception as e:
-        logger.error(f"Error updating script include: {e}")
-        return ScriptIncludeResponse(
-            success=False,
-            message=f"Error updating script include: {str(e)}",
-        )
+    return _si_svc.update(
+        config,
+        auth_manager,
+        script_include_id=params.script_include_id,
+        script=params.script,
+        description=params.description,
+        api_name=params.api_name,
+        client_callable=params.client_callable,
+        active=params.active,
+        access=params.access,
+        dry_run=params.dry_run,
+    )
 
 
 @register_tool(
@@ -509,60 +347,11 @@ def delete_script_include(
     auth_manager: AuthManager,
     params: DeleteScriptIncludeParams,
 ) -> ScriptIncludeResponse:
-    """Delete a script include from ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for the request.
-
-    Returns:
-        A response indicating the result of the operation.
-    """
-    # First, get the script include to delete
-    get_params = GetScriptIncludeParams(script_include_id=params.script_include_id)
-    get_result = get_script_include(config, auth_manager, get_params)
-
-    if not get_result["success"]:
-        return ScriptIncludeResponse(
-            success=False,
-            message=get_result["message"],
-        )
-
-    script_include = get_result["script_include"]
-    sys_id = script_include["sys_id"]
-    name = script_include["name"]
-
-    # Build the URL
-    url = f"{config.instance_url}/api/now/table/sys_script_include/{sys_id}"
-
-    # Make the request
-    headers = auth_manager.get_headers()
-
-    try:
-        response = auth_manager.make_request(
-            "DELETE",
-            url,
-            headers=headers,
-            timeout=30,
-        )
-        response.raise_for_status()
-
-        invalidate_query_cache(table="sys_script_include")
-
-        return ScriptIncludeResponse(
-            success=True,
-            message=f"Deleted script include: {name}",
-            script_include_id=sys_id,
-            script_include_name=name,
-        )
-
-    except Exception as e:
-        logger.error(f"Error deleting script include: {e}")
-        return ScriptIncludeResponse(
-            success=False,
-            message=f"Error deleting script include: {str(e)}",
-        )
+    return _si_svc.delete(
+        config,
+        auth_manager,
+        script_include_id=params.script_include_id,
+    )
 
 
 @register_tool(
@@ -577,78 +366,13 @@ def execute_script_include(
     auth_manager: AuthManager,
     params: ExecuteScriptIncludeParams,
 ) -> Dict[str, Any]:
-    """Execute a client-callable script include via GlideAjax REST endpoint.
-
-    The target script include must have client_callable=true.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for the request.
-
-    Returns:
-        A dictionary containing the execution result.
-    """
-    try:
-        # First verify the script include exists and is client-callable
-        get_params = GetScriptIncludeParams(script_include_id=params.name)
-        get_result = get_script_include(config, auth_manager, get_params)
-
-        if not get_result["success"]:
-            return {
-                "success": False,
-                "message": f"Script include not found: {params.name}",
-            }
-
-        si = get_result["script_include"]
-        if not si.get("client_callable"):
-            return {
-                "success": False,
-                "message": f"Script include '{params.name}' is not client-callable. "
-                "Set client_callable=true to enable remote execution.",
-            }
-
-        # Build GlideAjax-style request
-        ajax_params = {
-            "sysparm_ajax_processor": params.name,
-            "sysparm_name": params.method,
-        }
-
-        # Add user-supplied parameters
-        if params.params:
-            for key, value in params.params.items():
-                ajax_params[f"sysparm_{key}"] = value
-
-        headers = auth_manager.get_headers()
-
-        response = auth_manager.make_request(
-            "GET",
-            f"{config.instance_url}/xmlhttp.do",
-            params=ajax_params,
-            headers=headers,
-            timeout=60,
-        )
-        response.raise_for_status()
-
-        # Try to parse as JSON first, fall back to text
-        response_text = response.text
-        try:
-            result_data = json_fast.loads(response_text)
-        except (ValueError, TypeError):
-            result_data = response_text
-
-        return {
-            "success": True,
-            "message": f"Executed {params.name}.{params.method}",
-            "result": result_data,
-        }
-
-    except Exception as e:
-        logger.error(f"Error executing script include: {e}")
-        return {
-            "success": False,
-            "message": f"Error executing script include: {str(e)}",
-        }
+    return _si_svc.execute(
+        config,
+        auth_manager,
+        name=params.name,
+        method=params.method,
+        params=params.params,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -735,20 +459,16 @@ def manage_script_include(
     params: ManageScriptIncludeParams,
 ) -> Dict[str, Any]:
     if params.action == "create":
-        return create_script_include(
+        return _si_svc.create(
             config,
             auth_manager,
-            CreateScriptIncludeParams(
-                name=params.name,
-                script=params.script,
-                description=params.description,
-                api_name=params.api_name,
-                client_callable=(
-                    params.client_callable if params.client_callable is not None else False
-                ),
-                active=params.active if params.active is not None else True,
-                access=params.access if params.access is not None else "package_private",
-            ),
+            name=params.name,
+            script=params.script,
+            description=params.description,
+            api_name=params.api_name,
+            client_callable=params.client_callable if params.client_callable is not None else False,
+            active=params.active if params.active is not None else True,
+            access=params.access if params.access is not None else "package_private",
         )
     if params.action == "update":
         kwargs: Dict[str, Any] = {
@@ -759,20 +479,18 @@ def manage_script_include(
             v = getattr(params, f)
             if v is not None:
                 kwargs[f] = v
-        return update_script_include(config, auth_manager, UpdateScriptIncludeParams(**kwargs))
+        return _si_svc.update(config, auth_manager, **kwargs)
     if params.action == "delete":
-        return delete_script_include(
+        return _si_svc.delete(
             config,
             auth_manager,
-            DeleteScriptIncludeParams(script_include_id=params.script_include_id),
+            script_include_id=params.script_include_id,
         )
     # execute
-    return execute_script_include(
+    return _si_svc.execute(
         config,
         auth_manager,
-        ExecuteScriptIncludeParams(
-            name=params.name,
-            method=params.method or "execute",
-            params=params.exec_params,
-        ),
+        name=params.name,
+        method=params.method or "execute",
+        params=params.exec_params,
     )

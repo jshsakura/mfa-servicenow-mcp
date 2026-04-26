@@ -16,6 +16,9 @@ from servicenow_mcp.tools.script_include_tools import (
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
+_SI_CALLABLE = [{"sys_id": "si123", "name": "MyAjaxUtil", "client_callable": "true"}]
+_SI_NOT_CALLABLE = [{"sys_id": "si456", "name": "ServerOnlySI", "client_callable": "false"}]
+
 
 class TestExecuteScriptInclude(unittest.TestCase):
     """Tests for the execute_script_include function."""
@@ -36,22 +39,11 @@ class TestExecuteScriptInclude(unittest.TestCase):
             "Content-Type": "application/json",
         }
 
-    @patch("servicenow_mcp.tools.script_include_tools.get_script_include")
-    def test_execute_success_json_response(self, mock_get_si):
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_execute_success_json_response(self, mock_qp):
         """Test executing a script include that returns JSON."""
-        # Mock get_script_include verification
-        mock_get_si.return_value = {
-            "success": True,
-            "message": "Found script include: MyAjaxUtil",
-            "script_include": {
-                "sys_id": "si123",
-                "name": "MyAjaxUtil",
-                "client_callable": True,
-                "active": True,
-            },
-        }
+        mock_qp.return_value = (_SI_CALLABLE, 1)
 
-        # Mock the GlideAjax execution response
         exec_response = MagicMock()
         exec_response.text = json.dumps({"answer": "42", "status": "ok"})
         exec_response.status_code = 200
@@ -68,9 +60,6 @@ class TestExecuteScriptInclude(unittest.TestCase):
         self.assertEqual("Executed MyAjaxUtil.getAnswer", result["message"])
         self.assertEqual({"answer": "42", "status": "ok"}, result["result"])
 
-        # Verify get_script_include was called to check existence
-        mock_get_si.assert_called_once()
-
         # Verify the GlideAjax request
         self.auth_manager.make_request.assert_called_once()
         call_args = self.auth_manager.make_request.call_args
@@ -81,18 +70,10 @@ class TestExecuteScriptInclude(unittest.TestCase):
         self.assertEqual("getAnswer", req_params["sysparm_name"])
         self.assertEqual("everything", req_params["sysparm_question"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.get_script_include")
-    def test_execute_success_text_response(self, mock_get_si):
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_execute_success_text_response(self, mock_qp):
         """Test executing a script include that returns non-JSON text."""
-        mock_get_si.return_value = {
-            "success": True,
-            "message": "Found script include: MyAjaxUtil",
-            "script_include": {
-                "sys_id": "si123",
-                "name": "MyAjaxUtil",
-                "client_callable": True,
-            },
-        }
+        mock_qp.return_value = (_SI_CALLABLE, 1)
 
         exec_response = MagicMock()
         exec_response.text = "<xml><answer>hello</answer></xml>"
@@ -108,18 +89,10 @@ class TestExecuteScriptInclude(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual("<xml><answer>hello</answer></xml>", result["result"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.get_script_include")
-    def test_execute_default_method(self, mock_get_si):
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_execute_default_method(self, mock_qp):
         """Test that the default method is 'execute'."""
-        mock_get_si.return_value = {
-            "success": True,
-            "message": "Found",
-            "script_include": {
-                "sys_id": "si123",
-                "name": "MyAjaxUtil",
-                "client_callable": True,
-            },
-        }
+        mock_qp.return_value = (_SI_CALLABLE, 1)
 
         exec_response = MagicMock()
         exec_response.text = "{}"
@@ -135,13 +108,10 @@ class TestExecuteScriptInclude(unittest.TestCase):
         req_params = self.auth_manager.make_request.call_args[1]["params"]
         self.assertEqual("execute", req_params["sysparm_name"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.get_script_include")
-    def test_execute_script_include_not_found(self, mock_get_si):
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_execute_script_include_not_found(self, mock_qp):
         """Test executing a script include that doesn't exist."""
-        mock_get_si.return_value = {
-            "success": False,
-            "message": "Error getting script include: not found",
-        }
+        mock_qp.return_value = ([], None)
 
         params = ExecuteScriptIncludeParams(
             name="NonExistent",
@@ -152,22 +122,12 @@ class TestExecuteScriptInclude(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("Script include not found", result["message"])
         self.assertIn("NonExistent", result["message"])
-        # Should not attempt execution
         self.auth_manager.make_request.assert_not_called()
 
-    @patch("servicenow_mcp.tools.script_include_tools.get_script_include")
-    def test_execute_not_client_callable(self, mock_get_si):
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_execute_not_client_callable(self, mock_qp):
         """Test executing a script include that is not client-callable."""
-        mock_get_si.return_value = {
-            "success": True,
-            "message": "Found script include: ServerOnlySI",
-            "script_include": {
-                "sys_id": "si456",
-                "name": "ServerOnlySI",
-                "client_callable": False,
-                "active": True,
-            },
-        }
+        mock_qp.return_value = (_SI_NOT_CALLABLE, 1)
 
         params = ExecuteScriptIncludeParams(
             name="ServerOnlySI",
@@ -178,22 +138,12 @@ class TestExecuteScriptInclude(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("not client-callable", result["message"])
         self.assertIn("ServerOnlySI", result["message"])
-        # Should not attempt execution
         self.auth_manager.make_request.assert_not_called()
 
-    @patch("servicenow_mcp.tools.script_include_tools.get_script_include")
-    def test_execute_request_error(self, mock_get_si):
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_execute_request_error(self, mock_qp):
         """Test executing a script include when the request fails."""
-        mock_get_si.return_value = {
-            "success": True,
-            "message": "Found",
-            "script_include": {
-                "sys_id": "si123",
-                "name": "MyAjaxUtil",
-                "client_callable": True,
-            },
-        }
-
+        mock_qp.return_value = (_SI_CALLABLE, 1)
         self.auth_manager.make_request.side_effect = Exception("Connection timeout")
 
         params = ExecuteScriptIncludeParams(
@@ -206,18 +156,10 @@ class TestExecuteScriptInclude(unittest.TestCase):
         self.assertIn("Error executing script include", result["message"])
         self.assertIn("Connection timeout", result["message"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.get_script_include")
-    def test_execute_no_params(self, mock_get_si):
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_execute_no_params(self, mock_qp):
         """Test executing a script include without additional params."""
-        mock_get_si.return_value = {
-            "success": True,
-            "message": "Found",
-            "script_include": {
-                "sys_id": "si123",
-                "name": "MyAjaxUtil",
-                "client_callable": True,
-            },
-        }
+        mock_qp.return_value = (_SI_CALLABLE, 1)
 
         exec_response = MagicMock()
         exec_response.text = '{"result": "done"}'
@@ -232,24 +174,15 @@ class TestExecuteScriptInclude(unittest.TestCase):
 
         self.assertTrue(result["success"])
         req_params = self.auth_manager.make_request.call_args[1]["params"]
-        # Only the two standard params, no sysparm_ user params
         self.assertEqual(
             {"sysparm_ajax_processor": "MyAjaxUtil", "sysparm_name": "doWork"},
             req_params,
         )
 
-    @patch("servicenow_mcp.tools.script_include_tools.get_script_include")
-    def test_execute_with_multiple_params(self, mock_get_si):
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_execute_with_multiple_params(self, mock_qp):
         """Test executing a script include with multiple user-supplied params."""
-        mock_get_si.return_value = {
-            "success": True,
-            "message": "Found",
-            "script_include": {
-                "sys_id": "si123",
-                "name": "MyAjaxUtil",
-                "client_callable": True,
-            },
-        }
+        mock_qp.return_value = (_SI_CALLABLE, 1)
 
         exec_response = MagicMock()
         exec_response.text = '{"status": "ok"}'
