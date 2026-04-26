@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services import script_include as _si_svc
-from servicenow_mcp.services.script_include import ScriptIncludeResponse
 from servicenow_mcp.tools.sn_api import sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -41,58 +40,6 @@ class GetScriptIncludeParams(BaseModel):
     script_include_id: str = Field(..., description="Script include ID or name")
 
 
-class CreateScriptIncludeParams(BaseModel):
-    """Parameters for creating a script include."""
-
-    name: str = Field(..., description="Name of the script include")
-    script: str = Field(..., description="Script content")
-    description: Optional[str] = Field(
-        default=None, description="Description of the script include"
-    )
-    api_name: Optional[str] = Field(default=None, description="API name of the script include")
-    client_callable: bool = Field(
-        default=False, description="Whether the script include is client callable"
-    )
-    active: bool = Field(default=True, description="Whether the script include is active")
-    access: str = Field(default="package_private", description="Access level of the script include")
-
-
-class UpdateScriptIncludeParams(BaseModel):
-    """Parameters for updating a script include."""
-
-    script_include_id: str = Field(..., description="Script include ID or name")
-    script: Optional[str] = Field(default=None, description="Script content")
-    description: Optional[str] = Field(
-        default=None, description="Description of the script include"
-    )
-    api_name: Optional[str] = Field(default=None, description="API name of the script include")
-    client_callable: Optional[bool] = Field(
-        default=None, description="Whether the script include is client callable"
-    )
-    active: Optional[bool] = Field(default=None, description="Whether the script include is active")
-    access: Optional[str] = Field(default=None, description="Access level of the script include")
-    dry_run: bool = Field(
-        default=False,
-        description="Preview field-level changes without executing.",
-    )
-
-
-class ExecuteScriptIncludeParams(BaseModel):
-    """Parameters for executing a client-callable script include."""
-
-    name: str = Field(..., description="Name of the script include to execute")
-    method: str = Field(default="execute", description="Method name to invoke (default: execute)")
-    params: Optional[Dict[str, str]] = Field(
-        default=None, description="Key-value parameters to pass to the script include"
-    )
-
-
-class DeleteScriptIncludeParams(BaseModel):
-    """Parameters for deleting a script include."""
-
-    script_include_id: str = Field(..., description="Script include ID or name")
-
-
 @register_tool(
     name="list_script_includes",
     params=ListScriptIncludesParams,
@@ -105,18 +52,8 @@ def list_script_includes(
     auth_manager: AuthManager,
     params: ListScriptIncludesParams,
 ) -> Dict[str, Any]:
-    """List script includes from ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for the request.
-
-    Returns:
-        A dictionary containing the list of script includes.
-    """
+    """List script includes from ServiceNow."""
     try:
-        # Add filters if provided
         query_parts = []
 
         if params.active is not None:
@@ -209,20 +146,10 @@ def get_script_include(
     auth_manager: AuthManager,
     params: GetScriptIncludeParams,
 ) -> Dict[str, Any]:
-    """Get a specific script include from ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for the request.
-
-    Returns:
-        A dictionary containing the script include data.
-    """
+    """Get a specific script include from ServiceNow."""
     try:
         fields = "sys_id,name,script,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by"
 
-        # Determine if we're querying by sys_id or name
         if params.script_include_id.startswith("sys_id:"):
             sys_id = params.script_include_id.replace("sys_id:", "")
             query = f"sys_id={sys_id}"
@@ -282,97 +209,6 @@ def get_script_include(
             "success": False,
             "message": f"Error getting script include: {str(e)}",
         }
-
-
-@register_tool(
-    name="create_script_include",
-    params=CreateScriptIncludeParams,
-    description="Create a script include with name, script, api_name, and client_callable fields. Returns sys_id.",
-    serialization="raw_pydantic",
-    return_type=ScriptIncludeResponse,
-)
-def create_script_include(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateScriptIncludeParams,
-) -> ScriptIncludeResponse:
-    return _si_svc.create(
-        config,
-        auth_manager,
-        name=params.name,
-        script=params.script,
-        description=params.description,
-        api_name=params.api_name,
-        client_callable=params.client_callable,
-        active=params.active,
-        access=params.access,
-    )
-
-
-@register_tool(
-    name="update_script_include",
-    params=UpdateScriptIncludeParams,
-    description="Update a script include's script, api_name, client_callable, or other fields by sys_id or name.",
-    serialization="raw_pydantic",
-    return_type=ScriptIncludeResponse,
-)
-def update_script_include(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: UpdateScriptIncludeParams,
-) -> ScriptIncludeResponse:
-    return _si_svc.update(
-        config,
-        auth_manager,
-        script_include_id=params.script_include_id,
-        script=params.script,
-        description=params.description,
-        api_name=params.api_name,
-        client_callable=params.client_callable,
-        active=params.active,
-        access=params.access,
-        dry_run=params.dry_run,
-    )
-
-
-@register_tool(
-    name="delete_script_include",
-    params=DeleteScriptIncludeParams,
-    description="Permanently delete a script include by sys_id or name. Irreversible.",
-    serialization="json_dict",
-    return_type=str,
-)
-def delete_script_include(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: DeleteScriptIncludeParams,
-) -> ScriptIncludeResponse:
-    return _si_svc.delete(
-        config,
-        auth_manager,
-        script_include_id=params.script_include_id,
-    )
-
-
-@register_tool(
-    name="execute_script_include",
-    params=ExecuteScriptIncludeParams,
-    description="Execute a client-callable SI method via GlideAjax REST.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def execute_script_include(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: ExecuteScriptIncludeParams,
-) -> Dict[str, Any]:
-    return _si_svc.execute(
-        config,
-        auth_manager,
-        name=params.name,
-        method=params.method,
-        params=params.params,
-    )
 
 
 # ---------------------------------------------------------------------------

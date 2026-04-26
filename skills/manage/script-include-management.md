@@ -9,10 +9,7 @@ output: data
 tools:
   - list_script_includes
   - get_script_include
-  - create_script_include
-  - update_script_include
-  - execute_script_include
-  - delete_script_include
+  - manage_script_include
 triggers:
   - "스크립트 인클루드"
   - "SI 보여줘"
@@ -38,26 +35,24 @@ IF "읽기" or "read source":
   → accepts name or "sys_id:abc123"
 
 IF "만들기" or "create":
-  CALL create_script_include
-    - name, script, description, client_callable, active
+  CALL manage_script_include(action="create", name=INPUT, script=SCRIPT, ...)
     - confirm = "approve"
 
 IF "수정" or "update":
   # 1. Preview field-level diff (no side effects)
-  CALL update_script_include(script_include_id=INPUT, <fields>, dry_run=True)
+  CALL manage_script_include(action="update", script_include_id=INPUT, <fields>, dry_run=True)
   # 2. Show `proposed_changes` + `no_op_fields`, then apply
-  CALL update_script_include
-    - script_include_id = INPUT
-    - fields to update
+  CALL manage_script_include(action="update", script_include_id=INPUT, <fields>)
     - confirm = "approve"
 
 IF "실행" or "execute GlideAjax":
-  CALL execute_script_include
-    - name = INPUT
-    - method = METHOD_NAME
-    - params = {key: value}
+  CALL manage_script_include(action="execute", name=INPUT, method=METHOD_NAME, exec_params={...})
     - confirm = "approve"
   → requires client_callable=true
+
+IF "삭제" or "delete":
+  CALL manage_script_include(action="delete", script_include_id=INPUT)
+    - confirm = "approve"
 
 ## ON ERROR
 
