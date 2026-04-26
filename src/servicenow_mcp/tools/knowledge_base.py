@@ -180,13 +180,6 @@ def create_knowledge_base(
         )
 
 
-@register_tool(
-    "list_knowledge_bases",
-    params=ListKnowledgeBasesParams,
-    description="List knowledge bases with optional active/query filters.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def list_knowledge_bases(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -373,13 +366,6 @@ def create_category(
         )
 
 
-@register_tool(
-    "list_articles",
-    params=ListArticlesParams,
-    description="List KB articles with optional kb/category/query filters.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def list_articles(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -488,13 +474,6 @@ def list_articles(
         }
 
 
-@register_tool(
-    "get_article",
-    params=GetArticleParams,
-    description="Get a KB article by sys_id. Returns full text and metadata.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def get_article(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -593,13 +572,6 @@ def get_article(
         }
 
 
-@register_tool(
-    "list_categories",
-    params=ListCategoriesParams,
-    description="List categories in a KB with optional active/query filters.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def list_categories(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -750,29 +722,54 @@ class ManageKbArticleParams(BaseModel):
       publish: article_id
     """
 
-    action: Literal["create", "update", "publish"] = Field(...)
-    article_id: Optional[str] = Field(default=None, description="sys_id for update/publish")
+    action: Literal[
+        "list_kbs",
+        "list_articles",
+        "get_article",
+        "list_categories",
+        "create",
+        "update",
+        "publish",
+    ] = Field(...)
+    article_id: Optional[str] = Field(
+        default=None, description="sys_id for get_article/update/publish"
+    )
+
+    # Read params (list_kbs/list_articles/list_categories)
+    limit: int = Field(default=10, description="Max records (list modes)")
+    offset: int = Field(default=0, description="Pagination offset (list modes)")
+    query: Optional[str] = Field(default=None, description="Search query (list modes)")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    workflow_state: Optional[str] = Field(default=None, description="Filter/publish target state")
+    parent_category: Optional[str] = Field(
+        default=None, description="Filter by parent category (list_categories)"
+    )
 
     # Create-only required
     title: Optional[str] = Field(default=None)
     text: Optional[str] = Field(default=None)
     short_description: Optional[str] = Field(default=None)
-    knowledge_base: Optional[str] = Field(default=None, description="KB sys_id (create)")
-    category: Optional[str] = Field(default=None)
+    knowledge_base: Optional[str] = Field(
+        default=None, description="KB sys_id (create/list_articles/list_categories)"
+    )
+    category: Optional[str] = Field(
+        default=None, description="Category sys_id (create/list_articles)"
+    )
     keywords: Optional[str] = Field(default=None)
     article_type: Optional[Literal["html", "text", "wiki"]] = Field(
         default=None, description="Article body markup type (create)"
     )
 
     # Publish-specific
-    workflow_state: Optional[str] = Field(default=None, description="Publish target state")
     workflow_version: Optional[str] = Field(default=None)
 
     dry_run: bool = Field(default=False)
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageKbArticleParams":
-        if self.action == "create":
+        if self.action in ("list_kbs", "list_articles", "get_article", "list_categories"):
+            pass
+        elif self.action == "create":
             missing = [
                 f
                 for f in ("title", "text", "short_description", "knowledge_base", "category")
@@ -806,6 +803,47 @@ def manage_kb_article(
     auth_manager: AuthManager,
     params: ManageKbArticleParams,
 ) -> ArticleResponse:
+    a = params.action
+    if a == "list_kbs":
+        return list_knowledge_bases(
+            config,
+            auth_manager,
+            ListKnowledgeBasesParams(
+                limit=params.limit, offset=params.offset, active=params.active, query=params.query
+            ),
+        )
+    if a == "list_articles":
+        return list_articles(
+            config,
+            auth_manager,
+            ListArticlesParams(
+                limit=params.limit,
+                offset=params.offset,
+                knowledge_base=params.knowledge_base,
+                category=params.category,
+                query=params.query,
+                workflow_state=params.workflow_state,
+            ),
+        )
+    if a == "get_article":
+        if not params.article_id:
+            return ArticleResponse(
+                success=False, message="article_id is required for action='get_article'"
+            )
+        return get_article(config, auth_manager, GetArticleParams(article_id=params.article_id))
+    if a == "list_categories":
+        return list_categories(
+            config,
+            auth_manager,
+            ListCategoriesParams(
+                limit=params.limit,
+                offset=params.offset,
+                knowledge_base=params.knowledge_base,
+                parent_category=params.parent_category,
+                active=params.active,
+                query=params.query,
+            ),
+        )
     if params.action == "create":
         # Preserve legacy defaulting: omit keywords/article_type when caller didn't
         # supply them so the service-layer defaults (None / "html") apply.

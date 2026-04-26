@@ -56,13 +56,6 @@ class ListGroupsParams(BaseModel):
     type: Optional[str] = Field(default=None, description="Filter by group type")
 
 
-@register_tool(
-    name="get_user",
-    params=GetUserParams,
-    description="Get a user by sys_id or user_name. Returns profile, roles, and group memberships.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def get_user(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -98,13 +91,6 @@ def get_user(
         return {"success": False, "message": f"Failed to get user: {str(e)}"}
 
 
-@register_tool(
-    name="list_users",
-    params=ListUsersParams,
-    description="List users with optional name/email/department/active filters.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def list_users(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -150,13 +136,6 @@ def list_users(
         return {"success": False, "message": f"Failed to list users: {str(e)}"}
 
 
-@register_tool(
-    name="list_groups",
-    params=ListGroupsParams,
-    description="List groups with optional name/type/active filters. Returns group details and member count.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def list_groups(
     config: ServerConfig,
     auth_manager: AuthManager,
