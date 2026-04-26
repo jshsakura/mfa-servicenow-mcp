@@ -9,7 +9,7 @@
 | 3a-d | manage_changeset / script_include / workflow / user / group | ✅ done | v1.9.13 |
 | 3e-g | manage_catalog / portal_layout / portal_component / ui_policy | ✅ done | v1.9.14 |
 | — | manage_agile | 🚫 deferred (orphan domain) | — |
-| 4.0 | Remove duplicate wrappers + extract services (165 → 106) | ⏳ planned | per-domain, v1.10.x |
+| 4.0 | Remove duplicate wrappers + extract services (165 → 106) | 🚧 in progress (4/11 domains, 165 → 154) | v1.9.16-19 shipped; v1.9.20+ remaining |
 | 4.5 | Fold read tools into existing manage_X (opt-in per domain, 106 → up to ~70) | ⏳ planned | per-domain, v1.10.x → v1.11.x |
 | 4.7 | New manage_X for loose domains (opt-in per domain, ~70 → up to ~50) | ⏳ planned | v1.11.x → v1.12.x |
 | 5 | Skills overhaul | ⏳ planned | after Phase 4.7 |
