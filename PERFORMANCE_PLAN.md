@@ -67,7 +67,7 @@ These are optional follow-ups, not currently-blocking gaps:
 ## Out of Scope for this document
 
 - breaking package-surface changes
-- legacy-wrapper removal before the documented compatibility window ends
+- legacy-wrapper removal sequencing; see `CONSOLIDATION_PLAN.md` for the v1.11 public-surface cleanup
 - speculative rewrites without measured hotspots
 
 For compatibility and consolidation sequencing, see `CONSOLIDATION_PLAN.md`.
