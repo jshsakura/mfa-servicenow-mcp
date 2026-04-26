@@ -18,7 +18,7 @@ def _build_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNowMCP:
                 "  - analyze_portal_component_update",
                 "  - create_portal_component_snapshot",
                 "  - preview_portal_component_update",
-                "  - update_portal_component",
+                "  - manage_portal_component",
                 "  - update_portal_component_from_snapshot",
             ]
         )
@@ -52,19 +52,23 @@ def test_server_loads_portal_tools(monkeypatch: pytest.MonkeyPatch, tmp_path):
     assert "analyze_portal_component_update" in names
     assert "create_portal_component_snapshot" in names
     assert "preview_portal_component_update" in names
-    assert "update_portal_component" in names
+    assert "manage_portal_component" in names
     assert "update_portal_component_from_snapshot" in names
 
 
 def test_server_blocks_update_without_confirmation(monkeypatch: pytest.MonkeyPatch, tmp_path):
     server = _build_server(monkeypatch, tmp_path)
 
-    # Try updating without confirm='approve'
     with pytest.raises(ValueError, match="confirm='approve'"):
         asyncio.run(
             server._call_tool_impl(
-                "update_portal_component",
-                {"table": "sp_widget", "sys_id": "123", "update_data": {"css": "body {}"}},
+                "manage_portal_component",
+                {
+                    "action": "update_code",
+                    "table": "sp_widget",
+                    "sys_id": "123",
+                    "update_data": {"css": "body {}"},
+                },
             )
         )
 
@@ -72,11 +76,10 @@ def test_server_blocks_update_without_confirmation(monkeypatch: pytest.MonkeyPat
 def test_server_allows_update_with_confirmation(monkeypatch: pytest.MonkeyPatch, tmp_path):
     server = _build_server(monkeypatch, tmp_path)
 
-    # Mock the tool implementation to avoid real network call
     def mock_impl(_config, _auth, _params):
         return {"message": "Success"}
 
-    server.tool_definitions["update_portal_component"] = (
+    server.tool_definitions["manage_portal_component"] = (
         mock_impl,
         MagicMock(),
         dict,
@@ -84,11 +87,11 @@ def test_server_allows_update_with_confirmation(monkeypatch: pytest.MonkeyPatch,
         "raw_dict",
     )
 
-    # Try updating WITH confirm='approve'
     result = asyncio.run(
         server._call_tool_impl(
-            "update_portal_component",
+            "manage_portal_component",
             {
+                "action": "update_code",
                 "table": "sp_widget",
                 "sys_id": "123",
                 "update_data": {"css": "body {}"},
