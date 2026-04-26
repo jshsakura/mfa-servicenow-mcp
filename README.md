@@ -205,7 +205,7 @@ The [Quick Start](#quick-start) command uses browser auth. Optional flags:
 | `--browser-timeout` | `SERVICENOW_BROWSER_TIMEOUT` | `120` | Login timeout in seconds |
 | `--browser-session-ttl` | `SERVICENOW_BROWSER_SESSION_TTL` | `30` | Session TTL in minutes |
 | `--browser-user-data-dir` | `SERVICENOW_BROWSER_USER_DATA_DIR` | — | Persistent browser profile path |
-| `--browser-probe-path` | `SERVICENOW_BROWSER_PROBE_PATH` | `/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id` | Session validation endpoint |
+| `--browser-probe-path` | `SERVICENOW_BROWSER_PROBE_PATH` | user-specific `sys_user` lookup when a username is known, otherwise `/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id` | Session validation endpoint (avoids 401 on non-admin sessions) |
 | `--browser-login-url` | `SERVICENOW_BROWSER_LOGIN_URL` | — | Custom login page URL |
 
 ### Basic Auth
@@ -570,7 +570,7 @@ docker run -it --rm \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
 
-See [Client Setup Guide](docs/CLIENT_SETUP.md#docker-api-key-only) for SSE mode and local build options.
+See [Client Setup Guide](docs/CLIENT_SETUP.md#docker-api-key-only) for local build options.
 
 ## Developer Setup
 

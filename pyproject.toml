@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.9.33"
+version = "1.9.34"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,8 +24,6 @@ dependencies = [
     "requests>=2.32.4",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
-    "starlette>=0.46.2",
-    "uvicorn>=0.22.0",
     "httpx>=0.28.0",
     "PyYAML>=6.0",
     "orjson>=3.9.0",
@@ -49,7 +47,6 @@ dev = [
 ]
 [project.scripts]
 servicenow-mcp = "servicenow_mcp.cli:main"
-servicenow-mcp-sse = "servicenow_mcp.server_sse:main"
 servicenow-mcp-skills = "servicenow_mcp.setup_skills:main"
 
 [tool.hatch.build.targets.wheel]

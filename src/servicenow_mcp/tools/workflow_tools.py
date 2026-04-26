@@ -184,7 +184,7 @@ def _unwrap_params(params: Any, param_class: Type[T]) -> Dict[str, Any]:
     if isinstance(params, dict):
         return params
     if isinstance(params, param_class):
-        return params.dict(exclude_none=True)
+        return params.model_dump(exclude_none=True)
     return params
 
 
