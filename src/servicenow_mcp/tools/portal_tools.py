@@ -2814,13 +2814,6 @@ def detect_angular_implicit_globals(
     }
 
 
-@register_tool(
-    "update_portal_component",
-    params=UpdatePortalComponentParams,
-    description="Update specific code fields (HTML, CSS, or script) of a widget, provider, or script include.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def update_portal_component(
     config: ServerConfig, auth_manager: AuthManager, params: UpdatePortalComponentParams
 ) -> Dict[str, Any]:
