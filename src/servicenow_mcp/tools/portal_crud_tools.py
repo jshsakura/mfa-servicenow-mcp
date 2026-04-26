@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.services import portal_component as _comp_svc
 from servicenow_mcp.services import portal_layout as _layout_svc
 from servicenow_mcp.tools.portal_tools import UpdatePortalComponentParams, update_portal_component
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
@@ -88,373 +89,11 @@ def _create_record(
 
 
 # ===========================================================================
-# Phase 1: Component Create Tools (6)
+# Phase 1: scaffold_page
 # ===========================================================================
 
-# --- Tool 1: create_widget -------------------------------------------------
 
-
-class CreateWidgetParams(BaseModel):
-    """Parameters for creating a new Service Portal widget."""
-
-    name: str = Field(..., description="Display name of the widget")
-    id: Optional[str] = Field(
-        default=None,
-        description="Technical ID (URL-safe, lowercase). Auto-generated from name if omitted.",
-    )
-    template: Optional[str] = Field(default=None, description="HTML template (AngularJS 1.x)")
-    css: Optional[str] = Field(default=None, description="SCSS/CSS styles")
-    script: Optional[str] = Field(default=None, description="Server-side script (GlideRecord)")
-    client_script: Optional[str] = Field(
-        default=None, description="Client-side controller (AngularJS 1.x)"
-    )
-    link: Optional[str] = Field(default=None, description="AngularJS link function")
-    internal: bool = Field(default=False, description="Mark as internal widget")
-    data_table: Optional[str] = Field(default=None, description="Default data table")
-    description: Optional[str] = Field(default=None, description="Widget description")
-    scope: str = Field(
-        ...,
-        description="REQUIRED. sys_scope sys_id — the application scope this widget belongs to.",
-    )
-
-
-@register_tool(
-    name="create_widget",
-    params=CreateWidgetParams,
-    description="Create a new Service Portal widget with template, scripts, and CSS. Scope is required.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_widget(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateWidgetParams,
-) -> Dict[str, Any]:
-    # Duplicate check by name
-    existing = _check_duplicate(
-        config, auth_manager, "sp_widget", "name", params.name, params.scope
-    )
-    if existing:
-        return {
-            "success": False,
-            "message": f"Widget with name '{params.name}' already exists in this scope.",
-            "existing_sys_id": existing.get("sys_id"),
-            "existing_scope": existing.get("sys_scope"),
-        }
-    # Also check by id if provided
-    if params.id:
-        existing_id = _check_duplicate(config, auth_manager, "sp_widget", "id", params.id)
-        if existing_id:
-            return {
-                "success": False,
-                "message": f"Widget with id '{params.id}' already exists.",
-                "existing_sys_id": existing_id.get("sys_id"),
-                "existing_scope": existing_id.get("sys_scope"),
-            }
-
-    body: Dict[str, Any] = {"name": params.name, "sys_scope": params.scope}
-    if params.id:
-        body["id"] = params.id
-    if params.template is not None:
-        body["template"] = params.template
-    if params.css is not None:
-        body["css"] = params.css
-    if params.script is not None:
-        body["script"] = params.script
-    if params.client_script is not None:
-        body["client_script"] = params.client_script
-    if params.link is not None:
-        body["link"] = params.link
-    if params.internal:
-        body["internal"] = "true"
-    if params.data_table:
-        body["data_table"] = params.data_table
-    if params.description:
-        body["description"] = params.description
-
-    result = _create_record(config, auth_manager, "sp_widget", body)
-    if not result["success"]:
-        return result
-
-    record = result["result"]
-    return {
-        "success": True,
-        "message": f"Created widget: {record.get('name')}",
-        "sys_id": record.get("sys_id"),
-        "id": record.get("id"),
-        "name": record.get("name"),
-    }
-
-
-# --- Tool 2: create_angular_provider ----------------------------------------
-
-
-class CreateAngularProviderParams(BaseModel):
-    name: str = Field(..., description="Provider name (e.g. 'myService')")
-    script: str = Field(..., description="AngularJS provider/factory/service script")
-    type: str = Field(
-        default="factory",
-        description="Provider type: factory, service, provider, directive, filter",
-    )
-    description: Optional[str] = Field(default=None, description="Description")
-    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
-
-
-@register_tool(
-    name="create_angular_provider",
-    params=CreateAngularProviderParams,
-    description="Create an AngularJS 1.x angular provider (factory/service/directive). Scope is required.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_angular_provider(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateAngularProviderParams,
-) -> Dict[str, Any]:
-    existing = _check_duplicate(
-        config, auth_manager, "sp_angular_provider", "name", params.name, params.scope
-    )
-    if existing:
-        return {
-            "success": False,
-            "message": f"Angular provider '{params.name}' already exists in this scope.",
-            "existing_sys_id": existing.get("sys_id"),
-        }
-
-    body: Dict[str, Any] = {
-        "name": params.name,
-        "script": params.script,
-        "type": params.type,
-        "sys_scope": params.scope,
-    }
-    if params.description:
-        body["description"] = params.description
-
-    result = _create_record(config, auth_manager, "sp_angular_provider", body)
-    if not result["success"]:
-        return result
-
-    record = result["result"]
-    return {
-        "success": True,
-        "message": f"Created angular provider: {record.get('name')}",
-        "sys_id": record.get("sys_id"),
-        "name": record.get("name"),
-        "type": record.get("type"),
-    }
-
-
-# --- Tool 3: create_header_footer -------------------------------------------
-
-
-class CreateHeaderFooterParams(BaseModel):
-    name: str = Field(..., description="Header/footer name")
-    template: Optional[str] = Field(default=None, description="HTML template")
-    css: Optional[str] = Field(default=None, description="CSS/SCSS styles")
-    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
-
-
-@register_tool(
-    name="create_header_footer",
-    params=CreateHeaderFooterParams,
-    description="Create a Service Portal header or footer component. Scope is required.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_header_footer(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateHeaderFooterParams,
-) -> Dict[str, Any]:
-    existing = _check_duplicate(
-        config, auth_manager, "sp_header_footer", "name", params.name, params.scope
-    )
-    if existing:
-        return {
-            "success": False,
-            "message": f"Header/footer '{params.name}' already exists in this scope.",
-            "existing_sys_id": existing.get("sys_id"),
-        }
-
-    body: Dict[str, Any] = {"name": params.name, "sys_scope": params.scope}
-    if params.template is not None:
-        body["template"] = params.template
-    if params.css is not None:
-        body["css"] = params.css
-
-    result = _create_record(config, auth_manager, "sp_header_footer", body)
-    if not result["success"]:
-        return result
-
-    record = result["result"]
-    return {
-        "success": True,
-        "message": f"Created header/footer: {record.get('name')}",
-        "sys_id": record.get("sys_id"),
-        "name": record.get("name"),
-    }
-
-
-# --- Tool 4: create_css_theme -----------------------------------------------
-
-
-class CreateCssThemeParams(BaseModel):
-    name: str = Field(..., description="CSS theme name")
-    css: Optional[str] = Field(default=None, description="CSS/SCSS content")
-    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
-
-
-@register_tool(
-    name="create_css_theme",
-    params=CreateCssThemeParams,
-    description="Create a Service Portal CSS theme (sp_css). Scope is required.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_css_theme(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateCssThemeParams,
-) -> Dict[str, Any]:
-    existing = _check_duplicate(config, auth_manager, "sp_css", "name", params.name, params.scope)
-    if existing:
-        return {
-            "success": False,
-            "message": f"CSS theme '{params.name}' already exists in this scope.",
-            "existing_sys_id": existing.get("sys_id"),
-        }
-
-    body: Dict[str, Any] = {"name": params.name, "sys_scope": params.scope}
-    if params.css is not None:
-        body["css"] = params.css
-
-    result = _create_record(config, auth_manager, "sp_css", body)
-    if not result["success"]:
-        return result
-
-    record = result["result"]
-    return {
-        "success": True,
-        "message": f"Created CSS theme: {record.get('name')}",
-        "sys_id": record.get("sys_id"),
-        "name": record.get("name"),
-    }
-
-
-# --- Tool 5: create_ng_template ---------------------------------------------
-
-
-class CreateNgTemplateParams(BaseModel):
-    id: str = Field(..., description="Template ID (used in ng-include, e.g. 'my-template.html')")
-    template: str = Field(..., description="HTML template content")
-    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
-
-
-@register_tool(
-    name="create_ng_template",
-    params=CreateNgTemplateParams,
-    description="Create an AngularJS ng-template (sp_ng_template) for use in ng-include. Scope is required.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_ng_template(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateNgTemplateParams,
-) -> Dict[str, Any]:
-    existing = _check_duplicate(
-        config, auth_manager, "sp_ng_template", "id", params.id, params.scope
-    )
-    if existing:
-        return {
-            "success": False,
-            "message": f"ng-template with id '{params.id}' already exists in this scope.",
-            "existing_sys_id": existing.get("sys_id"),
-        }
-
-    body: Dict[str, Any] = {
-        "id": params.id,
-        "template": params.template,
-        "sys_scope": params.scope,
-    }
-
-    result = _create_record(config, auth_manager, "sp_ng_template", body)
-    if not result["success"]:
-        return result
-
-    record = result["result"]
-    return {
-        "success": True,
-        "message": f"Created ng-template: {record.get('id')}",
-        "sys_id": record.get("sys_id"),
-        "id": record.get("id"),
-    }
-
-
-# --- Tool 6: create_ui_page -------------------------------------------------
-
-
-class CreateUiPageParams(BaseModel):
-    name: str = Field(..., description="UI Page name (URL path)")
-    html: Optional[str] = Field(default=None, description="Jelly/HTML content")
-    client_script: Optional[str] = Field(default=None, description="Client-side JavaScript")
-    processing_script: Optional[str] = Field(
-        default=None, description="Server-side processing script"
-    )
-    description: Optional[str] = Field(default=None, description="Page description")
-    category: Optional[str] = Field(default=None, description="Category (e.g. 'general')")
-    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
-
-
-@register_tool(
-    name="create_ui_page",
-    params=CreateUiPageParams,
-    description="Create a UI Page (sys_ui_page) with HTML, client script, and processing script. Scope is required.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_ui_page(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateUiPageParams,
-) -> Dict[str, Any]:
-    existing = _check_duplicate(
-        config, auth_manager, "sys_ui_page", "name", params.name, params.scope
-    )
-    if existing:
-        return {
-            "success": False,
-            "message": f"UI page '{params.name}' already exists in this scope.",
-            "existing_sys_id": existing.get("sys_id"),
-        }
-
-    body: Dict[str, Any] = {"name": params.name, "sys_scope": params.scope}
-    if params.html is not None:
-        body["html"] = params.html
-    if params.client_script is not None:
-        body["client_script"] = params.client_script
-    if params.processing_script is not None:
-        body["processing_script"] = params.processing_script
-    if params.description:
-        body["description"] = params.description
-    if params.category:
-        body["category"] = params.category
-
-    result = _create_record(config, auth_manager, "sys_ui_page", body)
-    if not result["success"]:
-        return result
-
-    record = result["result"]
-    return {
-        "success": True,
-        "message": f"Created UI page: {record.get('name')}",
-        "sys_id": record.get("sys_id"),
-        "name": record.get("name"),
-    }
-
-
-# --- Tool 7: scaffold_page -------------------------------------------------
+# --- scaffold_page -------------------------------------------------
 
 
 class ScaffoldRowDef(BaseModel):
@@ -981,9 +620,9 @@ def manage_portal_component(
 ) -> Dict[str, Any]:
     a = params.action
     if a == "create_widget":
-        kwargs: Dict[str, Any] = {"name": params.name, "scope": params.scope}
+        kw: Dict[str, Any] = {"name": params.name, "scope": params.scope}
         if params.widget_id is not None:
-            kwargs["id"] = params.widget_id
+            kw["widget_id"] = params.widget_id
         for f in (
             "template",
             "css",
@@ -996,45 +635,45 @@ def manage_portal_component(
         ):
             v = getattr(params, f)
             if v is not None:
-                kwargs[f] = v
-        return create_widget(config, auth_manager, CreateWidgetParams(**kwargs))
+                kw[f] = v
+        return _comp_svc.create_widget(config, auth_manager, **kw)
     if a == "create_provider":
-        kwargs = {
+        kw = {
             "name": params.name,
             "script": params.script,
             "scope": params.scope,
         }
         if params.provider_type is not None:
-            kwargs["type"] = params.provider_type
+            kw["provider_type"] = params.provider_type
         if params.description is not None:
-            kwargs["description"] = params.description
-        return create_angular_provider(config, auth_manager, CreateAngularProviderParams(**kwargs))
+            kw["description"] = params.description
+        return _comp_svc.create_angular_provider(config, auth_manager, **kw)
     if a == "create_header_footer":
-        kwargs = {"name": params.name, "scope": params.scope}
+        kw = {"name": params.name, "scope": params.scope}
         for f in ("template", "css"):
             v = getattr(params, f)
             if v is not None:
-                kwargs[f] = v
-        return create_header_footer(config, auth_manager, CreateHeaderFooterParams(**kwargs))
+                kw[f] = v
+        return _comp_svc.create_header_footer(config, auth_manager, **kw)
     if a == "create_theme":
-        kwargs = {"name": params.name, "scope": params.scope}
+        kw = {"name": params.name, "scope": params.scope}
         if params.css is not None:
-            kwargs["css"] = params.css
-        return create_css_theme(config, auth_manager, CreateCssThemeParams(**kwargs))
+            kw["css"] = params.css
+        return _comp_svc.create_css_theme(config, auth_manager, **kw)
     if a == "create_ng_template":
-        kwargs = {
-            "id": params.template_id,
+        kw = {
+            "template_id": params.template_id,
             "template": params.template,
             "scope": params.scope,
         }
-        return create_ng_template(config, auth_manager, CreateNgTemplateParams(**kwargs))
+        return _comp_svc.create_ng_template(config, auth_manager, **kw)
     if a == "create_ui_page":
-        kwargs = {"name": params.name, "scope": params.scope}
+        kw = {"name": params.name, "scope": params.scope}
         for f in ("html", "client_script", "processing_script", "description", "category"):
             v = getattr(params, f)
             if v is not None:
-                kwargs[f] = v
-        return create_ui_page(config, auth_manager, CreateUiPageParams(**kwargs))
+                kw[f] = v
+        return _comp_svc.create_ui_page(config, auth_manager, **kw)
     # update_code
     return update_portal_component(
         config,

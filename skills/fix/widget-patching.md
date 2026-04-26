@@ -10,7 +10,7 @@ tools:
   - get_portal_component_code
   - create_portal_component_snapshot
   - preview_portal_component_update
-  - update_portal_component
+  - manage_portal_component
   - update_portal_component_from_snapshot
   - route_portal_component_edit
 triggers:
@@ -77,10 +77,11 @@ CALL preview_portal_component_update
 ### GATE 3: Apply
 
 ONLY after user confirms:
-CALL update_portal_component
+CALL manage_portal_component
+  - action = "update_code"
   - table = "sp_widget"
   - sys_id = INPUT
-  - update_fields = {FIELD: NEW_CONTENT}
+  - update_data = {FIELD: NEW_CONTENT}
   - confirm = "approve"
 
 ### Rollback (if user reports issue after apply)

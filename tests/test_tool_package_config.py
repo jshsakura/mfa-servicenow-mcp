@@ -41,7 +41,7 @@ def test_portal_developer_includes_changeset_commit_and_workflow_read_tools():
     assert "analyze_portal_component_update" in portal_tools
     assert "create_portal_component_snapshot" in portal_tools
     assert "preview_portal_component_update" in portal_tools
-    assert "update_portal_component" in portal_tools
+    assert "manage_portal_component" in portal_tools
     assert "update_portal_component_from_snapshot" in portal_tools
 
 
@@ -53,7 +53,7 @@ def test_full_package_includes_portal_edit_pipeline_tools():
     assert "analyze_portal_component_update" in full_tools
     assert "create_portal_component_snapshot" in full_tools
     assert "preview_portal_component_update" in full_tools
-    assert "update_portal_component" in full_tools
+    assert "manage_portal_component" in full_tools
     assert "update_portal_component_from_snapshot" in full_tools
 
 

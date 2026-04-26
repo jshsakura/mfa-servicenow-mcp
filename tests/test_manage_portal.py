@@ -215,7 +215,7 @@ class TestComponentValidation:
 
 class TestComponentDispatch:
     def test_create_widget(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_widget") as m:
+        with patch("servicenow_mcp.services.portal_component.create_widget") as m:
             m.return_value = {"success": True}
             manage_portal_component(
                 _config(),
@@ -227,13 +227,12 @@ class TestComponentDispatch:
                     template="<div/>",
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.name == "MyWidget"
-            assert inner.scope == "s1"
-            assert inner.template == "<div/>"
+            assert m.call_args.kwargs["name"] == "MyWidget"
+            assert m.call_args.kwargs["scope"] == "s1"
+            assert m.call_args.kwargs["template"] == "<div/>"
 
     def test_create_provider(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_angular_provider") as m:
+        with patch("servicenow_mcp.services.portal_component.create_angular_provider") as m:
             m.return_value = {"success": True}
             manage_portal_component(
                 _config(),
@@ -245,11 +244,10 @@ class TestComponentDispatch:
                     scope="s1",
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.name == "svc"
+            assert m.call_args.kwargs["name"] == "svc"
 
     def test_create_header_footer(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_header_footer") as m:
+        with patch("servicenow_mcp.services.portal_component.create_header_footer") as m:
             m.return_value = {"success": True}
             manage_portal_component(
                 _config(),
@@ -260,11 +258,10 @@ class TestComponentDispatch:
                     scope="s1",
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.name == "hdr"
+            assert m.call_args.kwargs["name"] == "hdr"
 
     def test_create_theme(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_css_theme") as m:
+        with patch("servicenow_mcp.services.portal_component.create_css_theme") as m:
             m.return_value = {"success": True}
             manage_portal_component(
                 _config(),
@@ -273,11 +270,10 @@ class TestComponentDispatch:
                     action="create_theme", name="dark", scope="s1", css="body{}"
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.name == "dark"
+            assert m.call_args.kwargs["name"] == "dark"
 
     def test_create_ng_template(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_ng_template") as m:
+        with patch("servicenow_mcp.services.portal_component.create_ng_template") as m:
             m.return_value = {"success": True}
             manage_portal_component(
                 _config(),
@@ -289,20 +285,18 @@ class TestComponentDispatch:
                     scope="s1",
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.id == "my.html"
-            assert inner.template == "<div/>"
+            assert m.call_args.kwargs["template_id"] == "my.html"
+            assert m.call_args.kwargs["template"] == "<div/>"
 
     def test_create_ui_page(self):
-        with patch("servicenow_mcp.tools.portal_crud_tools.create_ui_page") as m:
+        with patch("servicenow_mcp.services.portal_component.create_ui_page") as m:
             m.return_value = {"success": True}
             manage_portal_component(
                 _config(),
                 MagicMock(),
                 ManagePortalComponentParams(action="create_ui_page", name="my_ui", scope="s1"),
             )
-            inner = m.call_args[0][2]
-            assert inner.name == "my_ui"
+            assert m.call_args.kwargs["name"] == "my_ui"
 
     def test_update_code(self):
         with patch("servicenow_mcp.tools.portal_crud_tools.update_portal_component") as m:
