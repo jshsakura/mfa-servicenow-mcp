@@ -10,7 +10,7 @@ ServiceNow workflows are a powerful automation feature that allows you to define
 
 ### Viewing Workflows
 
-1. **list_workflows** - List workflows from ServiceNow
+1. **manage_workflow(action="list")** - List workflows from ServiceNow
    - Parameters:
      - `limit` (optional): Maximum number of records to return (default: 10)
      - `offset` (optional): Offset to start from (default: 0)
@@ -18,7 +18,7 @@ ServiceNow workflows are a powerful automation feature that allows you to define
      - `name` (optional): Filter by name (contains)
      - `query` (optional): Additional query string
 
-2. **get_workflow_details** - Get detailed information about a specific workflow
+2. **manage_workflow(action="get")** - Get detailed information about a specific workflow
    - Parameters:
      - `workflow_id` (required): Workflow ID or sys_id
 
