@@ -84,17 +84,12 @@ class TestJsonFastMigration:
         mock_auth = MagicMock()
         mock_auth.get_headers.return_value = {"Authorization": "Basic ..."}
 
-        # Mock get_script_include to return a client-callable SI
-        with patch("servicenow_mcp.tools.script_include_tools.get_script_include") as mock_get:
-            mock_get.return_value = {
-                "success": True,
-                "message": "Found",
-                "script_include": {
-                    "sys_id": "si1",
-                    "name": "TestSI",
-                    "client_callable": True,
-                },
-            }
+        # Mock sn_query_page to return a client-callable SI
+        with patch("servicenow_mcp.services.script_include.sn_query_page") as mock_qp:
+            mock_qp.return_value = (
+                [{"sys_id": "si1", "name": "TestSI", "client_callable": "true"}],
+                1,
+            )
             # Mock the HTTP response with valid JSON
             resp = MagicMock()
             resp.status_code = 200
@@ -129,16 +124,11 @@ class TestJsonFastMigration:
         mock_auth = MagicMock()
         mock_auth.get_headers.return_value = {"Authorization": "Basic ..."}
 
-        with patch("servicenow_mcp.tools.script_include_tools.get_script_include") as mock_get:
-            mock_get.return_value = {
-                "success": True,
-                "message": "Found",
-                "script_include": {
-                    "sys_id": "si1",
-                    "name": "TestSI",
-                    "client_callable": True,
-                },
-            }
+        with patch("servicenow_mcp.services.script_include.sn_query_page") as mock_qp:
+            mock_qp.return_value = (
+                [{"sys_id": "si1", "name": "TestSI", "client_callable": "true"}],
+                1,
+            )
             resp = MagicMock()
             resp.status_code = 200
             resp.text = "<xml><answer>hello</answer></xml>"
