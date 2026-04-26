@@ -315,7 +315,7 @@ class TestScriptIncludeTools(unittest.TestCase):
 
     # --- create_script_include ---
 
-    @patch("servicenow_mcp.tools.script_include_tools.invalidate_query_cache")
+    @patch("servicenow_mcp.services.script_include.invalidate_query_cache")
     def test_create_script_include_happy(self, mock_invalidate):
         """Test creating a script include successfully."""
         mock_response = self._mock_response(
@@ -352,7 +352,7 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertEqual("true", call_args[1]["json"]["active"])
         self.assertEqual("public", call_args[1]["json"]["access"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.invalidate_query_cache")
+    @patch("servicenow_mcp.services.script_include.invalidate_query_cache")
     def test_create_script_include_error(self, mock_invalidate):
         """Test creating a script include with an error."""
         self.auth_manager.make_request.side_effect = Exception("Test error")
@@ -369,8 +369,8 @@ class TestScriptIncludeTools(unittest.TestCase):
 
     # --- update_script_include ---
 
-    @patch("servicenow_mcp.tools.script_include_tools.invalidate_query_cache")
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.invalidate_query_cache")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_update_script_include_happy(self, mock_query_page, mock_invalidate):
         """Test updating a script include successfully."""
         # Mock the get (via sn_query_page)
@@ -423,7 +423,7 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertEqual("Updated Test Script Include", call_args[1]["json"]["description"])
         self.assertEqual("false", call_args[1]["json"]["client_callable"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_update_script_include_not_found(self, mock_query_page):
         """Test updating a script include that doesn't exist."""
         mock_query_page.return_value = ([], 0)
@@ -437,7 +437,7 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("not found", result.message)
 
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_update_script_include_no_changes(self, mock_query_page):
         """Test updating a script include with no fields to update."""
         mock_query_page.return_value = (
@@ -469,7 +469,7 @@ class TestScriptIncludeTools(unittest.TestCase):
         # make_request should not be called for PATCH
         self.auth_manager.make_request.assert_not_called()
 
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_update_script_include_error(self, mock_query_page):
         """Test updating a script include with a PATCH error."""
         mock_query_page.return_value = (
@@ -505,8 +505,8 @@ class TestScriptIncludeTools(unittest.TestCase):
 
     # --- delete_script_include ---
 
-    @patch("servicenow_mcp.tools.script_include_tools.invalidate_query_cache")
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.invalidate_query_cache")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_delete_script_include_happy(self, mock_query_page, mock_invalidate):
         """Test deleting a script include successfully."""
         mock_query_page.return_value = (
@@ -544,7 +544,7 @@ class TestScriptIncludeTools(unittest.TestCase):
         call_args = self.auth_manager.make_request.call_args
         self.assertEqual("DELETE", call_args[0][0])
 
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_delete_script_include_not_found(self, mock_query_page):
         """Test deleting a script include that doesn't exist."""
         mock_query_page.return_value = ([], 0)
@@ -555,7 +555,7 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("not found", result.message)
 
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_delete_script_include_error(self, mock_query_page):
         """Test deleting a script include with a DELETE error."""
         mock_query_page.return_value = (
@@ -588,7 +588,7 @@ class TestScriptIncludeTools(unittest.TestCase):
 
     # --- execute_script_include ---
 
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_execute_script_include_happy(self, mock_query_page):
         """Test executing a client-callable script include successfully."""
         mock_query_page.return_value = (
@@ -635,7 +635,7 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertEqual("getAnswer", call_args[1]["params"]["sysparm_name"])
         self.assertEqual("test", call_args[1]["params"]["sysparm_input"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_execute_script_include_not_found(self, mock_query_page):
         """Test executing a script include that doesn't exist."""
         mock_query_page.return_value = ([], 0)
@@ -646,7 +646,7 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("not found", result["message"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_execute_script_include_not_client_callable(self, mock_query_page):
         """Test executing a script include that is not client-callable."""
         mock_query_page.return_value = (
@@ -675,7 +675,7 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("not client-callable", result["message"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_execute_script_include_error(self, mock_query_page):
         """Test executing a script include with an xmlhttp error."""
         mock_query_page.return_value = (
@@ -706,7 +706,7 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("Error executing script include", result["message"])
 
-    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
     def test_execute_script_include_text_response(self, mock_query_page):
         """Test executing a script include that returns non-JSON text."""
         mock_query_page.return_value = (
