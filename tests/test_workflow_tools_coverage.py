@@ -2,8 +2,7 @@
 Additional tests for workflow_tools to increase coverage to 80%+.
 
 Covers: error paths, missing workflow_id, empty params, _unwrap_params fallback,
-_get_auth_and_config duck-typing branch, count_only, delete_workflow,
-and exception paths for every CRUD function.
+count_only, delete_workflow, and exception paths for every CRUD function.
 """
 
 import json
@@ -14,7 +13,6 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.workflow_tools import (
     CreateWorkflowParams,
     ListWorkflowsParams,
-    _get_auth_and_config,
     _unwrap_params,
     activate_workflow,
     add_workflow_activity,
@@ -74,50 +72,6 @@ class TestUnwrapParams(unittest.TestCase):
         self.assertEqual(result["name"], "Test")
 
 
-class TestGetAuthAndConfigDuckTyping(unittest.TestCase):
-    """Cover lines 181, 189-192: duck-typing branch in _get_auth_and_config."""
-
-    def test_duck_typing_with_get_headers_on_first_arg(self):
-        """First arg has get_headers, second has instance_url."""
-        obj1 = MagicMock()
-        obj1.get_headers = MagicMock()
-        del obj1.instance_url  # ensure no instance_url
-        obj2 = MagicMock()
-        obj2.instance_url = "https://example.com"
-        del obj2.get_headers  # ensure no get_headers
-
-        # Neither is AuthManager or ServerConfig instance, so duck-typing kicks in
-        auth, config = _get_auth_and_config(obj1, obj2)
-        self.assertEqual(auth, obj1)
-        self.assertEqual(config, obj2)
-
-    def test_duck_typing_with_get_headers_on_second_arg(self):
-        """Second arg has get_headers, first has instance_url."""
-        obj1 = MagicMock()
-        obj1.instance_url = "https://example.com"
-        del obj1.get_headers
-        obj2 = MagicMock()
-        obj2.get_headers = MagicMock()
-        del obj2.instance_url
-
-        auth, config = _get_auth_and_config(obj1, obj2)
-        self.assertEqual(auth, obj2)
-        self.assertEqual(config, obj1)
-
-    def test_raises_when_no_instance_url(self):
-        """Cover lines 191-192: neither has instance_url."""
-        obj1 = MagicMock()
-        obj1.get_headers = MagicMock()
-        del obj1.instance_url
-        obj2 = MagicMock()
-        del obj2.get_headers
-        del obj2.instance_url
-
-        with self.assertRaises(ValueError) as ctx:
-            _get_auth_and_config(obj1, obj2)
-        self.assertIn("instance_url", str(ctx.exception))
-
-
 class TestListWorkflowsEdgeCases(unittest.TestCase):
     def setUp(self):
         self.config = _make_config()
@@ -126,7 +80,7 @@ class TestListWorkflowsEdgeCases(unittest.TestCase):
     def test_count_only(self):
         """Cover line 246-247: count_only branch."""
         with patch("servicenow_mcp.tools.workflow_tools.sn_count", return_value=42):
-            result = list_workflows(self.auth, self.config, {"count_only": True})
+            result = list_workflows(self.config, self.auth, {"count_only": True})
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 42)
 
@@ -134,7 +88,7 @@ class TestListWorkflowsEdgeCases(unittest.TestCase):
         """Cover lines 238, 241: name and query filters."""
         resp = _ok_response({"result": []}, {"X-Total-Count": "0"})
         self.auth.make_request.return_value = resp
-        result = list_workflows(self.auth, self.config, {"name": "test", "query": "table=incident"})
+        result = list_workflows(self.config, self.auth, {"name": "test", "query": "table=incident"})
         self.assertEqual(result["count"], 0)
 
     def test_get_auth_config_error_returns_error(self):
@@ -156,7 +110,7 @@ class TestGetWorkflowDetailsEdgeCases(unittest.TestCase):
 
     def test_missing_workflow_id(self):
         """Cover line 294."""
-        result = get_workflow_details(self.auth, self.config, {})
+        result = get_workflow_details(self.config, self.auth, {})
         self.assertEqual(result["error"], "Workflow ID is required")
 
     def test_auth_config_error(self):
@@ -174,7 +128,7 @@ class TestGetWorkflowDetailsEdgeCases(unittest.TestCase):
         """Cover line 309."""
         resp = _ok_response({"result": []}, {"X-Total-Count": "0"})
         self.auth.make_request.return_value = resp
-        result = get_workflow_details(self.auth, self.config, {"workflow_id": "nonexistent"})
+        result = get_workflow_details(self.config, self.auth, {"workflow_id": "nonexistent"})
         self.assertIn("not found", result["error"])
 
     def test_include_activities_with_version_id(self):
@@ -187,8 +141,8 @@ class TestGetWorkflowDetailsEdgeCases(unittest.TestCase):
         )
         self.auth.make_request.side_effect = [wf_resp, act_resp]
         result = get_workflow_details(
-            self.auth,
             self.config,
+            self.auth,
             {
                 "workflow_id": "wf1",
                 "include_activities": True,
@@ -205,7 +159,7 @@ class TestCreateWorkflowEdgeCases(unittest.TestCase):
 
     def test_missing_name(self):
         """Cover line 432."""
-        result = create_workflow(self.auth, self.config, {})
+        result = create_workflow(self.config, self.auth, {})
         self.assertEqual(result["error"], "Workflow name is required")
 
     def test_auth_config_error(self):
@@ -226,8 +180,8 @@ class TestCreateWorkflowEdgeCases(unittest.TestCase):
         resp.raise_for_status = MagicMock()
         self.auth.make_request.return_value = resp
         result = create_workflow(
-            self.auth,
             self.config,
+            self.auth,
             {"name": "Test", "attributes": {"custom_field": "val"}},
         )
         self.assertEqual(result["message"], "Workflow created successfully")
@@ -235,7 +189,7 @@ class TestCreateWorkflowEdgeCases(unittest.TestCase):
     def test_exception_path(self):
         """Cover lines 466-468."""
         self.auth.make_request.side_effect = Exception("API down")
-        result = create_workflow(self.auth, self.config, {"name": "Test"})
+        result = create_workflow(self.config, self.auth, {"name": "Test"})
         self.assertIn("error", result)
 
 
@@ -257,12 +211,12 @@ class TestUpdateWorkflowEdgeCases(unittest.TestCase):
 
     def test_missing_workflow_id(self):
         """Cover line 506."""
-        result = update_workflow(self.auth, self.config, {})
+        result = update_workflow(self.config, self.auth, {})
         self.assertEqual(result["error"], "Workflow ID is required")
 
     def test_no_update_params(self):
         """Cover line 528."""
-        result = update_workflow(self.auth, self.config, {"workflow_id": "wf1"})
+        result = update_workflow(self.config, self.auth, {"workflow_id": "wf1"})
         self.assertEqual(result["error"], "No update parameters provided")
 
     def test_table_and_active_and_attributes(self):
@@ -272,8 +226,8 @@ class TestUpdateWorkflowEdgeCases(unittest.TestCase):
         resp.raise_for_status = MagicMock()
         self.auth.make_request.return_value = resp
         result = update_workflow(
-            self.auth,
             self.config,
+            self.auth,
             {
                 "workflow_id": "wf1",
                 "table": "incident",
@@ -286,7 +240,7 @@ class TestUpdateWorkflowEdgeCases(unittest.TestCase):
     def test_exception_path(self):
         """Cover lines 544-546."""
         self.auth.make_request.side_effect = Exception("Boom")
-        result = update_workflow(self.auth, self.config, {"workflow_id": "wf1", "name": "x"})
+        result = update_workflow(self.config, self.auth, {"workflow_id": "wf1", "name": "x"})
         self.assertIn("error", result)
 
 
@@ -308,13 +262,13 @@ class TestActivateWorkflowEdgeCases(unittest.TestCase):
 
     def test_missing_workflow_id(self):
         """Cover line 584."""
-        result = activate_workflow(self.auth, self.config, {})
+        result = activate_workflow(self.config, self.auth, {})
         self.assertEqual(result["error"], "Workflow ID is required")
 
     def test_exception_path(self):
         """Cover lines 605-607."""
         self.auth.make_request.side_effect = Exception("Fail")
-        result = activate_workflow(self.auth, self.config, {"workflow_id": "wf1"})
+        result = activate_workflow(self.config, self.auth, {"workflow_id": "wf1"})
         self.assertIn("error", result)
 
 
@@ -336,13 +290,13 @@ class TestDeactivateWorkflowEdgeCases(unittest.TestCase):
 
     def test_missing_workflow_id(self):
         """Cover line 645."""
-        result = deactivate_workflow(self.auth, self.config, {})
+        result = deactivate_workflow(self.config, self.auth, {})
         self.assertEqual(result["error"], "Workflow ID is required")
 
     def test_exception_path(self):
         """Cover lines 666-668."""
         self.auth.make_request.side_effect = Exception("Fail")
-        result = deactivate_workflow(self.auth, self.config, {"workflow_id": "wf1"})
+        result = deactivate_workflow(self.config, self.auth, {"workflow_id": "wf1"})
         self.assertIn("error", result)
 
 
@@ -364,12 +318,12 @@ class TestAddWorkflowActivityEdgeCases(unittest.TestCase):
 
     def test_missing_workflow_version_id(self):
         """Cover line 707."""
-        result = add_workflow_activity(self.auth, self.config, {})
+        result = add_workflow_activity(self.config, self.auth, {})
         self.assertEqual(result["error"], "Workflow version ID is required")
 
     def test_missing_activity_name(self):
         """Cover line 711."""
-        result = add_workflow_activity(self.auth, self.config, {"workflow_version_id": "v1"})
+        result = add_workflow_activity(self.config, self.auth, {"workflow_version_id": "v1"})
         self.assertEqual(result["error"], "Activity name is required")
 
     def test_with_attributes(self):
@@ -379,8 +333,8 @@ class TestAddWorkflowActivityEdgeCases(unittest.TestCase):
         resp.raise_for_status = MagicMock()
         self.auth.make_request.return_value = resp
         result = add_workflow_activity(
-            self.auth,
             self.config,
+            self.auth,
             {
                 "workflow_version_id": "v1",
                 "name": "Act",
@@ -394,8 +348,8 @@ class TestAddWorkflowActivityEdgeCases(unittest.TestCase):
         """Cover lines 743-745."""
         self.auth.make_request.side_effect = Exception("Fail")
         result = add_workflow_activity(
-            self.auth,
             self.config,
+            self.auth,
             {"workflow_version_id": "v1", "name": "Act", "activity_type": "task"},
         )
         self.assertIn("error", result)
@@ -419,7 +373,7 @@ class TestUpdateWorkflowActivityEdgeCases(unittest.TestCase):
 
     def test_missing_activity_id(self):
         """Cover line 783."""
-        result = update_workflow_activity(self.auth, self.config, {})
+        result = update_workflow_activity(self.config, self.auth, {})
         self.assertEqual(result["error"], "Activity ID is required")
 
     def test_with_attributes(self):
@@ -429,15 +383,15 @@ class TestUpdateWorkflowActivityEdgeCases(unittest.TestCase):
         resp.raise_for_status = MagicMock()
         self.auth.make_request.return_value = resp
         result = update_workflow_activity(
-            self.auth,
             self.config,
+            self.auth,
             {"activity_id": "a1", "attributes": {"key": "val"}},
         )
         self.assertEqual(result["message"], "Activity updated successfully")
 
     def test_no_update_params(self):
         """Cover line 799."""
-        result = update_workflow_activity(self.auth, self.config, {"activity_id": "a1"})
+        result = update_workflow_activity(self.config, self.auth, {"activity_id": "a1"})
         self.assertEqual(result["error"], "No update parameters provided")
 
     def test_exception_path(self):
@@ -467,13 +421,13 @@ class TestDeleteWorkflowActivityEdgeCases(unittest.TestCase):
 
     def test_missing_activity_id(self):
         """Cover line 855."""
-        result = delete_workflow_activity(self.auth, self.config, {})
+        result = delete_workflow_activity(self.config, self.auth, {})
         self.assertEqual(result["error"], "Activity ID is required")
 
     def test_exception_path(self):
         """Cover lines 870-872."""
         self.auth.make_request.side_effect = Exception("Fail")
-        result = delete_workflow_activity(self.auth, self.config, {"activity_id": "a1"})
+        result = delete_workflow_activity(self.config, self.auth, {"activity_id": "a1"})
         self.assertIn("error", result)
 
 
@@ -497,12 +451,12 @@ class TestReorderWorkflowActivitiesEdgeCases(unittest.TestCase):
 
     def test_missing_workflow_id(self):
         """Cover line 910."""
-        result = reorder_workflow_activities(self.auth, self.config, {})
+        result = reorder_workflow_activities(self.config, self.auth, {})
         self.assertEqual(result["error"], "Workflow ID is required")
 
     def test_missing_activity_ids(self):
         """Cover line 914."""
-        result = reorder_workflow_activities(self.auth, self.config, {"workflow_id": "wf1"})
+        result = reorder_workflow_activities(self.config, self.auth, {"workflow_id": "wf1"})
         self.assertEqual(result["error"], "Activity IDs are required")
 
     def test_partial_failure(self):
@@ -513,8 +467,8 @@ class TestReorderWorkflowActivitiesEdgeCases(unittest.TestCase):
 
         self.auth.make_request.side_effect = [ok_resp, Exception("Fail"), ok_resp]
         result = reorder_workflow_activities(
-            self.auth,
             self.config,
+            self.auth,
             {"workflow_id": "wf1", "activity_ids": ["a1", "a2", "a3"]},
         )
         self.assertTrue(result["results"][0]["success"])
@@ -526,8 +480,8 @@ class TestReorderWorkflowActivitiesEdgeCases(unittest.TestCase):
         # Make get_headers raise to trigger the outer exception
         self.auth.get_headers.side_effect = Exception("Outer fail")
         result = reorder_workflow_activities(
-            self.auth,
             self.config,
+            self.auth,
             {"workflow_id": "wf1", "activity_ids": ["a1"]},
         )
         self.assertIn("error", result)
@@ -544,7 +498,7 @@ class TestDeleteWorkflow(unittest.TestCase):
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
         self.auth.make_request.return_value = resp
-        result = delete_workflow(self.auth, self.config, {"workflow_id": "wf1"})
+        result = delete_workflow(self.config, self.auth, {"workflow_id": "wf1"})
         self.assertIn("deleted successfully", result["message"])
         self.assertEqual(result["workflow_id"], "wf1")
 
@@ -559,12 +513,12 @@ class TestDeleteWorkflow(unittest.TestCase):
         self.assertIn("error", result)
 
     def test_missing_workflow_id(self):
-        result = delete_workflow(self.auth, self.config, {})
+        result = delete_workflow(self.config, self.auth, {})
         self.assertEqual(result["error"], "Workflow ID is required")
 
     def test_exception_path(self):
         self.auth.make_request.side_effect = Exception("Fail")
-        result = delete_workflow(self.auth, self.config, {"workflow_id": "wf1"})
+        result = delete_workflow(self.config, self.auth, {"workflow_id": "wf1"})
         self.assertIn("error", result)
 
 
