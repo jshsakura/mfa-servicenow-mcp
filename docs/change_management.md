@@ -12,48 +12,18 @@ The ServiceNow MCP server provides the following change management tools:
 
 ### Core Change Request Management
 
-1. **create_change_request** - Create a new change request in ServiceNow
-   - Parameters:
-     - `short_description` (required): Short description of the change request
-     - `description`: Detailed description of the change request
-     - `type` (required): Type of change (normal, standard, emergency)
-     - `risk`: Risk level of the change
-     - `impact`: Impact of the change
-     - `category`: Category of the change
-     - `requested_by`: User who requested the change
-     - `assignment_group`: Group assigned to the change
-     - `start_date`: Planned start date (YYYY-MM-DD HH:MM:SS)
-     - `end_date`: Planned end date (YYYY-MM-DD HH:MM:SS)
+1. **`manage_change`** - Bundled CRUD for change requests (table: `change_request`)
+   - `action` (required): one of `create` / `update` / `add_task`
+   - For `action="create"`: `short_description`, `type` (`normal`/`standard`/`emergency`), plus optional `description`, `risk`, `impact`, `category`, `requested_by`, `assignment_group`, `start_date`, `end_date`
+   - For `action="update"`: `change_id` plus at least one updatable field (`short_description`, `description`, `state`, `risk`, `impact`, `category`, `assignment_group`, `start_date`, `end_date`, `work_notes`); supports `dry_run=True` for a preview
+   - For `action="add_task"`: `change_id`, `task_short_description`, plus optional `task_description`, `task_assigned_to`, `task_planned_start_date`, `task_planned_end_date`
 
-2. **update_change_request** - Update an existing change request
-   - Parameters:
-     - `change_id` (required): Change request ID or sys_id
-     - `short_description`: Short description of the change request
-     - `description`: Detailed description of the change request
-     - `state`: State of the change request
-     - `risk`: Risk level of the change
-     - `impact`: Impact of the change
-     - `category`: Category of the change
-     - `assignment_group`: Group assigned to the change
-     - `start_date`: Planned start date (YYYY-MM-DD HH:MM:SS)
-     - `end_date`: Planned end date (YYYY-MM-DD HH:MM:SS)
-     - `work_notes`: Work notes to add to the change request
-
-3. **`sn_query`** (with `table=change_request`) - List change requests with arbitrary filters
+2. **`sn_query`** (with `table=change_request`) - List change requests with arbitrary filters
    - Use the generic table-query primitive for listing change requests. See [Tool Inventory](TOOL_INVENTORY.md) for `sn_query` parameters.
 
-4. **get_change_request_details** - Get detailed information about a specific change request
+3. **`get_change_request_details`** - Get detailed information about a specific change request
    - Parameters:
      - `change_id` (required): Change request ID or sys_id
-
-5. **add_change_task** - Add a task to a change request
-   - Parameters:
-     - `change_id` (required): Change request ID or sys_id
-     - `short_description` (required): Short description of the task
-     - `description`: Detailed description of the task
-     - `assigned_to`: User assigned to the task
-     - `planned_start_date`: Planned start date (YYYY-MM-DD HH:MM:SS)
-     - `planned_end_date`: Planned end date (YYYY-MM-DD HH:MM:SS)
 
 ### Change Approval Workflow
 
@@ -110,7 +80,7 @@ Here's an example of how to use the change management tools programmatically:
 
 ```python
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools.change_tools import create_change_request
+from servicenow_mcp.tools.change_tools import ManageChangeParams, manage_change
 from servicenow_mcp.utils.config import ServerConfig
 
 # Create server configuration
@@ -126,19 +96,20 @@ auth_manager = AuthManager(
     instance_url="https://your-instance.service-now.com",
 )
 
-# Create a change request
-create_params = {
-    "short_description": "Server maintenance - Apply security patches",
-    "description": "Apply the latest security patches to the application servers.",
-    "type": "normal",
-    "risk": "moderate",
-    "impact": "medium",
-    "category": "Hardware",
-    "start_date": "2023-12-15 01:00:00",
-    "end_date": "2023-12-15 03:00:00",
-}
+# Create a change request via the bundled manage_change tool
+params = ManageChangeParams(
+    action="create",
+    short_description="Server maintenance - Apply security patches",
+    description="Apply the latest security patches to the application servers.",
+    type="normal",
+    risk="moderate",
+    impact="medium",
+    category="Hardware",
+    start_date="2023-12-15 01:00:00",
+    end_date="2023-12-15 03:00:00",
+)
 
-result = create_change_request(auth_manager, server_config, create_params)
+result = manage_change(server_config, auth_manager, params)
 print(result)
 ```
 

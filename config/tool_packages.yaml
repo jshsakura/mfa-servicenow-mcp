@@ -201,8 +201,7 @@ platform_developer:
     # Incident writes (legacy)
     - update_incident
     - resolve_incident
-    # Change Management writes (legacy + orchestrators)
-    - update_change_request
+    # Change Management orchestrators (manage_change covers create/update/add_task)
     - submit_change_for_approval
     # Changeset writes
     - create_changeset
@@ -257,10 +256,7 @@ full:
     - update_catalog_item
     - create_catalog_item_variable
     - update_catalog_item_variable
-    # Change Management writes
-    - create_change_request
-    - update_change_request
-    - add_change_task
+    # Change Management orchestrators (manage_change covers create/update/add_task)
     - submit_change_for_approval
     - approve_change
     - reject_change

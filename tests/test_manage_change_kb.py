@@ -61,7 +61,7 @@ class TestManageChangeValidation:
 
 class TestManageChangeDispatch:
     def test_create_dispatches(self):
-        with patch("servicenow_mcp.tools.change_tools.create_change_request") as mock_create:
+        with patch("servicenow_mcp.services.change.create") as mock_create:
             mock_create.return_value = {"success": True}
             manage_change(
                 _config(),
@@ -73,26 +73,26 @@ class TestManageChangeDispatch:
                     risk="low",
                 ),
             )
-            inner = mock_create.call_args[0][2]
-            assert inner.short_description == "rebuild db"
-            assert inner.type == "normal"
-            assert inner.risk == "low"
+            kwargs = mock_create.call_args.kwargs
+            assert kwargs["short_description"] == "rebuild db"
+            assert kwargs["type"] == "normal"
+            assert kwargs["risk"] == "low"
 
     def test_update_dispatches(self):
-        with patch("servicenow_mcp.tools.change_tools.update_change_request") as mock_update:
+        with patch("servicenow_mcp.services.change.update") as mock_update:
             mock_update.return_value = {"success": True}
             manage_change(
                 _config(),
                 MagicMock(),
                 ManageChangeParams(action="update", change_id="abc", state="2", risk="medium"),
             )
-            inner = mock_update.call_args[0][2]
-            assert inner.change_id == "abc"
-            assert inner.state == "2"
-            assert inner.risk == "medium"
+            kwargs = mock_update.call_args.kwargs
+            assert kwargs["change_id"] == "abc"
+            assert kwargs["state"] == "2"
+            assert kwargs["risk"] == "medium"
 
     def test_add_task_dispatches(self):
-        with patch("servicenow_mcp.tools.change_tools.add_change_task") as mock_add:
+        with patch("servicenow_mcp.services.change.add_task") as mock_add:
             mock_add.return_value = {"success": True}
             manage_change(
                 _config(),
@@ -104,10 +104,10 @@ class TestManageChangeDispatch:
                     task_assigned_to="user1",
                 ),
             )
-            inner = mock_add.call_args[0][2]
-            assert inner.change_id == "abc"
-            assert inner.short_description == "patch db"
-            assert inner.assigned_to == "user1"
+            kwargs = mock_add.call_args.kwargs
+            assert kwargs["change_id"] == "abc"
+            assert kwargs["short_description"] == "patch db"
+            assert kwargs["assigned_to"] == "user1"
 
 
 # ---------------------------------------------------------------------------
