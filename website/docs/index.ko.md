@@ -368,7 +368,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">165</span>
+    <span class="hero-stat-value">77</span>
     <span class="hero-stat-label">MCP 도구(Tools)</span>
   </div>
   <div class="hero-stat">
@@ -409,7 +409,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>연결</h3>
-        <p>Claude, Cursor 또는 모든 MCP 클라이언트에 연결하세요. 97개 이상의 도구가 즉시 준비됩니다.</p>
+        <p>Claude, Cursor 또는 모든 MCP 클라이언트에 연결하세요. 77개의 등록된 도구가 활성 패키지 프로필을 통해 즉시 준비됩니다.</p>
       </div>
     </div>
   </div>
