@@ -70,7 +70,7 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **165 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **77 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **24 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
