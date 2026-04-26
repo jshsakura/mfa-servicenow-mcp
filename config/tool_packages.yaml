@@ -141,9 +141,6 @@ portal_developer:
     - create_row
     - create_column
     - scaffold_page
-    # Script Include writes
-    - create_script_include
-    - update_script_include
     # Changeset writes
     - create_changeset
     - update_changeset
@@ -182,11 +179,6 @@ platform_developer:
     - create_row
     - create_column
     - scaffold_page
-    # Script Include writes (full)
-    - create_script_include
-    - update_script_include
-    - delete_script_include
-    - execute_script_include
     # Bundled (Phase 2 + 3)
     - manage_incident
     - manage_change
@@ -286,11 +278,6 @@ full:
     - create_row
     - create_column
     - scaffold_page
-    # Script Include writes (full)
-    - create_script_include
-    - update_script_include
-    - delete_script_include
-    - execute_script_include
     # UI Policy writes
     # Local Sync writes
     - update_remote_from_local
