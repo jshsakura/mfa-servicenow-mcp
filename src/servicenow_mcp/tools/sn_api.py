@@ -953,6 +953,45 @@ def sn_nl(
     config: ServerConfig, auth_manager: AuthManager, params: NaturalLanguageParams
 ) -> Dict[str, Any]:
     text = params.text.strip()
+
+    # Phase 1: download/export intent. Resolver is pure regex, no SN calls.
+    # Returns None when text isn't a download request → fall through to legacy.
+    from servicenow_mcp.tools.nl_download_intents import resolve_download_intent
+
+    download_intent = resolve_download_intent(text)
+    if download_intent is not None:
+        if download_intent["needs_clarification"]:
+            return {
+                "success": True,
+                "executed": False,
+                "intent": download_intent["intent"],
+                "target_type": download_intent["target_type"],
+                "needs_clarification": True,
+                "missing": download_intent["missing"],
+                "message": download_intent["question"],
+                "suggested_tool": download_intent.get("suggested_tool"),
+            }
+        tool_name = download_intent["tool"]
+        tool_params = download_intent["params"]
+        if tool_name == "download_app_sources":
+            from servicenow_mcp.tools.source_tools import (
+                DownloadAppSourcesParams,
+                download_app_sources,
+            )
+
+            return download_app_sources(
+                config, auth_manager, DownloadAppSourcesParams(**tool_params)
+            )
+        if tool_name == "download_portal_sources":
+            from servicenow_mcp.tools.portal_tools import (
+                DownloadPortalSourcesParams,
+                download_portal_sources,
+            )
+
+            return download_portal_sources(
+                config, auth_manager, DownloadPortalSourcesParams(**tool_params)
+            )
+
     lower = text.lower()
 
     table_alias = {
