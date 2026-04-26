@@ -253,12 +253,12 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
 | `none` | 0 | 도구를 의도적으로 비활성화하는 프로필 |
-| `core` | 22 | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
-| `standard` | 54 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 전반의 읽기 전용 패키지 |
-| `service_desk` | 59 | standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 86 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
-| `platform_developer` | 99 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 124 | 가장 넓은 패키지 표면: 번들 `manage_*` 워크플로우 + 레거시 호환 래퍼 |
+| `core` | 15 | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
+| `standard` | 45 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 전반의 읽기 전용 패키지 |
+| `service_desk` | 46 | standard + 인시던트/변경 운영 쓰기 |
+| `portal_developer` | 55 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
+| `platform_developer` | 55 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `full` | 66 | 가장 넓은 패키지 표면: 번들 `manage_*` 워크플로우 + 고급 운영 도구 |
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 
@@ -611,7 +611,7 @@ uv build
 
 ## 관련 프로젝트 및 참고
 
-- 이 저장소의 일부 도구는 기존 내부/레거시 ServiceNow MCP 구현들을 정리하고 재구성한 결과물입니다. 그 흔적은 [core_plus.py](./src/servicenow_mcp/tools/core_plus.py), [tool_utils.py](./src/servicenow_mcp/utils/tool_utils.py) 같은 모듈에서 볼 수 있습니다.
+- 이 저장소의 일부 도구는 기존 내부/레거시 ServiceNow MCP 구현들을 정리하고 재구성한 결과물입니다. 현재 표면은 번들된 `manage_*` 도구를 중심으로 정리되어 있습니다 ([tool_utils.py](./src/servicenow_mcp/utils/tool_utils.py) 참조).
 - 개발자 생산성 기능, 특히 서버 소스 조회 흐름은 [SN Utils](https://github.com/arnoudkooi/SN-Utils)의 아이디어를 참고해 설계했습니다. 다만 이 프로젝트는 SN Utils 코드를 포함하거나 재배포하지 않습니다.
 - 이 프로젝트는 브라우저 확장 UX 자체보다 MCP 서버 사용 시나리오에 초점을 둡니다. ServiceNow 화면 안에서 바로 쓰는 생산성 기능이 필요하면 SN Utils를 함께 사용하는 것도 좋은 선택입니다.
 
