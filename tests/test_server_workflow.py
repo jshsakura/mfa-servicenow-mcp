@@ -6,14 +6,20 @@ from servicenow_mcp.utils.registry import discover_tools
 
 
 def test_workflow_tools_are_discovered_by_registry():
-    """Verify all workflow tools appear in the global @register_tool registry."""
+    """Verify registered workflow tools appear in the global @register_tool registry."""
     registry = discover_tools()
 
     workflow_tools = [
         "list_workflows",
         "get_workflow_details",
-        # list_workflow_versions and get_workflow_activities
-        # merged into get_workflow_details with include flags
+        "manage_workflow",
+    ]
+
+    for tool_name in workflow_tools:
+        assert tool_name in registry, f"Expected '{tool_name}' in discover_tools() registry"
+
+    # These 8 wrappers have been absorbed into manage_workflow
+    removed = [
         "create_workflow",
         "update_workflow",
         "activate_workflow",
@@ -23,9 +29,8 @@ def test_workflow_tools_are_discovered_by_registry():
         "delete_workflow_activity",
         "reorder_workflow_activities",
     ]
-
-    for tool_name in workflow_tools:
-        assert tool_name in registry, f"Expected '{tool_name}' in discover_tools() registry"
+    for tool_name in removed:
+        assert tool_name not in registry, f"'{tool_name}' should not be a standalone tool"
 
 
 def test_workflow_tools_have_valid_params_and_description():
@@ -35,8 +40,7 @@ def test_workflow_tools_have_valid_params_and_description():
     workflow_tools = [
         "list_workflows",
         "get_workflow_details",
-        "create_workflow",
-        "update_workflow",
+        "manage_workflow",
     ]
 
     for tool_name in workflow_tools:

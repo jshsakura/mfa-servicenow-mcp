@@ -437,13 +437,6 @@ def _fetch_workflow_activities(
     }
 
 
-@register_tool(
-    name="create_workflow",
-    params=CreateWorkflowParams,
-    description="Create a workflow with name, table, description, and active flag. Returns created record.",
-    serialization="json_dict",
-    return_type=str,
-)
 def create_workflow(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -511,13 +504,6 @@ def create_workflow(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="update_workflow",
-    params=UpdateWorkflowParams,
-    description="Update workflow name, description, table, or active status by sys_id.",
-    serialization="json_dict",
-    return_type=str,
-)
 def update_workflow(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -599,13 +585,6 @@ def update_workflow(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="activate_workflow",
-    params=ActivateWorkflowParams,
-    description="Set a workflow to active state by sys_id. Returns updated workflow record.",
-    serialization="str",
-    return_type=str,
-)
 def activate_workflow(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -660,13 +639,6 @@ def activate_workflow(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="deactivate_workflow",
-    params=DeactivateWorkflowParams,
-    description="Set a workflow to inactive state by sys_id. Returns updated workflow record.",
-    serialization="str",
-    return_type=str,
-)
 def deactivate_workflow(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -721,13 +693,6 @@ def deactivate_workflow(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="add_workflow_activity",
-    params=AddWorkflowActivityParams,
-    description="Add an activity (approval, task, notification, etc.) to a workflow version.",
-    serialization="json_dict",
-    return_type=str,
-)
 def add_workflow_activity(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -798,13 +763,6 @@ def add_workflow_activity(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="update_workflow_activity",
-    params=UpdateWorkflowActivityParams,
-    description="Update activity name, description, or attributes by activity sys_id.",
-    serialization="json_dict",
-    return_type=str,
-)
 def update_workflow_activity(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -880,13 +838,6 @@ def update_workflow_activity(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="delete_workflow_activity",
-    params=DeleteWorkflowActivityParams,
-    description="Remove an activity from a workflow by activity sys_id. Irreversible.",
-    serialization="str",
-    return_type=str,
-)
 def delete_workflow_activity(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -944,13 +895,6 @@ def delete_workflow_activity(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="reorder_workflow_activities",
-    params=ReorderWorkflowActivitiesParams,
-    description="Reorder workflow activities by providing activity sys_ids in desired sequence.",
-    serialization="str",
-    return_type=str,
-)
 def reorder_workflow_activities(
     auth_manager: AuthManager,
     server_config: ServerConfig,

@@ -133,15 +133,6 @@ portal_developer:
 platform_developer:
   _extends: standard
   _tools:
-    # Workflow writes
-    - create_workflow
-    - update_workflow
-    - activate_workflow
-    - deactivate_workflow
-    - add_workflow_activity
-    - update_workflow_activity
-    - delete_workflow_activity
-    - reorder_workflow_activities
     # Flow Designer writes
     - update_flow_designer
     # UI Policy writes
@@ -192,15 +183,6 @@ full:
     - submit_change_for_approval
     - approve_change
     - reject_change
-    # Workflow writes
-    - create_workflow
-    - update_workflow
-    - activate_workflow
-    - deactivate_workflow
-    - add_workflow_activity
-    - update_workflow_activity
-    - delete_workflow_activity
-    - reorder_workflow_activities
     # Flow Designer writes
     - update_flow_designer
     # Portal writes

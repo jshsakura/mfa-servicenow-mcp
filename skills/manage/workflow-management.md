@@ -9,14 +9,7 @@ output: action
 tools:
   - list_workflows
   - get_workflow_details
-  - create_workflow
-  - update_workflow
-  - activate_workflow
-  - deactivate_workflow
-  - add_workflow_activity
-  - update_workflow_activity
-  - delete_workflow_activity
-  - reorder_workflow_activities
+  - manage_workflow
   - list_flow_designers
   - get_flow_designer_detail
   - update_flow_designer
@@ -70,20 +63,20 @@ IF "상세" or "details":
 ## Pipeline: Activate / Deactivate
 
 IF "활성화" or "activate":
-  IF wf_workflow: CALL activate_workflow(workflow_id=INPUT, confirm="approve")
+  IF wf_workflow: CALL manage_workflow(action="activate", workflow_id=INPUT, confirm="approve")
   IF sys_hub_flow: CALL update_flow_designer(flow_id=INPUT, active=true, confirm="approve")
 
 IF "비활성화" or "deactivate":
-  IF wf_workflow: CALL deactivate_workflow(workflow_id=INPUT, confirm="approve")
+  IF wf_workflow: CALL manage_workflow(action="deactivate", workflow_id=INPUT, confirm="approve")
   IF sys_hub_flow: CALL update_flow_designer(flow_id=INPUT, active=false, confirm="approve")
 
 ## Pipeline: Modify
 
 IF "수정" or "update":
   # 1. Preview — no side effects, shows field-level diff
-  IF wf_workflow: CALL update_workflow(workflow_id=INPUT, <fields>, dry_run=True)
+  IF wf_workflow: CALL manage_workflow(action="update", workflow_id=INPUT, <fields>, dry_run=True)
   # 2. Show user `proposed_changes` + `no_op_fields`, then apply
-  IF wf_workflow: CALL update_workflow(workflow_id=INPUT, <fields>, confirm="approve")
+  IF wf_workflow: CALL manage_workflow(action="update", workflow_id=INPUT, <fields>, confirm="approve")
   IF sys_hub_flow: CALL update_flow_designer(flow_id=INPUT, name/description/active, confirm="approve")
 
 > Flow Designer note: action/subflow structure changes require the Flow Designer UI + Publish. MCP can modify metadata and state only.
@@ -91,16 +84,16 @@ IF "수정" or "update":
 ## Pipeline: Activity Management (Workflow Engine only)
 
 IF "액티비티 추가" or "add activity":
-  CALL add_workflow_activity(workflow_version_id=INPUT, activity_name=INPUT, confirm="approve")
+  CALL manage_workflow(action="add_activity", workflow_version_id=INPUT, activity_name=INPUT, confirm="approve")
 
 IF "액티비티 수정" or "update activity":
-  CALL update_workflow_activity(activity_id=INPUT, confirm="approve")
+  CALL manage_workflow(action="update_activity", activity_id=INPUT, confirm="approve")
 
 IF "액티비티 삭제" or "delete activity":
-  CALL delete_workflow_activity(activity_id=INPUT, confirm="approve")
+  CALL manage_workflow(action="delete_activity", activity_id=INPUT, confirm="approve")
 
 IF "액티비티 순서" or "reorder":
-  CALL reorder_workflow_activities(workflow_id=INPUT, activity_ids=[...], confirm="approve")
+  CALL manage_workflow(action="reorder_activities", workflow_id=INPUT, activity_ids=[...], confirm="approve")
 
 ## Pipeline: Execution History (Flow Designer only)
 
