@@ -1,5 +1,6 @@
 # ServiceNow MCP Server - Production Dockerfile
 # Multi-stage build with security best practices
+# stdio transport only — MCP clients connect over stdin/stdout, not HTTP.
 
 # ============================================
 # Stage 1: Builder
@@ -26,24 +27,21 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN uv pip install --no-cache -e .
 
 # ============================================
-# Stage 2: Runtime (without Playwright)
+# Stage 2: Runtime
 # ============================================
 FROM python:3.11-slim AS runtime
+
+# Build-arg version flows in from CI (e.g. --build-arg VERSION=1.9.34)
+ARG VERSION=dev
 
 # Labels for container metadata
 LABEL maintainer="jshsakura"
 LABEL description="ServiceNow MCP Server - Model Context Protocol for ServiceNow"
-LABEL version="1.5.1"
+LABEL version="${VERSION}"
 
 # Security: Create non-root user
 RUN groupadd --gid 1000 appgroup \
     && useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
-
-# Install runtime dependencies only
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
@@ -59,37 +57,30 @@ COPY --chown=appuser:appgroup config/ ./config/
 # Switch to non-root user
 USER appuser
 
-# Expose the default port
-EXPOSE 8080
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/sse || exit 1
-
 # Default environment variables
-ENV SERVICENOW_AUTH_TYPE=basic
+ENV SERVICENOW_AUTH_TYPE=api_key
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Command to run the application
-# Use MCP_MODE=stdio for MCP server, MCP_MODE=sse for HTTP SSE server
-ENV MCP_MODE=stdio
-ENTRYPOINT ["sh", "-c", "if [ \"$MCP_MODE\" = \"sse\" ]; then servicenow-mcp-sse --host=0.0.0.0 --port=8080; else servicenow-mcp; fi"]
+# stdio MCP server. The MCP client (Claude Desktop, Codex, etc.) launches
+# this container and speaks JSON-RPC over stdin/stdout.
+ENTRYPOINT ["servicenow-mcp"]
 
 # ============================================
 # Usage:
 #
 # Build:
-#   docker build --target runtime -t mfa-servicenow-mcp .
+#   docker build --target runtime --build-arg VERSION=1.9.34 -t mfa-servicenow-mcp .
 #
-# Run (API Key auth — MFA instances require this for Docker):
-#   docker run -it --rm \
+# Run (API Key auth — recommended for headless/Docker):
+#   docker run -i --rm \
 #     -e SERVICENOW_INSTANCE_URL=https://instance.service-now.com \
 #     -e SERVICENOW_AUTH_TYPE=api_key \
 #     -e SERVICENOW_API_KEY=your-api-key \
 #     mfa-servicenow-mcp
 #
-# For MFA/SSO browser auth, use uvx on a local machine instead:
+# For MFA/SSO browser auth, run on a local machine via uvx (Docker has no
+# display server, so interactive MFA is not possible inside a container):
 #   uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 #     --instance-url https://instance.service-now.com --auth-type browser
 # ============================================
