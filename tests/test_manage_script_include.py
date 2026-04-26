@@ -48,7 +48,7 @@ class TestValidation:
 
 class TestDispatch:
     def test_create(self):
-        with patch("servicenow_mcp.tools.script_include_tools.create_script_include") as mock_fn:
+        with patch("servicenow_mcp.services.script_include.create") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_script_include(
                 _config(),
@@ -60,35 +60,32 @@ class TestDispatch:
                     api_name="x_acme.MyUtil",
                 ),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.name == "MyUtil"
-            assert inner.api_name == "x_acme.MyUtil"
+            assert mock_fn.call_args.kwargs["name"] == "MyUtil"
+            assert mock_fn.call_args.kwargs["api_name"] == "x_acme.MyUtil"
 
     def test_update(self):
-        with patch("servicenow_mcp.tools.script_include_tools.update_script_include") as mock_fn:
+        with patch("servicenow_mcp.services.script_include.update") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_script_include(
                 _config(),
                 MagicMock(),
                 ManageScriptIncludeParams(action="update", script_include_id="abc", active=False),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.script_include_id == "abc"
-            assert inner.active is False
+            assert mock_fn.call_args.kwargs["script_include_id"] == "abc"
+            assert mock_fn.call_args.kwargs["active"] is False
 
     def test_delete(self):
-        with patch("servicenow_mcp.tools.script_include_tools.delete_script_include") as mock_fn:
+        with patch("servicenow_mcp.services.script_include.delete") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_script_include(
                 _config(),
                 MagicMock(),
                 ManageScriptIncludeParams(action="delete", script_include_id="abc"),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.script_include_id == "abc"
+            assert mock_fn.call_args.kwargs["script_include_id"] == "abc"
 
     def test_execute(self):
-        with patch("servicenow_mcp.tools.script_include_tools.execute_script_include") as mock_fn:
+        with patch("servicenow_mcp.services.script_include.execute") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_script_include(
                 _config(),
@@ -100,10 +97,9 @@ class TestDispatch:
                     exec_params={"id": "abc"},
                 ),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.name == "MyUtil"
-            assert inner.method == "getStuff"
-            assert inner.params == {"id": "abc"}
+            assert mock_fn.call_args.kwargs["name"] == "MyUtil"
+            assert mock_fn.call_args.kwargs["method"] == "getStuff"
+            assert mock_fn.call_args.kwargs["params"] == {"id": "abc"}
 
 
 class TestConfirmGate:
