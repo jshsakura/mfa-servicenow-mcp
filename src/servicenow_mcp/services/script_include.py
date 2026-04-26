@@ -13,13 +13,13 @@ route through services.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -294,3 +294,117 @@ def execute(
     except Exception as e:
         logger.error(f"Error executing script include: {e}")
         return {"success": False, "message": f"Error executing script include: {str(e)}"}
+
+
+_SI_FIELDS = "sys_id,name,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by"
+_SI_FIELDS_FULL = _SI_FIELDS + ",script"
+
+
+def _fmt(item: Dict[str, Any], include_script: bool = False) -> Dict[str, Any]:
+    created_by = item.get("sys_created_by")
+    updated_by = item.get("sys_updated_by")
+    r = {
+        "sys_id": item.get("sys_id"),
+        "name": item.get("name"),
+        "description": item.get("description"),
+        "api_name": item.get("api_name"),
+        "client_callable": item.get("client_callable") == "true",
+        "active": item.get("active") == "true",
+        "access": item.get("access"),
+        "created_on": item.get("sys_created_on"),
+        "updated_on": item.get("sys_updated_on"),
+        "created_by": created_by.get("display_value") if isinstance(created_by, dict) else None,
+        "updated_by": updated_by.get("display_value") if isinstance(updated_by, dict) else None,
+    }
+    if include_script:
+        r["script"] = item.get("script")
+    return r
+
+
+def list_si(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    query: Optional[str] = None,
+    active: Optional[bool] = None,
+    client_callable: Optional[bool] = None,
+    limit: int = 10,
+    offset: int = 0,
+    count_only: bool = False,
+) -> Dict[str, Any]:
+    """List script includes with filters."""
+    parts: List[str] = []
+    if active is not None:
+        parts.append(f"active={str(active).lower()}")
+    if client_callable is not None:
+        parts.append(f"client_callable={str(client_callable).lower()}")
+    if query:
+        parts.append(f"nameLIKE{query}")
+    qs = "^".join(parts)
+    if count_only:
+        return {"success": True, "count": sn_count(config, auth_manager, "sys_script_include", qs)}
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_script_include",
+            query=qs,
+            fields=_SI_FIELDS,
+            limit=min(limit, 50),
+            offset=offset,
+            display_value=True,
+            fail_silently=False,
+        )
+        return {
+            "success": True,
+            "message": f"Found {len(records)} script includes",
+            "script_includes": [_fmt(r) for r in records],
+            "total": len(records),
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        logger.error(f"Error listing script includes: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+            "script_includes": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+        }
+
+
+def get_si(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    script_include_id: str,
+) -> Dict[str, Any]:
+    """Get a single script include by sys_id or name."""
+    if script_include_id.startswith("sys_id:"):
+        q = f"sys_id={script_include_id[7:]}"
+    else:
+        q = f"name={script_include_id}"
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_script_include",
+            query=q,
+            fields=_SI_FIELDS_FULL,
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
+        )
+        if not records:
+            return {"success": False, "message": f"Script include not found: {script_include_id}"}
+        return {
+            "success": True,
+            "message": f"Found script include: {records[0].get('name')}",
+            "script_include": _fmt(records[0], include_script=True),
+        }
+    except Exception as e:
+        logger.error(f"Error getting script include: {e}")
+        return {"success": False, "message": str(e)}

@@ -53,13 +53,6 @@ class CatalogResponse(BaseModel):
     data: Optional[Dict[str, Any]] = Field(default=None, description="Response data")
 
 
-@register_tool(
-    name="list_catalog_items",
-    params=ListCatalogItemsParams,
-    description="Search catalog items with optional category/active filters. Returns name, price, and category summary.",
-    serialization="json",
-    return_type=str,
-)
 def list_catalog_items(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -129,13 +122,6 @@ def list_catalog_items(
         }
 
 
-@register_tool(
-    name="get_catalog_item",
-    params=GetCatalogItemParams,
-    description="Fetch a single catalog item by sys_id. Returns full details including variables.",
-    serialization="json_dict",
-    return_type=str,
-)
 def get_catalog_item(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -231,13 +217,6 @@ def get_catalog_item_variables(
         return []
 
 
-@register_tool(
-    name="list_catalog_categories",
-    params=ListCatalogCategoriesParams,
-    description="List catalog categories with parent/child relationships. Filter by active status or search query.",
-    serialization="json",
-    return_type=str,
-)
 def list_catalog_categories(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -340,6 +319,10 @@ class ManageCatalogParams(BaseModel):
     """
 
     action: Literal[
+        "list_items",
+        "get_item",
+        "list_categories",
+        "list_item_variables",
         "create_category",
         "update_category",
         "update_item",
@@ -347,6 +330,12 @@ class ManageCatalogParams(BaseModel):
         "create_variable",
         "update_variable",
     ] = Field(...)
+
+    # read params (list_items/get_item/list_categories/list_item_variables)
+    limit: int = Field(default=10, description="Max records (list modes)")
+    offset: int = Field(default=0, description="Pagination offset (list modes)")
+    query: Optional[str] = Field(default=None, description="Search query (list modes)")
+    count_only: bool = Field(default=False, description="Return count only (list modes)")
 
     # category create + update
     category_id: Optional[str] = Field(default=None)
@@ -392,7 +381,9 @@ class ManageCatalogParams(BaseModel):
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageCatalogParams":
         a = self.action
-        if a == "create_category":
+        if a in ("list_items", "get_item", "list_categories", "list_item_variables"):
+            pass
+        elif a == "create_category":
             if not self.title:
                 raise ValueError("title is required for action='create_category'")
         elif a == "update_category":
@@ -433,6 +424,46 @@ def manage_catalog(
     params: ManageCatalogParams,
 ) -> Dict[str, Any]:
     a = params.action
+    if a == "list_items":
+        return _cat_svc.list_items(
+            config,
+            auth_manager,
+            active=params.active,
+            category=params.category,
+            query=params.query,
+            limit=params.limit,
+            offset=params.offset,
+            count_only=params.count_only,
+        )
+    if a == "get_item":
+        if not params.item_id:
+            return {"success": False, "message": "item_id is required for action='get_item'"}
+        return _cat_svc.get_item(config, auth_manager, item_id=params.item_id)
+    if a == "list_categories":
+        return _cat_svc.list_categories(
+            config,
+            auth_manager,
+            active=params.active,
+            query=params.query,
+            limit=params.limit,
+            offset=params.offset,
+        )
+    if a == "list_item_variables":
+        if not params.catalog_item_id:
+            return {
+                "success": False,
+                "message": "catalog_item_id is required for action='list_item_variables'",
+            }
+        return {
+            "success": True,
+            "variables": _cat_svc.list_item_variables(
+                config,
+                auth_manager,
+                catalog_item_id=params.catalog_item_id,
+                limit=params.limit,
+                offset=params.offset,
+            ),
+        }
     if a == "create_category":
         kwargs: Dict[str, Any] = {"title": params.title}
         for f in ("description", "parent", "icon", "active", "order"):

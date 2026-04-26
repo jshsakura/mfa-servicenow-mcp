@@ -15,7 +15,7 @@ The ServiceNow Service Catalog integration allows you to:
 
 The following tools are available for interacting with the ServiceNow Service Catalog:
 
-### `list_catalog_categories`
+### `manage_catalog(action="list_categories")`
 
 Lists available service catalog categories.
 
@@ -36,7 +36,7 @@ params = ListCatalogCategoriesParams(
 result = list_catalog_categories(config, auth_manager, params)
 ```
 
-### `list_catalog_items`
+### `manage_catalog(action="list_items")`
 
 Lists available service catalog items.
 
@@ -59,7 +59,7 @@ params = ListCatalogItemsParams(
 result = list_catalog_items(config, auth_manager, params)
 ```
 
-### `get_catalog_item`
+### `manage_catalog(action="get_item")`
 
 Gets detailed information about a specific catalog item.
 

@@ -13,7 +13,6 @@ from pydantic import BaseModel
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.sn_api import sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
-from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +45,6 @@ class OptimizationRecommendationsParams(BaseModel):
     category_id: Optional[str] = None
 
 
-@register_tool(
-    name="get_optimization_recommendations",
-    params=OptimizationRecommendationsParams,
-    description="Analyze catalog structure — find inactive items and items with poor descriptions. Returns improvement suggestions.",
-    serialization="json",
-    return_type=str,
-)
 def get_optimization_recommendations(
     config: ServerConfig, auth_manager: AuthManager, params: OptimizationRecommendationsParams
 ) -> Dict:

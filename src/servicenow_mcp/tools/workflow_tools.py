@@ -239,13 +239,6 @@ def _get_auth_and_config(
     return cast(AuthManager, auth_manager), cast(ServerConfig, server_config)
 
 
-@register_tool(
-    name="list_workflows",
-    params=ListWorkflowsParams,
-    description="List workflows (wf_workflow engine) with optional name/table/active filters.",
-    serialization="json",
-    return_type=str,
-)
 def list_workflows(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -312,13 +305,6 @@ def list_workflows(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="get_workflow_details",
-    params=GetWorkflowDetailsParams,
-    description="Get a workflow (wf_workflow engine) by sys_id. Optionally include version history and activity list.",
-    serialization="json",
-    return_type=str,
-)
 def get_workflow_details(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -1157,6 +1143,8 @@ class ManageWorkflowParams(BaseModel):
     """
 
     action: Literal[
+        "list",
+        "get",
         "create",
         "update",
         "activate",
@@ -1171,6 +1159,17 @@ class ManageWorkflowParams(BaseModel):
     # Workflow identifier
     workflow_id: Optional[str] = Field(default=None)
     workflow_version_id: Optional[str] = Field(default=None, description="add_activity")
+
+    # list/get params
+    limit: int = Field(default=10, description="Max records (list mode)")
+    offset: int = Field(default=0, description="Pagination offset (list mode)")
+    query: Optional[str] = Field(default=None, description="Additional query string (list mode)")
+    count_only: bool = Field(default=False, description="Return count only (list mode)")
+    include_versions: bool = Field(default=False, description="Include version history (get mode)")
+    include_activities: bool = Field(default=False, description="Include activity list (get mode)")
+    version_id: Optional[str] = Field(
+        default=None, description="Specific version for activities (get mode)"
+    )
 
     # Activity identifier
     activity_id: Optional[str] = Field(default=None)
@@ -1195,7 +1194,9 @@ class ManageWorkflowParams(BaseModel):
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageWorkflowParams":
         a = self.action
-        if a == "create":
+        if a in ("list", "get"):
+            pass
+        elif a == "create":
             if not self.name:
                 raise ValueError("name is required for action='create'")
         elif a == "update":
@@ -1232,7 +1233,7 @@ class ManageWorkflowParams(BaseModel):
 @register_tool(
     name="manage_workflow",
     params=ManageWorkflowParams,
-    description="Workflow CRUD + lifecycle + activity ops (table: wf_workflow / wf_activity).",
+    description="List/get/CRUD + lifecycle + activity ops for workflows (table: wf_workflow / wf_activity).",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -1242,6 +1243,33 @@ def manage_workflow(
     params: ManageWorkflowParams,
 ) -> Dict[str, Any]:
     a = params.action
+    if a == "list":
+        return list_workflows(
+            auth_manager,
+            config,
+            {
+                "name": params.name,
+                "active": params.active,
+                "table": params.table,
+                "query": params.query,
+                "limit": params.limit,
+                "offset": params.offset,
+                "count_only": params.count_only,
+            },
+        )
+    if a == "get":
+        if not params.workflow_id:
+            return {"error": "workflow_id is required for action='get'"}
+        return get_workflow_details(
+            auth_manager,
+            config,
+            {
+                "workflow_id": params.workflow_id,
+                "include_versions": params.include_versions,
+                "include_activities": params.include_activities,
+                "version_id": params.version_id,
+            },
+        )
     if a == "create":
         kwargs: Dict[str, Any] = {"name": params.name}
         for f in ("description", "table", "active", "attributes"):

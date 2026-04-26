@@ -7,8 +7,6 @@ delegatable: false
 required_input: workflow name, sys_id, or table name
 output: action
 tools:
-  - list_workflows
-  - get_workflow_details
   - manage_workflow
   - list_flow_designers
   - get_flow_designer_detail
@@ -41,14 +39,14 @@ You are managing ServiceNow workflows. Two engines exist — identify which one 
 | Flow Designer | `sys_hub_flow` | Modern flows, action/subflow-based |
 
 When user says "workflow" without specifying, check BOTH engines:
-1. CALL list_workflows(name=INPUT)
+1. CALL manage_workflow(action="list", query=INPUT)
 2. CALL list_flow_designers(name=INPUT)
 3. SHOW results from both, ask which one
 
 ## Pipeline: List
 
 IF "목록" or "list":
-  CALL list_workflows(name=FILTER, table=FILTER) for Workflow Engine
+  CALL manage_workflow(action="list", query=FILTER) for Workflow Engine
   CALL list_flow_designers(name=FILTER, scope=FILTER) for Flow Designer
   RETURN combined results with engine labels
 
@@ -56,7 +54,7 @@ IF "목록" or "list":
 
 IF "상세" or "details":
   IF wf_workflow:
-    CALL get_workflow_details(workflow_id=INPUT, include_activities=true)
+    CALL manage_workflow(action="get", workflow_id=INPUT, include_activities=true)
   IF sys_hub_flow:
     CALL get_flow_designer_detail(flow_id=INPUT, include_structure=true, include_triggers=true)
 
