@@ -11,8 +11,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
+from servicenow_mcp.tools.sn_api import sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -45,20 +44,6 @@ class OptimizationRecommendationsParams(BaseModel):
 
     recommendation_types: List[str] = ["inactive_items", "description_quality"]
     category_id: Optional[str] = None
-
-
-class UpdateCatalogItemParams(BaseModel):
-    """Parameters for updating a catalog item."""
-
-    item_id: str
-    name: Optional[str] = None
-    short_description: Optional[str] = None
-    description: Optional[str] = None
-    category: Optional[str] = None
-    price: Optional[str] = None
-    active: Optional[bool] = None
-    order: Optional[int] = None
-    dry_run: bool = False
 
 
 @register_tool(
@@ -131,81 +116,6 @@ def get_optimization_recommendations(
             "success": False,
             "message": f"Error getting optimization recommendations: {str(e)}",
             "recommendations": [],
-        }
-
-
-@register_tool(
-    name="update_catalog_item",
-    params=UpdateCatalogItemParams,
-    description="Update a catalog item by sys_id. Partial field update.",
-    serialization="json",
-    return_type=str,
-)
-def update_catalog_item(
-    config: ServerConfig, auth_manager: AuthManager, params: UpdateCatalogItemParams
-) -> Dict:
-    """
-    Update a catalog item.
-
-    Args:
-        config: The server configuration
-        auth_manager: The authentication manager
-        params: The parameters for updating the catalog item
-
-    Returns:
-        A dictionary containing the result of the update operation
-    """
-    logger.info(f"Updating catalog item: {params.item_id}")
-
-    try:
-        # Build the request body with only the provided parameters
-        body = {}
-        if params.name is not None:
-            body["name"] = params.name
-        if params.short_description is not None:
-            body["short_description"] = params.short_description
-        if params.description is not None:
-            body["description"] = params.description
-        if params.category is not None:
-            body["category"] = params.category
-        if params.price is not None:
-            body["price"] = params.price
-        if params.active is not None:
-            body["active"] = str(params.active).lower()
-        if params.order is not None:
-            body["order"] = str(params.order)
-
-        if params.dry_run:
-            return build_update_preview(
-                config,
-                auth_manager,
-                table="sc_cat_item",
-                sys_id=params.item_id,
-                proposed=body,
-                identifier_fields=["name", "category", "active"],
-            )
-
-        # Make the API request
-        url = f"{config.instance_url}/api/now/table/sc_cat_item/{params.item_id}"
-        headers = auth_manager.get_headers()
-        headers["Content-Type"] = "application/json"
-
-        response = auth_manager.make_request("PATCH", url, headers=headers, json=body)
-        response.raise_for_status()
-        invalidate_query_cache(table="sc_cat_item")
-
-        return {
-            "success": True,
-            "message": "Catalog item updated successfully",
-            "data": response.json()["result"],
-        }
-
-    except Exception as e:
-        logger.error(f"Error updating catalog item: {e}")
-        return {
-            "success": False,
-            "message": f"Error updating catalog item: {str(e)}",
-            "data": None,
         }
 
 

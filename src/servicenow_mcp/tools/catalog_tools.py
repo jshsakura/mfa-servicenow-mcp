@@ -10,18 +10,11 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.services import catalog as _cat_svc
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from ._preview import build_update_preview
-from .catalog_optimization import UpdateCatalogItemParams, update_catalog_item
-from .catalog_variables import (
-    CreateCatalogItemVariableParams,
-    UpdateCatalogItemVariableParams,
-    create_catalog_item_variable,
-    update_catalog_item_variable,
-)
-from .sn_api import invalidate_query_cache, sn_count, sn_query_page
+from .sn_api import sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
 
@@ -29,30 +22,27 @@ logger = logging.getLogger(__name__)
 class ListCatalogItemsParams(BaseModel):
     """Parameters for listing service catalog items."""
 
-    limit: int = Field(default=10, description="Maximum number of catalog items to return")
+    limit: int = Field(default=10, description="Maximum number of items to return")
     offset: int = Field(default=0, description="Offset for pagination")
-    category: Optional[str] = Field(default=None, description="Filter by category")
-    query: Optional[str] = Field(default=None, description="Search query for catalog items")
-    active: bool = Field(default=True, description="Whether to only return active catalog items")
-    count_only: bool = Field(
-        default=False,
-        description="Return count only without fetching records. Uses lightweight Aggregate API.",
-    )
+    category: Optional[str] = Field(default=None, description="Filter by category sys_id")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    query: Optional[str] = Field(default=None, description="Search query for items")
+    count_only: bool = Field(default=False, description="Return count only")
 
 
 class GetCatalogItemParams(BaseModel):
-    """Parameters for getting a specific service catalog item."""
+    """Parameters for getting a catalog item."""
 
     item_id: str = Field(..., description="Catalog item ID or sys_id")
 
 
 class ListCatalogCategoriesParams(BaseModel):
-    """Parameters for listing service catalog categories."""
+    """Parameters for listing catalog categories."""
 
     limit: int = Field(default=10, description="Maximum number of categories to return")
     offset: int = Field(default=0, description="Offset for pagination")
-    query: Optional[str] = Field(default=None, description="Search query for categories")
-    active: bool = Field(default=True, description="Whether to only return active categories")
+    active: Optional[bool] = Field(default=None, description="Filter by active status")
+    query: Optional[str] = Field(default=None, description="Search query")
 
 
 class CatalogResponse(BaseModel):
@@ -61,40 +51,6 @@ class CatalogResponse(BaseModel):
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
     data: Optional[Dict[str, Any]] = Field(default=None, description="Response data")
-
-
-class CreateCatalogCategoryParams(BaseModel):
-    """Parameters for creating a new service catalog category."""
-
-    title: str = Field(..., description="Title of the category")
-    description: Optional[str] = Field(default=None, description="Description of the category")
-    parent: Optional[str] = Field(default=None, description="Parent category sys_id")
-    icon: Optional[str] = Field(default=None, description="Icon for the category")
-    active: bool = Field(default=True, description="Whether the category is active")
-    order: Optional[int] = Field(default=None, description="Order of the category")
-
-
-class UpdateCatalogCategoryParams(BaseModel):
-    """Parameters for updating a service catalog category."""
-
-    category_id: str = Field(..., description="Category ID or sys_id")
-    title: Optional[str] = Field(default=None, description="Title of the category")
-    description: Optional[str] = Field(default=None, description="Description of the category")
-    parent: Optional[str] = Field(default=None, description="Parent category sys_id")
-    icon: Optional[str] = Field(default=None, description="Icon for the category")
-    active: Optional[bool] = Field(default=None, description="Whether the category is active")
-    order: Optional[int] = Field(default=None, description="Order of the category")
-    dry_run: bool = Field(
-        default=False,
-        description="Preview field-level changes without executing.",
-    )
-
-
-class MoveCatalogItemsParams(BaseModel):
-    """Parameters for moving catalog items between categories."""
-
-    item_ids: List[str] = Field(..., description="List of catalog item IDs to move")
-    target_category_id: str = Field(..., description="Target category ID to move items to")
 
 
 @register_tool(
@@ -109,20 +65,7 @@ def list_catalog_items(
     auth_manager: AuthManager,
     params: ListCatalogItemsParams,
 ) -> Dict[str, Any]:
-    """
-    List service catalog items from ServiceNow.
-
-    Args:
-        config: Server configuration
-        auth_manager: Authentication manager
-        params: Parameters for listing catalog items
-
-    Returns:
-        Dictionary containing catalog items and metadata
-    """
-    logger.info("Listing service catalog items")
-
-    # Add filters
+    """List service catalog items from ServiceNow."""
     filters = []
     if params.active:
         filters.append("active=true")
@@ -150,7 +93,6 @@ def list_catalog_items(
             fail_silently=False,
         )
 
-        # Format the response
         formatted_items = []
         for item in records:
             formatted_items.append(
@@ -199,19 +141,7 @@ def get_catalog_item(
     auth_manager: AuthManager,
     params: GetCatalogItemParams,
 ) -> CatalogResponse:
-    """
-    Get a specific service catalog item from ServiceNow.
-
-    Args:
-        config: Server configuration
-        auth_manager: Authentication manager
-        params: Parameters for getting a catalog item
-
-    Returns:
-        Response containing the catalog item details
-    """
-    logger.info(f"Getting service catalog item: {params.item_id}")
-
+    """Get a specific service catalog item from ServiceNow."""
     try:
         records, _ = sn_query_page(
             config,
@@ -234,7 +164,6 @@ def get_catalog_item(
 
         item = records[0]
 
-        # Format the response
         formatted_item = {
             "sys_id": item.get("sys_id", ""),
             "name": item.get("name", ""),
@@ -270,19 +199,7 @@ def get_catalog_item_variables(
     auth_manager: AuthManager,
     item_id: str,
 ) -> List[Dict[str, Any]]:
-    """
-    Get variables for a specific service catalog item.
-
-    Args:
-        config: Server configuration
-        auth_manager: Authentication manager
-        item_id: Catalog item ID or sys_id
-
-    Returns:
-        List of variables for the catalog item
-    """
-    logger.info(f"Getting variables for catalog item: {item_id}")
-
+    """Get variables for a specific service catalog item."""
     try:
         records, _ = sn_query_page(
             config,
@@ -295,23 +212,19 @@ def get_catalog_item_variables(
             display_value=True,
         )
 
-        # Format the response
-        formatted_variables = []
-        for variable in records:
-            formatted_variables.append(
-                {
-                    "sys_id": variable.get("sys_id", ""),
-                    "name": variable.get("name", ""),
-                    "label": variable.get("question_text", ""),
-                    "type": variable.get("type", ""),
-                    "mandatory": variable.get("mandatory", ""),
-                    "default_value": variable.get("default_value", ""),
-                    "help_text": variable.get("help_text", ""),
-                    "order": variable.get("order", ""),
-                }
-            )
-
-        return formatted_variables
+        return [
+            {
+                "sys_id": v.get("sys_id", ""),
+                "name": v.get("name", ""),
+                "label": v.get("question_text", ""),
+                "type": v.get("type", ""),
+                "mandatory": v.get("mandatory", ""),
+                "default_value": v.get("default_value", ""),
+                "help_text": v.get("help_text", ""),
+                "order": v.get("order", ""),
+            }
+            for v in records
+        ]
 
     except Exception as e:
         logger.error(f"Error getting catalog item variables: {str(e)}")
@@ -330,20 +243,7 @@ def list_catalog_categories(
     auth_manager: AuthManager,
     params: ListCatalogCategoriesParams,
 ) -> Dict[str, Any]:
-    """
-    List service catalog categories from ServiceNow.
-
-    Args:
-        config: Server configuration
-        auth_manager: Authentication manager
-        params: Parameters for listing catalog categories
-
-    Returns:
-        Dictionary containing catalog categories and metadata
-    """
-    logger.info("Listing service catalog categories")
-
-    # Add filters
+    """List service catalog categories from ServiceNow."""
     filters = []
     if params.active:
         filters.append("active=true")
@@ -365,20 +265,18 @@ def list_catalog_categories(
             fail_silently=False,
         )
 
-        # Format the response
-        formatted_categories = []
-        for category in records:
-            formatted_categories.append(
-                {
-                    "sys_id": category.get("sys_id", ""),
-                    "title": category.get("title", ""),
-                    "description": category.get("description", ""),
-                    "parent": category.get("parent", ""),
-                    "icon": category.get("icon", ""),
-                    "active": category.get("active", ""),
-                    "order": category.get("order", ""),
-                }
-            )
+        formatted_categories = [
+            {
+                "sys_id": c.get("sys_id", ""),
+                "title": c.get("title", ""),
+                "description": c.get("description", ""),
+                "parent": c.get("parent", ""),
+                "icon": c.get("icon", ""),
+                "active": c.get("active", ""),
+                "order": c.get("order", ""),
+            }
+            for c in records
+        ]
 
         return {
             "success": True,
@@ -399,271 +297,6 @@ def list_catalog_categories(
             "limit": params.limit,
             "offset": params.offset,
         }
-
-
-@register_tool(
-    name="create_catalog_category",
-    params=CreateCatalogCategoryParams,
-    description="Create a catalog category. Requires title. Optionally set parent, icon, order, and active status.",
-    serialization="json_dict",
-    return_type=str,
-)
-def create_catalog_category(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateCatalogCategoryParams,
-) -> CatalogResponse:
-    """
-    Create a new service catalog category in ServiceNow.
-
-    Args:
-        config: Server configuration
-        auth_manager: Authentication manager
-        params: Parameters for creating a catalog category
-
-    Returns:
-        Response containing the result of the operation
-    """
-    logger.info("Creating new service catalog category")
-
-    # Build the API URL
-    url = f"{config.instance_url}/api/now/table/sc_category"
-
-    # Prepare request body
-    body = {
-        "title": params.title,
-    }
-
-    if params.description is not None:
-        body["description"] = params.description
-    if params.parent is not None:
-        body["parent"] = params.parent
-    if params.icon is not None:
-        body["icon"] = params.icon
-    if params.active is not None:
-        body["active"] = str(params.active).lower()
-    if params.order is not None:
-        body["order"] = str(params.order)
-
-    # Make the API request
-    headers = auth_manager.get_headers()
-    headers["Accept"] = "application/json"
-    headers["Content-Type"] = "application/json"
-
-    try:
-        response = auth_manager.make_request("POST", url, headers=headers, json=body)
-        response.raise_for_status()
-
-        # Process the response
-        result = response.json()
-        category = result.get("result", {})
-
-        # Format the response
-        formatted_category = {
-            "sys_id": category.get("sys_id", ""),
-            "title": category.get("title", ""),
-            "description": category.get("description", ""),
-            "parent": category.get("parent", ""),
-            "icon": category.get("icon", ""),
-            "active": category.get("active", ""),
-            "order": category.get("order", ""),
-        }
-
-        invalidate_query_cache(table="sc_category")
-
-        return CatalogResponse(
-            success=True,
-            message=f"Created catalog category: {params.title}",
-            data=formatted_category,
-        )
-
-    except Exception as e:
-        logger.error(f"Error creating catalog category: {str(e)}")
-        return CatalogResponse(
-            success=False,
-            message=f"Error creating catalog category: {str(e)}",
-            data=None,
-        )
-
-
-@register_tool(
-    name="update_catalog_category",
-    params=UpdateCatalogCategoryParams,
-    description="Partial update of a catalog category by sys_id. Supports title, parent, icon, order, and active fields.",
-    serialization="json_dict",
-    return_type=str,
-)
-def update_catalog_category(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: UpdateCatalogCategoryParams,
-) -> CatalogResponse:
-    """
-    Update an existing service catalog category in ServiceNow.
-
-    Args:
-        config: Server configuration
-        auth_manager: Authentication manager
-        params: Parameters for updating a catalog category
-
-    Returns:
-        Response containing the result of the operation
-    """
-    logger.info(f"Updating service catalog category: {params.category_id}")
-
-    # Build the API URL
-    url = f"{config.instance_url}/api/now/table/sc_category/{params.category_id}"
-
-    # Prepare request body with only the provided parameters
-    body = {}
-    if params.title is not None:
-        body["title"] = params.title
-    if params.description is not None:
-        body["description"] = params.description
-    if params.parent is not None:
-        body["parent"] = params.parent
-    if params.icon is not None:
-        body["icon"] = params.icon
-    if params.active is not None:
-        body["active"] = str(params.active).lower()
-    if params.order is not None:
-        body["order"] = str(params.order)
-
-    if params.dry_run:
-        return build_update_preview(
-            config,
-            auth_manager,
-            table="sc_category",
-            sys_id=params.category_id,
-            proposed=body,
-            identifier_fields=["title", "active", "order"],
-        )
-
-    # Make the API request
-    headers = auth_manager.get_headers()
-    headers["Accept"] = "application/json"
-    headers["Content-Type"] = "application/json"
-
-    try:
-        response = auth_manager.make_request("PATCH", url, headers=headers, json=body)
-        response.raise_for_status()
-
-        # Process the response
-        result = response.json()
-        category = result.get("result", {})
-
-        # Format the response
-        formatted_category = {
-            "sys_id": category.get("sys_id", ""),
-            "title": category.get("title", ""),
-            "description": category.get("description", ""),
-            "parent": category.get("parent", ""),
-            "icon": category.get("icon", ""),
-            "active": category.get("active", ""),
-            "order": category.get("order", ""),
-        }
-
-        invalidate_query_cache(table="sc_category")
-
-        return CatalogResponse(
-            success=True,
-            message=f"Updated catalog category: {params.category_id}",
-            data=formatted_category,
-        )
-
-    except Exception as e:
-        logger.error(f"Error updating catalog category: {str(e)}")
-        return CatalogResponse(
-            success=False,
-            message=f"Error updating catalog category: {str(e)}",
-            data=None,
-        )
-
-
-@register_tool(
-    name="move_catalog_items",
-    params=MoveCatalogItemsParams,
-    description="Reassign one or more catalog items to a target category. Requires item_ids and target_category_id.",
-    serialization="json_dict",
-    return_type=str,
-)
-def move_catalog_items(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: MoveCatalogItemsParams,
-) -> CatalogResponse:
-    """
-    Move catalog items to a different category.
-
-    Args:
-        config: Server configuration
-        auth_manager: Authentication manager
-        params: Parameters for moving catalog items
-
-    Returns:
-        Response containing the result of the operation
-    """
-    logger.info(
-        f"Moving {len(params.item_ids)} catalog items to category: {params.target_category_id}"
-    )
-
-    # Build the API URL
-    url = f"{config.instance_url}/api/now/table/sc_cat_item"
-
-    # Make the API request for each item
-    headers = auth_manager.get_headers()
-    headers["Accept"] = "application/json"
-    headers["Content-Type"] = "application/json"
-
-    success_count = 0
-    failed_items = []
-
-    try:
-        for item_id in params.item_ids:
-            item_url = f"{url}/{item_id}"
-            body = {"category": params.target_category_id}
-
-            try:
-                response = auth_manager.make_request("PATCH", item_url, headers=headers, json=body)
-                response.raise_for_status()
-                success_count += 1
-            except Exception as e:
-                logger.error(f"Error moving catalog item {item_id}: {str(e)}")
-                failed_items.append({"item_id": item_id, "error": str(e)})
-
-        # Invalidate cache after all items processed
-        invalidate_query_cache(table="sc_cat_item")
-
-        # Prepare the response
-        if success_count == len(params.item_ids):
-            return CatalogResponse(
-                success=True,
-                message=f"Successfully moved {success_count} catalog items to category {params.target_category_id}",
-                data={"moved_items_count": success_count},
-            )
-        elif success_count > 0:
-            return CatalogResponse(
-                success=True,
-                message=f"Partially moved catalog items. {success_count} succeeded, {len(failed_items)} failed.",
-                data={
-                    "moved_items_count": success_count,
-                    "failed_items": failed_items,
-                },
-            )
-        else:
-            return CatalogResponse(
-                success=False,
-                message="Failed to move any catalog items",
-                data={"failed_items": failed_items},
-            )
-
-    except Exception as e:
-        logger.error(f"Error moving catalog items: {str(e)}")
-        return CatalogResponse(
-            success=False,
-            message=f"Error moving catalog items: {str(e)}",
-            data=None,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -806,34 +439,33 @@ def manage_catalog(
             v = getattr(params, f)
             if v is not None:
                 kwargs[f] = v
-        return create_catalog_category(config, auth_manager, CreateCatalogCategoryParams(**kwargs))
+        return _cat_svc.create_category(config, auth_manager, **kwargs)
     if a == "update_category":
         kwargs = {"category_id": params.category_id, "dry_run": params.dry_run}
         for f in _CATEGORY_UPDATE_FIELDS:
             v = getattr(params, f)
             if v is not None:
                 kwargs[f] = v
-        return update_catalog_category(config, auth_manager, UpdateCatalogCategoryParams(**kwargs))
+        return _cat_svc.update_category(config, auth_manager, **kwargs)
     if a == "update_item":
         kwargs = {"item_id": params.item_id, "dry_run": params.dry_run}
         for f in _ITEM_UPDATE_FIELDS:
             v = getattr(params, f)
             if v is not None:
                 kwargs[f] = v
-        return update_catalog_item(config, auth_manager, UpdateCatalogItemParams(**kwargs))
+        return _cat_svc.update_item(config, auth_manager, **kwargs)
     if a == "move_items":
-        return move_catalog_items(
+        return _cat_svc.move_items(
             config,
             auth_manager,
-            MoveCatalogItemsParams(
-                item_ids=params.item_ids, target_category_id=params.target_category_id
-            ),
+            item_ids=params.item_ids,
+            target_category_id=params.target_category_id,
         )
     if a == "create_variable":
         kwargs = {
             "catalog_item_id": params.catalog_item_id,
             "name": params.variable_name,
-            "type": params.variable_type,
+            "variable_type": params.variable_type,
             "label": params.label,
         }
         for f in (
@@ -851,15 +483,11 @@ def manage_catalog(
             v = getattr(params, f)
             if v is not None:
                 kwargs[f] = v
-        return create_catalog_item_variable(
-            config, auth_manager, CreateCatalogItemVariableParams(**kwargs)
-        )
+        return _cat_svc.create_variable(config, auth_manager, **kwargs)
     # update_variable
     kwargs = {"variable_id": params.variable_id}
     for f in _VARIABLE_UPDATE_FIELDS:
         v = getattr(params, f)
         if v is not None:
             kwargs[f] = v
-    return update_catalog_item_variable(
-        config, auth_manager, UpdateCatalogItemVariableParams(**kwargs)
-    )
+    return _cat_svc.update_variable(config, auth_manager, **kwargs)
