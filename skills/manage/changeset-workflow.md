@@ -7,7 +7,6 @@ delegatable: false
 required_input: changeset name or sys_id
 output: status
 tools:
-  - get_changeset_details
   - manage_changeset
 triggers:
   - "체인지셋"
@@ -37,11 +36,11 @@ IF "만들기" or "create":
   → RETURN sys_id
 
 IF "내용 확인" or "review":
-  CALL get_changeset_details(changeset_id=INPUT)
+  CALL manage_changeset(action="get", changeset_id=INPUT)
   → SHOW included configuration records
 
 IF "커밋" or "commit":
-  GATE 1: CALL get_changeset_details(changeset_id=INPUT)
+  GATE 1: CALL manage_changeset(action="get", changeset_id=INPUT)
   → SHOW contents to user
   GATE 2: ASK "Commit this changeset?"
   → ONLY on confirm: CALL manage_changeset(action="commit", changeset_id=INPUT)
@@ -51,7 +50,7 @@ IF "퍼블리시" or "publish":
   → ONLY on confirm: CALL manage_changeset(action="publish", changeset_id=INPUT)
 
 IF "목록" or "list":
-  CALL get_changeset_details(state="in progress", limit=10)
+  CALL manage_changeset(action="get", state="in progress", limit=10)
 
 ## ON ERROR
 
