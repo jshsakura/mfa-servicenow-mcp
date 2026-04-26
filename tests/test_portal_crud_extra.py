@@ -5,20 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from servicenow_mcp.tools.portal_crud_tools import (
-    CreateAngularProviderParams,
-    CreateCssThemeParams,
-    CreateHeaderFooterParams,
-    CreateNgTemplateParams,
-    CreateUiPageParams,
-    CreateWidgetParams,
     ManagePortalComponentParams,
     ManagePortalLayoutParams,
-    create_angular_provider,
-    create_css_theme,
-    create_header_footer,
-    create_ng_template,
-    create_ui_page,
-    create_widget,
     manage_portal_component,
     manage_portal_layout,
 )
@@ -48,113 +36,6 @@ def _mock_response(json_data, status_code=200):
     resp.json.return_value = json_data
     resp.raise_for_status.return_value = None
     return resp
-
-
-class TestCreateWidgetDuplicateById:
-    @patch("servicenow_mcp.tools.portal_crud_tools._check_duplicate")
-    def test_duplicate_by_id_blocked(self, mock_dup, mock_config, mock_auth):
-        """Line 154: duplicate check by widget id."""
-        mock_dup.side_effect = [
-            None,  # name check passes
-            {"sys_id": "dup-id", "sys_scope": "s1"},  # id check finds duplicate
-        ]
-        params = CreateWidgetParams(name="Widget", id="existing_id", scope=SCOPE)
-        result = create_widget(mock_config, mock_auth, params)
-        assert result["success"] is False
-        assert "already exists" in result["message"]
-        assert result["existing_sys_id"] == "dup-id"
-
-
-class TestCreateAngularProviderCreateFails:
-    @patch("servicenow_mcp.tools.portal_crud_tools._check_duplicate", return_value=None)
-    def test_create_record_fails(self, mock_dup, mock_config, mock_auth):
-        """Line 242: _create_record returns failure."""
-        mock_auth.make_request.side_effect = Exception("API error")
-        params = CreateAngularProviderParams(name="svc", script="x", scope=SCOPE)
-        result = create_angular_provider(mock_config, mock_auth, params)
-        assert result["success"] is False
-
-
-class TestCreateHeaderFooterDuplicate:
-    @patch(
-        "servicenow_mcp.tools.portal_crud_tools._check_duplicate",
-        return_value={"sys_id": "dup-hf"},
-    )
-    def test_duplicate_blocked(self, mock_dup, mock_config, mock_auth):
-        """Line 280: header/footer duplicate check."""
-        params = CreateHeaderFooterParams(name="Existing", scope=SCOPE)
-        result = create_header_footer(mock_config, mock_auth, params)
-        assert result["success"] is False
-        assert "already exists" in result["message"]
-
-    @patch("servicenow_mcp.tools.portal_crud_tools._check_duplicate", return_value=None)
-    def test_create_record_fails(self, mock_dup, mock_config, mock_auth):
-        """Line 294: _create_record returns failure for header/footer."""
-        mock_auth.make_request.side_effect = Exception("API error")
-        params = CreateHeaderFooterParams(name="New", scope=SCOPE)
-        result = create_header_footer(mock_config, mock_auth, params)
-        assert result["success"] is False
-
-
-class TestCreateCssThemeDuplicate:
-    @patch(
-        "servicenow_mcp.tools.portal_crud_tools._check_duplicate",
-        return_value={"sys_id": "dup-css"},
-    )
-    def test_duplicate_blocked(self, mock_dup, mock_config, mock_auth):
-        """Line 328: CSS theme duplicate check."""
-        params = CreateCssThemeParams(name="Dark", scope=SCOPE)
-        result = create_css_theme(mock_config, mock_auth, params)
-        assert result["success"] is False
-        assert "already exists" in result["message"]
-
-    @patch("servicenow_mcp.tools.portal_crud_tools._check_duplicate", return_value=None)
-    def test_create_record_fails(self, mock_dup, mock_config, mock_auth):
-        """Line 340: _create_record returns failure for CSS theme."""
-        mock_auth.make_request.side_effect = Exception("API error")
-        params = CreateCssThemeParams(name="New", scope=SCOPE)
-        result = create_css_theme(mock_config, mock_auth, params)
-        assert result["success"] is False
-
-
-class TestCreateNgTemplateDuplicate:
-    @patch(
-        "servicenow_mcp.tools.portal_crud_tools._check_duplicate",
-        return_value={"sys_id": "dup-ng"},
-    )
-    def test_duplicate_blocked(self, mock_dup, mock_config, mock_auth):
-        """Line 376: ng-template duplicate check."""
-        params = CreateNgTemplateParams(id="my-tpl.html", template="<p/>", scope=SCOPE)
-        result = create_ng_template(mock_config, mock_auth, params)
-        assert result["success"] is False
-
-    @patch("servicenow_mcp.tools.portal_crud_tools._check_duplicate", return_value=None)
-    def test_create_record_fails(self, mock_dup, mock_config, mock_auth):
-        """Line 390: _create_record returns failure for ng-template."""
-        mock_auth.make_request.side_effect = Exception("API error")
-        params = CreateNgTemplateParams(id="new.html", template="<div/>", scope=SCOPE)
-        result = create_ng_template(mock_config, mock_auth, params)
-        assert result["success"] is False
-
-
-class TestCreateUiPageDuplicate:
-    @patch(
-        "servicenow_mcp.tools.portal_crud_tools._check_duplicate",
-        return_value={"sys_id": "dup-page"},
-    )
-    def test_duplicate_blocked(self, mock_dup, mock_config, mock_auth):
-        """Line 432: UI page duplicate check."""
-        params = CreateUiPageParams(name="existing_page", scope=SCOPE)
-        result = create_ui_page(mock_config, mock_auth, params)
-        assert result["success"] is False
-
-    @patch("servicenow_mcp.tools.portal_crud_tools._check_duplicate", return_value=None)
-    def test_create_record_fails(self, mock_dup, mock_config, mock_auth):
-        """Line 452: _create_record returns failure for UI page."""
-        mock_auth.make_request.side_effect = Exception("API error")
-        params = CreateUiPageParams(name="new_page", scope=SCOPE)
-        result = create_ui_page(mock_config, mock_auth, params)
-        assert result["success"] is False
 
 
 class TestManagePortalLayoutAddRowWithCssClass:
@@ -298,9 +179,8 @@ class TestManagePortalComponentValidation:
 
 
 class TestManagePortalComponentDispatch:
-    @patch("servicenow_mcp.tools.portal_crud_tools.create_widget")
+    @patch("servicenow_mcp.services.portal_component.create_widget")
     def test_create_widget_with_widget_id(self, mock_create, mock_config, mock_auth):
-        """Line 1299: widget_id passed through."""
         mock_create.return_value = {"success": True, "sys_id": "w1"}
         params = ManagePortalComponentParams(
             action="create_widget",
@@ -310,12 +190,10 @@ class TestManagePortalComponentDispatch:
         )
         result = manage_portal_component(mock_config, mock_auth, params)
         assert result["success"] is True
-        call_kwargs = mock_create.call_args[0][2]
-        assert call_kwargs.id == "custom_id"
+        assert mock_create.call_args.kwargs["widget_id"] == "custom_id"
 
-    @patch("servicenow_mcp.tools.portal_crud_tools.create_angular_provider")
+    @patch("servicenow_mcp.services.portal_component.create_angular_provider")
     def test_create_provider_with_type(self, mock_create, mock_config, mock_auth):
-        """Line 1321: provider_type passed through."""
         mock_create.return_value = {"success": True, "sys_id": "ap1"}
         params = ManagePortalComponentParams(
             action="create_provider",
@@ -326,12 +204,10 @@ class TestManagePortalComponentDispatch:
         )
         result = manage_portal_component(mock_config, mock_auth, params)
         assert result["success"] is True
-        call_kwargs = mock_create.call_args[0][2]
-        assert call_kwargs.type == "service"
+        assert mock_create.call_args.kwargs["provider_type"] == "service"
 
-    @patch("servicenow_mcp.tools.portal_crud_tools.create_angular_provider")
+    @patch("servicenow_mcp.services.portal_component.create_angular_provider")
     def test_create_provider_with_description(self, mock_create, mock_config, mock_auth):
-        """Line 1323: description passed through."""
         mock_create.return_value = {"success": True, "sys_id": "ap2"}
         params = ManagePortalComponentParams(
             action="create_provider",
@@ -342,12 +218,10 @@ class TestManagePortalComponentDispatch:
         )
         result = manage_portal_component(mock_config, mock_auth, params)
         assert result["success"] is True
-        call_kwargs = mock_create.call_args[0][2]
-        assert call_kwargs.description == "A service"
+        assert mock_create.call_args.kwargs["description"] == "A service"
 
-    @patch("servicenow_mcp.tools.portal_crud_tools.create_header_footer")
+    @patch("servicenow_mcp.services.portal_component.create_header_footer")
     def test_create_header_footer_with_template_and_css(self, mock_create, mock_config, mock_auth):
-        """Line 1330: template/css passed through for header_footer."""
         mock_create.return_value = {"success": True, "sys_id": "hf1"}
         params = ManagePortalComponentParams(
             action="create_header_footer",
@@ -358,13 +232,11 @@ class TestManagePortalComponentDispatch:
         )
         result = manage_portal_component(mock_config, mock_auth, params)
         assert result["success"] is True
-        call_kwargs = mock_create.call_args[0][2]
-        assert call_kwargs.template == "<header/>"
-        assert call_kwargs.css == ".h{}"
+        assert mock_create.call_args.kwargs["template"] == "<header/>"
+        assert mock_create.call_args.kwargs["css"] == ".h{}"
 
-    @patch("servicenow_mcp.tools.portal_crud_tools.create_css_theme")
+    @patch("servicenow_mcp.services.portal_component.create_css_theme")
     def test_create_theme_with_css(self, mock_create, mock_config, mock_auth):
-        """Line 1335: css passed through for theme."""
         mock_create.return_value = {"success": True, "sys_id": "cs1"}
         params = ManagePortalComponentParams(
             action="create_theme",
@@ -374,12 +246,10 @@ class TestManagePortalComponentDispatch:
         )
         result = manage_portal_component(mock_config, mock_auth, params)
         assert result["success"] is True
-        call_kwargs = mock_create.call_args[0][2]
-        assert call_kwargs.css == "body{color:red}"
+        assert mock_create.call_args.kwargs["css"] == "body{color:red}"
 
-    @patch("servicenow_mcp.tools.portal_crud_tools.create_ng_template")
+    @patch("servicenow_mcp.services.portal_component.create_ng_template")
     def test_create_ng_template_dispatch(self, mock_create, mock_config, mock_auth):
-        """Line 1337-1343: ng_template dispatch."""
         mock_create.return_value = {"success": True, "sys_id": "ng1"}
         params = ManagePortalComponentParams(
             action="create_ng_template",
@@ -389,10 +259,10 @@ class TestManagePortalComponentDispatch:
         )
         result = manage_portal_component(mock_config, mock_auth, params)
         assert result["success"] is True
+        assert mock_create.call_args.kwargs["template_id"] == "my.html"
 
-    @patch("servicenow_mcp.tools.portal_crud_tools.create_ui_page")
+    @patch("servicenow_mcp.services.portal_component.create_ui_page")
     def test_create_ui_page_with_optional_fields(self, mock_create, mock_config, mock_auth):
-        """Line 1344-1349: UI page with html/client_script/processing_script/description/category."""
         mock_create.return_value = {"success": True, "sys_id": "up1"}
         params = ManagePortalComponentParams(
             action="create_ui_page",
@@ -406,16 +276,15 @@ class TestManagePortalComponentDispatch:
         )
         result = manage_portal_component(mock_config, mock_auth, params)
         assert result["success"] is True
-        call_kwargs = mock_create.call_args[0][2]
-        assert call_kwargs.html == "<jelly/>"
-        assert call_kwargs.client_script == "cs()"
-        assert call_kwargs.processing_script == "ps()"
-        assert call_kwargs.description == "desc"
-        assert call_kwargs.category == "general"
+        kw = mock_create.call_args.kwargs
+        assert kw["html"] == "<jelly/>"
+        assert kw["client_script"] == "cs()"
+        assert kw["processing_script"] == "ps()"
+        assert kw["description"] == "desc"
+        assert kw["category"] == "general"
 
     @patch("servicenow_mcp.tools.portal_crud_tools.update_portal_component")
     def test_update_code_dispatch(self, mock_update, mock_config, mock_auth):
-        """Line 1352: update_code action dispatches to update_portal_component."""
         mock_update.return_value = {"success": True}
         params = ManagePortalComponentParams(
             action="update_code",
