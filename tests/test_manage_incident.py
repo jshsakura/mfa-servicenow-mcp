@@ -5,11 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from servicenow_mcp.tools.incident_tools import (
-    IncidentResponse,
-    ManageIncidentParams,
-    manage_incident,
-)
+from servicenow_mcp.services.incident import IncidentResponse
+from servicenow_mcp.tools.incident_tools import ManageIncidentParams, manage_incident
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
 
@@ -64,8 +61,8 @@ class TestPerActionValidation:
 
 
 class TestDispatch:
-    def test_create_dispatches_to_create_incident(self):
-        with patch("servicenow_mcp.tools.incident_tools.create_incident") as mock_create:
+    def test_create_dispatches_to_service(self):
+        with patch("servicenow_mcp.services.incident.create") as mock_create:
             mock_create.return_value = IncidentResponse(
                 success=True, message="ok", incident_id="abc", incident_number="INC1"
             )
@@ -75,26 +72,26 @@ class TestDispatch:
                 ManageIncidentParams(action="create", short_description="x", priority="3"),
             )
             assert mock_create.call_count == 1
-            inner_params = mock_create.call_args[0][2]
-            assert inner_params.short_description == "x"
-            assert inner_params.priority == "3"
+            kwargs = mock_create.call_args.kwargs
+            assert kwargs["short_description"] == "x"
+            assert kwargs["priority"] == "3"
             assert out.success is True
 
-    def test_update_dispatches_to_update_incident_with_id_and_dry_run(self):
-        with patch("servicenow_mcp.tools.incident_tools.update_incident") as mock_update:
+    def test_update_dispatches_to_service_with_id_and_dry_run(self):
+        with patch("servicenow_mcp.services.incident.update") as mock_update:
             mock_update.return_value = IncidentResponse(success=True, message="ok")
             manage_incident(
                 _config(),
                 MagicMock(),
                 ManageIncidentParams(action="update", incident_id="abc", state="2", dry_run=True),
             )
-            inner_params = mock_update.call_args[0][2]
-            assert inner_params.incident_id == "abc"
-            assert inner_params.state == "2"
-            assert inner_params.dry_run is True
+            kwargs = mock_update.call_args.kwargs
+            assert kwargs["incident_id"] == "abc"
+            assert kwargs["state"] == "2"
+            assert kwargs["dry_run"] is True
 
-    def test_comment_dispatches_to_add_comment(self):
-        with patch("servicenow_mcp.tools.incident_tools.add_comment") as mock_comment:
+    def test_comment_dispatches_to_service(self):
+        with patch("servicenow_mcp.services.incident.add_comment") as mock_comment:
             mock_comment.return_value = IncidentResponse(success=True, message="ok")
             manage_incident(
                 _config(),
@@ -106,13 +103,13 @@ class TestDispatch:
                     is_work_note=True,
                 ),
             )
-            inner_params = mock_comment.call_args[0][2]
-            assert inner_params.incident_id == "abc"
-            assert inner_params.comment == "checked"
-            assert inner_params.is_work_note is True
+            kwargs = mock_comment.call_args.kwargs
+            assert kwargs["incident_id"] == "abc"
+            assert kwargs["comment"] == "checked"
+            assert kwargs["is_work_note"] is True
 
-    def test_resolve_dispatches_to_resolve_incident(self):
-        with patch("servicenow_mcp.tools.incident_tools.resolve_incident") as mock_resolve:
+    def test_resolve_dispatches_to_service(self):
+        with patch("servicenow_mcp.services.incident.resolve") as mock_resolve:
             mock_resolve.return_value = IncidentResponse(success=True, message="ok")
             manage_incident(
                 _config(),
@@ -124,10 +121,10 @@ class TestDispatch:
                     resolution_notes="ok",
                 ),
             )
-            inner_params = mock_resolve.call_args[0][2]
-            assert inner_params.incident_id == "abc"
-            assert inner_params.resolution_code == "solved"
-            assert inner_params.resolution_notes == "ok"
+            kwargs = mock_resolve.call_args.kwargs
+            assert kwargs["incident_id"] == "abc"
+            assert kwargs["resolution_code"] == "solved"
+            assert kwargs["resolution_notes"] == "ok"
 
 
 # ---------------------------------------------------------------------------
