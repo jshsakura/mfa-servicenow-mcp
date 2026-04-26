@@ -35,7 +35,7 @@ ServiceNow workflows are a powerful automation feature that allows you to define
 
 ### Modifying Workflows
 
-5. **create_workflow** - Create a new workflow in ServiceNow
+5. **manage_workflow** (action="create") - Create a new workflow in ServiceNow
    - Parameters:
      - `name` (required): Name of the workflow
      - `description` (optional): Description of the workflow
@@ -43,7 +43,7 @@ ServiceNow workflows are a powerful automation feature that allows you to define
      - `active` (optional): Whether the workflow is active (default: true)
      - `attributes` (optional): Additional attributes for the workflow
 
-6. **update_workflow** - Update an existing workflow
+6. **manage_workflow** (action="update") - Update an existing workflow
    - Parameters:
      - `workflow_id` (required): Workflow ID or sys_id
      - `name` (optional): Name of the workflow
@@ -52,17 +52,17 @@ ServiceNow workflows are a powerful automation feature that allows you to define
      - `active` (optional): Whether the workflow is active
      - `attributes` (optional): Additional attributes for the workflow
 
-7. **activate_workflow** - Activate a workflow
+7. **manage_workflow** (action="activate") - Activate a workflow
    - Parameters:
      - `workflow_id` (required): Workflow ID or sys_id
 
-8. **deactivate_workflow** - Deactivate a workflow
+8. **manage_workflow** (action="deactivate") - Deactivate a workflow
    - Parameters:
      - `workflow_id` (required): Workflow ID or sys_id
 
 ### Managing Workflow Activities
 
-9. **add_workflow_activity** - Add a new activity to a workflow
+9. **manage_workflow** (action="add_activity") - Add a new activity to a workflow
    - Parameters:
      - `workflow_id` (required): Workflow ID or sys_id
      - `name` (required): Name of the activity
@@ -71,18 +71,18 @@ ServiceNow workflows are a powerful automation feature that allows you to define
      - `attributes` (optional): Additional attributes for the activity
      - `position` (optional): Position in the workflow (if not provided, the activity will be added at the end)
 
-10. **update_workflow_activity** - Update an existing activity in a workflow
+10. **manage_workflow** (action="update_activity") - Update an existing activity in a workflow
     - Parameters:
       - `activity_id` (required): Activity ID or sys_id
       - `name` (optional): Name of the activity
       - `description` (optional): Description of the activity
       - `attributes` (optional): Additional attributes for the activity
 
-11. **delete_workflow_activity** - Delete an activity from a workflow
+11. **manage_workflow** (action="delete_activity") - Delete an activity from a workflow
     - Parameters:
       - `activity_id` (required): Activity ID or sys_id
 
-12. **reorder_workflow_activities** - Change the order of activities in a workflow
+12. **manage_workflow** (action="reorder_activities") - Change the order of activities in a workflow
     - Parameters:
       - `workflow_id` (required): Workflow ID or sys_id
       - `activity_ids` (required): List of activity IDs in the desired order
@@ -129,7 +129,7 @@ result = get_workflow_activities({
 #### Create a new workflow
 
 ```python
-result = create_workflow({
+result = manage_workflow({"action": "create",
     "name": "Software License Request",
     "description": "Workflow for handling software license requests",
     "table": "sc_request"
@@ -139,7 +139,7 @@ result = create_workflow({
 #### Update an existing workflow
 
 ```python
-result = update_workflow({
+result = manage_workflow({"action": "update",
     "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590",
     "description": "Updated workflow description",
     "active": True
@@ -149,7 +149,7 @@ result = update_workflow({
 #### Activate a workflow
 
 ```python
-result = activate_workflow({
+result = manage_workflow({"action": "activate",
     "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590"
 })
 ```
@@ -157,7 +157,7 @@ result = activate_workflow({
 #### Deactivate a workflow
 
 ```python
-result = deactivate_workflow({
+result = manage_workflow({"action": "deactivate",
     "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590"
 })
 ```
@@ -167,7 +167,7 @@ result = deactivate_workflow({
 #### Add a new activity to a workflow
 
 ```python
-result = add_workflow_activity({
+result = manage_workflow({"action": "add_activity",
     "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590",
     "name": "Manager Approval",
     "description": "Approval step for the manager",
@@ -178,7 +178,7 @@ result = add_workflow_activity({
 #### Update an existing activity
 
 ```python
-result = update_workflow_activity({
+result = manage_workflow({"action": "update_activity",
     "activity_id": "3cda7cda87a9c150e0b0df23cebb3591",
     "name": "Updated Activity Name",
     "description": "Updated activity description"
@@ -188,7 +188,7 @@ result = update_workflow_activity({
 #### Delete an activity
 
 ```python
-result = delete_workflow_activity({
+result = manage_workflow({"action": "delete_activity",
     "activity_id": "3cda7cda87a9c150e0b0df23cebb3591"
 })
 ```
@@ -196,7 +196,7 @@ result = delete_workflow_activity({
 #### Reorder activities in a workflow
 
 ```python
-result = reorder_workflow_activities({
+result = manage_workflow({"action": "reorder_activities",
     "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590",
     "activity_ids": [
         "3cda7cda87a9c150e0b0df23cebb3591",
