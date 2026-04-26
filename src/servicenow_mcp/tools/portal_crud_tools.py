@@ -15,13 +15,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.portal_management_tools import (
-    CreateWidgetInstanceParams,
-    UpdateWidgetInstanceParams,
-    create_widget_instance,
-    update_widget_instance,
-)
+from servicenow_mcp.services import portal_layout as _layout_svc
 from servicenow_mcp.tools.portal_tools import UpdatePortalComponentParams, update_portal_component
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
@@ -460,314 +454,7 @@ def create_ui_page(
     }
 
 
-# ===========================================================================
-# Phase 3: Page & Layout CRUD Tools (6)
-# ===========================================================================
-
-# --- Tool 7: create_page ----------------------------------------------------
-
-
-class CreatePageParams(BaseModel):
-    """Parameters for creating a new Service Portal page."""
-
-    id: str = Field(
-        ...,
-        description="Page URL path (e.g. 'my_landing_page'). Must be unique within the portal.",
-    )
-    title: str = Field(..., description="Page title displayed in browser tab and breadcrumbs")
-    description: Optional[str] = Field(default=None, description="Page description")
-    css: Optional[str] = Field(default=None, description="Page-level custom CSS")
-    internal: bool = Field(default=False, description="Mark as internal (hidden from navigation)")
-    public: bool = Field(default=False, description="Allow unauthenticated access")
-    draft: bool = Field(default=False, description="Mark as draft (not published)")
-    category: Optional[str] = Field(default=None, description="Category sys_id (sp_category)")
-    scope: str = Field(..., description="REQUIRED. sys_scope sys_id — the application scope.")
-
-
-@register_tool(
-    name="create_page",
-    params=CreatePageParams,
-    description="Create a new Service Portal page. Scope is required. Returns sys_id for subsequent layout creation.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_page(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreatePageParams,
-) -> Dict[str, Any]:
-    # sp_page.id is globally unique (URL path), check without scope filter
-    existing = _check_duplicate(config, auth_manager, "sp_page", "id", params.id)
-    if existing:
-        return {
-            "success": False,
-            "message": f"Page with id '{params.id}' already exists.",
-            "existing_sys_id": existing.get("sys_id"),
-            "existing_scope": existing.get("sys_scope"),
-        }
-
-    body: Dict[str, Any] = {
-        "id": params.id,
-        "title": params.title,
-        "sys_scope": params.scope,
-    }
-    if params.description:
-        body["description"] = params.description
-    if params.css:
-        body["css"] = params.css
-    if params.internal:
-        body["internal"] = "true"
-    if params.public:
-        body["public"] = "true"
-    if params.draft:
-        body["draft"] = "true"
-    if params.category:
-        body["category"] = params.category
-
-    result = _create_record(config, auth_manager, "sp_page", body)
-    if not result["success"]:
-        return result
-
-    record = result["result"]
-    return {
-        "success": True,
-        "message": f"Created page: {record.get('title')} (/{record.get('id')})",
-        "sys_id": record.get("sys_id"),
-        "id": record.get("id"),
-        "title": record.get("title"),
-        "hint": "Use create_container to add layout containers to this page.",
-    }
-
-
-# --- Tool 8: update_page ----------------------------------------------------
-
-
-class UpdatePageParams(BaseModel):
-    sys_id: str = Field(..., description="Page sys_id")
-    title: Optional[str] = Field(default=None, description="New title")
-    description: Optional[str] = Field(default=None, description="New description")
-    css: Optional[str] = Field(default=None, description="New page-level CSS")
-    internal: Optional[bool] = Field(default=None, description="Toggle internal flag")
-    public: Optional[bool] = Field(default=None, description="Toggle public access")
-    draft: Optional[bool] = Field(default=None, description="Toggle draft status")
-    dry_run: bool = Field(
-        default=False,
-        description="Preview field-level changes without executing.",
-    )
-
-
-@register_tool(
-    name="update_page",
-    params=UpdatePageParams,
-    description="Update a Service Portal page's title, description, CSS, or visibility flags.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def update_page(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: UpdatePageParams,
-) -> Dict[str, Any]:
-    body: Dict[str, Any] = {}
-    if params.title is not None:
-        body["title"] = params.title
-    if params.description is not None:
-        body["description"] = params.description
-    if params.css is not None:
-        body["css"] = params.css
-    if params.internal is not None:
-        body["internal"] = str(params.internal).lower()
-    if params.public is not None:
-        body["public"] = str(params.public).lower()
-    if params.draft is not None:
-        body["draft"] = str(params.draft).lower()
-
-    if not body:
-        return {"success": False, "message": "No fields to update"}
-
-    if params.dry_run:
-        return build_update_preview(
-            config,
-            auth_manager,
-            table="sp_page",
-            sys_id=params.sys_id,
-            proposed=body,
-            identifier_fields=["title", "id", "public"],
-        )
-
-    url = f"{config.instance_url}/api/now/table/sp_page/{params.sys_id}"
-    headers = auth_manager.get_headers()
-    try:
-        response = auth_manager.make_request(
-            "PATCH",
-            url,
-            json=body,
-            headers=headers,
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-        invalidate_query_cache(table="sp_page")
-        record = data.get("result", {})
-        return {
-            "success": True,
-            "message": f"Updated page: {record.get('title')}",
-            "sys_id": params.sys_id,
-        }
-    except Exception as e:
-        return {"success": False, "message": f"Error updating page: {e}"}
-
-
-# --- Tool 9: create_container -----------------------------------------------
-
-
-class CreateContainerParams(BaseModel):
-    sp_page: str = Field(..., description="Page sys_id to add container to")
-    order: int = Field(default=100, description="Display order (lower = higher on page)")
-    width: Optional[str] = Field(
-        default=None,
-        description="Container width. Options: 'container' (fixed), 'container-fluid' (full-width). Default: container.",
-    )
-    css_class: Optional[str] = Field(default=None, description="Additional CSS classes")
-    background_color: Optional[str] = Field(
-        default=None, description="Background color (hex or CSS color name)"
-    )
-
-
-@register_tool(
-    name="create_container",
-    params=CreateContainerParams,
-    description="Add a layout container to a portal page. Containers hold rows.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_container(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateContainerParams,
-) -> Dict[str, Any]:
-    body: Dict[str, Any] = {
-        "sp_page": params.sp_page,
-        "order": str(params.order),
-    }
-    if params.width:
-        body["width"] = params.width
-    if params.css_class:
-        body["css_class"] = params.css_class
-    if params.background_color:
-        body["background_color"] = params.background_color
-
-    result = _create_record(config, auth_manager, "sp_container", body)
-    if not result["success"]:
-        return result
-
-    record = result["result"]
-    return {
-        "success": True,
-        "message": "Created container",
-        "sys_id": record.get("sys_id"),
-        "page": params.sp_page,
-        "order": params.order,
-        "hint": "Use create_row to add rows to this container.",
-    }
-
-
-# --- Tool 10: create_row ----------------------------------------------------
-
-
-class CreateRowParams(BaseModel):
-    sp_container: str = Field(..., description="Container sys_id to add row to")
-    order: int = Field(default=100, description="Display order within the container")
-    css_class: Optional[str] = Field(
-        default=None, description="Additional CSS classes (e.g. 'row-eq-height')"
-    )
-
-
-@register_tool(
-    name="create_row",
-    params=CreateRowParams,
-    description="Add a row to a layout container. Rows hold columns.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_row(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateRowParams,
-) -> Dict[str, Any]:
-    body: Dict[str, Any] = {
-        "sp_container": params.sp_container,
-        "order": str(params.order),
-    }
-    if params.css_class:
-        body["css_class"] = params.css_class
-
-    result = _create_record(config, auth_manager, "sp_row", body)
-    if not result["success"]:
-        return result
-
-    record = result["result"]
-    return {
-        "success": True,
-        "message": "Created row",
-        "sys_id": record.get("sys_id"),
-        "container": params.sp_container,
-        "hint": "Use create_column to add columns to this row.",
-    }
-
-
-# --- Tool 11: create_column -------------------------------------------------
-
-
-class CreateColumnParams(BaseModel):
-    sp_row: str = Field(..., description="Row sys_id to add column to")
-    order: int = Field(default=100, description="Display order within the row (left to right)")
-    size: int = Field(
-        default=12,
-        description="Bootstrap grid column size (1-12). Total of all columns in a row should be 12.",
-    )
-    css_class: Optional[str] = Field(default=None, description="Additional CSS classes")
-
-
-@register_tool(
-    name="create_column",
-    params=CreateColumnParams,
-    description="Add a column to a row. Columns use Bootstrap grid (size 1-12). Widgets are placed in columns.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_column(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateColumnParams,
-) -> Dict[str, Any]:
-    if params.size < 1 or params.size > 12:
-        return {"success": False, "message": "Column size must be between 1 and 12"}
-
-    body: Dict[str, Any] = {
-        "sp_row": params.sp_row,
-        "order": str(params.order),
-        "size": str(params.size),
-    }
-    if params.css_class:
-        body["css_class"] = params.css_class
-
-    result = _create_record(config, auth_manager, "sp_column", body)
-    if not result["success"]:
-        return result
-
-    record = result["result"]
-    return {
-        "success": True,
-        "message": f"Created column (size={params.size})",
-        "sys_id": record.get("sys_id"),
-        "row": params.sp_row,
-        "size": params.size,
-        "hint": "Use create_widget_instance to place widgets in this column.",
-    }
-
-
-# --- Tool 12: scaffold_page -------------------------------------------------
+# --- Tool 7: scaffold_page -------------------------------------------------
 
 
 class ScaffoldRowDef(BaseModel):
@@ -1112,59 +799,59 @@ def manage_portal_layout(
 ) -> Dict[str, Any]:
     a = params.action
     if a == "create_page":
-        kwargs: Dict[str, Any] = {
-            "id": params.page_id,
+        kw: Dict[str, Any] = {
+            "page_id": params.page_id,
             "title": params.title,
             "scope": params.scope,
         }
         for f in ("description", "css", "internal", "public", "draft", "category"):
             v = getattr(params, f)
             if v is not None:
-                kwargs[f] = v
-        return create_page(config, auth_manager, CreatePageParams(**kwargs))
+                kw[f] = v
+        return _layout_svc.create_page(config, auth_manager, **kw)
     if a == "update_page":
-        kwargs = {"sys_id": params.sys_id, "dry_run": params.dry_run}
+        kw = {"sys_id": params.sys_id, "dry_run": params.dry_run}
         for f in _PAGE_UPDATE_FIELDS:
             v = getattr(params, f)
             if v is not None:
-                kwargs[f] = v
-        return update_page(config, auth_manager, UpdatePageParams(**kwargs))
+                kw[f] = v
+        return _layout_svc.update_page(config, auth_manager, **kw)
     if a == "add_container":
-        kwargs = {"sp_page": params.sp_page}
+        kw = {"sp_page": params.sp_page}
         if params.order is not None:
-            kwargs["order"] = params.order
+            kw["order"] = params.order
         for f in ("width", "css_class", "background_color"):
             v = getattr(params, f)
             if v is not None:
-                kwargs[f] = v
-        return create_container(config, auth_manager, CreateContainerParams(**kwargs))
+                kw[f] = v
+        return _layout_svc.create_container(config, auth_manager, **kw)
     if a == "add_row":
-        kwargs = {"sp_container": params.sp_container}
+        kw = {"sp_container": params.sp_container}
         if params.order is not None:
-            kwargs["order"] = params.order
+            kw["order"] = params.order
         if params.css_class is not None:
-            kwargs["css_class"] = params.css_class
-        return create_row(config, auth_manager, CreateRowParams(**kwargs))
+            kw["css_class"] = params.css_class
+        return _layout_svc.create_row(config, auth_manager, **kw)
     if a == "add_column":
-        kwargs = {"sp_row": params.sp_row}
+        kw = {"sp_row": params.sp_row}
         if params.order is not None:
-            kwargs["order"] = params.order
+            kw["order"] = params.order
         if params.size is not None:
-            kwargs["size"] = params.size
+            kw["size"] = params.size
         if params.css_class is not None:
-            kwargs["css_class"] = params.css_class
-        return create_column(config, auth_manager, CreateColumnParams(**kwargs))
+            kw["css_class"] = params.css_class
+        return _layout_svc.create_column(config, auth_manager, **kw)
     if a == "place_widget":
-        kwargs = {"sp_widget": params.sp_widget, "sp_column": params.sp_column}
+        kw = {"sp_widget": params.sp_widget, "sp_column": params.sp_column}
         if params.order is not None:
-            kwargs["order"] = params.order
+            kw["order"] = params.order
         if params.widget_parameters is not None:
-            kwargs["widget_parameters"] = params.widget_parameters
+            kw["widget_parameters"] = params.widget_parameters
         if params.instance_css is not None:
-            kwargs["css"] = params.instance_css
-        return create_widget_instance(config, auth_manager, CreateWidgetInstanceParams(**kwargs))
+            kw["css"] = params.instance_css
+        return _layout_svc.place_widget(config, auth_manager, **kw)
     # move_widget
-    kwargs = {"instance_id": params.instance_id}
+    kw = {"instance_id": params.instance_id}
     for src, dst in (
         ("sp_column", "sp_column"),
         ("order", "order"),
@@ -1173,8 +860,8 @@ def manage_portal_layout(
     ):
         v = getattr(params, src)
         if v is not None:
-            kwargs[dst] = v
-    return update_widget_instance(config, auth_manager, UpdateWidgetInstanceParams(**kwargs))
+            kw[dst] = v
+    return _layout_svc.move_widget(config, auth_manager, **kw)
 
 
 # ---------------------------------------------------------------------------

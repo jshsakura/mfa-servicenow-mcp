@@ -125,8 +125,6 @@ portal_developer:
     - preview_portal_component_update
     - update_portal_component
     - update_portal_component_from_snapshot
-    - create_widget_instance
-    - update_widget_instance
     # Portal CRUD (Component Create)
     - create_widget
     - create_angular_provider
@@ -135,11 +133,6 @@ portal_developer:
     - create_ng_template
     - create_ui_page
     # Portal CRUD (Page/Layout)
-    - create_page
-    - update_page
-    - create_container
-    - create_row
-    - create_column
     - scaffold_page
     # Local Sync writes
     - update_remote_from_local
@@ -167,11 +160,6 @@ platform_developer:
     - create_css_theme
     - create_ng_template
     - create_ui_page
-    - create_page
-    - update_page
-    - create_container
-    - create_row
-    - create_column
     - scaffold_page
     # Bundled (Phase 2 + 3)
     - manage_incident
@@ -231,8 +219,6 @@ full:
     - update_flow_designer
     # Portal writes
     - update_portal_component
-    - create_widget_instance
-    - update_widget_instance
     - route_portal_component_edit
     - analyze_portal_component_update
     - create_portal_component_snapshot
@@ -245,11 +231,6 @@ full:
     - create_css_theme
     - create_ng_template
     - create_ui_page
-    - create_page
-    - update_page
-    - create_container
-    - create_row
-    - create_column
     - scaffold_page
     # UI Policy writes
     # Local Sync writes
