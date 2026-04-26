@@ -181,12 +181,6 @@ class ManageChangesetParams(BaseModel):
     # get (list mode) params
     limit: int = Field(default=10, description="Max records (get list mode)")
     offset: int = Field(default=0, description="Pagination offset (get list mode)")
-    application: Optional[str] = Field(
-        default=None, description="Filter by application (get list mode)"
-    )
-    developer: Optional[str] = Field(
-        default=None, description="Filter by developer (get list mode)"
-    )
     timeframe: Optional[str] = Field(
         default=None, description="recent/last_week/last_month (get list mode)"
     )
@@ -195,12 +189,14 @@ class ManageChangesetParams(BaseModel):
     )
     count_only: bool = Field(default=False, description="Return count only (get list mode)")
 
-    # Create + update
+    # Create + update (application/developer also used as list filters for get)
     name: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
-    application: Optional[str] = Field(default=None, description="Required for create")
+    application: Optional[str] = Field(
+        default=None, description="Required for create; filter for get"
+    )
     developer: Optional[str] = Field(default=None)
-    state: Optional[str] = Field(default=None, description="Update only")
+    state: Optional[str] = Field(default=None, description="Update only; filter for get")
 
     # Commit-specific
     commit_message: Optional[str] = Field(default=None)
