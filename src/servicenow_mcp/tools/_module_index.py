@@ -5,8 +5,6 @@ A CI test verifies this file matches the live AST scan of the tools/ package.
 """
 
 TOOL_MODULE_INDEX = {
-    "activate_workflow": "workflow_tools",
-    "add_workflow_activity": "workflow_tools",
     "analyze_portal_component_update": "portal_tools",
     "analyze_widget_performance": "performance_tools",
     "approve_change": "change_tools",
@@ -21,11 +19,8 @@ TOOL_MODULE_INDEX = {
     "create_scrum_task": "scrum_task_tools",
     "create_story": "story_tools",
     "create_story_dependency": "story_tools",
-    "create_workflow": "workflow_tools",
-    "deactivate_workflow": "workflow_tools",
     "delete_story_dependency": "story_tools",
     "delete_workflow": "workflow_tools",
-    "delete_workflow_activity": "workflow_tools",
     "detect_angular_implicit_globals": "portal_tools",
     "diff_local_component": "sync_tools",
     "download_admin_scripts": "source_tools",
@@ -97,7 +92,6 @@ TOOL_MODULE_INDEX = {
     "manage_workflow": "workflow_tools",
     "preview_portal_component_update": "portal_tools",
     "reject_change": "change_tools",
-    "reorder_workflow_activities": "workflow_tools",
     "resolve_page_dependencies": "portal_tools",
     "resolve_widget_chain": "portal_tools",
     "route_portal_component_edit": "portal_tools",
@@ -121,6 +115,4 @@ TOOL_MODULE_INDEX = {
     "update_remote_from_local": "sync_tools",
     "update_scrum_task": "scrum_task_tools",
     "update_story": "story_tools",
-    "update_workflow": "workflow_tools",
-    "update_workflow_activity": "workflow_tools",
 }
