@@ -25,7 +25,7 @@ context_cost: low|medium|high    # Token budget hint
 safety_level: none|confirm|staged # Gate enforcement level
 delegatable: true|false           # Can run in sub-agent
 required_input: what user must provide
-output: summary|report|diff|data|status|files|action
+output: summary|report|diff|data|status|files|action|diagnosis
 ```
 
 ## Dry-Run Preview (write tools, v1.8.22+)

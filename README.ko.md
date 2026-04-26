@@ -485,7 +485,7 @@ servicenow-mcp-skills gemini
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 ```
 
-이 저장소의 `skills/` 디렉토리에서 20개 이상의 스킬 파일을 다운로드해 프로젝트 로컬 LLM 디렉토리에 설치합니다. 인증이나 별도 설정은 필요 없습니다.
+이 저장소의 `skills/` 디렉토리에서 24개 스킬 파일을 다운로드해 프로젝트 로컬 LLM 디렉토리에 설치합니다. 인증이나 별도 설정은 필요 없습니다.
 
 | 클라이언트 | 설치 경로 | 자동 인식 |
 |-----------|----------|----------|
