@@ -6,9 +6,9 @@ This module provides tools for managing epics in ServiceNow.
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
@@ -81,35 +81,16 @@ class ListEpicsParams(BaseModel):
     query: Optional[str] = Field(default=None, description="Additional query string")
 
 
-@register_tool(
-    name="create_epic",
-    params=CreateEpicParams,
-    description="Create an epic (rm_epic). Requires short_description. Optional: priority, state, assignment_group.",
-    serialization="str",
-    return_type=str,
-)
 def create_epic(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: CreateEpicParams,
 ) -> Dict[str, Any]:
-    """
-    Create a new epic in ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for creating the epic.
-
-    Returns:
-        The created epic.
-    """
-    # Prepare the request data
+    """Create a new epic in ServiceNow."""
     data: Dict[str, Any] = {
         "short_description": params.short_description,
     }
 
-    # Add optional fields if provided
     if params.description:
         data["description"] = params.description
     if params.priority:
@@ -128,11 +109,8 @@ def create_epic(
     try:
         response = auth_manager.make_request("POST", url, json=data)
         response.raise_for_status()
-
         result = response.json()
-
         invalidate_query_cache(table="rm_epic")
-
         return {
             "success": True,
             "message": "Epic created successfully",
@@ -140,39 +118,17 @@ def create_epic(
         }
     except Exception as e:
         logger.error(f"Error creating epic: {e}")
-        return {
-            "success": False,
-            "message": f"Error creating epic: {str(e)}",
-        }
+        return {"success": False, "message": f"Error creating epic: {str(e)}"}
 
 
-@register_tool(
-    name="update_epic",
-    params=UpdateEpicParams,
-    description="Update an epic by sys_id. Supports description, priority, state, and assignment fields.",
-    serialization="str",
-    return_type=str,
-)
 def update_epic(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: UpdateEpicParams,
 ) -> Dict[str, Any]:
-    """
-    Update an existing epic in ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for updating the epic.
-
-    Returns:
-        The updated epic.
-    """
-    # Prepare the request data
+    """Update an existing epic in ServiceNow."""
     data: Dict[str, Any] = {}
 
-    # Add optional fields if provided
     if params.short_description:
         data["short_description"] = params.short_description
     if params.description:
@@ -203,11 +159,8 @@ def update_epic(
     try:
         response = auth_manager.make_request("PUT", url, json=data)
         response.raise_for_status()
-
         result = response.json()
-
         invalidate_query_cache(table="rm_epic")
-
         return {
             "success": True,
             "message": "Epic updated successfully",
@@ -215,36 +168,15 @@ def update_epic(
         }
     except Exception as e:
         logger.error(f"Error updating epic: {e}")
-        return {
-            "success": False,
-            "message": f"Error updating epic: {str(e)}",
-        }
+        return {"success": False, "message": f"Error updating epic: {str(e)}"}
 
 
-@register_tool(
-    name="list_epics",
-    params=ListEpicsParams,
-    description="List epics with optional state/assignment_group/query filters.",
-    serialization="json",
-    return_type=str,
-)
 def list_epics(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: ListEpicsParams,
 ) -> Dict[str, Any]:
-    """
-    List epics from ServiceNow.
-
-    Args:
-        config: The server configuration.
-        auth_manager: The authentication manager.
-        params: The parameters for listing epics.
-
-    Returns:
-        A list of epics.
-    """
-    # Build the query
+    """List epics from ServiceNow."""
     query_parts: List[str] = []
 
     if params.priority:
@@ -252,7 +184,6 @@ def list_epics(
     if params.assignment_group:
         query_parts.append(f"assignment_group={params.assignment_group}")
 
-    # Handle timeframe filtering
     if params.timeframe:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if params.timeframe == "upcoming":
@@ -262,11 +193,9 @@ def list_epics(
         elif params.timeframe == "completed":
             query_parts.append(f"end_date<{now}")
 
-    # Add any additional query string
     if params.query:
         query_parts.append(params.query)
 
-    # Combine query parts
     query = "^".join(query_parts) if query_parts else ""
 
     try:
@@ -281,7 +210,6 @@ def list_epics(
             display_value=True,
             fail_silently=False,
         )
-
         return {
             "success": True,
             "epics": rows,
@@ -290,7 +218,112 @@ def list_epics(
         }
     except Exception as e:
         logger.error(f"Error listing epics: {e}")
-        return {
-            "success": False,
-            "message": f"Error listing epics: {str(e)}",
-        }
+        return {"success": False, "message": f"Error listing epics: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
+# manage_epic — bundled CRUD for rm_epic
+# ---------------------------------------------------------------------------
+
+_EPIC_UPDATE_FIELDS = (
+    "short_description",
+    "description",
+    "priority",
+    "state",
+    "assignment_group",
+    "assigned_to",
+    "work_notes",
+)
+
+
+class ManageEpicParams(BaseModel):
+    """Manage epics — table: rm_epic."""
+
+    action: Literal["list", "create", "update"] = Field(...)
+    epic_id: Optional[str] = Field(default=None)
+    short_description: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    priority: Optional[str] = Field(
+        default=None, description="1=Critical,2=High,3=Moderate,4=Low,5=Planning"
+    )
+    state: Optional[str] = Field(
+        default=None, description="-6=Draft,1=Ready,2=WIP,3=Complete,4=Cancelled"
+    )
+    assignment_group: Optional[str] = Field(default=None)
+    assigned_to: Optional[str] = Field(default=None)
+    work_notes: Optional[str] = Field(default=None)
+    limit: int = Field(default=10)
+    offset: int = Field(default=0)
+    timeframe: Optional[str] = Field(default=None, description="upcoming | in-progress | completed")
+    query: Optional[str] = Field(default=None)
+    dry_run: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_per_action(self) -> "ManageEpicParams":
+        a = self.action
+        if a == "create":
+            if not self.short_description:
+                raise ValueError("short_description is required for action='create'")
+        elif a == "update":
+            if not self.epic_id:
+                raise ValueError("epic_id is required for action='update'")
+            if not any(getattr(self, f) is not None for f in _EPIC_UPDATE_FIELDS):
+                raise ValueError("at least one field must be provided for action='update'")
+        return self
+
+
+@register_tool(
+    name="manage_epic",
+    params=ManageEpicParams,
+    description="Epic CRUD (table: rm_epic). list skips confirm.",
+    serialization="raw_dict",
+    return_type=Dict[str, Any],
+)
+def manage_epic(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageEpicParams,
+) -> Dict[str, Any]:
+    a = params.action
+    if a == "create":
+        return create_epic(
+            config,
+            auth_manager,
+            CreateEpicParams(
+                short_description=params.short_description,
+                description=params.description,
+                priority=params.priority,
+                state=params.state,
+                assignment_group=params.assignment_group,
+                assigned_to=params.assigned_to,
+                work_notes=params.work_notes,
+            ),
+        )
+    if a == "update":
+        return update_epic(
+            config,
+            auth_manager,
+            UpdateEpicParams(
+                epic_id=params.epic_id,
+                short_description=params.short_description,
+                description=params.description,
+                priority=params.priority,
+                state=params.state,
+                assignment_group=params.assignment_group,
+                assigned_to=params.assigned_to,
+                work_notes=params.work_notes,
+                dry_run=params.dry_run,
+            ),
+        )
+    return list_epics(
+        config,
+        auth_manager,
+        ListEpicsParams(
+            limit=params.limit,
+            offset=params.offset,
+            priority=params.priority,
+            assignment_group=params.assignment_group,
+            timeframe=params.timeframe,
+            query=params.query,
+        ),
+    )
