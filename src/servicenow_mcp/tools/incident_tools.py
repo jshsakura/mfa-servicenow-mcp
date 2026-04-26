@@ -41,13 +41,6 @@ class GetIncidentByNumberParams(BaseModel):
     )
 
 
-@register_tool(
-    "get_incident_by_number",
-    params=GetIncidentByNumberParams,
-    description="Get a single incident by number, or list incidents with filters. Provide incident_number for detail.",
-    serialization="json_dict",
-    return_type=str,
-)
 def get_incident_by_number(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -221,20 +214,27 @@ class ManageIncidentParams(BaseModel):
     """Manage incidents — table: incident.
 
     Required per action:
+      get:     incident_id (detail) or filters (list)
       create:  short_description
       update:  incident_id, at least one field to change
       comment: incident_id, comment
       resolve: incident_id, resolution_code, resolution_notes
     """
 
-    action: Literal["create", "update", "comment", "resolve"] = Field(
+    action: Literal["get", "create", "update", "comment", "resolve"] = Field(
         ..., description="Operation to perform"
     )
 
-    # Identifier (update/comment/resolve)
+    # Identifier (get/update/comment/resolve)
     incident_id: Optional[str] = Field(
-        default=None, description="sys_id or INC number for update/comment/resolve"
+        default=None, description="sys_id or INC number for get/update/comment/resolve"
     )
+
+    # get (list mode) params
+    limit: int = Field(default=10, description="Max records (get list mode)")
+    offset: int = Field(default=0, description="Pagination offset (get list mode)")
+    query: Optional[str] = Field(default=None, description="Search query (get list mode)")
+    count_only: bool = Field(default=False, description="Return count only (get list mode)")
 
     # Create + update common fields
     short_description: Optional[str] = Field(default=None)
@@ -266,7 +266,9 @@ class ManageIncidentParams(BaseModel):
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageIncidentParams":
-        if self.action == "create":
+        if self.action == "get":
+            pass  # incident_id optional (omit for list mode)
+        elif self.action == "create":
             if not self.short_description:
                 raise ValueError("short_description is required for action='create'")
         elif self.action == "update":
@@ -296,7 +298,7 @@ def _project(params: ManageIncidentParams, fields: tuple[str, ...]) -> Dict[str,
 @register_tool(
     "manage_incident",
     params=ManageIncidentParams,
-    description="Create/update/comment/resolve an incident (table: incident). One call, no schema lookup needed.",
+    description="Get/create/update/comment/resolve an incident (table: incident). One call, no schema lookup needed.",
     serialization="str",
     return_type=str,
 )
@@ -305,6 +307,19 @@ def manage_incident(
     auth_manager: AuthManager,
     params: ManageIncidentParams,
 ) -> IncidentResponse:
+    if params.action == "get":
+        return incident_service.get(
+            config,
+            auth_manager,
+            incident_id=params.incident_id,
+            limit=params.limit,
+            offset=params.offset,
+            state=params.state,
+            assigned_to=params.assigned_to,
+            category=params.category,
+            query=params.query,
+            count_only=params.count_only,
+        )
     if params.action == "create":
         return incident_service.create(
             config,
