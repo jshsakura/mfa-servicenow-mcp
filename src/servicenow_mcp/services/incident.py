@@ -14,13 +14,13 @@ services.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
@@ -331,3 +331,123 @@ def resolve(
             success=False,
             message=f"Failed to resolve incident: {str(e)}",
         )
+
+
+_INCIDENT_FIELDS = "sys_id,number,short_description,description,state,priority,assigned_to,category,subcategory,sys_created_on,sys_updated_on"
+
+
+def get(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    incident_id: Optional[str] = None,
+    limit: int = 10,
+    offset: int = 0,
+    state: Optional[str] = None,
+    assigned_to: Optional[str] = None,
+    category: Optional[str] = None,
+    query: Optional[str] = None,
+    count_only: bool = False,
+) -> Dict[str, Any]:
+    """Fetch a single incident by number/sys_id (detail) or list with filters."""
+    if incident_id:
+        try:
+            records, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="incident",
+                query=(
+                    f"number={incident_id}"
+                    if not (
+                        len(incident_id) == 32 and all(c in "0123456789abcdef" for c in incident_id)
+                    )
+                    else f"sys_id={incident_id}"
+                ),
+                fields="",
+                limit=1,
+                offset=0,
+                display_value=True,
+                fail_silently=False,
+            )
+            if not records:
+                return {"success": False, "message": f"Incident not found: {incident_id}"}
+            d = records[0]
+            assigned = d.get("assigned_to")
+            if isinstance(assigned, dict):
+                assigned = assigned.get("display_value")
+            return {
+                "success": True,
+                "message": f"Incident {incident_id} found",
+                "incident": {
+                    "sys_id": d.get("sys_id"),
+                    "number": d.get("number"),
+                    "short_description": d.get("short_description"),
+                    "description": d.get("description"),
+                    "state": d.get("state"),
+                    "priority": d.get("priority"),
+                    "assigned_to": assigned,
+                    "category": d.get("category"),
+                    "subcategory": d.get("subcategory"),
+                    "created_on": d.get("sys_created_on"),
+                    "updated_on": d.get("sys_updated_on"),
+                },
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch incident: {e}")
+            return {"success": False, "message": f"Failed to fetch incident: {str(e)}"}
+
+    filters = []
+    if state:
+        filters.append(f"state={state}")
+    if assigned_to:
+        filters.append(f"assigned_to={assigned_to}")
+    if category:
+        filters.append(f"category={category}")
+    if query:
+        filters.append(f"short_descriptionLIKE{query}^ORdescriptionLIKE{query}")
+    query_string = "^".join(filters) if filters else ""
+
+    if count_only:
+        count = sn_count(config, auth_manager, "incident", query_string)
+        return {"success": True, "count": count}
+
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="incident",
+            query=query_string,
+            fields=_INCIDENT_FIELDS,
+            limit=limit,
+            offset=offset,
+            display_value=True,
+            fail_silently=False,
+        )
+        incidents = []
+        for d in records:
+            assigned = d.get("assigned_to")
+            if isinstance(assigned, dict):
+                assigned = assigned.get("display_value")
+            incidents.append(
+                {
+                    "sys_id": d.get("sys_id"),
+                    "number": d.get("number"),
+                    "short_description": d.get("short_description"),
+                    "description": d.get("description"),
+                    "state": d.get("state"),
+                    "priority": d.get("priority"),
+                    "assigned_to": assigned,
+                    "category": d.get("category"),
+                    "subcategory": d.get("subcategory"),
+                    "created_on": d.get("sys_created_on"),
+                    "updated_on": d.get("sys_updated_on"),
+                }
+            )
+        return {
+            "success": True,
+            "message": f"Found {len(incidents)} incidents",
+            "incidents": incidents,
+        }
+    except Exception as e:
+        logger.error(f"Failed to list incidents: {e}")
+        return {"success": False, "message": f"Failed to list incidents: {str(e)}", "incidents": []}
