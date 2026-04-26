@@ -53,13 +53,12 @@ class TestManageUserValidation:
             ManageUserParams(action="get")
 
     def test_list_has_no_required_fields(self):
-        # Should not raise — list is the loosest action
         ManageUserParams(action="list", limit=5)
 
 
 class TestManageUserDispatch:
     def test_create(self):
-        with patch("servicenow_mcp.tools.user_tools.create_user") as mock_fn:
+        with patch("servicenow_mcp.services.user.create_user") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_user(
                 _config(),
@@ -72,18 +71,18 @@ class TestManageUserDispatch:
                     email="a@w.com",
                 ),
             )
-            assert mock_fn.call_args[0][2].user_name == "alice"
+            assert mock_fn.call_args.kwargs["user_name"] == "alice"
 
     def test_update(self):
-        with patch("servicenow_mcp.tools.user_tools.update_user") as mock_fn:
+        with patch("servicenow_mcp.services.user.update_user") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_user(
                 _config(),
                 MagicMock(),
                 ManageUserParams(action="update", user_id="abc", title="Lead"),
             )
-            assert mock_fn.call_args[0][2].user_id == "abc"
-            assert mock_fn.call_args[0][2].title == "Lead"
+            assert mock_fn.call_args.kwargs["user_id"] == "abc"
+            assert mock_fn.call_args.kwargs["title"] == "Lead"
 
     def test_get(self):
         with patch("servicenow_mcp.tools.user_tools.get_user") as mock_fn:
@@ -133,24 +132,24 @@ class TestManageGroupValidation:
 
 class TestManageGroupDispatch:
     def test_create(self):
-        with patch("servicenow_mcp.tools.user_tools.create_group") as mock_fn:
+        with patch("servicenow_mcp.services.user.create_group") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_group(
                 _config(),
                 MagicMock(),
                 ManageGroupParams(action="create", name="Devs", type="approval"),
             )
-            assert mock_fn.call_args[0][2].name == "Devs"
+            assert mock_fn.call_args.kwargs["name"] == "Devs"
 
     def test_update(self):
-        with patch("servicenow_mcp.tools.user_tools.update_group") as mock_fn:
+        with patch("servicenow_mcp.services.user.update_group") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_group(
                 _config(),
                 MagicMock(),
                 ManageGroupParams(action="update", group_id="abc", active=False),
             )
-            assert mock_fn.call_args[0][2].active is False
+            assert mock_fn.call_args.kwargs["active"] is False
 
     def test_list(self):
         with patch("servicenow_mcp.tools.user_tools.list_groups") as mock_fn:
@@ -165,24 +164,24 @@ class TestManageGroupDispatch:
             assert inner.limit == 5
 
     def test_add_members(self):
-        with patch("servicenow_mcp.tools.user_tools.add_group_members") as mock_fn:
+        with patch("servicenow_mcp.services.user.add_members") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_group(
                 _config(),
                 MagicMock(),
                 ManageGroupParams(action="add_members", group_id="abc", members=["u1", "u2"]),
             )
-            assert mock_fn.call_args[0][2].members == ["u1", "u2"]
+            assert mock_fn.call_args.kwargs["members"] == ["u1", "u2"]
 
     def test_remove_members(self):
-        with patch("servicenow_mcp.tools.user_tools.remove_group_members") as mock_fn:
+        with patch("servicenow_mcp.services.user.remove_members") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_group(
                 _config(),
                 MagicMock(),
                 ManageGroupParams(action="remove_members", group_id="abc", members=["u1"]),
             )
-            assert mock_fn.call_args[0][2].members == ["u1"]
+            assert mock_fn.call_args.kwargs["members"] == ["u1"]
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +216,6 @@ class TestReadActionExemption:
 
         from servicenow_mcp.server import MANAGE_READ_ACTIONS
 
-        # Sanity: the map should declare these as reads
         assert "list" in MANAGE_READ_ACTIONS.get("manage_user", set())
         assert "get" in MANAGE_READ_ACTIONS.get("manage_user", set())
 
@@ -227,7 +225,6 @@ class TestReadActionExemption:
         srv = self._server({"manage_user": (fake, ManageUserParams, dict, "desc", "raw_dict")})
 
         async def _check():
-            # No confirm provided — should still succeed for action='list'
             result = await srv._call_tool_impl("manage_user", {"action": "list"})
             assert "ok" in result[0].text
 
