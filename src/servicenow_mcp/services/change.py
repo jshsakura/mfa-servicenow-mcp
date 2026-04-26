@@ -9,11 +9,12 @@ so behaviour stays in one place.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
@@ -200,3 +201,95 @@ def add_task(
             "success": False,
             "message": f"Error adding change task: {str(e)}",
         }
+
+
+def get(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    change_id: Optional[str] = None,
+    limit: int = 10,
+    offset: int = 0,
+    state: Optional[str] = None,
+    type: Optional[str] = None,
+    category: Optional[str] = None,
+    assignment_group: Optional[str] = None,
+    timeframe: Optional[str] = None,
+    query: Optional[str] = None,
+    count_only: bool = False,
+) -> Dict[str, Any]:
+    """Fetch a single change request (detail) or list with filters."""
+    if change_id:
+        try:
+            rows, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="change_request",
+                query=f"sys_id={change_id}",
+                fields="",
+                limit=1,
+                offset=0,
+                display_value=True,
+            )
+            if not rows:
+                return {"success": False, "message": f"Change request {change_id} not found"}
+            tasks, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="change_task",
+                query=f"change_request={change_id}",
+                fields="",
+                limit=100,
+                offset=0,
+                display_value=True,
+            )
+            return {"success": True, "change_request": rows[0], "tasks": tasks}
+        except Exception as e:
+            logger.error(f"Error getting change request details: {e}")
+            return {"success": False, "message": f"Error getting change request details: {str(e)}"}
+
+    query_parts: List[str] = []
+    if state:
+        query_parts.append(f"state={state}")
+    if type:
+        query_parts.append(f"type={type}")
+    if category:
+        query_parts.append(f"category={category}")
+    if assignment_group:
+        query_parts.append(f"assignment_group={assignment_group}")
+    if timeframe:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if timeframe == "upcoming":
+            query_parts.append(f"start_date>{now}")
+        elif timeframe == "in-progress":
+            query_parts.append(f"start_date<{now}^end_date>{now}")
+        elif timeframe == "completed":
+            query_parts.append(f"end_date<{now}")
+    if query:
+        query_parts.append(query)
+    query_str = "^".join(query_parts) if query_parts else ""
+
+    if count_only:
+        count = sn_count(config, auth_manager, "change_request", query_str)
+        return {"success": True, "count": count}
+
+    try:
+        rows, total = sn_query_page(
+            config,
+            auth_manager,
+            table="change_request",
+            query=query_str,
+            fields="",
+            limit=min(limit, 100),
+            offset=offset,
+            display_value=True,
+        )
+        return {
+            "success": True,
+            "change_requests": rows,
+            "count": len(rows),
+            "total": total if total is not None else len(rows),
+        }
+    except Exception as e:
+        logger.error(f"Error listing change requests: {e}")
+        return {"success": False, "message": f"Error listing change requests: {str(e)}"}
