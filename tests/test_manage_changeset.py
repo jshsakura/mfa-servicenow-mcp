@@ -1,8 +1,4 @@
-"""Tests for manage_changeset — Phase 3a bundle.
-
-RED stage: imports below WILL fail until manage_changeset is implemented.
-This is intentional — the failing import drives the green implementation.
-"""
+"""Tests for manage_changeset — Phase 3a bundle."""
 
 from unittest.mock import MagicMock, patch
 
@@ -65,13 +61,13 @@ class TestValidation:
 
 
 # ---------------------------------------------------------------------------
-# Dispatch — manage_changeset routes to the right legacy wrapper
+# Dispatch — manage_changeset routes to the service layer
 # ---------------------------------------------------------------------------
 
 
 class TestDispatch:
     def test_create_dispatches(self):
-        with patch("servicenow_mcp.tools.changeset_tools.create_changeset") as mock_fn:
+        with patch("servicenow_mcp.services.changeset.create") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_changeset(
                 _config(),
@@ -80,37 +76,34 @@ class TestDispatch:
                     action="create", name="my cs", application="app1", description="d"
                 ),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.name == "my cs"
-            assert inner.application == "app1"
-            assert inner.description == "d"
+            assert mock_fn.call_args.kwargs["name"] == "my cs"
+            assert mock_fn.call_args.kwargs["application"] == "app1"
+            assert mock_fn.call_args.kwargs["description"] == "d"
 
     def test_update_dispatches(self):
-        with patch("servicenow_mcp.tools.changeset_tools.update_changeset") as mock_fn:
+        with patch("servicenow_mcp.services.changeset.update") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_changeset(
                 _config(),
                 MagicMock(),
                 ManageChangesetParams(action="update", changeset_id="abc", state="in progress"),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.changeset_id == "abc"
-            assert inner.state == "in progress"
+            assert mock_fn.call_args.kwargs["changeset_id"] == "abc"
+            assert mock_fn.call_args.kwargs["state"] == "in progress"
 
     def test_commit_dispatches(self):
-        with patch("servicenow_mcp.tools.changeset_tools.commit_changeset") as mock_fn:
+        with patch("servicenow_mcp.services.changeset.commit") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_changeset(
                 _config(),
                 MagicMock(),
                 ManageChangesetParams(action="commit", changeset_id="abc", commit_message="ship"),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.changeset_id == "abc"
-            assert inner.commit_message == "ship"
+            assert mock_fn.call_args.kwargs["changeset_id"] == "abc"
+            assert mock_fn.call_args.kwargs["commit_message"] == "ship"
 
     def test_publish_dispatches(self):
-        with patch("servicenow_mcp.tools.changeset_tools.publish_changeset") as mock_fn:
+        with patch("servicenow_mcp.services.changeset.publish") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_changeset(
                 _config(),
@@ -119,12 +112,11 @@ class TestDispatch:
                     action="publish", changeset_id="abc", publish_notes="release v1"
                 ),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.changeset_id == "abc"
-            assert inner.publish_notes == "release v1"
+            assert mock_fn.call_args.kwargs["changeset_id"] == "abc"
+            assert mock_fn.call_args.kwargs["publish_notes"] == "release v1"
 
     def test_add_file_dispatches(self):
-        with patch("servicenow_mcp.tools.changeset_tools.add_file_to_changeset") as mock_fn:
+        with patch("servicenow_mcp.services.changeset.add_file") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_changeset(
                 _config(),
@@ -136,10 +128,9 @@ class TestDispatch:
                     file_content="content",
                 ),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.changeset_id == "abc"
-            assert inner.file_path == "x.js"
-            assert inner.file_content == "content"
+            assert mock_fn.call_args.kwargs["changeset_id"] == "abc"
+            assert mock_fn.call_args.kwargs["file_path"] == "x.js"
+            assert mock_fn.call_args.kwargs["file_content"] == "content"
 
 
 # ---------------------------------------------------------------------------
