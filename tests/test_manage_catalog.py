@@ -1,4 +1,4 @@
-"""Tests for manage_catalog — Phase 3e bundle (categories + items + variables)."""
+"""Tests for manage_catalog — Phase 4 service wiring."""
 
 from unittest.mock import MagicMock, patch
 
@@ -26,19 +26,19 @@ class TestValidation:
 
     def test_update_category_requires_id_and_field(self):
         with pytest.raises(ValidationError, match="category_id"):
-            ManageCatalogParams(action="update_category", title="x")
+            ManageCatalogParams(action="update_category", title="X")
         with pytest.raises(ValidationError, match="at least one field"):
             ManageCatalogParams(action="update_category", category_id="abc")
 
     def test_update_item_requires_id_and_field(self):
         with pytest.raises(ValidationError, match="item_id"):
-            ManageCatalogParams(action="update_item", name="x")
+            ManageCatalogParams(action="update_item", name="X")
         with pytest.raises(ValidationError, match="at least one field"):
             ManageCatalogParams(action="update_item", item_id="abc")
 
     def test_move_items_requires_ids_and_target(self):
         with pytest.raises(ValidationError, match="item_ids"):
-            ManageCatalogParams(action="move_items", target_category_id="cat1")
+            ManageCatalogParams(action="move_items", target_category_id="cat2")
         with pytest.raises(ValidationError, match="target_category_id"):
             ManageCatalogParams(action="move_items", item_ids=["i1"])
 
@@ -48,21 +48,21 @@ class TestValidation:
                 action="create_variable",
                 variable_name="x",
                 variable_type="string",
-                label="L",
+                label="X",
             )
         with pytest.raises(ValidationError, match="variable_name"):
             ManageCatalogParams(
                 action="create_variable",
                 catalog_item_id="i1",
                 variable_type="string",
-                label="L",
+                label="X",
             )
         with pytest.raises(ValidationError, match="variable_type"):
             ManageCatalogParams(
                 action="create_variable",
                 catalog_item_id="i1",
                 variable_name="x",
-                label="L",
+                label="X",
             )
         with pytest.raises(ValidationError, match="label"):
             ManageCatalogParams(
@@ -74,24 +74,23 @@ class TestValidation:
 
     def test_update_variable_requires_id(self):
         with pytest.raises(ValidationError, match="variable_id"):
-            ManageCatalogParams(action="update_variable", label="x")
+            ManageCatalogParams(action="update_variable", label="X")
 
 
 class TestDispatch:
     def test_create_category(self):
-        with patch("servicenow_mcp.tools.catalog_tools.create_catalog_category") as mock_fn:
+        with patch("servicenow_mcp.services.catalog.create_category") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_catalog(
                 _config(),
                 MagicMock(),
                 ManageCatalogParams(action="create_category", title="Hardware", icon="hw"),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.title == "Hardware"
-            assert inner.icon == "hw"
+            assert mock_fn.call_args.kwargs["title"] == "Hardware"
+            assert mock_fn.call_args.kwargs["icon"] == "hw"
 
     def test_update_category(self):
-        with patch("servicenow_mcp.tools.catalog_tools.update_catalog_category") as mock_fn:
+        with patch("servicenow_mcp.services.catalog.update_category") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_catalog(
                 _config(),
@@ -103,26 +102,24 @@ class TestDispatch:
                     dry_run=True,
                 ),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.category_id == "abc"
-            assert inner.title == "New"
-            assert inner.dry_run is True
+            assert mock_fn.call_args.kwargs["category_id"] == "abc"
+            assert mock_fn.call_args.kwargs["title"] == "New"
+            assert mock_fn.call_args.kwargs["dry_run"] is True
 
     def test_update_item(self):
-        with patch("servicenow_mcp.tools.catalog_tools.update_catalog_item") as mock_fn:
+        with patch("servicenow_mcp.services.catalog.update_item") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_catalog(
                 _config(),
                 MagicMock(),
                 ManageCatalogParams(action="update_item", item_id="i1", price="99", active=True),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.item_id == "i1"
-            assert inner.price == "99"
-            assert inner.active is True
+            assert mock_fn.call_args.kwargs["item_id"] == "i1"
+            assert mock_fn.call_args.kwargs["price"] == "99"
+            assert mock_fn.call_args.kwargs["active"] is True
 
     def test_move_items(self):
-        with patch("servicenow_mcp.tools.catalog_tools.move_catalog_items") as mock_fn:
+        with patch("servicenow_mcp.services.catalog.move_items") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_catalog(
                 _config(),
@@ -133,12 +130,11 @@ class TestDispatch:
                     target_category_id="cat2",
                 ),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.item_ids == ["i1", "i2"]
-            assert inner.target_category_id == "cat2"
+            assert mock_fn.call_args.kwargs["item_ids"] == ["i1", "i2"]
+            assert mock_fn.call_args.kwargs["target_category_id"] == "cat2"
 
     def test_create_variable(self):
-        with patch("servicenow_mcp.tools.catalog_tools.create_catalog_item_variable") as mock_fn:
+        with patch("servicenow_mcp.services.catalog.create_variable") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_catalog(
                 _config(),
@@ -152,15 +148,14 @@ class TestDispatch:
                     mandatory=True,
                 ),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.catalog_item_id == "i1"
-            assert inner.name == "comments"
-            assert inner.type == "string"
-            assert inner.label == "Comments"
-            assert inner.mandatory is True
+            assert mock_fn.call_args.kwargs["catalog_item_id"] == "i1"
+            assert mock_fn.call_args.kwargs["name"] == "comments"
+            assert mock_fn.call_args.kwargs["variable_type"] == "string"
+            assert mock_fn.call_args.kwargs["label"] == "Comments"
+            assert mock_fn.call_args.kwargs["mandatory"] is True
 
     def test_update_variable(self):
-        with patch("servicenow_mcp.tools.catalog_tools.update_catalog_item_variable") as mock_fn:
+        with patch("servicenow_mcp.services.catalog.update_variable") as mock_fn:
             mock_fn.return_value = {"success": True}
             manage_catalog(
                 _config(),
@@ -172,10 +167,9 @@ class TestDispatch:
                     mandatory=False,
                 ),
             )
-            inner = mock_fn.call_args[0][2]
-            assert inner.variable_id == "v1"
-            assert inner.label == "Updated"
-            assert inner.mandatory is False
+            assert mock_fn.call_args.kwargs["variable_id"] == "v1"
+            assert mock_fn.call_args.kwargs["label"] == "Updated"
+            assert mock_fn.call_args.kwargs["mandatory"] is False
 
 
 class TestConfirmGate:
