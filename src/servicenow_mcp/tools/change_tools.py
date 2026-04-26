@@ -83,13 +83,6 @@ class RejectChangeParams(BaseModel):
     )
 
 
-@register_tool(
-    name="get_change_request_details",
-    params=GetChangeRequestDetailsParams,
-    description="Get a single change request by sys_id/number, or list change requests with filters.",
-    serialization="json",
-    return_type=str,
-)
 def get_change_request_details(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -518,15 +511,27 @@ class ManageChangeParams(BaseModel):
     """Manage change requests — table: change_request.
 
     Required per action:
+      get:      change_id (detail) or filters (list)
       create:   short_description, type ('normal' | 'standard' | 'emergency')
       update:   change_id, at least one field
       add_task: change_id, task_short_description
     """
 
-    action: Literal["create", "update", "add_task"] = Field(...)
+    action: Literal["get", "create", "update", "add_task"] = Field(...)
     change_id: Optional[str] = Field(
-        default=None, description="sys_id or CHG number for update/add_task"
+        default=None, description="sys_id or CHG number for get/update/add_task"
     )
+
+    # get (list mode) params
+    limit: int = Field(default=10, description="Max records (get list mode)")
+    offset: int = Field(default=0, description="Pagination offset (get list mode)")
+    timeframe: Optional[str] = Field(
+        default=None, description="upcoming/in-progress/completed (get list mode)"
+    )
+    query: Optional[str] = Field(
+        default=None, description="Additional query string (get list mode)"
+    )
+    count_only: bool = Field(default=False, description="Return count only (get list mode)")
 
     # Create-only required
     type: Optional[Literal["normal", "standard", "emergency"]] = Field(
@@ -557,7 +562,9 @@ class ManageChangeParams(BaseModel):
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageChangeParams":
-        if self.action == "create":
+        if self.action == "get":
+            pass
+        elif self.action == "create":
             if not self.short_description:
                 raise ValueError("short_description is required for action='create'")
             if not self.type:
@@ -582,7 +589,7 @@ def _project_change(params: ManageChangeParams, fields: tuple[str, ...]) -> Dict
 @register_tool(
     name="manage_change",
     params=ManageChangeParams,
-    description="Create/update a change request or add a change task (table: change_request).",
+    description="Get/create/update a change request or add a change task (table: change_request).",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -591,6 +598,21 @@ def manage_change(
     auth_manager: AuthManager,
     params: ManageChangeParams,
 ) -> Dict[str, Any]:
+    if params.action == "get":
+        return change_service.get(
+            config,
+            auth_manager,
+            change_id=params.change_id,
+            limit=params.limit,
+            offset=params.offset,
+            state=params.state,
+            type=params.type,
+            category=params.category,
+            assignment_group=params.assignment_group,
+            timeframe=params.timeframe,
+            query=params.query,
+            count_only=params.count_only,
+        )
     if params.action == "create":
         return change_service.create(
             config,

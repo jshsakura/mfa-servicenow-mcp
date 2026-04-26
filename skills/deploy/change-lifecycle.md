@@ -8,7 +8,6 @@ required_input: change details or change_id
 output: status
 tools:
   - manage_change
-  - get_change_request_details
   - submit_change_for_approval
   - approve_change
   - reject_change
@@ -56,10 +55,10 @@ IF "거부" or "reject":
     - confirm = "approve"
 
 IF "상태" or "check status":
-  CALL get_change_request_details(change_id=INPUT)
+  CALL manage_change(action="get", change_id=INPUT)
 
 IF "목록" or "list":
-  CALL get_change_request_details(state=INPUT_STATE, limit=20)
+  CALL manage_change(action="get", state=INPUT_STATE, limit=20)
 
 ## ON ERROR
 
