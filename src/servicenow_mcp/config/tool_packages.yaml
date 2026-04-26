@@ -23,7 +23,6 @@ core:
   - sn_discover
   - sn_nl
   - sn_resolve_url
-  - get_incident_by_number
   - list_catalog_items
   - get_catalog_item
   - list_catalog_categories
@@ -49,8 +48,6 @@ standard:
   - sn_discover
   - sn_nl
   - sn_resolve_url
-  # Incident (Read)
-  - get_incident_by_number
   # Catalog (Read)
   - list_catalog_items
   - get_catalog_item

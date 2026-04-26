@@ -19,7 +19,6 @@ def _build_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNowMCP:
             [
                 "none: []",
                 "approval_query_only:",
-                "  - get_incident_by_number",
                 "  - approve_change",
                 "  - manage_incident",
                 "  - sn_nl",
@@ -53,7 +52,6 @@ def test_list_tools_shows_enabled_mutating_tools(monkeypatch: pytest.MonkeyPatch
     names = {tool.name for tool in tools}
 
     assert "manage_incident" in names
-    assert "get_incident_by_number" in names
     assert "approve_change" in names
 
 
