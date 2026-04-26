@@ -22,13 +22,13 @@ ServiceNow workflows are a powerful automation feature that allows you to define
    - Parameters:
      - `workflow_id` (required): Workflow ID or sys_id
 
-3. **list_workflow_versions** - List all versions of a specific workflow
+3. **manage_workflow(action="list_versions")** - List all versions of a specific workflow
    - Parameters:
      - `workflow_id` (required): Workflow ID or sys_id
      - `limit` (optional): Maximum number of records to return (default: 10)
      - `offset` (optional): Offset to start from (default: 0)
 
-4. **get_workflow_activities** - Get all activities in a workflow
+4. **manage_workflow(action="get_activities")** - Get all activities in a workflow
    - Parameters:
      - `workflow_id` (required): Workflow ID or sys_id
      - `version` (optional): Specific version to get activities for (if not provided, the latest published version will be used)
