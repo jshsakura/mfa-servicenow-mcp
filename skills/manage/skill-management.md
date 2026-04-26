@@ -85,7 +85,7 @@ skills/
    - CHECK context_cost is one of: low, medium, high
    - CHECK safety_level is one of: none, confirm, staged
    - CHECK delegatable is true or false
-   - CHECK output is one of: summary, report, diff, data, status, files, action
+   - CHECK output is one of: summary, report, diff, data, status, files, action, diagnosis
    - CHECK tools list contains only registered MCP tool names
    - CHECK body has: # Instructions, ## Pipeline (or ## Mode Selection)
    - CHECK SKILL.md index contains this skill
@@ -101,7 +101,7 @@ context_cost: low|medium|high
 safety_level: none|confirm|staged
 delegatable: true|false
 required_input: <what user provides>
-output: summary|report|diff|data|status|files|action
+output: summary|report|diff|data|status|files|action|diagnosis
 tools:
   - <tool_name_1>
   - <tool_name_2>
@@ -137,7 +137,7 @@ You are <concise role statement>.
 | safety_level | enum | none, confirm, staged | yes |
 | delegatable | boolean | true, false | yes |
 | required_input | string | what user must provide | yes |
-| output | enum | summary, report, diff, data, status, files, action | yes |
+| output | enum | summary, report, diff, data, status, files, action, diagnosis | yes |
 | tools | list | registered MCP tool names | yes (can be empty) |
 | triggers | list | Korean + English trigger phrases | yes |
 

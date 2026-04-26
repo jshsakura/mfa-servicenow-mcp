@@ -10,7 +10,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SKILLS_DIR = REPO_ROOT / "skills"
+README_EN = REPO_ROOT / "README.md"
+README_KO = REPO_ROOT / "README.ko.md"
+WINDOWS_INSTALL_EN = REPO_ROOT / "docs" / "WINDOWS_INSTALL.md"
+WINDOWS_INSTALL_KO = REPO_ROOT / "docs" / "WINDOWS_INSTALL.ko.md"
+WEBSITE_INDEX_EN = REPO_ROOT / "website" / "docs" / "index.md"
+WEBSITE_INDEX_KO = REPO_ROOT / "website" / "docs" / "index.ko.md"
+WEBSITE_WINDOWS_INSTALL_EN = REPO_ROOT / "website" / "docs" / "docs" / "WINDOWS_INSTALL.md"
+WEBSITE_WINDOWS_INSTALL_KO = REPO_ROOT / "website" / "docs" / "docs" / "WINDOWS_INSTALL.ko.md"
+SKILL_MANAGEMENT_DOC = SKILLS_DIR / "manage" / "skill-management.md"
 
 REQUIRED_META_FIELDS = [
     "name",
@@ -26,7 +36,8 @@ REQUIRED_META_FIELDS = [
 
 VALID_CONTEXT_COSTS = {"low", "medium", "high"}
 VALID_SAFETY_LEVELS = {"none", "confirm", "staged"}
-VALID_OUTPUTS = {"summary", "report", "diff", "data", "status", "files", "action", "diagnosis"}
+OUTPUT_CHOICES = ["summary", "report", "diff", "data", "status", "files", "action", "diagnosis"]
+VALID_OUTPUTS = set(OUTPUT_CHOICES)
 VALID_CATEGORIES = {"analyze", "fix", "manage", "deploy", "explore"}
 
 REQUIRED_SECTIONS = ["## Pipeline", "## ON ERROR", "## DELEGATE hint"]
@@ -50,6 +61,18 @@ def _parse_frontmatter(path: Path):
     front = yaml.safe_load(content[3:end])
     body = content[end + 3 :]
     return front, body
+
+
+def _skill_count():
+    return len(_get_skill_files())
+
+
+def _category_count():
+    return len({path.parent.name for path in _get_skill_files()})
+
+
+def _output_choice_text(pipe: str = ", "):
+    return pipe.join(OUTPUT_CHOICES)
 
 
 def _get_all_registered_tools():
@@ -271,3 +294,48 @@ class TestSkillIndex:
                 broken.append(link)
 
         assert len(broken) == 0, f"Broken links in SKILL.md: {broken}"
+
+
+class TestSkillDocsSync:
+    """Verify skill docs stay synced with live skill metadata/counts."""
+
+    def test_output_enum_documented_in_index(self):
+        content = (SKILLS_DIR / "SKILL.md").read_text(encoding="utf-8")
+        assert f"output: {_output_choice_text('|')}" in content
+
+    def test_output_enum_documented_in_skill_management(self):
+        content = SKILL_MANAGEMENT_DOC.read_text(encoding="utf-8")
+        assert f"CHECK output is one of: {_output_choice_text()}" in content
+        assert f"output: {_output_choice_text('|')}" in content
+        assert f"| output | enum | {_output_choice_text()} | yes |" in content
+
+    @pytest.mark.parametrize(
+        ("doc_path", "expected_text"),
+        [
+            (README_EN, lambda: f"{_skill_count()} skills today"),
+            (README_KO, lambda: f"{_skill_count()}개 워크플로우 스킬"),
+            (README_KO, lambda: f"{_skill_count()}개 스킬 파일"),
+            (
+                WINDOWS_INSTALL_EN,
+                lambda: f"{_skill_count()} skills across {_category_count()} categories.",
+            ),
+            (
+                WINDOWS_INSTALL_KO,
+                lambda: f"현재 {_category_count()}개 카테고리에 {_skill_count()}개 스킬을 제공합니다.",
+            ),
+            (WEBSITE_INDEX_EN, lambda: f"{_skill_count()} skills today"),
+            (WEBSITE_INDEX_KO, lambda: f"현재 {_skill_count()}개 스킬을 지원하며"),
+            (
+                WEBSITE_WINDOWS_INSTALL_EN,
+                lambda: f"{_skill_count()} skills across {_category_count()} categories.",
+            ),
+            (
+                WEBSITE_WINDOWS_INSTALL_KO,
+                lambda: f"현재 {_category_count()}개 카테고리에 {_skill_count()}개 스킬을 제공합니다.",
+            ),
+        ],
+        ids=lambda item: item.name if hasattr(item, "name") else str(item),
+    )
+    def test_published_skill_counts_match_filesystem(self, doc_path, expected_text):
+        content = doc_path.read_text(encoding="utf-8")
+        assert expected_text() in content, f"{doc_path.relative_to(REPO_ROOT)} is out of sync"
