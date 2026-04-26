@@ -258,12 +258,12 @@ All packages inherit `standard` read-only tools via `_extends` and add domain-sp
 | Package | Tools | Description |
 | :--- | :---: | :--- |
 | `none` | 0 | Disabled profile for intentionally turning tools off |
-| `core` | 22 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 54 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 59 | standard + incident and change operational writes |
-| `portal_developer` | 86 | standard + portal, changeset, script include, and local-sync delivery workflows |
-| `platform_developer` | 99 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 124 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
+| `core` | 15 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
+| `standard` | 45 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 46 | standard + incident and change operational writes |
+| `portal_developer` | 55 | standard + portal, changeset, script include, and local-sync delivery workflows |
+| `platform_developer` | 55 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 66 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
@@ -625,7 +625,7 @@ uv build
 
 ## Related Projects and Acknowledgements
 
-- This repository includes tools consolidated and refactored from earlier internal / legacy ServiceNow MCP implementations. You can still see that lineage in modules such as [core_plus.py](./src/servicenow_mcp/tools/core_plus.py) and [tool_utils.py](./src/servicenow_mcp/utils/tool_utils.py).
+- This repository includes tools consolidated and refactored from earlier internal / legacy ServiceNow MCP implementations. The current surface is organized around bundled `manage_*` tools (see [tool_utils.py](./src/servicenow_mcp/utils/tool_utils.py)).
 - Some developer productivity workflows, especially server-side source lookup, were designed with ideas inspired by [SN Utils](https://github.com/arnoudkooi/SN-Utils). This project does not bundle or redistribute SN Utils code.
 - This project is focused on MCP server use cases rather than browser-extension UX. If you want in-browser productivity features inside ServiceNow, SN Utils remains a strong companion tool.
 
