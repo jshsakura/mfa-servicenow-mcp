@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.sn_api import sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
-from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +36,6 @@ class ListCatalogItemVariablesResponse(BaseModel):
     count: int = Field(default=0, description="Total number of variables found")
 
 
-@register_tool(
-    name="list_catalog_item_variables",
-    params=ListCatalogItemVariablesParams,
-    description="List variable definitions for a catalog item. Returns type, order, mandatory flag, and default values.",
-    serialization="dict",
-    return_type=dict,
-)
 def list_catalog_item_variables(
     config: ServerConfig,
     auth_manager: AuthManager,
