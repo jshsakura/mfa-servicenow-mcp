@@ -198,9 +198,7 @@ platform_developer:
     - manage_ui_policy
     - manage_portal_layout
     - manage_portal_component
-    # Incident writes (legacy)
-    - update_incident
-    - resolve_incident
+    # Incident writes — manage_incident covers create/update/comment/resolve
     # Change Management orchestrators (manage_change covers create/update/add_task)
     - submit_change_for_approval
     # Changeset writes
@@ -216,13 +214,8 @@ platform_developer:
 service_desk:
   _extends: standard
   _tools:
-    # Bundled (Phase 2 — preferred surface)
+    # Bundled (Phase 2 — manage_incident covers create/update/comment/resolve)
     - manage_incident
-    # Legacy wrappers (kept for one cycle; deprecated in 1.11.0)
-    - create_incident
-    - update_incident
-    - add_comment
-    - resolve_incident
 
 # --- Full: all tools ---
 full:
@@ -244,11 +237,7 @@ full:
     - manage_portal_component
     - manage_ui_policy
     # --- Legacy wrappers below (kept for one cycle; deprecated in 1.11.0) ---
-    # Incident writes
-    - create_incident
-    - update_incident
-    - add_comment
-    - resolve_incident
+    # Incident writes — manage_incident covers create/update/comment/resolve
     # Catalog writes
     - create_catalog_category
     - update_catalog_category

@@ -3,19 +3,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools.incident_tools import (
-    AddCommentParams,
-    CreateIncidentParams,
-    GetIncidentByNumberParams,
-    ResolveIncidentParams,
-    UpdateIncidentParams,
-    _resolve_incident_sys_id,
-    add_comment,
-    create_incident,
-    get_incident_by_number,
-    resolve_incident,
-    update_incident,
-)
+from servicenow_mcp.services.incident import resolve_incident_sys_id
+from servicenow_mcp.tools.incident_tools import GetIncidentByNumberParams, get_incident_by_number
 from servicenow_mcp.utils.config import ServerConfig
 
 
@@ -231,170 +220,11 @@ class TestIncidentTools(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["incident"]["assigned_to"], "Jane Doe")
 
-    # --- create_incident ---
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_create_incident_success(self, mock_invalidate):
-        mock_response = self._mock_response({"result": {"sys_id": "new123", "number": "INC0099"}})
-        self.auth_manager.make_request.return_value = mock_response
-        params = CreateIncidentParams(short_description="Test incident")
-        result = create_incident(self.config, self.auth_manager, params)
-        self.assertTrue(result.success)
-        self.assertEqual(result.incident_id, "new123")
-        self.assertEqual(result.incident_number, "INC0099")
-        self.auth_manager.make_request.assert_called_once_with(
-            "POST",
-            f"{self.config.api_url}/table/incident",
-            json={"short_description": "Test incident"},
-            headers=self.auth_manager.get_headers.return_value,
-            timeout=self.config.timeout,
-        )
-        mock_invalidate.assert_called_once_with(table="incident")
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_create_incident_error(self, mock_invalidate):
-        self.auth_manager.make_request.side_effect = Exception("Server error")
-        params = CreateIncidentParams(short_description="Test")
-        result = create_incident(self.config, self.auth_manager, params)
-        self.assertFalse(result.success)
-        self.assertIn("Server error", result.message)
-        mock_invalidate.assert_not_called()
-
-    # --- update_incident ---
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_update_incident_success(self, mock_invalidate):
-        resolve_response = self._mock_response({"result": [{"sys_id": "sys123"}]})
-        update_response = self._mock_response({"result": {"sys_id": "sys123", "number": "INC001"}})
-        self.auth_manager.make_request.side_effect = [
-            resolve_response,
-            update_response,
-        ]
-        params = UpdateIncidentParams(incident_id="INC001", short_description="Updated")
-        result = update_incident(self.config, self.auth_manager, params)
-        self.assertTrue(result.success)
-        self.assertEqual(result.incident_number, "INC001")
-        mock_invalidate.assert_called_once_with(table="incident")
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_update_incident_not_found(self, mock_invalidate):
-        resolve_response = self._mock_response({"result": []})
-        self.auth_manager.make_request.return_value = resolve_response
-        params = UpdateIncidentParams(incident_id="INC999", short_description="Updated")
-        result = update_incident(self.config, self.auth_manager, params)
-        self.assertFalse(result.success)
-        self.assertIn("not found", result.message)
-        mock_invalidate.assert_not_called()
-
-    # --- resolve_incident ---
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_resolve_incident_dry_run(self, mock_invalidate):
-        """dry_run=True returns a diff preview and issues no PUT."""
-        # _resolve_incident_sys_id → accepts sys_id directly, no extra call.
-        # Preview then calls sn_query_page → fetch current record.
-        fetch_response = self._mock_response(
-            {
-                "result": [
-                    {
-                        "sys_id": "sys_dry",
-                        "number": "INC999",
-                        "state": "1",
-                        "close_code": "",
-                        "close_notes": "",
-                    }
-                ]
-            }
-        )
-        self.auth_manager.make_request.return_value = fetch_response
-
-        params = ResolveIncidentParams(
-            incident_id="sys_dry",
-            resolution_code="Solved (Permanently)",
-            resolution_notes="Fixed in prod",
-            dry_run=True,
-        )
-        result = resolve_incident(self.config, self.auth_manager, params)
-
-        self.assertTrue(result["dry_run"])
-        self.assertEqual(result["proposed_changes"]["state"]["after"], "6")
-        self.assertEqual(result["proposed_changes"]["close_code"]["after"], "Solved (Permanently)")
-        mock_invalidate.assert_not_called()
-        for call in self.auth_manager.make_request.call_args_list:
-            self.assertEqual(call.args[0], "GET")
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_resolve_incident_success(self, mock_invalidate):
-        resolve_response = self._mock_response({"result": [{"sys_id": "sys123"}]})
-        put_response = self._mock_response({"result": {"sys_id": "sys123", "number": "INC001"}})
-        self.auth_manager.make_request.side_effect = [
-            resolve_response,
-            put_response,
-        ]
-        params = ResolveIncidentParams(
-            incident_id="sys123",
-            resolution_code="Solved (Permanently)",
-            resolution_notes="Fixed",
-        )
-        result = resolve_incident(self.config, self.auth_manager, params)
-        self.assertTrue(result.success)
-        self.assertEqual(result.message, "Incident resolved successfully")
-        mock_invalidate.assert_called_once_with(table="incident")
-        put_call_args = self.auth_manager.make_request.call_args_list[1]
-        self.assertEqual(put_call_args[1]["json"]["state"], "6")
-        self.assertEqual(put_call_args[1]["json"]["close_code"], "Solved (Permanently)")
-        self.assertEqual(put_call_args[1]["json"]["close_notes"], "Fixed")
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_resolve_incident_not_found(self, mock_invalidate):
-        resolve_response = self._mock_response({"result": []})
-        self.auth_manager.make_request.return_value = resolve_response
-        params = ResolveIncidentParams(
-            incident_id="INC999",
-            resolution_code="Solved",
-            resolution_notes="Fixed",
-        )
-        result = resolve_incident(self.config, self.auth_manager, params)
-        self.assertFalse(result.success)
-        mock_invalidate.assert_not_called()
-
-    # --- add_comment ---
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_add_comment_success(self, mock_invalidate):
-        resolve_response = self._mock_response({"result": [{"sys_id": "sys123"}]})
-        put_response = self._mock_response({"result": {"sys_id": "sys123", "number": "INC001"}})
-        self.auth_manager.make_request.side_effect = [
-            resolve_response,
-            put_response,
-        ]
-        params = AddCommentParams(incident_id="INC001", comment="Hello world")
-        result = add_comment(self.config, self.auth_manager, params)
-        self.assertTrue(result.success)
-        put_call_args = self.auth_manager.make_request.call_args_list[1]
-        self.assertEqual(put_call_args[1]["json"], {"comments": "Hello world"})
-        mock_invalidate.assert_called_once_with(table="incident")
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_add_comment_work_note(self, mock_invalidate):
-        resolve_response = self._mock_response({"result": [{"sys_id": "sys123"}]})
-        put_response = self._mock_response({"result": {"sys_id": "sys123", "number": "INC001"}})
-        self.auth_manager.make_request.side_effect = [
-            resolve_response,
-            put_response,
-        ]
-        params = AddCommentParams(incident_id="INC001", comment="Internal note", is_work_note=True)
-        result = add_comment(self.config, self.auth_manager, params)
-        self.assertTrue(result.success)
-        put_call_args = self.auth_manager.make_request.call_args_list[1]
-        self.assertEqual(put_call_args[1]["json"], {"work_notes": "Internal note"})
-        mock_invalidate.assert_called_once_with(table="incident")
-
-    # --- _resolve_incident_sys_id ---
+    # --- resolve_incident_sys_id (helper, lives in services.incident) ---
 
     def test_resolve_incident_sys_id_direct(self):
         sys_id = "a" * 32
-        result, err = _resolve_incident_sys_id(self.config, self.auth_manager, sys_id)
+        result, err = resolve_incident_sys_id(self.config, self.auth_manager, sys_id)
         self.assertEqual(result, sys_id)
         self.assertIsNone(err)
         self.auth_manager.make_request.assert_not_called()
@@ -402,65 +232,24 @@ class TestIncidentTools(unittest.TestCase):
     def test_resolve_incident_by_number(self):
         mock_response = self._mock_response({"result": [{"sys_id": "resolved123"}]})
         self.auth_manager.make_request.return_value = mock_response
-        result, err = _resolve_incident_sys_id(self.config, self.auth_manager, "INC001")
+        result, err = resolve_incident_sys_id(self.config, self.auth_manager, "INC001")
         self.assertEqual(result, "resolved123")
         self.assertIsNone(err)
 
     def test_resolve_sys_id_not_found(self):
         mock_response = self._mock_response({"result": []})
         self.auth_manager.make_request.return_value = mock_response
-        result, err = _resolve_incident_sys_id(self.config, self.auth_manager, "INC999")
+        result, err = resolve_incident_sys_id(self.config, self.auth_manager, "INC999")
         self.assertIsNone(result)
         self.assertIsNotNone(err)
         self.assertFalse(err.success)
 
     def test_resolve_incident_error(self):
         self.auth_manager.make_request.side_effect = Exception("Timeout")
-        result, err = _resolve_incident_sys_id(self.config, self.auth_manager, "INC001")
+        result, err = resolve_incident_sys_id(self.config, self.auth_manager, "INC001")
         self.assertIsNone(result)
         self.assertIsNotNone(err)
         self.assertIn("Timeout", err.message)
-
-    # --- invalidation after write ---
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_invalidation_after_create(self, mock_invalidate):
-        mock_response = self._mock_response({"result": {"sys_id": "new123", "number": "INC001"}})
-        self.auth_manager.make_request.return_value = mock_response
-        params = CreateIncidentParams(short_description="Test")
-        create_incident(self.config, self.auth_manager, params)
-        mock_invalidate.assert_called_once_with(table="incident")
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_invalidation_after_update(self, mock_invalidate):
-        resolve_resp = self._mock_response({"result": [{"sys_id": "abc"}]})
-        update_resp = self._mock_response({"result": {"sys_id": "abc", "number": "INC001"}})
-        self.auth_manager.make_request.side_effect = [resolve_resp, update_resp]
-        params = UpdateIncidentParams(incident_id="abc" + "0" * 29, short_description="Updated")
-        update_incident(self.config, self.auth_manager, params)
-        mock_invalidate.assert_called_once_with(table="incident")
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_invalidation_after_resolve(self, mock_invalidate):
-        resolve_resp = self._mock_response({"result": [{"sys_id": "abc"}]})
-        put_resp = self._mock_response({"result": {"sys_id": "abc", "number": "INC001"}})
-        self.auth_manager.make_request.side_effect = [resolve_resp, put_resp]
-        params = ResolveIncidentParams(
-            incident_id="abc" + "0" * 29,
-            resolution_code="Solved",
-            resolution_notes="Done",
-        )
-        resolve_incident(self.config, self.auth_manager, params)
-        mock_invalidate.assert_called_once_with(table="incident")
-
-    @patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache")
-    def test_invalidation_after_add_comment(self, mock_invalidate):
-        resolve_resp = self._mock_response({"result": [{"sys_id": "abc"}]})
-        put_resp = self._mock_response({"result": {"sys_id": "abc", "number": "INC001"}})
-        self.auth_manager.make_request.side_effect = [resolve_resp, put_resp]
-        params = AddCommentParams(incident_id="abc" + "0" * 29, comment="Note")
-        add_comment(self.config, self.auth_manager, params)
-        mock_invalidate.assert_called_once_with(table="incident")
 
 
 if __name__ == "__main__":

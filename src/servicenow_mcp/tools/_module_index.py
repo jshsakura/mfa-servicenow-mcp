@@ -6,7 +6,6 @@ A CI test verifies this file matches the live AST scan of the tools/ package.
 
 TOOL_MODULE_INDEX = {
     "activate_workflow": "workflow_tools",
-    "add_comment": "incident_tools",
     "add_file_to_changeset": "changeset_tools",
     "add_group_members": "user_tools",
     "add_workflow_activity": "workflow_tools",
@@ -28,7 +27,6 @@ TOOL_MODULE_INDEX = {
     "create_epic": "epic_tools",
     "create_group": "user_tools",
     "create_header_footer": "portal_crud_tools",
-    "create_incident": "incident_tools",
     "create_knowledge_base": "knowledge_base",
     "create_ng_template": "portal_crud_tools",
     "create_page": "portal_crud_tools",
@@ -127,7 +125,6 @@ TOOL_MODULE_INDEX = {
     "reject_change": "change_tools",
     "remove_group_members": "user_tools",
     "reorder_workflow_activities": "workflow_tools",
-    "resolve_incident": "incident_tools",
     "resolve_page_dependencies": "portal_tools",
     "resolve_widget_chain": "portal_tools",
     "route_portal_component_edit": "portal_tools",
@@ -151,7 +148,6 @@ TOOL_MODULE_INDEX = {
     "update_epic": "epic_tools",
     "update_flow_designer": "flow_designer_tools",
     "update_group": "user_tools",
-    "update_incident": "incident_tools",
     "update_page": "portal_crud_tools",
     "update_portal_component": "portal_tools",
     "update_portal_component_from_snapshot": "portal_tools",

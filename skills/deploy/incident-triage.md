@@ -8,8 +8,7 @@ required_input: incident number or query
 output: action
 tools:
   - get_incident_by_number
-  - update_incident
-  - add_comment
+  - manage_incident
   - sn_aggregate
 triggers:
   - "인시던트 분류"
@@ -42,11 +41,11 @@ IF "분석" or "analyze specific":
   → RETURN: analysis with recommendations
 
 IF "배정" or "route":
-  CALL update_incident
+  CALL manage_incident(action="update", ...)
     - incident_id, assignment_group, category, priority
     - confirm = "approve"
-  CALL add_comment
-    - incident_id, comment = triage justification, comment_type = "work_note"
+  CALL manage_incident(action="comment", ...)
+    - incident_id, comment = triage justification, is_work_note = True
     - confirm = "approve"
 
 ## Priority Matrix

@@ -1,0 +1,6 @@
+{
+  "incident_id": null,
+  "incident_number": null,
+  "message": "Failed to create incident: boom: 500",
+  "success": false
+}
