@@ -1,0 +1,7 @@
+{
+  "message": "Executed MyUtil.doWork",
+  "result": {
+    "answer": "42"
+  },
+  "success": true
+}
