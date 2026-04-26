@@ -1,4 +1,4 @@
-"""Tests for the ServiceNow MCP catalog tools (migrated to shared query helpers)."""
+"""Tests for the ServiceNow MCP catalog tools (surviving read tools)."""
 
 import json
 import unittest
@@ -6,19 +6,13 @@ from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.catalog_tools import (
-    CreateCatalogCategoryParams,
     GetCatalogItemParams,
     ListCatalogCategoriesParams,
     ListCatalogItemsParams,
-    MoveCatalogItemsParams,
-    UpdateCatalogCategoryParams,
-    create_catalog_category,
     get_catalog_item,
     get_catalog_item_variables,
     list_catalog_categories,
     list_catalog_items,
-    move_catalog_items,
-    update_catalog_category,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
@@ -339,233 +333,6 @@ class TestListCatalogCategories(unittest.TestCase):
 
         call_kwargs = mock_qp.call_args[1]
         self.assertEqual(call_kwargs["query"], "")
-
-
-class TestCreateCatalogCategory(unittest.TestCase):
-    def setUp(self):
-        self.config = ServerConfig(
-            instance_url="https://example.service-now.com",
-            auth=AuthConfig(
-                type=AuthType.BASIC,
-                basic=BasicAuthConfig(username="admin", password="password"),
-            ),
-        )
-        self.auth_manager = MagicMock(spec=AuthManager)
-        self.auth_manager.get_headers.return_value = {"Authorization": "Basic YWRtaW46cGFzc3dvcmQ="}
-
-    @patch("servicenow_mcp.tools.catalog_tools.invalidate_query_cache")
-    def test_create_category_happy(self, mock_invalidate):
-        mock_response = _make_mock_response(
-            {
-                "result": {
-                    "sys_id": "new_cat_id",
-                    "title": "Test Category",
-                    "description": "Test Description",
-                    "parent": "",
-                    "icon": "icon-test",
-                    "active": "true",
-                    "order": "100",
-                }
-            }
-        )
-        self.auth_manager.make_request.return_value = mock_response
-
-        params = CreateCatalogCategoryParams(
-            title="Test Category",
-            description="Test Description",
-            icon="icon-test",
-            active=True,
-            order=100,
-        )
-        result = create_catalog_category(self.config, self.auth_manager, params)
-
-        self.assertTrue(result.success)
-        self.assertEqual(result.data["title"], "Test Category")
-        self.assertEqual(result.data["sys_id"], "new_cat_id")
-        mock_invalidate.assert_called_once_with(table="sc_category")
-        self.auth_manager.make_request.assert_called_once()
-        args, kwargs = self.auth_manager.make_request.call_args
-        self.assertEqual(args[0], "POST")
-        self.assertEqual(args[1], "https://example.service-now.com/api/now/table/sc_category")
-        self.assertEqual(kwargs["json"]["title"], "Test Category")
-
-    @patch("servicenow_mcp.tools.catalog_tools.invalidate_query_cache")
-    def test_create_category_error(self, mock_invalidate):
-        self.auth_manager.make_request.side_effect = Exception("Forbidden")
-
-        params = CreateCatalogCategoryParams(title="Test")
-        result = create_catalog_category(self.config, self.auth_manager, params)
-
-        self.assertFalse(result.success)
-        self.assertIn("Forbidden", result.message)
-        self.assertIsNone(result.data)
-        mock_invalidate.assert_not_called()
-
-
-class TestUpdateCatalogCategory(unittest.TestCase):
-    def setUp(self):
-        self.config = ServerConfig(
-            instance_url="https://example.service-now.com",
-            auth=AuthConfig(
-                type=AuthType.BASIC,
-                basic=BasicAuthConfig(username="admin", password="password"),
-            ),
-        )
-        self.auth_manager = MagicMock(spec=AuthManager)
-        self.auth_manager.get_headers.return_value = {"Authorization": "Basic YWRtaW46cGFzc3dvcmQ="}
-
-    @patch("servicenow_mcp.tools.catalog_tools.invalidate_query_cache")
-    def test_update_category_happy(self, mock_invalidate):
-        mock_response = _make_mock_response(
-            {
-                "result": {
-                    "sys_id": "cat_id",
-                    "title": "Updated Category",
-                    "description": "Updated Description",
-                    "parent": "",
-                    "icon": "icon-test",
-                    "active": "true",
-                    "order": "200",
-                }
-            }
-        )
-        self.auth_manager.make_request.return_value = mock_response
-
-        params = UpdateCatalogCategoryParams(
-            category_id="cat_id",
-            title="Updated Category",
-            description="Updated Description",
-            order=200,
-        )
-        result = update_catalog_category(self.config, self.auth_manager, params)
-
-        self.assertTrue(result.success)
-        self.assertEqual(result.data["title"], "Updated Category")
-        self.assertEqual(result.data["description"], "Updated Description")
-        self.assertEqual(result.data["order"], "200")
-        mock_invalidate.assert_called_once_with(table="sc_category")
-        self.auth_manager.make_request.assert_called_once()
-        args, kwargs = self.auth_manager.make_request.call_args
-        self.assertEqual(args[0], "PATCH")
-        self.assertEqual(
-            args[1], "https://example.service-now.com/api/now/table/sc_category/cat_id"
-        )
-        self.assertEqual(kwargs["json"]["title"], "Updated Category")
-        self.assertEqual(kwargs["json"]["order"], "200")
-
-    @patch("servicenow_mcp.tools.catalog_tools.invalidate_query_cache")
-    def test_update_category_error(self, mock_invalidate):
-        self.auth_manager.make_request.side_effect = Exception("Not found")
-
-        params = UpdateCatalogCategoryParams(category_id="bad_id", title="X")
-        result = update_catalog_category(self.config, self.auth_manager, params)
-
-        self.assertFalse(result.success)
-        self.assertIn("Not found", result.message)
-        self.assertIsNone(result.data)
-        mock_invalidate.assert_not_called()
-
-
-class TestMoveCatalogItems(unittest.TestCase):
-    def setUp(self):
-        self.config = ServerConfig(
-            instance_url="https://example.service-now.com",
-            auth=AuthConfig(
-                type=AuthType.BASIC,
-                basic=BasicAuthConfig(username="admin", password="password"),
-            ),
-        )
-        self.auth_manager = MagicMock(spec=AuthManager)
-        self.auth_manager.get_headers.return_value = {"Authorization": "Basic YWRtaW46cGFzc3dvcmQ="}
-
-    @patch("servicenow_mcp.tools.catalog_tools.invalidate_query_cache")
-    def test_move_items_happy(self, mock_invalidate):
-        mock_response = _make_mock_response(
-            {"result": {"sys_id": "item_id", "category": "target_cat"}}
-        )
-        self.auth_manager.make_request.return_value = mock_response
-
-        params = MoveCatalogItemsParams(
-            item_ids=["item1", "item2", "item3"], target_category_id="target_cat"
-        )
-        result = move_catalog_items(self.config, self.auth_manager, params)
-
-        self.assertTrue(result.success)
-        self.assertEqual(result.data["moved_items_count"], 3)
-        mock_invalidate.assert_called_once_with(table="sc_cat_item")
-        self.assertEqual(self.auth_manager.make_request.call_count, 3)
-        for i, call in enumerate(self.auth_manager.make_request.call_args_list):
-            args, kwargs = call
-            self.assertEqual(args[0], "PATCH")
-            self.assertEqual(
-                args[1],
-                f"https://example.service-now.com/api/now/table/sc_cat_item/{params.item_ids[i]}",
-            )
-            self.assertEqual(kwargs["json"]["category"], "target_cat")
-
-    @patch("servicenow_mcp.tools.catalog_tools.invalidate_query_cache")
-    def test_move_items_partial(self, mock_invalidate):
-        mock_ok = _make_mock_response({"result": {"sys_id": "ok"}})
-        mock_ok.raise_for_status = MagicMock()
-        mock_fail = MagicMock()
-        mock_fail.raise_for_status.side_effect = Exception("Item not found")
-
-        self.auth_manager.make_request.side_effect = [mock_ok, mock_fail, mock_ok]
-
-        params = MoveCatalogItemsParams(
-            item_ids=["item1", "item2", "item3"], target_category_id="target_cat"
-        )
-        result = move_catalog_items(self.config, self.auth_manager, params)
-
-        self.assertTrue(result.success)
-        self.assertIn("Partially moved", result.message)
-        self.assertEqual(result.data["moved_items_count"], 2)
-        self.assertEqual(len(result.data["failed_items"]), 1)
-        self.assertEqual(result.data["failed_items"][0]["item_id"], "item2")
-        mock_invalidate.assert_called_once_with(table="sc_cat_item")
-
-    @patch("servicenow_mcp.tools.catalog_tools.invalidate_query_cache")
-    def test_move_items_all_failed(self, mock_invalidate):
-        mock_fail = MagicMock()
-        mock_fail.raise_for_status.side_effect = Exception("All items invalid")
-        self.auth_manager.make_request.return_value = mock_fail
-
-        params = MoveCatalogItemsParams(
-            item_ids=["item1", "item2"], target_category_id="target_cat"
-        )
-        result = move_catalog_items(self.config, self.auth_manager, params)
-
-        self.assertFalse(result.success)
-        self.assertIn("Failed to move", result.message)
-        self.assertEqual(len(result.data["failed_items"]), 2)
-        mock_invalidate.assert_called_once_with(table="sc_cat_item")
-
-    @patch("servicenow_mcp.tools.catalog_tools.invalidate_query_cache")
-    def test_move_items_single_item(self, mock_invalidate):
-        mock_response = _make_mock_response(
-            {"result": {"sys_id": "item1", "category": "target_cat"}}
-        )
-        self.auth_manager.make_request.return_value = mock_response
-
-        params = MoveCatalogItemsParams(item_ids=["item1"], target_category_id="target_cat")
-        result = move_catalog_items(self.config, self.auth_manager, params)
-
-        self.assertTrue(result.success)
-        self.assertEqual(result.data["moved_items_count"], 1)
-        mock_invalidate.assert_called_once_with(table="sc_cat_item")
-
-    @patch("servicenow_mcp.tools.catalog_tools.invalidate_query_cache")
-    def test_move_items_outer_exception(self, mock_invalidate):
-        mock_response = _make_mock_response({"result": {"sys_id": "item1"}})
-        self.auth_manager.make_request.return_value = mock_response
-        mock_invalidate.side_effect = Exception("Cache flush failed")
-
-        params = MoveCatalogItemsParams(item_ids=["item1"], target_category_id="target_cat")
-        result = move_catalog_items(self.config, self.auth_manager, params)
-
-        self.assertFalse(result.success)
-        self.assertIn("Cache flush failed", result.message)
-        self.assertIsNone(result.data)
 
 
 if __name__ == "__main__":
