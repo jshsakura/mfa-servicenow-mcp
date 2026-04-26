@@ -959,13 +959,6 @@ def reorder_workflow_activities(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="delete_workflow",
-    params=DeleteWorkflowParams,
-    description="Delete a workflow by sys_id. Irreversible.",
-    serialization="str",
-    return_type=str,
-)
 def delete_workflow(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -1032,13 +1025,6 @@ def delete_workflow(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="list_workflow_versions",
-    params=ListWorkflowVersionsParams,
-    description="List version history for a workflow (wf_workflow_version). Shows version number, published status, and timestamps.",
-    serialization="json",
-    return_type=str,
-)
 def list_workflow_versions(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -1084,13 +1070,6 @@ def list_workflow_versions(
         return {"error": str(e)}
 
 
-@register_tool(
-    name="get_workflow_activities",
-    params=GetWorkflowActivitiesParams,
-    description="Get ordered activity list for a workflow. Uses latest published version unless version_id is specified.",
-    serialization="json",
-    return_type=str,
-)
 def get_workflow_activities(
     auth_manager: AuthManager,
     server_config: ServerConfig,
@@ -1145,6 +1124,8 @@ class ManageWorkflowParams(BaseModel):
     action: Literal[
         "list",
         "get",
+        "list_versions",
+        "get_activities",
         "create",
         "update",
         "activate",
@@ -1167,8 +1148,9 @@ class ManageWorkflowParams(BaseModel):
     count_only: bool = Field(default=False, description="Return count only (list mode)")
     include_versions: bool = Field(default=False, description="Include version history (get mode)")
     include_activities: bool = Field(default=False, description="Include activity list (get mode)")
-    version_id: Optional[str] = Field(
-        default=None, description="Specific version for activities (get mode)"
+    version_id: Optional[str] = Field(default=None, description="Specific version for activities")
+    published_only: bool = Field(
+        default=False, description="Only published versions (list_versions mode)"
     )
 
     # Activity identifier
@@ -1194,7 +1176,7 @@ class ManageWorkflowParams(BaseModel):
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageWorkflowParams":
         a = self.action
-        if a in ("list", "get"):
+        if a in ("list", "get", "list_versions", "get_activities"):
             pass
         elif a == "create":
             if not self.name:
@@ -1269,6 +1251,27 @@ def manage_workflow(
                 "include_activities": params.include_activities,
                 "version_id": params.version_id,
             },
+        )
+    if a == "list_versions":
+        if not params.workflow_id:
+            return {"error": "workflow_id is required for action='list_versions'"}
+        return list_workflow_versions(
+            auth_manager,
+            config,
+            {
+                "workflow_id": params.workflow_id,
+                "limit": params.limit,
+                "offset": params.offset,
+                "published_only": params.published_only,
+            },
+        )
+    if a == "get_activities":
+        if not params.workflow_id:
+            return {"error": "workflow_id is required for action='get_activities'"}
+        return get_workflow_activities(
+            auth_manager,
+            config,
+            {"workflow_id": params.workflow_id, "version_id": params.version_id},
         )
     if a == "create":
         kwargs: Dict[str, Any] = {"name": params.name}
