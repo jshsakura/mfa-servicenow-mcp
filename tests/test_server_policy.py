@@ -21,7 +21,7 @@ def _build_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNowMCP:
                 "approval_query_only:",
                 "  - get_incident_by_number",
                 "  - approve_change",
-                "  - create_incident",
+                "  - manage_incident",
                 "  - sn_nl",
             ]
         )
@@ -52,7 +52,7 @@ def test_list_tools_shows_enabled_mutating_tools(monkeypatch: pytest.MonkeyPatch
     tools = asyncio.run(server._list_tools_impl())
     names = {tool.name for tool in tools}
 
-    assert "create_incident" in names
+    assert "manage_incident" in names
     assert "get_incident_by_number" in names
     assert "approve_change" in names
 
@@ -64,13 +64,13 @@ def test_list_tools_injects_confirm_field_for_mutating_tools(
 
     tools = {tool.name: tool for tool in asyncio.run(server._list_tools_impl())}
 
-    create_incident_schema = tools["create_incident"].inputSchema
-    confirm_schema = create_incident_schema["properties"]["confirm"]
+    manage_incident_schema = tools["manage_incident"].inputSchema
+    confirm_schema = manage_incident_schema["properties"]["confirm"]
 
     assert confirm_schema["enum"] == ["approve"]
     assert confirm_schema["description"] == "Pass 'approve' for writes."
-    assert "confirm" in create_incident_schema["required"]
-    assert "confirm='approve'" in (tools["create_incident"].description or "")
+    assert "confirm" in manage_incident_schema["required"]
+    assert "confirm='approve'" in (tools["manage_incident"].description or "")
 
 
 def test_list_tools_injects_confirm_field_for_sn_nl(monkeypatch: pytest.MonkeyPatch, tmp_path):
@@ -94,19 +94,19 @@ def test_call_tool_blocks_mutating_tool_without_confirmation(
         called["value"] = True
         return {"ok": True}
 
-    server.tool_definitions["create_incident"] = (
+    server.tool_definitions["manage_incident"] = (
         should_not_run,
         EmptyParams,
         dict,
         "blocked",
         "raw_dict",
     )
-    if "create_incident" not in server.enabled_tool_names:
-        server.enabled_tool_names.append("create_incident")
+    if "manage_incident" not in server.enabled_tool_names:
+        server.enabled_tool_names.append("manage_incident")
 
     # Should raise error because confirm='approve' is missing
     with pytest.raises(ValueError, match="confirm='approve'"):
-        asyncio.run(server._call_tool_impl("create_incident", {}))
+        asyncio.run(server._call_tool_impl("manage_incident", {}))
 
     assert called["value"] is False
 
@@ -122,20 +122,20 @@ def test_call_tool_allows_mutating_tool_with_confirmation(
         called["value"] = True
         return {"ok": True}
 
-    server.tool_definitions["create_incident"] = (
+    server.tool_definitions["manage_incident"] = (
         should_run,
         EmptyParams,
         dict,
         "allowed-with-confirmation",
         "raw_dict",
     )
-    if "create_incident" not in server.enabled_tool_names:
-        server.enabled_tool_names.append("create_incident")
+    if "manage_incident" not in server.enabled_tool_names:
+        server.enabled_tool_names.append("manage_incident")
 
     # Should work with confirm='approve'
     asyncio.run(
         server._call_tool_impl(
-            "create_incident",
+            "manage_incident",
             {
                 "confirm": "approve",
             },

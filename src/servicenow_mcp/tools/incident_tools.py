@@ -10,83 +10,14 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.services import incident as incident_service
+from servicenow_mcp.services.incident import IncidentResponse
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from ._preview import build_update_preview
-from .sn_api import invalidate_query_cache, sn_count, sn_query_page
+from .sn_api import sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
-
-
-class CreateIncidentParams(BaseModel):
-    """Parameters for creating an incident."""
-
-    short_description: str = Field(..., description="Short description of the incident")
-    description: Optional[str] = Field(
-        default=None, description="Detailed description of the incident"
-    )
-    caller_id: Optional[str] = Field(default=None, description="User who reported the incident")
-    category: Optional[str] = Field(default=None, description="Category of the incident")
-    subcategory: Optional[str] = Field(default=None, description="Subcategory of the incident")
-    priority: Optional[str] = Field(default=None, description="Priority of the incident")
-    impact: Optional[str] = Field(default=None, description="Impact of the incident")
-    urgency: Optional[str] = Field(default=None, description="Urgency of the incident")
-    assigned_to: Optional[str] = Field(default=None, description="User assigned to the incident")
-    assignment_group: Optional[str] = Field(
-        default=None, description="Group assigned to the incident"
-    )
-
-
-class UpdateIncidentParams(BaseModel):
-    """Parameters for updating an incident."""
-
-    incident_id: str = Field(..., description="Incident ID or sys_id")
-    short_description: Optional[str] = Field(
-        default=None, description="Short description of the incident"
-    )
-    description: Optional[str] = Field(
-        default=None, description="Detailed description of the incident"
-    )
-    state: Optional[str] = Field(default=None, description="State of the incident")
-    category: Optional[str] = Field(default=None, description="Category of the incident")
-    subcategory: Optional[str] = Field(default=None, description="Subcategory of the incident")
-    priority: Optional[str] = Field(default=None, description="Priority of the incident")
-    impact: Optional[str] = Field(default=None, description="Impact of the incident")
-    urgency: Optional[str] = Field(default=None, description="Urgency of the incident")
-    assigned_to: Optional[str] = Field(default=None, description="User assigned to the incident")
-    assignment_group: Optional[str] = Field(
-        default=None, description="Group assigned to the incident"
-    )
-    work_notes: Optional[str] = Field(default=None, description="Work notes to add to the incident")
-    close_notes: Optional[str] = Field(
-        default=None, description="Close notes to add to the incident"
-    )
-    close_code: Optional[str] = Field(default=None, description="Close code for the incident")
-    dry_run: bool = Field(
-        default=False,
-        description="Preview field-level changes without executing.",
-    )
-
-
-class AddCommentParams(BaseModel):
-    """Parameters for adding a comment to an incident."""
-
-    incident_id: str = Field(..., description="Incident ID or sys_id")
-    comment: str = Field(..., description="Comment to add to the incident")
-    is_work_note: bool = Field(default=False, description="Whether the comment is a work note")
-
-
-class ResolveIncidentParams(BaseModel):
-    """Parameters for resolving an incident."""
-
-    incident_id: str = Field(..., description="Incident ID or sys_id")
-    resolution_code: str = Field(..., description="Resolution code for the incident")
-    resolution_notes: str = Field(..., description="Resolution notes for the incident")
-    dry_run: bool = Field(
-        default=False,
-        description="Preview state transition without executing.",
-    )
 
 
 class GetIncidentByNumberParams(BaseModel):
@@ -108,328 +39,6 @@ class GetIncidentByNumberParams(BaseModel):
         default=False,
         description="Return count only without fetching records. Uses lightweight Aggregate API. (list mode)",
     )
-
-
-class IncidentResponse(BaseModel):
-    """Response from incident operations."""
-
-    success: bool = Field(..., description="Whether the operation was successful")
-    message: str = Field(..., description="Message describing the result")
-    incident_id: Optional[str] = Field(default=None, description="ID of the affected incident")
-    incident_number: Optional[str] = Field(
-        default=None, description="Number of the affected incident"
-    )
-
-
-def _resolve_incident_sys_id(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    incident_id: str,
-) -> tuple[str | None, IncidentResponse | None]:
-    """Resolve an incident identifier (sys_id or number) to a sys_id.
-
-    Returns:
-        (sys_id, None) on success, or (None, error_response) on failure.
-    """
-    if len(incident_id) == 32 and all(c in "0123456789abcdef" for c in incident_id):
-        return incident_id, None
-
-    try:
-        query_url = f"{config.api_url}/table/incident"
-        query_params = {
-            "sysparm_query": f"number={incident_id}",
-            "sysparm_limit": 1,
-        }
-        response = auth_manager.make_request(
-            "GET",
-            query_url,
-            params=query_params,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
-        )
-        response.raise_for_status()
-
-        result = response.json().get("result", [])
-        if not result:
-            return None, IncidentResponse(
-                success=False,
-                message=f"Incident not found: {incident_id}",
-            )
-
-        return result[0].get("sys_id"), None
-
-    except Exception as e:
-        logger.error(f"Failed to find incident: {e}")
-        return None, IncidentResponse(
-            success=False,
-            message=f"Failed to find incident: {str(e)}",
-        )
-
-
-@register_tool(
-    "create_incident",
-    params=CreateIncidentParams,
-    description="Create a new incident (short_description required). Returns sys_id and INC number on success.",
-    serialization="str",
-    return_type=str,
-)
-def create_incident(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateIncidentParams,
-) -> IncidentResponse:
-    """
-    Create a new incident in ServiceNow.
-
-    Args:
-        config: Server configuration.
-        auth_manager: Authentication manager.
-        params: Parameters for creating the incident.
-
-    Returns:
-        Response with the created incident details.
-    """
-    api_url = f"{config.api_url}/table/incident"
-
-    # Build request data - only include provided fields
-    data = params.model_dump(exclude_none=True)
-
-    # Make request
-    try:
-        response = auth_manager.make_request(
-            "POST",
-            api_url,
-            json=data,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
-        )
-        response.raise_for_status()
-
-        result = response.json().get("result", {})
-
-        invalidate_query_cache(table="incident")
-
-        return IncidentResponse(
-            success=True,
-            message="Incident created successfully",
-            incident_id=result.get("sys_id"),
-            incident_number=result.get("number"),
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to create incident: {e}")
-        return IncidentResponse(
-            success=False,
-            message=f"Failed to create incident: {str(e)}",
-        )
-
-
-@register_tool(
-    "update_incident",
-    params=UpdateIncidentParams,
-    description="Update an incident by sys_id or INC number with partial field changes. Accepts any incident field.",
-    serialization="str",
-    return_type=str,
-)
-def update_incident(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: UpdateIncidentParams,
-) -> IncidentResponse:
-    """
-    Update an existing incident in ServiceNow.
-
-    Args:
-        config: Server configuration.
-        auth_manager: Authentication manager.
-        params: Parameters for updating the incident.
-
-    Returns:
-        Response with the updated incident details.
-    """
-    sys_id, err = _resolve_incident_sys_id(config, auth_manager, params.incident_id)
-    if err:
-        return err
-    api_url = f"{config.api_url}/table/incident/{sys_id}"
-
-    # Build request data - only include provided fields
-    data = params.model_dump(exclude={"incident_id", "dry_run"}, exclude_none=True)
-
-    if params.dry_run:
-        return build_update_preview(
-            config,
-            auth_manager,
-            table="incident",
-            sys_id=sys_id,
-            proposed=data,
-            identifier_fields=["number", "short_description", "state"],
-        )
-
-    # Make request
-    try:
-        response = auth_manager.make_request(
-            "PUT",
-            api_url,
-            json=data,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
-        )
-        response.raise_for_status()
-
-        result = response.json().get("result", {})
-
-        invalidate_query_cache(table="incident")
-
-        return IncidentResponse(
-            success=True,
-            message="Incident updated successfully",
-            incident_id=result.get("sys_id"),
-            incident_number=result.get("number"),
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to update incident: {e}")
-        return IncidentResponse(
-            success=False,
-            message=f"Failed to update incident: {str(e)}",
-        )
-
-
-@register_tool(
-    "add_comment",
-    params=AddCommentParams,
-    description="Add a work note (internal) or customer-visible comment to an incident by sys_id or INC number.",
-    serialization="str",
-    return_type=str,
-)
-def add_comment(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: AddCommentParams,
-) -> IncidentResponse:
-    """
-    Add a comment to an incident in ServiceNow.
-
-    Args:
-        config: Server configuration.
-        auth_manager: Authentication manager.
-        params: Parameters for adding the comment.
-
-    Returns:
-        Response with the result of the operation.
-    """
-    sys_id, err = _resolve_incident_sys_id(config, auth_manager, params.incident_id)
-    if err:
-        return err
-    api_url = f"{config.api_url}/table/incident/{sys_id}"
-
-    # Build request data
-    data = {"work_notes" if params.is_work_note else "comments": params.comment}
-
-    # Make request
-    try:
-        response = auth_manager.make_request(
-            "PUT",
-            api_url,
-            json=data,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
-        )
-        response.raise_for_status()
-
-        result = response.json().get("result", {})
-
-        invalidate_query_cache(table="incident")
-
-        return IncidentResponse(
-            success=True,
-            message="Comment added successfully",
-            incident_id=result.get("sys_id"),
-            incident_number=result.get("number"),
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to add comment: {e}")
-        return IncidentResponse(
-            success=False,
-            message=f"Failed to add comment: {str(e)}",
-        )
-
-
-@register_tool(
-    "resolve_incident",
-    params=ResolveIncidentParams,
-    description="Set incident to Resolved state. Requires resolution_code and close_notes. Use update_incident for other state changes.",
-    serialization="str",
-    return_type=str,
-)
-def resolve_incident(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: ResolveIncidentParams,
-) -> IncidentResponse:
-    """
-    Resolve an incident in ServiceNow.
-
-    Args:
-        config: Server configuration.
-        auth_manager: Authentication manager.
-        params: Parameters for resolving the incident.
-
-    Returns:
-        Response with the result of the operation.
-    """
-    sys_id, err = _resolve_incident_sys_id(config, auth_manager, params.incident_id)
-    if err:
-        return err
-    api_url = f"{config.api_url}/table/incident/{sys_id}"
-
-    # Build request data
-    data = {
-        "state": "6",  # Resolved
-        "close_code": params.resolution_code,
-        "close_notes": params.resolution_notes,
-        "resolved_at": "now",
-    }
-
-    if params.dry_run:
-        return build_update_preview(
-            config,
-            auth_manager,
-            table="incident",
-            sys_id=sys_id,
-            proposed=data,
-            identifier_fields=["number", "short_description", "state"],
-        )
-
-    # Make request
-    try:
-        response = auth_manager.make_request(
-            "PUT",
-            api_url,
-            json=data,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
-        )
-        response.raise_for_status()
-
-        result = response.json().get("result", {})
-
-        invalidate_query_cache(table="incident")
-
-        return IncidentResponse(
-            success=True,
-            message="Incident resolved successfully",
-            incident_id=result.get("sys_id"),
-            incident_number=result.get("number"),
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to resolve incident: {e}")
-        return IncidentResponse(
-            success=False,
-            message=f"Failed to resolve incident: {str(e)}",
-        )
 
 
 @register_tool(
@@ -696,43 +305,34 @@ def manage_incident(
     auth_manager: AuthManager,
     params: ManageIncidentParams,
 ) -> IncidentResponse:
-    """Dispatch to the legacy create/update/add_comment/resolve_incident impls
-    based on `action`. Reusing the existing wrappers keeps a single source of
-    truth — bug fixes only need to land in one place."""
     if params.action == "create":
-        return create_incident(
+        return incident_service.create(
             config,
             auth_manager,
-            CreateIncidentParams(**_project(params, _INCIDENT_CREATE_FIELDS)),
+            **_project(params, _INCIDENT_CREATE_FIELDS),
         )
     if params.action == "update":
-        return update_incident(
+        return incident_service.update(
             config,
             auth_manager,
-            UpdateIncidentParams(
-                incident_id=params.incident_id,
-                dry_run=params.dry_run,
-                **_project(params, _INCIDENT_UPDATE_FIELDS),
-            ),
+            incident_id=params.incident_id,
+            dry_run=params.dry_run,
+            **_project(params, _INCIDENT_UPDATE_FIELDS),
         )
     if params.action == "comment":
-        return add_comment(
+        return incident_service.add_comment(
             config,
             auth_manager,
-            AddCommentParams(
-                incident_id=params.incident_id,
-                comment=params.comment,
-                is_work_note=params.is_work_note,
-            ),
+            incident_id=params.incident_id,
+            comment=params.comment,
+            is_work_note=params.is_work_note,
         )
     # resolve
-    return resolve_incident(
+    return incident_service.resolve(
         config,
         auth_manager,
-        ResolveIncidentParams(
-            incident_id=params.incident_id,
-            resolution_code=params.resolution_code,
-            resolution_notes=params.resolution_notes,
-            dry_run=params.dry_run,
-        ),
+        incident_id=params.incident_id,
+        resolution_code=params.resolution_code,
+        resolution_notes=params.resolution_notes,
+        dry_run=params.dry_run,
     )
