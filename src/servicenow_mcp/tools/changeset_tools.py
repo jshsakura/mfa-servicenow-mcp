@@ -45,13 +45,6 @@ class GetChangesetDetailsParams(BaseModel):
     )
 
 
-@register_tool(
-    name="get_changeset_details",
-    params=GetChangesetDetailsParams,
-    description="Get a single update set by sys_id with entries, or list update sets with filters.",
-    serialization="json",
-    return_type=str,
-)
 def get_changeset_details(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -172,6 +165,7 @@ class ManageChangesetParams(BaseModel):
     """Manage update sets — table: sys_update_set.
 
     Required per action:
+      get:      changeset_id (detail) or filters (list)
       create:   name, application
       update:   changeset_id, at least one field
       commit:   changeset_id
@@ -179,10 +173,27 @@ class ManageChangesetParams(BaseModel):
       add_file: changeset_id, file_path, file_content
     """
 
-    action: Literal["create", "update", "commit", "publish", "add_file"] = Field(...)
+    action: Literal["get", "create", "update", "commit", "publish", "add_file"] = Field(...)
     changeset_id: Optional[str] = Field(
-        default=None, description="sys_id (update/commit/publish/add_file)"
+        default=None, description="sys_id (get/update/commit/publish/add_file)"
     )
+
+    # get (list mode) params
+    limit: int = Field(default=10, description="Max records (get list mode)")
+    offset: int = Field(default=0, description="Pagination offset (get list mode)")
+    application: Optional[str] = Field(
+        default=None, description="Filter by application (get list mode)"
+    )
+    developer: Optional[str] = Field(
+        default=None, description="Filter by developer (get list mode)"
+    )
+    timeframe: Optional[str] = Field(
+        default=None, description="recent/last_week/last_month (get list mode)"
+    )
+    query: Optional[str] = Field(
+        default=None, description="Additional query string (get list mode)"
+    )
+    count_only: bool = Field(default=False, description="Return count only (get list mode)")
 
     # Create + update
     name: Optional[str] = Field(default=None)
@@ -205,7 +216,9 @@ class ManageChangesetParams(BaseModel):
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageChangesetParams":
-        if self.action == "create":
+        if self.action == "get":
+            pass
+        elif self.action == "create":
             if not self.name:
                 raise ValueError("name is required for action='create'")
             if not self.application:
@@ -231,7 +244,7 @@ class ManageChangesetParams(BaseModel):
 @register_tool(
     name="manage_changeset",
     params=ManageChangesetParams,
-    description="Create/update/commit/publish/add_file on an update set (table: sys_update_set).",
+    description="Get/create/update/commit/publish/add_file on an update set (table: sys_update_set).",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -240,6 +253,20 @@ def manage_changeset(
     auth_manager: AuthManager,
     params: ManageChangesetParams,
 ) -> Dict[str, Any]:
+    if params.action == "get":
+        return _cs_svc.get(
+            config,
+            auth_manager,
+            changeset_id=params.changeset_id,
+            limit=params.limit,
+            offset=params.offset,
+            state=params.state,
+            application=params.application,
+            developer=params.developer,
+            timeframe=params.timeframe,
+            query=params.query,
+            count_only=params.count_only,
+        )
     if params.action == "create":
         return _cs_svc.create(
             config,
