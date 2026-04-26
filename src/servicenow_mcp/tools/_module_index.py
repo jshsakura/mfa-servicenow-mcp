@@ -36,7 +36,6 @@ TOOL_MODULE_INDEX = {
     "extract_widget_table_dependencies": "source_tools",
     "get_article": "knowledge_base",
     "get_catalog_item": "catalog_tools",
-    "get_changeset_details": "changeset_tools",
     "get_developer_changes": "portal_dev_tools",
     "get_developer_daily_summary": "portal_dev_tools",
     "get_flow_designer_detail": "flow_designer_tools",

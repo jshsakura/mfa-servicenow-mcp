@@ -7,11 +7,11 @@ Business logic for create / update / commit / publish / add_file operations.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
@@ -203,3 +203,94 @@ def add_file(
     except Exception as e:
         logger.error("Error adding file to changeset: %s", e)
         return {"success": False, "message": f"Error adding file to changeset: {str(e)}"}
+
+
+def get(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    changeset_id: Optional[str] = None,
+    limit: int = 10,
+    offset: int = 0,
+    state: Optional[str] = None,
+    application: Optional[str] = None,
+    developer: Optional[str] = None,
+    timeframe: Optional[str] = None,
+    query: Optional[str] = None,
+    count_only: bool = False,
+) -> Dict[str, Any]:
+    """Fetch a single changeset (detail) or list with filters."""
+    if changeset_id:
+        try:
+            records, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="sys_update_set",
+                query=f"sys_id={changeset_id}",
+                fields="",
+                limit=1,
+                offset=0,
+            )
+            if not records:
+                return {"success": False, "message": f"Changeset not found: {changeset_id}"}
+            changes, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="sys_update_xml",
+                query=f"update_set={changeset_id}",
+                fields="",
+                limit=100,
+                offset=0,
+            )
+            return {
+                "success": True,
+                "changeset": records[0],
+                "changes": changes,
+                "change_count": len(changes),
+            }
+        except Exception as e:
+            logger.error("Error getting changeset details: %s", e)
+            return {"success": False, "message": f"Error getting changeset details: {str(e)}"}
+
+    query_parts: List[str] = []
+    if state:
+        query_parts.append(f"state={state}")
+    if application:
+        query_parts.append(f"application={application}")
+    if developer:
+        query_parts.append(f"developer={developer}")
+    if timeframe:
+        if timeframe == "recent":
+            query_parts.append(
+                "sys_created_onONLast 7 days@javascript:gs.beginningOfLast7Days()@javascript:gs.endOfToday()"
+            )
+        elif timeframe == "last_week":
+            query_parts.append(
+                "sys_created_onONLast week@javascript:gs.beginningOfLastWeek()@javascript:gs.endOfLastWeek()"
+            )
+        elif timeframe == "last_month":
+            query_parts.append(
+                "sys_created_onONLast month@javascript:gs.beginningOfLastMonth()@javascript:gs.endOfLastMonth()"
+            )
+    if query:
+        query_parts.append(query)
+    query_str = "^".join(query_parts) if query_parts else ""
+
+    if count_only:
+        count = sn_count(config, auth_manager, "sys_update_set", query_str)
+        return {"success": True, "count": count}
+
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_update_set",
+            query=query_str,
+            fields="",
+            limit=limit,
+            offset=offset,
+        )
+        return {"success": True, "changesets": records, "count": len(records)}
+    except Exception as e:
+        logger.error("Error listing changesets: %s", e)
+        return {"success": False, "message": f"Error listing changesets: {str(e)}"}
