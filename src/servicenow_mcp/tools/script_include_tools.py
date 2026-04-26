@@ -40,13 +40,6 @@ class GetScriptIncludeParams(BaseModel):
     script_include_id: str = Field(..., description="Script include ID or name")
 
 
-@register_tool(
-    name="list_script_includes",
-    params=ListScriptIncludesParams,
-    description="List script includes filtered by name/scope/active. Returns metadata without script bodies.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def list_script_includes(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -134,13 +127,6 @@ def list_script_includes(
         }
 
 
-@register_tool(
-    name="get_script_include",
-    params=GetScriptIncludeParams,
-    description="Retrieve a single script include with full script body by sys_id or name.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def get_script_include(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -235,12 +221,21 @@ class ManageScriptIncludeParams(BaseModel):
       execute: name (and optionally method, exec_params)
     """
 
-    action: Literal["create", "update", "delete", "execute"] = Field(...)
+    action: Literal["list", "get", "create", "update", "delete", "execute"] = Field(...)
 
-    # Identifier (update/delete uses script_include_id; create/execute use name)
+    # Identifier (get/update/delete: script_include_id; create/execute: name)
     script_include_id: Optional[str] = Field(
-        default=None, description="sys_id or name (update/delete)"
+        default=None, description="sys_id or name (get/update/delete)"
     )
+
+    # list/get params
+    limit: int = Field(default=10, description="Max records (list mode)")
+    offset: int = Field(default=0, description="Pagination offset (list mode)")
+    query: Optional[str] = Field(default=None, description="Name search (list mode)")
+    client_callable: Optional[bool] = Field(
+        default=None, description="Filter by client_callable (list mode)"
+    )
+    count_only: bool = Field(default=False, description="Return count only (list mode)")
     name: Optional[str] = Field(default=None, description="SI name (create/execute)")
 
     # Create + update
@@ -263,7 +258,9 @@ class ManageScriptIncludeParams(BaseModel):
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageScriptIncludeParams":
-        if self.action == "create":
+        if self.action in ("list", "get"):
+            pass
+        elif self.action == "create":
             if not self.name:
                 raise ValueError("name is required for action='create'")
             if not self.script:
@@ -285,7 +282,7 @@ class ManageScriptIncludeParams(BaseModel):
 @register_tool(
     name="manage_script_include",
     params=ManageScriptIncludeParams,
-    description="Create/update/delete/execute a script include (table: sys_script_include).",
+    description="List/get/create/update/delete/execute a script include (table: sys_script_include).",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -294,6 +291,21 @@ def manage_script_include(
     auth_manager: AuthManager,
     params: ManageScriptIncludeParams,
 ) -> Dict[str, Any]:
+    if params.action == "list":
+        return _si_svc.list_si(
+            config,
+            auth_manager,
+            query=params.query,
+            active=params.active,
+            client_callable=params.client_callable,
+            limit=params.limit,
+            offset=params.offset,
+            count_only=params.count_only,
+        )
+    if params.action == "get":
+        if not params.script_include_id:
+            return {"success": False, "message": "script_include_id is required for action='get'"}
+        return _si_svc.get_si(config, auth_manager, script_include_id=params.script_include_id)
     if params.action == "create":
         return _si_svc.create(
             config,

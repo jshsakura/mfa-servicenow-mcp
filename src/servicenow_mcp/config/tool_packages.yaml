@@ -23,18 +23,14 @@ core:
   - sn_discover
   - sn_nl
   - sn_resolve_url
-  - list_catalog_items
-  - get_catalog_item
-  - list_catalog_categories
-  - list_workflows
-  - get_workflow_details
+  - manage_catalog
+  - manage_workflow
   - list_flow_designers
   - get_portal
   - get_page
   - get_logs
   - search_server_code
-  - get_script_include
-  - list_script_includes
+  - manage_script_include
 
 # --- Safe Mode: Read-only across all domains ---
 standard:
@@ -47,15 +43,10 @@ standard:
   - sn_nl
   - sn_resolve_url
   # Catalog (Read)
-  - list_catalog_items
-  - get_catalog_item
-  - list_catalog_categories
-  - list_catalog_item_variables
-  - get_optimization_recommendations
+  - manage_catalog
   # Change Management (Read)
   # Workflow (Read)
-  - list_workflows
-  - get_workflow_details
+  - manage_workflow
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
@@ -77,8 +68,7 @@ standard:
   - resolve_widget_chain
   - resolve_page_dependencies
   # Script Include (Read)
-  - list_script_includes
-  - get_script_include
+  - manage_script_include
   # Developer Productivity (Read)
   - get_developer_changes
   - audit_pending_changes

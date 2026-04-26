@@ -8,9 +8,8 @@ required_input: table name (e.g. incident, sc_req_item)
 output: report
 tools:
   - sn_query
-  - list_workflows
+  - manage_workflow
   - list_flow_designers
-  - get_workflow_details
   - get_flow_designer_detail
 triggers:
   - "이 테이블 바뀌면 뭐가 실행돼"
@@ -38,7 +37,7 @@ You are tracing all automation (workflows + flows) that fire when a specific tab
    → Returns trigger records from `sys_flow_record_trigger`; use `remote_trigger_id` to identify linked flows
 
 3. TRACE Workflow Engine
-   CALL list_workflows(table=TARGET_TABLE, active=true)
+   CALL manage_workflow(action="list", table=TARGET_TABLE, active=true)
    → Returns workflows from `wf_workflow` that are bound to this table
 
 4. COMPILE report:
@@ -63,7 +62,7 @@ You are tracing all automation (workflows + flows) that fire when a specific tab
 
 5. IF user wants details on a specific flow/workflow:
    - Flow Designer: CALL get_flow_designer_detail(flow_id=ID, include_structure=true, include_triggers=true)
-   - Workflow Engine: CALL get_workflow_details(workflow_id=ID, include_activities=true)
+   - Workflow Engine: CALL manage_workflow(action="get", workflow_id=ID, include_activities=true)
 
 ## ON ERROR
 
