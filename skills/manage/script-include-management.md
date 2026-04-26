@@ -7,8 +7,6 @@ delegatable: false
 required_input: SI name or sys_id
 output: data
 tools:
-  - list_script_includes
-  - get_script_include
   - manage_script_include
 triggers:
   - "스크립트 인클루드"
@@ -27,11 +25,11 @@ You are managing Script Includes.
 ## Pipeline
 
 IF "목록" or "list":
-  CALL list_script_includes(query=INPUT, active=true, limit=20)
-  → count only: list_script_includes(query=INPUT, count_only=true)
+  CALL manage_script_include(action="list", query=INPUT, active=true, limit=20)
+  → count only: manage_script_include(action="list", query=INPUT, count_only=true)
 
 IF "읽기" or "read source":
-  CALL get_script_include(script_include_id=INPUT)
+  CALL manage_script_include(action="get", script_include_id=INPUT)
   → accepts name or "sys_id:abc123"
 
 IF "만들기" or "create":
@@ -57,7 +55,7 @@ IF "삭제" or "delete":
 ## ON ERROR
 
 - "not client-callable" → update with client_callable=true first
-- "not found" → use list_script_includes to find correct name
+- "not found" → use manage_script_include(action="list") to find correct name
 
 ## DELEGATE hint
 
