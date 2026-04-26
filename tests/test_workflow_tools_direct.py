@@ -48,7 +48,7 @@ def auth_manager(server_config):
 
 @pytest.fixture(scope="module")
 def workflow_id(auth_manager, server_config):
-    result = list_workflows(auth_manager, server_config, {})
+    result = list_workflows(server_config, auth_manager, {})
     workflows = result.get("workflows", [])
     if not workflows:
         pytest.skip("No workflows available in the target ServiceNow instance.")
@@ -100,11 +100,11 @@ def test_list_workflows(auth_manager, server_config):
     logger.info("Testing list_workflows...")
 
     # Test with default parameters
-    result = list_workflows(auth_manager, server_config, {})
+    result = list_workflows(server_config, auth_manager, {})
     print_result("list_workflows (default)", result)
 
     # Test with active=True
-    result = list_workflows(auth_manager, server_config, {"active": True})
+    result = list_workflows(server_config, auth_manager, {"active": True})
     print_result("list_workflows (active=True)", result)
 
     return result
@@ -114,7 +114,7 @@ def test_get_workflow_details(auth_manager, server_config, workflow_id):
     """Test the get_workflow_details function."""
     logger.info(f"Testing get_workflow_details for workflow {workflow_id}...")
 
-    result = get_workflow_details(auth_manager, server_config, {"workflow_id": workflow_id})
+    result = get_workflow_details(server_config, auth_manager, {"workflow_id": workflow_id})
     print_result("get_workflow_details", result)
 
     return result
