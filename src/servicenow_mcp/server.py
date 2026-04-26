@@ -59,6 +59,9 @@ MANAGE_READ_ACTIONS: Dict[str, set[str]] = {
     "manage_changeset": {"get"},
     "manage_user": {"get", "list"},
     "manage_group": {"list"},
+    "manage_workflow": {"list", "get"},
+    "manage_script_include": {"list", "get"},
+    "manage_catalog": {"list_items", "get_item", "list_categories", "list_item_variables"},
 }
 # Tools that need confirmation but don't match a prefix above.
 MUTATING_TOOL_NAMES = {"sn_batch", "sn_write"}

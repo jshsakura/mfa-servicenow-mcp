@@ -12,9 +12,7 @@ tools:
   - get_widget_instance
   - get_widget_bundle
   - trace_portal_route_targets
-  - list_catalog_items
-  - get_catalog_item
-  - list_catalog_item_variables
+  - manage_catalog
   - sn_query
 triggers:
   - "ESC 카탈로그 흐름"
@@ -54,9 +52,9 @@ User → esc_catalog page → selects item → esc_cat_item page → fills varia
    → FIND navigation from browse → item detail
 
 6. IF specific catalog item given:
-   CALL get_catalog_item(item_id=INPUT)
+   CALL manage_catalog(action="get_item", item_id=INPUT)
    → CHECK: workflow, delivery_plan, flow fields
-   CALL list_catalog_item_variables(item_id=INPUT, limit=50)
+   CALL manage_catalog(action="list_item_variables", catalog_item_id=INPUT, limit=50)
    → LIST variables with types and mandatory flags
 
 7. CALL sn_query(table="sc_req_item", query="cat_item=ITEM_SYS_ID^ORDERBYDESCsys_created_on", fields="number,state,stage", limit=5, display_value=true)

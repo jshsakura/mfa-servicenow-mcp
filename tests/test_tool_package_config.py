@@ -35,8 +35,7 @@ def test_portal_developer_includes_changeset_commit_and_workflow_read_tools():
     assert "get_metadata_source" in portal_tools
     assert "trace_portal_route_targets" in portal_tools
     assert "manage_changeset" in portal_tools
-    assert "list_workflows" in portal_tools
-    assert "get_workflow_details" in portal_tools
+    assert "manage_workflow" in portal_tools
     assert "route_portal_component_edit" in portal_tools
     assert "analyze_portal_component_update" in portal_tools
     assert "create_portal_component_snapshot" in portal_tools
@@ -107,7 +106,7 @@ def test_consolidated_tools_replaced_old_ones():
 
     assert "get_flow_designer_detail" in full_tools
     assert "get_flow_designer_executions" in full_tools
-    assert "get_workflow_details" in full_tools
+    assert "manage_workflow" in full_tools
 
     removed = [
         "get_flow_designer_structure",

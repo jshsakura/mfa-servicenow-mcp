@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache
+from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
@@ -386,3 +386,210 @@ def update_variable(
     except Exception as e:
         logger.error(f"Failed to update catalog item variable: {e}")
         return {"success": False, "message": f"Failed to update catalog item variable: {str(e)}"}
+
+
+def list_items(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    active: Optional[bool] = None,
+    category: Optional[str] = None,
+    query: Optional[str] = None,
+    limit: int = 10,
+    offset: int = 0,
+    count_only: bool = False,
+) -> Dict[str, Any]:
+    filters = []
+    if active:
+        filters.append("active=true")
+    if category:
+        filters.append(f"category={category}")
+    if query:
+        filters.append(f"short_descriptionLIKE{query}^ORnameLIKE{query}")
+    qs = "^".join(filters)
+    if count_only:
+        return {"success": True, "count": sn_count(config, auth_manager, "sc_cat_item", qs)}
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sc_cat_item",
+            query=qs,
+            fields="sys_id,name,short_description,category,price,picture,active,order",
+            limit=min(limit, 100),
+            offset=offset,
+            display_value=True,
+            fail_silently=False,
+        )
+        items = [
+            {
+                "sys_id": r.get("sys_id", ""),
+                "name": r.get("name", ""),
+                "short_description": r.get("short_description", ""),
+                "category": r.get("category", ""),
+                "price": r.get("price", ""),
+                "active": r.get("active", ""),
+                "order": r.get("order", ""),
+            }
+            for r in records
+        ]
+        return {
+            "success": True,
+            "message": f"Retrieved {len(items)} catalog items",
+            "items": items,
+            "total": len(items),
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": str(e),
+            "items": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+        }
+
+
+def get_item(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    item_id: str,
+) -> Dict[str, Any]:
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sc_cat_item",
+            query=f"sys_id={item_id}",
+            fields="sys_id,name,short_description,description,category,price,picture,active,order,delivery_time,availability",
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=False,
+        )
+        if not records:
+            return {"success": False, "message": f"Catalog item not found: {item_id}"}
+        r = records[0]
+        variables = list_item_variables(config, auth_manager, catalog_item_id=item_id)
+        return {
+            "success": True,
+            "message": f"Retrieved catalog item: {r.get('name', '')}",
+            "data": {
+                **{
+                    k: r.get(k, "")
+                    for k in (
+                        "sys_id",
+                        "name",
+                        "short_description",
+                        "description",
+                        "category",
+                        "price",
+                        "active",
+                        "order",
+                        "delivery_time",
+                        "availability",
+                    )
+                },
+                "variables": variables,
+            },
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e), "data": None}
+
+
+def list_categories(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    active: Optional[bool] = None,
+    query: Optional[str] = None,
+    limit: int = 10,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    filters = []
+    if active:
+        filters.append("active=true")
+    if query:
+        filters.append(f"titleLIKE{query}^ORdescriptionLIKE{query}")
+    qs = "^".join(filters)
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sc_category",
+            query=qs,
+            fields="sys_id,title,description,parent,icon,active,order",
+            limit=min(limit, 100),
+            offset=offset,
+            display_value=True,
+            fail_silently=False,
+        )
+        cats = [
+            {
+                "sys_id": r.get("sys_id", ""),
+                "title": r.get("title", ""),
+                "description": r.get("description", ""),
+                "parent": r.get("parent", ""),
+                "icon": r.get("icon", ""),
+                "active": r.get("active", ""),
+                "order": r.get("order", ""),
+            }
+            for r in records
+        ]
+        return {
+            "success": True,
+            "message": f"Retrieved {len(cats)} catalog categories",
+            "categories": cats,
+            "total": len(cats),
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": str(e),
+            "categories": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+        }
+
+
+def list_item_variables(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    catalog_item_id: str,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    try:
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="item_option_new",
+            query=f"cat_item={catalog_item_id}^ORDERBYorder",
+            fields="sys_id,name,question_text,type,mandatory,default_value,help_text,order",
+            limit=min(limit, 100),
+            offset=offset,
+            display_value=True,
+        )
+        return [
+            {
+                "sys_id": v.get("sys_id", ""),
+                "name": v.get("name", ""),
+                "label": v.get("question_text", ""),
+                "type": v.get("type", ""),
+                "mandatory": v.get("mandatory", ""),
+                "default_value": v.get("default_value", ""),
+                "help_text": v.get("help_text", ""),
+                "order": v.get("order", ""),
+            }
+            for v in records
+        ]
+    except Exception as e:
+        logger.error(f"Error getting catalog item variables: {e}")
+        return []
