@@ -55,6 +55,7 @@ MUTATING_TOOL_PREFIXES = (
 # script_include/workflow) don't appear here — the prefix gate applies.
 MANAGE_READ_ACTIONS: Dict[str, set[str]] = {
     "manage_incident": {"get"},
+    "manage_change": {"get"},
     "manage_user": {"get", "list"},
     "manage_group": {"list"},
 }
