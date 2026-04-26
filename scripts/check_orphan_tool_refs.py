@@ -134,6 +134,7 @@ ALLOWLIST: set[str] = {
     "create_params",
     "update_set",
     "update_fields",
+    "update_data",  # manage_portal_component parameter name in skill instructions
     "list_view",
     "run_tests",
     "run_pytest",

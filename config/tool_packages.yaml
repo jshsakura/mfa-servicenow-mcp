@@ -123,15 +123,7 @@ portal_developer:
     - analyze_portal_component_update
     - create_portal_component_snapshot
     - preview_portal_component_update
-    - update_portal_component
     - update_portal_component_from_snapshot
-    # Portal CRUD (Component Create)
-    - create_widget
-    - create_angular_provider
-    - create_header_footer
-    - create_css_theme
-    - create_ng_template
-    - create_ui_page
     # Portal CRUD (Page/Layout)
     - scaffold_page
     # Local Sync writes
@@ -154,12 +146,6 @@ platform_developer:
     - update_flow_designer
     # UI Policy writes
     # Portal CRUD
-    - create_widget
-    - create_angular_provider
-    - create_header_footer
-    - create_css_theme
-    - create_ng_template
-    - create_ui_page
     - scaffold_page
     # Bundled (Phase 2 + 3)
     - manage_incident
@@ -218,19 +204,12 @@ full:
     # Flow Designer writes
     - update_flow_designer
     # Portal writes
-    - update_portal_component
     - route_portal_component_edit
     - analyze_portal_component_update
     - create_portal_component_snapshot
     - preview_portal_component_update
     - update_portal_component_from_snapshot
     # Portal CRUD
-    - create_widget
-    - create_angular_provider
-    - create_header_footer
-    - create_css_theme
-    - create_ng_template
-    - create_ui_page
     - scaffold_page
     # UI Policy writes
     # Local Sync writes
