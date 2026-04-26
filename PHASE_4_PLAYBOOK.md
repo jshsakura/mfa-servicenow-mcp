@@ -4,7 +4,7 @@ This is the runnable companion to `CONSOLIDATION_PLAN.md`. Any model (Opus, Sonn
 
 ## Resume status (last updated 2026-04-26)
 
-Tool count: **165 → 154 (−11), 4 / 11 domains shipped.** Each domain shipped in its own minor release with the staged commit pattern documented below. Pick up at the next pending domain in the queue.
+Tool count: **165 → 110 (−55), 11 / 11 domains shipped. Phase 4.0 COMPLETE.**
 
 | ✅ ver | domain | wrappers removed | tools after |
 |---|---|---|---|
@@ -12,15 +12,15 @@ Tool count: **165 → 154 (−11), 4 / 11 domains shipped.** Each domain shipped
 | v1.9.17 | manage_change | 3 | 160 |
 | v1.9.18 | manage_incident | 4 | 156 |
 | v1.9.19 | manage_ui_policy | 2 | 154 |
-| ⏳ next | manage_script_include | 4 | 150 (target) |
-| ⏳ | manage_changeset | 5 | 145 |
-| ⏳ | manage_catalog | 6 | 139 |
-| ⏳ | manage_user / manage_group | 9 | 130 |
-| ⏳ | manage_portal_layout | 7 | 123 |
-| ⏳ | manage_portal_component | 7 | 116 |
-| ⏳ | manage_workflow | 9 | 107 |
+| v1.9.20 | manage_script_include | 4 | 150 |
+| v1.9.21 | manage_changeset | 5 | 145 |
+| v1.9.22 | manage_catalog | 6 | 139 |
+| v1.9.23 | manage_user / manage_group | 7 | 132 |
+| v1.9.24 | manage_portal_layout | 7 | 125 |
+| v1.9.25 | manage_portal_component | 7 | 118 |
+| v1.9.26 | manage_workflow | 8 | 110 |
 
-Phase 4.0 binding goal = **~106 tools** when the queue is exhausted.
+Phase 4.0 binding goal = **~106 tools** — achieved 110 (within rounding).
 
 ## Lessons learned (apply these to remaining domains)
 
