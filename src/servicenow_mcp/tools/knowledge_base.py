@@ -10,7 +10,8 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools._preview import build_update_preview
+from servicenow_mcp.services import kb_article as kb_article_service
+from servicenow_mcp.services.kb_article import ArticleResponse
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -63,48 +64,6 @@ class CreateCategoryParams(BaseModel):
     active: bool = Field(default=True, description="Whether the category is active")
 
 
-class CreateArticleParams(BaseModel):
-    """Parameters for creating a knowledge article."""
-
-    title: str = Field(..., description="Title of the article")
-    # Body supports html or wiki markup per article_type.
-    text: str = Field(default=..., description="Article body text")
-    short_description: str = Field(..., description="Short description of the article")
-    knowledge_base: str = Field(..., description="The knowledge base to create the article in")
-    category: str = Field(..., description="Category for the article")
-    keywords: Optional[str] = Field(default=None, description="Keywords for search")
-    # html = HTML body (default); text = plain text body; wiki = wiki markup.
-    article_type: Optional[Literal["html", "text", "wiki"]] = Field(
-        default="html",
-        description="Article body markup type.",
-    )
-
-
-class UpdateArticleParams(BaseModel):
-    """Parameters for updating a knowledge article."""
-
-    article_id: str = Field(..., description="ID of the article to update")
-    title: Optional[str] = Field(default=None, description="Updated title of the article")
-    text: Optional[str] = Field(default=None, description="Updated article body text")
-    short_description: Optional[str] = Field(default=None, description="Updated short description")
-    category: Optional[str] = Field(default=None, description="Updated category for the article")
-    keywords: Optional[str] = Field(default=None, description="Updated keywords for search")
-    dry_run: bool = Field(
-        default=False,
-        description="Preview field-level changes without executing.",
-    )
-
-
-class PublishArticleParams(BaseModel):
-    """Parameters for publishing a knowledge article."""
-
-    article_id: str = Field(..., description="ID of the article to publish")
-    workflow_state: Optional[str] = Field(
-        default="published", description="The workflow state to set"
-    )
-    workflow_version: Optional[str] = Field(default=None, description="The workflow version to use")
-
-
 class ListArticlesParams(BaseModel):
     """Parameters for listing knowledge articles."""
 
@@ -138,18 +97,6 @@ class CategoryResponse(BaseModel):
     message: str = Field(..., description="Message describing the result")
     category_id: Optional[str] = Field(default=None, description="ID of the affected category")
     category_name: Optional[str] = Field(default=None, description="Name of the affected category")
-
-
-class ArticleResponse(BaseModel):
-    """Response from article operations."""
-
-    success: bool = Field(..., description="Whether the operation was successful")
-    message: str = Field(..., description="Message describing the result")
-    article_id: Optional[str] = Field(default=None, description="ID of the affected article")
-    article_title: Optional[str] = Field(default=None, description="Title of the affected article")
-    workflow_state: Optional[str] = Field(
-        default=None, description="Current workflow state of the article"
-    )
 
 
 class ListCategoriesParams(BaseModel):
@@ -423,217 +370,6 @@ def create_category(
         return CategoryResponse(
             success=False,
             message=f"Failed to create category: {str(e)}",
-        )
-
-
-@register_tool(
-    "create_article",
-    params=CreateArticleParams,
-    description="Create a KB article. Requires kb_id, short_description, and text.",
-    serialization="json_dict",
-    return_type=str,
-)
-def create_article(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreateArticleParams,
-) -> ArticleResponse:
-    """
-    Create a new knowledge article.
-
-    Args:
-        config: Server configuration.
-        auth_manager: Authentication manager.
-        params: Parameters for creating the article.
-
-    Returns:
-        Response with the created article details.
-    """
-    api_url = f"{config.api_url}/table/kb_knowledge"
-
-    # Build request data
-    data = {
-        "short_description": params.short_description,
-        "text": params.text,
-        "kb_knowledge_base": params.knowledge_base,
-        "kb_category": params.category,
-        "article_type": params.article_type,
-    }
-
-    if params.title:
-        data["short_description"] = params.title
-    if params.keywords:
-        data["keywords"] = params.keywords
-
-    # Make request
-    try:
-        response = auth_manager.make_request(
-            "POST",
-            api_url,
-            json=data,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
-        )
-        response.raise_for_status()
-
-        result = response.json().get("result", {})
-        invalidate_query_cache(table="kb_knowledge")
-
-        return ArticleResponse(
-            success=True,
-            message="Article created successfully",
-            article_id=result.get("sys_id"),
-            article_title=result.get("short_description"),
-            workflow_state=result.get("workflow_state"),
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to create article: {e}")
-        return ArticleResponse(
-            success=False,
-            message=f"Failed to create article: {str(e)}",
-        )
-
-
-@register_tool(
-    "update_article",
-    params=UpdateArticleParams,
-    description="Update a KB article by sys_id. Supports title, text, category, and workflow_state fields.",
-    serialization="json_dict",
-    return_type=str,
-)
-def update_article(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: UpdateArticleParams,
-) -> ArticleResponse:
-    """
-    Update an existing knowledge article.
-
-    Args:
-        config: Server configuration.
-        auth_manager: Authentication manager.
-        params: Parameters for updating the article.
-
-    Returns:
-        Response with the updated article details.
-    """
-    api_url = f"{config.api_url}/table/kb_knowledge/{params.article_id}"
-
-    # Build request data
-    data = {}
-
-    if params.title:
-        data["short_description"] = params.title
-    if params.text:
-        data["text"] = params.text
-    if params.short_description:
-        data["short_description"] = params.short_description
-    if params.category:
-        data["kb_category"] = params.category
-    if params.keywords:
-        data["keywords"] = params.keywords
-
-    if params.dry_run:
-        return build_update_preview(
-            config,
-            auth_manager,
-            table="kb_knowledge",
-            sys_id=params.article_id,
-            proposed=data,
-            identifier_fields=["short_description", "kb_category", "workflow_state"],
-        )
-
-    # Make request
-    try:
-        response = auth_manager.make_request(
-            "PATCH",
-            api_url,
-            json=data,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
-        )
-        response.raise_for_status()
-
-        result = response.json().get("result", {})
-        invalidate_query_cache(table="kb_knowledge")
-
-        return ArticleResponse(
-            success=True,
-            message="Article updated successfully",
-            article_id=params.article_id,
-            article_title=result.get("short_description"),
-            workflow_state=result.get("workflow_state"),
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to update article: {e}")
-        return ArticleResponse(
-            success=False,
-            message=f"Failed to update article: {str(e)}",
-        )
-
-
-@register_tool(
-    "publish_article",
-    params=PublishArticleParams,
-    description="Publish a KB article by sys_id. Sets workflow_state to published.",
-    serialization="json_dict",
-    return_type=str,
-)
-def publish_article(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: PublishArticleParams,
-) -> ArticleResponse:
-    """
-    Publish a knowledge article.
-
-    Args:
-        config: Server configuration.
-        auth_manager: Authentication manager.
-        params: Parameters for publishing the article.
-
-    Returns:
-        Response with the published article details.
-    """
-    api_url = f"{config.api_url}/table/kb_knowledge/{params.article_id}"
-
-    # Build request data
-    data = {
-        "workflow_state": params.workflow_state,
-    }
-
-    if params.workflow_version:
-        data["workflow_version"] = params.workflow_version
-
-    # Make request
-    try:
-        response = auth_manager.make_request(
-            "PATCH",
-            api_url,
-            json=data,
-            headers=auth_manager.get_headers(),
-            timeout=config.timeout,
-        )
-        response.raise_for_status()
-
-        result = response.json().get("result", {})
-        invalidate_query_cache(table="kb_knowledge")
-
-        return ArticleResponse(
-            success=True,
-            message="Article published successfully",
-            article_id=params.article_id,
-            article_title=result.get("short_description"),
-            workflow_state=result.get("workflow_state"),
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to publish article: {e}")
-        return ArticleResponse(
-            success=False,
-            message=f"Failed to publish article: {str(e)}",
         )
 
 
@@ -1071,6 +807,8 @@ def manage_kb_article(
     params: ManageKbArticleParams,
 ) -> ArticleResponse:
     if params.action == "create":
+        # Preserve legacy defaulting: omit keywords/article_type when caller didn't
+        # supply them so the service-layer defaults (None / "html") apply.
         kwargs: Dict[str, Any] = {
             "title": params.title,
             "text": params.text,
@@ -1082,27 +820,26 @@ def manage_kb_article(
             kwargs["keywords"] = params.keywords
         if params.article_type is not None:
             kwargs["article_type"] = params.article_type
-        return create_article(config, auth_manager, CreateArticleParams(**kwargs))
+        return kb_article_service.create(config, auth_manager, **kwargs)
 
     if params.action == "update":
-        return update_article(
+        return kb_article_service.update(
             config,
             auth_manager,
-            UpdateArticleParams(
-                article_id=params.article_id,
-                title=params.title,
-                text=params.text,
-                short_description=params.short_description,
-                category=params.category,
-                keywords=params.keywords,
-                dry_run=params.dry_run,
-            ),
+            article_id=params.article_id,
+            title=params.title,
+            text=params.text,
+            short_description=params.short_description,
+            category=params.category,
+            keywords=params.keywords,
+            dry_run=params.dry_run,
         )
 
-    # publish
+    # publish — only forward workflow_state/version when caller supplied them so
+    # the service-layer default ("published") applies otherwise.
     pub_kwargs: Dict[str, Any] = {"article_id": params.article_id}
     if params.workflow_state is not None:
         pub_kwargs["workflow_state"] = params.workflow_state
     if params.workflow_version is not None:
         pub_kwargs["workflow_version"] = params.workflow_version
-    return publish_article(config, auth_manager, PublishArticleParams(**pub_kwargs))
+    return kb_article_service.publish(config, auth_manager, **pub_kwargs)

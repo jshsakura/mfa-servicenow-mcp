@@ -1,0 +1,7 @@
+{
+  "article_id": null,
+  "article_title": null,
+  "message": "Failed to publish article: boom: 500 Internal Server Error",
+  "success": false,
+  "workflow_state": null
+}
