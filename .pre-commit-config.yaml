@@ -15,6 +15,14 @@ repos:
         language: system
         pass_filenames: false
 
+      # Fast doc/skill orphan tool-name check (Phase 4 deletion gate).
+      # Fails if any markdown/yaml references a tool not in the live registry.
+      - id: orphan-tool-refs
+        name: orphan-tool-refs
+        entry: ./.venv/bin/python scripts/check_orphan_tool_refs.py
+        language: system
+        pass_filenames: false
+
       # Full test suite before push to avoid CI-only surprises
       - id: pytest-all
         name: pytest-all
