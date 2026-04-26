@@ -42,7 +42,6 @@ TOOL_MODULE_INDEX = {
     "get_developer_daily_summary": "portal_dev_tools",
     "get_flow_designer_detail": "flow_designer_tools",
     "get_flow_designer_executions": "flow_designer_tools",
-    "get_incident_by_number": "incident_tools",
     "get_logs": "log_tools",
     "get_metadata_source": "source_tools",
     "get_optimization_recommendations": "catalog_optimization",

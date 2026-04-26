@@ -7,7 +7,6 @@ delegatable: false
 required_input: incident number or query
 output: action
 tools:
-  - get_incident_by_number
   - manage_incident
   - sn_aggregate
 triggers:
@@ -30,11 +29,11 @@ IF "몇 개" or "count":
   → RETURN count
 
 IF "목록" or "list unassigned":
-  CALL get_incident_by_number(query="active=true^assigned_toISEMPTY^priority<=2", limit=20)
+  CALL manage_incident(action="get", query="active=true^assigned_toISEMPTY^priority<=2", limit=20)
   → RETURN list sorted by priority
 
 IF "분석" or "analyze specific":
-  CALL get_incident_by_number(number=INPUT)
+  CALL manage_incident(action="get", incident_id=INPUT)
   → CHECK: priority correct per impact/urgency matrix?
   → CHECK: category matches short_description keywords?
   → CHECK: assignment group appropriate?
