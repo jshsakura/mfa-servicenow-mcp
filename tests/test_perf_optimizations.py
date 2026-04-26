@@ -71,8 +71,8 @@ class TestJsonFastMigration:
         assert parsed["success"] is False
 
     def test_script_include_execute_json_parse_uses_json_fast(self):
-        """execute_script_include must parse GlideAjax JSON via json_fast."""
-        from servicenow_mcp.tools.script_include_tools import execute_script_include
+        """service execute() must parse GlideAjax JSON via json_fast."""
+        from servicenow_mcp.services import script_include as si_svc
 
         mock_config = ServerConfig(
             instance_url="https://test.service-now.com",
@@ -97,22 +97,13 @@ class TestJsonFastMigration:
             resp.raise_for_status = MagicMock()
             mock_auth.make_request.return_value = resp
 
-            from servicenow_mcp.tools.script_include_tools import ExecuteScriptIncludeParams
-
-            result = execute_script_include(
-                mock_config,
-                mock_auth,
-                ExecuteScriptIncludeParams(name="TestSI", method="execute"),
-            )
+            result = si_svc.execute(mock_config, mock_auth, name="TestSI", method="execute")
             assert result["success"] is True
             assert result["result"] == {"answer": "hello"}
 
     def test_script_include_execute_non_json_fallback(self):
         """Non-JSON response (e.g. XML) must fall back to raw text."""
-        from servicenow_mcp.tools.script_include_tools import (
-            ExecuteScriptIncludeParams,
-            execute_script_include,
-        )
+        from servicenow_mcp.services import script_include as si_svc
 
         mock_config = ServerConfig(
             instance_url="https://test.service-now.com",
@@ -135,11 +126,7 @@ class TestJsonFastMigration:
             resp.raise_for_status = MagicMock()
             mock_auth.make_request.return_value = resp
 
-            result = execute_script_include(
-                mock_config,
-                mock_auth,
-                ExecuteScriptIncludeParams(name="TestSI", method="execute"),
-            )
+            result = si_svc.execute(mock_config, mock_auth, name="TestSI", method="execute")
             assert result["success"] is True
             assert result["result"] == "<xml><answer>hello</answer></xml>"
 
