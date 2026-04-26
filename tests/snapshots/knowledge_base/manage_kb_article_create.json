@@ -1,0 +1,7 @@
+{
+  "article_id": "art_002",
+  "article_title": "Bundle Create",
+  "message": "Article created successfully",
+  "success": true,
+  "workflow_state": "draft"
+}
