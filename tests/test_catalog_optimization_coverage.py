@@ -13,10 +13,8 @@ from unittest.mock import MagicMock, patch
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.catalog_optimization import (
     OptimizationRecommendationsParams,
-    UpdateCatalogItemParams,
     _get_poor_description_items,
     get_optimization_recommendations,
-    update_catalog_item,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
@@ -69,38 +67,6 @@ class TestGetOptimizationRecommendationsEdgeCases(unittest.TestCase):
         result = get_optimization_recommendations(self.config, self.auth, params)
         self.assertTrue(result["success"])
         self.assertEqual(len(result["recommendations"]), 0)
-
-
-class TestUpdateCatalogItemEdgeCases(unittest.TestCase):
-    def setUp(self):
-        self.config = _make_config()
-        self.auth = _make_auth()
-
-    @patch("servicenow_mcp.tools.catalog_optimization.invalidate_query_cache")
-    def test_all_fields(self, mock_cache):
-        """Cover description, category, active, order fields."""
-        resp = _ok_response(
-            {"result": {"sys_id": "item1", "name": "Laptop", "active": "false", "order": "5"}}
-        )
-        self.auth.make_request.return_value = resp
-
-        params = UpdateCatalogItemParams(
-            item_id="item1",
-            name="Laptop",
-            short_description="A laptop",
-            description="Full description",
-            category="hardware",
-            price="999",
-            active=False,
-            order=5,
-        )
-        result = update_catalog_item(self.config, self.auth, params)
-        self.assertTrue(result["success"])
-        call_kwargs = self.auth.make_request.call_args[1]["json"]
-        self.assertEqual(call_kwargs["description"], "Full description")
-        self.assertEqual(call_kwargs["category"], "hardware")
-        self.assertEqual(call_kwargs["active"], "false")
-        self.assertEqual(call_kwargs["order"], "5")
 
 
 class TestGetPoorDescriptionItems(unittest.TestCase):

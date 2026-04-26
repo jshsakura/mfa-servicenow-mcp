@@ -214,15 +214,6 @@ full:
     - manage_portal_layout
     - manage_portal_component
     - manage_ui_policy
-    # --- Legacy wrappers below (kept for one cycle; deprecated in 1.11.0) ---
-    # Incident writes — manage_incident covers create/update/comment/resolve
-    # Catalog writes
-    - create_catalog_category
-    - update_catalog_category
-    - move_catalog_items
-    - update_catalog_item
-    - create_catalog_item_variable
-    - update_catalog_item_variable
     # Change Management orchestrators (manage_change covers create/update/add_task)
     - submit_change_for_approval
     - approve_change

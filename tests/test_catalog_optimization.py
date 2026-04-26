@@ -11,11 +11,9 @@ import requests
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.catalog_optimization import (
     OptimizationRecommendationsParams,
-    UpdateCatalogItemParams,
     _get_inactive_items,
     _get_poor_description_items,
     get_optimization_recommendations,
-    update_catalog_item,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
@@ -250,120 +248,6 @@ class TestCatalogOptimizationTools(unittest.TestCase):
         recommendation_types = [rec["type"] for rec in result["recommendations"]]
         self.assertIn("inactive_items", recommendation_types)
         self.assertNotIn("description_quality", recommendation_types)
-
-    @patch("servicenow_mcp.tools.catalog_optimization.invalidate_query_cache")
-    def test_update_catalog_item(self, mock_invalidate_query_cache):
-        """Test updating a catalog item."""
-        # Mock the response from ServiceNow
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "result": {
-                "sys_id": "item1",
-                "name": "Laptop",
-                "short_description": "Updated laptop description",
-                "description": "Detailed description",
-                "category": "hardware",
-                "price": "999.99",
-                "active": "true",
-                "order": "100",
-            }
-        }
-        self._finalize_response(mock_response)
-        self.auth_manager.make_request.return_value = mock_response
-
-        # Create the parameters
-        params = UpdateCatalogItemParams(
-            item_id="item1",
-            short_description="Updated laptop description",
-        )
-
-        # Call the function
-        result = update_catalog_item(self.config, self.auth_manager, params)
-
-        # Verify the results
-        self.assertTrue(result["success"])
-        self.assertEqual(result["data"]["short_description"], "Updated laptop description")
-        mock_invalidate_query_cache.assert_called_once_with(table="sc_cat_item")
-
-        # Verify the API call
-        self.auth_manager.make_request.assert_called_once()
-        args, kwargs = self.auth_manager.make_request.call_args
-        self.assertEqual(args[0], "PATCH")
-        self.assertEqual(args[1], "https://example.service-now.com/api/now/table/sc_cat_item/item1")
-        self.assertEqual(kwargs["json"], {"short_description": "Updated laptop description"})
-
-    @patch("servicenow_mcp.tools.catalog_optimization.invalidate_query_cache")
-    def test_update_catalog_item_multiple_fields(self, mock_invalidate_query_cache):
-        """Test updating multiple fields of a catalog item."""
-        # Mock the response from ServiceNow
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "result": {
-                "sys_id": "item1",
-                "name": "Updated Laptop",
-                "short_description": "Updated laptop description",
-                "description": "Detailed description",
-                "category": "hardware",
-                "price": "1099.99",
-                "active": "true",
-                "order": "100",
-            }
-        }
-        self._finalize_response(mock_response)
-        self.auth_manager.make_request.return_value = mock_response
-
-        # Create the parameters with multiple fields
-        params = UpdateCatalogItemParams(
-            item_id="item1",
-            name="Updated Laptop",
-            short_description="Updated laptop description",
-            price="1099.99",
-        )
-
-        # Call the function
-        result = update_catalog_item(self.config, self.auth_manager, params)
-
-        # Verify the results
-        self.assertTrue(result["success"])
-        self.assertEqual(result["data"]["name"], "Updated Laptop")
-        self.assertEqual(result["data"]["short_description"], "Updated laptop description")
-        self.assertEqual(result["data"]["price"], "1099.99")
-        mock_invalidate_query_cache.assert_called_once_with(table="sc_cat_item")
-
-        # Verify the API call
-        self.auth_manager.make_request.assert_called_once()
-        args, kwargs = self.auth_manager.make_request.call_args
-        self.assertEqual(args[0], "PATCH")
-        self.assertEqual(args[1], "https://example.service-now.com/api/now/table/sc_cat_item/item1")
-        self.assertEqual(
-            kwargs["json"],
-            {
-                "name": "Updated Laptop",
-                "short_description": "Updated laptop description",
-                "price": "1099.99",
-            },
-        )
-
-    def test_update_catalog_item_error(self):
-        """Test error handling when updating a catalog item."""
-        # Mock an error response
-        self.auth_manager.make_request.side_effect = requests.exceptions.RequestException(
-            "API Error"
-        )
-
-        # Create the parameters
-        params = UpdateCatalogItemParams(
-            item_id="item1",
-            short_description="Updated laptop description",
-        )
-
-        # Call the function
-        result = update_catalog_item(self.config, self.auth_manager, params)
-
-        # Verify the results
-        self.assertFalse(result["success"])
-        self.assertIn("Error updating catalog item", result["message"])
-        self.assertIsNone(result["data"])
 
     def test_get_inactive_items_reuses_shared_query_cache(self):
         mock_response = MagicMock()
