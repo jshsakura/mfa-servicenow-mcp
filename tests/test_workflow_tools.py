@@ -82,7 +82,7 @@ class TestWorkflowTools(unittest.TestCase):
             "limit": 10,
             "active": True,
         }
-        result = list_workflows(self.auth_manager, self.server_config, params)
+        result = list_workflows(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(len(result["workflows"]), 2)
@@ -105,7 +105,7 @@ class TestWorkflowTools(unittest.TestCase):
             "limit": 10,
             "active": True,
         }
-        result = list_workflows(self.auth_manager, self.server_config, params)
+        result = list_workflows(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(len(result["workflows"]), 0)
@@ -122,7 +122,7 @@ class TestWorkflowTools(unittest.TestCase):
             "limit": 10,
             "active": True,
         }
-        result = list_workflows(self.auth_manager, self.server_config, params)
+        result = list_workflows(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertIn("error", result)
@@ -151,7 +151,7 @@ class TestWorkflowTools(unittest.TestCase):
         params = {
             "workflow_id": "workflow123",
         }
-        result = get_workflow_details(self.auth_manager, self.server_config, params)
+        result = get_workflow_details(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(result["workflow"]["sys_id"], "workflow123")
@@ -166,7 +166,7 @@ class TestWorkflowTools(unittest.TestCase):
         params = {
             "workflow_id": "workflow123",
         }
-        result = get_workflow_details(self.auth_manager, self.server_config, params)
+        result = get_workflow_details(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertIn("error", result)
@@ -203,7 +203,7 @@ class TestWorkflowTools(unittest.TestCase):
             "workflow_id": "workflow123",
             "include_versions": True,
         }
-        result = get_workflow_details(self.auth_manager, self.server_config, params)
+        result = get_workflow_details(self.server_config, self.auth_manager, params)
 
         # Verify the result — versions are nested in the response
         self.assertIn("versions", result)
@@ -271,7 +271,7 @@ class TestWorkflowTools(unittest.TestCase):
             "workflow_id": "workflow123",
             "include_activities": True,
         }
-        result = get_workflow_details(self.auth_manager, self.server_config, params)
+        result = get_workflow_details(self.server_config, self.auth_manager, params)
 
         # Verify the result — activities are nested in the response
         self.assertEqual(len(result["activities"]), 2)
@@ -299,8 +299,8 @@ class TestWorkflowTools(unittest.TestCase):
         self.auth_manager.make_request.side_effect = [workflow_response, version_response]
 
         result = get_workflow_details(
-            self.auth_manager,
             self.server_config,
+            self.auth_manager,
             {"workflow_id": "workflow123", "include_activities": True},
         )
 
@@ -330,7 +330,7 @@ class TestWorkflowTools(unittest.TestCase):
             "table": "incident",
             "active": True,
         }
-        result = create_workflow(self.auth_manager, self.server_config, params)
+        result = create_workflow(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(result["workflow"]["sys_id"], "workflow789")
@@ -360,7 +360,7 @@ class TestWorkflowTools(unittest.TestCase):
             "description": "new",
             "dry_run": True,
         }
-        result = update_workflow(self.auth_manager, self.server_config, params)
+        result = update_workflow(self.server_config, self.auth_manager, params)
 
         self.assertTrue(result["dry_run"])
         self.assertEqual(result["operation"], "update")
@@ -392,7 +392,7 @@ class TestWorkflowTools(unittest.TestCase):
             "name": "Updated Workflow",
             "description": "Updated description",
         }
-        result = update_workflow(self.auth_manager, self.server_config, params)
+        result = update_workflow(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(result["workflow"]["sys_id"], "workflow123")
@@ -417,7 +417,7 @@ class TestWorkflowTools(unittest.TestCase):
         params = {
             "workflow_id": "workflow123",
         }
-        result = activate_workflow(self.auth_manager, self.server_config, params)
+        result = activate_workflow(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(result["workflow"]["sys_id"], "workflow123")
@@ -442,7 +442,7 @@ class TestWorkflowTools(unittest.TestCase):
         params = {
             "workflow_id": "workflow123",
         }
-        result = deactivate_workflow(self.auth_manager, self.server_config, params)
+        result = deactivate_workflow(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(result["workflow"]["sys_id"], "workflow123")
@@ -472,7 +472,7 @@ class TestWorkflowTools(unittest.TestCase):
             "activity_type": "approval",
             "description": "A new approval activity",
         }
-        result = add_workflow_activity(self.auth_manager, self.server_config, params)
+        result = add_workflow_activity(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(result["activity"]["sys_id"], "activity789")
@@ -495,7 +495,7 @@ class TestWorkflowTools(unittest.TestCase):
             "description": "Same desc",
             "dry_run": True,
         }
-        result = update_workflow_activity(self.auth_manager, self.server_config, params)
+        result = update_workflow_activity(self.server_config, self.auth_manager, params)
 
         self.assertTrue(result["dry_run"])
         self.assertIn("name", result["no_op_fields"])
@@ -522,7 +522,7 @@ class TestWorkflowTools(unittest.TestCase):
             "name": "Updated Activity",
             "description": "Updated description",
         }
-        result = update_workflow_activity(self.auth_manager, self.server_config, params)
+        result = update_workflow_activity(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(result["activity"]["sys_id"], "activity123")
@@ -540,7 +540,7 @@ class TestWorkflowTools(unittest.TestCase):
         params = {
             "activity_id": "activity123",
         }
-        result = delete_workflow_activity(self.auth_manager, self.server_config, params)
+        result = delete_workflow_activity(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(result["message"], "Activity deleted successfully")
@@ -558,7 +558,7 @@ class TestWorkflowTools(unittest.TestCase):
         self.auth_manager.make_request.return_value = fetch_response
 
         params = {"activity_id": "activity_dry", "dry_run": True}
-        result = delete_workflow_activity(self.auth_manager, self.server_config, params)
+        result = delete_workflow_activity(self.server_config, self.auth_manager, params)
 
         self.assertTrue(result.get("dry_run"))
         self.assertEqual(result["operation"], "delete")
@@ -589,7 +589,7 @@ class TestWorkflowTools(unittest.TestCase):
         self.auth_manager.make_request.side_effect = _mock_request
 
         params = {"workflow_id": "wf_dry", "dry_run": True}
-        result = delete_workflow(self.auth_manager, self.server_config, params)
+        result = delete_workflow(self.server_config, self.auth_manager, params)
 
         self.assertTrue(result.get("dry_run"))
         self.assertEqual(result["target"]["table"], "wf_workflow")
@@ -615,7 +615,7 @@ class TestWorkflowTools(unittest.TestCase):
             "workflow_id": "workflow123",
             "activity_ids": ["activity1", "activity2", "activity3"],
         }
-        result = reorder_workflow_activities(self.auth_manager, self.server_config, params)
+        result = reorder_workflow_activities(self.server_config, self.auth_manager, params)
 
         # Verify the result
         self.assertEqual(result["message"], "Activities reordered")
