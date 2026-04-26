@@ -367,7 +367,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">165</span>
+    <span class="hero-stat-value">77</span>
     <span class="hero-stat-label">MCP Tools</span>
   </div>
   <div class="hero-stat">
@@ -408,7 +408,7 @@ MCP_TOOL_PACKAGE = "full"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Connect</h3>
-        <p>Point Claude, Cursor, or any MCP client. 165 registered tools ready instantly through active package profiles.</p>
+        <p>Point Claude, Cursor, or any MCP client. 77 registered tools ready instantly through active package profiles.</p>
       </div>
     </div>
   </div>
