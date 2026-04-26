@@ -21,7 +21,7 @@ The ServiceNow MCP server provides the following change management tools:
 2. **`sn_query`** (with `table=change_request`) - List change requests with arbitrary filters
    - Use the generic table-query primitive for listing change requests. See [Tool Inventory](TOOL_INVENTORY.md) for `sn_query` parameters.
 
-3. **`get_change_request_details`** - Get detailed information about a specific change request
+3. **`manage_change(action="get")`** - Get detailed information about a specific change request
    - Parameters:
      - `change_id` (required): Change request ID or sys_id
 
