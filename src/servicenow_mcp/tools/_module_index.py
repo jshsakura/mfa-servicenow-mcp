@@ -38,8 +38,6 @@ TOOL_MODULE_INDEX = {
     "create_story": "story_tools",
     "create_story_dependency": "story_tools",
     "create_ui_page": "portal_crud_tools",
-    "create_ui_policy": "ui_policy_tools",
-    "create_ui_policy_action": "ui_policy_tools",
     "create_user": "user_tools",
     "create_widget": "portal_crud_tools",
     "create_widget_instance": "portal_management_tools",

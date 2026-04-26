@@ -35,7 +35,7 @@ class TestValidation:
 
 class TestDispatch:
     def test_create(self):
-        with patch("servicenow_mcp.tools.ui_policy_tools.create_ui_policy") as m:
+        with patch("servicenow_mcp.services.ui_policy.create") as m:
             m.return_value = {"success": True}
             manage_ui_policy(
                 _config(),
@@ -47,13 +47,13 @@ class TestDispatch:
                     conditions="state=6",
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.table == "incident"
-            assert inner.short_description == "hide priority on close"
-            assert inner.conditions == "state=6"
+            kwargs = m.call_args.kwargs
+            assert kwargs["table"] == "incident"
+            assert kwargs["short_description"] == "hide priority on close"
+            assert kwargs["conditions"] == "state=6"
 
     def test_add_action(self):
-        with patch("servicenow_mcp.tools.ui_policy_tools.create_ui_policy_action") as m:
+        with patch("servicenow_mcp.services.ui_policy.add_action") as m:
             m.return_value = {"success": True}
             manage_ui_policy(
                 _config(),
@@ -66,11 +66,11 @@ class TestDispatch:
                     mandatory="false",
                 ),
             )
-            inner = m.call_args[0][2]
-            assert inner.ui_policy == "p1"
-            assert inner.field == "priority"
-            assert inner.visible == "false"
-            assert inner.mandatory == "false"
+            kwargs = m.call_args.kwargs
+            assert kwargs["ui_policy"] == "p1"
+            assert kwargs["field"] == "priority"
+            assert kwargs["visible"] == "false"
+            assert kwargs["mandatory"] == "false"
 
 
 class TestConfirmGate:
