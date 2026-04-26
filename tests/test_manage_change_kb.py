@@ -135,7 +135,7 @@ class TestManageKbArticleValidation:
 
 class TestManageKbArticleDispatch:
     def test_create_dispatches(self):
-        with patch("servicenow_mcp.tools.knowledge_base.create_article") as mock_create:
+        with patch("servicenow_mcp.services.kb_article.create") as mock_create:
             mock_create.return_value = ArticleResponse(success=True, message="ok")
             manage_kb_article(
                 _config(),
@@ -150,27 +150,27 @@ class TestManageKbArticleDispatch:
                     article_type="wiki",
                 ),
             )
-            inner = mock_create.call_args[0][2]
-            assert inner.title == "t"
-            assert inner.text == "body"
-            assert inner.knowledge_base == "kb1"
-            assert inner.article_type == "wiki"
+            kwargs = mock_create.call_args.kwargs
+            assert kwargs["title"] == "t"
+            assert kwargs["text"] == "body"
+            assert kwargs["knowledge_base"] == "kb1"
+            assert kwargs["article_type"] == "wiki"
 
     def test_update_dispatches_with_dry_run_flag(self):
-        with patch("servicenow_mcp.tools.knowledge_base.update_article") as mock_update:
+        with patch("servicenow_mcp.services.kb_article.update") as mock_update:
             mock_update.return_value = ArticleResponse(success=True, message="ok")
             manage_kb_article(
                 _config(),
                 MagicMock(),
                 ManageKbArticleParams(action="update", article_id="abc", title="new", dry_run=True),
             )
-            inner = mock_update.call_args[0][2]
-            assert inner.article_id == "abc"
-            assert inner.title == "new"
-            assert inner.dry_run is True
+            kwargs = mock_update.call_args.kwargs
+            assert kwargs["article_id"] == "abc"
+            assert kwargs["title"] == "new"
+            assert kwargs["dry_run"] is True
 
     def test_publish_dispatches(self):
-        with patch("servicenow_mcp.tools.knowledge_base.publish_article") as mock_publish:
+        with patch("servicenow_mcp.services.kb_article.publish") as mock_publish:
             mock_publish.return_value = ArticleResponse(success=True, message="ok")
             manage_kb_article(
                 _config(),
@@ -179,6 +179,6 @@ class TestManageKbArticleDispatch:
                     action="publish", article_id="abc", workflow_state="published"
                 ),
             )
-            inner = mock_publish.call_args[0][2]
-            assert inner.article_id == "abc"
-            assert inner.workflow_state == "published"
+            kwargs = mock_publish.call_args.kwargs
+            assert kwargs["article_id"] == "abc"
+            assert kwargs["workflow_state"] == "published"

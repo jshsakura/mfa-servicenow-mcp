@@ -1,0 +1,7 @@
+{
+  "article_id": "art_002",
+  "article_title": "Bundle Publish",
+  "message": "Article published successfully",
+  "success": true,
+  "workflow_state": "published"
+}
