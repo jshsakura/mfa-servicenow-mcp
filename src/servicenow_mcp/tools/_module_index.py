@@ -6,7 +6,6 @@ A CI test verifies this file matches the live AST scan of the tools/ package.
 
 TOOL_MODULE_INDEX = {
     "activate_workflow": "workflow_tools",
-    "add_change_task": "change_tools",
     "add_comment": "incident_tools",
     "add_file_to_changeset": "changeset_tools",
     "add_group_members": "user_tools",
@@ -22,7 +21,6 @@ TOOL_MODULE_INDEX = {
     "create_catalog_category": "catalog_tools",
     "create_catalog_item_variable": "catalog_variables",
     "create_category": "knowledge_base",
-    "create_change_request": "change_tools",
     "create_changeset": "changeset_tools",
     "create_column": "portal_crud_tools",
     "create_container": "portal_crud_tools",
@@ -149,7 +147,6 @@ TOOL_MODULE_INDEX = {
     "update_catalog_category": "catalog_tools",
     "update_catalog_item": "catalog_optimization",
     "update_catalog_item_variable": "catalog_variables",
-    "update_change_request": "change_tools",
     "update_changeset": "changeset_tools",
     "update_epic": "epic_tools",
     "update_flow_designer": "flow_designer_tools",

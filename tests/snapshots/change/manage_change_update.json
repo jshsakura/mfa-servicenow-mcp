@@ -1,0 +1,9 @@
+{
+  "change_request": {
+    "short_description": "Patch DB v2",
+    "state": "2",
+    "sys_id": "ch_001"
+  },
+  "message": "Change request updated successfully",
+  "success": true
+}

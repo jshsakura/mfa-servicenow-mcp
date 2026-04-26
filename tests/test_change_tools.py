@@ -7,20 +7,14 @@ from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.change_tools import (
-    AddChangeTaskParams,
     ApproveChangeParams,
-    CreateChangeRequestParams,
     GetChangeRequestDetailsParams,
     RejectChangeParams,
     SubmitChangeForApprovalParams,
-    UpdateChangeRequestParams,
-    add_change_task,
     approve_change,
-    create_change_request,
     get_change_request_details,
     reject_change,
     submit_change_for_approval,
-    update_change_request,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
@@ -193,124 +187,6 @@ class TestChangeTools(unittest.TestCase):
 
         self.assertFalse(result["success"])
         self.assertIn("Error getting change request details", result["message"])
-
-    # ------------------------------------------------------------------ #
-    # create_change_request
-    # ------------------------------------------------------------------ #
-
-    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
-    def test_create_change_request_success(self, mock_invalidate):
-        self.auth_manager.make_request.return_value = self._make_response(
-            {
-                "result": {"sys_id": "cr_new", "number": "CHG0099"},
-            }
-        )
-
-        params = CreateChangeRequestParams(
-            short_description="Test change",
-            type="normal",
-            risk="low",
-        )
-        result = create_change_request(self.config, self.auth_manager, params)
-
-        self.assertTrue(result["success"])
-        self.assertEqual(result["change_request"]["sys_id"], "cr_new")
-        mock_invalidate.assert_called_once_with(table="change_request")
-
-        call_args = self.auth_manager.make_request.call_args
-        self.assertEqual(call_args[0][0], "POST")
-        self.assertIn("/table/change_request", call_args[0][1])
-
-    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
-    def test_create_change_request_error(self, mock_invalidate):
-        self.auth_manager.make_request.side_effect = Exception("POST failed")
-
-        params = CreateChangeRequestParams(
-            short_description="Test change",
-            type="normal",
-        )
-        result = create_change_request(self.config, self.auth_manager, params)
-
-        self.assertFalse(result["success"])
-        self.assertIn("Error creating change request", result["message"])
-        mock_invalidate.assert_not_called()
-
-    # ------------------------------------------------------------------ #
-    # update_change_request
-    # ------------------------------------------------------------------ #
-
-    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
-    def test_update_change_request_success(self, mock_invalidate):
-        self.auth_manager.make_request.return_value = self._make_response(
-            {
-                "result": {"sys_id": "cr1", "state": "closed"},
-            }
-        )
-
-        params = UpdateChangeRequestParams(
-            change_id="cr1",
-            state="closed",
-            work_notes="Done",
-        )
-        result = update_change_request(self.config, self.auth_manager, params)
-
-        self.assertTrue(result["success"])
-        mock_invalidate.assert_called_once_with(table="change_request")
-
-        call_args = self.auth_manager.make_request.call_args
-        self.assertEqual(call_args[0][0], "PUT")
-        self.assertIn("/table/change_request/cr1", call_args[0][1])
-
-    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
-    def test_update_change_request_error(self, mock_invalidate):
-        self.auth_manager.make_request.side_effect = Exception("PUT failed")
-
-        params = UpdateChangeRequestParams(change_id="cr1", state="closed")
-        result = update_change_request(self.config, self.auth_manager, params)
-
-        self.assertFalse(result["success"])
-        self.assertIn("Error updating change request", result["message"])
-        mock_invalidate.assert_not_called()
-
-    # ------------------------------------------------------------------ #
-    # add_change_task
-    # ------------------------------------------------------------------ #
-
-    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
-    def test_add_change_task_success(self, mock_invalidate):
-        self.auth_manager.make_request.return_value = self._make_response(
-            {
-                "result": {"sys_id": "task1", "short_description": "Task"},
-            }
-        )
-
-        params = AddChangeTaskParams(
-            change_id="cr1",
-            short_description="Do something",
-        )
-        result = add_change_task(self.config, self.auth_manager, params)
-
-        self.assertTrue(result["success"])
-        self.assertEqual(result["change_task"]["sys_id"], "task1")
-        mock_invalidate.assert_called_once_with(table="change_task")
-
-        call_args = self.auth_manager.make_request.call_args
-        self.assertEqual(call_args[0][0], "POST")
-        self.assertIn("/table/change_task", call_args[0][1])
-
-    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
-    def test_add_change_task_error(self, mock_invalidate):
-        self.auth_manager.make_request.side_effect = Exception("POST failed")
-
-        params = AddChangeTaskParams(
-            change_id="cr1",
-            short_description="Do something",
-        )
-        result = add_change_task(self.config, self.auth_manager, params)
-
-        self.assertFalse(result["success"])
-        self.assertIn("Error adding change task", result["message"])
-        mock_invalidate.assert_not_called()
 
     # ------------------------------------------------------------------ #
     # submit_change_for_approval

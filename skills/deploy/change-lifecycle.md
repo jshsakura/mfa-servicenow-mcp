@@ -7,11 +7,8 @@ delegatable: false
 required_input: change details or change_id
 output: status
 tools:
-  - create_change_request
-  - update_change_request
+  - manage_change
   - get_change_request_details
-  - get_change_request_details
-  - add_change_task
   - submit_change_for_approval
   - approve_change
   - reject_change
@@ -32,15 +29,15 @@ You are managing a change request lifecycle.
 ## Pipeline
 
 IF "만들기" or "create":
-  CALL create_change_request
-    - short_description, description, type, risk, impact
+  CALL manage_change(action="create", ...)
+    - short_description, type (normal/standard/emergency), description, risk, impact
     - confirm = "approve"
 
 IF "작업 추가" or "add task":
   # Preview first (field diff + dependency counts)
-  CALL update_change_request(..., dry_run=True) for scope-changing edits
-  CALL add_change_task
-    - change_id, short_description, assignment_group
+  CALL manage_change(action="update", change_id=..., dry_run=True) for scope-changing edits
+  CALL manage_change(action="add_task", ...)
+    - change_id, task_short_description, task_assigned_to
     - confirm = "approve"
 
 IF "승인 요청" or "submit":
