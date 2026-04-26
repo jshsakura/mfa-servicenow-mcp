@@ -58,7 +58,7 @@ class TestListWorkflowVersions:
         _finalize(resp)
         auth.make_request.return_value = resp
 
-        result = list_workflow_versions(auth, config, {"workflow_id": "wf1"})
+        result = list_workflow_versions(config, auth, {"workflow_id": "wf1"})
         assert result["count"] == 2
         assert result["total"] == 2
         assert result["workflow_id"] == "wf1"
@@ -66,7 +66,7 @@ class TestListWorkflowVersions:
     def test_missing_workflow_id(self):
         config = _make_config()
         auth = _make_auth()
-        result = list_workflow_versions(auth, config, {})
+        result = list_workflow_versions(config, auth, {})
         assert "error" in result
         assert "required" in result["error"].lower()
 
@@ -85,7 +85,7 @@ class TestListWorkflowVersions:
         auth.make_request.return_value = resp
 
         result = list_workflow_versions(
-            auth, config, {"workflow_id": "wf1", "published_only": True}
+            config, auth, {"workflow_id": "wf1", "published_only": True}
         )
         assert result["count"] == 1
         call_args = auth.make_request.call_args
@@ -97,7 +97,7 @@ class TestListWorkflowVersions:
         auth = _make_auth()
         auth.make_request.side_effect = RuntimeError("network error")
 
-        result = list_workflow_versions(auth, config, {"workflow_id": "wf1"})
+        result = list_workflow_versions(config, auth, {"workflow_id": "wf1"})
         assert "error" in result
 
     def test_with_custom_limit_and_offset(self):
@@ -111,7 +111,7 @@ class TestListWorkflowVersions:
         auth.make_request.return_value = resp
 
         result = list_workflow_versions(
-            auth, config, {"workflow_id": "wf1", "limit": 5, "offset": 10}
+            config, auth, {"workflow_id": "wf1", "limit": 5, "offset": 10}
         )
         assert result["count"] == 0
 
@@ -125,7 +125,7 @@ class TestGetWorkflowActivities:
     def test_missing_workflow_id(self):
         config = _make_config()
         auth = _make_auth()
-        result = get_workflow_activities(auth, config, {})
+        result = get_workflow_activities(config, auth, {})
         assert "error" in result
         assert "required" in result["error"].lower()
 
@@ -149,7 +149,7 @@ class TestGetWorkflowActivities:
 
         auth.make_request.side_effect = [version_resp, activities_resp]
 
-        result = get_workflow_activities(auth, config, {"workflow_id": "wf1", "version_id": "v1"})
+        result = get_workflow_activities(config, auth, {"workflow_id": "wf1", "version_id": "v1"})
         assert result["workflow_id"] == "wf1"
 
     def test_query_error(self):
@@ -157,7 +157,7 @@ class TestGetWorkflowActivities:
         auth = _make_auth()
         auth.make_request.side_effect = RuntimeError("network error")
 
-        result = get_workflow_activities(auth, config, {"workflow_id": "wf1"})
+        result = get_workflow_activities(config, auth, {"workflow_id": "wf1"})
         assert "error" in result
 
 

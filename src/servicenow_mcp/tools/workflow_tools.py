@@ -5,7 +5,7 @@ This module provides tools for viewing and managing workflows in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, List, Literal, Optional, Type, TypeVar, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Type, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -188,60 +188,9 @@ def _unwrap_params(params: Any, param_class: Type[T]) -> Dict[str, Any]:
     return params
 
 
-def _get_auth_and_config(
-    auth_manager_or_config: Union[AuthManager, ServerConfig],
-    server_config_or_auth: Union[ServerConfig, AuthManager],
-) -> tuple[AuthManager, ServerConfig]:
-    """
-    Get the correct auth_manager and server_config objects.
-
-    This function handles the case where the parameters might be swapped.
-
-    Args:
-        auth_manager_or_config: Either an AuthManager or a ServerConfig.
-        server_config_or_auth: Either a ServerConfig or an AuthManager.
-
-    Returns:
-        tuple[AuthManager, ServerConfig]: The correct auth_manager and server_config.
-
-    Raises:
-        ValueError: If the parameters are not of the expected types.
-    """
-    # Check if the parameters are in the correct order
-    if isinstance(auth_manager_or_config, AuthManager) and isinstance(
-        server_config_or_auth, ServerConfig
-    ):
-        return auth_manager_or_config, server_config_or_auth
-
-    # Check if the parameters are swapped
-    if isinstance(auth_manager_or_config, ServerConfig) and isinstance(
-        server_config_or_auth, AuthManager
-    ):
-        return server_config_or_auth, auth_manager_or_config
-
-    # If we get here, at least one of the parameters is not of the expected type
-    if hasattr(auth_manager_or_config, "get_headers"):
-        auth_manager = auth_manager_or_config
-    elif hasattr(server_config_or_auth, "get_headers"):
-        auth_manager = server_config_or_auth
-    else:
-        raise ValueError("Cannot find get_headers method in either auth_manager or server_config")
-
-    if hasattr(auth_manager_or_config, "instance_url"):
-        server_config = auth_manager_or_config
-    elif hasattr(server_config_or_auth, "instance_url"):
-        server_config = server_config_or_auth
-    else:
-        raise ValueError(
-            "Cannot find instance_url attribute in either auth_manager or server_config"
-        )
-
-    return cast(AuthManager, auth_manager), cast(ServerConfig, server_config)
-
-
 def list_workflows(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -256,13 +205,6 @@ def list_workflows(
         Dictionary containing the list of workflows
     """
     params = _unwrap_params(params, ListWorkflowsParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
 
     # Build query string
     query_parts = []
@@ -306,17 +248,12 @@ def list_workflows(
 
 
 def get_workflow_details(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Get workflow details, optionally including versions and activities."""
     params = _unwrap_params(params, GetWorkflowDetailsParams)
-
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        return {"error": str(e)}
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
@@ -424,8 +361,8 @@ def _fetch_workflow_activities(
 
 
 def create_workflow(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -441,13 +378,6 @@ def create_workflow(
     """
     # Unwrap parameters if needed
     params = _unwrap_params(params, CreateWorkflowParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
 
     # Validate required parameters
     if not params.get("name"):
@@ -491,8 +421,8 @@ def create_workflow(
 
 
 def update_workflow(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -508,13 +438,6 @@ def update_workflow(
     """
     # Unwrap parameters if needed
     params = _unwrap_params(params, UpdateWorkflowParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
@@ -572,8 +495,8 @@ def update_workflow(
 
 
 def activate_workflow(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -589,13 +512,6 @@ def activate_workflow(
     """
     # Unwrap parameters if needed
     params = _unwrap_params(params, ActivateWorkflowParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
@@ -626,8 +542,8 @@ def activate_workflow(
 
 
 def deactivate_workflow(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -643,13 +559,6 @@ def deactivate_workflow(
     """
     # Unwrap parameters if needed
     params = _unwrap_params(params, DeactivateWorkflowParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
@@ -680,8 +589,8 @@ def deactivate_workflow(
 
 
 def add_workflow_activity(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -697,13 +606,6 @@ def add_workflow_activity(
     """
     # Unwrap parameters if needed
     params = _unwrap_params(params, AddWorkflowActivityParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
 
     # Validate required parameters
     workflow_version_id = params.get("workflow_version_id")
@@ -750,8 +652,8 @@ def add_workflow_activity(
 
 
 def update_workflow_activity(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -767,13 +669,6 @@ def update_workflow_activity(
     """
     # Unwrap parameters if needed
     params = _unwrap_params(params, UpdateWorkflowActivityParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
 
     activity_id = params.get("activity_id")
     if not activity_id:
@@ -825,8 +720,8 @@ def update_workflow_activity(
 
 
 def delete_workflow_activity(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -842,13 +737,6 @@ def delete_workflow_activity(
     """
     # Unwrap parameters if needed
     params = _unwrap_params(params, DeleteWorkflowActivityParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
 
     activity_id = params.get("activity_id")
     if not activity_id:
@@ -882,8 +770,8 @@ def delete_workflow_activity(
 
 
 def reorder_workflow_activities(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -899,13 +787,6 @@ def reorder_workflow_activities(
     """
     # Unwrap parameters if needed
     params = _unwrap_params(params, ReorderWorkflowActivitiesParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
@@ -960,8 +841,8 @@ def reorder_workflow_activities(
 
 
 def delete_workflow(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -977,13 +858,6 @@ def delete_workflow(
     """
     # Unwrap parameters if needed
     params = _unwrap_params(params, DeleteWorkflowParams)
-
-    # Get the correct auth_manager and server_config
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        logger.error(f"Error getting auth and config: {e}")
-        return {"error": str(e)}
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
@@ -1026,17 +900,12 @@ def delete_workflow(
 
 
 def list_workflow_versions(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """List version history for a workflow."""
     params = _unwrap_params(params, ListWorkflowVersionsParams)
-
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        return {"error": str(e)}
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
@@ -1071,17 +940,12 @@ def list_workflow_versions(
 
 
 def get_workflow_activities(
-    auth_manager: AuthManager,
     server_config: ServerConfig,
+    auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Get activities for a workflow version."""
     params = _unwrap_params(params, GetWorkflowActivitiesParams)
-
-    try:
-        auth_manager, server_config = _get_auth_and_config(auth_manager, server_config)
-    except ValueError as e:
-        return {"error": str(e)}
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
