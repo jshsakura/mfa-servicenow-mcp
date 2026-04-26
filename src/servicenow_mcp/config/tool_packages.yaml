@@ -141,12 +141,6 @@ portal_developer:
     - create_row
     - create_column
     - scaffold_page
-    # Changeset writes
-    - create_changeset
-    - update_changeset
-    - add_file_to_changeset
-    - commit_changeset
-    - publish_changeset
     # Local Sync writes
     - update_remote_from_local
 
@@ -191,12 +185,6 @@ platform_developer:
     # Incident writes — manage_incident covers create/update/comment/resolve
     # Change Management orchestrators (manage_change covers create/update/add_task)
     - submit_change_for_approval
-    # Changeset writes
-    - create_changeset
-    - update_changeset
-    - add_file_to_changeset
-    - commit_changeset
-    - publish_changeset
     # Local Sync writes
     - update_remote_from_local
 
@@ -239,12 +227,6 @@ full:
     - submit_change_for_approval
     - approve_change
     - reject_change
-    # Changeset writes
-    - create_changeset
-    - update_changeset
-    - add_file_to_changeset
-    - commit_changeset
-    - publish_changeset
     # Workflow writes
     - create_workflow
     - update_workflow
