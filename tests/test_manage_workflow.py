@@ -74,8 +74,8 @@ class TestDispatch:
                 ManageWorkflowParams(action="create", name="My WF", table="incident", active=True),
             )
             inner = mock_fn.call_args[0][2]
-            assert inner.name == "My WF"
-            assert inner.table == "incident"
+            assert inner["name"] == "My WF"
+            assert inner["table"] == "incident"
 
     def test_update(self):
         with patch("servicenow_mcp.tools.workflow_tools.update_workflow") as mock_fn:
@@ -86,8 +86,8 @@ class TestDispatch:
                 ManageWorkflowParams(action="update", workflow_id="abc", active=False),
             )
             inner = mock_fn.call_args[0][2]
-            assert inner.workflow_id == "abc"
-            assert inner.active is False
+            assert inner["workflow_id"] == "abc"
+            assert inner["active"] is False
 
     def test_activate(self):
         with patch("servicenow_mcp.tools.workflow_tools.activate_workflow") as mock_fn:
@@ -97,7 +97,7 @@ class TestDispatch:
                 MagicMock(),
                 ManageWorkflowParams(action="activate", workflow_id="abc"),
             )
-            assert mock_fn.call_args[0][2].workflow_id == "abc"
+            assert mock_fn.call_args[0][2]["workflow_id"] == "abc"
 
     def test_deactivate(self):
         with patch("servicenow_mcp.tools.workflow_tools.deactivate_workflow") as mock_fn:
@@ -107,7 +107,7 @@ class TestDispatch:
                 MagicMock(),
                 ManageWorkflowParams(action="deactivate", workflow_id="abc"),
             )
-            assert mock_fn.call_args[0][2].workflow_id == "abc"
+            assert mock_fn.call_args[0][2]["workflow_id"] == "abc"
 
     def test_delete_workflow(self):
         with patch("servicenow_mcp.tools.workflow_tools.delete_workflow") as mock_fn:
@@ -118,8 +118,8 @@ class TestDispatch:
                 ManageWorkflowParams(action="delete", workflow_id="abc", dry_run=True),
             )
             inner = mock_fn.call_args[0][2]
-            assert inner.workflow_id == "abc"
-            assert inner.dry_run is True
+            assert inner["workflow_id"] == "abc"
+            assert inner["dry_run"] is True
 
     def test_add_activity(self):
         with patch("servicenow_mcp.tools.workflow_tools.add_workflow_activity") as mock_fn:
@@ -135,9 +135,9 @@ class TestDispatch:
                 ),
             )
             inner = mock_fn.call_args[0][2]
-            assert inner.workflow_version_id == "v1"
-            assert inner.name == "Approval"
-            assert inner.activity_type == "approval"
+            assert inner["workflow_version_id"] == "v1"
+            assert inner["name"] == "Approval"
+            assert inner["activity_type"] == "approval"
 
     def test_update_activity(self):
         with patch("servicenow_mcp.tools.workflow_tools.update_workflow_activity") as mock_fn:
@@ -150,8 +150,8 @@ class TestDispatch:
                 ),
             )
             inner = mock_fn.call_args[0][2]
-            assert inner.activity_id == "a1"
-            assert inner.name == "New"
+            assert inner["activity_id"] == "a1"
+            assert inner["name"] == "New"
 
     def test_delete_activity(self):
         with patch("servicenow_mcp.tools.workflow_tools.delete_workflow_activity") as mock_fn:
@@ -161,7 +161,7 @@ class TestDispatch:
                 MagicMock(),
                 ManageWorkflowParams(action="delete_activity", activity_id="a1"),
             )
-            assert mock_fn.call_args[0][2].activity_id == "a1"
+            assert mock_fn.call_args[0][2]["activity_id"] == "a1"
 
     def test_reorder_activities(self):
         with patch("servicenow_mcp.tools.workflow_tools.reorder_workflow_activities") as mock_fn:
@@ -176,8 +176,22 @@ class TestDispatch:
                 ),
             )
             inner = mock_fn.call_args[0][2]
-            assert inner.workflow_id == "abc"
-            assert inner.activity_ids == ["a1", "a2", "a3"]
+            assert inner["workflow_id"] == "abc"
+            assert inner["activity_ids"] == ["a1", "a2", "a3"]
+
+    def test_dispatcher_passes_config_first(self):
+        # Regression guard: dispatcher must hand sub-functions (config, auth_manager, dict),
+        # matching the post-refactor sub-function signature. Previously the read branches
+        # passed (auth_manager, config, ...) which silently broke list/get/list_versions/
+        # get_activities because list_workflows etc. unpack the first arg as ServerConfig.
+        cfg = _config()
+        auth = MagicMock(name="auth")
+        with patch("servicenow_mcp.tools.workflow_tools.list_workflows") as mock_fn:
+            mock_fn.return_value = {"success": True}
+            manage_workflow(cfg, auth, ManageWorkflowParams(action="list"))
+            assert mock_fn.call_args[0][0] is cfg
+            assert mock_fn.call_args[0][1] is auth
+            assert isinstance(mock_fn.call_args[0][2], dict)
 
 
 class TestConfirmGate:

@@ -614,6 +614,9 @@ def manage_change(
             count_only=params.count_only,
         )
     if params.action == "create":
+        # ManageChangeParams validator guarantees these are present per action.
+        assert params.short_description is not None
+        assert params.type is not None
         return change_service.create(
             config,
             auth_manager,
@@ -622,6 +625,7 @@ def manage_change(
             **_project_change(params, _CHANGE_CREATE_FIELDS[1:]),
         )
     if params.action == "update":
+        assert params.change_id is not None
         return change_service.update(
             config,
             auth_manager,
@@ -630,6 +634,8 @@ def manage_change(
             **_project_change(params, _CHANGE_UPDATE_FIELDS),
         )
     # add_task
+    assert params.change_id is not None
+    assert params.task_short_description is not None
     return change_service.add_task(
         config,
         auth_manager,
