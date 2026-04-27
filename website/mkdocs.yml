@@ -67,6 +67,7 @@ plugins:
             Windows Installation: 윈도우 설치
             Features & Tools: 기능 및 도구
             Tool Inventory: 도구 인벤토리
+            Tool Packages (Advanced): 도구 패키지 (고급)
             Guides: 가이드
             Service Catalog: 서비스 카탈로그
             Change Management: 변경 관리
@@ -132,6 +133,7 @@ nav:
       - Windows Installation: docs/WINDOWS_INSTALL.md
   - Features & Tools:
       - Tool Inventory: docs/TOOL_INVENTORY.md
+      - Tool Packages (Advanced): docs/TOOL_PACKAGES.md
   - Guides:
       - Service Catalog: docs/catalog.md
       - Change Management: docs/change_management.md
