@@ -258,6 +258,8 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
+| `none` | 0 | Disabled profile for intentionally turning tools off |
+| `core` | 15 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
 | `standard` | 45 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
 | `service_desk` | 46 | standard + incident and change operational writes |
 | `portal_developer` | 55 | standard + portal, changeset, script include, and local-sync delivery workflows |

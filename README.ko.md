@@ -253,6 +253,8 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
+| `none` | 0 | 도구를 의도적으로 비활성화하는 프로필 |
+| `core` | 15 | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
 | `standard` | 45 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
 | `service_desk` | 46 | standard + 인시던트/변경 운영 쓰기 |
 | `portal_developer` | 55 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
