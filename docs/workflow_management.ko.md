@@ -1,6 +1,11 @@
 # ServiceNow MCP 워크플로우 관리
 
-이 문서는 ServiceNow MCP 서버에서 제공하는 워크플로우 관리 도구에 대한 상세 정보를 다룹니다.
+이 문서는 두 종류의 워크플로우 엔진을 다룹니다.
+
+1. **레거시 워크플로우** (`wf_workflow`) — 아래의 `manage_workflow` 액션 라우터로 조작합니다.
+2. **Flow Designer** (`sys_hub_flow`) — 읽기 위주의 도구(`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`)와 좁은 범위의 쓰기 도구(`update_flow_designer`)를 제공합니다. Action / SubFlow / Playbook 테이블은 [Flow Designer 테이블 맵](#flow-designer-테이블-맵) 참고.
+
+어느 엔진을 쓰는지 모르겠으면 최신 인스턴스에서는 `list_flow_designers`로 시작하고, 레거시 `wf_workflow` 레코드는 `manage_workflow(action="list")`로 폴백하세요.
 
 ## 개요
 
@@ -205,6 +210,57 @@ result = manage_workflow({"action": "reorder_activities",
     ]
 })
 ```
+
+## Flow Designer 도구
+
+Flow Designer(`sys_hub_flow`)는 레거시 워크플로우의 후속 엔진입니다. MCP 서버는 Table API로 안전하게 노출 가능한 읽기 위주 표면만 제공합니다. 전체 CRUD는 비공개 processflow API가 필요해 의도적으로 표면화하지 않습니다.
+
+### `list_flow_designers`
+이름·스코프·상태로 플로우/서브플로우를 검색.
+
+주요 파라미터:
+- `limit`(기본 20, 최대 100), `offset`
+- `include_inactive`(기본 `false`, active만)
+- `status`, `scope`, `name` 필터
+
+### `get_flow_designer_detail`
+단일 플로우 메타데이터 조회. 무거운 섹션은 필요할 때만 켭니다.
+
+주요 파라미터:
+- `flow_id`(필수, `sys_hub_flow.sys_id`)
+- `include_structure` — 액션·로직·서브플로우 중첩 트리
+- `include_triggers` — 트리거 바인딩
+- `include_data_pills` — data pill 트레이스
+
+### `get_flow_designer_executions`
+런타임 동작 점검. 이력 조회(필터) 또는 단일 실행 상세 조회.
+
+주요 파라미터:
+- `context_id` — `sys_flow_context.sys_id`로 단일 실행 상세 (지정 시 다른 필터 무시)
+- `flow_name`, `state`, `started_after`, `limit`
+
+### `compare_flows`
+두 플로우를 `sys_id` 또는 `name_a`/`name_b`로 비교. 구조 diff, 서브플로우 바인딩, 트리거 차이를 리포트. `get_flow_designer_detail`을 두 번 호출하는 것보다 권장.
+
+### `update_flow_designer`
+이름·설명·active 토글만 가능한 좁은 쓰기 도구. 스텝/트리거/퍼블리시 변경은 Workflow Studio UI 또는 processflow API가 필요합니다.
+
+주요 파라미터:
+- `flow_id`(필수)
+- `name`, `description`, `active`(조합 자유, null은 무시)
+
+### Flow Designer 테이블 맵
+
+| Workflow Studio 탭 | 테이블 |
+| --- | --- |
+| Flows / SubFlows | `sys_hub_flow` |
+| Actions | `sys_hub_action_type_definition` |
+| Playbooks | `sys_pd_process_definition` |
+| Decision Tables | `sys_decision` |
+
+### 읽기 위주 정책
+
+플로우 변경은 이 코드베이스에서 가장 위험한 작업입니다 — 퍼블리시된 플로우가 깨지면 인스턴스 전반의 자동화가 멈출 수 있습니다. 기본적으로 읽기 도구만 쓰고, 쓰기는 사용자 명시 확인을 게이트로 두며, 변경 전 `compare_flows` + `get_flow_designer_executions`로 동작을 검증하세요.
 
 ## 주요 액티비티 유형
 
