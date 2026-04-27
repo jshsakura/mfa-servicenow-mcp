@@ -7,7 +7,7 @@ This module provides the main implementation of the ServiceNow MCP server.
 import logging
 import os
 from functools import lru_cache
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import mcp.types as types
 import yaml
@@ -77,9 +77,57 @@ CONFIRM_VALUE = "approve"
 _TOOL_SCHEMA_CACHE: Dict[tuple[type[Any], str], Dict[str, Any]] = {}
 
 
+def _parse_package_entry(entry: Any) -> tuple[str, Optional[frozenset[str]]] | None:
+    """Parse one tool_packages.yaml list element.
+
+    Accepts ``"tool_name"`` (no restriction) or
+    ``{"tool_name": {"actions": [...]}}`` (action allowlist). Returns
+    ``None`` for malformed entries.
+    """
+    if isinstance(entry, str):
+        return entry, None
+    if isinstance(entry, dict) and len(entry) == 1:
+        tool_name, restriction = next(iter(entry.items()))
+        if not isinstance(tool_name, str) or not isinstance(restriction, dict):
+            return None
+        actions = restriction.get("actions")
+        if actions is None:
+            return tool_name, None
+        if not isinstance(actions, list) or not all(isinstance(a, str) for a in actions):
+            return None
+        return tool_name, frozenset(actions) if actions else None
+    return None
+
+
+def _flatten_package_entries(
+    entries: List[Any],
+) -> tuple[List[str], Dict[str, Optional[frozenset[str]]]]:
+    """Split raw YAML entries into a name list + action map. Last entry wins
+    on duplicates (rare; YAML is hand-edited)."""
+    names: List[str] = []
+    actions: Dict[str, Optional[frozenset[str]]] = {}
+    for entry in entries:
+        parsed = _parse_package_entry(entry)
+        if parsed is None:
+            logger.warning("Skipping malformed package entry: %r", entry)
+            continue
+        tool_name, allowlist = parsed
+        if tool_name not in actions:
+            names.append(tool_name)
+        actions[tool_name] = allowlist
+    return names, actions
+
+
 @lru_cache(maxsize=1)
-def _load_packaged_package_definitions() -> Dict[str, List[str]]:
-    """Load packaged tool definitions once for installed/default usage."""
+def _load_packaged_package_definitions() -> Dict[str, List[Any]]:
+    """Load packaged tool definitions once for installed/default usage.
+
+    Returns the raw YAML form (mix of strings and single-key dicts) per
+    package. Flattening to a name list + action map happens later in
+    ``_load_yaml_config`` / instance state, so callers always see the same
+    raw shape regardless of whether the YAML was loaded via importlib or
+    from disk.
+    """
     from importlib.resources import files
 
     pkg_file = files("servicenow_mcp.config").joinpath("tool_packages.yaml")
@@ -87,7 +135,8 @@ def _load_packaged_package_definitions() -> Dict[str, List[str]]:
     if not isinstance(loaded_config, dict):
         raise ValueError(f"Expected dict package config, got {type(loaded_config)}")
     result = {str(k).lower(): v for k, v in loaded_config.items()}
-    # Resolve _extends inheritance
+    # Resolve _extends inheritance — concatenate raw entry lists; flattening
+    # happens later so dict-form entries (action allowlists) survive intact.
     for pkg_name, pkg_def in list(result.items()):
         if isinstance(pkg_def, dict) and "_extends" in pkg_def:
             base = list(result.get(pkg_def["_extends"], []))
@@ -213,6 +262,27 @@ def _get_schema_detail() -> str:
     return os.getenv(_SCHEMA_DETAIL_ENV, _SCHEMA_DETAIL_COMPACT).strip().lower()
 
 
+def _narrow_action_enum(schema: Dict[str, Any], allowed: frozenset[str]) -> Dict[str, Any]:
+    """Return a shallow copy of ``schema`` with the ``action`` enum reduced
+    to ``allowed``. Returns the original ref when narrowing is a no-op."""
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return schema
+    action_schema = properties.get("action")
+    if not isinstance(action_schema, dict):
+        return schema
+    existing = action_schema.get("enum")
+    if not isinstance(existing, list):
+        return schema
+    narrowed = [v for v in existing if v in allowed]
+    if narrowed == existing:
+        return schema
+    return {
+        **schema,
+        "properties": {**properties, "action": {**action_schema, "enum": narrowed}},
+    }
+
+
 def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
     """Cache compacted Pydantic schema for LLM-optimal context usage.
 
@@ -324,6 +394,12 @@ class ServiceNowMCP:
         self.name = "ServiceNow"
 
         self.package_definitions: Dict[str, List[str]] = {}
+        # Per-package per-tool action allowlists. Populated when YAML uses the
+        # dict form ({tool: {actions: [...]}}). None or missing entry = no
+        # restriction.
+        self.package_action_maps: Dict[str, Dict[str, Optional[frozenset[str]]]] = {}
+        # Active (post-merge) allowlists for the currently selected package(s).
+        self._active_action_allowlists: Dict[str, Optional[frozenset[str]]] = {}
         self.enabled_tool_names: List[str] = []
         self.current_package_name: str = "none"
         self._tool_list_cache: List[types.Tool] | None = None
@@ -398,14 +474,19 @@ class ServiceNowMCP:
         if config_path:
             logger.info(f"Loading tool package config from env: {config_path}")
             self._load_yaml_config(config_path)
+            self._finalize_package_definitions()
             return
 
         # Priority 2: importlib.resources (works reliably in pip-installed packages)
         try:
-            self.package_definitions = _load_packaged_package_definitions()
+            raw = _load_packaged_package_definitions()
+            # raw values may include dict-form entries; copy so we don't mutate
+            # the lru_cache result during finalization.
+            self.package_definitions = {k: list(v) for k, v in raw.items()}
             logger.info(
                 f"Successfully loaded {len(self.package_definitions)} package definitions via importlib.resources"
             )
+            self._finalize_package_definitions()
             return
         except Exception:
             logger.debug("importlib.resources lookup failed, falling back to file paths")
@@ -419,6 +500,22 @@ class ServiceNowMCP:
         )
         fallback = repo_path if os.path.exists(repo_path) else pkg_path
         self._load_yaml_config(fallback)
+        self._finalize_package_definitions()
+
+    def _finalize_package_definitions(self):
+        """Flatten raw YAML entries into name lists + per-tool action maps."""
+        flattened: Dict[str, List[str]] = {}
+        action_maps: Dict[str, Dict[str, Optional[frozenset[str]]]] = {}
+        for pkg_name, raw_entries in self.package_definitions.items():
+            if not isinstance(raw_entries, list):
+                flattened[pkg_name] = []
+                action_maps[pkg_name] = {}
+                continue
+            names, actions = _flatten_package_entries(raw_entries)
+            flattened[pkg_name] = names
+            action_maps[pkg_name] = actions
+        self.package_definitions = flattened
+        self.package_action_maps = action_maps
 
     def _load_yaml_config(self, config_path: str):
         """Load and parse a YAML tool-package config file."""
@@ -479,11 +576,13 @@ class ServiceNowMCP:
             if name in self.package_definitions:
                 self.current_package_name = name
                 self.enabled_tool_names = self.package_definitions[name]
+                self._active_action_allowlists = dict(self.package_action_maps.get(name, {}))
                 logger.info(f"Loaded package '{name}' with {len(self.enabled_tool_names)} tools.")
                 return
             # Single unknown package → same fallback behavior as before
             self.current_package_name = "none"
             self.enabled_tool_names = []
+            self._active_action_allowlists = {}
             available = list(self.package_definitions.keys())
             logger.warning(
                 f"Requested package '{name}' not found. Available: {available}. "
@@ -495,6 +594,7 @@ class ServiceNowMCP:
         merged: List[str] = []
         seen: set = set()
         resolved_names: List[str] = []
+        merged_allowlists: Dict[str, Optional[frozenset[str]]] = {}
         for name in requested:
             if name not in self.package_definitions:
                 logger.warning(f"Skipping unknown package '{name}' in multi-package config")
@@ -504,10 +604,24 @@ class ServiceNowMCP:
                 if t not in seen:
                     merged.append(t)
                     seen.add(t)
+            # Action-allowlist merge: least-restrictive wins. If any package
+            # opens an action up (None or larger set), the merged profile must
+            # match — combining packages should never make a profile stricter
+            # than any of its parts.
+            for tool, allowlist in self.package_action_maps.get(name, {}).items():
+                if tool not in merged_allowlists:
+                    merged_allowlists[tool] = allowlist
+                    continue
+                existing = merged_allowlists[tool]
+                if existing is None or allowlist is None:
+                    merged_allowlists[tool] = None
+                else:
+                    merged_allowlists[tool] = existing | allowlist
 
         if not resolved_names:
             self.current_package_name = "none"
             self.enabled_tool_names = []
+            self._active_action_allowlists = {}
             logger.warning(
                 f"No valid packages in '{raw}'. Loading 'none'. "
                 f"Available: {list(self.package_definitions.keys())}"
@@ -516,6 +630,7 @@ class ServiceNowMCP:
 
         self.current_package_name = "+".join(resolved_names)
         self.enabled_tool_names = merged
+        self._active_action_allowlists = merged_allowlists
         logger.info(
             f"Loaded {len(resolved_names)} packages ({self.current_package_name}) "
             f"with {len(self.enabled_tool_names)} merged tools."
@@ -639,6 +754,9 @@ class ServiceNowMCP:
                 ) = definition
                 try:
                     schema = _get_tool_schema(params_model)
+                    allowed = self._active_action_allowlists.get(tool_name)
+                    if allowed is not None:
+                        schema = _narrow_action_enum(schema, allowed)
                     if self._tool_requires_confirmation(tool_name):
                         schema = self._inject_confirmation_schema(schema)
                     tool_list.append(
@@ -710,6 +828,20 @@ class ServiceNowMCP:
             )
         if name not in self.tool_definitions:
             raise ValueError(f"Unknown tool: {name}")
+
+        # Per-package action allowlist: defense-in-depth against an LLM
+        # invoking an action the schema didn't advertise. Runs before the
+        # confirm gate so out-of-allowlist calls fail cleanly even if
+        # confirm='approve' was passed.
+        allowed_actions = self._active_action_allowlists.get(name)
+        if allowed_actions is not None:
+            action_val = arguments.get("action")
+            if action_val not in allowed_actions:
+                raise ValueError(
+                    f"Action '{action_val}' is not available for '{name}' "
+                    f"in package '{self.current_package_name}'. "
+                    f"Allowed: {sorted(allowed_actions)}."
+                )
 
         # Safety check for mutating actions: require confirmation
         requires_confirmation = self._is_blocked_mutating_tool(name) or (

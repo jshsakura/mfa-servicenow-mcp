@@ -23,16 +23,24 @@ core:
   - sn_discover
   - sn_nl
   - sn_resolve_url
-  - manage_catalog
-  - manage_workflow
+  - manage_catalog:
+      actions: [list_items, get_item, list_categories, list_item_variables]
+  - manage_workflow:
+      actions: [list, get, list_versions, get_activities]
   - list_flow_designers
   - get_portal
   - get_page
   - get_logs
   - search_server_code
-  - manage_script_include
+  - manage_script_include:
+      actions: [list, get]
 
 # --- Safe Mode: Read-only across all domains ---
+# manage_* tools listed here use an explicit `actions` allowlist so write
+# actions are hidden from the LLM in this profile. Higher profiles re-list
+# them as plain strings to expose the full action surface.
+# Tools that aren't here (manage_incident / manage_change / etc.) stay out
+# of standard entirely — read access for those domains uses generic sn_query.
 standard:
   # Core
   - sn_health
@@ -43,10 +51,11 @@ standard:
   - sn_nl
   - sn_resolve_url
   # Catalog (Read)
-  - manage_catalog
-  # Change Management (Read)
+  - manage_catalog:
+      actions: [list_items, get_item, list_categories, list_item_variables]
   # Workflow (Read)
-  - manage_workflow
+  - manage_workflow:
+      actions: [list, get, list_versions, get_activities]
   # Flow Designer (Read)
   - list_flow_designers
   - get_flow_designer_detail
@@ -68,7 +77,8 @@ standard:
   - resolve_widget_chain
   - resolve_page_dependencies
   # Script Include (Read)
-  - manage_script_include
+  - manage_script_include:
+      actions: [list, get]
   # Developer Productivity (Read)
   - get_developer_changes
   - audit_pending_changes
