@@ -327,6 +327,8 @@ def manage_incident(
             **_project(params, _INCIDENT_CREATE_FIELDS),
         )
     if params.action == "update":
+        # ManageIncidentParams validator guarantees these are present for this action.
+        assert params.incident_id is not None
         return incident_service.update(
             config,
             auth_manager,
@@ -335,6 +337,8 @@ def manage_incident(
             **_project(params, _INCIDENT_UPDATE_FIELDS),
         )
     if params.action == "comment":
+        assert params.incident_id is not None
+        assert params.comment is not None
         return incident_service.add_comment(
             config,
             auth_manager,
@@ -343,6 +347,9 @@ def manage_incident(
             is_work_note=params.is_work_note,
         )
     # resolve
+    assert params.incident_id is not None
+    assert params.resolution_code is not None
+    assert params.resolution_notes is not None
     return incident_service.resolve(
         config,
         auth_manager,

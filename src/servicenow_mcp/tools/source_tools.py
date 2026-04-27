@@ -2785,6 +2785,7 @@ def download_app_sources(
                 include_linked_script_includes=True,
             )
             widget_summary = _dps(config, auth_manager, ws_params)
+            assert widget_summary is not None  # _dps returns dict, narrows for mypy
             ws = widget_summary.get("summary") or {}
             if not widget_summary.get("success"):
                 # Surface why the sub-call did not succeed instead of silently dropping
