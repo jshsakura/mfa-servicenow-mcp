@@ -144,8 +144,7 @@ def _load_packaged_package_definitions() -> Dict[str, List[Any]]:
     return result
 
 
-_MAX_DEFAULT_STR = 60  # Truncate long string defaults
-_MAX_PARAM_DESC = 80  # Truncate long parameter descriptions
+_MAX_DEFAULT_STR = 60  # Long string defaults are *dropped* (never truncated)
 _INCLUDE_SKILL_HINTS_ENV = "MCP_INCLUDE_SKILL_HINTS"
 
 # Schema verbosity: minimal (no descriptions), compact (default), full (all details).
@@ -218,10 +217,12 @@ def _compact_schema(schema: Any, *, _top_level: bool = False) -> Any:
         # the key signals "omit to use server-side default".
         if k == "default" and isinstance(v, str) and len(v) > _MAX_DEFAULT_STR:
             continue
-        # Truncate verbose param descriptions
-        if k == "description" and isinstance(v, str) and len(v) > _MAX_PARAM_DESC:
-            result[k] = v[:_MAX_PARAM_DESC].rstrip() + "…"
-            continue
+        # Param descriptions are forwarded verbatim. Truncating them silently
+        # dropped routing hints (e.g. "use portal tracing/search tools when ...")
+        # and changed semantic meaning (e.g. dropped "or sys_id of the parent
+        # table" from a parent-id description), causing the LLM to mis-route
+        # tool calls. CLAUDE.md asks authors to keep descriptions ≤80 chars,
+        # but enforce that at author time, not by silent truncation here.
         # Recurse into properties with per-field filler stripping
         if k == "properties" and isinstance(v, dict):
             result[k] = {
