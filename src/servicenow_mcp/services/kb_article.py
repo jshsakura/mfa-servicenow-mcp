@@ -13,7 +13,7 @@ creating an import cycle when wrappers route through services.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -110,7 +110,7 @@ def update(
     category: Optional[str] = None,
     keywords: Optional[str] = None,
     dry_run: bool = False,
-) -> ArticleResponse:
+) -> Union[ArticleResponse, Dict[str, Any]]:
     """Update an existing knowledge article. Supports a dry-run preview."""
     api_url = f"{config.api_url}/table/kb_knowledge/{article_id}"
 

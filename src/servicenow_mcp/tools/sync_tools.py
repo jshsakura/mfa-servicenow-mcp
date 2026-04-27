@@ -266,10 +266,11 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         table_dir = grandparent
         filename = path.name
         file_field_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
-        field_name = file_field_map.get(filename)
-        if not field_name:
+        _field_name_opt = file_field_map.get(filename)
+        if not _field_name_opt:
             supported = ", ".join(k for k in sorted(file_field_map) if not k.startswith("."))
             raise ValueError(f"Unknown file '{filename}' for {table_name}. Supported: {supported}")
+        field_name = _field_name_opt
         map_data = _read_map_json(table_dir)
         sys_id = map_data.get(folder_name)
         if not sys_id:
