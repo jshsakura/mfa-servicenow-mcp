@@ -1895,7 +1895,7 @@ class TestDownloadPortalSourcesEdgeCases:
             mock_config,
             mock_auth_manager,
             DownloadPortalSourcesParams(
-                output_dir=str(tmp_path),
+                output_dir=str(tmp_path / "x_app"),
                 scope="x_app",
                 include_linked_angular_providers=True,
             ),
@@ -1926,7 +1926,7 @@ class TestDownloadPortalSourcesEdgeCases:
             mock_config,
             mock_auth_manager,
             DownloadPortalSourcesParams(
-                output_dir=str(tmp_path),
+                output_dir=str(tmp_path / "x_app"),
                 scope="x_app",
                 include_linked_script_includes=True,
             ),

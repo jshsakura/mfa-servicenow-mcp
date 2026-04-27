@@ -162,7 +162,7 @@ class RoutePortalComponentEditParams(BaseModel):
 class DownloadPortalSourcesParams(BaseModel):
     output_dir: str | None = Field(
         default=None,
-        description="Output directory. Defaults to ./temp/{instance}/ in current working directory.",
+        description="Final scope root path. Default: ./temp/{instance}/{scope}.",
     )
     scope: str | None = Field(
         default=None,
@@ -2964,14 +2964,19 @@ def download_portal_sources(
     auth_manager: AuthManager,
     params: DownloadPortalSourcesParams,
 ) -> Dict[str, Any]:
+    scope_name = _safe_name(params.scope or "global")
     if params.output_dir:
-        root = Path(params.output_dir).expanduser().resolve()
+        # output_dir is the final scope root — no auto-appending of instance/scope
+        # to avoid duplicated nesting like temp/inst/x_app/inst/x_app.
+        scope_root = Path(params.output_dir).expanduser().resolve()
+        root = scope_root.parent
     else:
-        # Default: temp/ folder in current working directory, scoped by instance.
-        # Keeps analysis workspace separate from project source and SN-Utils folders.
+        # Default: ./temp/{instance}/{scope}/.
         instance_name = _get_instance_name(config)
         root = Path.cwd() / "temp" / instance_name
+        scope_root = root / scope_name
     root.mkdir(parents=True, exist_ok=True)
+    scope_root.mkdir(parents=True, exist_ok=True)
     max_widgets = _clamp_download_widget_limit(params.max_widgets)
     targeted_widget_export = bool(params.widget_ids)
     include_linked_script_includes = (
@@ -2991,8 +2996,6 @@ def download_portal_sources(
         include_linked_angular_providers=include_linked_angular_providers,
         widget_ids=params.widget_ids,
     )
-    scope_name = _safe_name(params.scope or "global")
-    scope_root = root / scope_name
     instance_name = _get_instance_name(config)
     g_ck = str(getattr(auth_manager, "_browser_session_token", "") or "")
 
