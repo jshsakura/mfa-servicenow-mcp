@@ -5,7 +5,7 @@ This module provides tools for managing knowledge bases, categories, and article
 """
 
 import logging
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -802,7 +802,7 @@ def manage_kb_article(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: ManageKbArticleParams,
-) -> ArticleResponse:
+) -> Union[ArticleResponse, Dict[str, Any]]:
     a = params.action
     if a == "list_kbs":
         return list_knowledge_bases(

@@ -546,7 +546,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
 class SearchServerCodeParams(BaseModel):
     query: str = Field(..., description="Text to search in names, identifiers, and source fields")
     source_type: SourceType = Field(
-        default=SOURCE_TYPE_ALL,
+        default="all",
         description="Source type to search; 'all' covers every supported type.",
     )
     limit: int = Field(

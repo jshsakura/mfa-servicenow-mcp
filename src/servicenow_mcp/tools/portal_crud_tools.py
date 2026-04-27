@@ -676,6 +676,7 @@ def manage_portal_component(
         return _comp_svc.create_ui_page(config, auth_manager, **kw)
     # update_code
     # ManagePortalCrudParams validator guarantees both are present for update_code.
+    assert params.table is not None
     assert params.sys_id is not None
     assert params.update_data is not None
     return update_portal_component(
