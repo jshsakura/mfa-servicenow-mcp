@@ -5,6 +5,15 @@ import yaml
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "tool_packages.yaml"
 
 
+def _entry_name(entry):
+    """Extract tool name from either plain string or {name: {actions: [...]}}."""
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict) and len(entry) == 1:
+        return next(iter(entry.keys()))
+    raise ValueError(f"Unsupported package entry: {entry!r}")
+
+
 def _load_packages():
     """Load tool_packages.yaml and resolve _extends inheritance."""
     raw = yaml.safe_load(CONFIG_PATH.read_text())
@@ -15,10 +24,11 @@ def _load_packages():
             return resolved[name]
         val = raw.get(name, [])
         if isinstance(val, list):
-            resolved[name] = set(val)
+            resolved[name] = {_entry_name(e) for e in val}
             return resolved[name]
         base = resolve(val["_extends"]) if "_extends" in val else set()
-        resolved[name] = base | set(val.get("_tools", []))
+        extras = {_entry_name(e) for e in val.get("_tools", [])}
+        resolved[name] = base | extras
         return resolved[name]
 
     for key in raw:
