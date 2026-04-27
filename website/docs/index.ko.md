@@ -211,7 +211,7 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
-MCP_TOOL_PACKAGE = "full"</code></pre>
+MCP_TOOL_PACKAGE = "standard"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="mcp-opencode">

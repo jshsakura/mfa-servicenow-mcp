@@ -78,7 +78,7 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
-- Tool packages for core, standard, service desk, portal developers, platform developers, and the broad `full` developer surface
+- Tool packages for core, standard, service desk, portal developers, and platform developers — `full` available for advanced users (see [warning](docs/TOOL_PACKAGES.md))
 - Developer productivity tools: activity tracking, uncommitted changes, dependency mapping, daily summary
 - Full coverage of core ServiceNow artifact tables (see [Supported Tables](#supported-servicenow-tables))
 - CI/CD with auto-tagging, PyPI publishing, and Docker multi-platform builds
@@ -251,23 +251,22 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 
 ## Tool Packages
 
-Set `MCP_TOOL_PACKAGE` to choose a specific tool set. Default: `standard`
+`MCP_TOOL_PACKAGE` controls which tools the server exposes. **Default: `standard`** — no config needed for most users.
 
-All packages inherit `standard` read-only tools via `_extends` and add domain-specific writes. The YAML config uses inheritance to avoid duplication — see `config/tool_packages.yaml`.
+> [!WARNING]
+> **`full` is an advanced package for experienced users only.** It exposes all write tools across every domain simultaneously. An AI agent with `full` access can create, update, and delete records without domain constraints. Use the narrowest package that covers your actual work.
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `none` | 0 | Disabled profile for intentionally turning tools off |
-| `core` | 15 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 45 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
+| `standard` | 45 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
 | `service_desk` | 46 | standard + incident and change operational writes |
 | `portal_developer` | 55 | standard + portal, changeset, script include, and local-sync delivery workflows |
 | `platform_developer` | 55 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 66 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
+| `full` | 66 | ⚠️ **Advanced only** — all write tools across all domains. See warning above. |
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
-For the complete tool list by category, see [Tool Inventory](docs/TOOL_INVENTORY.md).
+For the full reference (all packages, inheritance details, config syntax): [Tool Packages Advanced Guide](docs/TOOL_PACKAGES.md).
 
 ---
 
