@@ -1677,7 +1677,7 @@ def _scan_scope_dep_refs(scope_root: Path) -> Dict[str, Set[str]]:
             continue
         try:
             text = src_file.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
+        except OSError:
             continue
 
         for m in SCRIPT_INCLUDE_INSTANCE_RE.finditer(text):
@@ -1734,7 +1734,9 @@ def _collect_downloaded_names(scope_root: Path, table: str, id_field: str) -> Se
             if val:
                 names.add(str(val))
                 names.add(str(val).split(".")[-1])
-        except Exception:
+        except (OSError, json.JSONDecodeError, AttributeError):
+            # OSError: file vanished mid-scan; JSONDecodeError: corrupted metadata
+            # written by a previous interrupted run; AttributeError: data is not a dict.
             pass
     return names
 
@@ -1875,7 +1877,7 @@ def _auto_resolve_deps(
                 if v:
                     names.add(str(v))
                     names.add(str(v).split(".")[-1])
-            except Exception:
+            except (OSError, json.JSONDecodeError, AttributeError):
                 pass
         return names
 
@@ -2585,7 +2587,7 @@ def _scan_tables_from_source_root(source_root: Path) -> Set[str]:
             tables.update(
                 _extract_table_names_from_script(script_text, include_loose_literal_scan=False)
             )
-        except Exception:
+        except (OSError, UnicodeDecodeError):
             pass
     for meta_file in source_root.rglob("_metadata.json"):
         try:
@@ -2594,7 +2596,7 @@ def _scan_tables_from_source_root(source_root: Path) -> Set[str]:
                 val = meta.get(field)
                 if isinstance(val, str) and TABLE_NAME_RE.match(val):
                     tables.add(val)
-        except Exception:
+        except (OSError, json.JSONDecodeError, AttributeError):
             pass
     return tables
 
