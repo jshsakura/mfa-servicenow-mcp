@@ -161,8 +161,7 @@ def build_update_preview(
     diff_fields = list(proposed.keys())
     fetch_fields = ["sys_id", "sys_scope"] + list(identifier_fields or []) + diff_fields
     # dedupe while preserving order
-    seen: set = set()
-    fetch_fields = [f for f in fetch_fields if not (f in seen or seen.add(f))]
+    fetch_fields = list(dict.fromkeys(fetch_fields))
 
     row = _fetch_target(config, auth_manager, table=table, sys_id=sys_id, fields=fetch_fields)
     if row is None:

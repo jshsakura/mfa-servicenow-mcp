@@ -1245,7 +1245,8 @@ def _resolve_servicenow_url(url: str) -> Dict[str, Any]:
     # /sp?id=widget_editor&sys_id=XXX  (Service Portal)
     if path.endswith("/sp") or path.endswith("/sp.do") or path == "/sp":
         page = (qs.get("id") or [""])[0]
-        out["sys_id"] = (qs.get("sys_id") or [None])[0]
+        _sys_id_vals = qs.get("sys_id")
+        out["sys_id"] = _sys_id_vals[0] if _sys_id_vals else None
         out["page"] = page
         out["table"] = "sp_page"
         return _enrich_resolution(out, "portal_page")
@@ -1253,14 +1254,16 @@ def _resolve_servicenow_url(url: str) -> Dict[str, Any]:
     # /esc?id=... (Employee Center)
     if path.endswith("/esc"):
         out["page"] = (qs.get("id") or [""])[0]
-        out["sys_id"] = (qs.get("sys_id") or [None])[0]
+        _sys_id_vals = qs.get("sys_id")
+        out["sys_id"] = _sys_id_vals[0] if _sys_id_vals else None
         out["table"] = "sp_page"
         return _enrich_resolution(out, "esc_page")
 
     # /kb_view.do?sysparm_article=KB0001234
     if "kb_view.do" in path:
         out["table"] = "kb_knowledge"
-        out["article_number"] = (qs.get("sysparm_article") or [None])[0]
+        _article_vals = qs.get("sysparm_article")
+        out["article_number"] = _article_vals[0] if _article_vals else None
         return _enrich_resolution(out, "kb_article")
 
     # /sys_app_studio.do#/foo/bar/<scope>

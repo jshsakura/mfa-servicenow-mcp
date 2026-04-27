@@ -14,7 +14,7 @@ services.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -165,11 +165,12 @@ def update(
     close_notes: Optional[str] = None,
     close_code: Optional[str] = None,
     dry_run: bool = False,
-) -> IncidentResponse:
+) -> Union[IncidentResponse, Dict[str, Any]]:
     """Update an existing incident. Supports a dry-run preview."""
     sys_id, err = resolve_incident_sys_id(config, auth_manager, incident_id)
     if err:
         return err
+    assert sys_id is not None
     api_url = f"{config.api_url}/table/incident/{sys_id}"
 
     data = {}
@@ -281,11 +282,12 @@ def resolve(
     resolution_code: str,
     resolution_notes: str,
     dry_run: bool = False,
-) -> IncidentResponse:
+) -> Union[IncidentResponse, Dict[str, Any]]:
     """Transition an incident to the Resolved state."""
     sys_id, err = resolve_incident_sys_id(config, auth_manager, incident_id)
     if err:
         return err
+    assert sys_id is not None
     api_url = f"{config.api_url}/table/incident/{sys_id}"
 
     data = {

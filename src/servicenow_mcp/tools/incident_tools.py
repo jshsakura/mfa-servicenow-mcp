@@ -5,7 +5,7 @@ This module provides tools for managing incidents in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -306,7 +306,7 @@ def manage_incident(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: ManageIncidentParams,
-) -> IncidentResponse:
+) -> Union[IncidentResponse, Dict[str, Any]]:
     if params.action == "get":
         return incident_service.get(
             config,

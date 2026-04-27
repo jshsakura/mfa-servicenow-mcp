@@ -462,6 +462,8 @@ def manage_story(
 ) -> Dict[str, Any]:
     a = params.action
     if a == "create":
+        assert params.short_description is not None
+        assert params.acceptance_criteria is not None
         return create_story(
             config,
             auth_manager,
@@ -479,6 +481,7 @@ def manage_story(
             ),
         )
     if a == "update":
+        assert params.story_id is not None
         return update_story(
             config,
             auth_manager,
@@ -510,6 +513,8 @@ def manage_story(
             ),
         )
     if a == "create_dependency":
+        assert params.dependent_story is not None
+        assert params.prerequisite_story is not None
         return create_story_dependency(
             config,
             auth_manager,
@@ -519,6 +524,7 @@ def manage_story(
             ),
         )
     if a == "delete_dependency":
+        assert params.dependency_id is not None
         return delete_story_dependency(
             config,
             auth_manager,

@@ -4,7 +4,7 @@ Performance analysis tools for ServiceNow widgets and scripts.
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Literal, Optional, Set, cast
 
 from pydantic import BaseModel, Field
 
@@ -240,7 +240,7 @@ def _analyze_transaction_logs(
             log_type="transaction",
             url_contains=url_filter.split("|")[0],
             min_response_time_ms=min_response_time_ms,
-            timeframe=timeframe,
+            timeframe=cast(Literal["last_hour", "last_24h", "last_7d", "all"], timeframe),
             limit=20,
             max_text_length=500,
         ),

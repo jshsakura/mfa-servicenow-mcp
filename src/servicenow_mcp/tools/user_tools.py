@@ -388,12 +388,16 @@ def manage_group(
             ),
         )
     if a == "add_members":
+        assert params.group_id is not None
+        assert params.members is not None
         return _usr_svc.add_members(
             config,
             auth_manager,
             group_id=params.group_id,
             members=params.members,
         )
+    assert params.group_id is not None
+    assert params.members is not None
     return _usr_svc.remove_members(
         config,
         auth_manager,
