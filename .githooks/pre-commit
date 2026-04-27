@@ -1,6 +1,16 @@
 #!/bin/sh
-# Pre-commit hook: isort + black + ruff
+# Pre-commit hook: fast format/lint gates only.
+#   Slow checks (mypy ~14s, pytest ~60s) run on pre-push so the per-commit
+#   loop stays under 2s. Don't add them here without good reason.
 # Install: git config core.hooksPath .githooks
+
+# Prefer the project venv so we get the same isort/black/ruff versions everyone
+# else runs with; fall back to system python3 for fresh clones.
+if [ -x ".venv/bin/python3" ]; then
+    PY=".venv/bin/python3"
+else
+    PY="python3"
+fi
 
 staged_py=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
 
@@ -9,28 +19,28 @@ if [ -z "$staged_py" ]; then
 fi
 
 echo "pre-commit: checking isort..."
-echo "$staged_py" | xargs python3 -m isort --check-only --quiet 2>/dev/null
+echo "$staged_py" | xargs "$PY" -m isort --check-only --quiet 2>/dev/null
 if [ $? -ne 0 ]; then
     echo ""
     echo "BLOCKED: isort required. Run:"
-    echo "  python3 -m isort \$(git diff --cached --name-only | grep '\\.py$')"
+    echo "  $PY -m isort \$(git diff --cached --name-only | grep '\\.py$')"
     exit 1
 fi
 
 echo "pre-commit: checking black..."
-echo "$staged_py" | xargs python3 -m black --check --quiet 2>/dev/null
+echo "$staged_py" | xargs "$PY" -m black --check --quiet 2>/dev/null
 if [ $? -ne 0 ]; then
     echo ""
     echo "BLOCKED: black formatting required. Run:"
-    echo "  python3 -m black \$(git diff --cached --name-only | grep '\\.py$')"
+    echo "  $PY -m black \$(git diff --cached --name-only | grep '\\.py$')"
     exit 1
 fi
 
 echo "pre-commit: checking ruff..."
-echo "$staged_py" | xargs python3 -m ruff check --quiet 2>/dev/null
+echo "$staged_py" | xargs "$PY" -m ruff check --quiet 2>/dev/null
 if [ $? -ne 0 ]; then
     echo ""
     echo "BLOCKED: ruff errors found. Run:"
-    echo "  python3 -m ruff check \$(git diff --cached --name-only | grep '\\.py$')"
+    echo "  $PY -m ruff check \$(git diff --cached --name-only | grep '\\.py$')"
     exit 1
 fi
