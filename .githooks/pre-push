@@ -1,0 +1,31 @@
+#!/bin/sh
+# Pre-push hook: mypy + full pytest before code leaves the local machine.
+# Per-commit stays fast (isort/black/ruff only). This is where slow checks live.
+
+if [ -x ".venv/bin/python3" ]; then
+    PY=".venv/bin/python3"
+else
+    PY="python3"
+fi
+
+echo "pre-push: checking mypy..."
+mypy_out=$("$PY" -m mypy src/servicenow_mcp/ --ignore-missing-imports --no-error-summary 2>&1)
+mypy_status=$?
+echo "$mypy_out" | grep -v "annotation-unchecked"
+if [ "$mypy_status" -ne 0 ]; then
+    echo ""
+    echo "BLOCKED: mypy type errors. Re-run for details:"
+    echo "  $PY -m mypy src/servicenow_mcp/ --ignore-missing-imports"
+    exit 1
+fi
+
+echo "pre-push: running full pytest..."
+pytest_out=$("$PY" -m pytest tests/ -q --no-header 2>&1)
+pytest_status=$?
+echo "$pytest_out" | tail -5
+if [ "$pytest_status" -ne 0 ]; then
+    echo ""
+    echo "BLOCKED: pytest failed. Investigate failures before pushing."
+    echo "  $PY -m pytest tests/"
+    exit 1
+fi
