@@ -1639,7 +1639,7 @@ def _as_bool(value: Any) -> bool:
 def _as_int(value: Any, default: int = 0) -> int:
     try:
         return int(str(value).strip())
-    except Exception:
+    except (ValueError, TypeError):
         return default
 
 

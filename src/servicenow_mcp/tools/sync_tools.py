@@ -161,7 +161,8 @@ def _read_sync_meta(table_dir: Path) -> Dict[str, Dict[str, str]]:
     try:
         data = json_fast.loads(path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except (OSError, ValueError):
+        # ValueError covers both stdlib json.JSONDecodeError and orjson.JSONDecodeError.
         return {}
 
 
@@ -173,7 +174,7 @@ def _read_map_json(table_dir: Path) -> Dict[str, str]:
     try:
         data = json_fast.loads(path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except (OSError, ValueError):
         return {}
 
 
