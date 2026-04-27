@@ -1912,10 +1912,15 @@ class AuthManager:
         if cookie_names and logger.isEnabledFor(logging.DEBUG):
             logger.debug("ServiceNow request cookies: %s", ",".join(cookie_names))
 
-        # Retry on transient network errors (ConnectionError, Timeout) before
-        # giving up.  This prevents brief network blips from being surfaced as
-        # "MCP disconnected" to the caller.
+        # Retry on transient network errors (ConnectionError, Timeout) and
+        # transient upstream gateway errors (502/503/504) before giving up.
+        # This prevents brief network blips and ServiceNow load-balancer hiccups
+        # from being surfaced as "MCP disconnected" to the caller.
         max_transient_retries = 2
+        # Status codes that are almost always upstream-infrastructure transient.
+        # 500 is excluded because it more often indicates a real server bug
+        # whose body should be returned to the caller for diagnosis.
+        transient_status_codes = {502, 503, 504}
         last_exc: Optional[Exception] = None
         response: Optional[requests.Response] = None
 
@@ -1923,9 +1928,9 @@ class AuthManager:
             try:
                 response = self._http_session.request(method, url, **kwargs)
                 last_exc = None
-                break
             except (requests.ConnectionError, requests.Timeout) as exc:
                 last_exc = exc
+                response = None
                 elapsed_ms = int((time.monotonic() - start) * 1000)
                 if attempt < max_transient_retries:
                     wait = 1.0 * (attempt + 1)  # 1s, 2s backoff
@@ -1941,15 +1946,34 @@ class AuthManager:
                         elapsed_ms,
                     )
                     time.sleep(wait)
-                else:
-                    logger.error(
-                        "Network error persisted after %s attempts: %s method=%s host=%s elapsed_ms=%s",
-                        1 + max_transient_retries,
-                        exc,
-                        method_upper,
-                        request_host,
-                        elapsed_ms,
-                    )
+                    continue
+                logger.error(
+                    "Network error persisted after %s attempts: %s method=%s host=%s elapsed_ms=%s",
+                    1 + max_transient_retries,
+                    exc,
+                    method_upper,
+                    request_host,
+                    elapsed_ms,
+                )
+                break
+
+            if response.status_code in transient_status_codes and attempt < max_transient_retries:
+                wait = 1.0 * (attempt + 1)  # 1s, 2s backoff (matches network-error path)
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                logger.warning(
+                    "Transient upstream %s (attempt %s/%s). Retrying in %.1fs... "
+                    "method=%s host=%s elapsed_ms=%s",
+                    response.status_code,
+                    attempt + 1,
+                    1 + max_transient_retries,
+                    wait,
+                    method_upper,
+                    request_host,
+                    elapsed_ms,
+                )
+                time.sleep(wait)
+                continue
+            break
 
         if response is None:
             # All attempts failed with transient errors — raise the last one.
