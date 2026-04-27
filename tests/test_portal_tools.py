@@ -773,7 +773,7 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
         mock_config,
         mock_auth_manager,
         DownloadPortalSourcesParams(
-            output_dir=str(tmp_path),
+            output_dir=str(tmp_path / "x_bpm"),
             scope="x_bpm",
             include_linked_script_includes=True,
             include_linked_angular_providers=True,
@@ -841,7 +841,7 @@ def test_download_portal_sources_batches_targeted_widget_fetches(
         mock_config,
         mock_auth_manager,
         DownloadPortalSourcesParams(
-            output_dir=str(tmp_path),
+            output_dir=str(tmp_path / "x_bpm"),
             scope="x_bpm",
             widget_ids=["wid-1", "approval_widget"],
         ),
@@ -924,7 +924,7 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
         mock_config,
         mock_auth_manager,
         DownloadPortalSourcesParams(
-            output_dir=str(tmp_path),
+            output_dir=str(tmp_path / "x_bpm"),
             scope="x_bpm",
             widget_ids=["quotation_widget"],
         ),
@@ -971,7 +971,7 @@ def test_download_portal_sources_widget_ids_mode_handles_missing_widget(
         mock_config,
         mock_auth_manager,
         DownloadPortalSourcesParams(
-            output_dir=str(tmp_path), scope="x_bpm", widget_ids=["missing"]
+            output_dir=str(tmp_path / "x_bpm"), scope="x_bpm", widget_ids=["missing"]
         ),
     )
 
@@ -1455,7 +1455,7 @@ def test_download_portal_sources_warns_and_clamps_broad_requests(
         mock_config,
         mock_auth_manager,
         DownloadPortalSourcesParams(
-            output_dir=str(tmp_path),
+            output_dir=str(tmp_path / "x_bpm"),
             scope="x_bpm",
             max_widgets=999,
             include_linked_script_includes=True,

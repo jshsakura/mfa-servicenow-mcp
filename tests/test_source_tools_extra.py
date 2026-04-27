@@ -397,8 +397,10 @@ class TestResolveScopeRoot:
 
     def test_custom_output_dir(self, tmp_path):
         config = _build_config()
-        root, scope_root = _resolve_scope_root(config, "x_app", str(tmp_path))
-        assert "test" in str(root)  # instance name extracted from URL
+        custom = tmp_path / "any" / "shape"
+        root, scope_root = _resolve_scope_root(config, "x_app", str(custom))
+        assert scope_root == custom
+        assert root == custom.parent
 
 
 class TestScanScopeDepRefs:

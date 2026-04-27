@@ -688,7 +688,7 @@ class TestDownloadSyncMeta:
             mock_config,
             mock_auth,
             DownloadPortalSourcesParams(
-                output_dir=str(tmp_path),
+                output_dir=str(tmp_path / "global"),
                 include_linked_script_includes=True,
                 include_linked_angular_providers=True,
             ),

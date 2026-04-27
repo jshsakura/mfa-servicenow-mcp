@@ -1993,14 +1993,20 @@ def _resolve_scope_root(
     scope: str,
     output_dir: Optional[str],
 ) -> tuple[Path, Path]:
-    """Returns (root, scope_root) paths."""
-    instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
-    if output_dir:
-        root = Path(output_dir).expanduser().resolve() / instance_name
-    else:
-        root = Path.cwd() / "temp" / instance_name
+    """Returns (root, scope_root) paths.
+
+    When ``output_dir`` is provided, it is treated as the final scope root —
+    no instance/scope segments are appended. This avoids duplicated nesting
+    like ``temp/inst/x_app/inst/x_app`` when callers pre-build the full path.
+    Default (no ``output_dir``): ``./temp/{instance}/{scope}``.
+    """
     scope_name = _safe_filename(scope)
-    scope_root = root / scope_name
+    if output_dir:
+        scope_root = Path(output_dir).expanduser().resolve()
+    else:
+        instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+        scope_root = Path.cwd() / "temp" / instance_name / scope_name
+    root = scope_root.parent
     scope_root.mkdir(parents=True, exist_ok=True)
     return root, scope_root
 
@@ -2268,7 +2274,10 @@ class _ScopeDownloadParams(BaseModel):
         default=DEFAULT_DOWNLOAD_PAGE_SIZE, description="Records per page (10..100)."
     )
     only_active: bool = Field(default=False, description="Download only active records.")
-    output_dir: Optional[str] = Field(default=None, description="Custom output directory.")
+    output_dir: Optional[str] = Field(
+        default=None,
+        description="Final scope root path. Default: ./temp/{instance}/{scope}.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2732,7 +2741,10 @@ class DownloadAppSourcesParams(BaseModel):
         default=True,
         description="After download, scan sources and fetch missing cross-scope SI/widget/provider/ui_macro deps.",
     )
-    output_dir: Optional[str] = Field(default=None, description="Custom output directory.")
+    output_dir: Optional[str] = Field(
+        default=None,
+        description="Final scope root path. Default: ./temp/{instance}/{scope}.",
+    )
 
 
 @register_tool(
@@ -2758,6 +2770,7 @@ def download_app_sources(
     # --- Portal sources (widgets, providers, CSS via portal_tools) ---
     widget_summary: Optional[Dict[str, Any]] = None
     if params.include_widget_sources:
+        portal_failed = False
         try:
             from servicenow_mcp.tools.portal_tools import DownloadPortalSourcesParams as _DPSParams
             from servicenow_mcp.tools.portal_tools import download_portal_sources as _dps
@@ -2765,40 +2778,78 @@ def download_app_sources(
             ws_params = _DPSParams(
                 scope=params.scope,
                 max_widgets=min(params.max_records_per_type, 1000),
-                output_dir=str(root),
+                output_dir=str(scope_root),
                 include_linked_angular_providers=True,
                 include_linked_script_includes=True,
             )
             widget_summary = _dps(config, auth_manager, ws_params)
-            if widget_summary.get("success"):
-                ws = widget_summary.get("summary", {})
-                all_type_results["widget"] = {"count": ws.get("widgets", 0)}
-                all_type_results["angular_provider"] = {"count": ws.get("angular_providers", 0)}
-                all_files += ws.get("widgets", 0) + ws.get("angular_providers", 0)
+            ws = widget_summary.get("summary") or {}
+            if not widget_summary.get("success"):
+                # Surface why the sub-call did not succeed instead of silently dropping
+                # the widget bucket. Without this the orchestrator used to report 0
+                # widgets with no explanation.
+                portal_failed = True
+                err = (
+                    widget_summary.get("error")
+                    or widget_summary.get("message")
+                    or "download_portal_sources reported success=False"
+                )
+                all_warnings.append(f"widget sources: {err}")
+            else:
+                widget_count = int(ws.get("widgets", 0) or 0)
+                provider_count = int(ws.get("angular_providers", 0) or 0)
+                si_count = int(ws.get("script_includes", 0) or 0)
+                all_type_results["widget"] = {"count": widget_count}
+                all_type_results["angular_provider"] = {"count": provider_count}
+                all_files += widget_count + provider_count
+                # Forward portal's own warnings (clamps, skipped widgets, etc.) so they
+                # are not lost when the orchestrator wraps the result.
+                for w in widget_summary.get("warnings") or []:
+                    all_warnings.append(f"widget sources: {w}")
+                if widget_count == 0:
+                    all_warnings.append(
+                        "widget sources: 0 widgets returned for scope "
+                        f"'{params.scope}' — verify scope name and sys_scope.scope filter "
+                        "(run download_portal_sources directly to cross-check)."
+                    )
+                # Linked SI count flows through the dedicated script_include group below;
+                # surface it here only as an info hint.
+                if si_count:
+                    all_warnings.append(
+                        f"widget sources: fetched {si_count} linked script includes "
+                        "(deduped against scope-wide script_include group)."
+                    )
         except Exception as exc:
+            portal_failed = True
             all_warnings.append(f"widget sources: {exc}")
-            # Fallback: download portal types via SOURCE_CONFIG
-            dl = _download_source_types(
-                config,
-                auth_manager,
-                scope=params.scope,
-                source_types=[
-                    "widget",
-                    "angular_provider",
-                    "sp_header_footer",
-                    "sp_css",
-                    "ng_template",
-                ],
-                scope_root=scope_root,
-                root=root,
-                max_per_type=params.max_records_per_type,
-                page_size=params.page_size,
-                only_active=params.only_active,
-            )
-            all_type_results.update(dl["type_results"])
-            all_manifest_entries.extend(dl["manifest_entries"])
-            all_warnings.extend(dl["warnings"])
-            all_files += dl["total_files"]
+
+        if portal_failed:
+            # Fallback: download portal types via SOURCE_CONFIG so the user still gets
+            # widget/provider source files even when the portal sub-call fails.
+            try:
+                dl = _download_source_types(
+                    config,
+                    auth_manager,
+                    scope=params.scope,
+                    source_types=[
+                        "widget",
+                        "angular_provider",
+                        "sp_header_footer",
+                        "sp_css",
+                        "ng_template",
+                    ],
+                    scope_root=scope_root,
+                    root=root,
+                    max_per_type=params.max_records_per_type,
+                    page_size=params.page_size,
+                    only_active=params.only_active,
+                )
+                all_type_results.update(dl["type_results"])
+                all_manifest_entries.extend(dl["manifest_entries"])
+                all_warnings.extend(dl["warnings"])
+                all_files += dl["total_files"]
+            except Exception as exc:
+                all_warnings.append(f"widget sources fallback failed: {exc}")
 
     # --- Server-side sources (7 groups) ---
     # angular_provider is always fetched here by scope — download_portal_sources
