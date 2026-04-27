@@ -63,6 +63,15 @@ MODULE_TITLES = {
 }
 
 
+def _entry_name(entry) -> str:
+    """Extract tool name from string or {name: {actions: [...]}} entry."""
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict) and len(entry) == 1:
+        return next(iter(entry.keys()))
+    raise ValueError(f"Unsupported package entry: {entry!r}")
+
+
 def _load_packages() -> dict[str, list[str]]:
     raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
@@ -76,14 +85,15 @@ def _load_packages() -> dict[str, list[str]]:
 
         value = raw.get(name, [])
         if isinstance(value, list):
-            resolved[name] = list(value)
+            resolved[name] = [_entry_name(e) for e in value]
             return resolved[name]
 
         base = resolve(value["_extends"]) if "_extends" in value else []
         merged = list(base)
         for tool in value.get("_tools", []):
-            if tool not in merged:
-                merged.append(tool)
+            tool_name = _entry_name(tool)
+            if tool_name not in merged:
+                merged.append(tool_name)
         resolved[name] = merged
         return merged
 
