@@ -541,7 +541,8 @@ def _try_processflow_api(
             return {"_error": "processflow returned non-dict response"}
 
         # ServiceNow standard REST wrapper: {"result": {...}, "session": {...}}
-        outer = raw.get("result") if isinstance(raw.get("result"), dict) else raw
+        result_value = raw.get("result")
+        outer: Dict[str, Any] = result_value if isinstance(result_value, dict) else raw
 
         # Yokohama wraps flow data with error metadata at this level
         err_msg = outer.get("errorMessage")

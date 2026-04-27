@@ -264,6 +264,9 @@ def manage_changeset(
             count_only=params.count_only,
         )
     if params.action == "create":
+        # ManageChangesetParams validator guarantees these are present per action.
+        assert params.name is not None
+        assert params.application is not None
         return _cs_svc.create(
             config,
             auth_manager,
@@ -273,6 +276,7 @@ def manage_changeset(
             developer=params.developer,
         )
     if params.action == "update":
+        assert params.changeset_id is not None
         return _cs_svc.update(
             config,
             auth_manager,
@@ -284,6 +288,7 @@ def manage_changeset(
             dry_run=params.dry_run,
         )
     if params.action == "commit":
+        assert params.changeset_id is not None
         return _cs_svc.commit(
             config,
             auth_manager,
@@ -291,6 +296,7 @@ def manage_changeset(
             commit_message=params.commit_message,
         )
     if params.action == "publish":
+        assert params.changeset_id is not None
         return _cs_svc.publish(
             config,
             auth_manager,
@@ -298,6 +304,9 @@ def manage_changeset(
             publish_notes=params.publish_notes,
         )
     # add_file
+    assert params.changeset_id is not None
+    assert params.file_path is not None
+    assert params.file_content is not None
     return _cs_svc.add_file(
         config,
         auth_manager,

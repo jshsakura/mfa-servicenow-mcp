@@ -1088,11 +1088,16 @@ def manage_workflow(
     auth_manager: AuthManager,
     params: ManageWorkflowParams,
 ) -> Dict[str, Any]:
+    # All sub-functions share signature (config, auth_manager, params: dict).
+    # The dispatcher's job is to pick the action, project ManageWorkflowParams
+    # to the relevant dict subset, and forward. Per-action required fields are
+    # already enforced by ManageWorkflowParams' model_validator at construction,
+    # so the asserts below exist purely to narrow Optional types for mypy.
     a = params.action
     if a == "list":
         return list_workflows(
-            auth_manager,
             config,
+            auth_manager,
             {
                 "name": params.name,
                 "active": params.active,
@@ -1104,11 +1109,10 @@ def manage_workflow(
             },
         )
     if a == "get":
-        if not params.workflow_id:
-            return {"error": "workflow_id is required for action='get'"}
+        assert params.workflow_id is not None
         return get_workflow_details(
-            auth_manager,
             config,
+            auth_manager,
             {
                 "workflow_id": params.workflow_id,
                 "include_versions": params.include_versions,
@@ -1117,11 +1121,10 @@ def manage_workflow(
             },
         )
     if a == "list_versions":
-        if not params.workflow_id:
-            return {"error": "workflow_id is required for action='list_versions'"}
+        assert params.workflow_id is not None
         return list_workflow_versions(
-            auth_manager,
             config,
+            auth_manager,
             {
                 "workflow_id": params.workflow_id,
                 "limit": params.limit,
@@ -1130,74 +1133,83 @@ def manage_workflow(
             },
         )
     if a == "get_activities":
-        if not params.workflow_id:
-            return {"error": "workflow_id is required for action='get_activities'"}
+        assert params.workflow_id is not None
         return get_workflow_activities(
-            auth_manager,
             config,
+            auth_manager,
             {"workflow_id": params.workflow_id, "version_id": params.version_id},
         )
     if a == "create":
-        kwargs: Dict[str, Any] = {"name": params.name}
+        assert params.name is not None
+        create_kwargs: Dict[str, Any] = {"name": params.name}
         for f in ("description", "table", "active", "attributes"):
             v = getattr(params, f)
             if v is not None:
-                kwargs[f] = v
-        return create_workflow(config, auth_manager, CreateWorkflowParams(**kwargs))
+                create_kwargs[f] = v
+        return create_workflow(config, auth_manager, create_kwargs)
     if a == "update":
-        kwargs = {"workflow_id": params.workflow_id, "dry_run": params.dry_run}
+        assert params.workflow_id is not None
+        update_kwargs: Dict[str, Any] = {
+            "workflow_id": params.workflow_id,
+            "dry_run": params.dry_run,
+        }
         for f in _WORKFLOW_UPDATE_FIELDS:
             v = getattr(params, f)
             if v is not None:
-                kwargs[f] = v
-        return update_workflow(config, auth_manager, UpdateWorkflowParams(**kwargs))
+                update_kwargs[f] = v
+        return update_workflow(config, auth_manager, update_kwargs)
     if a == "activate":
-        return activate_workflow(
-            config, auth_manager, ActivateWorkflowParams(workflow_id=params.workflow_id)
-        )
+        assert params.workflow_id is not None
+        return activate_workflow(config, auth_manager, {"workflow_id": params.workflow_id})
     if a == "deactivate":
-        return deactivate_workflow(
-            config, auth_manager, DeactivateWorkflowParams(workflow_id=params.workflow_id)
-        )
+        assert params.workflow_id is not None
+        return deactivate_workflow(config, auth_manager, {"workflow_id": params.workflow_id})
     if a == "delete":
+        assert params.workflow_id is not None
         return delete_workflow(
             config,
             auth_manager,
-            DeleteWorkflowParams(workflow_id=params.workflow_id, dry_run=params.dry_run),
+            {"workflow_id": params.workflow_id, "dry_run": params.dry_run},
         )
     if a == "add_activity":
-        kwargs = {
+        assert params.workflow_version_id is not None
+        assert params.activity_name is not None
+        assert params.activity_type is not None
+        add_kwargs: Dict[str, Any] = {
             "workflow_version_id": params.workflow_version_id,
             "name": params.activity_name,
             "activity_type": params.activity_type,
         }
         if params.activity_description is not None:
-            kwargs["description"] = params.activity_description
+            add_kwargs["description"] = params.activity_description
         if params.attributes is not None:
-            kwargs["attributes"] = params.attributes
-        return add_workflow_activity(config, auth_manager, AddWorkflowActivityParams(**kwargs))
+            add_kwargs["attributes"] = params.attributes
+        return add_workflow_activity(config, auth_manager, add_kwargs)
     if a == "update_activity":
-        kwargs = {"activity_id": params.activity_id, "dry_run": params.dry_run}
+        assert params.activity_id is not None
+        upd_act_kwargs: Dict[str, Any] = {
+            "activity_id": params.activity_id,
+            "dry_run": params.dry_run,
+        }
         if params.activity_name is not None:
-            kwargs["name"] = params.activity_name
+            upd_act_kwargs["name"] = params.activity_name
         if params.activity_description is not None:
-            kwargs["description"] = params.activity_description
+            upd_act_kwargs["description"] = params.activity_description
         if params.attributes is not None:
-            kwargs["attributes"] = params.attributes
-        return update_workflow_activity(
-            config, auth_manager, UpdateWorkflowActivityParams(**kwargs)
-        )
+            upd_act_kwargs["attributes"] = params.attributes
+        return update_workflow_activity(config, auth_manager, upd_act_kwargs)
     if a == "delete_activity":
+        assert params.activity_id is not None
         return delete_workflow_activity(
             config,
             auth_manager,
-            DeleteWorkflowActivityParams(activity_id=params.activity_id, dry_run=params.dry_run),
+            {"activity_id": params.activity_id, "dry_run": params.dry_run},
         )
     # reorder_activities
+    assert params.workflow_id is not None
+    assert params.activity_ids is not None
     return reorder_workflow_activities(
         config,
         auth_manager,
-        ReorderWorkflowActivitiesParams(
-            workflow_id=params.workflow_id, activity_ids=params.activity_ids
-        ),
+        {"workflow_id": params.workflow_id, "activity_ids": params.activity_ids},
     )
