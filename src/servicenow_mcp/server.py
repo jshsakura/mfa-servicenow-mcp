@@ -196,7 +196,7 @@ def _compact_schema(schema: Any, *, _top_level: bool = False) -> Any:
             merged.update(non_null[0])
             return _compact_schema(merged, _top_level=_top_level)
 
-    result = {}
+    result: Dict[str, Any] = {}
     for k, v in schema.items():
         if k == "title":
             continue

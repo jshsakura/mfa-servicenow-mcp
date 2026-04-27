@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services import script_include as _si_svc
+from servicenow_mcp.services.script_include import ScriptIncludeResponse
 from servicenow_mcp.tools.sn_api import sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -233,7 +234,7 @@ class ManageScriptIncludeParams(BaseModel):
     offset: int = Field(default=0, description="Pagination offset (list mode)")
     query: Optional[str] = Field(default=None, description="Name search (list mode)")
     client_callable: Optional[bool] = Field(
-        default=None, description="Filter by client_callable (list mode)"
+        default=None, description="Filter by client_callable (list/create/update)"
     )
     count_only: bool = Field(default=False, description="Return count only (list mode)")
     name: Optional[str] = Field(default=None, description="SI name (create/execute)")
@@ -242,7 +243,6 @@ class ManageScriptIncludeParams(BaseModel):
     script: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
     api_name: Optional[str] = Field(default=None)
-    client_callable: Optional[bool] = Field(default=None)
     active: Optional[bool] = Field(default=None)
     access: Optional[str] = Field(default=None)
 
@@ -307,7 +307,9 @@ def manage_script_include(
             return {"success": False, "message": "script_include_id is required for action='get'"}
         return _si_svc.get_si(config, auth_manager, script_include_id=params.script_include_id)
     if params.action == "create":
-        return _si_svc.create(
+        assert params.name is not None
+        assert params.script is not None
+        _create_result = _si_svc.create(
             config,
             auth_manager,
             name=params.name,
@@ -318,6 +320,11 @@ def manage_script_include(
             active=params.active if params.active is not None else True,
             access=params.access if params.access is not None else "package_private",
         )
+        return (
+            _create_result.model_dump()
+            if isinstance(_create_result, ScriptIncludeResponse)
+            else _create_result
+        )
     if params.action == "update":
         kwargs: Dict[str, Any] = {
             "script_include_id": params.script_include_id,
@@ -327,14 +334,24 @@ def manage_script_include(
             v = getattr(params, f)
             if v is not None:
                 kwargs[f] = v
-        return _si_svc.update(config, auth_manager, **kwargs)
+        update_result = _si_svc.update(config, auth_manager, **kwargs)
+        if isinstance(update_result, ScriptIncludeResponse):
+            return update_result.model_dump()
+        return update_result
     if params.action == "delete":
-        return _si_svc.delete(
+        assert params.script_include_id is not None
+        _delete_result = _si_svc.delete(
             config,
             auth_manager,
             script_include_id=params.script_include_id,
         )
+        return (
+            _delete_result.model_dump()
+            if isinstance(_delete_result, ScriptIncludeResponse)
+            else _delete_result
+        )
     # execute
+    assert params.name is not None
     return _si_svc.execute(
         config,
         auth_manager,
