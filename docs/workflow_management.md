@@ -1,6 +1,11 @@
 # Workflow Management in ServiceNow MCP
 
-This document provides detailed information about the workflow management tools available in the ServiceNow MCP server.
+This document covers two workflow engines exposed by the MCP server:
+
+1. **Legacy Workflow** (`wf_workflow`) — driven by the `manage_workflow` action router below.
+2. **Flow Designer** (`sys_hub_flow`) — read-mostly tools (`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`) plus a narrow writer (`update_flow_designer`). Action/SubFlow/Playbook tables are documented in the [Flow Designer table map](#flow-designer-table-map).
+
+If you are not sure which engine a process uses, start with `list_flow_designers` (modern instances) and fall back to `manage_workflow(action="list")` for legacy `wf_workflow` records.
 
 ## Overview
 
@@ -205,6 +210,57 @@ result = manage_workflow({"action": "reorder_activities",
     ]
 })
 ```
+
+## Flow Designer Tools
+
+Flow Designer (`sys_hub_flow`) is the modern successor to legacy workflows. The MCP server exposes it as a read-mostly surface — full CRUD requires the undocumented processflow API and is intentionally not surfaced through Table API tools.
+
+### `list_flow_designers`
+Search flows / subflows by name, scope, or status.
+
+Key params:
+- `limit` (default 20, max 100), `offset`
+- `include_inactive` (default `false` — active-only)
+- `status`, `scope`, `name` filters
+
+### `get_flow_designer_detail`
+Read one flow's metadata; opt into heavier sections only when needed.
+
+Key params:
+- `flow_id` (required, `sys_hub_flow.sys_id`)
+- `include_structure` — actions, logic, subflow nesting tree
+- `include_triggers` — trigger bindings
+- `include_data_pills` — data pill traces
+
+### `get_flow_designer_executions`
+Inspect runtime behavior. Either browse history (filters) or get one execution detail.
+
+Key params:
+- `context_id` — single execution detail by `sys_flow_context.sys_id` (other filters ignored when set)
+- `flow_name`, `state`, `started_after`, `limit`
+
+### `compare_flows`
+Diff two flows by `sys_id` or by `name_a` / `name_b`. Reports structural diff, subflow bindings, and trigger differences. Preferred over calling `get_flow_designer_detail` twice.
+
+### `update_flow_designer`
+Narrow writer — name / description / active toggle only. Anything else (steps, triggers, publish) requires the Workflow Studio UI or the processflow API.
+
+Key params:
+- `flow_id` (required)
+- `name`, `description`, `active` (any combination; nulls ignored)
+
+### Flow Designer Table Map
+
+| Workflow Studio Tab | Table |
+| --- | --- |
+| Flows / SubFlows | `sys_hub_flow` |
+| Actions | `sys_hub_action_type_definition` |
+| Playbooks | `sys_pd_process_definition` |
+| Decision Tables | `sys_decision` |
+
+### Read-only Bias
+
+Flow modifications carry the highest risk in this codebase — corrupting a published flow can break automation across the instance. Default to read tools, gate writes behind explicit user confirmation, and prefer `compare_flows` + `get_flow_designer_executions` to verify behavior before any change.
 
 ## Common Activity Types
 
