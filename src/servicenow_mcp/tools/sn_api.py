@@ -2,6 +2,9 @@
 
 import logging
 import re
+import threading
+import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import parse_qs, parse_qsl, unquote, urlparse
@@ -152,17 +155,13 @@ def _get_page_executor() -> ThreadPoolExecutor:
 # Entries expire after _CACHE_TTL_SECONDS to prevent stale reads.
 # ---------------------------------------------------------------------------
 
-import threading as _threading
-import time as _time
-from collections import OrderedDict as _OrderedDict
-
 _CACHE_TTL_SECONDS = 30
 _CACHE_MAX_ENTRIES = 256
 
 # Cache key is a tuple — cheaper to hash than an equivalent f-string.
 _CacheKey = tuple  # (table, query, fields, limit, offset, display_value, no_count, orderby)
-_query_cache: _OrderedDict[_CacheKey, tuple[float, Any]] = _OrderedDict()
-_cache_lock = _threading.Lock()
+_query_cache: "OrderedDict[_CacheKey, tuple[float, Any]]" = OrderedDict()
+_cache_lock = threading.Lock()
 
 
 def _cache_key(
@@ -185,7 +184,7 @@ def _cache_get(key: _CacheKey) -> Optional[Any]:
         if entry is None:
             return None
         ts, value = entry
-        if _time.monotonic() - ts > _CACHE_TTL_SECONDS:
+        if time.monotonic() - ts > _CACHE_TTL_SECONDS:
             del _query_cache[key]
             return None
         # Move to end so most-recently-used items stay at the tail
@@ -197,13 +196,13 @@ def _cache_put(key: _CacheKey, value: Any) -> None:
     with _cache_lock:
         if key in _query_cache:
             # Update existing entry and move to end
-            _query_cache[key] = (_time.monotonic(), value)
+            _query_cache[key] = (time.monotonic(), value)
             _query_cache.move_to_end(key)
             return
         # Evict oldest (first) entry — O(1) with OrderedDict
         if len(_query_cache) >= _CACHE_MAX_ENTRIES:
             _query_cache.popitem(last=False)
-        _query_cache[key] = (_time.monotonic(), value)
+        _query_cache[key] = (time.monotonic(), value)
 
 
 def invalidate_query_cache(*, table: Optional[str] = None) -> int:

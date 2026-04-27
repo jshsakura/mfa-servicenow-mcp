@@ -160,7 +160,7 @@ def test_cache_ttl_expires_entries():
     # Simulate time advancing past TTL
     import time as _time
 
-    with patch("servicenow_mcp.tools.sn_api._time") as mock_time:
+    with patch("servicenow_mcp.tools.sn_api.time") as mock_time:
         mock_time.monotonic.return_value = _time.monotonic() + _CACHE_TTL_SECONDS + 1
         assert _cache_get("ttl_key") is None  # expired
 

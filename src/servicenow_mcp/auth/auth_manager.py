@@ -46,6 +46,14 @@ def _build_http_session() -> requests.Session:
     # via the Cookie header. Session-level cookie jar would conflict.
     session.cookies.clear()
     session.trust_env = False  # Skip .netrc / env proxy cookies
+    # urllib3 retries are deliberately disabled (connect=0, read=0). Transient
+    # network errors (ConnectionError / Timeout, including ReadTimeout) and
+    # transient upstream 5xx responses (502/503/504) are retried at the
+    # application layer in AuthManager.make_request, which gives us:
+    #   - identical backoff/logging across both exception and 5xx paths,
+    #   - awareness of browser-session re-auth for 401, and
+    #   - the ability to surface intermediate state to the LLM caller.
+    # See make_request's `for attempt in range(1 + max_transient_retries)` loop.
     adapter = HTTPAdapter(
         pool_connections=_SESSION_POOL_SIZE,
         pool_maxsize=_SESSION_POOL_SIZE,

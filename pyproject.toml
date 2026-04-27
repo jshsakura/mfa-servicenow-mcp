@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.9.43"
+version = "1.9.44"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -75,7 +75,10 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "B"]
-ignore = ["E501", "E402"]  # Line too long, module import not at top - pre-existing issues
+# E501 (line too long): black already manages line length — keeping E501 on
+# would just flag long docstrings/tool descriptions black intentionally leaves
+# alone. Strings cannot be wrapped without changing their content.
+ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
