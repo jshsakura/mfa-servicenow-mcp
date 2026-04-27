@@ -957,6 +957,45 @@ class TestMakeRequestBasic:
                 resp = mgr.make_request("GET", "https://test.service-now.com/api", timeout=10)
         assert resp.status_code == 200
 
+    def test_503_retries_then_succeeds(self):
+        mgr = _make_basic_manager()
+        bad = MagicMock(status_code=503, headers={}, url="https://test.service-now.com/api")
+        good = MagicMock(status_code=200, headers={}, url="https://test.service-now.com/api")
+        with patch.object(mgr._http_session, "request", side_effect=[bad, good]):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                resp = mgr.make_request("GET", "https://test.service-now.com/api", timeout=10)
+        assert resp.status_code == 200
+
+    def test_502_retries_then_succeeds(self):
+        mgr = _make_basic_manager()
+        bad = MagicMock(status_code=502, headers={}, url="https://test.service-now.com/api")
+        good = MagicMock(status_code=200, headers={}, url="https://test.service-now.com/api")
+        with patch.object(mgr._http_session, "request", side_effect=[bad, good]):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                resp = mgr.make_request("GET", "https://test.service-now.com/api", timeout=10)
+        assert resp.status_code == 200
+
+    def test_504_persistent_returned_after_retries(self):
+        mgr = _make_basic_manager()
+        bad = MagicMock(status_code=504, headers={}, url="https://test.service-now.com/api")
+        with patch.object(mgr._http_session, "request", return_value=bad) as mock_req:
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                resp = mgr.make_request("GET", "https://test.service-now.com/api", timeout=10)
+        # 1 initial + 2 retries = 3 attempts, then return the last 504 response
+        assert mock_req.call_count == 3
+        assert resp.status_code == 504
+
+    def test_500_not_retried(self):
+        # 500 may be a real server bug — return body to caller for diagnosis
+        # rather than masking with retries.
+        mgr = _make_basic_manager()
+        bad = MagicMock(status_code=500, headers={}, url="https://test.service-now.com/api")
+        with patch.object(mgr._http_session, "request", return_value=bad) as mock_req:
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                resp = mgr.make_request("GET", "https://test.service-now.com/api", timeout=10)
+        assert mock_req.call_count == 1
+        assert resp.status_code == 500
+
 
 class TestMakeRequestBrowser:
     def test_cookie_header_converted_to_dict(self):
