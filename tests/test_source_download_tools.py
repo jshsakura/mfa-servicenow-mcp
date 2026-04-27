@@ -264,9 +264,11 @@ class TestSafeFilename:
 
 class TestResolveScopeRoot:
     def test_custom_output_dir(self, config, tmp_path):
-        root, scope_root = _resolve_scope_root(config, "x_app", str(tmp_path))
-        assert root == tmp_path / "test"  # instance name always appended
-        assert scope_root == tmp_path / "test" / "x_app"
+        # output_dir IS the final scope root — nothing appended.
+        custom = tmp_path / "any" / "shape"
+        root, scope_root = _resolve_scope_root(config, "x_app", str(custom))
+        assert scope_root == custom
+        assert root == custom.parent
         assert scope_root.is_dir()
 
     def test_default_output_dir(self, config):
@@ -660,7 +662,7 @@ class TestDownloadUIComponents:
             ),
         )
 
-        page_dir = tmp_path / "test" / "x_app" / "sys_ui_page" / "custom_page"
+        page_dir = tmp_path / "sys_ui_page" / "custom_page"
         assert (page_dir / "html.html").exists()
         assert (page_dir / "client_script.client.js").exists()
         assert (page_dir / "processing_script.server.js").exists()
@@ -686,7 +688,7 @@ class TestDownloadAPISources:
         assert result["success"] is True
         assert result["source_types"]["scripted_rest"]["count"] == 1
 
-        rest_dir = tmp_path / "test" / "x_app" / "sys_ws_operation" / "Get_Request_Status"
+        rest_dir = tmp_path / "sys_ws_operation" / "Get_Request_Status"
         assert (rest_dir / "operation_script.js").exists()
         script = (rest_dir / "operation_script.js").read_text()
         assert "x_app_request" in script
@@ -974,7 +976,7 @@ class TestDownloadAppSources:
             ),
         )
 
-        manifest_path = tmp_path / "test" / "x_app" / "_manifest.json"
+        manifest_path = tmp_path / "_manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
         assert manifest["scope"] == "x_app"
