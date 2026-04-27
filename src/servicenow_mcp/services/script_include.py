@@ -13,7 +13,7 @@ route through services.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -136,7 +136,7 @@ def update(
     active: Optional[bool] = None,
     access: Optional[str] = None,
     dry_run: bool = False,
-) -> ScriptIncludeResponse:
+) -> Union[ScriptIncludeResponse, Dict[str, Any]]:
     """Update an existing script include. Supports dry-run preview."""
     item = _fetch_si(config, auth_manager, script_include_id)
     if item is None:

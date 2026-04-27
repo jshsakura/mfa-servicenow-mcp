@@ -722,7 +722,7 @@ def get_flow_details(
         )
         flow = flows[0] if flows else {}
 
-        result: Dict[str, Any] = {
+        result = {
             "success": True,
             "source": "table_api",
             "flow": flow,
@@ -1413,7 +1413,7 @@ def _extract_comparable(flow_data: Dict[str, Any], include_label_cache: bool) ->
         return result
 
     # Table API format (enriched with _structure and _triggers)
-    result: Dict[str, Any] = {
+    result = {
         "name": flow_data.get("name", ""),
         "status": flow_data.get("status", ""),
         "active": flow_data.get("active", ""),

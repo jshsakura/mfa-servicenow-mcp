@@ -286,6 +286,7 @@ def manage_epic(
 ) -> Dict[str, Any]:
     a = params.action
     if a == "create":
+        assert params.short_description is not None
         return create_epic(
             config,
             auth_manager,
@@ -300,6 +301,7 @@ def manage_epic(
             ),
         )
     if a == "update":
+        assert params.epic_id is not None
         return update_epic(
             config,
             auth_manager,
