@@ -156,7 +156,7 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
-MCP_TOOL_PACKAGE = "full"
+MCP_TOOL_PACKAGE = "standard"
 ```
 
 ---
