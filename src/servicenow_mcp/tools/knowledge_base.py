@@ -861,6 +861,8 @@ def manage_kb_article(
         return kb_article_service.create(config, auth_manager, **kwargs)
 
     if params.action == "update":
+        # ManageArticleParams validator guarantees article_id is present for update.
+        assert params.article_id is not None
         return kb_article_service.update(
             config,
             auth_manager,

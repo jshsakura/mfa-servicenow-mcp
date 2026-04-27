@@ -486,6 +486,9 @@ def manage_catalog(
                 kwargs[f] = v
         return _cat_svc.update_item(config, auth_manager, **kwargs)
     if a == "move_items":
+        # ManageCatalogParams validator guarantees both are present for move_items.
+        assert params.item_ids is not None
+        assert params.target_category_id is not None
         return _cat_svc.move_items(
             config,
             auth_manager,
