@@ -320,6 +320,7 @@ def manage_project(
 ) -> Dict[str, Any]:
     a = params.action
     if a == "create":
+        assert params.short_description is not None
         return create_project(
             config,
             auth_manager,
@@ -337,6 +338,7 @@ def manage_project(
             ),
         )
     if a == "update":
+        assert params.project_id is not None
         return update_project(
             config,
             auth_manager,

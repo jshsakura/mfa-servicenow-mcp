@@ -350,6 +350,8 @@ def manage_scrum_task(
 ) -> Dict[str, Any]:
     a = params.action
     if a == "create":
+        assert params.story is not None
+        assert params.short_description is not None
         return create_scrum_task(
             config,
             auth_manager,
@@ -369,6 +371,7 @@ def manage_scrum_task(
             ),
         )
     if a == "update":
+        assert params.scrum_task_id is not None
         return update_scrum_task(
             config,
             auth_manager,
