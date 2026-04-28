@@ -566,6 +566,11 @@ class ManagePortalComponentParams(BaseModel):
     table: Optional[str] = Field(default=None)
     sys_id: Optional[str] = Field(default=None)
     update_data: Optional[Dict[str, str]] = Field(default=None)
+    base_updated_on: Optional[str] = Field(
+        default=None,
+        description="sys_updated_on from your last read. Blocks write if remote is newer.",
+    )
+    force: bool = Field(default=False, description="Override conflict check.")
 
     dry_run: bool = Field(default=False)
 
@@ -683,6 +688,10 @@ def manage_portal_component(
         config,
         auth_manager,
         UpdatePortalComponentParams(
-            table=params.table, sys_id=params.sys_id, update_data=params.update_data
+            table=params.table,
+            sys_id=params.sys_id,
+            update_data=params.update_data,
+            base_updated_on=params.base_updated_on,
+            force=params.force,
         ),
     )
