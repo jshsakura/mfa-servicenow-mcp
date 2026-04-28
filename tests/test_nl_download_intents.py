@@ -269,6 +269,34 @@ class TestSnNlDownloadHandoff:
         called_params = mock_dl.call_args.args[2]
         assert called_params.widget_ids == ["my_widget"]
 
+    def test_korean_portal_source_routes_to_portal_not_app(self):
+        """'전체 포털 소스' must route to download_portal_sources, not download_app_sources."""
+        result = resolve_download_intent("x_my_app 스코프 전체 포털 소스를 다운로드 받자")
+        assert result is not None
+        assert result["needs_clarification"] is False
+        assert result["tool"] == "download_portal_sources"
+        assert result["params"]["scope"] == "x_my_app"
+
+    def test_korean_portal_bare_routes_to_portal(self):
+        """'포털 소스 다운로드' → download_portal_sources."""
+        result = resolve_download_intent("x_my_app 포털 소스 다운로드")
+        assert result is not None
+        assert result["tool"] == "download_portal_sources"
+
+    def test_en_portal_sources_routes_to_portal(self):
+        """'download portal sources for x_my_app' → download_portal_sources."""
+        result = resolve_download_intent("download portal sources for x_my_app")
+        assert result is not None
+        assert result["tool"] == "download_portal_sources"
+        assert result["params"]["scope"] == "x_my_app"
+
+    def test_jeonche_sose_still_routes_to_app(self):
+        """'전체 소스' (without 포털) → download_app_sources, not portal."""
+        result = resolve_download_intent("x_my_app 전체 소스 다운로드")
+        assert result is not None
+        assert result["tool"] == "download_app_sources"
+        assert result["params"]["scope"] == "x_my_app"
+
 
 # ---------------------------------------------------------------------------
 # Defensive guards — false-positive phrases, oversized inputs, shape contract

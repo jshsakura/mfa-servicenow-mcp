@@ -627,6 +627,11 @@ def _generate_query_hint(query: str, error_msg: str) -> Optional[str]:
             "Authentication failed. Session may have expired — "
             "retry to trigger re-authentication."
         )
+    if "403" in error_lower or "forbidden" in error_lower:
+        hints.append(
+            "403 Forbidden — table ACL blocks REST API access. "
+            "For scoped tables (x_* prefix), try browser auth or grant the API user the app role."
+        )
     return " | ".join(hints) if hints else None
 
 

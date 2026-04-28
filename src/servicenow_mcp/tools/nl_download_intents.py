@@ -39,13 +39,17 @@ _DOWNLOAD_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Widget markers (EN word-boundaried, KO bare).
+# Widget / portal-source markers (EN word-boundaried, KO bare).
+# "portal source(s)" routes to download_portal_sources, NOT download_app_sources.
+# "포털 소스" and bare "포털" are portal-source markers in KO context.
 _WIDGET_MARKER_RE = re.compile(
-    r"\b(widgets?|portal\s+widget|sp\s*widget)\b|위젯",
+    r"\b(widgets?|portal\s+widget|sp\s*widget|portal\s+sources?)\b|위젯|포털\s*소스?",
     re.IGNORECASE,
 )
 
 # App / scope / "whole app" markers.
+# "전체 소스" = full app source → download_app_sources.
+# "포털 소스" is intentionally excluded here — it lives in _WIDGET_MARKER_RE.
 _APP_MARKER_RE = re.compile(
     r"\b(app|apps|application|applications|scope"
     r"|whole\s+app|entire\s+app|all\s+sources?|all\s+source\s+code)\b"
