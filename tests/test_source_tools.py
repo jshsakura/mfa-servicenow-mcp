@@ -333,8 +333,8 @@ def test_extract_table_dependencies_scans_widget_br_and_linked_script_include():
         [
             {
                 "sys_id": "si-1",
-                "name": "BpmOrderUtils",
-                "api_name": "x_bpm.BpmOrderUtils",
+                "name": "OrderUtils",
+                "api_name": "x_myapp.OrderUtils",
                 "script": "var gr = new GlideRecord('sc_req_item');",
             }
         ],
@@ -345,9 +345,9 @@ def test_extract_table_dependencies_scans_widget_br_and_linked_script_include():
         [
             {
                 "sys_id": "wid-1",
-                "name": "BPM Summary",
-                "id": "bpm_summary",
-                "script": "var gr = new GlideRecord('task'); var util = new BpmOrderUtils();",
+                "name": "Order Summary",
+                "id": "order_summary",
+                "script": "var gr = new GlideRecord('task'); var util = new OrderUtils();",
             }
         ],
         total_count=1,
@@ -357,7 +357,7 @@ def test_extract_table_dependencies_scans_widget_br_and_linked_script_include():
         [
             {
                 "sys_id": "br-1",
-                "name": "BPM BR",
+                "name": "Order BR",
                 "collection": "incident",
                 "script": "var tableName = 'incident'; var gr = new GlideRecord(tableName);",
             }
@@ -384,7 +384,7 @@ def test_extract_table_dependencies_scans_widget_br_and_linked_script_include():
     result = extract_table_dependencies(
         config,
         auth_manager,
-        ExtractTableDependenciesParams(scope="x_bpm", max_records_per_source=100, page_size=50),
+        ExtractTableDependenciesParams(scope="x_myapp", max_records_per_source=100, page_size=50),
     )
 
     assert result["success"] is True
@@ -412,9 +412,9 @@ def test_extract_table_dependencies_can_skip_linked_script_includes():
         [
             {
                 "sys_id": "wid-1",
-                "name": "BPM Summary",
-                "id": "bpm_summary",
-                "script": "var util = new BpmOrderUtils(); var gr = new GlideRecord('task');",
+                "name": "Order Summary",
+                "id": "order_summary",
+                "script": "var util = new OrderUtils(); var gr = new GlideRecord('task');",
             }
         ],
         total_count=1,
@@ -451,7 +451,7 @@ def test_extract_table_dependencies_handles_br_collection_without_script_and_set
             {
                 "sys_id": "si-10",
                 "name": "OrderSI",
-                "api_name": "x_bpm.OrderSI",
+                "api_name": "x_myapp.OrderSI",
                 "script": "var gr = new GlideRecord('sc_request');",
             }
         ],
@@ -464,7 +464,7 @@ def test_extract_table_dependencies_handles_br_collection_without_script_and_set
                 "sys_id": "wid-10",
                 "name": "Order Widget",
                 "id": "order_widget",
-                "script": "var gr = new GlideRecord('task'); var gr2 = new GlideRecord(); gr2.setTableName('incident'); var si = new x_bpm.OrderSI();",
+                "script": "var gr = new GlideRecord('task'); var gr2 = new GlideRecord(); gr2.setTableName('incident'); var si = new x_myapp.OrderSI();",
             }
         ],
         total_count=1,
@@ -502,7 +502,7 @@ def test_extract_table_dependencies_handles_br_collection_without_script_and_set
     result = extract_table_dependencies(
         config,
         auth_manager,
-        ExtractTableDependenciesParams(scope="x_bpm", max_records_per_source=100, page_size=50),
+        ExtractTableDependenciesParams(scope="x_myapp", max_records_per_source=100, page_size=50),
     )
 
     assert result["success"] is True
@@ -520,8 +520,8 @@ def test_extract_widget_table_dependencies_returns_widget_and_linked_si_tables()
                 "sys_id": "wid-1",
                 "name": "Order Widget",
                 "id": "order_widget",
-                "sys_scope": "x_bpm",
-                "script": "var gr = new GlideRecord('task'); var si = new x_bpm.OrderSI();",
+                "sys_scope": "x_myapp",
+                "script": "var gr = new GlideRecord('task'); var si = new x_myapp.OrderSI();",
             }
         ],
         total_count=1,
@@ -532,7 +532,7 @@ def test_extract_widget_table_dependencies_returns_widget_and_linked_si_tables()
             {
                 "sys_id": "si-1",
                 "name": "OrderSI",
-                "api_name": "x_bpm.OrderSI",
+                "api_name": "x_myapp.OrderSI",
                 "script": "var gr = new GlideRecord('sc_req_item');",
             }
         ],
@@ -552,7 +552,7 @@ def test_extract_widget_table_dependencies_returns_widget_and_linked_si_tables()
     result = extract_widget_table_dependencies(
         config,
         auth_manager,
-        ExtractWidgetTableDependenciesParams(widget_id="order_widget", scope="x_bpm"),
+        ExtractWidgetTableDependenciesParams(widget_id="order_widget", scope="x_myapp"),
     )
 
     assert result["success"] is True
