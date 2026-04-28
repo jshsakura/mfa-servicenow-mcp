@@ -1011,7 +1011,11 @@ class AuthManager:
                     except RuntimeError:
                         pass  # Already released
             elif self._should_validate_browser_session():
-                if not self._is_browser_session_valid(self.config.browser):
+                # Disk-first: if another process already refreshed the session,
+                # pick it up and skip the server probe entirely.
+                if self._reload_session_from_disk():
+                    logger.info("Validation skipped — picked up fresher session from disk.")
+                elif not self._is_browser_session_valid(self.config.browser):
                     logger.info(
                         "Browser session is no longer valid on ServiceNow. "
                         "Opening browser for interactive re-authentication..."
