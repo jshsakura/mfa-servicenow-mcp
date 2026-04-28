@@ -9,7 +9,7 @@ import re
 from concurrent.futures import as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel, Field
@@ -105,6 +105,11 @@ class UpdatePortalComponentParams(BaseModel):
     update_data: Dict[str, str] = Field(
         default=..., description="Field-value pairs to update (e.g. {'client_script': '...'})"
     )
+    base_updated_on: Optional[str] = Field(
+        default=None,
+        description="sys_updated_on from when you last read this record. Blocks write if remote is newer.",
+    )
+    force: bool = Field(default=False, description="Override conflict check and write anyway.")
 
 
 class AnalyzePortalComponentUpdateParams(UpdatePortalComponentParams):
@@ -2843,13 +2848,36 @@ def update_portal_component(
     normalized_update_data = _validate_portal_component_update_data(
         normalized_table, params.update_data
     )
+    fetch_fields = list(normalized_update_data.keys())
+    if params.base_updated_on:
+        fetch_fields = _dedupe_fields([*fetch_fields, "sys_updated_on"])
     current_record = _fetch_portal_component_record(
         config,
         auth_manager,
         normalized_table,
         params.sys_id,
-        list(normalized_update_data.keys()),
+        fetch_fields,
     )
+
+    # Conflict check: remote was modified after the caller's last read.
+    if params.base_updated_on and not params.force:
+        remote_updated_on = str(current_record.get("sys_updated_on") or "")
+        if remote_updated_on and remote_updated_on > params.base_updated_on:
+            return {
+                "error": "CONFLICT",
+                "message": (
+                    "Remote has been modified since you last read this record. "
+                    "Re-read the component and reapply your changes, "
+                    "or pass force=true to override."
+                ),
+                "remote_updated_on": remote_updated_on,
+                "base_updated_on": params.base_updated_on,
+                "component": {
+                    "table": normalized_table,
+                    "sys_id": params.sys_id,
+                },
+            }
+
     effective_update_data = {
         field_name: proposed_value
         for field_name, proposed_value in normalized_update_data.items()
