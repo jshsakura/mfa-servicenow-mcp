@@ -224,7 +224,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         folder_name = path.name
         map_data = _read_map_json(table_dir)
         # _map.json keys are original names; folder names are _safe_name(original).
-        # Fall back to reverse lookup so "My Widget [BPM]" → "My_Widget__BPM" still resolves.
+        # Fall back to reverse lookup so "My Widget [v2]" → "My_Widget_v2" still resolves.
         sys_id = map_data.get(folder_name) or _reverse_lookup_map(map_data, folder_name)
         if not sys_id:
             raise ValueError(

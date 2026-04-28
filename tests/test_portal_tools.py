@@ -731,9 +731,9 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
                 "sys_id": "wid-1",
                 "name": "Quotation Widget",
                 "id": "quotation_widget",
-                "sys_scope": "x_bpm",
+                "sys_scope": "x_myapp",
                 "template": "<div>ok</div>",
-                "script": "var si = new x_bpm.QuotationUtil();",
+                "script": "var si = new x_myapp.MyHelper();",
                 "client_script": "",
                 "link": "function link() {}",
                 "css": ".a{}",
@@ -756,8 +756,8 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
         [
             {
                 "sys_id": "si-1",
-                "name": "QuotationUtil",
-                "api_name": "x_bpm.QuotationUtil",
+                "name": "MyHelper",
+                "api_name": "x_myapp.MyHelper",
                 "script": "var gr = new GlideRecord('task');",
             }
         ],
@@ -773,8 +773,8 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
         mock_config,
         mock_auth_manager,
         DownloadPortalSourcesParams(
-            output_dir=str(tmp_path / "x_bpm"),
-            scope="x_bpm",
+            output_dir=str(tmp_path / "x_myapp"),
+            scope="x_myapp",
             include_linked_script_includes=True,
             include_linked_angular_providers=True,
         ),
@@ -785,7 +785,7 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
     assert result["summary"]["angular_providers"] == 1
     assert result["summary"]["script_includes"] == 1
 
-    scope_root = tmp_path / "x_bpm"
+    scope_root = tmp_path / "x_myapp"
     assert (tmp_path / "_settings.json").exists()
     assert (tmp_path / "scopes.json").exists()
     assert (tmp_path / "_last_error.json").exists()
@@ -794,7 +794,7 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
     assert (scope_root / "sp_widget" / "quotation_widget" / "_widget.json").exists()
     assert (scope_root / "sp_widget" / "quotation_widget" / "_test_urls.txt").exists()
     assert (scope_root / "sp_angular_provider" / "quotationService.script.js").exists()
-    assert (scope_root / "sys_script_include" / "QuotationUtil.script.js").exists()
+    assert (scope_root / "sys_script_include" / "MyHelper.script.js").exists()
     assert (scope_root / "sp_widget" / "_map.json").exists()
     assert (scope_root / "sp_angular_provider" / "_map.json").exists()
     assert (scope_root / "sys_script_include" / "_map.json").exists()
@@ -810,7 +810,7 @@ def test_download_portal_sources_batches_targeted_widget_fetches(
                 "sys_id": "wid-1",
                 "name": "Quotation Widget",
                 "id": "quotation_widget",
-                "sys_scope": "x_bpm",
+                "sys_scope": "x_myapp",
                 "template": "<div>one</div>",
                 "script": "",
                 "client_script": "",
@@ -823,7 +823,7 @@ def test_download_portal_sources_batches_targeted_widget_fetches(
                 "sys_id": "wid-2",
                 "name": "Approval Widget",
                 "id": "approval_widget",
-                "sys_scope": "x_bpm",
+                "sys_scope": "x_myapp",
                 "template": "<div>two</div>",
                 "script": "",
                 "client_script": "",
@@ -841,8 +841,8 @@ def test_download_portal_sources_batches_targeted_widget_fetches(
         mock_config,
         mock_auth_manager,
         DownloadPortalSourcesParams(
-            output_dir=str(tmp_path / "x_bpm"),
-            scope="x_bpm",
+            output_dir=str(tmp_path / "x_myapp"),
+            scope="x_myapp",
             widget_ids=["wid-1", "approval_widget"],
         ),
     )
@@ -860,7 +860,7 @@ def test_download_portal_sources_batches_targeted_widget_fetches(
     assert "name=approval_widget" in first_query
     assert mock_sn_query_all.call_args_list[0].kwargs["max_records"] >= 20
 
-    scope_root = tmp_path / "x_bpm" / "sp_widget"
+    scope_root = tmp_path / "x_myapp" / "sp_widget"
     assert (scope_root / "quotation_widget" / "_widget.json").exists()
     assert (scope_root / "approval_widget" / "_widget.json").exists()
 
@@ -882,9 +882,9 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
                 "sys_id": "wid-1",
                 "name": "Quotation Widget",
                 "id": "quotation_widget",
-                "sys_scope": "x_bpm",
+                "sys_scope": "x_myapp",
                 "template": "<div>one</div>",
-                "script": "var si = new x_bpm.QuotationUtil();",
+                "script": "var si = new x_myapp.MyHelper();",
                 "client_script": "",
                 "link": "",
                 "css": "",
@@ -903,7 +903,7 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
                 "sys_id": "prov-1",
                 "name": "quotationService",
                 "type": "factory",
-                "sys_scope": "x_bpm",
+                "sys_scope": "x_myapp",
             }
         ],
     ]
@@ -914,8 +914,8 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
     mock_fetch_linked_script_include_rows.return_value = [
         {
             "sys_id": "si-1",
-            "name": "QuotationUtil",
-            "api_name": "x_bpm.QuotationUtil",
+            "name": "MyHelper",
+            "api_name": "x_myapp.MyHelper",
             "script": "var gr = new GlideRecord('task');",
         }
     ]
@@ -924,8 +924,8 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
         mock_config,
         mock_auth_manager,
         DownloadPortalSourcesParams(
-            output_dir=str(tmp_path / "x_bpm"),
-            scope="x_bpm",
+            output_dir=str(tmp_path / "x_myapp"),
+            scope="x_myapp",
             widget_ids=["quotation_widget"],
         ),
     )
@@ -936,9 +936,9 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
     assert result["summary"]["script_includes"] == 1
     assert mock_sn_query_all.call_count == 3
 
-    scope_root = tmp_path / "x_bpm"
+    scope_root = tmp_path / "x_myapp"
     assert (scope_root / "sp_angular_provider" / "quotationService.script.js").exists()
-    assert (scope_root / "sys_script_include" / "QuotationUtil.script.js").exists()
+    assert (scope_root / "sys_script_include" / "MyHelper.script.js").exists()
     mock_fetch_linked_script_include_rows.assert_called_once()
 
 
@@ -952,7 +952,7 @@ def test_download_portal_sources_defaults_to_temp_directory(
         result = download_portal_sources(
             mock_config,
             mock_auth_manager,
-            DownloadPortalSourcesParams(scope="x_bpm"),
+            DownloadPortalSourcesParams(scope="x_myapp"),
         )
 
     assert result["success"] is True
@@ -971,13 +971,13 @@ def test_download_portal_sources_widget_ids_mode_handles_missing_widget(
         mock_config,
         mock_auth_manager,
         DownloadPortalSourcesParams(
-            output_dir=str(tmp_path / "x_bpm"), scope="x_bpm", widget_ids=["missing"]
+            output_dir=str(tmp_path / "x_myapp"), scope="x_myapp", widget_ids=["missing"]
         ),
     )
 
     assert result["success"] is True
     assert result["summary"]["widgets"] == 0
-    assert (tmp_path / "x_bpm" / "sp_widget" / "_map.json").exists()
+    assert (tmp_path / "x_myapp" / "sp_widget" / "_map.json").exists()
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query_all")
@@ -1455,8 +1455,8 @@ def test_download_portal_sources_warns_and_clamps_broad_requests(
         mock_config,
         mock_auth_manager,
         DownloadPortalSourcesParams(
-            output_dir=str(tmp_path / "x_bpm"),
-            scope="x_bpm",
+            output_dir=str(tmp_path / "x_myapp"),
+            scope="x_myapp",
             max_widgets=999,
             include_linked_script_includes=True,
             include_linked_angular_providers=True,
