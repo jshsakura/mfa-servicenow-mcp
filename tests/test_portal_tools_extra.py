@@ -703,6 +703,8 @@ class TestFetchPortalComponentRecord:
     @patch("servicenow_mcp.tools.portal_tools.sn_query")
     def test_not_found_raises(self, mock_q, mock_config, mock_auth_manager):
         mock_q.return_value = {"success": False}
+        # Fallback direct-GET also returns 404 → should still raise ValueError.
+        mock_auth_manager.make_request.return_value.status_code = 404
         from servicenow_mcp.tools.portal_tools import _fetch_portal_component_record
 
         with pytest.raises(ValueError, match="Component not found"):
