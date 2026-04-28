@@ -223,7 +223,9 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             )
         folder_name = path.name
         map_data = _read_map_json(table_dir)
-        sys_id = map_data.get(folder_name)
+        # _map.json keys are original names; folder names are _safe_name(original).
+        # Fall back to reverse lookup so "My Widget [BPM]" → "My_Widget__BPM" still resolves.
+        sys_id = map_data.get(folder_name) or _reverse_lookup_map(map_data, folder_name)
         if not sys_id:
             raise ValueError(
                 f"Component '{folder_name}' not found in {table_dir / '_map.json'}. "
@@ -272,7 +274,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             raise ValueError(f"Unknown file '{filename}' for {table_name}. Supported: {supported}")
         field_name = _field_name_opt
         map_data = _read_map_json(table_dir)
-        sys_id = map_data.get(folder_name)
+        sys_id = map_data.get(folder_name) or _reverse_lookup_map(map_data, folder_name)
         if not sys_id:
             raise ValueError(f"Component '{folder_name}' not found in {table_dir / '_map.json'}")
         scope_root = table_dir.parent
