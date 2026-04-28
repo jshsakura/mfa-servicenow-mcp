@@ -1466,3 +1466,74 @@ def test_download_portal_sources_warns_and_clamps_broad_requests(
     assert result["success"] is True
     assert any("reduced to 500" in warning for warning in result["warnings"])
     assert any("Linked component expansion is enabled" in warning for warning in result["warnings"])
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_update_portal_component_conflict_blocked(mock_sn_query, mock_config, mock_auth_manager):
+    """Write is blocked when remote sys_updated_on is newer than base_updated_on."""
+    mock_sn_query.return_value = {
+        "success": True,
+        "results": [
+            {
+                "sys_id": "sys-1",
+                "name": "My Widget",
+                "client_script": "old code",
+                "sys_updated_on": "2026-04-29 10:00:00",
+            }
+        ],
+    }
+    result = update_portal_component(
+        mock_config,
+        mock_auth_manager,
+        UpdatePortalComponentParams(
+            table="sp_widget",
+            sys_id="sys-1",
+            update_data={"client_script": "new code"},
+            base_updated_on="2026-04-28 09:00:00",
+        ),
+    )
+    assert result["error"] == "CONFLICT"
+    assert result["remote_updated_on"] == "2026-04-29 10:00:00"
+    assert result["base_updated_on"] == "2026-04-28 09:00:00"
+    mock_auth_manager.make_request.assert_not_called()
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.invalidate_query_cache")
+def test_update_portal_component_conflict_force_overrides(
+    mock_invalidate_query_cache, mock_sn_query, mock_config, mock_auth_manager
+):
+    """force=True writes through even when remote is newer."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_auth_manager.make_request.return_value = mock_response
+    mock_sn_query.side_effect = [
+        {
+            "success": True,
+            "results": [
+                {
+                    "sys_id": "sys-1",
+                    "name": "My Widget",
+                    "client_script": "old code",
+                    "sys_updated_on": "2026-04-29 10:00:00",
+                }
+            ],
+        },
+        {
+            "success": True,
+            "results": [{"sys_id": "sys-1", "name": "My Widget", "client_script": "new code"}],
+        },
+    ]
+    result = update_portal_component(
+        mock_config,
+        mock_auth_manager,
+        UpdatePortalComponentParams(
+            table="sp_widget",
+            sys_id="sys-1",
+            update_data={"client_script": "new code"},
+            base_updated_on="2026-04-28 09:00:00",
+            force=True,
+        ),
+    )
+    assert result.get("error") != "CONFLICT"
+    mock_auth_manager.make_request.assert_called_once()
