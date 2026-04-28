@@ -253,6 +253,8 @@ def _fetch_portal_component_record(
     fields: List[str],
 ) -> Dict[str, Any]:
     query_fields = _dedupe_fields([*fields, "name", "sys_id"])
+
+    # Primary: filter query (works when list-ACL allows it).
     query_params = GenericQueryParams(
         table=table,
         query=f"sys_id={sys_id}",
@@ -262,9 +264,28 @@ def _fetch_portal_component_record(
         display_value=False,
     )
     response = sn_query(config, auth_manager, query_params)
-    if not response.get("success") or not response.get("results"):
+    if response.get("success") and response.get("results"):
+        return response["results"][0]
+
+    # Fallback: direct GET /{sys_id}.  Scoped tables often block list-ACL
+    # queries (sysparm_query=sys_id=…) even when the record is accessible by
+    # direct URL — the same bypass that lets sn_write PATCH succeed.
+    url = (
+        f"{config.instance_url.rstrip('/')}/api/now/table/{table}/{sys_id}"
+        f"?sysparm_fields={','.join(query_fields)}&sysparm_display_value=false"
+    )
+    headers = auth_manager.get_headers()
+    direct = auth_manager.make_request("GET", url, headers=headers)
+    if direct.status_code == 404:
         raise ValueError(f"Component not found in {table} with sys_id {sys_id}")
-    return response["results"][0]
+    if direct.status_code >= 400:
+        raise ValueError(
+            f"Failed to fetch {table}/{sys_id}: HTTP {direct.status_code} — {direct.text[:200]}"
+        )
+    data = direct.json().get("result") or {}
+    if not data:
+        raise ValueError(f"Component not found in {table} with sys_id {sys_id}")
+    return data
 
 
 def _summarize_text_preview(value: str, max_length: int | None = None) -> str:
