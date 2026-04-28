@@ -286,6 +286,36 @@ class TestResolveLocalPath:
         with pytest.raises(ValueError, match="folder-based tables"):
             _resolve_local_path(path)
 
+    def test_resolve_widget_directory_safe_name_fallback(self, download_root):
+        # Widget id with special chars: _map.json key = "My Widget [v2]",
+        # but folder on disk = _safe_name("My Widget [v2]") = "My_Widget_v2"
+        widget_dir = download_root / "global" / "sp_widget" / "My_Widget_v2"
+        widget_dir.mkdir(parents=True)
+        (widget_dir / "script.js").write_text("var x = 1;", encoding="utf-8")
+        map_path = download_root / "global" / "sp_widget" / "_map.json"
+        existing = json.loads(map_path.read_text(encoding="utf-8"))
+        existing["My Widget [v2]"] = "wid-2"
+        map_path.write_text(json.dumps(existing), encoding="utf-8")
+
+        resolved = _resolve_local_path(widget_dir)
+        assert resolved.sys_id == "wid-2"
+        assert resolved.table == "sp_widget"
+
+    def test_resolve_widget_file_safe_name_fallback(self, download_root):
+        # Same as above but resolving a specific file inside the folder
+        widget_dir = download_root / "global" / "sp_widget" / "My_Widget_v2"
+        widget_dir.mkdir(parents=True)
+        (widget_dir / "template.html").write_text("<div/>", encoding="utf-8")
+        map_path = download_root / "global" / "sp_widget" / "_map.json"
+        existing = json.loads(map_path.read_text(encoding="utf-8"))
+        existing["My Widget [v2]"] = "wid-2"
+        map_path.write_text(json.dumps(existing), encoding="utf-8")
+
+        resolved = _resolve_local_path(widget_dir / "template.html")
+        assert resolved.sys_id == "wid-2"
+        assert resolved.table == "sp_widget"
+        assert "template" in resolved.fields
+
 
 # ---------------------------------------------------------------------------
 # diff_local_component tests
