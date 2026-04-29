@@ -274,8 +274,14 @@ class TestMakeRequest401GracePeriod:
         assert response.status_code == 200
         mock_invalidate.assert_not_called()
 
-    def test_401_within_grace_retry_also_401_then_reauth(self):
-        """401 during grace → retry also 401 → proceed to full re-auth."""
+    def test_401_within_grace_retry_also_401_returns_401_without_reauth(self):
+        """401 during grace → retry also 401 → return 401 directly, no duplicate login.
+
+        When the session was just established (within grace period) and both the
+        initial request and the grace-period retry return 401, we return the 401
+        instead of triggering a second browser login. Persistent 401 right after
+        fresh login indicates an ACL restriction, not a session failure.
+        """
         mgr = self._setup_manager_for_request()
 
         response_401 = MagicMock()
@@ -283,33 +289,23 @@ class TestMakeRequest401GracePeriod:
         response_401.headers = {}
         response_401.url = "https://test.service-now.com/api/now/table/sys_user"
 
-        response_200 = MagicMock()
-        response_200.status_code = 200
-
-        call_count = [0]
+        get_headers_calls = [0]
 
         def _fake_get_headers():
-            call_count[0] += 1
-            if call_count[0] <= 1:
-                return {
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                    "Cookie": "JSESSIONID=abc123",
-                }
-            # After re-auth
+            get_headers_calls[0] += 1
             return {
                 "Accept": "application/json",
                 "Content-Type": "application/json",
-                "Cookie": "NEW=session",
+                "Cookie": "JSESSIONID=abc123",
             }
 
         with patch.object(mgr, "get_headers", side_effect=_fake_get_headers):
             with patch.object(
                 mgr._http_session,
                 "request",
-                side_effect=[response_401, response_401, response_200],
+                side_effect=[response_401, response_401],
             ):
-                with patch.object(mgr, "invalidate_browser_session"):
+                with patch.object(mgr, "invalidate_browser_session") as mock_invalidate:
                     response = mgr.make_request(
                         "GET",
                         "https://test.service-now.com/api/now/table/sys_user",
@@ -317,7 +313,12 @@ class TestMakeRequest401GracePeriod:
                         max_retries=1,
                     )
 
-        assert response.status_code == 200
+        # 401 is returned directly — no second login triggered.
+        assert response.status_code == 401
+        # Only the initial get_headers call; no re-auth get_headers.
+        assert get_headers_calls[0] == 1
+        # No session invalidation (no second login).
+        mock_invalidate.assert_not_called()
 
     def test_401_outside_grace_no_retry_direct_reauth(self):
         """401 after grace expired → skip retry, go straight to re-auth."""
