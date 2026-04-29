@@ -2027,8 +2027,11 @@ class AuthManager:
                     if retry_response.status_code != 401:
                         return retry_response
                     logger.warning(
-                        "Retry within grace period still returned 401. Proceeding to re-auth."
+                        "Retry within grace period still returned 401. "
+                        "Session was just established — likely an ACL restriction, not a session failure. "
+                        "Returning 401 without re-auth to avoid a duplicate browser login."
                     )
+                    return retry_response
 
                 # In browser mode, 401 almost always means the session/X-UserToken is dead.
                 # First try reloading from disk — another terminal may have refreshed the session.
