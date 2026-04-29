@@ -942,9 +942,10 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
     mock_fetch_linked_script_include_rows.assert_called_once()
 
 
+@patch("servicenow_mcp.tools.portal_tools._sn_query_all", return_value=[])
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
 def test_download_portal_sources_defaults_to_temp_directory(
-    mock_sn_query, mock_config, mock_auth_manager, tmp_path
+    mock_sn_query, mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
 ):
     mock_sn_query.return_value = {"success": True, "results": []}
 
@@ -1442,9 +1443,10 @@ def test_detect_angular_implicit_globals_minimal_mode_shape(
     assert mock_sn_query_all.call_args.kwargs["fields"] == "sys_id,name,id,script"
 
 
+@patch("servicenow_mcp.tools.portal_tools._sn_query_all", return_value=[])
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
 def test_download_portal_sources_warns_and_clamps_broad_requests(
-    mock_sn_query, mock_config, mock_auth_manager, tmp_path
+    mock_sn_query, mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
 ):
     mock_sn_query.side_effect = [
         {"success": True, "results": []},

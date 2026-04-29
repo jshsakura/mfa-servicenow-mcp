@@ -2109,6 +2109,7 @@ def _download_source_types(
                 page_size=effective_page_size,
                 max_records=max_per_type,
                 display_value=False,
+                fail_silently=False,
             )
         except Exception as exc:
             logger.error("Failed to download %s: %s", source_type, exc)

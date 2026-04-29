@@ -1620,6 +1620,7 @@ def _sn_query_all(
     fields: str,
     page_size: int,
     max_records: int,
+    fail_silently: bool = True,
 ) -> List[Dict[str, Any]]:
     """Delegate to shared parallel-capable ``sn_query_all`` in sn_api."""
     return sn_query_all(
@@ -1630,6 +1631,7 @@ def _sn_query_all(
         fields=fields,
         page_size=page_size,
         max_records=max_records,
+        fail_silently=fail_silently,
     )
 
 
@@ -3071,25 +3073,34 @@ def download_portal_sources(
     )
 
     widgets: List[Dict[str, Any]] = []
-    if params.widget_ids:
-        widgets = _fetch_targeted_widget_rows(
-            config,
-            auth_manager,
-            widget_tokens=params.widget_ids,
-            widget_base_query=widget_base_query,
-            widget_fields=widget_fields,
-            page_size=params.page_size,
-        )
-    else:
-        widgets = _sn_query_all(
-            config,
-            auth_manager,
-            table=WIDGET_TABLE,
-            query=widget_base_query,
-            fields=widget_fields,
-            page_size=params.page_size,
-            max_records=max_widgets,
-        )
+    try:
+        if params.widget_ids:
+            widgets = _fetch_targeted_widget_rows(
+                config,
+                auth_manager,
+                widget_tokens=params.widget_ids,
+                widget_base_query=widget_base_query,
+                widget_fields=widget_fields,
+                page_size=params.page_size,
+            )
+        else:
+            widgets = _sn_query_all(
+                config,
+                auth_manager,
+                table=WIDGET_TABLE,
+                query=widget_base_query,
+                fields=widget_fields,
+                page_size=params.page_size,
+                max_records=max_widgets,
+                fail_silently=False,
+            )
+    except Exception as _widget_exc:
+        return {
+            "success": False,
+            "error": f"Widget fetch failed: {_widget_exc}",
+            "summary": {"widgets": 0, "angular_providers": 0, "script_includes": 0},
+            "warnings": warnings,
+        }
 
     widget_map: Dict[str, str] = {}
     exported_widgets: List[Dict[str, str]] = []
