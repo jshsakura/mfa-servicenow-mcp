@@ -1127,7 +1127,11 @@ class TestMakeRequestBrowser:
                 )
         assert resp.status_code == 200
 
-    def test_browser_401_grace_retry_still_fails_proceeds_to_reauth(self):
+    def test_browser_401_grace_retry_still_fails_returns_401_without_reauth(self):
+        # Within the post-login grace period, if both the initial request and the
+        # grace-period retry return 401, we return the 401 directly rather than
+        # triggering a duplicate browser login. The second login would not help
+        # (the 401 is almost certainly an ACL restriction, not a session failure).
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = "a=1"
         mgr._browser_cookie_expires_at = time.time() + 600
@@ -1139,19 +1143,12 @@ class TestMakeRequestBrowser:
         resp_401.headers = {}
         resp_401.url = "https://example.service-now.com/api"
 
-        resp_200 = MagicMock()
-        resp_200.status_code = 200
-        resp_200.headers = {}
-        resp_200.url = "https://example.service-now.com/api"
-
         request_count = 0
 
         def _mock_request(*args, **kwargs):
             nonlocal request_count
             request_count += 1
-            if request_count <= 2:
-                return resp_401
-            return resp_200
+            return resp_401  # always 401
 
         get_headers_count = 0
 
@@ -1166,7 +1163,7 @@ class TestMakeRequestBrowser:
 
         with patch.object(mgr, "get_headers", side_effect=_mock_get_headers):
             with patch.object(mgr._http_session, "request", side_effect=_mock_request):
-                with patch.object(mgr, "invalidate_browser_session"):
+                with patch.object(mgr, "invalidate_browser_session") as mock_invalidate:
                     with patch.object(mgr, "_reload_session_from_disk", return_value=False):
                         with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
                             resp = mgr.make_request(
@@ -1175,7 +1172,14 @@ class TestMakeRequestBrowser:
                                 timeout=10,
                                 max_retries=1,
                             )
-        assert resp.status_code == 200
+        # The 401 grace-period retry response is returned directly — no second login.
+        assert resp.status_code == 401
+        # Only the initial get_headers call (no re-auth get_headers).
+        assert get_headers_count == 1
+        # No session invalidation triggered.
+        mock_invalidate.assert_not_called()
+        # Exactly 2 HTTP requests: initial + grace-period retry.
+        assert request_count == 2
 
 
 # ===========================================================================
