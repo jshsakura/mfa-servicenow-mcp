@@ -314,41 +314,24 @@ def sn_query_page(
     if orderby:
         key = "sysparm_orderby_desc" if orderby.startswith("-") else "sysparm_orderby"
         params[key] = orderby[1:] if orderby.startswith("-") else orderby
-    last_exc: Exception = RuntimeError("no attempts made")
-    for attempt in range(_RETRY_MAX_ATTEMPTS + 1):
-        try:
-            response = auth_manager.make_request(
-                "GET",
-                url,
-                params=params,
-                timeout=config.request_timeout,
-            )
-            response.raise_for_status()
-            total = response.headers.get("X-Total-Count")
-            data = json_fast.loads(response.content) if response.content else response.json()
-            rows = data.get("result", [])
-            result = (rows, int(total) if total else None)
-            _cache_put(ck, result)
-            return result
-        except Exception as exc:
-            last_exc = exc
-            if attempt < _RETRY_MAX_ATTEMPTS and _is_retryable(exc):
-                delay = _retry_delay(attempt)
-                logger.warning(
-                    "Transient error fetching %s (attempt %d/%d), retrying in %.1fs: %s",
-                    table,
-                    attempt + 1,
-                    _RETRY_MAX_ATTEMPTS + 1,
-                    delay,
-                    exc,
-                )
-                time.sleep(delay)
-                continue
-            break
-
-    if not fail_silently:
-        raise last_exc
-    return [], None
+    try:
+        response = auth_manager.make_request(
+            "GET",
+            url,
+            params=params,
+            timeout=config.request_timeout,
+        )
+        response.raise_for_status()
+        total = response.headers.get("X-Total-Count")
+        data = json_fast.loads(response.content) if response.content else response.json()
+        rows = data.get("result", [])
+        result = (rows, int(total) if total else None)
+        _cache_put(ck, result)
+        return result
+    except Exception:
+        if not fail_silently:
+            raise
+        return [], None
 
 
 def sn_query_all(
@@ -489,6 +472,56 @@ def sn_query_all(
         offset += fetch
 
     return rows[:cap]
+
+
+def sn_query_all_with_retry(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    table: str,
+    query: str,
+    fields: str,
+    page_size: int = 50,
+    max_records: int = 100,
+    display_value: "bool | str" = False,
+    max_attempts: int = _RETRY_MAX_ATTEMPTS + 1,
+) -> List[Dict[str, Any]]:
+    """sn_query_all with explicit retry for bulk download operations.
+
+    Unlike sn_query_page's fail_silently, this function retries visibly at
+    the call-site level so callers see retry logs and control the attempt count.
+    Raises the last exception when all attempts are exhausted.
+    """
+    last_exc: Exception = RuntimeError("no attempts made")
+    for attempt in range(max_attempts):
+        try:
+            return sn_query_all(
+                config,
+                auth_manager,
+                table=table,
+                query=query,
+                fields=fields,
+                page_size=page_size,
+                max_records=max_records,
+                display_value=display_value,
+                fail_silently=False,
+            )
+        except Exception as exc:
+            last_exc = exc
+            if attempt + 1 < max_attempts and _is_retryable(exc):
+                delay = _retry_delay(attempt)
+                logger.warning(
+                    "Transient error on %s (attempt %d/%d), retrying in %.1fs: %s",
+                    table,
+                    attempt + 1,
+                    max_attempts,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+            else:
+                break
+    raise last_exc
 
 
 # ---------------------------------------------------------------------------
