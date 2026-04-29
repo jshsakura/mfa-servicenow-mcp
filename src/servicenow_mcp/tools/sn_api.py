@@ -151,6 +151,30 @@ def _get_page_executor() -> ThreadPoolExecutor:
 
 
 # ---------------------------------------------------------------------------
+# Retry configuration for transient API errors.
+# ---------------------------------------------------------------------------
+# Retried: network errors, timeouts, HTTP 429 (rate-limit), HTTP 5xx.
+# Not retried: 4xx client errors (except 429) — these are permanent.
+_RETRY_MAX_ATTEMPTS = 3  # retries after the first attempt (4 total)
+_RETRY_BASE_DELAY_S = 1.0  # first retry waits ~1 s
+_RETRY_MAX_DELAY_S = 16.0  # cap for exponential back-off
+
+
+def _is_retryable(exc: Exception) -> bool:
+    if isinstance(exc, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
+        return True
+    if isinstance(exc, requests.exceptions.HTTPError):
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        return status is not None and (status == 429 or status >= 500)
+    return False
+
+
+def _retry_delay(attempt: int) -> float:
+    """Exponential back-off: 1 s, 2 s, 4 s, … capped at _RETRY_MAX_DELAY_S."""
+    return min(_RETRY_BASE_DELAY_S * (2**attempt), _RETRY_MAX_DELAY_S)
+
+
+# ---------------------------------------------------------------------------
 # Lightweight TTL cache for repeated identical queries within a session.
 # Entries expire after _CACHE_TTL_SECONDS to prevent stale reads.
 # ---------------------------------------------------------------------------
@@ -290,24 +314,41 @@ def sn_query_page(
     if orderby:
         key = "sysparm_orderby_desc" if orderby.startswith("-") else "sysparm_orderby"
         params[key] = orderby[1:] if orderby.startswith("-") else orderby
-    try:
-        response = auth_manager.make_request(
-            "GET",
-            url,
-            params=params,
-            timeout=config.request_timeout,
-        )
-        response.raise_for_status()
-        total = response.headers.get("X-Total-Count")
-        data = json_fast.loads(response.content) if response.content else response.json()
-        rows = data.get("result", [])
-        result = (rows, int(total) if total else None)
-        _cache_put(ck, result)
-        return result
-    except Exception:
-        if not fail_silently:
-            raise
-        return [], None
+    last_exc: Exception = RuntimeError("no attempts made")
+    for attempt in range(_RETRY_MAX_ATTEMPTS + 1):
+        try:
+            response = auth_manager.make_request(
+                "GET",
+                url,
+                params=params,
+                timeout=config.request_timeout,
+            )
+            response.raise_for_status()
+            total = response.headers.get("X-Total-Count")
+            data = json_fast.loads(response.content) if response.content else response.json()
+            rows = data.get("result", [])
+            result = (rows, int(total) if total else None)
+            _cache_put(ck, result)
+            return result
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _RETRY_MAX_ATTEMPTS and _is_retryable(exc):
+                delay = _retry_delay(attempt)
+                logger.warning(
+                    "Transient error fetching %s (attempt %d/%d), retrying in %.1fs: %s",
+                    table,
+                    attempt + 1,
+                    _RETRY_MAX_ATTEMPTS + 1,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+                continue
+            break
+
+    if not fail_silently:
+        raise last_exc
+    return [], None
 
 
 def sn_query_all(
