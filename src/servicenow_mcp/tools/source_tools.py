@@ -17,7 +17,13 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools.sn_api import sn_query_all, sn_query_page
+from servicenow_mcp.tools.sn_api import (
+    _RETRY_MAX_ATTEMPTS,
+    _is_retryable,
+    _retry_delay,
+    sn_query_all,
+    sn_query_page,
+)
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -2099,22 +2105,41 @@ def _download_source_types(
         query_parts = [f"sys_scope.scope={scope}"] + base_filters
         query = "^".join(query_parts)
 
-        try:
-            records = sn_query_all(
-                config,
-                auth_manager,
-                table=table,
-                query=query,
-                fields=",".join(all_fields),
-                page_size=effective_page_size,
-                max_records=max_per_type,
-                display_value=False,
-                fail_silently=False,
-            )
-        except Exception as exc:
-            logger.error("Failed to download %s: %s", source_type, exc)
-            warnings.append(f"{source_type}: fetch failed — {exc}")
-            type_results[source_type] = {"count": 0, "error": str(exc)}
+        _last_exc: Optional[Exception] = None
+        for _attempt in range(_RETRY_MAX_ATTEMPTS + 1):
+            try:
+                records = sn_query_all(
+                    config,
+                    auth_manager,
+                    table=table,
+                    query=query,
+                    fields=",".join(all_fields),
+                    page_size=effective_page_size,
+                    max_records=max_per_type,
+                    display_value=False,
+                    fail_silently=False,
+                )
+                _last_exc = None
+                break
+            except Exception as exc:
+                _last_exc = exc
+                if _attempt < _RETRY_MAX_ATTEMPTS and _is_retryable(exc):
+                    _delay = _retry_delay(_attempt)
+                    logger.warning(
+                        "Transient error on %s (attempt %d/%d), retrying in %.1fs: %s",
+                        source_type,
+                        _attempt + 1,
+                        _RETRY_MAX_ATTEMPTS + 1,
+                        _delay,
+                        exc,
+                    )
+                    time.sleep(_delay)
+                else:
+                    break
+        if _last_exc is not None:
+            logger.error("Failed to download %s: %s", source_type, _last_exc)
+            warnings.append(f"{source_type}: fetch failed — {_last_exc}")
+            type_results[source_type] = {"count": 0, "error": str(_last_exc)}
             continue
 
         if not records:
@@ -2785,13 +2810,29 @@ def download_app_sources(
                 include_linked_angular_providers=True,
                 include_linked_script_includes=True,
             )
-            widget_summary = _dps(config, auth_manager, ws_params)
-            assert widget_summary is not None  # _dps returns dict, narrows for mypy
+            # Explicit retry: transient API errors surface as success=False.
+            # Retry up to _RETRY_MAX_ATTEMPTS times before falling back.
+            _portal_attempt = 0
+            while True:
+                widget_summary = _dps(config, auth_manager, ws_params)
+                assert widget_summary is not None
+                if widget_summary.get("success"):
+                    break
+                _portal_attempt += 1
+                if _portal_attempt > _RETRY_MAX_ATTEMPTS:
+                    break
+                _portal_delay = _retry_delay(_portal_attempt - 1)
+                logger.warning(
+                    "download_portal_sources failed (attempt %d/%d), retrying in %.1fs: %s",
+                    _portal_attempt,
+                    _RETRY_MAX_ATTEMPTS + 1,
+                    _portal_delay,
+                    widget_summary.get("error") or "success=False",
+                )
+                time.sleep(_portal_delay)
+
             ws = widget_summary.get("summary") or {}
             if not widget_summary.get("success"):
-                # Surface why the sub-call did not succeed instead of silently dropping
-                # the widget bucket. Without this the orchestrator used to report 0
-                # widgets with no explanation.
                 portal_failed = True
                 err = (
                     widget_summary.get("error")
