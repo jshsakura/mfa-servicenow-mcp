@@ -321,6 +321,7 @@ def sn_query_all(
     max_records: int = 100,
     parallel: bool = True,
     display_value: "bool | str" = False,
+    fail_silently: bool = True,
 ) -> List[Dict[str, Any]]:
     """Paginated fetch with optional parallel page retrieval.
 
@@ -335,6 +336,9 @@ def sn_query_all(
         display_value: Passed through to ``sn_query_page``.  Default False
             for internal bulk fetches (faster); set True when callers need
             human-readable reference display values.
+        fail_silently: When False, HTTP/network errors raise instead of
+            returning an empty list.  Pass False for bulk download operations
+            so callers can surface the error rather than reporting 0 records.
     """
     size = max(10, min(page_size, 100))
     cap = max(1, max_records)
@@ -349,6 +353,7 @@ def sn_query_all(
         limit=first_fetch,
         offset=0,
         display_value=display_value,
+        fail_silently=fail_silently,
     )
     if not first_rows:
         return []
@@ -392,6 +397,7 @@ def sn_query_all(
                 offset=page_offset,
                 no_count=True,
                 display_value=display_value,
+                fail_silently=fail_silently,
             )
             return page_rows
 
@@ -432,6 +438,7 @@ def sn_query_all(
             offset=offset,
             no_count=True,
             display_value=display_value,
+            fail_silently=fail_silently,
         )
         if not chunk:
             break
