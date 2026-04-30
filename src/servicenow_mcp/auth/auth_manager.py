@@ -2121,12 +2121,14 @@ class AuthManager:
                 try:
                     fresh_headers = self.get_headers()
                 except Exception as exc:
-                    logger.error(
-                        "Failed to re-authenticate after 401: %s. "
-                        "The request will be returned as-is with the 401 status.",
-                        exc,
-                    )
-                    return response
+                    logger.error("Browser re-authentication failed: %s", exc)
+                    # Raise so callers get a clear "login failed" error instead of a
+                    # silent 401 that would make the LLM think "session still expired".
+                    raise requests.HTTPError(
+                        f"Browser re-authentication failed — {exc}. "
+                        "Complete login in the browser window then retry.",
+                        response=response,
+                    ) from exc
 
                 # Update headers and cookies for the retry
                 headers = kwargs.get("headers", {})

@@ -75,7 +75,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | `compare_flows` | R | Diff two Flow Designer workflows by name/sys_id. Structure, subflow bindings, triggers. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_flow_designer_detail` | R | Get Flow Designer workflow structure, triggers, executions. Entry point for modern workflow analysis. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_flow_designer_executions` | R | Get Flow Designer workflow execution history (sys_flow_context). Modern flows only. | standard, portal_developer, platform_developer, service_desk, full |
-| `list_flow_designers` | R | List Flow Designer workflows/subflows (modern, sys_hub_flow). For legacy wf_workflow use manage_workflow. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `list_flow_designers` | R | PRIMARY entry point for Flow Designer: lists flows/subflows (sys_hub_flow). Never use sn_query for flows. Legacy→mana... | core, standard, portal_developer, platform_developer, service_desk, full |
 | `update_flow_designer` | W | Update Flow Designer workflow name/description/active by sys_id (modern, sys_hub_flow). | platform_developer, full |
 
 ### Incident Management (1)
@@ -182,7 +182,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | `sn_discover` | R | Find tables by name or label keyword. Returns table name, label, scope, and parent class. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_health` | R | Check ServiceNow API connectivity and auth status. Triggers browser login on first use in MFA mode. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_nl` | R | Convert natural language to sn_query/sn_schema/sn_aggregate calls. Parses intent and dispatches. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_query` | R | Query any ServiceNow table with encoded query filters. Use as fallback when no specialized tool exists for the table. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `sn_query` | R | Generic table query; last resort only. Domain tools exist: flows->list_flow_designers, BR->search_server_code, WF->ma... | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_resolve_url` | R | Parse a ServiceNow URL → table, sys_id, scope, suggested next tool. Read-only. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_schema` | R | Fetch field names, types, labels, and constraints from sys_dictionary for a given table. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_write` | W | Generic create/update/delete on any table. Use when no manage_X tool fits. (confirm='approve') | full |
