@@ -1125,7 +1125,7 @@ class AuthManager:
                             # retry from the LLM cannot immediately reopen the window;
                             # the user can still trigger a fresh login by retrying after
                             # the cooldown elapses.
-                            user_close_cooldown = 60  # 60s — definitively break LLM auto-retry; user closes deliberately
+                            user_close_cooldown = 15  # 15s — long enough to break instant LLM auto-retry, short enough not to make the user wait
                             self._browser_reauth_failure_count = max(
                                 self._browser_reauth_failure_count, 1
                             )
@@ -1216,7 +1216,7 @@ class AuthManager:
                             ]
                         )
                         if user_closed:
-                            user_close_cooldown = 60  # 60s — definitively break LLM auto-retry; user closes deliberately
+                            user_close_cooldown = 15  # 15s — long enough to break instant LLM auto-retry, short enough not to make the user wait
                             self._browser_reauth_failure_count = max(
                                 self._browser_reauth_failure_count, 1
                             )
@@ -1813,6 +1813,17 @@ class AuthManager:
                     context.close()
                 except Exception as _close_exc:  # noqa: BLE001
                     logger.debug("Login context.close() raised: %s (ignored)", _close_exc)
+                # Some Playwright versions / persistent-context configurations
+                # leave the underlying browser subprocess alive after
+                # context.close() — the user-visible Chromium window stays.
+                # Closing the underlying browser explicitly forces the window
+                # to disappear at the OS level.
+                try:
+                    _browser = getattr(context, "browser", None)
+                    if _browser is not None:
+                        _browser.close()
+                except Exception as _bclose_exc:  # noqa: BLE001
+                    logger.debug("Login browser.close() raised: %s (ignored)", _bclose_exc)
 
             page = context.pages[0] if context.pages else context.new_page()
 
