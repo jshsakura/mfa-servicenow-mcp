@@ -322,11 +322,45 @@ def create_config(args) -> ServerConfig:
         if _explicit_probe:
             browser_probe_path = _explicit_probe
         else:
-            # sys_user_preference is the safest default — every logged-in
-            # ServiceNow user has read access to their own preferences.
-            # Earlier versions tried to be cleverer by querying sys_user with
-            # the username, but many instances deny regular users read on the
-            # sys_user table itself, producing a permanent 401 polling loop.
+            # ============================================================
+            # DO NOT CHANGE THIS DEFAULT — sys_user_preference is mandatory.
+            # ============================================================
+            # History (READ THIS BEFORE TOUCHING):
+            #   2026-04-22 (commit 2959b87) introduced a "clever" default
+            #   that built `/api/now/table/sys_user?sysparm_query=user_name=...`
+            #   when a username was set. The reasoning sounded good — every
+            #   user can read their own sys_user record, so 200 unambiguously
+            #   means valid session, 401 means expired. WRONG.
+            #
+            #   Many ServiceNow instances (Yokogawa BPM Dev was the first
+            #   confirmed case) deny regular users read on the sys_user
+            #   table entirely, OR the row-level "Read for self" ACL doesn't
+            #   apply to list/query API calls. Result: probe always returns
+            #   401, polling loop never confirms login, browser window stays
+            #   open until wait_budget expires, user closes it manually,
+            #   LLM auto-retries → infinite loop.
+            #
+            #   Cost of this regression: 8 patch versions (v1.10.16-v1.10.24)
+            #   chasing downstream symptoms before stderr log identified the
+            #   real cause. v1.11.0 is the first release where the auth flow
+            #   is correct end-to-end on instances without sys_user read.
+            #
+            # WHY sys_user_preference IS THE RIGHT CHOICE:
+            #   - ServiceNow stores per-user UI settings (theme, favorites,
+            #     etc.) in sys_user_preference. The UI cannot function if a
+            #     logged-in user cannot read their own preferences, so
+            #     virtually every instance grants this read.
+            #   - 200 unambiguously = valid session.
+            #   - 401 unambiguously = expired session (NOT ACL).
+            #
+            # IF THIS PROBE EVER FAILS in a hardened instance:
+            #   - User can override with SERVICENOW_BROWSER_PROBE_PATH.
+            #   - Recommended fallbacks (priority order):
+            #       /api/now/ui/user/current_user
+            #       /login_locale.do          (loose; redirect = expired)
+            #   - DO NOT add an auto-fallback chain or a username-based
+            #     query here. Keep this default boring and predictable.
+            # ============================================================
             browser_probe_path = (
                 "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
             )
