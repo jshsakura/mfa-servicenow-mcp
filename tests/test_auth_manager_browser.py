@@ -431,52 +431,29 @@ class TestReloadSessionFromDisk:
         assert manager._browser_user_agent == "NewBrowser/1.0"
         assert manager._browser_session_token == "new_g_ck"
 
-    def test_reload_does_not_falsely_mark_validated_for_new_cookies(self, tmp_path):
-        """A session adopted from disk must not claim "just validated" — the cookie
-        may already be stale on the server. Setting last_validated_at to now would
-        skip the validation probe and cause a 401 on the very next request, which
-        is the source of the "every first call fails, retry succeeds" pattern.
+    def test_reload_marks_session_validated_for_trust_disk_path(self, tmp_path):
+        """v1.10.20 reverted to "trust the disk session immediately" (v1.10.9
+        behaviour) because the v1.10.17 probe-before-trust approach reopened
+        the browser too aggressively. After adopting a sibling-process session
+        we mark it as just-validated so the next call uses it directly; if the
+        session is actually stale the make_request 401 handler recovers via
+        a single re-auth round trip — much less invasive than reopening a
+        Chromium window on every spawn.
         """
         manager = _make_browser_manager()
         cache_path = str(tmp_path / "session.json")
         manager._session_cache_path = cache_path
         manager._browser_last_validated_at = None
 
-        # Another process wrote a session WITHOUT a last_validated_at field
-        # (older format) — must not be treated as validated.
+        before = time.time()
         _write_session_cache(cache_path, "ADOPTED=COOKIE", time.time() + 1800)
 
         assert manager._reload_session_from_disk() is True
         assert manager._browser_cookie_header == "ADOPTED=COOKIE"
-        # Critical: validated_at remains None so the next request will probe.
-        assert manager._browser_last_validated_at is None
-
-    def test_reload_inherits_disk_validated_at_when_present(self, tmp_path):
-        """When the disk session carries a last_validated_at, inherit it (capped
-        to now) so we don't claim a fresher validation than another process
-        actually performed.
-        """
-        manager = _make_browser_manager()
-        cache_path = str(tmp_path / "session.json")
-        manager._session_cache_path = cache_path
-        manager._browser_last_validated_at = None
-
-        validated_30s_ago = time.time() - 30
-        with open(cache_path, "w") as f:
-            json.dump(
-                {
-                    "cookie_header": "ADOPTED=COOKIE",
-                    "user_agent": "Test",
-                    "session_token": "tok",
-                    "expires_at": time.time() + 1800,
-                    "instance_url": "https://example.service-now.com",
-                    "last_validated_at": validated_30s_ago,
-                },
-                f,
-            )
-
-        assert manager._reload_session_from_disk() is True
-        assert manager._browser_last_validated_at == validated_30s_ago
+        # Trust-disk policy: validated_at is stamped as now so subsequent
+        # requests do not pay an immediate validation probe.
+        assert manager._browser_last_validated_at is not None
+        assert manager._browser_last_validated_at >= before
 
     def test_save_persists_last_validated_at(self, tmp_path):
         """Saved sessions must include last_validated_at so siblings can adopt

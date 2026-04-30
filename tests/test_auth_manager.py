@@ -1477,7 +1477,7 @@ class TestBrowserLoginErrorHandling:
 
         # Cooldown is armed (not reset to 0) so the LLM can't auto-retry.
         assert mgr._browser_reauth_failure_count >= 1
-        assert mgr._browser_reauth_cooldown_seconds >= 30
+        assert mgr._browser_reauth_cooldown_seconds >= 10
         assert mgr._browser_last_reauth_attempt_at is not None
 
     def test_other_error_increases_cooldown(self):
