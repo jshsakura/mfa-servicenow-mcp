@@ -192,14 +192,11 @@ class TestCreateConfig:
         config = create_config(args)
         assert config.auth.type.value == "browser"
 
-    def test_browser_probe_path_auto_generated_from_username(self):
-        """When no explicit probe_path is given but username is set, build a
-        user-specific probe URL that returns 200 for valid sessions.
-
-        Listing all sys_user records requires admin role and returns 401 for
-        regular users, making 401 ambiguous (expired vs. ACL restriction).
-        Querying by user_name returns the user's own record — always 200 for
-        valid sessions — so 401 unambiguously means the session is expired.
+    def test_browser_probe_path_default_is_sys_user_preference(self):
+        """v1.11.0: regardless of whether username is provided, default to
+        sys_user_preference because many ServiceNow instances deny regular
+        users read on the sys_user table, producing a permanent 401 polling
+        loop. sys_user_preference is the safest universal default.
         """
         args = MagicMock()
         args.instance_url = "https://test.service-now.com"
@@ -220,8 +217,8 @@ class TestCreateConfig:
             config = create_config(args)
 
         probe = config.auth.browser.probe_path
-        assert "user_name" in probe
-        assert "admin%40example.com" in probe  # @ must be percent-encoded
+        assert "sys_user_preference" in probe
+        assert "user_name" not in probe  # no per-user sys_user query anymore
 
     def test_browser_probe_path_generic_fallback_when_no_username(self):
         """When neither probe_path nor username is provided, use the generic

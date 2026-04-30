@@ -390,6 +390,12 @@ class AuthManager:
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
         self._login_lock_path = self._session_cache_path.replace(".json", ".lock")
+        # Garbage-collect a stale legacy cache that lives in the default
+        # `~/.servicenow_mcp/` directory when the user has since set
+        # SERVICENOW_BROWSER_USER_DATA_DIR (active cache moved to
+        # `dirname(user_data_dir)`). The legacy file would otherwise hang
+        # around forever and confuse the user ("why are there two of these?").
+        self._cleanup_legacy_session_cache()
         self._cached_basic_auth_header: Optional[str] = None
         self._session_disk_hash: Optional[int] = None  # Track disk content to skip redundant writes
         self._keepalive_consecutive_failures: int = 0  # Track consecutive keepalive failures
@@ -638,12 +644,54 @@ class AuthManager:
         except Exception as exc:
             logger.warning("Failed to save browser session to disk: %s", exc)
 
+    def _cleanup_legacy_session_cache(self) -> None:
+        """When the user has set SERVICENOW_BROWSER_USER_DATA_DIR, the active
+        cache lives in `dirname(user_data_dir)`. A pre-existing copy in the
+        default `~/.servicenow_mcp/` directory (left over from a run that did
+        NOT set USER_DATA_DIR) is unreachable from the active path resolver
+        but stays on disk forever, confusing the user. Remove it.
+        """
+        if not (self.config.browser and self.config.browser.user_data_dir):
+            return  # No USER_DATA_DIR set → default IS the active path
+        legacy_dir = os.path.join(os.path.expanduser("~"), ".servicenow_mcp")
+        if not os.path.isdir(legacy_dir):
+            return
+        suffix = self._get_instance_user_suffix()
+        legacy_session = os.path.join(legacy_dir, f"session_{suffix}.json")
+        legacy_lock = legacy_session.replace(".json", ".lock")
+        for path in (legacy_session, legacy_lock):
+            try:
+                if os.path.exists(path) and os.path.abspath(path) != os.path.abspath(
+                    self._session_cache_path
+                ):
+                    os.remove(path)
+                    logger.info("Removed legacy session cache: %s", path)
+            except Exception as exc:
+                logger.debug("Failed to remove legacy cache %s: %s", path, exc)
+
+    def _delete_session_cache_file(self, reason: str) -> None:
+        """Remove the on-disk session cache file. Used to garbage-collect cache
+        files whose TTL has expired AND whose server session has been confirmed
+        invalid — leaving them around just causes the same stale-session probe
+        + re-auth dance on every spawn."""
+        try:
+            if os.path.exists(self._session_cache_path):
+                os.remove(self._session_cache_path)
+                logger.info(
+                    "Removed expired session cache (%s): %s",
+                    reason,
+                    self._session_cache_path,
+                )
+        except Exception as exc:
+            logger.debug("Failed to remove expired session cache: %s", exc)
+
     def _load_session_from_disk(self) -> None:
         """Load the browser session from disk.
 
         If the disk TTL has expired, the session is still loaded and verified
         with a live API probe — the ServiceNow server session may outlive the
         conservative disk TTL, so we should not discard a potentially valid session.
+        Confirmed-dead caches are removed so they don't keep getting re-probed.
         """
         if not os.path.exists(self._session_cache_path):
             return
@@ -654,10 +702,14 @@ class AuthManager:
 
             # Basic validation
             if data.get("instance_url") != self.instance_url:
+                # Wrong instance — file is stale for this manager. Remove so we
+                # don't keep reading it on every spawn.
+                self._delete_session_cache_file("instance mismatch")
                 return
 
             cookie_header = data.get("cookie_header")
             if not cookie_header:
+                self._delete_session_cache_file("empty cookie")
                 return
 
             expires_at = data.get("expires_at")
@@ -698,6 +750,9 @@ class AuthManager:
                 except Exception as exc:
                     logger.debug("Disk session probe failed: %s", exc)
                 logger.info("Disk session expired and server confirmed invalid.")
+                # Remove the dead cache so we don't probe-and-discard on every
+                # spawn. A fresh login will write a new file.
+                self._delete_session_cache_file("expired + server-invalid")
                 return
 
             self._browser_cookie_header = cookie_header
@@ -754,7 +809,10 @@ class AuthManager:
 
         # Disk has different cookies — likely written by another terminal after re-auth
         if disk_expires and time.time() > disk_expires:
-            return False  # disk session already expired
+            # Remove the expired file so we don't keep re-reading it on every
+            # 401 retry / keepalive cycle. A fresh login will write a new one.
+            self._delete_session_cache_file("expired on reload")
+            return False
 
         self._browser_cookie_header = disk_cookie
         self._browser_user_agent = data.get("user_agent")
@@ -1440,7 +1498,7 @@ class AuthManager:
         instance_host = (urlparse(instance_url).hostname or "").lower()
         timeout_ms = min(int(browser_config.timeout_seconds), 30) * 1000
         try:
-            from playwright.sync_api import sync_playwright
+            from playwright.sync_api import sync_playwright  # noqa: F401
         except Exception:
             return False
 
@@ -1450,6 +1508,59 @@ class AuthManager:
             instance_host,
             effective_user_data_dir,
         )
+
+        # Playwright Sync API cannot run inside an active asyncio loop. MCP
+        # tool dispatch runs us under asyncio, so naive sync_playwright() use
+        # raised "It looks like you are using Playwright Sync API inside the
+        # asyncio loop" → restore failed → every spawn fell through to a fresh
+        # interactive login. Detect the active loop and offload to a thread,
+        # mirroring _login_with_browser's pattern.
+        try:
+            import asyncio as _asyncio
+
+            _loop = _asyncio.get_running_loop()
+            if _loop and _loop.is_running():
+                import threading as _threading
+
+                holder: dict = {"ok": False, "exc": None}
+
+                def _run_in_thread() -> None:
+                    try:
+                        holder["ok"] = self._try_restore_browser_session_sync(
+                            browser_config, instance_url, instance_host, timeout_ms
+                        )
+                    except BaseException as _exc:  # noqa: BLE001
+                        holder["exc"] = _exc
+
+                _t = _threading.Thread(target=_run_in_thread, daemon=True)
+                _t.start()
+                _t.join(timeout=max(int(browser_config.timeout_seconds), 30) + 30)
+                if _t.is_alive():
+                    logger.info("Browser session restore thread timed out — skipping.")
+                    return False
+                if holder["exc"] is not None:
+                    logger.info("Browser session restore thread raised: %s", holder["exc"])
+                    return False
+                return bool(holder["ok"])
+        except RuntimeError:
+            # No running event loop — fall through to direct sync execution.
+            pass
+
+        return self._try_restore_browser_session_sync(
+            browser_config, instance_url, instance_host, timeout_ms
+        )
+
+    def _try_restore_browser_session_sync(
+        self,
+        browser_config: BrowserAuthConfig,
+        instance_url: str,
+        instance_host: str,
+        timeout_ms: int,
+    ) -> bool:
+        from playwright.sync_api import sync_playwright
+
+        effective_user_data_dir = self._resolve_user_data_dir(browser_config)
+        cookie_header: Optional[str] = None
         try:
             with sync_playwright() as playwright:
                 # Always headless for restore — this only checks cookies,
