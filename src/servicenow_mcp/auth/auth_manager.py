@@ -73,6 +73,15 @@ _PROFILE_LOCK_HINTS = (
 )
 
 
+def _is_debug_mode() -> bool:
+    """Debug mode: SERVICENOW_BROWSER_DEBUG=1/true keeps the Chromium window open
+    even on errors and auto-opens DevTools, so the user can inspect the failing
+    401 response, request headers, cookies, and X-UserToken without the auth
+    manager auto-closing the window mid-investigation."""
+    val = (os.environ.get("SERVICENOW_BROWSER_DEBUG") or "").strip().lower()
+    return val in ("1", "true", "yes", "on")
+
+
 def _launch_persistent_with_retry(chromium, user_data_dir: str, *, headless: bool):
     """Launch a persistent Chromium context, retrying briefly if the profile
     directory is locked by a concurrent MCP process.
@@ -81,12 +90,22 @@ def _launch_persistent_with_retry(chromium, user_data_dir: str, *, headless: boo
     same time can briefly race on the Chromium profile lock (the losing side
     typically releases within 1-2s after a quick headless probe). Without a
     retry we would surface that transient lock as a login failure.
+
+    Debug mode (SERVICENOW_BROWSER_DEBUG=true) forces headed + auto-opens
+    DevTools so the user can inspect the failing requests directly.
     """
+    debug = _is_debug_mode()
+    if debug:
+        headless = False
+    launch_kwargs: dict = {"headless": headless}
+    if debug:
+        launch_kwargs["args"] = ["--auto-open-devtools-for-tabs"]
+
     attempts = 5
     backoff = 1.5
     for attempt in range(1, attempts + 1):
         try:
-            return chromium.launch_persistent_context(user_data_dir, headless=headless)
+            return chromium.launch_persistent_context(user_data_dir, **launch_kwargs)
         except Exception as exc:
             msg = str(exc).lower()
             if attempt == attempts or not any(hint in msg for hint in _PROFILE_LOCK_HINTS):
@@ -1106,7 +1125,7 @@ class AuthManager:
                             # retry from the LLM cannot immediately reopen the window;
                             # the user can still trigger a fresh login by retrying after
                             # the cooldown elapses.
-                            user_close_cooldown = 30  # break LLM auto-retry but stay short enough not to feel sluggish
+                            user_close_cooldown = 60  # 60s — definitively break LLM auto-retry; user closes deliberately
                             self._browser_reauth_failure_count = max(
                                 self._browser_reauth_failure_count, 1
                             )
@@ -1197,7 +1216,7 @@ class AuthManager:
                             ]
                         )
                         if user_closed:
-                            user_close_cooldown = 30  # break LLM auto-retry but stay short enough not to feel sluggish
+                            user_close_cooldown = 60  # 60s — definitively break LLM auto-retry; user closes deliberately
                             self._browser_reauth_failure_count = max(
                                 self._browser_reauth_failure_count, 1
                             )
@@ -1734,7 +1753,12 @@ class AuthManager:
         # Interactive MFA needs user input time, but 5 min was long enough that an
         # ignored login window felt like "stuck forever". Cap at 60 s — covers a
         # standard MFA push/code entry, fails fast otherwise.
-        wait_budget_ms = max(timeout_ms, 60000) if force_interactive else timeout_ms
+        # Debug mode (SERVICENOW_BROWSER_DEBUG=true) gives the user 30 minutes to
+        # inspect requests in DevTools without the auth manager auto-closing.
+        if _is_debug_mode():
+            wait_budget_ms = 1800000  # 30 min — debug session, hold the window open
+        else:
+            wait_budget_ms = max(timeout_ms, 60000) if force_interactive else timeout_ms
         instance_host = (urlparse(instance_url).hostname or "").lower()
         logger.info(
             "Starting browser auth flow: instance_host=%s login_host=%s timeout_seconds=%s mode=%s",
@@ -1756,14 +1780,35 @@ class AuthManager:
             )
 
             def _safe_close_context() -> None:
-                """Close the persistent Chromium context on EVERY exit path.
+                """Close the persistent Chromium context AND its pages on every
+                exit path. context.close() alone occasionally left a window
+                visible (in-flight navigation deferring teardown), so we close
+                pages explicitly first, then the context.
 
-                Previously context.close() only ran on the happy path at the end of
-                this function. final_probe failure / timeout / no-cookies raises all
-                returned without closing the window — that is the "login succeeded
-                but the browser stays open" symptom. Wrapping every raise site with
-                this helper guarantees the window goes away.
+                Idempotent — safe to call multiple times.
+
+                Debug mode (SERVICENOW_BROWSER_DEBUG=true) skips the close so
+                the user can inspect the failing request in DevTools without
+                the auth manager yanking the window away mid-investigation.
                 """
+                if _is_debug_mode():
+                    logger.info(
+                        "[DEBUG MODE] Keeping browser window open for inspection. "
+                        "Close it manually when done."
+                    )
+                    return
+                # Close every page first — explicit page.close() forces the
+                # window to disappear immediately even if context.close() would
+                # otherwise wait on background work.
+                try:
+                    for _p in list(context.pages):
+                        try:
+                            if not _p.is_closed():
+                                _p.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+                except Exception:  # noqa: BLE001
+                    pass
                 try:
                     context.close()
                 except Exception as _close_exc:  # noqa: BLE001
@@ -2043,6 +2088,12 @@ class AuthManager:
                     final_probe.status_code,
                     browser_config.probe_path,
                 )
+            # Close again at the very end of the success path. The earlier close
+            # (before final_probe) sometimes left a Chromium window visible to
+            # the user — possibly because in-flight navigation/resource fetches
+            # delayed the actual window teardown. Calling it once more after all
+            # post-login work is done makes the close definitive and idempotent.
+            _safe_close_context()
             logger.info(
                 "Browser session stored: session_key=%s cookie_count=%s cookie_names=%s ttl_minutes=%s",
                 self._browser_session_key,
