@@ -1451,7 +1451,11 @@ class TestBrowserGetHeadersEdgeCases:
 
 
 class TestBrowserLoginErrorHandling:
-    def test_user_closed_browser_resets_cooldown(self):
+    def test_user_closed_browser_applies_cancellation_cooldown(self):
+        # When the user manually closes the browser window, treat it as a
+        # cancellation: convert the raw "target closed" error into a clear
+        # LOGIN_CANCELLED_BY_USER signal and apply a meaningful cooldown so an
+        # automatic LLM retry cannot immediately reopen the dismissed window.
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = None
         mgr._browser_cookie_expires_at = None
@@ -1468,11 +1472,13 @@ class TestBrowserLoginErrorHandling:
                     ):
                         with patch.object(mgr, "_release_login_lock"):
                             with patch.object(mgr, "_mark_browser_reauth_attempt"):
-                                with pytest.raises(ValueError, match="target closed"):
+                                with pytest.raises(ValueError, match="LOGIN_CANCELLED_BY_USER"):
                                     mgr.get_headers()
 
-        assert mgr._browser_reauth_failure_count == 0
-        assert mgr._browser_last_reauth_attempt_at is None
+        # Cooldown is armed (not reset to 0) so the LLM can't auto-retry.
+        assert mgr._browser_reauth_failure_count >= 1
+        assert mgr._browser_reauth_cooldown_seconds >= 30
+        assert mgr._browser_last_reauth_attempt_at is not None
 
     def test_other_error_increases_cooldown(self):
         mgr = _make_browser_manager()

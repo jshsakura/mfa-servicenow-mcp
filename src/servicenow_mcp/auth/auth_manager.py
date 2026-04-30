@@ -1091,27 +1091,46 @@ class AuthManager:
                         else:
                             self._browser_login_in_progress = False
                             self._release_login_lock()
-                            # User closed the browser manually — not a real failure.
-                            # Reset cooldown so next tool call can retry immediately.
                         user_closed = any(
                             marker in error_text
                             for marker in [
                                 "target closed",
                                 "browser closed",
+                                "browser was closed",
                                 "browser has been closed",
                                 "target page, context or browser has been closed",
                                 "connection closed",
+                                "login_cancelled_by_user",
                             ]
                         )
                         if user_closed:
+                            # Treat manual close as an explicit cancellation. The previous
+                            # behaviour reset the cooldown to 0 so the very next tool call
+                            # would re-open the window the user just dismissed — that is
+                            # not graceful. Apply a meaningful cooldown so an automatic
+                            # retry from the LLM cannot immediately reopen the window;
+                            # the user can still trigger a fresh login by retrying after
+                            # the cooldown elapses.
+                            user_close_cooldown = max(self._browser_reauth_cooldown_base, 30)
+                            self._browser_reauth_failure_count = max(
+                                self._browser_reauth_failure_count, 1
+                            )
+                            self._browser_reauth_cooldown_seconds = user_close_cooldown
+                            self._browser_last_reauth_attempt_at = time.time()
                             logger.info(
-                                "Browser was closed by user — resetting cooldown for immediate retry."
+                                "Browser was closed by user — applying %ds cooldown to "
+                                "prevent immediate reopen.",
+                                user_close_cooldown,
                             )
-                            self._browser_reauth_failure_count = 0
-                            self._browser_reauth_cooldown_seconds = (
-                                self._browser_reauth_cooldown_base
-                            )
-                            self._browser_last_reauth_attempt_at = None
+                            # Replace the raw Playwright "target closed" exception with a
+                            # clear cancellation signal so the LLM stops retrying.
+                            raise ValueError(
+                                "LOGIN_CANCELLED_BY_USER: the browser login window was "
+                                f"closed before authentication completed. Wait "
+                                f"{user_close_cooldown}s then explicitly retry to open a "
+                                "new login window. Do NOT auto-retry — the user closed "
+                                "the previous window on purpose."
+                            ) from exc
                         else:
                             self._browser_reauth_failure_count += 1
                             self._browser_reauth_cooldown_seconds = min(
@@ -1167,15 +1186,46 @@ class AuthManager:
                             logger.info(
                                 "Browser login thread still running — keeping login_in_progress=True"
                             )
-                        else:
-                            self._browser_login_in_progress = False
-                            self._release_login_lock()
-                            self._browser_reauth_failure_count += 1
-                            self._browser_reauth_cooldown_seconds = min(
-                                self._browser_reauth_cooldown_base
-                                * (2**self._browser_reauth_failure_count),
-                                self._browser_reauth_cooldown_max,
+                            raise
+                        self._browser_login_in_progress = False
+                        self._release_login_lock()
+                        user_closed = any(
+                            marker in error_text
+                            for marker in [
+                                "target closed",
+                                "browser closed",
+                                "browser was closed",
+                                "browser has been closed",
+                                "target page, context or browser has been closed",
+                                "connection closed",
+                                "login_cancelled_by_user",
+                            ]
+                        )
+                        if user_closed:
+                            user_close_cooldown = max(self._browser_reauth_cooldown_base, 30)
+                            self._browser_reauth_failure_count = max(
+                                self._browser_reauth_failure_count, 1
                             )
+                            self._browser_reauth_cooldown_seconds = user_close_cooldown
+                            self._browser_last_reauth_attempt_at = time.time()
+                            logger.info(
+                                "Browser was closed by user — applying %ds cooldown to "
+                                "prevent immediate reopen.",
+                                user_close_cooldown,
+                            )
+                            raise ValueError(
+                                "LOGIN_CANCELLED_BY_USER: the browser login window was "
+                                f"closed before authentication completed. Wait "
+                                f"{user_close_cooldown}s then explicitly retry to open a "
+                                "new login window. Do NOT auto-retry — the user closed "
+                                "the previous window on purpose."
+                            ) from exc
+                        self._browser_reauth_failure_count += 1
+                        self._browser_reauth_cooldown_seconds = min(
+                            self._browser_reauth_cooldown_base
+                            * (2**self._browser_reauth_failure_count),
+                            self._browser_reauth_cooldown_max,
+                        )
                         raise
             headers["Cookie"] = self._browser_cookie_header or ""
             if self._browser_user_agent:
