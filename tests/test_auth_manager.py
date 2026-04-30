@@ -1308,9 +1308,42 @@ class TestBrowserGetHeadersEdgeCases:
         with patch.object(mgr, "_try_restore_browser_session", return_value=False):
             with patch.object(mgr, "_acquire_login_lock", return_value=False):
                 with patch.object(mgr, "_wait_for_other_login", side_effect=_mock_wait):
-                    headers = mgr.get_headers()
+                    with patch.object(
+                        mgr, "_is_browser_session_valid", return_value=True
+                    ) as mock_valid:
+                        headers = mgr.get_headers()
 
         assert headers["Cookie"] == "waited=1"
+        mock_valid.assert_called_once_with(mgr.config.browser)
+
+    def test_waited_session_that_fails_validation_falls_back_to_local_login(self):
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = None
+        mgr._browser_cookie_expires_at = None
+        mgr._browser_login_in_progress = False
+
+        def _mock_wait(timeout):
+            mgr._browser_cookie_header = "waited=1"
+            mgr._browser_cookie_expires_at = time.time() + 600
+            return True
+
+        with patch.object(mgr, "_try_restore_browser_session", return_value=False):
+            with patch.object(mgr, "_acquire_login_lock", side_effect=[False, True]):
+                with patch.object(mgr, "_wait_for_other_login", side_effect=_mock_wait):
+                    with patch.object(mgr, "_is_browser_session_valid", return_value=False):
+                        with patch.object(mgr, "_can_attempt_browser_reauth", return_value=True):
+                            with patch.object(mgr, "_mark_browser_reauth_attempt"):
+                                with patch.object(
+                                    mgr,
+                                    "_login_with_browser",
+                                    side_effect=lambda *args, **kwargs: setattr(
+                                        mgr, "_browser_cookie_header", "fresh=1"
+                                    ),
+                                ) as mock_login:
+                                    headers = mgr.get_headers()
+
+        assert headers["Cookie"] == "fresh=1"
+        mock_login.assert_called_once_with(mgr.config.browser, force_interactive=True)
 
     def test_wait_timeout_then_lock_fails_raises(self):
         mgr = _make_browser_manager()
