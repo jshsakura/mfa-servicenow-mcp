@@ -545,7 +545,7 @@ class TestGracePeriodEdgeCases:
         assert "LOGIN_CANCELLED_BY_USER" in str(raised[0])
         # Cooldown is armed — at least 30s, last_reauth_attempt_at set.
         assert mgr._browser_reauth_failure_count >= 1
-        assert mgr._browser_reauth_cooldown_seconds >= 30
+        assert mgr._browser_reauth_cooldown_seconds >= 60
         assert mgr._browser_last_reauth_attempt_at is not None
         # In-progress flag cleared so the next call after cooldown can proceed.
         assert mgr._browser_login_in_progress is False
