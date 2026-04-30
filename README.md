@@ -204,9 +204,24 @@ The [Quick Start](#quick-start) command uses browser auth. Optional flags:
 | `--browser-headless` | `SERVICENOW_BROWSER_HEADLESS` | `false` | Run browser without GUI |
 | `--browser-timeout` | `SERVICENOW_BROWSER_TIMEOUT` | `120` | Login timeout in seconds |
 | `--browser-session-ttl` | `SERVICENOW_BROWSER_SESSION_TTL` | `30` | Session TTL in minutes |
-| `--browser-user-data-dir` | `SERVICENOW_BROWSER_USER_DATA_DIR` | — | Persistent browser profile path |
+| `--browser-user-data-dir` | `SERVICENOW_BROWSER_USER_DATA_DIR` | — | Persistent browser profile path. Session JSON is stored next to it, so multiple MCP hosts can share login state. |
 | `--browser-probe-path` | `SERVICENOW_BROWSER_PROBE_PATH` | user-specific `sys_user` lookup when a username is known, otherwise `/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id` | Session validation endpoint (avoids 401 on non-admin sessions) |
 | `--browser-login-url` | `SERVICENOW_BROWSER_LOGIN_URL` | — | Custom login page URL |
+
+#### Sharing login across multiple MCP hosts (Codex + Claude, etc.)
+
+When a single user runs the MCP server from more than one host (e.g. Claude Code **and** Codex side by side), each host normally resolves `~/.servicenow_mcp` to a different path — sandboxed apps may remap `HOME`, so they end up writing **different** session caches and each one prompts a fresh MFA login.
+
+**Why a shared path is needed:** the server stores two artifacts — the Playwright profile (Chromium SSO cookies) and a session JSON (parsed cookies the MCP reuses on the next start). Without a shared root, host A's login is invisible to host B.
+
+**Fix:** set `SERVICENOW_BROWSER_USER_DATA_DIR` to the **same absolute path** in every host's MCP config. The session JSON is now derived from the parent of that directory, so they share both the Chromium profile *and* the JSON cache.
+
+```bash
+# Pick any stable absolute path — example uses an instance-scoped folder
+export SERVICENOW_BROWSER_USER_DATA_DIR="$HOME/.servicenow_mcp/shared/profile_acme"
+```
+
+Configure the same value in Codex's `~/.codex/config.toml`, Claude Desktop's `claude_desktop_config.json`, and any other client. Whichever host logs in first writes the session; the others pick it up on their next tool call without opening a browser.
 
 ### Basic Auth
 

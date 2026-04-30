@@ -72,11 +72,11 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `compare_flows` | R | Compare two flows by name or sys_id. Diffs structure, subflow bindings, and triggers. | standard, portal_developer, platform_developer, service_desk, full |
-| `get_flow_designer_detail` | R | Get one flow's structure and triggers. For comparing two flows, use compare_flows instead. | standard, portal_developer, platform_developer, service_desk, full |
-| `get_flow_designer_executions` | R | Get flow execution history. Use after compare_flows to check runtime behavior. | standard, portal_developer, platform_developer, service_desk, full |
-| `list_flow_designers` | R | Search flows/subflows by name or scope. Use compare_flows to diff two results. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `update_flow_designer` | W | Update a Flow Designer flow name, description, or active status by sys_id. | platform_developer, full |
+| `compare_flows` | R | Diff two Flow Designer workflows by name/sys_id. Structure, subflow bindings, triggers. | standard, portal_developer, platform_developer, service_desk, full |
+| `get_flow_designer_detail` | R | Get Flow Designer workflow structure, triggers, executions. Entry point for modern workflow analysis. | standard, portal_developer, platform_developer, service_desk, full |
+| `get_flow_designer_executions` | R | Get Flow Designer workflow execution history (sys_flow_context). Modern flows only. | standard, portal_developer, platform_developer, service_desk, full |
+| `list_flow_designers` | R | List Flow Designer workflows/subflows (modern, sys_hub_flow). For legacy wf_workflow use manage_workflow. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `update_flow_designer` | W | Update Flow Designer workflow name/description/active by sys_id (modern, sys_hub_flow). | platform_developer, full |
 
 ### Incident Management (1)
 
@@ -240,4 +240,4 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_workflow` | R/W | List/get/CRUD + lifecycle + activity ops for workflows (table: wf_workflow / wf_activity). | core, standard, portal_developer, platform_developer, service_desk, full |
+| `manage_workflow` | R/W | LEGACY workflows (wf_workflow/wf_activity). For modern Flow Designer use list_flow_designers. | core, standard, portal_developer, platform_developer, service_desk, full |
