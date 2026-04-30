@@ -8,9 +8,11 @@ from unittest.mock import MagicMock, patch
 from servicenow_mcp.tools.epic_tools import (
     CreateEpicParams,
     ListEpicsParams,
+    ManageEpicParams,
     UpdateEpicParams,
     create_epic,
     list_epics,
+    manage_epic,
     update_epic,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
@@ -311,6 +313,44 @@ class TestEpicTools(unittest.TestCase):
         self.assertTrue(result["success"])
         sent_data = self.auth_manager.make_request.call_args[1]["json"]
         self.assertEqual(sent_data, {})
+
+    @patch("servicenow_mcp.tools.epic_tools.build_update_preview")
+    def test_update_epic_dry_run(self, mock_preview):
+        """Test dry run for updating an epic."""
+        mock_preview.return_value = {"success": True, "preview": {}}
+        params = UpdateEpicParams(epic_id="epic123", short_description="New", dry_run=True)
+        result = update_epic(self.config, self.auth_manager, params)
+        self.assertEqual(result, mock_preview.return_value)
+        mock_preview.assert_called_once()
+
+
+class TestManageEpic(unittest.TestCase):
+    """Tests for manage_epic bundled tool."""
+
+    def setUp(self):
+        self.config = MagicMock(spec=ServerConfig)
+        self.auth_manager = MagicMock()
+
+    @patch("servicenow_mcp.tools.epic_tools.create_epic")
+    def test_manage_create(self, mock_create):
+        mock_create.return_value = {"success": True}
+        params = ManageEpicParams(action="create", short_description="S")
+        manage_epic(self.config, self.auth_manager, params)
+        mock_create.assert_called_once()
+
+    @patch("servicenow_mcp.tools.epic_tools.update_epic")
+    def test_manage_update(self, mock_update):
+        mock_update.return_value = {"success": True}
+        params = ManageEpicParams(action="update", epic_id="e1", description="D")
+        manage_epic(self.config, self.auth_manager, params)
+        mock_update.assert_called_once()
+
+    @patch("servicenow_mcp.tools.epic_tools.list_epics")
+    def test_manage_list(self, mock_list):
+        mock_list.return_value = {"success": True}
+        params = ManageEpicParams(action="list")
+        manage_epic(self.config, self.auth_manager, params)
+        mock_list.assert_called_once()
 
 
 if __name__ == "__main__":
