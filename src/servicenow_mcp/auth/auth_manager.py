@@ -249,6 +249,47 @@ def _response_confirms_browser_probe_session(response: requests.Response) -> boo
     return response.status_code == 403 or 200 <= response.status_code < 300
 
 
+def _response_indicates_acl_block(response: requests.Response) -> bool:
+    """Return True only when a 401 JSON body clearly indicates an ACL/permission block
+    (not a session/token expiry).
+
+    ServiceNow returns 401 + JSON for both stale X-UserToken AND ACL denials, so we
+    must inspect the body to tell them apart. When uncertain, return False so the
+    caller treats it as a session issue and re-authenticates.
+    """
+    if response.status_code != 401:
+        return False
+    content_type = (response.headers.get("Content-Type") or "").lower()
+    if "application/json" not in content_type:
+        return False
+    if _response_indicates_login_redirect(response):
+        return False
+    try:
+        body = (response.text or "")[:2000].lower()
+    except Exception:
+        return False
+    # Strong session-expiry signals — definitively NOT ACL
+    session_expiry_markers = (
+        "user not authenticated",
+        "session has expired",
+        "session expired",
+        "invalid session",
+        "x-usertoken",
+    )
+    if any(marker in body for marker in session_expiry_markers):
+        return False
+    # Strong ACL signals
+    acl_markers = (
+        "insufficient rights",
+        "access denied",
+        "acl ",
+        "operation against the requested object is not allowed",
+        "no permission",
+        "not authorized to",
+    )
+    return any(marker in body for marker in acl_markers)
+
+
 def _selector_exists(target, selector: str) -> bool:
     try:
         return target.locator(selector).count() > 0
@@ -2057,23 +2098,56 @@ class AuthManager:
                     retry_response = self._http_session.request(method, url, **kwargs)
                     if retry_response.status_code != 401:
                         return retry_response
+                    # Second 401 inside grace period — distinguish ACL vs stale token by body.
+                    # Previously this was unconditionally treated as ACL, which caused infinite
+                    # 401 loops when the cause was actually a stale X-UserToken / cookie.
+                    if _response_indicates_acl_block(retry_response):
+                        raise requests.HTTPError(
+                            "ACL_BLOCKED: 401 with explicit ACL/permission body markers "
+                            "(not a session expiry). Re-authentication will not help — "
+                            "verify the user's role/ACL on the target table or record.",
+                            response=retry_response,
+                        )
+                    # Try a one-shot disk reload — another process may have refreshed the session.
+                    if self._reload_session_from_disk():
+                        logger.info(
+                            "Grace-period 401 recovered via disk-reloaded session "
+                            "(another process refreshed it)."
+                        )
+                        fresh_headers = self.get_headers()
+                        headers = kwargs.get("headers", {})
+                        headers.update(fresh_headers)
+                        cookie_map = _cookie_header_to_dict(headers.get("Cookie"))
+                        if cookie_map:
+                            kwargs["cookies"] = cookie_map
+                            headers.pop("Cookie", None)
+                        kwargs["headers"] = headers
+                        reloaded_response = self._http_session.request(method, url, **kwargs)
+                        if reloaded_response.status_code != 401:
+                            self._mark_browser_session_recently_valid()
+                            return reloaded_response
+                        if _response_indicates_acl_block(reloaded_response):
+                            raise requests.HTTPError(
+                                "ACL_BLOCKED: disk-reloaded session still got 401 with ACL "
+                                "markers. Verify user permissions on the target.",
+                                response=reloaded_response,
+                            )
+                    # Fall through to full re-auth (token likely stale despite recent login).
                     logger.warning(
-                        "Retry within grace period still returned 401. "
-                        "Session was just established — likely an ACL restriction, not a session failure. "
-                        "Returning 401 without re-auth to avoid a duplicate browser login."
+                        "Grace-period 401 persists with no ACL markers — treating as stale "
+                        "session token and proceeding to full re-authentication."
                     )
-                    return retry_response
 
-                # If the 401 came back with a JSON body and no login redirect, it is an ACL
-                # restriction — the session is still valid, just the table is blocked.
-                # Re-auth won't help and would open an unnecessary browser window.
-                _ct = response.headers.get("Content-Type", "").lower()
-                if "application/json" in _ct and not _response_indicates_login_redirect(response):
-                    logger.info(
-                        "401 with JSON body (no login redirect) — ACL restriction, not session "
-                        "expiry. Skipping re-auth to avoid unnecessary browser login."
+                # If the 401 came back with a JSON body and clear ACL markers, it is an ACL
+                # restriction — re-auth won't help. Raise so callers stop retrying instead of
+                # silently returning 401 (which the LLM would interpret as session expiry).
+                if _response_indicates_acl_block(response):
+                    raise requests.HTTPError(
+                        "ACL_BLOCKED: 401 with ACL/permission body markers (not session "
+                        "expiry). Re-authentication will not help — verify the user's role/ACL "
+                        "on the target table or record.",
+                        response=response,
                     )
-                    return response
 
                 # In browser mode, 401 almost always means the session/X-UserToken is dead.
                 # First try reloading from disk — another terminal may have refreshed the session.
@@ -2170,6 +2244,22 @@ class AuthManager:
                     response
                 ):
                     self._mark_browser_session_recently_valid()
+                elif response.status_code == 401:
+                    # Re-auth completed (browser opened, new cookies captured) but the very
+                    # next call still returns 401. Raise so the caller stops retrying — looping
+                    # would just open another browser window for the same broken state.
+                    if _response_indicates_acl_block(response):
+                        raise requests.HTTPError(
+                            "ACL_BLOCKED: 401 persists after fresh login with ACL markers. "
+                            "Verify the user's role/ACL on the target.",
+                            response=response,
+                        )
+                    raise requests.HTTPError(
+                        "SESSION_REAUTH_FAILED: 401 persists immediately after a fresh "
+                        "browser login. The captured session is rejected by the server. "
+                        "Stop retrying — verify the account, MFA flow, and instance URL.",
+                        response=response,
+                    )
             else:
                 logger.warning(
                     f"Received 401 Unauthorized with {self.config.type.value} auth. "
