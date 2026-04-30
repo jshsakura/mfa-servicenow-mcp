@@ -1040,8 +1040,8 @@ class TestLoginWithBrowserSync:
                     with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
                         mgr._login_with_browser_sync(browser_cfg)
 
-    def test_login_interactive_stable_main_ui_fallback(self):
-        """Interactive mode: stable main UI with session cookie confirms login."""
+    def test_login_interactive_stable_main_ui_no_longer_confirms_login(self):
+        """Interactive mode now also requires a successful probe before confirmation."""
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
             timeout_seconds=10,
@@ -1052,19 +1052,14 @@ class TestLoginWithBrowserSync:
         mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
         mock_page.url = "https://example.service-now.com/now/nav/ui/classic"
 
-        final_probe = MagicMock()
-        final_probe.status_code = 200
-        final_probe.headers = {}
-        final_probe.url = "https://example.service-now.com/api"
-        final_probe.text = '{"result": []}'
-
-        call_count = {"n": 0}
-
         def _mock_probe(cookie_header, timeout_seconds=10, browser_config=None):
-            call_count["n"] += 1
-            if call_count["n"] > 8:
-                return final_probe
             raise requests.RequestException("blocked")
+
+        fake_now = {"value": 0.0}
+
+        def _fake_time():
+            fake_now["value"] += 60.0
+            return fake_now["value"]
 
         mock_spw = MagicMock(return_value=mock_sync)
         with patch.dict(
@@ -1074,9 +1069,16 @@ class TestLoginWithBrowserSync:
             with patch.object(mgr, "_probe_browser_api_with_cookie", side_effect=_mock_probe):
                 with patch.object(mgr, "_save_session_to_disk"):
                     with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
-                        mgr._login_with_browser_sync(browser_cfg, force_interactive=True)
+                        with patch(
+                            "servicenow_mcp.auth.auth_manager.time.time", side_effect=_fake_time
+                        ):
+                            with pytest.raises(
+                                ValueError,
+                                match="Timed out waiting for manual browser login/MFA completion",
+                            ):
+                                mgr._login_with_browser_sync(browser_cfg, force_interactive=True)
 
-        assert mgr._browser_cookie_header is not None
+        assert mgr._browser_cookie_header is None
 
     def test_login_non_interactive_stable_cookie_no_longer_confirms_login(self):
         """Non-interactive mode now requires a successful probe before confirmation."""
