@@ -388,22 +388,39 @@ class AuthManager:
             subprocess.check_call(cmd, timeout=300)
             logger.info("Chromium browser binary installed successfully.")
 
-    def _get_session_cache_path(self) -> str:
-        """Get the path to the session cache file, scoped by instance + user."""
-        home = os.path.expanduser("~")
-        cache_dir = os.path.join(home, ".servicenow_mcp")
+    def _get_cache_dir(self) -> str:
+        """Resolve the root cache directory for session JSON and Playwright profile.
+
+        If the user has set ``browser.user_data_dir`` (via
+        ``SERVICENOW_BROWSER_USER_DATA_DIR``), the session JSON sits next to
+        that profile directory so both files live in the same parent — letting
+        multiple MCP hosts (Claude / Codex / etc.) share login state by
+        pointing at the same path. Otherwise default to ``~/.servicenow_mcp``.
+        """
+        if self.config.browser and self.config.browser.user_data_dir:
+            cache_dir = os.path.dirname(os.path.abspath(self.config.browser.user_data_dir))
+        else:
+            cache_dir = os.path.join(os.path.expanduser("~"), ".servicenow_mcp")
         os.makedirs(cache_dir, exist_ok=True)
+        return cache_dir
+
+    def _get_instance_user_suffix(self) -> str:
+        """Return the ``{instance}{_user}`` suffix used in cache filenames."""
         instance_id = "default"
         if self.instance_url:
             instance_id = (urlparse(self.instance_url).hostname or "default").replace(".", "_")
-        # Include username in cache key to prevent session cross-contamination
-        # when multiple users share the same machine/instance.
         username = ""
         if self.config.browser and self.config.browser.username:
             username = f"_{self.config.browser.username.replace('.', '_').replace('@', '_')}"
         elif self.config.basic and self.config.basic.username:
             username = f"_{self.config.basic.username.replace('.', '_').replace('@', '_')}"
-        return os.path.join(cache_dir, f"session_{instance_id}{username}.json")
+        return f"{instance_id}{username}"
+
+    def _get_session_cache_path(self) -> str:
+        """Get the path to the session cache file, scoped by instance + user."""
+        return os.path.join(
+            self._get_cache_dir(), f"session_{self._get_instance_user_suffix()}.json"
+        )
 
     def _get_default_user_data_dir(self) -> str:
         """Per-instance default Playwright profile directory.
@@ -413,16 +430,7 @@ class AuthManager:
         re-login is silent when the ServiceNow session expires. Different
         instances/users get isolated profiles.
         """
-        home = os.path.expanduser("~")
-        cache_dir = os.path.join(home, ".servicenow_mcp")
-        os.makedirs(cache_dir, exist_ok=True)
-        instance_id = "default"
-        if self.instance_url:
-            instance_id = (urlparse(self.instance_url).hostname or "default").replace(".", "_")
-        username = ""
-        if self.config.browser and self.config.browser.username:
-            username = f"_{self.config.browser.username.replace('.', '_').replace('@', '_')}"
-        return os.path.join(cache_dir, f"profile_{instance_id}{username}")
+        return os.path.join(self._get_cache_dir(), f"profile_{self._get_instance_user_suffix()}")
 
     def _resolve_user_data_dir(self, browser_config: BrowserAuthConfig) -> str:
         """Return the configured Playwright profile dir, or the per-instance default."""
