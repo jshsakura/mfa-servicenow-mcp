@@ -1562,6 +1562,17 @@ class AuthManager:
             password = browser_config.password
 
             if username and password:
+                # Wait for any username selector to become visible before filling.
+                # Some login pages (SSO, custom portals) render the form via JS after
+                # the load event — without this wait, fill() silently finds nothing.
+                _wait_ms = min(timeout_ms, 10_000)
+                for _sel in USERNAME_SELECTORS:
+                    try:
+                        page.wait_for_selector(_sel, timeout=_wait_ms, state="visible")
+                        break
+                    except Exception:
+                        continue
+
                 targets = [page]
                 for frame in page.frames:
                     if frame is page.main_frame:
@@ -2040,6 +2051,17 @@ class AuthManager:
                         "Returning 401 without re-auth to avoid a duplicate browser login."
                     )
                     return retry_response
+
+                # If the 401 came back with a JSON body and no login redirect, it is an ACL
+                # restriction — the session is still valid, just the table is blocked.
+                # Re-auth won't help and would open an unnecessary browser window.
+                _ct = response.headers.get("Content-Type", "").lower()
+                if "application/json" in _ct and not _response_indicates_login_redirect(response):
+                    logger.info(
+                        "401 with JSON body (no login redirect) — ACL restriction, not session "
+                        "expiry. Skipping re-auth to avoid unnecessary browser login."
+                    )
+                    return response
 
                 # In browser mode, 401 almost always means the session/X-UserToken is dead.
                 # First try reloading from disk — another terminal may have refreshed the session.

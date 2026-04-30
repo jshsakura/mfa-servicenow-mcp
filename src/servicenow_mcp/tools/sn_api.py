@@ -705,8 +705,9 @@ def _generate_query_hint(query: str, error_msg: str) -> Optional[str]:
         )
     if "401" in error_lower or "unauthorized" in error_lower:
         hints.append(
-            "Authentication failed. Session may have expired — "
-            "retry to trigger re-authentication."
+            "401 Unauthorized — if a browser login just opened, the session was already refreshed. "
+            "A persistent 401 after re-auth means ACL blocks this table (not a session issue). "
+            "Try a different table or use a Flow Designer tool instead."
         )
     if "403" in error_lower or "forbidden" in error_lower:
         hints.append(
