@@ -1396,25 +1396,32 @@ class AuthManager:
                     effective_user_data_dir,
                     headless=True,
                 )
-                page = context.pages[0] if context.pages else context.new_page()
+                # Always close the persistent context, even if any page op below raises —
+                # otherwise the Chromium window leaks and the user sees a stuck browser.
                 try:
-                    page.goto(instance_url, timeout=timeout_ms, wait_until="domcontentloaded")
-                except Exception:
-                    # Navigation can fail transiently; cookie probe below is authoritative.
-                    pass
-                # Capture User-Agent and Session Token (g_ck) for session consistency
-                self._browser_user_agent = page.evaluate("navigator.userAgent")
-                try:
-                    self._browser_session_token = page.evaluate("window.g_ck")
-                except Exception:
-                    self._browser_session_token = None
-                cookies = context.cookies()
-                cookie_header = self._build_instance_cookie_header(
-                    cookies,  # type: ignore[arg-type]
-                    instance_url,
-                    instance_host,
-                )
-                context.close()
+                    page = context.pages[0] if context.pages else context.new_page()
+                    try:
+                        page.goto(instance_url, timeout=timeout_ms, wait_until="domcontentloaded")
+                    except Exception:
+                        # Navigation can fail transiently; cookie probe below is authoritative.
+                        pass
+                    # Capture User-Agent and Session Token (g_ck) for session consistency
+                    self._browser_user_agent = page.evaluate("navigator.userAgent")
+                    try:
+                        self._browser_session_token = page.evaluate("window.g_ck")
+                    except Exception:
+                        self._browser_session_token = None
+                    cookies = context.cookies()
+                    cookie_header = self._build_instance_cookie_header(
+                        cookies,  # type: ignore[arg-type]
+                        instance_url,
+                        instance_host,
+                    )
+                finally:
+                    try:
+                        context.close()
+                    except Exception as close_exc:
+                        logger.debug("Restore context.close() raised: %s (ignored)", close_exc)
         except Exception as exc:
             logger.info("Browser session restore failed while opening profile: %s", exc)
             return False
@@ -1701,6 +1708,21 @@ class AuthManager:
                 effective_user_data_dir,
                 headless=use_headless,
             )
+
+            def _safe_close_context() -> None:
+                """Close the persistent Chromium context on EVERY exit path.
+
+                Previously context.close() only ran on the happy path at the end of
+                this function. final_probe failure / timeout / no-cookies raises all
+                returned without closing the window — that is the "login succeeded
+                but the browser stays open" symptom. Wrapping every raise site with
+                this helper guarantees the window goes away.
+                """
+                try:
+                    context.close()
+                except Exception as _close_exc:  # noqa: BLE001
+                    logger.debug("Login context.close() raised: %s (ignored)", _close_exc)
+
             page = context.pages[0] if context.pages else context.new_page()
 
             # Store the User-Agent from the browser to match in subsequent requests
@@ -1812,6 +1834,7 @@ class AuthManager:
                 # looping for minutes until wait_budget_ms expires.
                 try:
                     if page.is_closed():
+                        _safe_close_context()
                         raise ValueError(
                             "Browser was closed before login completed. "
                             "The next tool call will re-open the login window."
@@ -1820,10 +1843,12 @@ class AuthManager:
                 except Exception as poll_exc:
                     error_text = str(poll_exc).lower()
                     if any(m in error_text for m in ["closed", "target", "disposed", "connection"]):
+                        _safe_close_context()
                         raise ValueError(
                             "Target page, context or browser has been closed. "
                             "The next tool call will re-open the login window."
                         ) from poll_exc
+                    _safe_close_context()
                     raise
                 current_host = (urlparse(current_url).hostname or "").lower()
                 # Use full-context cookies; some IdP/ServiceNow flows keep auth
@@ -1899,6 +1924,7 @@ class AuthManager:
                 time.sleep(1)
 
             if not login_confirmed:
+                _safe_close_context()
                 if use_headless:
                     raise ValueError(
                         "Timed out waiting for browser login/MFA in headless mode. "
@@ -1917,10 +1943,12 @@ class AuthManager:
                 self._browser_session_token = None
             cookies = context.cookies()
             if not cookies:
+                _safe_close_context()
                 raise ValueError("Browser login succeeded but no cookies were captured")
 
             cookie_header = self._build_instance_cookie_header(cookies, instance_url, instance_host)  # type: ignore[arg-type]
             if not cookie_header:
+                _safe_close_context()
                 raise ValueError("No instance-scoped secure cookies captured after login")
             self._browser_cookie_header = cookie_header
             self._browser_cookie_expires_at = time.time() + (
@@ -1930,8 +1958,14 @@ class AuthManager:
             self._browser_last_validated_at = None
             self._browser_last_login_at = time.time()
             self._clear_browser_reauth_attempt()
-            # Final validation before closing browser: avoid storing UI-only cookies that
-            # still fail API auth and cause immediate 401/reopen loops.
+            # Close the persistent context BEFORE final_probe runs so the browser
+            # window goes away whether the probe passes or fails. The probe is a
+            # plain HTTP call against self._browser_cookie_header, so it does not
+            # depend on the live Chromium context.
+            _safe_close_context()
+
+            # Final validation: avoid storing UI-only cookies that still fail API
+            # auth and cause immediate 401/reopen loops.
             try:
                 final_probe = self._probe_browser_api_with_cookie(
                     self._browser_cookie_header,
@@ -1970,8 +2004,6 @@ class AuthManager:
                 ",".join(_extract_cookie_names(self._browser_cookie_header)),
                 browser_config.session_ttl_minutes,
             )
-
-            context.close()
 
     def invalidate_browser_session(self):
         """Invalidate the current browser session, forcing re-authentication on next request.
