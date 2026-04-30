@@ -1078,8 +1078,8 @@ class TestLoginWithBrowserSync:
 
         assert mgr._browser_cookie_header is not None
 
-    def test_login_non_interactive_stable_cookie_fallback(self):
-        """Non-interactive: stable URL + session cookie confirms login."""
+    def test_login_non_interactive_stable_cookie_no_longer_confirms_login(self):
+        """Non-interactive mode now requires a successful probe before confirmation."""
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
             timeout_seconds=10,
@@ -1110,7 +1110,10 @@ class TestLoginWithBrowserSync:
             with patch.object(mgr, "_probe_browser_api_with_cookie", side_effect=_mock_probe):
                 with patch.object(mgr, "_save_session_to_disk"):
                     with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
-                        mgr._login_with_browser_sync(browser_cfg, force_interactive=False)
+                        with pytest.raises(
+                            ValueError, match="Timed out waiting for browser login/MFA"
+                        ):
+                            mgr._login_with_browser_sync(browser_cfg, force_interactive=False)
 
     def test_login_with_frames(self):
         """Login with iframe targets — fills in frames too."""
