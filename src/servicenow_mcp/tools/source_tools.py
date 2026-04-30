@@ -2067,11 +2067,13 @@ def _download_source_types(
     page_size: int = DEFAULT_DOWNLOAD_PAGE_SIZE,
     only_active: bool = False,
     extra_query: Optional[Dict[str, str]] = None,
+    query_override: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Core download loop shared by all individual download tools.
 
     Args:
         extra_query: Per-source_type extra query clauses (e.g. {"acl": "scriptISNOTEMPTY"}).
+        query_override: Per-source_type full query replacement (replaces sys_scope filter).
 
     Returns dict with keys: type_results, manifest_entries, warnings, total_files.
     """
@@ -2102,10 +2104,14 @@ def _download_source_types(
         if source_type in extra_query:
             base_filters.append(extra_query[source_type])
 
-        query_parts = [f"sys_scope.scope={scope}"] + base_filters
-        query = "^".join(query_parts)
+        if query_override and source_type in query_override:
+            parts = [query_override[source_type]] + base_filters
+        else:
+            parts = [f"sys_scope.scope={scope}"] + base_filters
+        query = "^".join(parts)
 
         _last_exc: Optional[Exception] = None
+        records: List[Dict[str, Any]] = []
         for _attempt in range(_RETRY_MAX_ATTEMPTS + 1):
             try:
                 records = sn_query_all(
@@ -2930,6 +2936,28 @@ def download_app_sources(
         all_manifest_entries.extend(dl["manifest_entries"])
         all_warnings.extend(dl["warnings"])
         all_files += dl["total_files"]
+
+    # --- Global sp_instance: widget placements live in global scope, not app scope ---
+    # Query: sp_widget.sys_scope.scope=<app_scope> to get all page placements of app widgets.
+    global_root = root / "global"
+    global_root.mkdir(parents=True, exist_ok=True)
+    dl_global = _download_source_types(
+        config,
+        auth_manager,
+        scope="global",
+        source_types=["sp_instance"],
+        scope_root=global_root,
+        root=root,
+        max_per_type=params.max_records_per_type,
+        page_size=params.page_size,
+        query_override={
+            "sp_instance": f"sp_widget.sys_scope.scope={_escape_query_value(params.scope)}"
+        },
+    )
+    gi = dl_global["type_results"].get("sp_instance", {"count": 0})
+    all_type_results["sp_instance_global"] = gi
+    all_warnings.extend(dl_global["warnings"])
+    all_files += dl_global["total_files"]
 
     # --- Table schema ---
     schema_summary: Optional[Dict[str, Any]] = None
