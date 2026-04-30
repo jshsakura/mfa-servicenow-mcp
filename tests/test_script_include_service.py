@@ -11,6 +11,8 @@ from servicenow_mcp.services.script_include import (
     create,
     delete,
     execute,
+    get_si,
+    list_si,
     update,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
@@ -256,3 +258,60 @@ class TestExecute:
         execute(config, auth, name="MyUtil")
         _, kwargs = auth.make_request.call_args
         assert kwargs["params"]["sysparm_name"] == "execute"
+
+
+class TestListSI:
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_happy_path(self, mock_qp, config, auth):
+        mock_qp.return_value = ([_SI], 1)
+        result = list_si(config, auth, active=True, client_callable=True, query="My")
+        assert result["success"] is True
+        assert len(result["script_includes"]) == 1
+        assert result["script_includes"][0]["name"] == "MyUtil"
+        q = mock_qp.call_args.kwargs["query"]
+        assert "active=true" in q
+        assert "client_callable=true" in q
+        assert "nameLIKEMy" in q
+
+    @patch("servicenow_mcp.services.script_include.sn_count")
+    def test_count_only(self, mock_cnt, config, auth):
+        mock_cnt.return_value = 10
+        result = list_si(config, auth, count_only=True)
+        assert result["success"] is True
+        assert result["count"] == 10
+
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_error(self, mock_qp, config, auth):
+        mock_qp.side_effect = RuntimeError("fail")
+        result = list_si(config, auth)
+        assert result["success"] is False
+
+
+class TestGetSI:
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_happy_path_by_id(self, mock_qp, config, auth):
+        mock_qp.return_value = ([{**_SI, "script": "var x=1;"}], 1)
+        result = get_si(config, auth, script_include_id="sys_id:abc")
+        assert result["success"] is True
+        assert result["script_include"]["name"] == "MyUtil"
+        assert result["script_include"]["script"] == "var x=1;"
+        assert mock_qp.call_args.kwargs["query"] == "sys_id=abc"
+
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_happy_path_by_name(self, mock_qp, config, auth):
+        mock_qp.return_value = ([_SI], 1)
+        result = get_si(config, auth, script_include_id="MyUtil")
+        assert result["success"] is True
+        assert mock_qp.call_args.kwargs["query"] == "name=MyUtil"
+
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_not_found(self, mock_qp, config, auth):
+        mock_qp.return_value = ([], 0)
+        result = get_si(config, auth, script_include_id="X")
+        assert result["success"] is False
+
+    @patch("servicenow_mcp.services.script_include.sn_query_page")
+    def test_error(self, mock_qp, config, auth):
+        mock_qp.side_effect = RuntimeError("fail")
+        result = get_si(config, auth, script_include_id="X")
+        assert result["success"] is False
