@@ -34,6 +34,80 @@ def _resp(payload, status=200):
     return r
 
 
+class TestHelpers(unittest.TestCase):
+    @patch("servicenow_mcp.services.user.sn_query_page")
+    def test_lookup_user_id_sys_id(self, mock_qp):
+        result = svc._lookup_user_id(_config(), _auth(), "sys_id:123")
+        self.assertEqual(result, "123")
+        mock_qp.assert_not_called()
+
+    @patch("servicenow_mcp.services.user.sn_query_page")
+    def test_lookup_user_id_username(self, mock_qp):
+        mock_qp.return_value = ([{"sys_id": "u1"}], 1)
+        result = svc._lookup_user_id(_config(), _auth(), "alice")
+        self.assertEqual(result, "u1")
+        self.assertEqual(mock_qp.call_args.kwargs["query"], "user_name=alice")
+
+    @patch("servicenow_mcp.services.user.sn_query_page")
+    def test_lookup_user_id_email(self, mock_qp):
+        mock_qp.side_effect = [([], 0), ([{"sys_id": "u1"}], 1)]
+        result = svc._lookup_user_id(_config(), _auth(), "a@b.com")
+        self.assertEqual(result, "u1")
+        self.assertEqual(mock_qp.call_count, 2)
+
+    @patch("servicenow_mcp.services.user.sn_query_page")
+    def test_lookup_user_id_not_found(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+        result = svc._lookup_user_id(_config(), _auth(), "ghost")
+        self.assertIsNone(result)
+
+    @patch("servicenow_mcp.services.user.sn_query_page")
+    def test_get_role_id(self, mock_qp):
+        mock_qp.return_value = ([{"sys_id": "r1"}], 1)
+        result = svc._get_role_id(_config(), _auth(), "itil")
+        self.assertEqual(result, "r1")
+
+    @patch("servicenow_mcp.services.user.sn_query_page")
+    def test_has_role(self, mock_qp):
+        mock_qp.return_value = ([{"sys_id": "hr1"}], 1)
+        self.assertTrue(svc._has_role(_config(), _auth(), "u1", "r1"))
+        mock_qp.return_value = ([], 0)
+        self.assertFalse(svc._has_role(_config(), _auth(), "u1", "r2"))
+
+
+class TestAssignRoles(unittest.TestCase):
+    @patch("servicenow_mcp.services.user.invalidate_query_cache")
+    @patch("servicenow_mcp.services.user._has_role", return_value=False)
+    @patch("servicenow_mcp.services.user._get_role_id", return_value="r1")
+    def test_happy(self, mock_grid, mock_has, mock_inv):
+        auth = _auth()
+        auth.make_request.return_value = _resp({})
+        svc._assign_roles(_config(), auth, "u1", ["itil"])
+        auth.make_request.assert_called_once()
+        mock_inv.assert_called_once_with(table="sys_user_has_role")
+
+    @patch("servicenow_mcp.services.user._get_role_id", return_value=None)
+    def test_role_not_found(self, mock_grid):
+        auth = _auth()
+        svc._assign_roles(_config(), auth, "u1", ["ghost"])
+        auth.make_request.assert_not_called()
+
+    @patch("servicenow_mcp.services.user._has_role", return_value=True)
+    @patch("servicenow_mcp.services.user._get_role_id", return_value="r1")
+    def test_already_has_role(self, mock_grid, mock_has):
+        auth = _auth()
+        svc._assign_roles(_config(), auth, "u1", ["itil"])
+        auth.make_request.assert_not_called()
+
+    @patch("servicenow_mcp.services.user._has_role", return_value=False)
+    @patch("servicenow_mcp.services.user._get_role_id", return_value="r1")
+    def test_error(self, mock_grid, mock_has):
+        auth = _auth()
+        auth.make_request.side_effect = Exception("Fail")
+        svc._assign_roles(_config(), auth, "u1", ["itil"])
+        auth.make_request.assert_called_once()
+
+
 class TestCreateUser(unittest.TestCase):
     @patch("servicenow_mcp.services.user.invalidate_query_cache")
     def test_happy(self, mock_inv):
@@ -60,6 +134,8 @@ class TestCreateUser(unittest.TestCase):
             first_name="Bob",
             last_name="S",
             email="b@x.com",
+            title="T",
+            department="D",
             manager="mgr1",
             phone="555",
             mobile_phone="556",
@@ -67,6 +143,8 @@ class TestCreateUser(unittest.TestCase):
             password="secret",
         )
         body = auth.make_request.call_args[1]["json"]
+        self.assertEqual(body["title"], "T")
+        self.assertEqual(body["department"], "D")
         self.assertEqual(body["manager"], "mgr1")
         self.assertEqual(body["user_password"], "secret")
 
@@ -110,6 +188,30 @@ class TestUpdateUser(unittest.TestCase):
         self.assertEqual(args[0][0], "PATCH")
         self.assertIn("/u1", args[0][1])
 
+    @patch("servicenow_mcp.services.user.invalidate_query_cache")
+    def test_optional_fields(self, mock_inv):
+        auth = _auth()
+        auth.make_request.return_value = _resp({"result": {"sys_id": "u1"}})
+        svc.update_user(
+            _config(),
+            auth,
+            user_id="u1",
+            user_name="new_alice",
+            last_name="NewW",
+            title="T2",
+            department="D2",
+            manager="mgr2",
+            phone="111",
+            mobile_phone="222",
+            location="loc2",
+        )
+        body = auth.make_request.call_args[1]["json"]
+        self.assertEqual(body["user_name"], "new_alice")
+        self.assertEqual(body["last_name"], "NewW")
+        self.assertEqual(body["title"], "T2")
+        self.assertEqual(body["department"], "D2")
+        self.assertEqual(body["manager"], "mgr2")
+
     @patch("servicenow_mcp.services.user.build_update_preview")
     def test_dry_run(self, mock_preview):
         mock_preview.return_value = {"dry_run": True}
@@ -121,13 +223,19 @@ class TestUpdateUser(unittest.TestCase):
         self.assertEqual(kw["sys_id"], "u1")
 
     @patch("servicenow_mcp.services.user.build_update_preview")
-    def test_dry_run_password_warning(self, mock_preview):
+    def test_dry_run_password_and_roles(self, mock_preview):
         mock_preview.return_value = {}
-        svc.update_user(
-            _config(), _auth(), user_id="u1", password="secret", first_name="X", dry_run=True
+        result = svc.update_user(
+            _config(),
+            _auth(),
+            user_id="u1",
+            password="secret",
+            roles=["itil"],
+            first_name="X",
+            dry_run=True,
         )
-        result = mock_preview.return_value
         self.assertIn("warnings", result)
+        self.assertIn("proposed_roles", result)
 
     @patch("servicenow_mcp.services.user.invalidate_query_cache")
     def test_active_field(self, mock_inv):
@@ -155,6 +263,27 @@ class TestCreateGroup(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["group_id"], "g1")
         mock_inv.assert_called_once_with(table="sys_user_group")
+
+    @patch("servicenow_mcp.services.user.invalidate_query_cache")
+    def test_optional_fields(self, mock_inv):
+        auth = _auth()
+        auth.make_request.return_value = _resp({"result": {"sys_id": "g1"}})
+        svc.create_group(
+            _config(),
+            auth,
+            name="Eng",
+            description="DESC",
+            manager="m1",
+            parent="p1",
+            type="t1",
+            email="e@e.com",
+        )
+        body = auth.make_request.call_args[1]["json"]
+        self.assertEqual(body["description"], "DESC")
+        self.assertEqual(body["manager"], "m1")
+        self.assertEqual(body["parent"], "p1")
+        self.assertEqual(body["type"], "t1")
+        self.assertEqual(body["email"], "e@e.com")
 
     @patch("servicenow_mcp.services.user.add_members")
     @patch("servicenow_mcp.services.user.invalidate_query_cache")
@@ -185,6 +314,24 @@ class TestUpdateGroup(unittest.TestCase):
         args = auth.make_request.call_args
         self.assertEqual(args[0][0], "PATCH")
         self.assertIn("/g1", args[0][1])
+
+    @patch("servicenow_mcp.services.user.invalidate_query_cache")
+    def test_optional_fields(self, mock_inv):
+        auth = _auth()
+        auth.make_request.return_value = _resp({"result": {"sys_id": "g1"}})
+        svc.update_group(
+            _config(),
+            auth,
+            group_id="g1",
+            description="D2",
+            manager="m2",
+            parent="p2",
+            type="t2",
+            email="e2@e.com",
+        )
+        body = auth.make_request.call_args[1]["json"]
+        self.assertEqual(body["description"], "D2")
+        self.assertEqual(body["manager"], "m2")
 
     @patch("servicenow_mcp.services.user.build_update_preview")
     def test_dry_run(self, mock_preview):
@@ -265,6 +412,13 @@ class TestRemoveMembers(unittest.TestCase):
     def test_membership_not_found(self, mock_lookup):
         auth = _auth()
         auth.make_request.return_value = _resp({"result": []})
+        result = svc.remove_members(_config(), auth, group_id="g1", members=["alice"])
+        self.assertFalse(result["success"])
+
+    @patch("servicenow_mcp.services.user._lookup_user_id", return_value="u1")
+    def test_error(self, mock_lookup):
+        auth = _auth()
+        auth.make_request.side_effect = Exception("Fail")
         result = svc.remove_members(_config(), auth, group_id="g1", members=["alice"])
         self.assertFalse(result["success"])
 
