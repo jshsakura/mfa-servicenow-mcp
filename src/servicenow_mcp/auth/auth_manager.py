@@ -603,6 +603,9 @@ class AuthManager:
             "session_token": self._browser_session_token,
             "expires_at": self._browser_cookie_expires_at,
             "instance_url": self.instance_url,
+            # Persist last_validated_at so a sibling process that adopts this
+            # session can decide whether to trust it or re-probe before use.
+            "last_validated_at": self._browser_last_validated_at,
         }
         # Quick content-hash check to skip redundant writes
         content_hash = hash((data["cookie_header"], data["user_agent"], data["session_token"]))
@@ -721,7 +724,12 @@ class AuthManager:
                 or disk_expires > self._browser_cookie_expires_at
             ):
                 self._browser_cookie_expires_at = disk_expires
-                self._browser_last_validated_at = time.time()
+                # Another process recently wrote/validated the session — adopt their
+                # validated_at if present (capped to now) so we don't claim a fresher
+                # validation than actually happened.
+                disk_validated_at = data.get("last_validated_at")
+                if disk_validated_at:
+                    self._browser_last_validated_at = min(disk_validated_at, time.time())
                 logger.debug("Reload: same cookies but extended TTL from disk.")
             return False
 
@@ -733,7 +741,15 @@ class AuthManager:
         self._browser_user_agent = data.get("user_agent")
         self._browser_session_token = data.get("session_token")
         self._browser_cookie_expires_at = disk_expires
-        self._browser_last_validated_at = time.time()
+        # Do NOT claim "just validated" for a session another process wrote — the
+        # cookie may already be stale on the server (idle timeout, token rotation,
+        # explicit logout). Inherit the original validated_at if present so the
+        # next request will probe instead of blindly trusting disk state. This
+        # eliminates the "every first call hits 401, retry succeeds" pattern.
+        disk_validated_at = data.get("last_validated_at")
+        self._browser_last_validated_at = (
+            min(disk_validated_at, time.time()) if disk_validated_at else None
+        )
         logger.info(
             "Reloaded fresher session from disk (written by another process): %s",
             self._session_cache_path,
@@ -928,21 +944,32 @@ class AuthManager:
                     # Another process may have already written a fresh session to disk.
                     if self._reload_session_from_disk():
                         if self._browser_cookie_header and not self._is_browser_session_expired():
+                            # Probe before trusting a disk-adopted session — the cookie may
+                            # be stale on the server even if the local TTL says valid (idle
+                            # timeout, server-side rotation, explicit logout in another tab).
+                            # Without this check every first request after spawn paid an
+                            # observable 401 → re-auth → retry round-trip.
+                            if self._is_browser_session_valid(self.config.browser):
+                                logger.info(
+                                    "Session restored from disk (fast path) — skipping browser."
+                                )
+                                self._browser_reauth_failure_count = 0
+                                self._browser_reauth_cooldown_seconds = (
+                                    self._browser_reauth_cooldown_base
+                                )
+                                if not self._keepalive_thread:
+                                    self._start_keepalive()
+                                headers["Cookie"] = self._browser_cookie_header or ""
+                                if self._browser_user_agent:
+                                    headers["User-Agent"] = self._browser_user_agent
+                                if self._browser_session_token:
+                                    headers["X-UserToken"] = self._browser_session_token
+                                return headers
                             logger.info(
-                                "Session restored from disk (fast path) — skipping browser."
+                                "Disk-restored session failed live probe — discarding "
+                                "and continuing to interactive re-auth."
                             )
-                            self._browser_reauth_failure_count = 0
-                            self._browser_reauth_cooldown_seconds = (
-                                self._browser_reauth_cooldown_base
-                            )
-                            if not self._keepalive_thread:
-                                self._start_keepalive()
-                            headers["Cookie"] = self._browser_cookie_header or ""
-                            if self._browser_user_agent:
-                                headers["User-Agent"] = self._browser_user_agent
-                            if self._browser_session_token:
-                                headers["X-UserToken"] = self._browser_session_token
-                            return headers
+                            self.invalidate_browser_session()
 
                     # Try browser profile restore (opens Playwright) — now under lock.
                     if self._try_restore_browser_session(self.config.browser):
@@ -961,22 +988,29 @@ class AuthManager:
                     # login while our _try_restore_browser_session was running.
                     if self._reload_session_from_disk():
                         if self._browser_cookie_header and not self._is_browser_session_expired():
+                            # Same probe-before-trust guard as the earlier fast path.
+                            if self._is_browser_session_valid(self.config.browser):
+                                logger.info(
+                                    "Session appeared on disk after restore attempt — "
+                                    "another process completed login."
+                                )
+                                self._browser_reauth_failure_count = 0
+                                self._browser_reauth_cooldown_seconds = (
+                                    self._browser_reauth_cooldown_base
+                                )
+                                if not self._keepalive_thread:
+                                    self._start_keepalive()
+                                headers["Cookie"] = self._browser_cookie_header or ""
+                                if self._browser_user_agent:
+                                    headers["User-Agent"] = self._browser_user_agent
+                                if self._browser_session_token:
+                                    headers["X-UserToken"] = self._browser_session_token
+                                return headers
                             logger.info(
-                                "Session appeared on disk after restore attempt — "
-                                "another process completed login."
+                                "Disk session from sibling process failed probe — "
+                                "discarding and continuing."
                             )
-                            self._browser_reauth_failure_count = 0
-                            self._browser_reauth_cooldown_seconds = (
-                                self._browser_reauth_cooldown_base
-                            )
-                            if not self._keepalive_thread:
-                                self._start_keepalive()
-                            headers["Cookie"] = self._browser_cookie_header or ""
-                            if self._browser_user_agent:
-                                headers["User-Agent"] = self._browser_user_agent
-                            if self._browser_session_token:
-                                headers["X-UserToken"] = self._browser_session_token
-                            return headers
+                            self.invalidate_browser_session()
 
                     # Browser auth is user-driven (MFA/SSO). Always keep interactive mode.
                     if self._browser_login_in_progress:
@@ -1267,6 +1301,34 @@ class AuthManager:
         when the server already accepted the current cookie + user token pair.
         """
         self._browser_last_validated_at = time.time()
+
+    def _absorb_response_token_rotation(self, response: requests.Response) -> None:
+        """Pick up rotated X-UserToken / X-CSRF-Token from a server response.
+
+        ServiceNow rotates the g_ck (X-UserToken) value periodically and may push
+        the new value via the response headers. If we keep using the original
+        token captured at login time we eventually hit 401 on mutating calls. By
+        absorbing the rotated token immediately, subsequent requests stay valid
+        without paying for a re-auth.
+
+        Only updates when the server returned a non-empty token that differs from
+        the one currently held in memory, and only for browser-auth managers.
+        """
+        if self.config.type != AuthType.BROWSER:
+            return
+        rotated = response.headers.get("X-UserToken") or response.headers.get("X-CSRF-Token")
+        if not rotated:
+            return
+        rotated = rotated.strip()
+        if not rotated or rotated == self._browser_session_token:
+            return
+        self._browser_session_token = rotated
+        # Persist the rotated token so other processes pick it up via disk reload
+        # on their next request.
+        try:
+            self._save_session_to_disk()
+        except Exception as exc:
+            logger.debug("Failed to persist rotated X-UserToken: %s", exc)
 
     def _probe_browser_api_with_cookie(
         self,
@@ -2078,6 +2140,7 @@ class AuthManager:
             and _response_indicates_authenticated_session(response)
         ):
             self._mark_browser_session_recently_valid()
+            self._absorb_response_token_rotation(response)
 
         # Handle 401 Unauthorized - retry with fresh session for Browser Auth
         if response.status_code == 401 and max_retries > 0:
@@ -2125,6 +2188,7 @@ class AuthManager:
                         reloaded_response = self._http_session.request(method, url, **kwargs)
                         if reloaded_response.status_code != 401:
                             self._mark_browser_session_recently_valid()
+                            self._absorb_response_token_rotation(reloaded_response)
                             return reloaded_response
                         if _response_indicates_acl_block(reloaded_response):
                             raise requests.HTTPError(
@@ -2167,6 +2231,7 @@ class AuthManager:
                     retry_response = self._http_session.request(method, url, **kwargs)
                     if retry_response.status_code != 401:
                         self._mark_browser_session_recently_valid()
+                        self._absorb_response_token_rotation(retry_response)
                         return retry_response
                     logger.info("Disk-reloaded session also got 401. Proceeding to full re-auth.")
 
