@@ -723,17 +723,18 @@ class TestIsBrowserSessionValid:
         with patch.object(mgr, "_probe_browser_api_with_cookie", side_effect=Exception("net err")):
             assert mgr._is_browser_session_valid(browser_cfg) is False
 
-    def test_probe_401_but_authenticated(self):
-        """401 from ACL but not a login redirect => still valid."""
+    def test_probe_401_json_acl_but_authenticated(self):
+        """401 JSON from ACL but not login HTML still counts as authenticated."""
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = "a=1"
         mgr._browser_last_login_at = None
         browser_cfg = BrowserAuthConfig(timeout_seconds=10)
         mock_resp = MagicMock()
         mock_resp.status_code = 401
-        mock_resp.headers = {}
+        mock_resp.headers = {"Content-Type": "application/json"}
         mock_resp.url = "https://example.service-now.com/api/now/table/sys_user"
         mock_resp.is_redirect = False
+        mock_resp.text = '{"error": {"message": "ACL denied"}}'
         with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=mock_resp):
             assert mgr._is_browser_session_valid(browser_cfg) is True
 
