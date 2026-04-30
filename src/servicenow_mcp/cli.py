@@ -321,17 +321,12 @@ def create_config(args) -> ServerConfig:
         _explicit_probe = args.browser_probe_path or os.getenv("SERVICENOW_BROWSER_PROBE_PATH")
         if _explicit_probe:
             browser_probe_path = _explicit_probe
-        elif browser_username:
-            # Build a user-specific probe so the endpoint always returns 200 for valid
-            # sessions. Listing all sys_user records requires admin and returns 401 for
-            # regular users, making it impossible to distinguish "session expired" from
-            # "ACL restriction" when the probe returns 401.
-            _enc = urllib.parse.quote(browser_username, safe="")
-            browser_probe_path = (
-                f"/api/now/table/sys_user"
-                f"?sysparm_query=user_name%3D{_enc}&sysparm_limit=1&sysparm_fields=sys_id"
-            )
         else:
+            # sys_user_preference is the safest default — every logged-in
+            # ServiceNow user has read access to their own preferences.
+            # Earlier versions tried to be cleverer by querying sys_user with
+            # the username, but many instances deny regular users read on the
+            # sys_user table itself, producing a permanent 401 polling loop.
             browser_probe_path = (
                 "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
             )
