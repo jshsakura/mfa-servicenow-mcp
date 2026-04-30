@@ -508,7 +508,10 @@ class TestLoginWithBrowserSync:
         assert "JSESSIONID=abc123" in mgr._browser_cookie_header
         assert mgr._browser_user_agent == "TestAgent/1.0"
         assert mgr._browser_session_token == "g_ck_token"
-        mock_context.close.assert_called_once()
+        # v1.10.22: success path closes twice — once before final_probe, once
+        # after — to defeat the "window stays open after login" race observed
+        # by users where in-flight navigation deferred teardown.
+        assert mock_context.close.call_count >= 1
 
     def test_full_login_with_credentials_filled(self):
         """Login with username/password — fills form fields."""
