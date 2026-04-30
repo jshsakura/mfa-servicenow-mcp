@@ -1079,7 +1079,7 @@ class ManageWorkflowParams(BaseModel):
 @register_tool(
     name="manage_workflow",
     params=ManageWorkflowParams,
-    description="List/get/CRUD + lifecycle + activity ops for workflows (table: wf_workflow / wf_activity).",
+    description="LEGACY workflows (wf_workflow/wf_activity). For modern Flow Designer use list_flow_designers.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )

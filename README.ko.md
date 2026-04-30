@@ -199,9 +199,24 @@ ServiceNow 환경에 맞는 인증 방식을 선택하세요.
 | `--browser-headless` | `SERVICENOW_BROWSER_HEADLESS` | `false` | GUI 없이 브라우저 실행 |
 | `--browser-timeout` | `SERVICENOW_BROWSER_TIMEOUT` | `120` | 로그인 타임아웃 (초) |
 | `--browser-session-ttl` | `SERVICENOW_BROWSER_SESSION_TTL` | `30` | 세션 TTL (분) |
-| `--browser-user-data-dir` | `SERVICENOW_BROWSER_USER_DATA_DIR` | — | 영구 브라우저 프로파일 경로 |
+| `--browser-user-data-dir` | `SERVICENOW_BROWSER_USER_DATA_DIR` | — | 영구 브라우저 프로파일 경로. 세션 JSON 캐시도 같은 부모 디렉터리에 저장되어, 여러 MCP 호스트가 로그인 상태를 공유할 수 있습니다. |
 | `--browser-probe-path` | `SERVICENOW_BROWSER_PROBE_PATH` | 사용자명을 알 수 있는 경우 사용자별 `sys_user` 조회, 그 외에는 `/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id` | 세션 검증 엔드포인트 (비관리자 세션 401 회피) |
 | `--browser-login-url` | `SERVICENOW_BROWSER_LOGIN_URL` | — | 커스텀 로그인 페이지 URL |
+
+#### 여러 MCP 호스트 간 로그인 공유 (Codex + Claude 등)
+
+한 사용자가 여러 호스트(예: Claude Code와 Codex)에서 MCP 서버를 띄우면, 각 호스트가 `~/.servicenow_mcp`를 서로 다른 경로로 인식할 수 있습니다 — 샌드박스 앱은 `HOME`이 리매핑되어 **서로 다른** 세션 캐시를 사용하게 되고, 결국 호스트마다 MFA 로그인 창이 다시 뜹니다.
+
+**왜 공유 경로가 필요한가:** 서버가 저장하는 항목은 두 가지입니다 — Playwright 프로필(Chromium의 SSO 쿠키)과 세션 JSON(MCP가 다음 시작 시 재사용하는 파싱된 쿠키). 공유 루트가 없으면 호스트 A의 로그인은 호스트 B에게 보이지 않습니다.
+
+**해결:** 모든 호스트의 MCP 설정에 `SERVICENOW_BROWSER_USER_DATA_DIR`를 **동일한 절대 경로**로 지정하세요. 세션 JSON 경로는 이 디렉터리의 부모를 기준으로 계산되므로, Chromium 프로필과 JSON 캐시 둘 다 공유됩니다.
+
+```bash
+# 안정적인 절대 경로면 무엇이든 OK — 예시는 인스턴스별 폴더
+export SERVICENOW_BROWSER_USER_DATA_DIR="$HOME/.servicenow_mcp/shared/profile_acme"
+```
+
+Codex의 `~/.codex/config.toml`, Claude Desktop의 `claude_desktop_config.json` 등 모든 클라이언트에 같은 값을 설정하세요. 먼저 로그인한 호스트가 세션을 저장하면, 다른 호스트는 다음 도구 호출 시 브라우저를 열지 않고 그대로 사용합니다.
 
 ### Basic 인증
 
