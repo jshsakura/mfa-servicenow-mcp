@@ -1044,7 +1044,8 @@ class TestMakeRequestBrowser:
         call_kwargs = mock_req.call_args.kwargs
         assert "cookies" not in call_kwargs
 
-    def test_browser_401_reauth_fails_returns_original(self):
+    def test_browser_401_reauth_fails_raises_http_error(self):
+        """When browser re-auth fails, raise HTTPError so the LLM gets a clear message."""
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = "a=1"
         mgr._browser_cookie_expires_at = time.time() + 600
@@ -1073,14 +1074,13 @@ class TestMakeRequestBrowser:
             with patch.object(mgr._http_session, "request", return_value=mock_resp):
                 with patch.object(mgr, "invalidate_browser_session"):
                     with patch.object(mgr, "_reload_session_from_disk", return_value=False):
-                        resp = mgr.make_request(
-                            "GET",
-                            "https://example.service-now.com/api",
-                            timeout=10,
-                            max_retries=1,
-                        )
-        # Should return the 401 response when reauth fails
-        assert resp.status_code == 401
+                        with pytest.raises(requests.HTTPError, match="re-authentication failed"):
+                            mgr.make_request(
+                                "GET",
+                                "https://example.service-now.com/api",
+                                timeout=10,
+                                max_retries=1,
+                            )
 
     def test_browser_marks_session_valid_on_success(self):
         mgr = _make_browser_manager()
