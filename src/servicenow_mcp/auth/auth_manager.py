@@ -951,14 +951,24 @@ class AuthManager:
                         if self._wait_for_other_login(
                             timeout=self.config.browser.timeout_seconds + 60
                         ):
-                            if not self._keepalive_thread:
-                                self._start_keepalive()
-                            headers["Cookie"] = self._browser_cookie_header or ""
-                            if self._browser_user_agent:
-                                headers["User-Agent"] = self._browser_user_agent
-                            if self._browser_session_token:
-                                headers["X-UserToken"] = self._browser_session_token
-                            return headers
+                            if self._has_reusable_browser_session(self.config.browser):
+                                self._browser_reauth_failure_count = 0
+                                self._browser_reauth_cooldown_seconds = (
+                                    self._browser_reauth_cooldown_base
+                                )
+                                if not self._keepalive_thread:
+                                    self._start_keepalive()
+                                headers["Cookie"] = self._browser_cookie_header or ""
+                                if self._browser_user_agent:
+                                    headers["User-Agent"] = self._browser_user_agent
+                                if self._browser_session_token:
+                                    headers["X-UserToken"] = self._browser_session_token
+                                return headers
+                            logger.info(
+                                "Waited-for cross-process session failed validation. "
+                                "Falling back to a local interactive login."
+                            )
+                            self.invalidate_browser_session()
                         # Timed out waiting — fall through to try login ourselves
                         if not self._acquire_login_lock():
                             raise ValueError(
@@ -1196,6 +1206,16 @@ class AuthManager:
             )
             return True
 
+        return True
+
+    def _has_reusable_browser_session(self, browser_config: BrowserAuthConfig) -> bool:
+        """Return True only when the current browser session is safe to reuse."""
+        if not self._browser_cookie_header or self._is_browser_session_expired():
+            return False
+        if self._should_validate_browser_session() and not self._is_browser_session_valid(
+            browser_config
+        ):
+            return False
         return True
 
     def _mark_browser_session_recently_valid(self) -> None:
@@ -1773,23 +1793,6 @@ class AuthManager:
                     except requests.RequestException:
                         # During MFA transitions network hiccups are possible; keep polling until timeout.
                         successful_probes = 0
-                    # Fallback for environments where API probe is flaky/blocked after MFA.
-                    # In interactive mode, trust stable main-UI state to avoid hanging forever.
-                    if (
-                        force_interactive
-                        and stable_instance_ticks >= 8
-                        and _looks_like_instance_main_ui(current_url)
-                        and _has_servicenow_session_cookie(cookie_names)
-                    ):
-                        logger.info(
-                            "Interactive browser auth confirmed by stable main UI: "
-                            "current_url=%s stable_ticks=%s cookie_names=%s",
-                            current_url,
-                            stable_instance_ticks,
-                            ",".join(cookie_names),
-                        )
-                        login_confirmed = True
-                        break
                 time.sleep(1)
 
             if not login_confirmed:
