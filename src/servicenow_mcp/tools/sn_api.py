@@ -822,7 +822,7 @@ def sn_health(
 @register_tool(
     name="sn_query",
     params=GenericQueryParams,
-    description="Query any ServiceNow table with encoded query filters. Use as fallback when no specialized tool exists for the table.",
+    description="Generic table query; last resort only. Domain tools exist: flows->list_flow_designers, BR->search_server_code, WF->manage_workflow.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
