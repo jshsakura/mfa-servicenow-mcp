@@ -356,8 +356,8 @@ class AuthManager:
         self._browser_session_key: Optional[str] = None
         self._browser_last_validated_at: Optional[float] = None
         self._browser_last_reauth_attempt_at: Optional[float] = None
-        self._browser_user_agent = None
-        self._browser_session_token = None
+        self._browser_user_agent: Optional[str] = None
+        self._browser_session_token: Optional[str] = None
         self._browser_validation_interval_seconds = 120
         self._browser_last_login_at: Optional[float] = None
         self._browser_post_login_grace_seconds = 90
