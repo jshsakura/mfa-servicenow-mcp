@@ -220,7 +220,33 @@ def _response_indicates_login_redirect(response: requests.Response) -> bool:
 
 
 def _response_indicates_authenticated_session(response: requests.Response) -> bool:
-    return not _response_indicates_login_redirect(response)
+    if _response_indicates_login_redirect(response):
+        return False
+
+    try:
+        body = (response.text or "")[:2000].lower()
+    except Exception:
+        body = ""
+
+    unauthenticated_markers = [
+        "user not authenticated",
+        "login with sso",
+        "forgot password ?",
+        "forgot password?",
+        "log in | servicenow",
+        "<title>log in",
+    ]
+    return not any(marker in body for marker in unauthenticated_markers)
+
+
+def _response_confirms_browser_probe_session(response: requests.Response) -> bool:
+    """Return True only when the probe proves the session is reusable."""
+    if not _response_indicates_authenticated_session(response):
+        return False
+    if response.status_code == 401:
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        return "application/json" in content_type
+    return response.status_code == 403 or 200 <= response.status_code < 300
 
 
 def _selector_exists(target, selector: str) -> bool:
@@ -588,8 +614,7 @@ class AuthManager:
                             timeout_seconds=10,
                             browser_config=self.config.browser,
                         )
-                        if _response_indicates_authenticated_session(probe):
-                            # Non-redirect = authenticated (matches runtime validation).
+                        if _response_confirms_browser_probe_session(probe):
                             new_ttl = (self.config.browser.session_ttl_minutes or 30) * 60
                             self._browser_cookie_header = cookie_header
                             self._browser_cookie_expires_at = time.time() + new_ttl
@@ -616,8 +641,10 @@ class AuthManager:
             self._browser_user_agent = data.get("user_agent")
             self._browser_session_token = data.get("session_token")
             self._browser_cookie_expires_at = expires_at
-            # Set validation interval so we don't immediately probe
-            self._browser_last_validated_at = time.time()
+            # Force a live probe before the first reuse of a disk-restored session.
+            # A non-expired local TTL only means our cache is fresh enough to try;
+            # it does not prove the remote ServiceNow auth state is still valid.
+            self._browser_last_validated_at = None
             logger.info("Loaded browser session from disk: %s", self._session_cache_path)
         except Exception as exc:
             logger.warning("Failed to load browser session from disk: %s", exc)
@@ -729,7 +756,7 @@ class AuthManager:
                         timeout_seconds=10,
                         browser_config=self.config.browser,  # type: ignore[arg-type]
                     )
-                    if _response_indicates_authenticated_session(probe):
+                    if _response_confirms_browser_probe_session(probe):
                         # Session is alive — extend TTL
                         self._browser_cookie_expires_at = time.time() + (ttl_minutes * 60)
                         self._browser_last_validated_at = time.time()
@@ -1157,10 +1184,10 @@ class AuthManager:
             (urlparse(str(response.url)).hostname or "").lower(),
         )
 
-        if not _response_indicates_authenticated_session(response):
+        if not _response_confirms_browser_probe_session(response):
             return False
 
-        if response.status_code in (401, 403):
+        if response.status_code == 403:
             logger.info(
                 "Browser session probe is authenticated but unauthorized for probe path: "
                 "status=%s probe_path=%s",
@@ -1283,14 +1310,14 @@ class AuthManager:
             logger.info("Browser session restore probe failed: %s", exc)
             return False
 
-        if not _response_indicates_authenticated_session(probe):
+        if not _response_confirms_browser_probe_session(probe):
             logger.info(
-                "Browser session restore probe indicated login redirect: status=%s",
+                "Browser session restore probe rejected cached cookies: status=%s",
                 probe.status_code,
             )
             return False
 
-        if probe.status_code in (401, 403):
+        if probe.status_code == 403:
             logger.info(
                 "Browser session restore probe returned %s — authenticated but unauthorized "
                 "for probe path (probe_path=%s). Accepting session.",
@@ -1657,7 +1684,6 @@ class AuthManager:
             login_confirmed = False
             successful_probes = 0
             stable_instance_ticks = 0
-            saw_unauthorized_probe = False
             while (time.time() - start) * 1000 < wait_budget_ms:
                 # Detect browser closed by user — break immediately instead of
                 # looping for minutes until wait_budget_ms expires.
@@ -1701,9 +1727,7 @@ class AuthManager:
                         # intermediate redirect/cookie states as completed MFA login.
                         # Also ensure the probe returned a clear authenticated status (200 or 403).
                         # A 401 (Unauthorized) or 3xx (Redirect) indicates login is still in progress.
-                        if _response_indicates_authenticated_session(
-                            probe
-                        ) and probe.status_code in (200, 403):
+                        if _response_confirms_browser_probe_session(probe):
                             resolved_url = str(probe.url)
                             resolved_host = (urlparse(resolved_url).hostname or "").lower()
                             if (
@@ -1737,7 +1761,6 @@ class AuthManager:
                             else:
                                 successful_probes = 0
                         else:
-                            saw_unauthorized_probe = True
                             logger.warning(
                                 "Browser auth probe unauthorized: status=%s current_host=%s "
                                 "stable_ticks=%s cookie_names=%s",
@@ -1764,21 +1787,6 @@ class AuthManager:
                             current_url,
                             stable_instance_ticks,
                             ",".join(cookie_names),
-                        )
-                        login_confirmed = True
-                        break
-                    if (
-                        not force_interactive
-                        and stable_instance_ticks >= 5
-                        and _has_servicenow_session_cookie(cookie_names)
-                    ):
-                        logger.info(
-                            "Browser auth confirmed by stable instance URL and session cookie: "
-                            "current_host=%s stable_ticks=%s cookie_names=%s had_unauthorized_probe=%s",
-                            current_host,
-                            stable_instance_ticks,
-                            ",".join(cookie_names),
-                            saw_unauthorized_probe,
                         )
                         login_confirmed = True
                         break
@@ -1813,10 +1821,9 @@ class AuthManager:
                 browser_config.session_ttl_minutes * 60
             )
             self._browser_session_key = instance_host
-            self._browser_last_validated_at = time.time()
+            self._browser_last_validated_at = None
             self._browser_last_login_at = time.time()
             self._clear_browser_reauth_attempt()
-            self._save_session_to_disk()
             # Final validation before closing browser: avoid storing UI-only cookies that
             # still fail API auth and cause immediate 401/reopen loops.
             try:
@@ -1826,13 +1833,13 @@ class AuthManager:
                     browser_config=browser_config,
                 )
             except requests.RequestException as exc:
-                logger.warning(
-                    "Final browser API probe failed after login confirmation; "
-                    "keeping session based on browser state: %s",
-                    exc,
-                )
-                final_probe = None
-            if final_probe and not _response_indicates_authenticated_session(final_probe):
+                self.invalidate_browser_session()
+                raise ValueError(
+                    "Browser login appeared to complete, but final API validation failed. "
+                    "Not reusing this session; please retry login. "
+                    f"Probe error: {exc}"
+                ) from exc
+            if not _response_confirms_browser_probe_session(final_probe):
                 self.invalidate_browser_session()
                 # Include more detail for debugging auth failures
                 probe_url = final_probe.url
@@ -1841,7 +1848,9 @@ class AuthManager:
                     f"Browser login completed, but API auth is still unauthorized. "
                     f"Status: {final_probe.status_code}, URL: {probe_url}, Response: {probe_text}"
                 )
-            if final_probe and final_probe.status_code in (401, 403):
+            self._browser_last_validated_at = time.time()
+            self._save_session_to_disk()
+            if final_probe.status_code == 403:
                 logger.info(
                     "Browser login completed and session is authenticated, but probe path is unauthorized: "
                     "status=%s probe_path=%s",
@@ -2092,7 +2101,11 @@ class AuthManager:
                         "Waiting for it to finish..."
                     )
                     waited = self._wait_for_other_login(timeout=120)
-                    if waited and self._reload_session_from_disk():
+                    if (
+                        waited
+                        and self._browser_cookie_header
+                        and not self._is_browser_session_expired()
+                    ):
                         logger.info("Picked up session from other process after wait.")
                         fresh_headers = self.get_headers()
                         headers = kwargs.get("headers", {})
