@@ -353,6 +353,7 @@ def _build_cross_references(
 def _collect_instance_widget_refs(
     scope_root: Path,
     source_index: List[Dict[str, Any]],
+    global_root: Optional[Path] = None,
 ) -> Set[str]:
     """Collect widget sys_ids and names referenced by sp_instance records.
 
@@ -360,6 +361,9 @@ def _collect_instance_widget_refs(
     contains the sys_id of the widget placed on a page.  Also resolves the
     sys_id back to a widget name using the source_index so orphan detection
     can match by name.
+
+    Also scans global_root/sp_instance/ when provided, because portal page
+    placements (sp_instance) typically live in global scope, not the app scope.
     """
     widget_refs: Set[str] = set()
     # Build sys_id -> name map for widgets
@@ -368,22 +372,31 @@ def _collect_instance_widget_refs(
         if entry["source_type"] == "widget" and entry.get("sys_id"):
             widget_id_to_name[entry["sys_id"]] = entry["name"]
 
-    # Scan all sp_instance metadata
+    def _add_from_meta(meta_file: Path) -> None:
+        meta = _read_json(meta_file)
+        if meta and isinstance(meta, dict):
+            sp_widget = meta.get("sp_widget", "")
+            if sp_widget:
+                widget_refs.add(sp_widget)
+                resolved_name = widget_id_to_name.get(sp_widget)
+                if resolved_name:
+                    widget_refs.add(resolved_name)
+
+    # Scan app-scoped sp_instance from source_index
     for entry in source_index:
         if entry.get("table") != "sp_instance":
             continue
         record_path = scope_root / entry["path"]
         meta_file = record_path / "_metadata.json" if record_path.is_dir() else None
         if meta_file and meta_file.exists():
-            meta = _read_json(meta_file)
-            if meta and isinstance(meta, dict):
-                sp_widget = meta.get("sp_widget", "")
-                if sp_widget:
-                    widget_refs.add(sp_widget)
-                    # Also add the widget name if we can resolve it
-                    resolved_name = widget_id_to_name.get(sp_widget)
-                    if resolved_name:
-                        widget_refs.add(resolved_name)
+            _add_from_meta(meta_file)
+
+    # Scan global sp_instance directory (widget placements live in global scope)
+    if global_root:
+        global_instance_dir = global_root / "sp_instance"
+        if global_instance_dir.is_dir():
+            for meta_file in sorted(global_instance_dir.rglob("_metadata.json")):
+                _add_from_meta(meta_file)
 
     return widget_refs
 
@@ -392,6 +405,7 @@ def _detect_orphans(
     source_index: List[Dict[str, Any]],
     cross_refs: Dict[str, Any],
     scope_root: Optional[Path] = None,
+    global_root: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     """Find sources that nobody references.
 
@@ -408,7 +422,7 @@ def _detect_orphans(
     # Collect widgets referenced by sp_instance records (page placements)
     instance_widget_refs: Set[str] = set()
     if scope_root:
-        instance_widget_refs = _collect_instance_widget_refs(scope_root, source_index)
+        instance_widget_refs = _collect_instance_widget_refs(scope_root, source_index, global_root)
 
     orphans: List[Dict[str, Any]] = []
 
@@ -1165,8 +1179,12 @@ def audit_local_sources(
     # 2. Build cross-references
     cross_refs = _build_cross_references(scope_root, source_index)
 
+    # Sibling global/ folder from download_app_sources (sp_instance lives in global scope)
+    _global_candidate = scope_root.parent / "global"
+    global_root: Optional[Path] = _global_candidate if _global_candidate.is_dir() else None
+
     # 3. Detect orphans
-    orphans = _detect_orphans(source_index, cross_refs, scope_root)
+    orphans = _detect_orphans(source_index, cross_refs, scope_root, global_root)
 
     # 4. Build execution order
     execution_order = _build_execution_order(source_index)
