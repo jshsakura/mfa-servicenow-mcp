@@ -633,3 +633,99 @@ class TestConcurrentLoginPrevention:
         acquired = mgr._browser_login_lock.acquire(timeout=0.1)
         assert acquired, "Lock was not released after login success"
         mgr._browser_login_lock.release()
+
+
+# ================================================================
+# 6. ACL block 401 must not trigger re-auth
+# ================================================================
+
+
+class TestAclBlock401NoReauth:
+    """JSON-body 401 responses from ACL-blocked tables must never open a browser."""
+
+    def test_401_json_body_no_login_redirect_skips_reauth(self):
+        """A 401 with application/json Content-Type and no login redirect = ACL block.
+        No browser login should be triggered — return 401 directly."""
+        mgr = _make_manager(login_at=time.time() - 200)  # outside grace period
+        mgr._browser_last_reauth_attempt_at = None
+
+        response_401 = MagicMock()
+        response_401.status_code = 401
+        response_401.headers = {"Content-Type": "application/json"}
+        response_401.url = "https://test.service-now.com/api/now/table/sys_script"
+
+        with patch.object(mgr._http_session, "request", return_value=response_401):
+            with patch.object(mgr, "invalidate_browser_session") as mock_invalidate:
+                result = mgr.make_request(
+                    "GET",
+                    "https://test.service-now.com/api/now/table/sys_script",
+                    timeout=10,
+                    max_retries=1,
+                )
+
+        assert result.status_code == 401
+        mock_invalidate.assert_not_called()
+
+    def test_401_login_redirect_still_triggers_reauth(self):
+        """A 401 that redirected to login.do = session expired → re-auth must happen."""
+        mgr = _make_manager(login_at=time.time() - 200)
+        mgr._browser_last_reauth_attempt_at = None
+
+        response_401 = MagicMock()
+        response_401.status_code = 401
+        response_401.headers = {"Content-Type": "text/html", "Location": "/login.do"}
+        response_401.url = "https://test.service-now.com/login.do"
+
+        response_200 = MagicMock()
+        response_200.status_code = 200
+
+        call_count = [0]
+
+        def _fake_get_headers():
+            call_count[0] += 1
+            return {"Cookie": "NEW=session" if call_count[0] > 1 else "OLD=session"}
+
+        with patch.object(mgr, "get_headers", side_effect=_fake_get_headers):
+            with patch.object(
+                mgr._http_session, "request", side_effect=[response_401, response_200]
+            ):
+                with patch.object(mgr, "invalidate_browser_session") as mock_invalidate:
+                    result = mgr.make_request(
+                        "GET",
+                        "https://test.service-now.com/api/now/table/sys_user",
+                        timeout=10,
+                        max_retries=1,
+                    )
+
+        assert result.status_code == 200
+        mock_invalidate.assert_called_once()
+
+    def test_401_no_content_type_outside_grace_triggers_reauth(self):
+        """A 401 with no Content-Type header falls through to existing re-auth logic."""
+        mgr = _make_manager(login_at=time.time() - 200)
+        mgr._browser_last_reauth_attempt_at = None
+
+        response_401 = MagicMock()
+        response_401.status_code = 401
+        response_401.headers = {}
+        response_401.url = "https://test.service-now.com/api/now/table/sys_user"
+
+        response_200 = MagicMock()
+        response_200.status_code = 200
+
+        def _fake_get_headers():
+            return {"Cookie": "NEW=session"}
+
+        with patch.object(mgr, "get_headers", side_effect=_fake_get_headers):
+            with patch.object(
+                mgr._http_session, "request", side_effect=[response_401, response_200]
+            ):
+                with patch.object(mgr, "invalidate_browser_session") as mock_invalidate:
+                    mgr.make_request(
+                        "GET",
+                        "https://test.service-now.com/api/now/table/sys_user",
+                        timeout=10,
+                        max_retries=1,
+                    )
+
+        mock_invalidate.assert_called_once()
