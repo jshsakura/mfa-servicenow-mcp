@@ -582,7 +582,7 @@ def _try_processflow_api(
 @register_tool(
     name="list_flow_designers",
     params=ListFlowsParams,
-    description="Search flows/subflows by name or scope. Use compare_flows to diff two results.",
+    description="List Flow Designer workflows/subflows (modern, sys_hub_flow). For legacy wf_workflow use manage_workflow.",
     serialization="json",
     return_type=dict,
 )
@@ -644,7 +644,7 @@ def list_flows(
 @register_tool(
     name="get_flow_designer_detail",
     params=GetFlowDetailsParams,
-    description="Get one flow's structure and triggers. For comparing two flows, use compare_flows instead.",
+    description="Get Flow Designer workflow structure, triggers, executions. Entry point for modern workflow analysis.",
     serialization="json",
     return_type=dict,
 )
@@ -1170,7 +1170,7 @@ def _fetch_flow_structure(
 @register_tool(
     name="get_flow_designer_executions",
     params=GetFlowExecutionsParams,
-    description="Get flow execution history. Use after compare_flows to check runtime behavior.",
+    description="Get Flow Designer workflow execution history (sys_flow_context). Modern flows only.",
     serialization="json",
     return_type=dict,
 )
@@ -1275,7 +1275,7 @@ def _fetch_flow_triggers(
 @register_tool(
     name="update_flow_designer",
     params=UpdateFlowDesignerParams,
-    description="Update a Flow Designer flow name, description, or active status by sys_id.",
+    description="Update Flow Designer workflow name/description/active by sys_id (modern, sys_hub_flow).",
     serialization="json",
     return_type=dict,
 )
@@ -1548,7 +1548,7 @@ def _resolve_flow_id(
 @register_tool(
     name="compare_flows",
     params=CompareFlowsParams,
-    description="Compare two flows by name or sys_id. Diffs structure, subflow bindings, and triggers.",
+    description="Diff two Flow Designer workflows by name/sys_id. Structure, subflow bindings, triggers.",
     serialization="json",
     return_type=dict,
 )
