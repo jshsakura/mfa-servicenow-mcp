@@ -8,6 +8,7 @@ import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 import requests
 
 from servicenow_mcp.auth.auth_manager import (
@@ -17,6 +18,7 @@ from servicenow_mcp.auth.auth_manager import (
     AuthManager,
     _click_first_matching,
     _fill_first_matching,
+    _response_indicates_authenticated_session,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig
 
@@ -643,6 +645,64 @@ class TestMakeRequest401DiskReload:
         # Should have attempted disk reload first, then fallen through to re-auth flow
         assert mock_request.call_count == 3
 
+    def test_401_wait_for_other_login_uses_loaded_session_without_second_reload(self):
+        """If another terminal already loaded a fresh session into memory, retry immediately.
+
+        _wait_for_other_login() can return True after populating in-memory cookies.
+        A follow-up _reload_session_from_disk() may correctly return False because
+        there is nothing newer on disk, but that must not force a second re-auth.
+        """
+
+        manager = _make_browser_manager()
+        manager._browser_last_reauth_attempt_at = None
+
+        first_response = MagicMock()
+        first_response.status_code = 401
+        first_response.headers = {"Location": "/login.do"}
+        first_response.url = "https://example.service-now.com/login.do"
+
+        retry_response = MagicMock()
+        retry_response.status_code = 200
+        retry_response.headers = {}
+        retry_response.url = "https://example.service-now.com/api/now/table/sys_user"
+
+        def _wait_for_other_login(timeout=120):
+            manager._browser_cookie_header = "OTHER=COOKIE"
+            manager._browser_cookie_expires_at = time.time() + 1800
+            manager._browser_last_validated_at = time.time()
+            return True
+
+        def _get_headers():
+            return {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Cookie": manager._browser_cookie_header or "OLD=COOKIE",
+            }
+
+        with patch.object(manager, "get_headers", side_effect=_get_headers):
+            with patch.object(manager._http_session, "request") as mock_request:
+                mock_request.side_effect = [first_response, retry_response]
+
+                with (
+                    patch.object(manager, "_reload_session_from_disk", return_value=False),
+                    patch.object(manager, "_acquire_login_lock", return_value=False),
+                    patch.object(
+                        manager, "_wait_for_other_login", side_effect=_wait_for_other_login
+                    ),
+                    patch.object(manager, "invalidate_browser_session") as mock_invalidate,
+                ):
+                    response = manager.make_request(
+                        "GET",
+                        "https://example.service-now.com/api/now/table/sys_user",
+                        timeout=10,
+                        max_retries=1,
+                    )
+
+        assert response.status_code == 200
+        assert mock_request.call_count == 2
+        assert mock_request.call_args_list[1].kwargs["cookies"] == {"OTHER": "COOKIE"}
+        mock_invalidate.assert_not_called()
+
 
 class TestSaveSessionDiskHash:
     """Tests for _save_session_to_disk idempotency."""
@@ -694,7 +754,32 @@ class TestLoadSessionFromDisk:
         manager._load_session_from_disk()
 
         assert manager._browser_cookie_header == "CACHED=COOKIE"
-        assert manager._browser_last_validated_at is not None
+        assert manager._browser_last_validated_at is None
+
+    def test_load_valid_session_requires_probe_before_reuse(self, tmp_path):
+        manager = _make_browser_manager()
+        manager._browser_cookie_header = None
+        manager._browser_cookie_expires_at = None
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+
+        _write_session_cache(cache_path, "CACHED=COOKIE", time.time() + 1800)
+
+        manager._load_session_from_disk()
+
+        assert manager._browser_cookie_header == "CACHED=COOKIE"
+        assert manager._browser_last_validated_at is None
+
+        with (
+            patch.object(manager, "_is_browser_session_valid", return_value=True) as mock_valid,
+            patch.object(manager, "_login_with_browser") as mock_login,
+            patch.object(manager, "_start_keepalive"),
+        ):
+            headers = manager.get_headers()
+
+        assert headers["Cookie"] == "CACHED=COOKIE"
+        mock_valid.assert_called_once_with(manager.config.browser)
+        mock_login.assert_not_called()
 
     def test_load_expired_session_probes_server(self, tmp_path):
         manager = _make_browser_manager()
@@ -735,12 +820,8 @@ class TestLoadSessionFromDisk:
         # Server rejected → not loaded
         assert manager._browser_cookie_header is None
 
-    def test_load_expired_session_probe_401_extends_session(self, tmp_path):
-        """Disk TTL expired + probe 401 without login redirect extends the session.
-
-        With unified validation, any non-redirect response (including 401/403)
-        indicates an authenticated session — consistent with runtime validation.
-        """
+    def test_load_expired_session_probe_401_login_html_is_rejected(self, tmp_path):
+        """Disk TTL expiry + unauthenticated 401 HTML must be treated as dead."""
         manager = _make_browser_manager()
         manager._browser_cookie_header = None
         cache_path = str(tmp_path / "session.json")
@@ -751,13 +832,14 @@ class TestLoadSessionFromDisk:
         mock_response = MagicMock()
         mock_response.status_code = 401
         mock_response.is_redirect = False
-        mock_response.headers = {}
+        mock_response.headers = {"Content-Type": "text/html"}
         mock_response.url = "https://example.service-now.com/api/now/table/sys_user_preference"
+        mock_response.text = "User Not Authenticated"
 
         with patch.object(manager._http_session, "get", return_value=mock_response):
             manager._load_session_from_disk()
 
-        assert manager._browser_cookie_header == "STALE=COOKIE"
+        assert manager._browser_cookie_header is None
 
     def test_load_wrong_instance_ignored(self, tmp_path):
         manager = _make_browser_manager()
@@ -1113,13 +1195,12 @@ class TestTryRestoreBrowserSessionProbe:
     """Validates probe-response handling in _try_restore_browser_session().
 
     Before the fix: a 401 response with no login.do redirect was treated as
-    'ACL restriction — session still valid' because
-    _response_indicates_authenticated_session only checked for login redirects.
+    reusable because auth detection only checked for login redirects.
     The browser profile cookies were accepted and every subsequent real API
-    call failed with 401 (the double-login root cause).
+    call failed with 401 or "User Not Authenticated".
 
-    After the fix: 401 and 403 probe responses during cold restore immediately
-    return False, forcing an interactive login.
+    After the fix: cold restore only accepts a probe that clearly proves an
+    authenticated API session (2xx or 403, without login/unauth markers).
     """
 
     # A minimal valid cookie for example.service-now.com
@@ -1172,15 +1253,24 @@ class TestTryRestoreBrowserSessionProbe:
 
         return cfg, manager, mock_pw_mod
 
-    def _run_restore(self, manager, cfg, mock_pw_mod, probe_status: int) -> bool:
-        """Run _try_restore_browser_session with a probe that returns probe_status."""
+    def _run_restore(
+        self,
+        manager,
+        cfg,
+        mock_pw_mod,
+        probe_status: int,
+        probe_text: str = "",
+        content_type: str = "application/json",
+    ) -> bool:
+        """Run _try_restore_browser_session with a synthetic probe response."""
         import sys
 
         mock_probe = MagicMock()
         mock_probe.status_code = probe_status
         mock_probe.is_redirect = False
-        mock_probe.headers = {}
+        mock_probe.headers = {"Content-Type": content_type}
         mock_probe.url = "https://example.service-now.com/api/now/table/sys_user"
+        mock_probe.text = probe_text
 
         saved = {k: sys.modules.get(k) for k in ("playwright", "playwright.sync_api")}
         sys.modules["playwright"] = mock_pw_mod
@@ -1195,8 +1285,8 @@ class TestTryRestoreBrowserSessionProbe:
                 else:
                     sys.modules[k] = v
 
-    def test_restore_probe_401_returns_true_and_loads_cookie(self, tmp_path):
-        """401 probe without login redirect during restore means authenticated but unauthorized."""
+    def test_restore_probe_401_json_returns_true_and_loads_cookie(self, tmp_path):
+        """401 JSON probe during restore still means authenticated but unauthorized."""
         cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
             tmp_path, self._INSTANCE_COOKIES
         )
@@ -1220,3 +1310,130 @@ class TestTryRestoreBrowserSessionProbe:
         result = self._run_restore(manager, cfg, mock_pw_mod, probe_status=200)
         assert result is True
         assert manager._browser_cookie_header == "glide_session_store=abc123"
+
+    def test_restore_probe_login_html_body_returns_false(self, tmp_path):
+        """Same-origin login HTML must not be treated as a valid restored session."""
+        cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
+            tmp_path, self._INSTANCE_COOKIES
+        )
+        result = self._run_restore(
+            manager,
+            cfg,
+            mock_pw_mod,
+            probe_status=200,
+            probe_text="<title>Log in | ServiceNow</title> Login with SSO",
+            content_type="text/html",
+        )
+        assert result is False
+        assert manager._browser_cookie_header is None
+
+    def test_restore_probe_401_unauth_body_returns_false(self, tmp_path):
+        """401 with explicit unauthenticated body must be rejected during restore."""
+        cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
+            tmp_path, self._INSTANCE_COOKIES
+        )
+        result = self._run_restore(
+            manager,
+            cfg,
+            mock_pw_mod,
+            probe_status=401,
+            probe_text="User Not Authenticated",
+            content_type="text/html",
+        )
+        assert result is False
+        assert manager._browser_cookie_header is None
+
+
+def test_response_indicates_authenticated_session_rejects_unauth_body():
+    response = MagicMock()
+    response.status_code = 200
+    response.is_redirect = False
+    response.headers = {"Content-Type": "text/html"}
+    response.url = "https://example.service-now.com/navpage.do"
+    response.text = "User Not Authenticated"
+
+    assert _response_indicates_authenticated_session(response) is False
+
+
+def test_login_final_probe_request_error_does_not_persist_session(tmp_path):
+    cfg = AuthConfig(
+        type=AuthType.BROWSER,
+        browser=BrowserAuthConfig(
+            headless=False,
+            timeout_seconds=5,
+            session_ttl_minutes=30,
+            user_data_dir=str(tmp_path / "profile"),
+        ),
+    )
+    with (
+        patch.object(AuthManager, "_ensure_playwright_ready"),
+        patch.object(AuthManager, "_load_session_from_disk"),
+        patch.object(AuthManager, "_start_keepalive"),
+    ):
+        manager = AuthManager(cfg, "https://example.service-now.com")
+
+    manager._session_cache_path = str(tmp_path / "session.json")
+
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+    mock_page.evaluate.side_effect = ["TestUA", None]
+    mock_page.is_closed.return_value = False
+    mock_page.url = "https://example.service-now.com/navpage.do"
+    mock_context.pages = [mock_page]
+    mock_context.cookies.return_value = [
+        {
+            "name": "glide_session_store",
+            "value": "abc123",
+            "domain": "example.service-now.com",
+            "path": "/",
+        }
+    ]
+
+    success_probe = MagicMock()
+    success_probe.status_code = 200
+    success_probe.is_redirect = False
+    success_probe.headers = {"Content-Type": "application/json"}
+    success_probe.url = "https://example.service-now.com/api/now/table/sys_user"
+    success_probe.text = '{"result": []}'
+
+    import sys
+
+    mock_pw_instance = MagicMock()
+    mock_sync_pw = MagicMock()
+    mock_sync_pw.return_value.__enter__ = MagicMock(return_value=mock_pw_instance)
+    mock_sync_pw.return_value.__exit__ = MagicMock(return_value=False)
+    mock_pw_mod = MagicMock()
+    mock_pw_mod.sync_api.sync_playwright = mock_sync_pw
+    saved = {k: sys.modules.get(k) for k in ("playwright", "playwright.sync_api")}
+    sys.modules["playwright"] = mock_pw_mod
+    sys.modules["playwright.sync_api"] = mock_pw_mod.sync_api
+
+    try:
+        with (
+            patch(
+                "servicenow_mcp.auth.auth_manager._launch_persistent_with_retry",
+                return_value=mock_context,
+            ),
+            patch.object(
+                manager,
+                "_probe_browser_api_with_cookie",
+                side_effect=[
+                    success_probe,
+                    success_probe,
+                    requests.RequestException("probe boom"),
+                ],
+            ),
+            patch.object(manager, "_save_session_to_disk") as mock_save,
+        ):
+            with pytest.raises(ValueError, match="final API validation failed"):
+                manager._login_with_browser_sync(cfg.browser, force_interactive=False)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+    mock_save.assert_not_called()
+    assert manager._browser_cookie_header is None
+    assert not os.path.exists(manager._session_cache_path)
