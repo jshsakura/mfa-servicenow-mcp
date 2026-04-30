@@ -582,7 +582,7 @@ def _try_processflow_api(
 @register_tool(
     name="list_flow_designers",
     params=ListFlowsParams,
-    description="List Flow Designer workflows/subflows (modern, sys_hub_flow). For legacy wf_workflow use manage_workflow.",
+    description="PRIMARY entry point for Flow Designer: lists flows/subflows (sys_hub_flow). Never use sn_query for flows. Legacy→manage_workflow.",
     serialization="json",
     return_type=dict,
 )
