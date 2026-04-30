@@ -312,11 +312,13 @@ class TestMakeRequest401GracePeriod:
                         )
         mock_invalidate.assert_not_called()
 
-    def test_401_within_grace_no_acl_markers_proceeds_to_reauth(self):
-        """Grace-period 401 with no ACL markers → treat as stale token → full re-auth.
+    def test_401_within_grace_no_acl_markers_raises_fresh_session_rejected(self):
+        """Grace-period 401 with no ACL markers → FRESH_SESSION_REJECTED raise.
 
-        Previously this path returned 401 silently, which made the LLM loop forever
-        when ServiceNow's 401 was actually a token/cookie propagation issue.
+        The session was just established (final_probe passed) but the very next
+        real call still 401s. Re-authenticating would just produce another
+        fresh-but-rejected session and pop another browser window. Raise a clear,
+        non-retriable signal so the LLM stops retrying.
         """
         mgr = self._setup_manager_for_request()
 
@@ -326,12 +328,6 @@ class TestMakeRequest401GracePeriod:
         response_401.url = "https://test.service-now.com/api/now/table/sys_user"
         response_401.text = '{"error":{"message":"User Not Authenticated"}}'
 
-        response_200 = MagicMock()
-        response_200.status_code = 200
-        response_200.headers = {"Content-Type": "application/json"}
-        response_200.url = "https://test.service-now.com/api/now/table/sys_user"
-        response_200.text = '{"result":[]}'
-
         with patch.object(
             mgr,
             "get_headers",
@@ -340,22 +336,21 @@ class TestMakeRequest401GracePeriod:
             with patch.object(
                 mgr._http_session,
                 "request",
-                side_effect=[response_401, response_401, response_200],
+                return_value=response_401,
             ):
                 with patch.object(mgr, "invalidate_browser_session") as mock_invalidate:
                     with patch.object(mgr, "_reload_session_from_disk", return_value=False):
-                        with patch.object(mgr, "_acquire_login_lock", return_value=True):
-                            with patch.object(mgr, "_release_login_lock"):
-                                response = mgr.make_request(
-                                    "GET",
-                                    "https://test.service-now.com/api/now/table/sys_user",
-                                    timeout=10,
-                                    max_retries=1,
-                                )
+                        import pytest as _pytest
 
-        assert response.status_code == 200
-        # Re-auth path WAS taken because no ACL markers indicated a permission block.
-        mock_invalidate.assert_called_once()
+                        with _pytest.raises(requests.HTTPError, match="FRESH_SESSION_REJECTED"):
+                            mgr.make_request(
+                                "GET",
+                                "https://test.service-now.com/api/now/table/sys_user",
+                                timeout=10,
+                                max_retries=1,
+                            )
+        # No re-auth attempted.
+        mock_invalidate.assert_not_called()
 
     def test_401_outside_grace_no_retry_direct_reauth(self):
         """401 after grace expired → skip retry, go straight to re-auth."""
@@ -550,7 +545,7 @@ class TestGracePeriodEdgeCases:
         assert "LOGIN_CANCELLED_BY_USER" in str(raised[0])
         # Cooldown is armed — at least 30s, last_reauth_attempt_at set.
         assert mgr._browser_reauth_failure_count >= 1
-        assert mgr._browser_reauth_cooldown_seconds >= 10
+        assert mgr._browser_reauth_cooldown_seconds >= 30
         assert mgr._browser_last_reauth_attempt_at is not None
         # In-progress flag cleared so the next call after cooldown can proceed.
         assert mgr._browser_login_in_progress is False
