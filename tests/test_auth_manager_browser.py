@@ -431,6 +431,147 @@ class TestReloadSessionFromDisk:
         assert manager._browser_user_agent == "NewBrowser/1.0"
         assert manager._browser_session_token == "new_g_ck"
 
+    def test_reload_does_not_falsely_mark_validated_for_new_cookies(self, tmp_path):
+        """A session adopted from disk must not claim "just validated" — the cookie
+        may already be stale on the server. Setting last_validated_at to now would
+        skip the validation probe and cause a 401 on the very next request, which
+        is the source of the "every first call fails, retry succeeds" pattern.
+        """
+        manager = _make_browser_manager()
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+        manager._browser_last_validated_at = None
+
+        # Another process wrote a session WITHOUT a last_validated_at field
+        # (older format) — must not be treated as validated.
+        _write_session_cache(cache_path, "ADOPTED=COOKIE", time.time() + 1800)
+
+        assert manager._reload_session_from_disk() is True
+        assert manager._browser_cookie_header == "ADOPTED=COOKIE"
+        # Critical: validated_at remains None so the next request will probe.
+        assert manager._browser_last_validated_at is None
+
+    def test_reload_inherits_disk_validated_at_when_present(self, tmp_path):
+        """When the disk session carries a last_validated_at, inherit it (capped
+        to now) so we don't claim a fresher validation than another process
+        actually performed.
+        """
+        manager = _make_browser_manager()
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+        manager._browser_last_validated_at = None
+
+        validated_30s_ago = time.time() - 30
+        with open(cache_path, "w") as f:
+            json.dump(
+                {
+                    "cookie_header": "ADOPTED=COOKIE",
+                    "user_agent": "Test",
+                    "session_token": "tok",
+                    "expires_at": time.time() + 1800,
+                    "instance_url": "https://example.service-now.com",
+                    "last_validated_at": validated_30s_ago,
+                },
+                f,
+            )
+
+        assert manager._reload_session_from_disk() is True
+        assert manager._browser_last_validated_at == validated_30s_ago
+
+    def test_save_persists_last_validated_at(self, tmp_path):
+        """Saved sessions must include last_validated_at so siblings can adopt
+        the same validation timestamp instead of re-probing unnecessarily."""
+        manager = _make_browser_manager()
+        manager._session_cache_path = str(tmp_path / "session.json")
+        manager._browser_cookie_header = "WRITE=COOKIE"
+        validated = time.time() - 10
+        manager._browser_last_validated_at = validated
+        manager._session_disk_hash = None  # force write
+
+        manager._save_session_to_disk()
+
+        with open(manager._session_cache_path) as f:
+            data = json.load(f)
+        assert data["last_validated_at"] == validated
+
+
+class TestAbsorbResponseTokenRotation:
+    """Tests for _absorb_response_token_rotation() — ServiceNow rotates g_ck
+    (X-UserToken) periodically and pushes the new value via response headers.
+    Failing to absorb the rotated token leads to 401 on subsequent mutating calls.
+    """
+
+    def test_absorbs_rotated_x_user_token(self):
+        manager = _make_browser_manager()
+        manager._browser_session_token = "OLD_TOKEN"
+        manager._session_cache_path = "/tmp/_test_rotation.json"
+        manager._session_disk_hash = None
+
+        response = MagicMock()
+        response.headers = {"X-UserToken": "ROTATED_TOKEN"}
+
+        with patch.object(manager, "_save_session_to_disk") as mock_save:
+            manager._absorb_response_token_rotation(response)
+
+        assert manager._browser_session_token == "ROTATED_TOKEN"
+        mock_save.assert_called_once()
+
+    def test_falls_back_to_x_csrf_token(self):
+        manager = _make_browser_manager()
+        manager._browser_session_token = "OLD_TOKEN"
+
+        response = MagicMock()
+        response.headers = {"X-CSRF-Token": "CSRF_ROTATED"}
+
+        with patch.object(manager, "_save_session_to_disk"):
+            manager._absorb_response_token_rotation(response)
+
+        assert manager._browser_session_token == "CSRF_ROTATED"
+
+    def test_no_op_when_token_unchanged(self):
+        manager = _make_browser_manager()
+        manager._browser_session_token = "SAME_TOKEN"
+
+        response = MagicMock()
+        response.headers = {"X-UserToken": "SAME_TOKEN"}
+
+        with patch.object(manager, "_save_session_to_disk") as mock_save:
+            manager._absorb_response_token_rotation(response)
+
+        assert manager._browser_session_token == "SAME_TOKEN"
+        mock_save.assert_not_called()
+
+    def test_no_op_when_no_token_header(self):
+        manager = _make_browser_manager()
+        manager._browser_session_token = "ORIGINAL"
+
+        response = MagicMock()
+        response.headers = {"Content-Type": "application/json"}
+
+        with patch.object(manager, "_save_session_to_disk") as mock_save:
+            manager._absorb_response_token_rotation(response)
+
+        assert manager._browser_session_token == "ORIGINAL"
+        mock_save.assert_not_called()
+
+    def test_no_op_for_non_browser_auth(self):
+        """Token rotation only applies to browser auth — basic/OAuth/API key
+        managers do not use X-UserToken."""
+        cfg = AuthConfig(
+            type=AuthType.BASIC,
+            basic=__import__(
+                "servicenow_mcp.utils.config", fromlist=["BasicAuthConfig"]
+            ).BasicAuthConfig(username="u", password="p"),
+        )
+        manager = AuthManager(cfg, "https://example.service-now.com")
+        manager._browser_session_token = "should_not_change"
+
+        response = MagicMock()
+        response.headers = {"X-UserToken": "rotated"}
+
+        manager._absorb_response_token_rotation(response)
+        assert manager._browser_session_token == "should_not_change"
+
 
 class TestInvalidateSessionDiskSafety:
     """Tests for invalidate_browser_session() — must not delete other terminal's session."""
