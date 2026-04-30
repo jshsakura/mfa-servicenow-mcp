@@ -1172,10 +1172,13 @@ class TestMakeRequestBrowser:
         # Initial + grace-period retry only; we raise before any re-auth.
         assert request_count == 2
 
-    def test_browser_401_grace_retry_no_acl_markers_proceeds_to_reauth(self):
-        # Within grace period, if the second 401 has NO ACL markers, treat it as a
-        # stale token / propagation issue and proceed to a full re-auth (instead of
-        # silently returning 401, which used to cause infinite loops).
+    def test_browser_401_grace_retry_no_acl_markers_raises_fresh_session_rejected(self):
+        # v1.10.21: when the very fresh session (final_probe just passed) is still
+        # 401'd by the server, re-authenticating would just produce another fresh-
+        # but-rejected session and pop another browser window. Raise a clear
+        # FRESH_SESSION_REJECTED signal instead so the LLM stops retrying and the
+        # user can investigate the real root cause (X-UserToken policy, ACL on
+        # this endpoint, cookie domain mismatch, instance security policy).
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = "a=1"
         mgr._browser_cookie_expires_at = time.time() + 600
@@ -1188,38 +1191,24 @@ class TestMakeRequestBrowser:
         resp_401.url = "https://example.service-now.com/api"
         resp_401.text = '{"error":{"message":"User Not Authenticated"}}'
 
-        resp_200 = MagicMock()
-        resp_200.status_code = 200
-        resp_200.headers = {"Content-Type": "application/json"}
-        resp_200.url = "https://example.service-now.com/api"
-        resp_200.text = '{"result":[]}'
-
-        # Initial 401, grace-period retry 401, then re-auth retry 200.
-        responses = [resp_401, resp_401, resp_200]
-
-        def _mock_request(*args, **kwargs):
-            return responses.pop(0)
-
         with patch.object(
             mgr,
             "get_headers",
             return_value={"Accept": "application/json", "Cookie": "b=2"},
         ):
-            with patch.object(mgr._http_session, "request", side_effect=_mock_request):
+            with patch.object(mgr._http_session, "request", return_value=resp_401):
                 with patch.object(mgr, "invalidate_browser_session") as mock_invalidate:
                     with patch.object(mgr, "_reload_session_from_disk", return_value=False):
-                        with patch.object(mgr, "_acquire_login_lock", return_value=True):
-                            with patch.object(mgr, "_release_login_lock"):
-                                with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
-                                    resp = mgr.make_request(
-                                        "GET",
-                                        "https://example.service-now.com/api",
-                                        timeout=10,
-                                        max_retries=1,
-                                    )
-        assert resp.status_code == 200
-        # Re-auth path WAS taken (since body had no ACL markers).
-        mock_invalidate.assert_called_once()
+                        with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                            with pytest.raises(requests.HTTPError, match="FRESH_SESSION_REJECTED"):
+                                mgr.make_request(
+                                    "GET",
+                                    "https://example.service-now.com/api",
+                                    timeout=10,
+                                    max_retries=1,
+                                )
+        # No re-auth attempted — popping another browser window would not help.
+        mock_invalidate.assert_not_called()
 
     def test_browser_401_grace_retry_recovered_via_disk_reload(self):
         # Within grace period, if the second 401 has no ACL markers, we first try a
@@ -1477,7 +1466,7 @@ class TestBrowserLoginErrorHandling:
 
         # Cooldown is armed (not reset to 0) so the LLM can't auto-retry.
         assert mgr._browser_reauth_failure_count >= 1
-        assert mgr._browser_reauth_cooldown_seconds >= 10
+        assert mgr._browser_reauth_cooldown_seconds >= 30
         assert mgr._browser_last_reauth_attempt_at is not None
 
     def test_other_error_increases_cooldown(self):

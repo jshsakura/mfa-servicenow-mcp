@@ -741,14 +741,14 @@ class AuthManager:
         self._browser_user_agent = data.get("user_agent")
         self._browser_session_token = data.get("session_token")
         self._browser_cookie_expires_at = disk_expires
-        # Restore v1.10.9 behaviour: trust the disk-adopted session and let the
-        # 401 retry path in make_request recover any staleness. The "probe before
-        # trust" approach added in v1.10.17 fired too often in practice and ended
-        # up reopening the browser on every first call. If the disk session is
-        # actually stale, make_request's classified 401 handler will re-auth once
-        # and recover — which is no worse than what the eager probe was doing,
-        # but does NOT pop a browser window on every spawn.
-        self._browser_last_validated_at = time.time()
+        # Pair with v1.10.21 probe-before-trust in get_headers(): inherit the disk
+        # validation timestamp if present (capped to now); otherwise leave None so
+        # the next caller probes before trusting cookies that may have been written
+        # by a sibling process that has since idle-timed-out on the server.
+        disk_validated_at = data.get("last_validated_at")
+        self._browser_last_validated_at = (
+            min(disk_validated_at, time.time()) if disk_validated_at else None
+        )
         logger.info(
             "Reloaded fresher session from disk (written by another process): %s",
             self._session_cache_path,
@@ -941,28 +941,30 @@ class AuthManager:
 
                     # Fast path: try disk reload before opening Playwright.
                     # Another process may have already written a fresh session to disk.
-                    # Restoring v1.10.9 behaviour: trust the disk session immediately
-                    # and let make_request's classified 401 handler recover any
-                    # staleness on the actual call. The "probe before trust" added
-                    # in v1.10.17 fired too aggressively in real environments and
-                    # ended up reopening the browser on every spawn.
+                    # Probe (single HTTP health check) before trusting it — without the
+                    # probe, every spawn pays an observable 401 round-trip on the first
+                    # real call when the disk session is server-stale.
                     if self._reload_session_from_disk():
                         if self._browser_cookie_header and not self._is_browser_session_expired():
+                            if self._is_browser_session_valid(self.config.browser):
+                                logger.info("Session restored from disk (fast path) — probe ok.")
+                                self._browser_reauth_failure_count = 0
+                                self._browser_reauth_cooldown_seconds = (
+                                    self._browser_reauth_cooldown_base
+                                )
+                                if not self._keepalive_thread:
+                                    self._start_keepalive()
+                                headers["Cookie"] = self._browser_cookie_header or ""
+                                if self._browser_user_agent:
+                                    headers["User-Agent"] = self._browser_user_agent
+                                if self._browser_session_token:
+                                    headers["X-UserToken"] = self._browser_session_token
+                                return headers
                             logger.info(
-                                "Session restored from disk (fast path) — skipping browser."
+                                "Disk-restored session failed live probe — discarding "
+                                "and continuing to interactive re-auth."
                             )
-                            self._browser_reauth_failure_count = 0
-                            self._browser_reauth_cooldown_seconds = (
-                                self._browser_reauth_cooldown_base
-                            )
-                            if not self._keepalive_thread:
-                                self._start_keepalive()
-                            headers["Cookie"] = self._browser_cookie_header or ""
-                            if self._browser_user_agent:
-                                headers["User-Agent"] = self._browser_user_agent
-                            if self._browser_session_token:
-                                headers["X-UserToken"] = self._browser_session_token
-                            return headers
+                            self.invalidate_browser_session()
 
                     # Try browser profile restore (opens Playwright) — now under lock.
                     if self._try_restore_browser_session(self.config.browser):
@@ -979,25 +981,31 @@ class AuthManager:
 
                     # Post-restore disk check: another process may have completed
                     # login while our _try_restore_browser_session was running.
-                    # Same trust-disk policy as the earlier fast path.
+                    # Same probe-before-trust policy as the earlier fast path.
                     if self._reload_session_from_disk():
                         if self._browser_cookie_header and not self._is_browser_session_expired():
+                            if self._is_browser_session_valid(self.config.browser):
+                                logger.info(
+                                    "Session appeared on disk after restore attempt — "
+                                    "another process completed login (probe ok)."
+                                )
+                                self._browser_reauth_failure_count = 0
+                                self._browser_reauth_cooldown_seconds = (
+                                    self._browser_reauth_cooldown_base
+                                )
+                                if not self._keepalive_thread:
+                                    self._start_keepalive()
+                                headers["Cookie"] = self._browser_cookie_header or ""
+                                if self._browser_user_agent:
+                                    headers["User-Agent"] = self._browser_user_agent
+                                if self._browser_session_token:
+                                    headers["X-UserToken"] = self._browser_session_token
+                                return headers
                             logger.info(
-                                "Session appeared on disk after restore attempt — "
-                                "another process completed login."
+                                "Disk session from sibling process failed probe — "
+                                "discarding and continuing."
                             )
-                            self._browser_reauth_failure_count = 0
-                            self._browser_reauth_cooldown_seconds = (
-                                self._browser_reauth_cooldown_base
-                            )
-                            if not self._keepalive_thread:
-                                self._start_keepalive()
-                            headers["Cookie"] = self._browser_cookie_header or ""
-                            if self._browser_user_agent:
-                                headers["User-Agent"] = self._browser_user_agent
-                            if self._browser_session_token:
-                                headers["X-UserToken"] = self._browser_session_token
-                            return headers
+                            self.invalidate_browser_session()
 
                     # Browser auth is user-driven (MFA/SSO). Always keep interactive mode.
                     if self._browser_login_in_progress:
@@ -1098,7 +1106,7 @@ class AuthManager:
                             # retry from the LLM cannot immediately reopen the window;
                             # the user can still trigger a fresh login by retrying after
                             # the cooldown elapses.
-                            user_close_cooldown = 10  # 10s — short enough not to feel sluggish, long enough to break instant LLM auto-retry
+                            user_close_cooldown = 30  # break LLM auto-retry but stay short enough not to feel sluggish
                             self._browser_reauth_failure_count = max(
                                 self._browser_reauth_failure_count, 1
                             )
@@ -1189,7 +1197,7 @@ class AuthManager:
                             ]
                         )
                         if user_closed:
-                            user_close_cooldown = 10  # 10s — short enough not to feel sluggish, long enough to break instant LLM auto-retry
+                            user_close_cooldown = 30  # break LLM auto-retry but stay short enough not to feel sluggish
                             self._browser_reauth_failure_count = max(
                                 self._browser_reauth_failure_count, 1
                             )
@@ -2305,10 +2313,26 @@ class AuthManager:
                                 "markers. Verify user permissions on the target.",
                                 response=reloaded_response,
                             )
-                    # Fall through to full re-auth (token likely stale despite recent login).
-                    logger.warning(
-                        "Grace-period 401 persists with no ACL markers — treating as stale "
-                        "session token and proceeding to full re-authentication."
+                    # The session was JUST created and final_probe passed, yet the
+                    # very next real call still 401s. Re-authenticating would just
+                    # produce another fresh-but-rejected session and the user would
+                    # see another browser window. Raise a clear, non-retriable signal
+                    # so the LLM stops retrying and the user can investigate the
+                    # actual root cause (X-UserToken policy, ACL on this endpoint,
+                    # cookie-domain mismatch, instance security policy).
+                    raise requests.HTTPError(
+                        "FRESH_SESSION_REJECTED: a brand-new browser session "
+                        "(<{grace}s old) is being rejected by ServiceNow with 401 on "
+                        "this endpoint, even though final_probe passed. "
+                        "Re-authentication will not help — the session itself is fine. "
+                        "Likely causes: X-UserToken (g_ck) policy/rotation on this "
+                        "endpoint, ACL restriction with a non-standard error body, "
+                        "cookie-domain mismatch (.service-now.com vs instance host), "
+                        "or instance security policy blocking the call. "
+                        "Inspect the 401 diagnostic log line above for body/headers.".format(
+                            grace=self._browser_post_login_grace_seconds
+                        ),
+                        response=retry_response,
                     )
 
                 # If the 401 came back with a JSON body and clear ACL markers, it is an ACL
