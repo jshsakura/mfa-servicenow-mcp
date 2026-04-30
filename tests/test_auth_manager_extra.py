@@ -215,17 +215,20 @@ class TestDefaultUserDataDir:
         result = mgr._get_default_user_data_dir()
         assert "profile_" in result
 
-    def test_custom_dir(self):
+    def test_custom_dir(self, tmp_path):
+        custom = tmp_path / "custom" / "path"
         cfg = AuthConfig(
             type=AuthType.BROWSER,
-            browser=BrowserAuthConfig(user_data_dir="/custom/path"),
+            browser=BrowserAuthConfig(user_data_dir=str(custom)),
         )
         with (
             patch.object(AuthManager, "_ensure_playwright_ready"),
             patch.object(AuthManager, "_load_session_from_disk"),
         ):
             mgr = AuthManager(cfg, "https://test.service-now.com")
-        assert mgr._resolve_user_data_dir(cfg.browser) == "/custom/path"
+        assert mgr._resolve_user_data_dir(cfg.browser) == str(custom)
+        # Session JSON sits next to the profile dir so co-running MCP hosts share it.
+        assert mgr._session_cache_path.startswith(str(custom.parent) + os.sep)
 
 
 class TestSaveSessionToDisk:

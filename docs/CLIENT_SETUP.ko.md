@@ -156,6 +156,11 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
+# 다른 MCP 호스트(Claude, Cursor 등)와 로그인 상태를 공유하려면
+# 모든 호스트의 설정에 **같은 절대 경로**를 지정하세요. macOS Codex.app은
+# 샌드박스라 `~`이 리매핑되므로, 이 값을 안 맞추면 호스트마다 별도 세션
+# 캐시를 쓰게 되고 매번 MFA 로그인 창이 새로 뜹니다. `/Users/me`는 본인 $HOME으로 바꾸세요.
+SERVICENOW_BROWSER_USER_DATA_DIR = "/Users/me/.servicenow_mcp/shared/profile_acme"
 MCP_TOOL_PACKAGE = "standard"
 ```
 

@@ -156,6 +156,11 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
+# Share login state with other MCP hosts (Claude, Cursor, ...) by pointing
+# them all at the SAME absolute path. Codex.app on macOS is sandboxed and
+# remaps `~`, so without this each host writes its own session cache and
+# every host prompts a fresh MFA login. Replace `/Users/me` with $HOME.
+SERVICENOW_BROWSER_USER_DATA_DIR = "/Users/me/.servicenow_mcp/shared/profile_acme"
 MCP_TOOL_PACKAGE = "standard"
 ```
 
