@@ -524,8 +524,12 @@ class TestGracePeriodEdgeCases:
         # Second thread should have gotten the session (or retried and succeeded)
         assert result[0] is not None
 
-    def test_browser_closed_by_user_resets_cooldown(self):
-        """When user closes browser manually, cooldown resets for immediate retry."""
+    def test_browser_closed_by_user_arms_cooldown(self):
+        """When user closes the browser manually, treat it as a cancellation:
+        arm a cooldown so an automatic LLM retry can't immediately reopen the
+        window the user just dismissed, and surface a LOGIN_CANCELLED_BY_USER
+        signal so the LLM stops auto-retrying.
+        """
         mgr = _make_manager(cookie="")
         mgr._browser_cookie_header = None
         mgr._browser_reauth_failure_count = 0
@@ -533,17 +537,22 @@ class TestGracePeriodEdgeCases:
         def _raise_closed(_cfg, force_interactive=False):
             raise ValueError("Target page, context or browser has been closed")
 
+        raised: list[BaseException] = []
         with patch.object(mgr, "_try_restore_browser_session", return_value=False):
             with patch.object(mgr, "_login_with_browser", side_effect=_raise_closed):
                 try:
                     mgr.get_headers()
-                except ValueError:
-                    pass
+                except ValueError as exc:
+                    raised.append(exc)
 
-        # Should NOT increment failure count
-        assert mgr._browser_reauth_failure_count == 0
-        # Should allow immediate retry
-        assert mgr._browser_last_reauth_attempt_at is None
+        # Cancellation signal surfaced to the caller (not the raw Playwright error).
+        assert raised, "expected ValueError to be raised"
+        assert "LOGIN_CANCELLED_BY_USER" in str(raised[0])
+        # Cooldown is armed — at least 30s, last_reauth_attempt_at set.
+        assert mgr._browser_reauth_failure_count >= 1
+        assert mgr._browser_reauth_cooldown_seconds >= 30
+        assert mgr._browser_last_reauth_attempt_at is not None
+        # In-progress flag cleared so the next call after cooldown can proceed.
         assert mgr._browser_login_in_progress is False
 
     def test_real_failure_increments_cooldown(self):
