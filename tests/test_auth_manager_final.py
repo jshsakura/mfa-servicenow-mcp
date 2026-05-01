@@ -881,6 +881,39 @@ class TestLoginWithBrowserSync:
         assert len(probe_calls) == 1
         assert mgr._browser_session_token == "g_ck_token"
 
+    def test_browser_state_detection_does_not_confirm_on_mfa_prompt(self):
+        """Regression: v1.11.8 declared login complete the moment
+        `window.g_ck` was set and the URL was non-login — but
+        `/validate_multifactor_auth_code.do` (the page where the user is
+        still typing the MFA code) was not classified as a login URL,
+        so we'd "succeed" with a half-authenticated session and the
+        first real API call would 401.
+
+        Fix: `_is_login_page_url` now recognises the MFA challenge URL
+        family. With that URL, browser-state detection must NOT trigger
+        — the loop continues polling until the user finishes MFA and
+        the URL transitions to the dashboard."""
+        from servicenow_mcp.auth.auth_manager import _is_login_page_url
+
+        # Direct unit assertion on the URL classifier — the contract.
+        assert (
+            _is_login_page_url("https://example.service-now.com/validate_multifactor_auth_code.do")
+            is True
+        )
+        assert (
+            _is_login_page_url("https://example.service-now.com/multi_factor_auth_view.do") is True
+        )
+        # Path-based "multifactor" substring catches instance variants
+        # we have not seen explicitly listed.
+        assert _is_login_page_url("https://example.service-now.com/x_multifactor_challenge") is True
+        # And the dashboard URL must remain not-a-login-page.
+        assert (
+            _is_login_page_url(
+                "https://example.service-now.com/now/nav/ui/classic/params/target/$pa_dashboard.do"
+            )
+            is False
+        )
+
     def test_login_probe_unauthorized_after_login(self):
         """After login, API probe shows unauthorized — invalidates and raises."""
         mgr = _make_browser_manager()

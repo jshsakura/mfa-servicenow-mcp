@@ -176,7 +176,15 @@ SUBMIT_SELECTORS = (
 
 
 def _is_login_page_url(url: str) -> bool:
-    """Return True when the URL still indicates ServiceNow login flow."""
+    """Return True when the URL still indicates ServiceNow login or MFA flow.
+
+    Covers initial /login.do, the various MFA challenge / setup pages
+    (including `validate_multifactor_auth_code.do` — the prompt the user
+    actually sees while entering their code), SSO redirect bouncers, and
+    sysparm hints that indicate auth is still mid-flight. The browser-
+    state success gate keys off this — false negatives here cause us to
+    declare login complete while the user is still typing an MFA code.
+    """
     parsed = urlparse(url)
     path = parsed.path.lower()
     query = parsed.query.lower()
@@ -187,11 +195,19 @@ def _is_login_page_url(url: str) -> bool:
         "/external_logout_complete.do",
         "/multi_factor_auth_view.do",
         "/multi_factor_auth_setup.do",
+        "/validate_multifactor_auth_code.do",
         "/external_login_complete.do",
         "/sys_auth_info.do",
+        "/mfa.do",
+        "/mfa_setup.do",
     ]
+    # Generic substring guards — catch instance- or version-specific
+    # variants we have not seen explicitly. "multifactor" / "mfa_" are
+    # narrow enough not to false-positive on dashboard URLs.
+    generic_substrings = ("multifactor", "/mfa_", "/mfa/")
     return (
         any(marker in path for marker in login_markers)
+        or any(sub in path for sub in generic_substrings)
         or "sysparm_type=login" in query
         or "sysparm_reauth=true" in query
         or "sysparm_mfa_needed=true" in query
