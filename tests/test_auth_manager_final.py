@@ -1617,15 +1617,7 @@ class TestAbortWithProfileWipe:
         # When SERVICENOW_BROWSER_USER_DATA_DIR is not set, _resolve_user_data_dir
         # returns the per-instance default (~/.cache/profile_<host>_<user>).
         # The wipe must operate on that path identically.
-        cfg = AuthConfig(
-            type=AuthType.BROWSER,
-            browser=BrowserAuthConfig(
-                username="user@example.com",
-                password="pw",
-                user_data_dir=None,  # explicitly unset
-            ),
-        )
-        mgr = AuthManager(cfg, "https://test.service-now.com")
+        mgr = _make_browser_manager()
         # Override cache dir so the test does not touch the real ~/.cache.
         monkeypatch.setattr(mgr, "_get_cache_dir", lambda: str(tmp_path))
         default_dir = mgr._get_default_user_data_dir()
