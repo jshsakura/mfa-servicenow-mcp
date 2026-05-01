@@ -3023,3 +3023,75 @@ class TestComputeLoginWaitBudgetMs:
             )
             == 10_000
         )
+
+
+# ===========================================================================
+# _should_skip_probe: state-gate decision
+# ===========================================================================
+
+
+class TestShouldSkipProbe:
+    def test_in_confirmation_never_skips(self):
+        # Once a 200 is seen, the next probe must run regardless of state.
+        assert (
+            AuthManager._should_skip_probe(
+                state_changed=False, in_confirmation=True, iterations_since_probe=0
+            )
+            is False
+        )
+        assert (
+            AuthManager._should_skip_probe(
+                state_changed=False, in_confirmation=True, iterations_since_probe=999
+            )
+            is False
+        )
+
+    def test_state_change_never_skips(self):
+        # URL or cookie set changed → something happened, probe now.
+        assert (
+            AuthManager._should_skip_probe(
+                state_changed=True, in_confirmation=False, iterations_since_probe=0
+            )
+            is False
+        )
+
+    def test_skips_on_stationary_state_under_safety_net(self):
+        # No state change, no in-flight confirmation, fewer than 10
+        # iterations since last probe → skip to avoid 401 spam.
+        assert (
+            AuthManager._should_skip_probe(
+                state_changed=False, in_confirmation=False, iterations_since_probe=5
+            )
+            is True
+        )
+
+    def test_safety_net_forces_probe_at_threshold(self):
+        # At the 10-iteration safety net, force a probe even on stationary
+        # state so a no-state-change completion is never missed.
+        assert (
+            AuthManager._should_skip_probe(
+                state_changed=False, in_confirmation=False, iterations_since_probe=10
+            )
+            is False
+        )
+
+    def test_custom_safety_net_threshold(self):
+        # Threshold parameter is honored.
+        assert (
+            AuthManager._should_skip_probe(
+                state_changed=False,
+                in_confirmation=False,
+                iterations_since_probe=4,
+                safety_net_iterations=5,
+            )
+            is True
+        )
+        assert (
+            AuthManager._should_skip_probe(
+                state_changed=False,
+                in_confirmation=False,
+                iterations_since_probe=5,
+                safety_net_iterations=5,
+            )
+            is False
+        )

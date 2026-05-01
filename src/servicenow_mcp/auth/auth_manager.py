@@ -423,6 +423,36 @@ class AuthManager:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _should_skip_probe(
+        *,
+        state_changed: bool,
+        in_confirmation: bool,
+        iterations_since_probe: int,
+        safety_net_iterations: int = 10,
+    ) -> bool:
+        """Return True if the polling loop should skip the HTTP probe this
+        iteration.
+
+        The probe is gated on observable state change (URL path or cookie
+        set) so we do not spam ServiceNow with identical 401s while the
+        user is typing an MFA code on a stationary page.
+
+        Three rules:
+        - In the consecutive-confirmation phase (`in_confirmation=True`,
+          i.e. one successful probe already seen), never skip — we need
+          the next probe immediately to confirm or invalidate.
+        - If state changed (URL or cookie set differs from last probe),
+          never skip — something material happened.
+        - Otherwise, skip until `iterations_since_probe` reaches the
+          safety net so a no-state-change completion is still detected.
+        """
+        if in_confirmation:
+            return False
+        if state_changed:
+            return False
+        return iterations_since_probe < safety_net_iterations
+
+    @staticmethod
     def _compute_login_wait_budget_ms(
         timeout_ms: int, *, force_interactive: bool, debug_mode: bool
     ) -> int:
@@ -2187,8 +2217,11 @@ class AuthManager:
                         current_path != prev_url_path or cookie_name_set != prev_cookie_names
                     )
                     iterations_since_probe += 1
-                    in_confirmation = successful_probes > 0
-                    if not in_confirmation and not state_changed and iterations_since_probe < 10:
+                    if self._should_skip_probe(
+                        state_changed=state_changed,
+                        in_confirmation=successful_probes > 0,
+                        iterations_since_probe=iterations_since_probe,
+                    ):
                         time.sleep(1)
                         continue
                     prev_url_path = current_path
