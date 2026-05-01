@@ -423,6 +423,25 @@ class AuthManager:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _compute_login_wait_budget_ms(
+        timeout_ms: int, *, force_interactive: bool, debug_mode: bool
+    ) -> int:
+        """Pick the wait_budget_ms used by the polling loop in login.
+
+        - Debug mode: 30 minutes. Lets the user inspect requests in DevTools.
+        - Interactive mode: at least 60s, raised to `timeout_ms` if larger.
+          MFA/SSO entry needs human time; do not fail fast.
+        - Headless mode: at most 30s. The cookie gate covers the common
+          "MFA required" case in <1s, and a 30s cap keeps the wrapper's
+          fallback to interactive snappy when SSO never lands a probe-200.
+        """
+        if debug_mode:
+            return 1800000
+        if force_interactive:
+            return max(timeout_ms, 60000)
+        return min(timeout_ms, 30000)
+
+    @staticmethod
     def _has_valid_mfa_remembered_cookie(
         profile_cookies: list[dict], now: Optional[float] = None
     ) -> bool:
@@ -1944,17 +1963,11 @@ class AuthManager:
         # Interactive MFA needs user input time, but 5 min was long enough that an
         # ignored login window felt like "stuck forever". Cap at 60 s — covers a
         # standard MFA push/code entry, fails fast otherwise.
-        # Debug mode (SERVICENOW_BROWSER_DEBUG=true) gives the user 30 minutes to
-        # inspect requests in DevTools without the auth manager auto-closing.
-        if _is_debug_mode():
-            wait_budget_ms = 1800000  # 30 min — debug session, hold the window open
-        elif force_interactive:
-            wait_budget_ms = max(timeout_ms, 60000)
-        else:
-            # Headless attempt: cap at 30s. If MFA is actually required, the
-            # cookie/DOM checks below bail out fast — no need to burn the full
-            # 90s timeout in a window the user can't see anyway.
-            wait_budget_ms = min(timeout_ms, 30000)
+        wait_budget_ms = self._compute_login_wait_budget_ms(
+            timeout_ms,
+            force_interactive=force_interactive,
+            debug_mode=_is_debug_mode(),
+        )
         # 세션 만료 시 강제로 브라우저 표시 (headless 설정 무시)
         use_headless = browser_config.headless and not force_interactive
         instance_host = (urlparse(instance_url).hostname or "").lower()
