@@ -83,7 +83,11 @@ def test_browser_session_probe_401_triggers_interactive_relogin():
         with patch.object(manager, "_login_with_browser") as relogin:
 
             def _set_new_cookie(_cfg, force_interactive=False):
-                assert force_interactive is True
+                # Headless-first: caller now passes force_interactive=False;
+                # the wrapper internally falls back to interactive on
+                # MFA_REQUIRED. The mock simulates a successful relogin
+                # outcome regardless of mode.
+                assert force_interactive is False
                 manager._browser_cookie_header = "NEW=COOKIE"
                 manager._browser_cookie_expires_at = time.time() + 600
                 manager._browser_last_validated_at = time.time()
@@ -107,7 +111,8 @@ def test_browser_session_probe_request_error_triggers_interactive_relogin():
         with patch.object(manager, "_login_with_browser") as relogin:
 
             def _set_new_cookie(_cfg, force_interactive=False):
-                assert force_interactive is True
+                # Headless-first entry; wrapper handles fallback internally.
+                assert force_interactive is False
                 manager._browser_cookie_header = "NEW=COOKIE"
                 manager._browser_cookie_expires_at = time.time() + 600
                 manager._browser_last_validated_at = time.time()
@@ -1568,8 +1573,11 @@ def test_login_final_probe_request_error_does_not_persist_session(tmp_path):
             ),
             patch.object(manager, "_save_session_to_disk") as mock_save,
         ):
+            # force_interactive=True bypasses the headless MFA-remembered
+            # cookie gate so this test can exercise the consecutive-probe
+            # success path and final_probe RequestException handler.
             with pytest.raises(ValueError, match="final API validation failed"):
-                manager._login_with_browser_sync(cfg.browser, force_interactive=False)
+                manager._login_with_browser_sync(cfg.browser, force_interactive=True)
     finally:
         for k, v in saved.items():
             if v is None:
