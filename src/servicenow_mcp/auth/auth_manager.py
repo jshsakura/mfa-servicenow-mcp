@@ -2235,15 +2235,27 @@ class AuthManager:
                         stable_instance_ticks = 0
 
                     # Browser-state success signal. ServiceNow sets
-                    # `window.g_ck` only after the user is authenticated;
-                    # combined with a non-login URL on the instance host,
-                    # this is a stronger and more reliable signal than the
-                    # external API probe — the probe doesn't know about
-                    # CSRF/SSO headers the browser sends natively, so on
-                    # some instances it returns 302/401 even after a
-                    # successful UI login. Trust the browser, then run
-                    # final_probe (with X-UserToken) for sanity.
-                    if current_host == instance_host and not _is_login_page_url(current_url):
+                    # `window.g_ck` after authentication, and the URL
+                    # transitions away from the login/MFA family once the
+                    # user finishes the challenge. We require BOTH:
+                    #   - URL is on the instance host AND not classified as
+                    #     login/MFA (`_is_login_page_url` is the gate),
+                    #   - URL has been stable in that state for several
+                    #     iterations (`stable_instance_ticks`) — defends
+                    #     against a brief navigation flicker into a
+                    #     dashboard URL during a multi-hop SSO redirect
+                    #     chain, AND against MFA URLs we have not
+                    #     enumerated explicitly (the tick counter resets
+                    #     to 0 whenever `_is_login_page_url` matches),
+                    #   - `window.g_ck` returns a non-empty string.
+                    # When all three line up, trust the browser and let
+                    # `final_probe` (now armed with X-UserToken) validate.
+                    BROWSER_STATE_STABLE_TICKS_REQUIRED = 3
+                    if (
+                        current_host == instance_host
+                        and not _is_login_page_url(current_url)
+                        and stable_instance_ticks >= BROWSER_STATE_STABLE_TICKS_REQUIRED
+                    ):
                         try:
                             _g_ck = page.evaluate("window.g_ck")
                         except Exception:  # noqa: BLE001
@@ -2252,8 +2264,9 @@ class AuthManager:
                             self._browser_session_token = _g_ck.strip()
                             logger.info(
                                 "Browser auth confirmed by browser state: "
-                                "url=%s g_ck_present=true cookie_names=%s",
+                                "url=%s stable_ticks=%s g_ck_present=true cookie_names=%s",
                                 current_url,
+                                stable_instance_ticks,
                                 ",".join(cookie_names),
                             )
                             login_confirmed = True
