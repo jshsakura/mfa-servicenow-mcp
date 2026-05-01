@@ -2156,10 +2156,21 @@ class AuthManager:
                 exc,
             )
 
+        # LLM-friendly recovery message. v1.11.18's wording ("MFA prompt
+        # expected") read as "user action required" to the LLM, which
+        # then asked the human for confirmation instead of just retrying
+        # after the cooldown. Make it explicit that this is an automatic
+        # recovery path: the next tool call opens the browser, the user
+        # types MFA in it directly, no LLM-side approval is needed.
+        cooldown_seconds = int(self._browser_reauth_cooldown_seconds)
         raise ValueError(
-            f"Login aborted ({reason}). The persistent Chromium profile "
-            "has been wiped; the next tool call will open a fresh login "
-            "window. MFA prompt expected."
+            f"AUTO_RECOVERY_ARMED: login aborted ({reason}). Persistent "
+            f"Chromium profile wiped, post-wipe cooldown is {cooldown_seconds}s. "
+            "Recovery is automatic: retry the SAME tool call after the "
+            "cooldown — the browser will open by itself and the user types "
+            "MFA in that window. Do NOT ask the user for confirmation; "
+            "just call the tool again. The login window appears in front "
+            "of the user the moment you retry."
         )
 
     def _purge_stale_profile_cookies(self, context, instance_host: str) -> int:
@@ -2321,14 +2332,22 @@ class AuthManager:
             # subsequent login.do can land cleanly. Best-effort: navigation
             # failure is non-fatal — login.do flow handles its own errors.
             #
+            # v1.11.19 stabilization: v1.11.18's defaults were too tight —
+            # field log showed `Page.goto: Timeout 10000ms exceeded` on a
+            # busy/cleanup-in-progress server, leaving the cleanup not
+            # actually triggered and the next login.do still hitting the
+            # phantom flow. Bumped to 30 s timeout, wait_until="load" (full
+            # response + resources), and 2 s post-navigation sleep so the
+            # server has time to commit the cleanup before login.do.
+            #
             # The ``sysparm_url=login.do`` query asks ServiceNow to redirect
             # to the login page after the logout completes, so the form is
             # ready to fill on the same page load. Saves one round-trip on
             # instances that respect that param.
             try:
                 logout_url = f"{instance_url.rstrip('/')}/logout.do?sysparm_url=login.do"
-                page.goto(logout_url, timeout=10_000, wait_until="domcontentloaded")
-                page.wait_for_timeout(500)
+                page.goto(logout_url, timeout=30_000, wait_until="load")
+                page.wait_for_timeout(2000)
                 logger.info(
                     "Server-side logout flushed via %s (best-effort, pre-login).",
                     logout_url,
