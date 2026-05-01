@@ -1417,7 +1417,9 @@ class TestBrowserGetHeadersEdgeCases:
                                     headers = mgr.get_headers()
 
         assert headers["Cookie"] == "fresh=1"
-        mock_login.assert_called_once_with(mgr.config.browser, force_interactive=True)
+        # Headless-first: caller now passes force_interactive=False;
+        # _login_with_browser internally falls back to interactive when needed.
+        mock_login.assert_called_once_with(mgr.config.browser, force_interactive=False)
 
     def test_wait_timeout_then_lock_fails_raises(self):
         mgr = _make_browser_manager()
