@@ -420,11 +420,20 @@ class TestLoginWithBrowserSync:
     ):
         """Helper to create Playwright mock chain."""
         if cookies is None:
+            # Include MFA-remembered cookie by default so the headless gate
+            # (which bails out when this cookie is absent) does not trip in
+            # tests that exercise the post-gate login flow.
             cookies = [
                 {
                     "name": "JSESSIONID",
                     "value": "abc123",
                     "domain": "example.service-now.com",
+                },
+                {
+                    "name": "glide_mfa_remembered_browser",
+                    "value": "remembered",
+                    "domain": "example.service-now.com",
+                    "expires": time.time() + 86400,
                 },
             ]
 
@@ -761,7 +770,19 @@ class TestLoginWithBrowserSync:
             session_ttl_minutes=30,
         )
 
-        mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks(cookies=[])
+        # MFA-remembered cookie on a non-instance domain → headless gate
+        # passes but _build_instance_cookie_header still finds zero
+        # instance-scoped cookies, so the polling loop times out.
+        mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks(
+            cookies=[
+                {
+                    "name": "glide_mfa_remembered_browser",
+                    "value": "remembered",
+                    "domain": "other.com",
+                    "expires": time.time() + 86400,
+                }
+            ]
+        )
 
         # During polling, _build_instance_cookie_header returns None (no cookies)
         # so the loop times out without cookies
@@ -786,7 +807,18 @@ class TestLoginWithBrowserSync:
         )
 
         mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks(
-            cookies=[{"name": "other", "value": "x", "domain": "other.com"}]
+            cookies=[
+                {"name": "other", "value": "x", "domain": "other.com"},
+                # MFA-remembered cookie on a non-instance domain so the
+                # headless gate passes but _build_instance_cookie_header
+                # still finds zero instance-scoped cookies (test intent).
+                {
+                    "name": "glide_mfa_remembered_browser",
+                    "value": "remembered",
+                    "domain": "other.com",
+                    "expires": time.time() + 86400,
+                },
+            ]
         )
         mock_page.url = "https://example.service-now.com/now/nav/ui"
 
@@ -903,8 +935,16 @@ class TestLoginWithBrowserSync:
         mock_page.url = "https://example.service-now.com/login.do"  # Still on login page
         mock_page.is_closed.return_value = False
 
-        # No cookies ever appear
-        mock_context.cookies.return_value = []
+        # MFA-remembered cookie on a non-instance domain → headless gate
+        # passes; instance cookie header stays empty so the loop times out.
+        mock_context.cookies.return_value = [
+            {
+                "name": "glide_mfa_remembered_browser",
+                "value": "remembered",
+                "domain": "other.com",
+                "expires": time.time() + 86400,
+            }
+        ]
 
         mock_spw = MagicMock(return_value=mock_sync)
         with patch.dict(
@@ -1096,11 +1136,19 @@ class TestLoginWithBrowserSync:
         mock_page.url = "https://example.service-now.com/now/nav/ui/classic"
 
         # Override cookies to include glide_user_session for the fallback check
+        # plus an MFA-remembered cookie so the headless gate passes (the test
+        # is exercising the post-gate stable-cookie-no-longer-confirms path).
         mock_context.cookies.return_value = [
             {
                 "name": "glide_user_session",
                 "value": "abc",
                 "domain": "example.service-now.com",
+            },
+            {
+                "name": "glide_mfa_remembered_browser",
+                "value": "remembered",
+                "domain": "example.service-now.com",
+                "expires": time.time() + 86400,
             },
         ]
 
