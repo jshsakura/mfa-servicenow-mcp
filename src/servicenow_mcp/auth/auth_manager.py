@@ -73,6 +73,28 @@ _PROFILE_LOCK_HINTS = (
 )
 
 
+# Substrings (lowercase) that indicate the persistent Chromium context was
+# closed before login completed. We treat any match as "user-cancelled the
+# login window" — the LLM/auth state machine then applies a cooldown rather
+# than re-opening another window immediately.
+USER_CLOSE_ERROR_MARKERS = (
+    "target closed",
+    "browser closed",
+    "browser was closed",
+    "browser has been closed",
+    "target page, context or browser has been closed",
+    "connection closed",
+    "login_cancelled_by_user",
+)
+
+
+def _looks_like_user_close(error_text: str) -> bool:
+    """Return True if `error_text` (lowercased exception message) contains
+    a marker indicating the browser/login window was closed before auth
+    completed."""
+    return any(marker in error_text for marker in USER_CLOSE_ERROR_MARKERS)
+
+
 def _is_debug_mode() -> bool:
     """Debug mode: SERVICENOW_BROWSER_DEBUG=1/true keeps the Chromium window open
     even on errors and auto-opens DevTools, so the user can inspect the failing
@@ -471,6 +493,19 @@ class AuthManager:
             return max(timeout_ms, 60000)
         return min(timeout_ms, 30000)
 
+    def _apply_browser_session_headers(self, headers: dict) -> dict:
+        """Mutate `headers` in place to include the captured browser session
+        — Cookie + optional User-Agent + optional X-UserToken — and return
+        the same dict for chaining. Centralises the 10-call pattern that
+        previously copy-pasted the same three assignments around
+        get_auth_headers."""
+        headers["Cookie"] = self._browser_cookie_header or ""
+        if self._browser_user_agent:
+            headers["User-Agent"] = self._browser_user_agent
+        if self._browser_session_token:
+            headers["X-UserToken"] = self._browser_session_token
+        return headers
+
     @staticmethod
     def _has_valid_mfa_remembered_cookie(
         profile_cookies: list[dict], now: Optional[float] = None
@@ -493,7 +528,15 @@ class AuthManager:
         for cookie in profile_cookies:
             if cookie.get("name") != "glide_mfa_remembered_browser":
                 continue
-            expires = cookie.get("expires") or 0
+            raw_expires = cookie.get("expires")
+            # Coerce defensively. Playwright Python normally returns a
+            # numeric expires, but tests / external session imports may
+            # round-trip a string. Anything we cannot read as a float
+            # is treated as "no valid expiry" — fail closed.
+            try:
+                expires = float(raw_expires) if raw_expires is not None else 0.0
+            except (TypeError, ValueError):
+                expires = 0.0
             if expires > now:
                 return True
         return False
@@ -1071,11 +1114,7 @@ class AuthManager:
                     self._browser_login_lock.release()
                     # Login should be done now — return headers if session is valid
                     if self._browser_cookie_header and not self._is_browser_session_expired():
-                        headers["Cookie"] = self._browser_cookie_header or ""
-                        if self._browser_user_agent:
-                            headers["User-Agent"] = self._browser_user_agent
-                        if self._browser_session_token:
-                            headers["X-UserToken"] = self._browser_session_token
+                        self._apply_browser_session_headers(headers)
                         return headers
                     raise ValueError(
                         "Browser login completed in another thread but session is not available. "
@@ -1085,11 +1124,7 @@ class AuthManager:
                 try:
                     # Double-check: another thread may have completed login while we waited.
                     if self._browser_cookie_header and not self._is_browser_session_expired():
-                        headers["Cookie"] = self._browser_cookie_header or ""
-                        if self._browser_user_agent:
-                            headers["User-Agent"] = self._browser_user_agent
-                        if self._browser_session_token:
-                            headers["X-UserToken"] = self._browser_session_token
+                        self._apply_browser_session_headers(headers)
                         return headers
 
                     # Fast path: try disk reload before opening Playwright.
@@ -1107,11 +1142,7 @@ class AuthManager:
                                 )
                                 if not self._keepalive_thread:
                                     self._start_keepalive()
-                                headers["Cookie"] = self._browser_cookie_header or ""
-                                if self._browser_user_agent:
-                                    headers["User-Agent"] = self._browser_user_agent
-                                if self._browser_session_token:
-                                    headers["X-UserToken"] = self._browser_session_token
+                                self._apply_browser_session_headers(headers)
                                 return headers
                             logger.info(
                                 "Disk-restored session failed live probe — discarding "
@@ -1125,11 +1156,7 @@ class AuthManager:
                         self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
                         if not self._keepalive_thread:
                             self._start_keepalive()
-                        headers["Cookie"] = self._browser_cookie_header or ""
-                        if self._browser_user_agent:
-                            headers["User-Agent"] = self._browser_user_agent
-                        if self._browser_session_token:
-                            headers["X-UserToken"] = self._browser_session_token
+                        self._apply_browser_session_headers(headers)
                         return headers
 
                     # Post-restore disk check: another process may have completed
@@ -1148,11 +1175,7 @@ class AuthManager:
                                 )
                                 if not self._keepalive_thread:
                                     self._start_keepalive()
-                                headers["Cookie"] = self._browser_cookie_header or ""
-                                if self._browser_user_agent:
-                                    headers["User-Agent"] = self._browser_user_agent
-                                if self._browser_session_token:
-                                    headers["X-UserToken"] = self._browser_session_token
+                                self._apply_browser_session_headers(headers)
                                 return headers
                             logger.info(
                                 "Disk session from sibling process failed probe — "
@@ -1181,11 +1204,7 @@ class AuthManager:
                                 )
                                 if not self._keepalive_thread:
                                     self._start_keepalive()
-                                headers["Cookie"] = self._browser_cookie_header or ""
-                                if self._browser_user_agent:
-                                    headers["User-Agent"] = self._browser_user_agent
-                                if self._browser_session_token:
-                                    headers["X-UserToken"] = self._browser_session_token
+                                self._apply_browser_session_headers(headers)
                                 return headers
                             logger.info(
                                 "Waited-for cross-process session failed validation. "
@@ -1210,7 +1229,8 @@ class AuthManager:
                             "You can also retry this tool call after the cooldown to trigger a new login."
                         )
                     logger.info(
-                        "Opening browser in interactive mode for login/MFA. "
+                        "Triggering browser auth flow (headless-first; falls "
+                        "back to a visible window if MFA is required). "
                         "(attempt #%d, cooldown=%ds)",
                         self._browser_reauth_failure_count + 1,
                         self._browser_reauth_cooldown_seconds,
@@ -1242,18 +1262,7 @@ class AuthManager:
                         else:
                             self._browser_login_in_progress = False
                             self._release_login_lock()
-                        user_closed = any(
-                            marker in error_text
-                            for marker in [
-                                "target closed",
-                                "browser closed",
-                                "browser was closed",
-                                "browser has been closed",
-                                "target page, context or browser has been closed",
-                                "connection closed",
-                                "login_cancelled_by_user",
-                            ]
-                        )
+                        user_closed = _looks_like_user_close(error_text)
                         if user_closed:
                             # If session was already captured (cookies + key set
                             # by the success path before this exception), the
@@ -1270,11 +1279,7 @@ class AuthManager:
                                 )
                                 if not self._keepalive_thread:
                                     self._start_keepalive()
-                                headers["Cookie"] = self._browser_cookie_header or ""
-                                if self._browser_user_agent:
-                                    headers["User-Agent"] = self._browser_user_agent
-                                if self._browser_session_token:
-                                    headers["X-UserToken"] = self._browser_session_token
+                                self._apply_browser_session_headers(headers)
                                 return headers
                             # Genuine user cancellation before auth completed.
                             user_close_cooldown = (
@@ -1325,7 +1330,8 @@ class AuthManager:
                 elif not self._is_browser_session_valid(self.config.browser):
                     logger.info(
                         "Browser session is no longer valid on ServiceNow. "
-                        "Opening browser for interactive re-authentication..."
+                        "Triggering re-auth flow (headless-first; visible window "
+                        "only if MFA is required)..."
                     )
                     self.invalidate_browser_session()
                     if not self._acquire_login_lock():
@@ -1334,11 +1340,7 @@ class AuthManager:
                         ):
                             if not self._keepalive_thread:
                                 self._start_keepalive()
-                            headers["Cookie"] = self._browser_cookie_header or ""
-                            if self._browser_user_agent:
-                                headers["User-Agent"] = self._browser_user_agent
-                            if self._browser_session_token:
-                                headers["X-UserToken"] = self._browser_session_token
+                            self._apply_browser_session_headers(headers)
                             return headers
                         # Wait timed out — peer process is still logging in.
                         # Retry the lock once: if the peer has since released
@@ -1370,18 +1372,7 @@ class AuthManager:
                             raise
                         self._browser_login_in_progress = False
                         self._release_login_lock()
-                        user_closed = any(
-                            marker in error_text
-                            for marker in [
-                                "target closed",
-                                "browser closed",
-                                "browser was closed",
-                                "browser has been closed",
-                                "target page, context or browser has been closed",
-                                "connection closed",
-                                "login_cancelled_by_user",
-                            ]
-                        )
+                        user_closed = _looks_like_user_close(error_text)
                         if user_closed:
                             # Benign post-success close: session already captured,
                             # treat as success and skip cooldown.
@@ -1396,11 +1387,7 @@ class AuthManager:
                                 )
                                 if not self._keepalive_thread:
                                     self._start_keepalive()
-                                headers["Cookie"] = self._browser_cookie_header or ""
-                                if self._browser_user_agent:
-                                    headers["User-Agent"] = self._browser_user_agent
-                                if self._browser_session_token:
-                                    headers["X-UserToken"] = self._browser_session_token
+                                self._apply_browser_session_headers(headers)
                                 return headers
                             user_close_cooldown = (
                                 15  # 15s — break instant LLM auto-retry on user-cancelled login
@@ -1429,11 +1416,7 @@ class AuthManager:
                             self._browser_reauth_cooldown_max,
                         )
                         raise
-            headers["Cookie"] = self._browser_cookie_header or ""
-            if self._browser_user_agent:
-                headers["User-Agent"] = self._browser_user_agent
-            if self._browser_session_token:
-                headers["X-UserToken"] = self._browser_session_token
+            self._apply_browser_session_headers(headers)
 
         return headers
 
@@ -1960,7 +1943,7 @@ class AuthManager:
 
         try:
             _run_sync_login(force_interactive)
-        except ValueError as exc:
+        except Exception as exc:  # noqa: BLE001 — fallback decision uses marker text
             error_text = str(exc).lower()
             mfa_required = "mfa_required" in error_text
             headless_timeout = "timed out waiting for browser login/mfa" in error_text
