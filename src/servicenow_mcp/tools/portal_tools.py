@@ -2267,8 +2267,10 @@ def search_portal_regex_matches(
 
         # M2M lookup from widgets (only when no direct provider_ids and widgets exist)
         if not params.provider_ids and params.include_linked_angular_providers and widget_ids:
+            # Chunk size 30 — large `IN` clauses with 32-char sys_ids
+            # blow past URL length limits and 400 on real instances.
             escaped_chunks = [
-                [_escape_query(v) for v in chunk] for chunk in _chunked(widget_ids, 100)
+                [_escape_query(v) for v in chunk] for chunk in _chunked(widget_ids, 30)
             ]
             relation_rows = _parallel_chunked_query(
                 config,
