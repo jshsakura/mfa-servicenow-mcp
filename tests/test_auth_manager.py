@@ -1959,6 +1959,27 @@ class TestLoginWithBrowser:
 
         assert call_count == 2
 
+    def test_fallback_to_interactive_on_mfa_required(self):
+        """Headless attempt raising MFA_REQUIRED triggers interactive retry."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+        attempts: list[bool] = []
+
+        def _mock_sync_login(cfg, interactive=False):
+            attempts.append(interactive)
+            if not interactive:
+                raise ValueError(
+                    "MFA_REQUIRED: persistent profile has no valid "
+                    "glide_mfa_remembered_browser cookie"
+                )
+            # interactive call succeeds
+
+        with patch.object(mgr, "_login_with_browser_sync", side_effect=_mock_sync_login):
+            mgr._login_with_browser(browser_cfg, force_interactive=False)
+
+        # First call headless (False), then fallback interactive (True).
+        assert attempts == [False, True]
+
     def test_non_timeout_error_not_retried(self):
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(timeout_seconds=10)
@@ -2888,3 +2909,59 @@ class TestMakeRequestCookieDetails:
 
         # Cookies should be cleared after request
         assert len(mgr._http_session.cookies) == 0
+
+
+# ===========================================================================
+# _has_valid_mfa_remembered_cookie: headless gate signal
+# ===========================================================================
+
+
+class TestHasValidMfaRememberedCookie:
+    def test_returns_true_for_non_expired_cookie(self):
+        cookies = [
+            {
+                "name": "glide_mfa_remembered_browser",
+                "value": "remembered",
+                "expires": time.time() + 86400,
+            }
+        ]
+        assert AuthManager._has_valid_mfa_remembered_cookie(cookies) is True
+
+    def test_returns_false_when_cookie_absent(self):
+        cookies = [
+            {"name": "JSESSIONID", "value": "abc", "expires": time.time() + 86400},
+        ]
+        assert AuthManager._has_valid_mfa_remembered_cookie(cookies) is False
+
+    def test_returns_false_when_cookie_expired(self):
+        cookies = [
+            {
+                "name": "glide_mfa_remembered_browser",
+                "value": "remembered",
+                "expires": time.time() - 1,
+            }
+        ]
+        assert AuthManager._has_valid_mfa_remembered_cookie(cookies) is False
+
+    def test_returns_false_when_expires_missing(self):
+        # Session cookie (no expires) — treated as expired so the gate is
+        # conservative: glide_mfa_remembered_browser is meant to be
+        # persistent, so anything else is suspect.
+        cookies = [
+            {"name": "glide_mfa_remembered_browser", "value": "remembered"},
+        ]
+        assert AuthManager._has_valid_mfa_remembered_cookie(cookies) is False
+
+    def test_returns_false_for_empty_cookie_list(self):
+        assert AuthManager._has_valid_mfa_remembered_cookie([]) is False
+
+    def test_uses_provided_now_for_expiry_check(self):
+        cookies = [
+            {
+                "name": "glide_mfa_remembered_browser",
+                "value": "remembered",
+                "expires": 1000.0,
+            }
+        ]
+        assert AuthManager._has_valid_mfa_remembered_cookie(cookies, now=999.0) is True
+        assert AuthManager._has_valid_mfa_remembered_cookie(cookies, now=1001.0) is False

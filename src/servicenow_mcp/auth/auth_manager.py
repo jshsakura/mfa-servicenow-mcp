@@ -423,6 +423,33 @@ class AuthManager:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _has_valid_mfa_remembered_cookie(
+        profile_cookies: list[dict], now: Optional[float] = None
+    ) -> bool:
+        """Return True if the persistent profile contains a non-expired
+        `glide_mfa_remembered_browser` cookie.
+
+        ServiceNow sets this cookie after a user completes MFA on a device
+        and elects to "remember this browser". Subsequent logins from the
+        same persistent Playwright profile skip the MFA prompt while the
+        cookie is valid. The headless login gate uses this signal to decide
+        whether a non-interactive attempt is worth trying.
+
+        A cookie without an `expires` value (session cookie) or with a
+        non-positive value is treated as expired/absent — `glide_mfa_
+        remembered_browser` is always persistent in normal flows.
+        """
+        if now is None:
+            now = time.time()
+        for cookie in profile_cookies:
+            if cookie.get("name") != "glide_mfa_remembered_browser":
+                continue
+            expires = cookie.get("expires") or 0
+            if expires > now:
+                return True
+        return False
+
+    @staticmethod
     def _ensure_playwright_ready() -> None:
         """Verify Playwright is importable and has a working Chromium binary.
 
@@ -1876,15 +1903,23 @@ class AuthManager:
             _run_sync_login(force_interactive)
         except ValueError as exc:
             error_text = str(exc).lower()
+            mfa_required = "mfa_required" in error_text
+            headless_timeout = "timed out waiting for browser login/mfa" in error_text
             should_fallback_to_interactive = not force_interactive and (
-                "timed out waiting for browser login/mfa" in error_text
-                or "mfa_required" in error_text
+                headless_timeout or mfa_required
             )
             if should_fallback_to_interactive:
-                logger.info(
-                    "Automatic browser re-auth timed out. "
-                    "Falling back to interactive re-auth with prefilled credentials."
-                )
+                if mfa_required:
+                    logger.info(
+                        "Headless login attempt detected MFA requirement "
+                        "(no remembered cookie or MFA prompt) — opening visible "
+                        "browser for interactive MFA/SSO."
+                    )
+                else:
+                    logger.info(
+                        "Headless login attempt timed out — falling back to "
+                        "interactive re-auth with prefilled credentials."
+                    )
                 _run_sync_login(True)
                 return
             raise
@@ -1920,17 +1955,18 @@ class AuthManager:
             # cookie/DOM checks below bail out fast — no need to burn the full
             # 90s timeout in a window the user can't see anyway.
             wait_budget_ms = min(timeout_ms, 30000)
+        # 세션 만료 시 강제로 브라우저 표시 (headless 설정 무시)
+        use_headless = browser_config.headless and not force_interactive
         instance_host = (urlparse(instance_url).hostname or "").lower()
         logger.info(
-            "Starting browser auth flow: instance_host=%s login_host=%s timeout_seconds=%s mode=%s",
+            "Starting browser auth flow: instance_host=%s login_host=%s "
+            "timeout_seconds=%s wait_budget_ms=%s mode=%s",
             instance_host,
             (urlparse(login_url).hostname or "").lower(),
             int(browser_config.timeout_seconds),
-            "interactive" if force_interactive else "auto",
+            wait_budget_ms,
+            "interactive" if force_interactive else "headless",
         )
-
-        # 세션 만료 시 강제로 브라우저 표시 (headless 설정 무시)
-        use_headless = browser_config.headless and not force_interactive
 
         effective_user_data_dir = self._resolve_user_data_dir(browser_config)
         with sync_playwright() as playwright:
@@ -1966,14 +2002,7 @@ class AuthManager:
             # The outer wrapper catches the MFA_REQUIRED marker and falls
             # back to interactive mode.
             if use_headless and not _is_debug_mode():
-                profile_cookies = context.cookies()
-                now = time.time()
-                has_mfa_remembered = any(
-                    c.get("name") == "glide_mfa_remembered_browser"
-                    and (c.get("expires") or 0) > now
-                    for c in profile_cookies
-                )
-                if not has_mfa_remembered:
+                if not self._has_valid_mfa_remembered_cookie(context.cookies()):
                     _safe_close_context()
                     raise ValueError(
                         "MFA_REQUIRED: persistent profile has no valid "
@@ -2284,14 +2313,14 @@ class AuthManager:
                     final_probe.status_code,
                     browser_config.probe_path,
                 )
-            # Close again at the very end of the success path. The earlier close
-            # (before final_probe) sometimes left a Chromium window visible to
-            # the user — possibly because in-flight navigation/resource fetches
-            # delayed the actual window teardown. Calling it once more after all
-            # post-login work is done makes the close definitive and idempotent.
+            # Idempotent second close — the earlier call (before final_probe)
+            # already handles the failure paths; this one is a no-op safety
+            # net for the success path.
             _safe_close_context()
             logger.info(
-                "Browser session stored: session_key=%s cookie_count=%s cookie_names=%s ttl_minutes=%s",
+                "Browser session stored: mode=%s session_key=%s cookie_count=%s "
+                "cookie_names=%s ttl_minutes=%s",
+                "headless" if use_headless else "interactive",
                 self._browser_session_key,
                 len(_extract_cookie_names(self._browser_cookie_header)),
                 ",".join(_extract_cookie_names(self._browser_cookie_header)),
