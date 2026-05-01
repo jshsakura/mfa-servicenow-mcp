@@ -597,7 +597,7 @@ wheels = [
 
 [[package]]
 name = "mfa-servicenow-mcp"
-version = "1.11.14"
+version = "1.11.15"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
