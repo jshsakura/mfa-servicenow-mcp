@@ -834,14 +834,19 @@ class TestLoginWithBrowserSync:
                     mgr._login_with_browser_sync(browser_cfg)
 
     def test_browser_state_detection_skips_probe_loop_when_g_ck_present(self):
-        """Browser-state-based login detection: when `window.g_ck` is set
-        and the page is on a non-login URL on the instance host, declare
-        login_confirmed without waiting for two consecutive probe-200s.
+        """Browser-state-based login detection: when `window.g_ck` is set,
+        the URL is on the instance host on a non-login page, AND the
+        non-login URL has been stable for the required tick count,
+        declare login_confirmed without waiting for two consecutive
+        probe-200s.
 
         This is the path that recovers users on ServiceNow instances where
         the external API probe always returns 302/401 (CSRF/SSO require
         headers our requests-library probe lacks). The browser session is
-        valid — the probe just can't see it. Trust the browser."""
+        valid — the probe just can't see it. Trust the browser, but only
+        once the URL has stayed off the login/MFA family for several
+        ticks (defends against transient flickers and against MFA URLs
+        we have not enumerated)."""
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
             timeout_seconds=10,
@@ -853,18 +858,34 @@ class TestLoginWithBrowserSync:
         mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
         mock_page.url = "https://example.service-now.com/now/nav/ui"
 
-        # final_probe must succeed for the success path to complete.
+        # In-loop probes always 302 — simulates the user's instance where
+        # CSRF/SSO breaks the external probe. Browser-state should still
+        # confirm via g_ck once stable_ticks >= 3.
+        loop_probe = MagicMock()
+        loop_probe.status_code = 302
+        loop_probe.headers = {"Location": "/login.do"}
+        loop_probe.url = "https://example.service-now.com/login.do"
+        loop_probe.text = ""
+
+        # final_probe (after we trust browser-state): with X-UserToken now
+        # in the header, returns 200.
         final_probe = MagicMock()
         final_probe.status_code = 200
         final_probe.headers = {"Content-Type": "application/json"}
         final_probe.url = "https://example.service-now.com/api/now/table/sys_user_preference"
         final_probe.text = '{"result": []}'
 
-        probe_calls: list[int] = []
+        probe_calls: list[MagicMock] = []
 
+        # The first probe runs inside the wait loop and returns 302 — the
+        # broken external-probe path on the user's instance. The state-
+        # gate then skips probes on stationary state while
+        # `stable_instance_ticks` accumulates; once browser-state confirms
+        # via g_ck, we exit the loop and call `final_probe` exactly once
+        # with X-UserToken in the header. That call returns 200.
         def _mock_probe(cookie_header, timeout_seconds=10, browser_config=None):
-            probe_calls.append(1)
-            return final_probe
+            probe_calls.append(loop_probe)
+            return final_probe if len(probe_calls) >= 2 else loop_probe
 
         mock_spw = MagicMock(return_value=mock_sync)
         with patch.dict(
@@ -876,9 +897,8 @@ class TestLoginWithBrowserSync:
                     with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
                         mgr._login_with_browser_sync(browser_cfg)
 
-        # Probe should have been called exactly once (the final_probe
-        # validation), NOT twice for the consecutive-success requirement.
-        assert len(probe_calls) == 1
+        # Browser-state confirmed despite every loop probe being 302.
+        # session_token must equal the captured g_ck.
         assert mgr._browser_session_token == "g_ck_token"
 
     def test_browser_state_detection_does_not_confirm_on_mfa_prompt(self):
