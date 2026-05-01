@@ -1567,6 +1567,77 @@ class TestPurgeStaleProfileCookies:
         assert cleared == 0
 
 
+class TestAbortWithProfileWipe:
+    """v1.11.17: wait-loop abort path wipes the persistent Chromium
+    profile so the next attempt can recover automatically without the
+    user being told to ``rm -rf`` the directory by hand.
+
+    Verifies the helper:
+    - resets cooldown counters
+    - arms the cookie purge flag (defensive)
+    - calls shutil.rmtree on the user_data_dir
+    - raises with the reason
+    - swallows rmtree failures (still raises, still arms flags)
+    """
+
+    def test_wipes_profile_and_raises(self, tmp_path):
+        mgr = _make_browser_manager()
+        mgr._browser_reauth_failure_count = 3
+        mgr._browser_reauth_cooldown_seconds = 240
+        mgr._needs_profile_cookie_purge = False
+
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+        (profile_dir / "Cookies").write_text("dummy")
+
+        with pytest.raises(ValueError, match="Login aborted"):
+            mgr._abort_with_profile_wipe(str(profile_dir), reason="test reason")
+
+        assert not profile_dir.exists()
+        assert mgr._browser_reauth_failure_count == 0
+        assert mgr._browser_reauth_cooldown_seconds == mgr._browser_reauth_cooldown_base
+        assert mgr._needs_profile_cookie_purge is True
+
+    def test_swallows_rmtree_failure(self):
+        mgr = _make_browser_manager()
+        mgr._browser_reauth_failure_count = 2
+
+        # Path that doesn't exist — rmtree(ignore_errors=True) succeeds
+        # silently. Test the more realistic failure: shutil.rmtree raising
+        # despite ignore_errors (e.g., readonly fs simulation).
+        with patch("shutil.rmtree", side_effect=OSError("permission denied")):
+            with pytest.raises(ValueError, match="Login aborted"):
+                mgr._abort_with_profile_wipe("/nonexistent/path", reason="test reason")
+
+        # Even with rmtree failing, defensive flags must be set.
+        assert mgr._browser_reauth_failure_count == 0
+        assert mgr._needs_profile_cookie_purge is True
+
+    def test_works_with_default_user_data_dir(self, tmp_path, monkeypatch):
+        # When SERVICENOW_BROWSER_USER_DATA_DIR is not set, _resolve_user_data_dir
+        # returns the per-instance default (~/.cache/profile_<host>_<user>).
+        # The wipe must operate on that path identically.
+        cfg = AuthConfig(
+            type=AuthType.BROWSER,
+            browser=BrowserAuthConfig(
+                username="user@example.com",
+                password="pw",
+                user_data_dir=None,  # explicitly unset
+            ),
+        )
+        mgr = AuthManager(cfg, "https://test.service-now.com")
+        # Override cache dir so the test does not touch the real ~/.cache.
+        monkeypatch.setattr(mgr, "_get_cache_dir", lambda: str(tmp_path))
+        default_dir = mgr._get_default_user_data_dir()
+        os.makedirs(default_dir, exist_ok=True)
+        assert os.path.isdir(default_dir)
+
+        with pytest.raises(ValueError, match="Login aborted"):
+            mgr._abort_with_profile_wipe(default_dir, reason="default-dir test")
+
+        assert not os.path.exists(default_dir)
+
+
 class TestLogoutRedirectCounterResetSemantics:
     """Encode the wait-loop invariant fixed in v1.11.13 as predicate logic.
 

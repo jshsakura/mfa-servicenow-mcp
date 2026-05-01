@@ -2095,6 +2095,61 @@ class AuthManager:
                 return
             raise
 
+    def _abort_with_profile_wipe(self, user_data_dir: str, *, reason: str) -> None:
+        """Abort the wait loop and ``rm -rf`` the persistent profile.
+
+        Called from inside ``_login_with_browser_sync`` when the wait loop
+        cannot recover (logout-redirect threshold OR limbo). v1.11.14
+        added ``glide_mfa_remembered_browser`` to the cookie purge list,
+        but cookies-only is sometimes not enough — IndexedDB, localStorage,
+        and Service Worker registrations on the persistent profile can
+        also keep the profile bound to the dead server session. Wiping
+        the directory guarantees the next attempt starts from a truly
+        clean state.
+
+        The caller must have already closed the Chromium context so we
+        don't race the rmtree against Playwright's own writers. Brief
+        sleep before rmtree to let the OS finish releasing file handles.
+
+        Side effects: also resets the re-auth cooldown counter and arms
+        the cookie purge flag (defensive — the wipe should make purge a
+        no-op on the next attempt, but if rmtree partially failed we
+        want the in-context purge to still run).
+        """
+        import shutil
+
+        # Reset cooldown so the next attempt isn't held back by the
+        # exponential backoff that grew during the now-fixed loop.
+        self._browser_reauth_failure_count = 0
+        self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
+        self._needs_profile_cookie_purge = True
+
+        # Brief pause for Chromium to finish releasing the profile lock.
+        time.sleep(0.5)
+        try:
+            shutil.rmtree(user_data_dir, ignore_errors=True)
+            logger.warning(
+                "Aborting login wait: %s. Wiped persistent profile "
+                "directory %s — next attempt will start from a clean "
+                "Chromium profile and require MFA re-entry.",
+                reason,
+                user_data_dir,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Aborting login wait: %s. Profile wipe of %s failed: %s "
+                "(continuing — cookie purge will run on next attempt).",
+                reason,
+                user_data_dir,
+                exc,
+            )
+
+        raise ValueError(
+            f"Login aborted ({reason}). The persistent Chromium profile "
+            "has been wiped; the next tool call will open a fresh login "
+            "window. MFA prompt expected."
+        )
+
     def _purge_stale_profile_cookies(self, context, instance_host: str) -> int:
         """Drop session-bound cookies from the persistent Chromium profile.
 
@@ -2367,6 +2422,17 @@ class AuthManager:
             #      instead of looping for the full wait budget.
             consecutive_logout_redirects = 0
             LOGOUT_REDIRECT_ABORT_THRESHOLD = 3
+            # Limbo guard: when probes alternate between 302 logout_success
+            # and 401 (server in mid-cleanup of a recently-killed session),
+            # the logout-redirect counter never reaches the abort threshold
+            # AND the browser-state confirmation gate stays blocked
+            # (counter > 0). Without this guard the wait loop polls 401s
+            # for the full 90 s budget while stable_ticks climbs to 60+;
+            # the user closes the window in frustration, which is then
+            # logged as LOGIN_CANCELLED_BY_USER. v1.11.17: if no probe
+            # has succeeded for ``LIMBO_ABORT_STABLE_TICKS`` polls, abort
+            # via the same path as the redirect-threshold case.
+            LIMBO_ABORT_STABLE_TICKS = 30
             while (time.time() - start) * 1000 < wait_budget_ms:
                 # Detect browser closed by user — break immediately instead of
                 # looping for minutes until wait_budget_ms expires.
@@ -2565,33 +2631,29 @@ class AuthManager:
                         # the next attempt enters
                         # _login_with_browser_sync with the purge flag set.
                         if consecutive_logout_redirects >= LOGOUT_REDIRECT_ABORT_THRESHOLD:
-                            self._needs_profile_cookie_purge = True
-                            # Reset cooldown counter so the next attempt
-                            # (which will purge mfa-remembered too) is not
-                            # held back by the exponential backoff that grew
-                            # during the now-fixed loop. Without this the
-                            # user sees "wait 60s/120s/240s" between
-                            # working attempts even though we now know how
-                            # to recover.
-                            self._browser_reauth_failure_count = 0
-                            self._browser_reauth_cooldown_seconds = (
-                                self._browser_reauth_cooldown_base
-                            )
                             _safe_close_context()
-                            logger.warning(
-                                "Aborting login wait: %s consecutive probe "
-                                "redirects to logout_success.do — stale "
-                                "session cookies (incl. mfa-remembered) will "
-                                "be purged before retry. MFA prompt expected.",
-                                consecutive_logout_redirects,
+                            self._abort_with_profile_wipe(
+                                effective_user_data_dir,
+                                reason=(
+                                    f"{consecutive_logout_redirects} consecutive probe "
+                                    "redirects to logout_success.do"
+                                ),
                             )
-                            raise ValueError(
-                                "ServiceNow redirected API probes to "
-                                "logout_success.do repeatedly. The persistent "
-                                "Chromium profile is bound to a dead "
-                                "server-side session; full cookie purge "
-                                "(including MFA-remembered) will run on the "
-                                "next attempt. Please retry — MFA prompt expected."
+                        # Limbo guard: see LIMBO_ABORT_STABLE_TICKS comment.
+                        # If we've been "on the instance host but probe
+                        # never confirmed" for too long, the wait loop is
+                        # stuck. Same recovery path as the redirect case.
+                        if (
+                            stable_instance_ticks >= LIMBO_ABORT_STABLE_TICKS
+                            and successful_probes == 0
+                        ):
+                            _safe_close_context()
+                            self._abort_with_profile_wipe(
+                                effective_user_data_dir,
+                                reason=(
+                                    f"wait loop in limbo (stable_ticks="
+                                    f"{stable_instance_ticks}, no successful probe)"
+                                ),
                             )
                     except requests.RequestException:
                         # During MFA transitions network hiccups are possible; keep polling until timeout.
