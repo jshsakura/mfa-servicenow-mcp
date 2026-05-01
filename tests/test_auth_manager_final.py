@@ -1529,12 +1529,16 @@ class TestInvalidateSetsProfilePurgeFlag:
 
 
 class TestPurgeStaleProfileCookies:
-    """_purge_stale_profile_cookies must drop session-bound cookies and
-    preserve glide_mfa_remembered_browser so the user does not have to redo
-    MFA after a stale-cookie purge.
+    """_purge_stale_profile_cookies must drop ALL session-bound cookies
+    including glide_mfa_remembered_browser.
+
+    v1.11.14: preserving the MFA-remembered cookie was the actual cause of
+    the persistent ``/logout_success.do`` redirect loop — the cookie tied
+    the persistent profile to the dead server session. Always-purge costs
+    one MFA prompt per session expiry but breaks the loop.
     """
 
-    def test_clears_stale_cookies_and_preserves_mfa_remembered(self):
+    def test_clears_all_stale_cookies_including_mfa_remembered(self):
         from servicenow_mcp.auth.auth_manager import _STALE_PROFILE_COOKIE_NAMES
 
         mgr = _make_browser_manager()
@@ -1545,10 +1549,10 @@ class TestPurgeStaleProfileCookies:
 
         mgr._purge_stale_profile_cookies(ctx, "test.service-now.com")
 
-        # Every cookie in the curated stale list was cleared exactly once.
+        # Every cookie in the curated stale list is cleared, no preservation.
         assert sorted(cleared_names) == sorted(_STALE_PROFILE_COOKIE_NAMES)
-        # MFA-remembered cookie name must NOT be in the purge list.
-        assert "glide_mfa_remembered_browser" not in cleared_names
+        # MFA-remembered cookie MUST be in the purge list (v1.11.14 fix).
+        assert "glide_mfa_remembered_browser" in cleared_names
 
     def test_swallows_clear_cookies_exception(self):
         # Older Playwright versions can raise on filtered clear_cookies. The
