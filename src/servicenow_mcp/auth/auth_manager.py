@@ -306,11 +306,16 @@ def _response_indicates_logout_redirect(response: requests.Response) -> bool:
 
 
 # Cookies that bind a Chromium persistent profile to a specific server-side
-# session. When the server has invalidated that session, leaving these in the
-# profile causes the next ``login.do`` submission to be treated as a logout
-# flow — the symptom the user sees is repeated login windows even after a
-# successful MFA. ``glide_mfa_remembered_browser`` is intentionally excluded
-# so the user does not have to re-do MFA after a stale-cookie purge.
+# session. When the server has invalidated that session, leaving any of these
+# in the profile causes the next ``login.do`` submission to be treated as a
+# logout flow — the symptom is the user seeing the login window reopen on
+# every tool call.
+#
+# v1.11.12 preserved ``glide_mfa_remembered_browser`` to skip MFA on re-auth,
+# but v1.11.14 field testing showed that cookie was the actual carry-over
+# tying the profile to the dead server session. Every fresh ``login.do``
+# submission with that cookie 302'd to ``/logout_success.do``. Including it
+# in the purge costs one MFA prompt per session expiry but breaks the loop.
 _STALE_PROFILE_COOKIE_NAMES: tuple[str, ...] = (
     "glide_session_store",
     "JSESSIONID",
@@ -321,6 +326,7 @@ _STALE_PROFILE_COOKIE_NAMES: tuple[str, ...] = (
     "factor",
     "UX-Token",
     "__CJ_g_startTime",
+    "glide_mfa_remembered_browser",
 )
 
 
@@ -1038,7 +1044,21 @@ class AuthManager:
         import random
 
         ttl_minutes = self.config.browser.session_ttl_minutes or 30
-        base_interval = max(ttl_minutes * 60 // 2, 60)  # half of TTL, minimum 60s
+        # Ping interval default 5 minutes. ServiceNow instances commonly run
+        # idle timeouts in the 10-15 minute range — v1.11.14 field testing
+        # showed our previous half-of-TTL (~16 min) routinely fired AFTER
+        # the server had already killed the session, so the keepalive never
+        # had a chance to keep anything alive. 5 minutes leaves plenty of
+        # headroom even on aggressive instances.
+        env_override = (os.environ.get("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES") or "").strip()
+        try:
+            override_minutes = int(env_override) if env_override else 0
+        except ValueError:
+            override_minutes = 0
+        if override_minutes > 0:
+            base_interval = override_minutes * 60
+        else:
+            base_interval = max(min(ttl_minutes * 60 // 6, 5 * 60), 60)
         # Add jitter so multiple MCP processes don't ping at the same time
         ping_interval = base_interval + random.randint(10, 60)
 
@@ -2057,9 +2077,16 @@ class AuthManager:
 
         Called when ``self._needs_profile_cookie_purge`` is set (after an
         invalidate, or when a probe redirected to ``logout_success.do``).
-        Removes cookies tied to the now-dead server session while preserving
-        ``glide_mfa_remembered_browser`` so the user does not have to redo
-        MFA. ``instance_host`` is informational — Playwright's
+
+        Includes ``glide_mfa_remembered_browser``. v1.11.12 preserved that
+        cookie to skip MFA on re-auth, but field testing (v1.11.13 followup)
+        showed the MFA-remembered token is bound to the now-dead server
+        session: every ``login.do`` submission with that cookie is treated
+        as part of a logout flow, so the user got stuck in a permanent
+        ``/logout_success.do`` redirect loop. Dropping it costs one MFA
+        prompt per session expiry but unblocks re-authentication.
+
+        ``instance_host`` is informational — Playwright's
         ``clear_cookies(name=...)`` matches by name and we let it remove the
         cookie wherever it lives in the jar (covers the ``.service-now.com``
         and bare-host duplicates ServiceNow sometimes ships).
@@ -2077,9 +2104,10 @@ class AuthManager:
                     cookie_name,
                     exc,
                 )
-        logger.info(
+        logger.warning(
             "Purged stale session cookies from persistent profile: "
-            "host=%s cleared=%s preserved=glide_mfa_remembered_browser",
+            "host=%s cleared=%s. The browser may prompt for MFA again — "
+            "this is expected when the previous server session was killed.",
             instance_host,
             cleared,
         )
@@ -2502,19 +2530,32 @@ class AuthManager:
                         # _login_with_browser_sync with the purge flag set.
                         if consecutive_logout_redirects >= LOGOUT_REDIRECT_ABORT_THRESHOLD:
                             self._needs_profile_cookie_purge = True
+                            # Reset cooldown counter so the next attempt
+                            # (which will purge mfa-remembered too) is not
+                            # held back by the exponential backoff that grew
+                            # during the now-fixed loop. Without this the
+                            # user sees "wait 60s/120s/240s" between
+                            # working attempts even though we now know how
+                            # to recover.
+                            self._browser_reauth_failure_count = 0
+                            self._browser_reauth_cooldown_seconds = (
+                                self._browser_reauth_cooldown_base
+                            )
                             _safe_close_context()
                             logger.warning(
                                 "Aborting login wait: %s consecutive probe "
                                 "redirects to logout_success.do — stale "
-                                "session cookies will be purged before retry.",
+                                "session cookies (incl. mfa-remembered) will "
+                                "be purged before retry. MFA prompt expected.",
                                 consecutive_logout_redirects,
                             )
                             raise ValueError(
                                 "ServiceNow redirected API probes to "
                                 "logout_success.do repeatedly. The persistent "
                                 "Chromium profile is bound to a dead "
-                                "server-side session; stale cookies will be "
-                                "purged on the next attempt. Please retry."
+                                "server-side session; full cookie purge "
+                                "(including MFA-remembered) will run on the "
+                                "next attempt. Please retry — MFA prompt expected."
                             )
                     except requests.RequestException:
                         # During MFA transitions network hiccups are possible; keep polling until timeout.
@@ -2646,9 +2687,10 @@ class AuthManager:
         # persistent Chromium profile still holds session cookies bound to
         # the now-invalidated server session; without purging, ServiceNow
         # treats the next ``login.do`` submission as a logout flow and 302s
-        # every probe to ``/logout_success.do``. See
-        # _purge_stale_profile_cookies for the cookie list and why
-        # ``glide_mfa_remembered_browser`` is preserved.
+        # every probe to ``/logout_success.do``. v1.11.14 added
+        # ``glide_mfa_remembered_browser`` to the purge list — keeping it
+        # was the root cause of the persistent logout-redirect loop. See
+        # _purge_stale_profile_cookies for full rationale.
         self._needs_profile_cookie_purge = True
         if os.path.exists(self._session_cache_path):
             try:
