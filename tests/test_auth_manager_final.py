@@ -1530,16 +1530,18 @@ class TestInvalidateSetsProfilePurgeFlag:
 
 
 class TestPurgeStaleProfileCookies:
-    """_purge_stale_profile_cookies must drop ALL session-bound cookies
-    including glide_mfa_remembered_browser.
+    """_purge_stale_profile_cookies clears server-bound session cookies
+    while preserving glide_mfa_remembered_browser (v1.11.20).
 
-    v1.11.14: preserving the MFA-remembered cookie was the actual cause of
-    the persistent ``/logout_success.do`` redirect loop — the cookie tied
-    the persistent profile to the dead server session. Always-purge costs
-    one MFA prompt per session expiry but breaks the loop.
+    v1.11.14 dropped MFA-remembered to break the phantom-session loop.
+    v1.11.18 ``/logout.do`` flush is what actually breaks the loop now,
+    so v1.11.20 restored MFA-remembered preservation. If the flush fails
+    AND the wait loop hits the abort threshold, ``_abort_with_profile_wipe``
+    removes the entire profile directory — MFA-remembered included — so
+    the user re-MFAs once on that recovery path.
     """
 
-    def test_clears_all_stale_cookies_including_mfa_remembered(self):
+    def test_clears_session_cookies_but_preserves_mfa_remembered(self):
         from servicenow_mcp.auth.auth_manager import _STALE_PROFILE_COOKIE_NAMES
 
         mgr = _make_browser_manager()
@@ -1550,10 +1552,10 @@ class TestPurgeStaleProfileCookies:
 
         mgr._purge_stale_profile_cookies(ctx, "test.service-now.com")
 
-        # Every cookie in the curated stale list is cleared, no preservation.
+        # Every cookie in the curated stale list is cleared.
         assert sorted(cleared_names) == sorted(_STALE_PROFILE_COOKIE_NAMES)
-        # MFA-remembered cookie MUST be in the purge list (v1.11.14 fix).
-        assert "glide_mfa_remembered_browser" in cleared_names
+        # MFA-remembered cookie MUST NOT be in the purge list (v1.11.20).
+        assert "glide_mfa_remembered_browser" not in cleared_names
 
     def test_swallows_clear_cookies_exception(self):
         # Older Playwright versions can raise on filtered clear_cookies. The
@@ -2025,3 +2027,54 @@ class TestGetHeadersValidationRestorePath:
 
         assert headers["Cookie"] == "restored=1"
         assert mgr._browser_reauth_failure_count == 0
+
+
+class TestKeepaliveDisableViaEnv:
+    """v1.11.20: SERVICENOW_KEEPALIVE_INTERVAL_MINUTES=0 disables the
+    keepalive thread entirely. ServiceNow instances that do not count
+    REST API calls toward idle-timer reset (where the ping returns 200
+    but doesn't actually keep the session alive) gain nothing from the
+    thread — turn it off and let the v1.11.18/19 recovery path handle
+    session expiry on the next tool call.
+    """
+
+    def test_zero_disables_keepalive(self, monkeypatch):
+        mgr = _make_browser_manager()
+        monkeypatch.setenv("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES", "0")
+
+        # Patch threading.Thread so we can detect whether a thread was started.
+        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
+            mgr._start_keepalive()
+
+        mock_thread.assert_not_called()
+
+    def test_positive_value_starts_keepalive(self, monkeypatch):
+        mgr = _make_browser_manager()
+        monkeypatch.setenv("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES", "3")
+
+        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
+            mgr._start_keepalive()
+
+        mock_thread.assert_called_once()
+
+    def test_unset_env_disabled_by_default(self, monkeypatch):
+        # v1.11.20: keepalive is OFF by default. Users must explicitly
+        # set SERVICENOW_KEEPALIVE_INTERVAL_MINUTES to a positive number
+        # to enable.
+        mgr = _make_browser_manager()
+        monkeypatch.delenv("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES", raising=False)
+
+        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
+            mgr._start_keepalive()
+
+        mock_thread.assert_not_called()
+
+    def test_malformed_env_disabled(self, monkeypatch):
+        # Garbage value treated as unset → disabled.
+        mgr = _make_browser_manager()
+        monkeypatch.setenv("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES", "abc")
+
+        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
+            mgr._start_keepalive()
+
+        mock_thread.assert_not_called()

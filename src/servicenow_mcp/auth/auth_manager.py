@@ -311,11 +311,18 @@ def _response_indicates_logout_redirect(response: requests.Response) -> bool:
 # logout flow — the symptom is the user seeing the login window reopen on
 # every tool call.
 #
-# v1.11.12 preserved ``glide_mfa_remembered_browser`` to skip MFA on re-auth,
-# but v1.11.14 field testing showed that cookie was the actual carry-over
-# tying the profile to the dead server session. Every fresh ``login.do``
-# submission with that cookie 302'd to ``/logout_success.do``. Including it
-# in the purge costs one MFA prompt per session expiry but breaks the loop.
+# Evolution of ``glide_mfa_remembered_browser`` handling:
+#   v1.11.12 — preserved (didn't help, kept the phantom-session loop)
+#   v1.11.14 — purged with everything else (broke the loop, but cost the
+#              user one MFA prompt per session expiry)
+#   v1.11.20 — back to preserved. The v1.11.18 server-side ``/logout.do``
+#              flush is what actually breaks the phantom loop, so this
+#              cookie can stay and let the user skip MFA on re-auth. If
+#              ``/logout.do`` flush fails AND the wait-loop still hits the
+#              logout_success threshold, ``_abort_with_profile_wipe``
+#              wipes the entire profile anyway, taking this cookie with
+#              it — the user re-MFAs once, recovers, and stays on the
+#              fast path again.
 _STALE_PROFILE_COOKIE_NAMES: tuple[str, ...] = (
     "glide_session_store",
     "JSESSIONID",
@@ -326,7 +333,6 @@ _STALE_PROFILE_COOKIE_NAMES: tuple[str, ...] = (
     "factor",
     "UX-Token",
     "__CJ_g_startTime",
-    "glide_mfa_remembered_browser",
 )
 
 
@@ -1044,21 +1050,49 @@ class AuthManager:
         import random
 
         ttl_minutes = self.config.browser.session_ttl_minutes or 30
-        # Ping interval default 5 minutes. ServiceNow instances commonly run
-        # idle timeouts in the 10-15 minute range — v1.11.14 field testing
-        # showed our previous half-of-TTL (~16 min) routinely fired AFTER
-        # the server had already killed the session, so the keepalive never
-        # had a chance to keep anything alive. 5 minutes leaves plenty of
-        # headroom even on aggressive instances.
+        # Ping interval policy (v1.11.20):
+        #   * env unset       → DISABLED (default behaviour)
+        #   * env == 0        → DISABLED (explicit)
+        #   * env > 0         → enable, use that value as minutes
+        #   * env malformed   → DISABLED (treat like unset)
+        #
+        # v1.3.0 → v1.11.19 had keepalive enabled by default. Field
+        # testing on multiple instances confirmed REST API pings do not
+        # reset the server-side idle timer on the common ServiceNow
+        # configuration — the ping returns 200 but the server scores it
+        # as automation, not user activity, and the session dies at the
+        # instance idle timeout regardless. The thread was burning
+        # memory + bandwidth + chromium resources for no benefit, and
+        # the visible "Keep-alive ping: session invalid" warnings made
+        # users think something was broken when it wasn't.
+        #
+        # v1.11.20 default is OFF. The v1.11.18/19 recovery path
+        # (logout.do flush → login.do → mfa-remembered cookie skips
+        # MFA → 200) handles session expiry on the next tool call with
+        # zero user interaction in the happy path. Users on instances
+        # where REST API pings DO reset the idle timer can re-enable by
+        # setting SERVICENOW_KEEPALIVE_INTERVAL_MINUTES to a positive
+        # number of minutes.
         env_override = (os.environ.get("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES") or "").strip()
         try:
-            override_minutes = int(env_override) if env_override else 0
+            override_minutes = int(env_override) if env_override else None
         except ValueError:
-            override_minutes = 0
-        if override_minutes > 0:
-            base_interval = override_minutes * 60
-        else:
-            base_interval = max(min(ttl_minutes * 60 // 6, 5 * 60), 60)
+            override_minutes = None
+        if override_minutes is None or override_minutes <= 0:
+            if override_minutes == 0:
+                logger.info(
+                    "Keep-alive disabled via SERVICENOW_KEEPALIVE_INTERVAL_MINUTES=0. "
+                    "Session expiry will be recovered on the next tool call."
+                )
+            else:
+                logger.info(
+                    "Keep-alive disabled (default in v1.11.20+). Set "
+                    "SERVICENOW_KEEPALIVE_INTERVAL_MINUTES to a positive "
+                    "number to enable. Session expiry will be recovered "
+                    "on the next tool call."
+                )
+            return
+        base_interval = override_minutes * 60
         # Add jitter so multiple MCP processes don't ping at the same time
         ping_interval = base_interval + random.randint(10, 60)
 
@@ -2179,13 +2213,14 @@ class AuthManager:
         Called when ``self._needs_profile_cookie_purge`` is set (after an
         invalidate, or when a probe redirected to ``logout_success.do``).
 
-        Includes ``glide_mfa_remembered_browser``. v1.11.12 preserved that
-        cookie to skip MFA on re-auth, but field testing (v1.11.13 followup)
-        showed the MFA-remembered token is bound to the now-dead server
-        session: every ``login.do`` submission with that cookie is treated
-        as part of a logout flow, so the user got stuck in a permanent
-        ``/logout_success.do`` redirect loop. Dropping it costs one MFA
-        prompt per session expiry but unblocks re-authentication.
+        Preserves ``glide_mfa_remembered_browser`` (v1.11.20). The
+        v1.11.18 ``/logout.do`` flush is what actually unblocks the
+        phantom-session loop, so the MFA-remembered cookie can stay and
+        let the user skip the MFA prompt on the next login. If the
+        flush fails AND the wait loop still hits the logout_success
+        threshold, ``_abort_with_profile_wipe`` removes the entire
+        profile directory (including the MFA-remembered cookie) so the
+        user re-MFAs once and recovers.
 
         ``instance_host`` is informational — Playwright's
         ``clear_cookies(name=...)`` matches by name and we let it remove the
@@ -2205,10 +2240,10 @@ class AuthManager:
                     cookie_name,
                     exc,
                 )
-        logger.warning(
+        logger.info(
             "Purged stale session cookies from persistent profile: "
-            "host=%s cleared=%s. The browser may prompt for MFA again — "
-            "this is expected when the previous server session was killed.",
+            "host=%s cleared=%s (mfa-remembered preserved — MFA prompt "
+            "skipped if cookie still valid server-side).",
             instance_host,
             cleared,
         )
