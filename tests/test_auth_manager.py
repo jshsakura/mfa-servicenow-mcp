@@ -3134,52 +3134,62 @@ class TestComputeLoginWaitBudgetMs:
     def test_debug_mode_overrides_everything(self):
         # Debug mode wins regardless of force_interactive or timeout.
         assert (
-            AuthManager._compute_login_wait_budget_ms(
-                10_000, force_interactive=False, debug_mode=True
-            )
+            AuthManager._compute_login_wait_budget_ms(10_000, use_headless=True, debug_mode=True)
             == 1_800_000
         )
         assert (
-            AuthManager._compute_login_wait_budget_ms(
-                90_000, force_interactive=True, debug_mode=True
-            )
+            AuthManager._compute_login_wait_budget_ms(90_000, use_headless=False, debug_mode=True)
             == 1_800_000
         )
 
     def test_interactive_at_least_60s(self):
         # 30s configured but interactive needs human time → minimum 60s.
         assert (
-            AuthManager._compute_login_wait_budget_ms(
-                30_000, force_interactive=True, debug_mode=False
-            )
+            AuthManager._compute_login_wait_budget_ms(30_000, use_headless=False, debug_mode=False)
             == 60_000
         )
 
     def test_interactive_uses_timeout_when_larger(self):
         # 90s configured exceeds the 60s floor → use the configured value.
         assert (
-            AuthManager._compute_login_wait_budget_ms(
-                90_000, force_interactive=True, debug_mode=False
-            )
+            AuthManager._compute_login_wait_budget_ms(90_000, use_headless=False, debug_mode=False)
             == 90_000
         )
 
     def test_headless_caps_at_30s(self):
         # Configured 90s but headless caps at 30s.
         assert (
-            AuthManager._compute_login_wait_budget_ms(
-                90_000, force_interactive=False, debug_mode=False
-            )
+            AuthManager._compute_login_wait_budget_ms(90_000, use_headless=True, debug_mode=False)
             == 30_000
         )
 
     def test_headless_uses_timeout_when_smaller(self):
         # Configured 10s under the 30s cap → use the configured value.
         assert (
-            AuthManager._compute_login_wait_budget_ms(
-                10_000, force_interactive=False, debug_mode=False
-            )
+            AuthManager._compute_login_wait_budget_ms(10_000, use_headless=True, debug_mode=False)
             == 10_000
+        )
+
+    def test_visible_window_gets_full_budget_even_when_not_force_interactive(self):
+        """Regression: in v1.11.6 the helper keyed off `force_interactive`,
+        so a user with `SERVICENOW_BROWSER_HEADLESS=false` who reached
+        the polling loop via the headless-first path
+        (`force_interactive=False`) was given only the 30 s cap — even
+        though a *visible* Chromium window had been opened. The fix
+        keys off `use_headless` instead.
+
+        With `use_headless=False` the budget must follow the visible-
+        window rule (>=60 s), regardless of which caller chose this
+        outcome."""
+        # Configured timeout 90s, visible window — full budget.
+        assert (
+            AuthManager._compute_login_wait_budget_ms(90_000, use_headless=False, debug_mode=False)
+            == 90_000
+        )
+        # Configured timeout 30s, visible window — floor at 60s.
+        assert (
+            AuthManager._compute_login_wait_budget_ms(30_000, use_headless=False, debug_mode=False)
+            == 60_000
         )
 
 
