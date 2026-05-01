@@ -1494,6 +1494,75 @@ class TestInvalidateSessionRemoveError:
         # Should not raise — just logs warning
 
 
+class TestInvalidateSetsProfilePurgeFlag:
+    """invalidate_browser_session must arm the next browser launch to purge
+    stale session cookies from the persistent Chromium profile.
+
+    Without this, the next ``login.do`` submission rides on top of the dead
+    server-side session and ServiceNow 302s every probe to
+    ``/logout_success.do`` (the v1.11.11 repeat-login-window field bug).
+    """
+
+    def test_invalidate_arms_purge_flag(self, tmp_path):
+        mgr = _make_browser_manager()
+        mgr._session_cache_path = str(tmp_path / "session.json")
+        assert mgr._needs_profile_cookie_purge is False
+
+        mgr.invalidate_browser_session()
+
+        assert mgr._needs_profile_cookie_purge is True
+
+    def test_purge_flag_survives_when_disk_cache_belongs_to_other_terminal(self, tmp_path):
+        # Even when a sibling terminal's session is preserved on disk, the
+        # in-memory invalidate must still flag the profile for purge so this
+        # process's next browser launch starts clean.
+        mgr = _make_browser_manager()
+        cache_path = str(tmp_path / "session.json")
+        mgr._session_cache_path = cache_path
+        mgr._browser_cookie_header = "mine=now"
+        with open(cache_path, "w") as f:
+            json.dump({"cookie_header": "sibling=now"}, f)
+
+        mgr.invalidate_browser_session()
+
+        assert mgr._needs_profile_cookie_purge is True
+
+
+class TestPurgeStaleProfileCookies:
+    """_purge_stale_profile_cookies must drop session-bound cookies and
+    preserve glide_mfa_remembered_browser so the user does not have to redo
+    MFA after a stale-cookie purge.
+    """
+
+    def test_clears_stale_cookies_and_preserves_mfa_remembered(self):
+        from servicenow_mcp.auth.auth_manager import _STALE_PROFILE_COOKIE_NAMES
+
+        mgr = _make_browser_manager()
+        cleared_names: list[str] = []
+
+        ctx = MagicMock()
+        ctx.clear_cookies = lambda **kwargs: cleared_names.append(kwargs.get("name"))
+
+        mgr._purge_stale_profile_cookies(ctx, "test.service-now.com")
+
+        # Every cookie in the curated stale list was cleared exactly once.
+        assert sorted(cleared_names) == sorted(_STALE_PROFILE_COOKIE_NAMES)
+        # MFA-remembered cookie name must NOT be in the purge list.
+        assert "glide_mfa_remembered_browser" not in cleared_names
+
+    def test_swallows_clear_cookies_exception(self):
+        # Older Playwright versions can raise on filtered clear_cookies. The
+        # purge should log+continue rather than abort the login flow.
+        mgr = _make_browser_manager()
+        ctx = MagicMock()
+        ctx.clear_cookies.side_effect = Exception("playwright sad")
+
+        # Must not raise.
+        cleared = mgr._purge_stale_profile_cookies(ctx, "test.service-now.com")
+
+        assert cleared == 0
+
+
 # ===========================================================================
 # Line 1896: make_request — debug cookie logging
 # ===========================================================================
