@@ -1795,6 +1795,34 @@ class TestBrowserValidationDuringGetHeaders:
         assert mgr._browser_reauth_failure_count == 1
         assert mgr._browser_login_in_progress is False
 
+    def test_validation_reauth_lock_blocked_after_wait_timeout(self):
+        """If the cross-process lock cannot be acquired AND the wait for
+        the peer's login times out, do NOT silently open a duplicate
+        browser window — raise so the caller sees the contention."""
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = "old=1"
+        mgr._browser_cookie_expires_at = time.time() + 600
+        mgr._browser_last_validated_at = time.time() - 300
+        mgr._browser_validation_interval_seconds = 120
+        mgr._browser_last_login_at = None
+
+        with patch.object(mgr, "_is_browser_session_valid", return_value=False):
+            with patch.object(mgr, "invalidate_browser_session"):
+                # Lock unavailable on both attempts; wait for peer times out.
+                with patch.object(mgr, "_acquire_login_lock", return_value=False):
+                    with patch.object(mgr, "_wait_for_other_login", return_value=False):
+                        with patch.object(mgr, "_login_with_browser") as login_mock:
+                            with pytest.raises(
+                                ValueError,
+                                match="Browser login is in progress in another terminal",
+                            ):
+                                mgr.get_headers()
+
+        # Critical assertion: we must NOT have called _login_with_browser
+        # — opening a second browser window while another terminal is
+        # mid-login is exactly the regression this guard prevents.
+        login_mock.assert_not_called()
+
 
 # ===========================================================================
 # _fill_first_matching / _click_first_matching exception branches
