@@ -1097,10 +1097,20 @@ class AuthManager:
                     )
                     continue
                 try:
+                    # Keepalive ping intentionally omits X-UserToken so the
+                    # request looks like a plain cookie-authenticated read,
+                    # not a CSRF-protected automation call. v1.3.0 → v1.11.0
+                    # had this implicit behaviour and field reports showed
+                    # 15-min pings kept sessions alive all day; v1.11.0
+                    # added X-UserToken to all probes and sessions began
+                    # dying at the instance idle timeout despite pings
+                    # returning 200. See _probe_browser_api_with_cookie
+                    # for the full hypothesis.
                     probe = self._probe_browser_api_with_cookie(
                         self._browser_cookie_header,
                         timeout_seconds=10,
                         browser_config=self.config.browser,  # type: ignore[arg-type]
+                        include_user_token=False,
                     )
                     if _response_confirms_browser_probe_session(probe):
                         # Session is alive — extend TTL
@@ -1664,6 +1674,8 @@ class AuthManager:
         cookie_header: str,
         timeout_seconds: int,
         browser_config: BrowserAuthConfig,
+        *,
+        include_user_token: bool = True,
     ) -> requests.Response:
         if not self.instance_url:
             raise ValueError("Instance URL is required for browser authentication")
@@ -1693,7 +1705,18 @@ class AuthManager:
         # without it, plain cookie auth gets a 302 to login even when the
         # browser session is fully valid. The token is captured from the
         # live page via `window.g_ck` during the wait loop.
-        if self._browser_session_token:
+        #
+        # ``include_user_token=False`` is for the keepalive path. v1.11.0
+        # added X-UserToken to all probes; field reports indicated that
+        # before that change a 15-min ping kept sessions alive all day,
+        # but afterwards sessions started dying at the instance idle
+        # timeout. Hypothesis: ServiceNow classifies probe requests with
+        # X-UserToken as "background CSRF-protected automation" and skips
+        # them when scoring user-activity for the idle timer, while
+        # cookie-only probes count as user activity and reset the timer.
+        # The keepalive path opts out of the header to test/preserve the
+        # old "ping is activity" behaviour.
+        if include_user_token and self._browser_session_token:
             probe_headers["X-UserToken"] = self._browser_session_token
         # Referer matching the instance keeps strict same-origin checks
         # happy on instances that gate API endpoints behind referer
