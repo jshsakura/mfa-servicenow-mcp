@@ -176,7 +176,7 @@ def parse_args():
         "--browser-timeout",
         type=int,
         help="Browser login timeout in seconds",
-        default=int(os.environ.get("SERVICENOW_BROWSER_TIMEOUT", "120")),
+        default=int(os.environ.get("SERVICENOW_BROWSER_TIMEOUT", "90")),
     )
     browser_group.add_argument(
         "--browser-user-data-dir",
@@ -365,9 +365,7 @@ def create_config(args) -> ServerConfig:
                 "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
             )
         browser_headless = str(args.browser_headless).lower() == "true"
-        browser_timeout = args.browser_timeout or int(
-            os.getenv("SERVICENOW_BROWSER_TIMEOUT", "120")
-        )
+        browser_timeout = args.browser_timeout or int(os.getenv("SERVICENOW_BROWSER_TIMEOUT", "90"))
         browser_user_data_dir = args.browser_user_data_dir or os.getenv(
             "SERVICENOW_BROWSER_USER_DATA_DIR"
         )

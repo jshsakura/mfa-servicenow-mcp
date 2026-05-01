@@ -1142,7 +1142,10 @@ class AuthManager:
                     self._mark_browser_reauth_attempt()
                     self._browser_login_in_progress = True
                     try:
-                        self._login_with_browser(self.config.browser, force_interactive=True)
+                        # force_interactive=False — try headless first (cookie-gated).
+                        # _login_with_browser auto-falls back to interactive on
+                        # MFA_REQUIRED or timeout markers.
+                        self._login_with_browser(self.config.browser, force_interactive=False)
                         # Login succeeded — reset failure state
                         self._browser_reauth_failure_count = 0
                         self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
@@ -1176,14 +1179,31 @@ class AuthManager:
                             ]
                         )
                         if user_closed:
-                            # Treat manual close as an explicit cancellation. The previous
-                            # behaviour reset the cooldown to 0 so the very next tool call
-                            # would re-open the window the user just dismissed — that is
-                            # not graceful. Apply a meaningful cooldown so an automatic
-                            # retry from the LLM cannot immediately reopen the window;
-                            # the user can still trigger a fresh login by retrying after
-                            # the cooldown elapses.
-                            user_close_cooldown = 15  # 15s — long enough to break instant LLM auto-retry, short enough not to make the user wait
+                            # If session was already captured (cookies + key set
+                            # by the success path before this exception), the
+                            # close is benign — user just dismissed an already-
+                            # successful window. Treat as success, no cooldown.
+                            if self._browser_cookie_header and self._browser_session_key:
+                                logger.info(
+                                    "Browser closed after session was captured — "
+                                    "ignoring (treating as successful login)."
+                                )
+                                self._browser_reauth_failure_count = 0
+                                self._browser_reauth_cooldown_seconds = (
+                                    self._browser_reauth_cooldown_base
+                                )
+                                if not self._keepalive_thread:
+                                    self._start_keepalive()
+                                headers["Cookie"] = self._browser_cookie_header or ""
+                                if self._browser_user_agent:
+                                    headers["User-Agent"] = self._browser_user_agent
+                                if self._browser_session_token:
+                                    headers["X-UserToken"] = self._browser_session_token
+                                return headers
+                            # Genuine user cancellation before auth completed.
+                            user_close_cooldown = (
+                                15  # 15s — break instant LLM auto-retry on user-cancelled login
+                            )
                             self._browser_reauth_failure_count = max(
                                 self._browser_reauth_failure_count, 1
                             )
@@ -1247,7 +1267,10 @@ class AuthManager:
                     self._mark_browser_reauth_attempt()
                     self._browser_login_in_progress = True
                     try:
-                        self._login_with_browser(self.config.browser, force_interactive=True)
+                        # force_interactive=False — try headless first (cookie-gated).
+                        # _login_with_browser auto-falls back to interactive on
+                        # MFA_REQUIRED or timeout markers.
+                        self._login_with_browser(self.config.browser, force_interactive=False)
                         self._browser_reauth_failure_count = 0
                         self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
                         self._browser_login_in_progress = False
@@ -1274,7 +1297,28 @@ class AuthManager:
                             ]
                         )
                         if user_closed:
-                            user_close_cooldown = 15  # 15s — long enough to break instant LLM auto-retry, short enough not to make the user wait
+                            # Benign post-success close: session already captured,
+                            # treat as success and skip cooldown.
+                            if self._browser_cookie_header and self._browser_session_key:
+                                logger.info(
+                                    "Browser closed after session was captured — "
+                                    "ignoring (treating as successful login)."
+                                )
+                                self._browser_reauth_failure_count = 0
+                                self._browser_reauth_cooldown_seconds = (
+                                    self._browser_reauth_cooldown_base
+                                )
+                                if not self._keepalive_thread:
+                                    self._start_keepalive()
+                                headers["Cookie"] = self._browser_cookie_header or ""
+                                if self._browser_user_agent:
+                                    headers["User-Agent"] = self._browser_user_agent
+                                if self._browser_session_token:
+                                    headers["X-UserToken"] = self._browser_session_token
+                                return headers
+                            user_close_cooldown = (
+                                15  # 15s — break instant LLM auto-retry on user-cancelled login
+                            )
                             self._browser_reauth_failure_count = max(
                                 self._browser_reauth_failure_count, 1
                             )
@@ -1832,8 +1876,9 @@ class AuthManager:
             _run_sync_login(force_interactive)
         except ValueError as exc:
             error_text = str(exc).lower()
-            should_fallback_to_interactive = (
-                not force_interactive and "timed out waiting for browser login/mfa" in error_text
+            should_fallback_to_interactive = not force_interactive and (
+                "timed out waiting for browser login/mfa" in error_text
+                or "mfa_required" in error_text
             )
             if should_fallback_to_interactive:
                 logger.info(
@@ -1868,8 +1913,13 @@ class AuthManager:
         # inspect requests in DevTools without the auth manager auto-closing.
         if _is_debug_mode():
             wait_budget_ms = 1800000  # 30 min — debug session, hold the window open
+        elif force_interactive:
+            wait_budget_ms = max(timeout_ms, 60000)
         else:
-            wait_budget_ms = max(timeout_ms, 60000) if force_interactive else timeout_ms
+            # Headless attempt: cap at 30s. If MFA is actually required, the
+            # cookie/DOM checks below bail out fast — no need to burn the full
+            # 90s timeout in a window the user can't see anyway.
+            wait_budget_ms = min(timeout_ms, 30000)
         instance_host = (urlparse(instance_url).hostname or "").lower()
         logger.info(
             "Starting browser auth flow: instance_host=%s login_host=%s timeout_seconds=%s mode=%s",
@@ -1891,16 +1941,10 @@ class AuthManager:
             )
 
             def _safe_close_context() -> None:
-                """Close the persistent Chromium context AND its pages on every
-                exit path. context.close() alone occasionally left a window
-                visible (in-flight navigation deferring teardown), so we close
-                pages explicitly first, then the context.
-
-                Idempotent — safe to call multiple times.
+                """Close the persistent Chromium context. Idempotent.
 
                 Debug mode (SERVICENOW_BROWSER_DEBUG=true) skips the close so
-                the user can inspect the failing request in DevTools without
-                the auth manager yanking the window away mid-investigation.
+                the user can inspect the failing request in DevTools.
                 """
                 if _is_debug_mode():
                     logger.info(
@@ -1908,33 +1952,34 @@ class AuthManager:
                         "Close it manually when done."
                     )
                     return
-                # Close every page first — explicit page.close() forces the
-                # window to disappear immediately even if context.close() would
-                # otherwise wait on background work.
-                try:
-                    for _p in list(context.pages):
-                        try:
-                            if not _p.is_closed():
-                                _p.close()
-                        except Exception:  # noqa: BLE001
-                            pass
-                except Exception:  # noqa: BLE001
-                    pass
                 try:
                     context.close()
                 except Exception as _close_exc:  # noqa: BLE001
                     logger.debug("Login context.close() raised: %s (ignored)", _close_exc)
-                # Some Playwright versions / persistent-context configurations
-                # leave the underlying browser subprocess alive after
-                # context.close() — the user-visible Chromium window stays.
-                # Closing the underlying browser explicitly forces the window
-                # to disappear at the OS level.
-                try:
-                    _browser = getattr(context, "browser", None)
-                    if _browser is not None:
-                        _browser.close()
-                except Exception as _bclose_exc:  # noqa: BLE001
-                    logger.debug("Login browser.close() raised: %s (ignored)", _bclose_exc)
+
+            # Headless gate: bail immediately if the persistent profile has no
+            # valid `glide_mfa_remembered_browser` cookie. Without it, login
+            # will hit an MFA prompt and stall — no point typing creds into a
+            # window the user cannot see. Gated on use_headless, not on
+            # force_interactive: when the browser is going to be visible
+            # (non-headless), skip the gate and let the user enter MFA.
+            # The outer wrapper catches the MFA_REQUIRED marker and falls
+            # back to interactive mode.
+            if use_headless and not _is_debug_mode():
+                profile_cookies = context.cookies()
+                now = time.time()
+                has_mfa_remembered = any(
+                    c.get("name") == "glide_mfa_remembered_browser"
+                    and (c.get("expires") or 0) > now
+                    for c in profile_cookies
+                )
+                if not has_mfa_remembered:
+                    _safe_close_context()
+                    raise ValueError(
+                        "MFA_REQUIRED: persistent profile has no valid "
+                        "glide_mfa_remembered_browser cookie — falling back to "
+                        "interactive login."
+                    )
 
             page = context.pages[0] if context.pages else context.new_page()
 
@@ -2042,6 +2087,15 @@ class AuthManager:
             login_confirmed = False
             successful_probes = 0
             stable_instance_ticks = 0
+            # State gate: only run the HTTP probe when URL path or cookie set has
+            # actually changed since the last probe. While the user is typing
+            # an MFA code, the page state is stationary and there is nothing
+            # new to verify — running 70 identical probes during a 90s wait
+            # just spams 401s and noises up stderr. Safety net forces a probe
+            # every ~10s so we never miss a no-state-change MFA completion.
+            prev_url_path = ""
+            prev_cookie_names: set[str] = set()
+            iterations_since_probe = 0
             while (time.time() - start) * 1000 < wait_budget_ms:
                 # Detect browser closed by user — break immediately instead of
                 # looping for minutes until wait_budget_ms expires.
@@ -2078,6 +2132,26 @@ class AuthManager:
                         stable_instance_ticks += 1
                     else:
                         stable_instance_ticks = 0
+                    # Skip probe when neither URL path nor cookie set changed
+                    # since last probe. Safety net: force a probe every ~10
+                    # iterations even on stationary state, so we never get
+                    # stuck waiting on a no-change completion. Once we've
+                    # gotten a successful probe, we are in the consecutive-
+                    # confirmation phase — bypass the gate so the second
+                    # probe runs immediately.
+                    current_path = urlparse(current_url).path
+                    cookie_name_set = set(cookie_names)
+                    state_changed = (
+                        current_path != prev_url_path or cookie_name_set != prev_cookie_names
+                    )
+                    iterations_since_probe += 1
+                    in_confirmation = successful_probes > 0
+                    if not in_confirmation and not state_changed and iterations_since_probe < 10:
+                        time.sleep(1)
+                        continue
+                    prev_url_path = current_path
+                    prev_cookie_names = cookie_name_set
+                    iterations_since_probe = 0
                     try:
                         probe = self._probe_browser_api_with_cookie(
                             cookie_header,
