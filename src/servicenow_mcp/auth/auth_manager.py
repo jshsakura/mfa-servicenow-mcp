@@ -476,20 +476,25 @@ class AuthManager:
 
     @staticmethod
     def _compute_login_wait_budget_ms(
-        timeout_ms: int, *, force_interactive: bool, debug_mode: bool
+        timeout_ms: int, *, use_headless: bool, debug_mode: bool
     ) -> int:
         """Pick the wait_budget_ms used by the polling loop in login.
 
         - Debug mode: 30 minutes. Lets the user inspect requests in DevTools.
-        - Interactive mode: at least 60s, raised to `timeout_ms` if larger.
-          MFA/SSO entry needs human time; do not fail fast.
-        - Headless mode: at most 30s. The cookie gate covers the common
-          "MFA required" case in <1s, and a 30s cap keeps the wrapper's
-          fallback to interactive snappy when SSO never lands a probe-200.
+        - Visible-window (use_headless=False): at least 60s, raised to
+          `timeout_ms` if larger. MFA/SSO entry needs human time; do not
+          fail fast on a window the user is actively working in. This
+          covers BOTH `force_interactive=True` AND
+          `browser_config.headless=False` — both produce a visible window
+          and both deserve the longer budget.
+        - Headless (use_headless=True): at most 30s. The cookie gate
+          covers the common "MFA required" case in <1s, and a 30s cap
+          keeps the wrapper's fallback to interactive snappy when SSO
+          never lands a probe-200 in the invisible window.
         """
         if debug_mode:
             return 1800000
-        if force_interactive:
+        if not use_headless:
             return max(timeout_ms, 60000)
         return min(timeout_ms, 30000)
 
@@ -1983,16 +1988,19 @@ class AuthManager:
 
         login_url = browser_config.login_url or f"{instance_url}/login.do"
         timeout_ms = int(browser_config.timeout_seconds) * 1000
-        # Interactive MFA needs user input time, but 5 min was long enough that an
-        # ignored login window felt like "stuck forever". Cap at 60 s — covers a
-        # standard MFA push/code entry, fails fast otherwise.
+        # The actual visibility decision: a window is hidden only when the
+        # config asks for headless AND no caller forced interactive. Both
+        # the wait-budget rule and the startup log key off this, NOT off
+        # `force_interactive` alone — otherwise a user with
+        # `SERVICENOW_BROWSER_HEADLESS=false` would get a visible window
+        # but only the 30 s headless budget, which is what the v1.11.6
+        # field bug exposed.
+        use_headless = browser_config.headless and not force_interactive
         wait_budget_ms = self._compute_login_wait_budget_ms(
             timeout_ms,
-            force_interactive=force_interactive,
+            use_headless=use_headless,
             debug_mode=_is_debug_mode(),
         )
-        # 세션 만료 시 강제로 브라우저 표시 (headless 설정 무시)
-        use_headless = browser_config.headless and not force_interactive
         instance_host = (urlparse(instance_url).hostname or "").lower()
         logger.info(
             "Starting browser auth flow: instance_host=%s login_host=%s "
@@ -2001,7 +2009,7 @@ class AuthManager:
             (urlparse(login_url).hostname or "").lower(),
             int(browser_config.timeout_seconds),
             wait_budget_ms,
-            "interactive" if force_interactive else "headless",
+            "headless" if use_headless else "visible",
         )
 
         effective_user_data_dir = self._resolve_user_data_dir(browser_config)
