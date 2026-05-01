@@ -31,6 +31,35 @@ Tool definitions are sent to the LLM on every request. Every character costs tok
 - Gate browser-only calls behind `_is_browser_auth(config)`.
 - Never silently try browser-only APIs with basic auth — it wastes a network round-trip.
 
+## Browser Login Flow (headless-first)
+
+The browser auth flow is "try headless, fall back to interactive on demand" —
+NOT "always open a visible window". Future maintainers must understand this
+before touching `auth_manager.py`:
+
+1. `get_auth_headers` calls `_login_with_browser(force_interactive=False)`.
+2. `_login_with_browser_sync` launches a persistent Chromium context.
+3. **Headless gate** (`use_headless=True` only): if the profile has no
+   non-expired `glide_mfa_remembered_browser` cookie, raise `MFA_REQUIRED`
+   immediately. The wrapper catches that marker and re-runs with
+   `force_interactive=True`, opening a visible window for MFA/SSO.
+4. If the gate passes, headless attempt has 30s to confirm a probe-200.
+   If it times out, the wrapper also falls back to interactive (90s).
+5. Interactive mode opens a visible window with credentials prefilled and
+   waits up to 90s for the user to complete MFA.
+
+Why this matters:
+- Reverting to "always interactive" wastes the persistent profile and
+  re-prompts MFA every session. The only legitimate trigger for forcing
+  interactive is `force_interactive=True` from the wrapper's fallback.
+- Hardcoding `force_interactive=True` at call sites kills the headless
+  attempt — which is the entire point of the persistent profile.
+- The probe path default is `sys_user_preference` (NOT `sys_user`).
+  See `cli.py:325-363` for the full history of why.
+
+Don't break this without reading `auth_manager.py` and the related tests
+end-to-end.
+
 ## Version Bumps & Git Tags
 
 - Always patch increment: `x.y.z` → `x.y.(z+1)`.
