@@ -1340,6 +1340,16 @@ class AuthManager:
                             if self._browser_session_token:
                                 headers["X-UserToken"] = self._browser_session_token
                             return headers
+                        # Wait timed out — peer process is still logging in.
+                        # Retry the lock once: if the peer has since released
+                        # we can take over; otherwise refuse rather than
+                        # opening a duplicate browser window.
+                        if not self._acquire_login_lock():
+                            raise ValueError(
+                                "Browser login is in progress in another terminal. "
+                                "Please complete MFA/SSO there, or close that browser "
+                                "window first, then retry this tool call."
+                            )
                     self._mark_browser_reauth_attempt()
                     self._browser_login_in_progress = True
                     try:
