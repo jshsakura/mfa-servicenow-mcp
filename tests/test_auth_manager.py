@@ -2708,6 +2708,12 @@ class TestMakeRequestBrowserDiskReload:
 
 
 class TestKeepaliveLoop:
+    # v1.11.20: keepalive is OFF by default. These tests need it enabled
+    # to exercise the loop body — set the env var for the whole class.
+    @pytest.fixture(autouse=True)
+    def _enable_keepalive(self, monkeypatch):
+        monkeypatch.setenv("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES", "5")
+
     def test_start_keepalive_no_browser_config_noop(self):
         mgr = _make_browser_manager()
         mgr.config = AuthConfig(
