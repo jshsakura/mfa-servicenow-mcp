@@ -1591,7 +1591,7 @@ class TestAbortWithProfileWipe:
         profile_dir.mkdir()
         (profile_dir / "Cookies").write_text("dummy")
 
-        with pytest.raises(ValueError, match="Login aborted"):
+        with pytest.raises(ValueError, match="AUTO_RECOVERY_ARMED"):
             mgr._abort_with_profile_wipe(str(profile_dir), reason="test reason")
 
         assert not profile_dir.exists()
@@ -1610,7 +1610,7 @@ class TestAbortWithProfileWipe:
         # silently. Test the more realistic failure: shutil.rmtree raising
         # despite ignore_errors (e.g., readonly fs simulation).
         with patch("shutil.rmtree", side_effect=OSError("permission denied")):
-            with pytest.raises(ValueError, match="Login aborted"):
+            with pytest.raises(ValueError, match="AUTO_RECOVERY_ARMED"):
                 mgr._abort_with_profile_wipe("/nonexistent/path", reason="test reason")
 
         # Even with rmtree failing, defensive flags must be set.
@@ -1628,7 +1628,7 @@ class TestAbortWithProfileWipe:
         os.makedirs(default_dir, exist_ok=True)
         assert os.path.isdir(default_dir)
 
-        with pytest.raises(ValueError, match="Login aborted"):
+        with pytest.raises(ValueError, match="AUTO_RECOVERY_ARMED"):
             mgr._abort_with_profile_wipe(default_dir, reason="default-dir test")
 
         assert not os.path.exists(default_dir)
