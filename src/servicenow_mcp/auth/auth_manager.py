@@ -2179,14 +2179,27 @@ class AuthManager:
                 except Exception as _close_exc:  # noqa: BLE001
                     logger.debug("Login context.close() raised: %s (ignored)", _close_exc)
 
-            # Stale-cookie purge gate. invalidate_browser_session() sets
-            # _needs_profile_cookie_purge when the previous session was
-            # rejected by the server. Cleaning before the headless-gate cookie
-            # check (and before login.do is loaded) is what prevents
-            # ServiceNow from interpreting the next submission as a logout.
-            if self._needs_profile_cookie_purge:
-                self._purge_stale_profile_cookies(context, instance_host)
-                self._needs_profile_cookie_purge = False
+            # Always purge stale session cookies before login.do. The
+            # persistent Chromium profile may carry cookies from a prior MCP
+            # process whose server-side session has since been killed; if we
+            # let those reach the new login.do submission, ServiceNow treats
+            # it as a logout flow and 302s every probe to /logout_success.do.
+            #
+            # By the time we reach _login_with_browser_sync we have already
+            # decided we don't have a usable in-memory session — the profile
+            # cookies are never trusted directly for API auth, only used to
+            # skip MFA via glide_mfa_remembered_browser. Since v1.11.14 also
+            # purges that cookie (it was the carry-over tying us to the dead
+            # server session), there is nothing left worth preserving.
+            #
+            # Pre-v1.11.15 this was gated on _needs_profile_cookie_purge,
+            # which only fired AFTER an explicit invalidate_browser_session.
+            # Field testing showed the very first re-auth after MCP restart
+            # skipped the purge and hit the logout_success loop on attempt
+            # #1 — the user typed credentials, MFA, watched it fail, and
+            # only attempt #2 (which the abort path armed) recovered.
+            self._purge_stale_profile_cookies(context, instance_host)
+            self._needs_profile_cookie_purge = False
 
             # Headless gate: bail immediately if the persistent profile has no
             # valid `glide_mfa_remembered_browser` cookie. Without it, login
