@@ -2111,17 +2111,29 @@ class AuthManager:
         don't race the rmtree against Playwright's own writers. Brief
         sleep before rmtree to let the OS finish releasing file handles.
 
-        Side effects: also resets the re-auth cooldown counter and arms
-        the cookie purge flag (defensive — the wipe should make purge a
-        no-op on the next attempt, but if rmtree partially failed we
-        want the in-context purge to still run).
+        Side effects: arms the cookie purge flag (defensive — the wipe
+        should make purge a no-op on the next attempt, but if rmtree
+        partially failed we want the in-context purge to still run) and
+        sets a long cooldown.
+
+        Cooldown rationale: client-side wipe doesn't unstick the
+        server-side phantom session. v1.11.18 field log showed the wait
+        loop abort + wipe at 02:23:43, the next tool call 1 second later,
+        a fresh login.do submission 11 seconds after the wipe, and the
+        same logout_success.do redirect chain — the server's cleanup TTL
+        had not finished. Hammering re-attempts every 30 s actually keeps
+        re-triggering the cleanup. ``POST_WIPE_COOLDOWN_SECONDS`` (300 s)
+        gives the instance enough time to finish cleaning up so the next
+        attempt can land cleanly.
         """
         import shutil
 
-        # Reset cooldown so the next attempt isn't held back by the
-        # exponential backoff that grew during the now-fixed loop.
+        # Long cooldown after a wipe — server-side phantom needs time to
+        # GC. Don't reset to base; set explicitly to POST_WIPE_COOLDOWN.
+        POST_WIPE_COOLDOWN_SECONDS = 300
         self._browser_reauth_failure_count = 0
-        self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
+        self._browser_reauth_cooldown_seconds = POST_WIPE_COOLDOWN_SECONDS
+        self._browser_last_reauth_attempt_at = time.time()
         self._needs_profile_cookie_purge = True
 
         # Brief pause for Chromium to finish releasing the profile lock.
@@ -2300,6 +2312,32 @@ class AuthManager:
 
             # Store the User-Agent from the browser to match in subsequent requests
             self._browser_user_agent = page.evaluate("navigator.userAgent")
+
+            # Server-side phantom session flush. After idle-kill, ServiceNow
+            # holds a phantom record on the user that routes new login.do
+            # submissions through ``/logout_success.do`` until cleanup
+            # finishes server-side (TTL ~minutes). Hitting ``/logout.do``
+            # explicitly tells the server "yes, finish the logout" so the
+            # subsequent login.do can land cleanly. Best-effort: navigation
+            # failure is non-fatal — login.do flow handles its own errors.
+            #
+            # The ``sysparm_url=login.do`` query asks ServiceNow to redirect
+            # to the login page after the logout completes, so the form is
+            # ready to fill on the same page load. Saves one round-trip on
+            # instances that respect that param.
+            try:
+                logout_url = f"{instance_url.rstrip('/')}/logout.do?sysparm_url=login.do"
+                page.goto(logout_url, timeout=10_000, wait_until="domcontentloaded")
+                page.wait_for_timeout(500)
+                logger.info(
+                    "Server-side logout flushed via %s (best-effort, pre-login).",
+                    logout_url,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "Pre-login logout.do flush raised: %s (continuing to login.do)",
+                    exc,
+                )
 
             page.goto(login_url, timeout=timeout_ms, wait_until="load")
 

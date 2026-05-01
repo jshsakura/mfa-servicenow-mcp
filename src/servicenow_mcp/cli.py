@@ -495,6 +495,11 @@ def main():
         else:
             logging.getLogger().setLevel(logging.INFO)
 
+        # Startup banner. Stops "is the new version actually running?"
+        # debugging dead-ends — print the version into stderr where every
+        # log session has it on the first line.
+        logger.info("mfa-servicenow-mcp version: %s", __version__)
+
         # Propagate --tool-package to env so server.py picks it up
         if args.tool_package:
             os.environ["MCP_TOOL_PACKAGE"] = args.tool_package

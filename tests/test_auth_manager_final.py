@@ -1343,14 +1343,15 @@ class TestLoginWithBrowserSync:
         # Verify the login goto was called with the custom URL. There may
         # be a second goto("about:blank") just before close — that is the
         # SW/WebSocket teardown step on success and is not what this test
-        # is asserting.
-        login_goto_calls = [
-            call
+        # is asserting. v1.11.18 also navigates to /logout.do BEFORE the
+        # login URL to flush server-side phantom session state.
+        non_blank_gotos = [
+            call.args[0]
             for call in mock_page.goto.call_args_list
             if call.args and call.args[0] != "about:blank"
         ]
-        assert len(login_goto_calls) == 1
-        assert login_goto_calls[0].args[0] == "https://sso.example.com/login"
+        assert "https://sso.example.com/login" in non_blank_gotos
+        assert any("/logout.do" in url for url in non_blank_gotos)
 
     def test_login_g_ck_eval_fails(self):
         """When window.g_ck eval fails, session_token is None."""
@@ -1595,7 +1596,10 @@ class TestAbortWithProfileWipe:
 
         assert not profile_dir.exists()
         assert mgr._browser_reauth_failure_count == 0
-        assert mgr._browser_reauth_cooldown_seconds == mgr._browser_reauth_cooldown_base
+        # v1.11.18: post-wipe cooldown is set explicitly to 5 min (300 s)
+        # so the next attempt does not hammer the server while its
+        # phantom-session cleanup is still in progress.
+        assert mgr._browser_reauth_cooldown_seconds == 300
         assert mgr._needs_profile_cookie_purge is True
 
     def test_swallows_rmtree_failure(self):
