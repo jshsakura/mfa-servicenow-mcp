@@ -1599,6 +1599,18 @@ class AuthManager:
         }
         if self._browser_user_agent:
             probe_headers["User-Agent"] = self._browser_user_agent
+        # Send X-UserToken (g_ck) when available. ServiceNow's CSRF check
+        # rejects API requests without this header on some instances —
+        # without it, plain cookie auth gets a 302 to login even when the
+        # browser session is fully valid. The token is captured from the
+        # live page via `window.g_ck` during the wait loop.
+        if self._browser_session_token:
+            probe_headers["X-UserToken"] = self._browser_session_token
+        # Referer matching the instance keeps strict same-origin checks
+        # happy on instances that gate API endpoints behind referer
+        # validation.
+        if self.instance_url:
+            probe_headers["Referer"] = self.instance_url.rstrip("/") + "/"
         probe_cookies = _cookie_header_to_dict(cookie_header)
         return self._http_session.get(
             probe_url,
@@ -2205,6 +2217,32 @@ class AuthManager:
                         stable_instance_ticks += 1
                     else:
                         stable_instance_ticks = 0
+
+                    # Browser-state success signal. ServiceNow sets
+                    # `window.g_ck` only after the user is authenticated;
+                    # combined with a non-login URL on the instance host,
+                    # this is a stronger and more reliable signal than the
+                    # external API probe — the probe doesn't know about
+                    # CSRF/SSO headers the browser sends natively, so on
+                    # some instances it returns 302/401 even after a
+                    # successful UI login. Trust the browser, then run
+                    # final_probe (with X-UserToken) for sanity.
+                    if current_host == instance_host and not _is_login_page_url(current_url):
+                        try:
+                            _g_ck = page.evaluate("window.g_ck")
+                        except Exception:  # noqa: BLE001
+                            _g_ck = None
+                        if _g_ck and isinstance(_g_ck, str) and _g_ck.strip():
+                            self._browser_session_token = _g_ck.strip()
+                            logger.info(
+                                "Browser auth confirmed by browser state: "
+                                "url=%s g_ck_present=true cookie_names=%s",
+                                current_url,
+                                ",".join(cookie_names),
+                            )
+                            login_confirmed = True
+                            break
+
                     # Skip probe when neither URL path nor cookie set changed
                     # since last probe. Safety net: force a probe every ~10
                     # iterations even on stationary state, so we never get
@@ -2272,13 +2310,27 @@ class AuthManager:
                             else:
                                 successful_probes = 0
                         else:
+                            # Log Location/snippet on non-2xx so a user can
+                            # tell whether the redirect is going to login.do
+                            # (session not established) or to an SSO IdP
+                            # (cookies missing for the API surface).
+                            _diag_location = probe.headers.get("Location") or ""
+                            _diag_set_cookie = (probe.headers.get("Set-Cookie") or "")[:160]
+                            try:
+                                _diag_body_snippet = (probe.text or "")[:120].replace("\n", " ")
+                            except Exception:  # noqa: BLE001
+                                _diag_body_snippet = ""
                             logger.warning(
                                 "Browser auth probe unauthorized: status=%s current_host=%s "
-                                "stable_ticks=%s cookie_names=%s",
+                                "stable_ticks=%s cookie_names=%s location=%s "
+                                "set_cookie=%s body_snippet=%s",
                                 probe.status_code,
                                 current_host,
                                 stable_instance_ticks,
                                 ",".join(cookie_names),
+                                _diag_location,
+                                _diag_set_cookie,
+                                _diag_body_snippet,
                             )
                             successful_probes = 0
                     except requests.RequestException:
@@ -2321,6 +2373,26 @@ class AuthManager:
             self._browser_last_validated_at = None
             self._browser_last_login_at = time.time()
             self._clear_browser_reauth_attempt()
+            # Drop heavy in-flight work (Polaris Service Worker, AMB
+            # WebSocket, dashboard XHRs) by navigating each open page to
+            # about:blank before closing. Without this, on Polaris the
+            # Service Worker and WebSocket subscription keep the OS
+            # Chromium window alive long after `context.close()` returns,
+            # so the user sees a stuck visible browser even though our
+            # session capture is complete. about:blank has no SW, no
+            # network, no JS — close becomes immediate. Cookies are not
+            # affected (they live in the BrowserContext, not the page).
+            if not _is_debug_mode():
+                for _open_page in list(context.pages):
+                    try:
+                        if not _open_page.is_closed():
+                            _open_page.goto(
+                                "about:blank",
+                                timeout=2000,
+                                wait_until="commit",
+                            )
+                    except Exception:  # noqa: BLE001
+                        pass
             # Close the persistent context BEFORE final_probe runs so the browser
             # window goes away whether the probe passes or fails. The probe is a
             # plain HTTP call against self._browser_cookie_header, so it does not

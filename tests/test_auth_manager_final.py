@@ -833,6 +833,54 @@ class TestLoginWithBrowserSync:
                 with pytest.raises(ValueError, match="headless mode"):
                     mgr._login_with_browser_sync(browser_cfg)
 
+    def test_browser_state_detection_skips_probe_loop_when_g_ck_present(self):
+        """Browser-state-based login detection: when `window.g_ck` is set
+        and the page is on a non-login URL on the instance host, declare
+        login_confirmed without waiting for two consecutive probe-200s.
+
+        This is the path that recovers users on ServiceNow instances where
+        the external API probe always returns 302/401 (CSRF/SSO require
+        headers our requests-library probe lacks). The browser session is
+        valid — the probe just can't see it. Trust the browser."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(
+            timeout_seconds=10,
+            headless=True,
+            session_ttl_minutes=30,
+        )
+
+        # g_ck is non-empty by default; URL on instance host, non-login.
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        mock_page.url = "https://example.service-now.com/now/nav/ui"
+
+        # final_probe must succeed for the success path to complete.
+        final_probe = MagicMock()
+        final_probe.status_code = 200
+        final_probe.headers = {"Content-Type": "application/json"}
+        final_probe.url = "https://example.service-now.com/api/now/table/sys_user_preference"
+        final_probe.text = '{"result": []}'
+
+        probe_calls: list[int] = []
+
+        def _mock_probe(cookie_header, timeout_seconds=10, browser_config=None):
+            probe_calls.append(1)
+            return final_probe
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch.object(mgr, "_probe_browser_api_with_cookie", side_effect=_mock_probe):
+                with patch.object(mgr, "_save_session_to_disk"):
+                    with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                        mgr._login_with_browser_sync(browser_cfg)
+
+        # Probe should have been called exactly once (the final_probe
+        # validation), NOT twice for the consecutive-success requirement.
+        assert len(probe_calls) == 1
+        assert mgr._browser_session_token == "g_ck_token"
+
     def test_login_probe_unauthorized_after_login(self):
         """After login, API probe shows unauthorized — invalidates and raises."""
         mgr = _make_browser_manager()
@@ -842,7 +890,9 @@ class TestLoginWithBrowserSync:
             session_ttl_minutes=30,
         )
 
-        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        # g_ck=None disables browser-state-based detection so this test
+        # exercises the consecutive-probe + final_probe path explicitly.
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks(g_ck=None)
         mock_page.url = "https://example.service-now.com/now/nav/ui"
 
         # Polling probe succeeds (confirms login)
@@ -1022,7 +1072,8 @@ class TestLoginWithBrowserSync:
             session_ttl_minutes=30,
         )
 
-        mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks()
+        # Disable browser-state detection so the probe-loop path runs.
+        mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks(g_ck=None)
 
         probe_count = {"n": 0}
 
@@ -1051,7 +1102,8 @@ class TestLoginWithBrowserSync:
             session_ttl_minutes=30,
         )
 
-        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        # Disable browser-state detection so the probe-loop path runs.
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks(g_ck=None)
         mock_page.url = "https://example.service-now.com/now/nav/ui"
 
         probe_count = {"n": 0}
@@ -1132,7 +1184,9 @@ class TestLoginWithBrowserSync:
             session_ttl_minutes=30,
         )
 
-        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        # Disable browser-state detection: this test pins the probe-failing
+        # timeout path, where neither g_ck nor probe success appears.
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks(g_ck=None)
         mock_page.url = "https://example.service-now.com/now/nav/ui/classic"
 
         # Override cookies to include glide_user_session for the fallback check
@@ -1233,9 +1287,17 @@ class TestLoginWithBrowserSync:
                     with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
                         mgr._login_with_browser_sync(browser_cfg)
 
-        # Verify goto was called with custom URL
-        mock_page.goto.assert_called_once()
-        assert mock_page.goto.call_args.args[0] == "https://sso.example.com/login"
+        # Verify the login goto was called with the custom URL. There may
+        # be a second goto("about:blank") just before close — that is the
+        # SW/WebSocket teardown step on success and is not what this test
+        # is asserting.
+        login_goto_calls = [
+            call
+            for call in mock_page.goto.call_args_list
+            if call.args and call.args[0] != "about:blank"
+        ]
+        assert len(login_goto_calls) == 1
+        assert login_goto_calls[0].args[0] == "https://sso.example.com/login"
 
     def test_login_g_ck_eval_fails(self):
         """When window.g_ck eval fails, session_token is None."""
