@@ -28,6 +28,19 @@ logger = logging.getLogger(__name__)
 # Constants & Shared Config
 # ---------------------------------------------------------------------------
 
+# Maximum number of sys_ids per `IN` clause when fetching M2M / reference
+# rows. ServiceNow + intermediate proxies start returning 400 when the
+# `sysparm_query` portion of the URL grows past a few KB; a 32-char sys_id
+# plus comma is ~33 chars, so 30 IDs ≈ 1 KB query string — well under
+# typical limits even after URL escaping. Empirically 100 was failing on
+# real instances; 30 is the safe floor.
+M2M_IN_CHUNK_SIZE = 30
+
+
+def _chunk(seq: List[str], size: int) -> List[List[str]]:
+    return [seq[i : i + size] for i in range(0, len(seq), size)]
+
+
 PORTAL_DEV_TABLES: Dict[str, Dict[str, Any]] = {
     "widget": {
         "table": "sp_widget",
@@ -622,21 +635,30 @@ def get_provider_dependency_map(
 
     widget_ids = [w["sys_id"] for w in widgets if w.get("sys_id")]
 
-    # Step 3: Fetch M2M widget → angular provider (single batch query)
-    m2m_query = "sp_widgetIN" + ",".join(widget_ids)
-    try:
-        m2m_rows, _ = _sn_get(
-            config,
-            auth_manager,
-            "m2m_sp_widget_angular_provider",
-            m2m_query,
-            "sys_id,sp_widget,sp_angular_provider",
-            limit=500,
-        )
-        total_api_calls += 1
-    except Exception as exc:
-        logger.warning("Failed to fetch M2M widget-provider: %s", exc)
-        m2m_rows = []
+    # Step 3: Fetch M2M widget → angular provider, chunked so the
+    # `sp_widgetIN…` query stays under URL length limits. Sending all
+    # IDs in one request was returning 400 on instances with hundreds
+    # of widgets in scope.
+    m2m_rows: List[Dict[str, Any]] = []
+    for id_chunk in _chunk(widget_ids, M2M_IN_CHUNK_SIZE):
+        m2m_query = "sp_widgetIN" + ",".join(id_chunk)
+        try:
+            chunk_rows, _ = _sn_get(
+                config,
+                auth_manager,
+                "m2m_sp_widget_angular_provider",
+                m2m_query,
+                "sys_id,sp_widget,sp_angular_provider",
+                limit=500,
+            )
+            total_api_calls += 1
+            m2m_rows.extend(chunk_rows)
+        except Exception as exc:
+            logger.warning(
+                "Failed to fetch M2M widget-provider chunk (%s ids): %s",
+                len(id_chunk),
+                exc,
+            )
 
     # Map provider IDs per widget
     widget_provider_map: Dict[str, List[str]] = {}
@@ -1039,16 +1061,19 @@ def get_developer_daily_summary(
     widget_providers: Dict[str, List[str]] = {}
     if params.include_details and all_widget_ids:
         try:
-            m2m_query = "sp_widgetIN" + ",".join(all_widget_ids)
-            m2m_rows, _ = _sn_get(
-                config,
-                auth_manager,
-                "m2m_sp_widget_angular_provider",
-                m2m_query,
-                "sp_widget,sp_angular_provider",
-                limit=100,
-            )
-            total_api_calls += 1
+            # Chunk IDs to keep the URL under proxy/server length limits.
+            m2m_rows: List[Dict[str, Any]] = []
+            for id_chunk in _chunk(all_widget_ids, M2M_IN_CHUNK_SIZE):
+                chunk_rows, _ = _sn_get(
+                    config,
+                    auth_manager,
+                    "m2m_sp_widget_angular_provider",
+                    "sp_widgetIN" + ",".join(id_chunk),
+                    "sp_widget,sp_angular_provider",
+                    limit=500,
+                )
+                total_api_calls += 1
+                m2m_rows.extend(chunk_rows)
 
             provider_ids: List[str] = []
             w_p_map: Dict[str, List[str]] = {}

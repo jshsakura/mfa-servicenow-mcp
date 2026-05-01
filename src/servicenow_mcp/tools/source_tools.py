@@ -872,7 +872,12 @@ def _batch_resolve_script_includes(
     result_map: Dict[str, Dict[str, Any]] = {}
     safe_candidates = [(c, _escape_query_fragment(c)) for c in candidates]
 
-    for chunk in _chunked([s for _, s in safe_candidates], 50):
+    # Chunk size 20 — each candidate appears three times in the query
+    # (nameIN, api_nameIN, api_nameENDSWITH.X), so 20 candidates produce
+    # ~60 query slots. With ~30-char Script Include names, 50-chunk URLs
+    # were hitting ServiceNow's "sysparm_query too long" 400 in the
+    # field. Smaller chunks trade a few extra round-trips for reliability.
+    for chunk in _chunked([s for _, s in safe_candidates], 20):
         name_in = ",".join(chunk)
         query_parts = [f"nameIN{name_in}^ORapi_nameIN{name_in}"]
         for sc in chunk:
