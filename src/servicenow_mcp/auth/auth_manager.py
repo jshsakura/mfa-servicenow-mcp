@@ -276,6 +276,54 @@ def _response_indicates_login_redirect(response: requests.Response) -> bool:
     )
 
 
+def _response_indicates_logout_redirect(response: requests.Response) -> bool:
+    """Return True when ServiceNow redirects an API probe to a logout page.
+
+    ServiceNow returns ``302 Location: /logout_success.do`` (or ``/logout.do``)
+    when the request is being treated as part of a logout flow. This commonly
+    happens when the persistent Chromium profile carries cookies from a
+    server-side-expired session: the next ``login.do`` submission is treated
+    as "this user is logging out", every subsequent API call 302s to the
+    logout success page, and the browser-state confirmation gate
+    (``g_ck`` + ``home_splash.do`` URL) false-positives because the page
+    appearance does not match the API truth.
+
+    Treated as a hard signal that stale session cookies must be purged from
+    the persistent profile before any further login attempt.
+    """
+    if response.status_code not in (301, 302, 303, 307, 308):
+        return False
+    location = (response.headers.get("Location") or "").lower()
+    if not location:
+        return False
+    return (
+        "logout_success" in location
+        or location.startswith("/logout")
+        or "/logout.do" in location
+        or "/logout?" in location
+        or location.endswith("/logout")
+    )
+
+
+# Cookies that bind a Chromium persistent profile to a specific server-side
+# session. When the server has invalidated that session, leaving these in the
+# profile causes the next ``login.do`` submission to be treated as a logout
+# flow — the symptom the user sees is repeated login windows even after a
+# successful MFA. ``glide_mfa_remembered_browser`` is intentionally excluded
+# so the user does not have to re-do MFA after a stale-cookie purge.
+_STALE_PROFILE_COOKIE_NAMES: tuple[str, ...] = (
+    "glide_session_store",
+    "JSESSIONID",
+    "glide_user",
+    "glide_user_route",
+    "glide_user_activity",
+    "glide_node_id_for_js",
+    "factor",
+    "UX-Token",
+    "__CJ_g_startTime",
+)
+
+
 def _response_indicates_authenticated_session(response: requests.Response) -> bool:
     if _response_indicates_login_redirect(response):
         return False
@@ -424,6 +472,11 @@ class AuthManager:
         self._browser_reauth_failure_count = 0
         self._browser_login_in_progress = False  # True while browser window is open for MFA
         self._browser_login_lock = threading.Lock()  # Prevent concurrent browser login attempts
+        # When True, the next persistent-context launch must purge stale
+        # session cookies from the Chromium profile before navigating to
+        # login.do. Set by invalidate_browser_session() and also when the
+        # wait loop detects ServiceNow redirecting probes to logout_success.
+        self._needs_profile_cookie_purge: bool = False
         self._keepalive_thread: Optional[threading.Thread] = None
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
@@ -1999,6 +2052,39 @@ class AuthManager:
                 return
             raise
 
+    def _purge_stale_profile_cookies(self, context, instance_host: str) -> int:
+        """Drop session-bound cookies from the persistent Chromium profile.
+
+        Called when ``self._needs_profile_cookie_purge`` is set (after an
+        invalidate, or when a probe redirected to ``logout_success.do``).
+        Removes cookies tied to the now-dead server session while preserving
+        ``glide_mfa_remembered_browser`` so the user does not have to redo
+        MFA. ``instance_host`` is informational — Playwright's
+        ``clear_cookies(name=...)`` matches by name and we let it remove the
+        cookie wherever it lives in the jar (covers the ``.service-now.com``
+        and bare-host duplicates ServiceNow sometimes ships).
+
+        Returns the number of cookie names successfully cleared.
+        """
+        cleared = 0
+        for cookie_name in _STALE_PROFILE_COOKIE_NAMES:
+            try:
+                context.clear_cookies(name=cookie_name)
+                cleared += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "clear_cookies(name=%s) raised: %s (ignored)",
+                    cookie_name,
+                    exc,
+                )
+        logger.info(
+            "Purged stale session cookies from persistent profile: "
+            "host=%s cleared=%s preserved=glide_mfa_remembered_browser",
+            instance_host,
+            cleared,
+        )
+        return cleared
+
     def _login_with_browser_sync(
         self, browser_config: BrowserAuthConfig, force_interactive: bool = False
     ) -> None:
@@ -2064,6 +2150,15 @@ class AuthManager:
                     context.close()
                 except Exception as _close_exc:  # noqa: BLE001
                     logger.debug("Login context.close() raised: %s (ignored)", _close_exc)
+
+            # Stale-cookie purge gate. invalidate_browser_session() sets
+            # _needs_profile_cookie_purge when the previous session was
+            # rejected by the server. Cleaning before the headless-gate cookie
+            # check (and before login.do is loaded) is what prevents
+            # ServiceNow from interpreting the next submission as a logout.
+            if self._needs_profile_cookie_purge:
+                self._purge_stale_profile_cookies(context, instance_host)
+                self._needs_profile_cookie_purge = False
 
             # Headless gate: bail immediately if the persistent profile has no
             # valid `glide_mfa_remembered_browser` cookie. Without it, login
@@ -2197,6 +2292,17 @@ class AuthManager:
             prev_url_path = ""
             prev_cookie_names: set[str] = set()
             iterations_since_probe = 0
+            # Track consecutive ``Location: /logout_success.do`` probe
+            # responses. Two purposes:
+            #   1. Block the browser-state confirmation gate so a page that
+            #      has navigated to home_splash.do with a populated g_ck does
+            #      NOT false-positive while the API is still returning logout
+            #      redirects (the field bug fixed alongside this counter).
+            #   2. Abort the wait loop after enough redirects to give the
+            #      caller a clean retry path (invalidate + purge + new login)
+            #      instead of looping for the full wait budget.
+            consecutive_logout_redirects = 0
+            LOGOUT_REDIRECT_ABORT_THRESHOLD = 3
             while (time.time() - start) * 1000 < wait_budget_ms:
                 # Detect browser closed by user — break immediately instead of
                 # looping for minutes until wait_budget_ms expires.
@@ -2255,6 +2361,16 @@ class AuthManager:
                         current_host == instance_host
                         and not _is_login_page_url(current_url)
                         and stable_instance_ticks >= BROWSER_STATE_STABLE_TICKS_REQUIRED
+                        # Block browser-state trust while ServiceNow is still
+                        # 302-ing API probes to ``logout_success.do``. The
+                        # page may already be on ``home_splash.do`` with a
+                        # populated ``g_ck`` (visible appearance "logged
+                        # in") while the API surface is in a tear-down
+                        # state — letting this through here is exactly how
+                        # the v1.11.11 repeat-login-window field bug
+                        # produced "confirmed by browser state" followed by
+                        # an immediate ``final_probe`` 302.
+                        and consecutive_logout_redirects == 0
                     ):
                         try:
                             _g_ck = page.evaluate("window.g_ck")
@@ -2305,6 +2421,10 @@ class AuthManager:
                         # intermediate redirect/cookie states as completed MFA login.
                         # Also ensure the probe returned a clear authenticated status (200 or 403).
                         # A 401 (Unauthorized) or 3xx (Redirect) indicates login is still in progress.
+                        if _response_indicates_logout_redirect(probe):
+                            consecutive_logout_redirects += 1
+                        else:
+                            consecutive_logout_redirects = 0
                         if _response_confirms_browser_probe_session(probe):
                             resolved_url = str(probe.url)
                             resolved_host = (urlparse(resolved_url).hostname or "").lower()
@@ -2362,6 +2482,30 @@ class AuthManager:
                                 _diag_body_snippet,
                             )
                             successful_probes = 0
+                        # Persistent ``logout_success.do`` redirects mean the
+                        # current Chromium profile is bound to a server-dead
+                        # session. Looping for the full 90 s wait budget
+                        # cannot recover this — the only fix is to purge
+                        # stale cookies and start a clean login attempt.
+                        # Abort with a marker; the wrapper invalidates so
+                        # the next attempt enters
+                        # _login_with_browser_sync with the purge flag set.
+                        if consecutive_logout_redirects >= LOGOUT_REDIRECT_ABORT_THRESHOLD:
+                            self._needs_profile_cookie_purge = True
+                            _safe_close_context()
+                            logger.warning(
+                                "Aborting login wait: %s consecutive probe "
+                                "redirects to logout_success.do — stale "
+                                "session cookies will be purged before retry.",
+                                consecutive_logout_redirects,
+                            )
+                            raise ValueError(
+                                "ServiceNow redirected API probes to "
+                                "logout_success.do repeatedly. The persistent "
+                                "Chromium profile is bound to a dead "
+                                "server-side session; stale cookies will be "
+                                "purged on the next attempt. Please retry."
+                            )
                     except requests.RequestException:
                         # During MFA transitions network hiccups are possible; keep polling until timeout.
                         successful_probes = 0
@@ -2488,6 +2632,14 @@ class AuthManager:
         self._browser_cookie_expires_at = None
         self._browser_last_validated_at = None
         self._browser_session_token = None
+        # The next browser login must start from a clean cookie jar. The
+        # persistent Chromium profile still holds session cookies bound to
+        # the now-invalidated server session; without purging, ServiceNow
+        # treats the next ``login.do`` submission as a logout flow and 302s
+        # every probe to ``/logout_success.do``. See
+        # _purge_stale_profile_cookies for the cookie list and why
+        # ``glide_mfa_remembered_browser`` is preserved.
+        self._needs_profile_cookie_purge = True
         if os.path.exists(self._session_cache_path):
             try:
                 with open(self._session_cache_path, "r") as f:

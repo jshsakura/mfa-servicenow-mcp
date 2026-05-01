@@ -24,6 +24,7 @@ from servicenow_mcp.auth.auth_manager import (
     _looks_like_instance_main_ui,
     _response_indicates_authenticated_session,
     _response_indicates_login_redirect,
+    _response_indicates_logout_redirect,
     _selector_exists,
     _target_label,
 )
@@ -273,6 +274,57 @@ class TestResponseIndicatesLoginRedirect:
         resp.headers = {}
         resp.url = "https://x.com/api/now/table/sys_user"
         assert _response_indicates_authenticated_session(resp) is True
+
+
+class TestResponseIndicatesLogoutRedirect:
+    def test_logout_success_path(self):
+        resp = MagicMock()
+        resp.status_code = 302
+        resp.headers = {"Location": "/logout_success.do"}
+        assert _response_indicates_logout_redirect(resp) is True
+
+    def test_logout_path(self):
+        resp = MagicMock()
+        resp.status_code = 302
+        resp.headers = {"Location": "/logout.do"}
+        assert _response_indicates_logout_redirect(resp) is True
+
+    def test_logout_with_query(self):
+        resp = MagicMock()
+        resp.status_code = 302
+        resp.headers = {"Location": "/logout?source=session_expired"}
+        assert _response_indicates_logout_redirect(resp) is True
+
+    def test_uppercase_location(self):
+        resp = MagicMock()
+        resp.status_code = 302
+        resp.headers = {"Location": "/Logout_Success.do"}
+        assert _response_indicates_logout_redirect(resp) is True
+
+    def test_non_redirect_status_ignored(self):
+        # 200 response with logout in body is not a logout redirect.
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.headers = {"Location": "/logout_success.do"}
+        assert _response_indicates_logout_redirect(resp) is False
+
+    def test_login_redirect_is_not_logout(self):
+        resp = MagicMock()
+        resp.status_code = 302
+        resp.headers = {"Location": "/login.do"}
+        assert _response_indicates_logout_redirect(resp) is False
+
+    def test_empty_location(self):
+        resp = MagicMock()
+        resp.status_code = 302
+        resp.headers = {}
+        assert _response_indicates_logout_redirect(resp) is False
+
+    def test_normal_response(self):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.headers = {}
+        assert _response_indicates_logout_redirect(resp) is False
 
 
 class TestSelectorExists:
