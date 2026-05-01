@@ -839,6 +839,41 @@ class TestProbeBrowserApiWithCookie:
             mgr._probe_browser_api_with_cookie("a=1", 10, browser_cfg)
         assert mock_get.call_args.args[0] == "https://other.service-now.com/api/now/table/incident"
 
+    def test_x_user_token_included_by_default(self):
+        # Default ``include_user_token=True`` mirrors the v1.11.0 behaviour
+        # for login-flow probes that need CSRF token alignment with the
+        # browser session.
+        mgr = _make_browser_manager()
+        mgr._browser_session_token = "g-ck-value-123"
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+        mock_resp = MagicMock()
+        with patch.object(mgr._http_session, "get", return_value=mock_resp) as mock_get:
+            mgr._probe_browser_api_with_cookie("a=1", 10, browser_cfg)
+        assert mock_get.call_args.kwargs["headers"]["X-UserToken"] == "g-ck-value-123"
+
+    def test_x_user_token_omitted_when_keepalive_opts_out(self):
+        # v1.11.16 keepalive path passes ``include_user_token=False`` so
+        # ServiceNow scores the ping as plain user activity (cookie-only
+        # read) instead of automation, matching pre-v1.11.0 behaviour
+        # where 15-min pings kept sessions alive all day.
+        mgr = _make_browser_manager()
+        mgr._browser_session_token = "g-ck-value-123"
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+        mock_resp = MagicMock()
+        with patch.object(mgr._http_session, "get", return_value=mock_resp) as mock_get:
+            mgr._probe_browser_api_with_cookie("a=1", 10, browser_cfg, include_user_token=False)
+        assert "X-UserToken" not in mock_get.call_args.kwargs["headers"]
+
+    def test_x_user_token_omitted_when_no_token_captured(self):
+        # No g_ck captured yet → header naturally absent regardless of flag.
+        mgr = _make_browser_manager()
+        mgr._browser_session_token = None
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+        mock_resp = MagicMock()
+        with patch.object(mgr._http_session, "get", return_value=mock_resp) as mock_get:
+            mgr._probe_browser_api_with_cookie("a=1", 10, browser_cfg)
+        assert "X-UserToken" not in mock_get.call_args.kwargs["headers"]
+
 
 # ===========================================================================
 # _build_instance_cookie_header tests
