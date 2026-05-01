@@ -120,6 +120,7 @@ ALLOWLIST: set[str] = {
     "setup_installer",
     # Internal helpers / methods that look tool-shaped
     "get_headers",
+    "get_auth_headers",
     "get_started",
     "get_tool_definitions",
     "get_tool_schema",
