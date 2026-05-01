@@ -1471,6 +1471,39 @@ class TestBrowserLoginErrorHandling:
         assert mgr._browser_reauth_cooldown_seconds >= 15
         assert mgr._browser_last_reauth_attempt_at is not None
 
+    def test_user_close_after_session_capture_returns_success(self):
+        """First-flow mirror of the validation-flow test: when login
+        captures the session and the user dismisses the window only
+        afterwards, treat as success — apply no cooldown, raise no
+        cancellation error, return the captured headers."""
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = None
+        mgr._browser_cookie_expires_at = None
+        mgr._browser_login_in_progress = False
+        mgr._browser_reauth_failure_count = 2  # carryover failures, must reset
+
+        def _mock_login(cfg, force_interactive=False):
+            mgr._browser_cookie_header = "fresh=cookie"
+            mgr._browser_cookie_expires_at = time.time() + 600
+            mgr._browser_session_key = "example.service-now.com"
+            mgr._browser_user_agent = "TestUA"
+            mgr._browser_session_token = "fresh_g_ck"
+            raise ValueError("target closed")
+
+        with patch.object(mgr, "_try_restore_browser_session", return_value=False):
+            with patch.object(mgr, "_acquire_login_lock", return_value=True):
+                with patch.object(mgr, "_can_attempt_browser_reauth", return_value=True):
+                    with patch.object(mgr, "_login_with_browser", side_effect=_mock_login):
+                        with patch.object(mgr, "_release_login_lock"):
+                            with patch.object(mgr, "_mark_browser_reauth_attempt"):
+                                with patch.object(mgr, "_start_keepalive"):
+                                    headers = mgr.get_headers()
+
+        assert headers["Cookie"] == "fresh=cookie"
+        assert headers["User-Agent"] == "TestUA"
+        assert headers["X-UserToken"] == "fresh_g_ck"
+        assert mgr._browser_reauth_failure_count == 0
+
     def test_other_error_increases_cooldown(self):
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = None
@@ -1795,6 +1828,45 @@ class TestBrowserValidationDuringGetHeaders:
         assert mgr._browser_reauth_failure_count == 1
         assert mgr._browser_login_in_progress is False
 
+    def test_validation_reauth_user_close_after_capture_returns_success(self):
+        """If `_login_with_browser` raises a user-close exception but the
+        session state (cookie_header + session_key) is already populated
+        — meaning capture completed before the user dismissed the window
+        — treat it as a successful login: no cooldown, no cancellation
+        error, just return the captured headers."""
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = "old=1"
+        mgr._browser_cookie_expires_at = time.time() + 600
+        mgr._browser_last_validated_at = time.time() - 300
+        mgr._browser_validation_interval_seconds = 120
+        mgr._browser_last_login_at = None
+        mgr._browser_reauth_failure_count = 3  # carryover failures, must reset
+
+        def _mock_login(cfg, force_interactive=False):
+            # Simulate the success path: cookies + session_key set, then
+            # the user closes the window before our cleanup completes.
+            mgr._browser_cookie_header = "fresh=cookie"
+            mgr._browser_session_key = "example.service-now.com"
+            mgr._browser_user_agent = "TestUA"
+            mgr._browser_session_token = "fresh_g_ck"
+            raise ValueError("target closed")
+
+        with patch.object(mgr, "_is_browser_session_valid", return_value=False):
+            with patch.object(mgr, "invalidate_browser_session"):
+                with patch.object(mgr, "_acquire_login_lock", return_value=True):
+                    with patch.object(mgr, "_login_with_browser", side_effect=_mock_login):
+                        with patch.object(mgr, "_release_login_lock"):
+                            with patch.object(mgr, "_mark_browser_reauth_attempt"):
+                                with patch.object(mgr, "_start_keepalive"):
+                                    headers = mgr.get_headers()
+
+        assert headers["Cookie"] == "fresh=cookie"
+        assert headers["User-Agent"] == "TestUA"
+        assert headers["X-UserToken"] == "fresh_g_ck"
+        # Failure count must be reset — this was a successful login that
+        # happened to close late, not a cancellation.
+        assert mgr._browser_reauth_failure_count == 0
+
     def test_validation_reauth_lock_blocked_after_wait_timeout(self):
         """If the cross-process lock cannot be acquired AND the wait for
         the peer's login times out, do NOT silently open a duplicate
@@ -2007,6 +2079,40 @@ class TestLoginWithBrowser:
 
         # First call headless (False), then fallback interactive (True).
         assert attempts == [False, True]
+
+    def test_non_value_error_with_marker_still_falls_back(self):
+        """Non-ValueError exceptions whose message matches the fallback
+        markers should still trigger interactive fallback. The wrapper
+        catches Exception, not just ValueError."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+        attempts: list[bool] = []
+
+        def _mock_sync_login(cfg, interactive=False):
+            attempts.append(interactive)
+            if not interactive:
+                # RuntimeError, not ValueError, but message contains the
+                # fallback marker — fallback must still trigger.
+                raise RuntimeError("MFA_REQUIRED: cookie missing in profile")
+
+        with patch.object(mgr, "_login_with_browser_sync", side_effect=_mock_sync_login):
+            mgr._login_with_browser(browser_cfg, force_interactive=False)
+
+        assert attempts == [False, True]
+
+    def test_non_value_error_without_marker_propagates(self):
+        """Non-ValueError exceptions without a fallback marker must
+        propagate unchanged so the caller sees the real failure."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+
+        with patch.object(
+            mgr,
+            "_login_with_browser_sync",
+            side_effect=RuntimeError("disk write failed"),
+        ):
+            with pytest.raises(RuntimeError, match="disk write failed"):
+                mgr._login_with_browser(browser_cfg, force_interactive=False)
 
     def test_non_timeout_error_not_retried(self):
         mgr = _make_browser_manager()
@@ -2994,6 +3100,30 @@ class TestHasValidMfaRememberedCookie:
         assert AuthManager._has_valid_mfa_remembered_cookie(cookies, now=999.0) is True
         assert AuthManager._has_valid_mfa_remembered_cookie(cookies, now=1001.0) is False
 
+    def test_string_expires_coerced_to_float(self):
+        # Some session-import paths may stringify the expires field —
+        # the helper coerces defensively rather than crashing on >.
+        cookies = [
+            {
+                "name": "glide_mfa_remembered_browser",
+                "value": "remembered",
+                "expires": "1000.0",
+            }
+        ]
+        assert AuthManager._has_valid_mfa_remembered_cookie(cookies, now=999.0) is True
+        assert AuthManager._has_valid_mfa_remembered_cookie(cookies, now=1001.0) is False
+
+    def test_unparseable_expires_treated_as_expired(self):
+        cookies = [
+            {
+                "name": "glide_mfa_remembered_browser",
+                "value": "remembered",
+                "expires": "not-a-number",
+            }
+        ]
+        # Fail closed — gate fires, fallback to interactive.
+        assert AuthManager._has_valid_mfa_remembered_cookie(cookies) is False
+
 
 # ===========================================================================
 # _compute_login_wait_budget_ms: budget cap by mode
@@ -3123,3 +3253,95 @@ class TestShouldSkipProbe:
             )
             is False
         )
+
+
+# ===========================================================================
+# _looks_like_user_close: classify exception text as a user-close
+# ===========================================================================
+
+
+class TestLooksLikeUserClose:
+    def test_detects_target_closed(self):
+        from servicenow_mcp.auth.auth_manager import _looks_like_user_close
+
+        assert _looks_like_user_close("playwright error: target closed") is True
+
+    def test_detects_explicit_cancellation_marker(self):
+        from servicenow_mcp.auth.auth_manager import _looks_like_user_close
+
+        assert _looks_like_user_close("login_cancelled_by_user: ...") is True
+
+    def test_detects_connection_closed(self):
+        from servicenow_mcp.auth.auth_manager import _looks_like_user_close
+
+        assert _looks_like_user_close("transport: connection closed") is True
+
+    def test_detects_full_target_phrase(self):
+        from servicenow_mcp.auth.auth_manager import _looks_like_user_close
+
+        assert _looks_like_user_close("target page, context or browser has been closed") is True
+
+    def test_returns_false_for_unrelated_errors(self):
+        from servicenow_mcp.auth.auth_manager import _looks_like_user_close
+
+        assert _looks_like_user_close("network timeout") is False
+        assert _looks_like_user_close("permission denied") is False
+        assert _looks_like_user_close("") is False
+
+    def test_returns_false_for_partial_match(self):
+        from servicenow_mcp.auth.auth_manager import _looks_like_user_close
+
+        # Substring "closed" alone is NOT a marker — must be one of the
+        # listed phrases. This guards against over-eager classification.
+        assert _looks_like_user_close("file closed") is False
+
+
+# ===========================================================================
+# _apply_browser_session_headers: shared header-fill helper
+# ===========================================================================
+
+
+class TestApplyBrowserSessionHeaders:
+    def test_fills_cookie_useragent_and_token(self):
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = "JSESSIONID=abc"
+        mgr._browser_user_agent = "Mozilla/5.0"
+        mgr._browser_session_token = "g_ck_tok"
+
+        headers: dict = {"Accept": "application/json"}
+        out = mgr._apply_browser_session_headers(headers)
+
+        assert out is headers  # mutates in place
+        assert headers["Cookie"] == "JSESSIONID=abc"
+        assert headers["User-Agent"] == "Mozilla/5.0"
+        assert headers["X-UserToken"] == "g_ck_tok"
+        # Existing entries preserved
+        assert headers["Accept"] == "application/json"
+
+    def test_omits_useragent_when_empty(self):
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = "X=Y"
+        mgr._browser_user_agent = None
+        mgr._browser_session_token = None
+
+        headers: dict = {}
+        mgr._apply_browser_session_headers(headers)
+
+        assert headers["Cookie"] == "X=Y"
+        assert "User-Agent" not in headers
+        assert "X-UserToken" not in headers
+
+    def test_blank_cookie_header_falls_back_to_empty_string(self):
+        # Cookie key is always set, even when the cached header is None
+        # (downstream code expects the key to exist).
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = None
+        mgr._browser_user_agent = "UA"
+        mgr._browser_session_token = "TOK"
+
+        headers: dict = {}
+        mgr._apply_browser_session_headers(headers)
+
+        assert headers["Cookie"] == ""
+        assert headers["User-Agent"] == "UA"
+        assert headers["X-UserToken"] == "TOK"
