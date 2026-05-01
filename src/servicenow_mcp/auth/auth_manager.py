@@ -2423,8 +2423,18 @@ class AuthManager:
                         # A 401 (Unauthorized) or 3xx (Redirect) indicates login is still in progress.
                         if _response_indicates_logout_redirect(probe):
                             consecutive_logout_redirects += 1
-                        else:
+                        elif _response_confirms_browser_probe_session(probe):
+                            # Only an authenticated probe success clears the
+                            # logout-redirect counter. A bare 401 mid-MFA is
+                            # the normal "still logging in" state and used to
+                            # reset the counter — that let the v1.11.12 field
+                            # bug slip past: 302, 302, 401 (reset to 0),
+                            # browser-state confirmed, final_probe 401. The
+                            # counter must persist across the noise so the
+                            # abort threshold still trips.
                             consecutive_logout_redirects = 0
+                        # Non-success non-logout responses (401, 5xx, etc.)
+                        # leave the counter unchanged.
                         if _response_confirms_browser_probe_session(probe):
                             resolved_url = str(probe.url)
                             resolved_host = (urlparse(resolved_url).hostname or "").lower()

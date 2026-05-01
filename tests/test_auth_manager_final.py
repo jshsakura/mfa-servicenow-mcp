@@ -1563,6 +1563,79 @@ class TestPurgeStaleProfileCookies:
         assert cleared == 0
 
 
+class TestLogoutRedirectCounterResetSemantics:
+    """Encode the wait-loop invariant fixed in v1.11.13 as predicate logic.
+
+    The bug: ``consecutive_logout_redirects`` reset to 0 on any non-logout
+    response. A common 401 mid-MFA between two logout redirects therefore
+    cleared the counter and let the browser-state gate confirm a dead
+    session. The fix: only an authenticated probe success resets the
+    counter; 401/5xx leave it untouched.
+    """
+
+    @staticmethod
+    def _probe(status: int, location: str = "") -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = status
+        resp.headers = {"Location": location} if location else {}
+        resp.url = "https://x.service-now.com/api/now/table/sys_user_preference"
+        return resp
+
+    @staticmethod
+    def _walk(probes: list) -> int:
+        # Mirrors the wait-loop counter logic exactly. Keep this in sync
+        # with _login_with_browser_sync.
+        from servicenow_mcp.auth.auth_manager import (
+            _response_confirms_browser_probe_session,
+            _response_indicates_logout_redirect,
+        )
+
+        counter = 0
+        for probe in probes:
+            if _response_indicates_logout_redirect(probe):
+                counter += 1
+            elif _response_confirms_browser_probe_session(probe):
+                counter = 0
+            # else: leave counter unchanged
+        return counter
+
+    def test_field_bug_pattern_is_caught(self):
+        # Exact sequence observed in v1.11.12 field log: 302 logout, 302
+        # logout, 401 (no reset), abort threshold reached on next 302.
+        probes = [
+            self._probe(302, "/logout_success.do"),
+            self._probe(302, "/logout_success.do"),
+            self._probe(401),
+            self._probe(302, "/logout_success.do"),
+        ]
+        assert self._walk(probes) >= 3  # abort threshold
+
+    def test_isolated_401_does_not_reset_counter(self):
+        # The pre-fix behavior reset on this 401 to 0. The fix keeps it.
+        probes = [
+            self._probe(302, "/logout_success.do"),
+            self._probe(401),
+        ]
+        assert self._walk(probes) == 1
+
+    def test_authenticated_success_resets_counter(self):
+        # Real authenticated probe (200) clears the counter — login
+        # actually recovered.
+        probes = [
+            self._probe(302, "/logout_success.do"),
+            self._probe(302, "/logout_success.do"),
+            self._probe(200),
+            self._probe(302, "/logout_success.do"),
+        ]
+        assert self._walk(probes) == 1
+
+    def test_clean_login_never_increments(self):
+        # All probes 401 then 200 — the v1.11.6 happy-path. No logout
+        # redirects ever, counter stays at zero.
+        probes = [self._probe(401)] * 4 + [self._probe(200)]
+        assert self._walk(probes) == 0
+
+
 # ===========================================================================
 # Line 1896: make_request — debug cookie logging
 # ===========================================================================
