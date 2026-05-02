@@ -2515,14 +2515,23 @@ class AuthManager:
                     raise
 
                 current_host = (urlparse(current_url).hostname or "").lower()
-                if current_host == instance_host and not _is_login_page_url(current_url):
+                on_instance_non_login = current_host == instance_host and not _is_login_page_url(
+                    current_url
+                )
+                if on_instance_non_login:
                     stable_instance_ticks += 1
                 else:
                     stable_instance_ticks = 0
 
-                # Cookie-marker signal — dashboard arrival means ServiceNow
-                # has set glide_user_session / glide_session_store regardless
-                # of where page.url has settled.
+                # Cookie-marker signal — strong, but ONLY trustworthy after
+                # the page has navigated off the MFA/login family.
+                # ServiceNow sets ``glide_session_store`` /
+                # ``glide_user_session`` as soon as the user reaches the MFA
+                # challenge (a half-finished session). Confirming on the
+                # cookie alone causes ``final_probe`` to briefly pass while
+                # MFA is mid-entry; the next real request then 302s to
+                # ``/logout_success.do`` once the server tears down the
+                # partial session. Gate on ``on_instance_non_login``.
                 try:
                     all_cookie_names = {c.get("name", "") for c in context.cookies()}
                 except Exception:  # noqa: BLE001
@@ -2530,18 +2539,20 @@ class AuthManager:
                 has_post_auth_cookie = any(m in all_cookie_names for m in POST_AUTH_COOKIE_MARKERS)
 
                 logger.debug(
-                    "Login wait poll: url=%s stable_ticks=%s post_auth_cookie=%s " "cookies=%s",
+                    "Login wait poll: url=%s on_instance_non_login=%s "
+                    "stable_ticks=%s post_auth_cookie=%s cookies=%s",
                     current_url,
+                    on_instance_non_login,
                     stable_instance_ticks,
                     has_post_auth_cookie,
                     ",".join(sorted(all_cookie_names))[:240] or "<none>",
                 )
 
                 confirmed_reason: Optional[str] = None
-                if has_post_auth_cookie:
-                    confirmed_reason = "post_auth_cookie"
-                elif stable_instance_ticks >= STABLE_TICKS_REQUIRED:
-                    confirmed_reason = "page_state_stable"
+                if on_instance_non_login and has_post_auth_cookie:
+                    confirmed_reason = "non_login_url+post_auth_cookie"
+                elif on_instance_non_login and stable_instance_ticks >= STABLE_TICKS_REQUIRED:
+                    confirmed_reason = "non_login_url_stable"
 
                 if confirmed_reason is not None:
                     try:
@@ -2741,6 +2752,10 @@ class AuthManager:
         # Get auth headers
         headers = kwargs.pop("headers", {})
         headers.update(self.get_headers())
+        # Snapshot the Cookie names BEFORE moving cookies to kwargs, so the
+        # request-start log reflects what is actually sent. Pre-fix, we
+        # logged after popping the Cookie header, which always read 0.
+        cookie_names = _extract_cookie_names(headers.get("Cookie"))
         if self.config.type == AuthType.BROWSER:
             cookie_map = _cookie_header_to_dict(headers.get("Cookie"))
             if cookie_map:
@@ -2752,7 +2767,6 @@ class AuthManager:
         request_timeout = kwargs.get("timeout")
         request_host = (urlparse(url).hostname or "").lower()
         method_upper = method.upper()
-        cookie_names = _extract_cookie_names(headers.get("Cookie"))
         start = time.monotonic()
         logger.info(
             "ServiceNow request start: method=%s host=%s timeout=%s auth_type=%s cookie_count=%s",
