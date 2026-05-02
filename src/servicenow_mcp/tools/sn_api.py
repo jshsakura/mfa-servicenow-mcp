@@ -889,12 +889,16 @@ def sn_query(
         )
 
         # Strip empty fields per-record (token saver), then size-truncate.
+        # queried_fields makes the strip unambiguous: LLM sees the full list
+        # that was in scope, so a missing key in a record means "null/empty
+        # for that record" — not "field doesn't exist on this table".
         compact = [strip_empty_fields(row) for row in result]
         safe_result, budget_notice = truncate_results(compact)
 
         response_data: Dict[str, Any] = {
             "success": True,
             "table": params.table,
+            "queried_fields": (safe_fields or "").split(",") if safe_fields else [],
             "total_count": total_count if total_count is not None else len(result),
             "count": len(safe_result),
             "results": safe_result,
