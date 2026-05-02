@@ -2486,6 +2486,14 @@ class AuthManager:
             login_confirmed = False
             stable_instance_ticks = 0
             STABLE_TICKS_REQUIRED = 5
+            # Cookies ServiceNow only sets AFTER a successful login.
+            # ``_purge_stale_profile_cookies`` cleared everything just before
+            # login.do submission, so any of these names in the persistent
+            # profile during the wait loop must come from this attempt's
+            # authentication. Their presence is a stronger signal than
+            # page.url stability — page.url can stick on an SSO bounce or
+            # SPA fragment for longer than the user takes to MFA.
+            POST_AUTH_COOKIE_MARKERS = ("glide_user_session", "glide_session_store")
             while (time.time() - start) * 1000 < wait_budget_ms:
                 try:
                     if page.is_closed():
@@ -2512,7 +2520,30 @@ class AuthManager:
                 else:
                     stable_instance_ticks = 0
 
-                if stable_instance_ticks >= STABLE_TICKS_REQUIRED:
+                # Cookie-marker signal — dashboard arrival means ServiceNow
+                # has set glide_user_session / glide_session_store regardless
+                # of where page.url has settled.
+                try:
+                    all_cookie_names = {c.get("name", "") for c in context.cookies()}
+                except Exception:  # noqa: BLE001
+                    all_cookie_names = set()
+                has_post_auth_cookie = any(m in all_cookie_names for m in POST_AUTH_COOKIE_MARKERS)
+
+                logger.debug(
+                    "Login wait poll: url=%s stable_ticks=%s post_auth_cookie=%s " "cookies=%s",
+                    current_url,
+                    stable_instance_ticks,
+                    has_post_auth_cookie,
+                    ",".join(sorted(all_cookie_names))[:240] or "<none>",
+                )
+
+                confirmed_reason: Optional[str] = None
+                if has_post_auth_cookie:
+                    confirmed_reason = "post_auth_cookie"
+                elif stable_instance_ticks >= STABLE_TICKS_REQUIRED:
+                    confirmed_reason = "page_state_stable"
+
+                if confirmed_reason is not None:
                     try:
                         g_ck = page.evaluate("window.g_ck")
                     except Exception:  # noqa: BLE001
@@ -2520,8 +2551,9 @@ class AuthManager:
                     if g_ck and isinstance(g_ck, str) and g_ck.strip():
                         self._browser_session_token = g_ck.strip()
                     logger.info(
-                        "Browser auth confirmed by page state: url=%s "
-                        "stable_ticks=%s g_ck_present=%s",
+                        "Browser auth confirmed: reason=%s url=%s stable_ticks=%s "
+                        "g_ck_present=%s",
+                        confirmed_reason,
                         current_url,
                         stable_instance_ticks,
                         bool(self._browser_session_token),
