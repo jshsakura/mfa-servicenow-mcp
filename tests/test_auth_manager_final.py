@@ -1007,11 +1007,7 @@ class TestLoginWithBrowserSync:
             {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
         ):
             with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
-                with patch.object(
-                    AuthManager,
-                    "_compute_login_wait_budget_ms",
-                    return_value=50,
-                ):
+                with patch.object(AuthManager, "MAX_HEADLESS_LOGIN_WAIT_BUDGET_MS", 50):
                     with pytest.raises(ValueError, match="headless mode"):
                         mgr._login_with_browser_sync(browser_cfg)
 
@@ -1029,20 +1025,16 @@ class TestLoginWithBrowserSync:
         mock_page.is_closed.return_value = False
         mock_context.cookies.return_value = []
 
-        # Non-headless wait budget is forced to 60s minimum, which would
-        # make this test take a real minute; patch the budget computation
-        # so it exits quickly without losing the timeout-message coverage.
+        # Non-headless wait budget is normally 60 s minimum (MFA entry
+        # needs human time). Drop it to 50 ms for the test so we don't
+        # sit through a real minute on every CI run.
         mock_spw = MagicMock(return_value=mock_sync)
         with patch.dict(
             "sys.modules",
             {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
         ):
             with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
-                with patch.object(
-                    AuthManager,
-                    "_compute_login_wait_budget_ms",
-                    return_value=50,
-                ):
+                with patch.object(AuthManager, "MIN_VISIBLE_LOGIN_WAIT_BUDGET_MS", 50):
                     with pytest.raises(
                         ValueError,
                         match="Timed out waiting for manual browser login",
