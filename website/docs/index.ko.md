@@ -292,7 +292,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
       <p class="section-desc">
         도구(Tool)만으로는 단순한 API 호출일 뿐입니다.<br>
         안전 장치, 롤백, 문맥 인식을 통한 위임 파이프라인이 포함된 스킬(Skill)들이 결합되었을 때<br>
-        LLM은 진정으로 유용해집니다. 현재 24개 스킬을 지원하며 릴리스마다 더 추가되고 있습니다.
+        LLM은 진정으로 유용해집니다. 현재 16개 스킬을 지원하며 릴리스마다 더 추가되고 있습니다.
       </p>
     </div>
     <div class="install-block reveal">
