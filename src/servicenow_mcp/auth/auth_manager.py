@@ -288,6 +288,26 @@ def _response_indicates_authenticated_session(response: requests.Response) -> bo
     if _response_indicates_login_redirect(response):
         return False
 
+    # Defence-in-depth: ``requests`` silently follows 302 → /logout_success.do
+    # and returns the logout-success HTML body with a 200 status, which
+    # makes status-only checks misclassify the call as authenticated.
+    # Inspect the redirect chain — any hop through a logout endpoint means
+    # the original request was unauthenticated, regardless of the final
+    # status. The body-marker check below catches some of these via
+    # localized copy, but not all instances ship English / not all
+    # logout pages contain the markers we look for.
+    try:
+        for hop in response.history or ():
+            location = (hop.headers.get("Location") or "").lower()
+            if (
+                "logout_success" in location
+                or "/logout.do" in location
+                or location.startswith("/logout?")
+            ):
+                return False
+    except Exception:
+        pass
+
     try:
         body = (response.text or "")[:2000].lower()
     except Exception:
@@ -473,29 +493,38 @@ class AuthManager:
     # Playwright pre-flight check
     # ------------------------------------------------------------------
 
-    @staticmethod
+    # Wait-budget bounds for the login polling loop.
+    # Pulled out so tests can monkeypatch them directly without having to
+    # patch the budget computation itself, and so the rationale is in one
+    # place instead of repeated in test comments.
+    DEBUG_LOGIN_WAIT_BUDGET_MS: int = 1_800_000  # 30 min — DevTools inspection
+    MIN_VISIBLE_LOGIN_WAIT_BUDGET_MS: int = 60_000  # human MFA/SSO entry floor
+    MAX_HEADLESS_LOGIN_WAIT_BUDGET_MS: int = 30_000  # snappy fallback to visible
+
+    @classmethod
     def _compute_login_wait_budget_ms(
-        timeout_ms: int, *, use_headless: bool, debug_mode: bool
+        cls, timeout_ms: int, *, use_headless: bool, debug_mode: bool
     ) -> int:
         """Pick the wait_budget_ms used by the polling loop in login.
 
-        - Debug mode: 30 minutes. Lets the user inspect requests in DevTools.
-        - Visible-window (use_headless=False): at least 60s, raised to
-          `timeout_ms` if larger. MFA/SSO entry needs human time; do not
-          fail fast on a window the user is actively working in. This
-          covers BOTH `force_interactive=True` AND
-          `browser_config.headless=False` — both produce a visible window
-          and both deserve the longer budget.
-        - Headless (use_headless=True): at most 30s. The cookie gate
-          covers the common "MFA required" case in <1s, and a 30s cap
-          keeps the wrapper's fallback to interactive snappy when SSO
-          never lands a probe-200 in the invisible window.
+        - Debug mode: ``DEBUG_LOGIN_WAIT_BUDGET_MS``. Lets the user inspect
+          requests in DevTools.
+        - Visible-window (use_headless=False): at least
+          ``MIN_VISIBLE_LOGIN_WAIT_BUDGET_MS``, raised to ``timeout_ms`` if
+          larger. MFA/SSO entry needs human time; do not fail fast on a
+          window the user is actively working in. This covers BOTH
+          ``force_interactive=True`` AND ``browser_config.headless=False``.
+        - Headless (use_headless=True): at most
+          ``MAX_HEADLESS_LOGIN_WAIT_BUDGET_MS``. The cookie gate covers
+          "MFA required" in <1 s, and the cap keeps the wrapper's fallback
+          to interactive snappy when SSO never lands a probe-200 in the
+          invisible window.
         """
         if debug_mode:
-            return 1800000
+            return cls.DEBUG_LOGIN_WAIT_BUDGET_MS
         if not use_headless:
-            return max(timeout_ms, 60000)
-        return min(timeout_ms, 30000)
+            return max(timeout_ms, cls.MIN_VISIBLE_LOGIN_WAIT_BUDGET_MS)
+        return min(timeout_ms, cls.MAX_HEADLESS_LOGIN_WAIT_BUDGET_MS)
 
     def _apply_browser_session_headers(self, headers: dict) -> dict:
         """Mutate `headers` in place to include the captured browser session
