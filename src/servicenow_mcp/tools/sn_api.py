@@ -178,11 +178,34 @@ def _retry_delay(attempt: int) -> float:
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL_SECONDS = 30
+_METADATA_CACHE_TTL_SECONDS = 600  # Schemas/scope/choice are stable per session
 _CACHE_MAX_ENTRIES = 256
+
+# Tables whose contents change rarely — schema/scope/choice/app metadata.
+# Treated with a longer TTL since these are queried repeatedly during
+# exploration but almost never mutate within a session.
+METADATA_TABLES = frozenset(
+    {
+        "sys_dictionary",
+        "sys_db_object",
+        "sys_app",
+        "sys_scope",
+        "sys_choice",
+        "sys_glide_list",
+        "sys_documentation",
+    }
+)
+
+
+def _ttl_for_table(table: str) -> float:
+    return _METADATA_CACHE_TTL_SECONDS if table in METADATA_TABLES else _CACHE_TTL_SECONDS
+
 
 # Cache key is a tuple — cheaper to hash than an equivalent f-string.
 _CacheKey = tuple  # (table, query, fields, limit, offset, display_value, no_count, orderby)
-_query_cache: "OrderedDict[_CacheKey, tuple[float, Any]]" = OrderedDict()
+# Entry: (timestamp, ttl_seconds, value) — per-entry TTL lets metadata stick
+# around longer than transactional reads in the same cache.
+_query_cache: "OrderedDict[_CacheKey, tuple[float, float, Any]]" = OrderedDict()
 _cache_lock = threading.Lock()
 
 
@@ -205,8 +228,8 @@ def _cache_get(key: _CacheKey) -> Optional[Any]:
         entry = _query_cache.get(key)
         if entry is None:
             return None
-        ts, value = entry
-        if time.monotonic() - ts > _CACHE_TTL_SECONDS:
+        ts, ttl, value = entry
+        if time.monotonic() - ts > ttl:
             del _query_cache[key]
             return None
         # Move to end so most-recently-used items stay at the tail
@@ -214,17 +237,15 @@ def _cache_get(key: _CacheKey) -> Optional[Any]:
         return value
 
 
-def _cache_put(key: _CacheKey, value: Any) -> None:
+def _cache_put(key: _CacheKey, value: Any, *, ttl: float = _CACHE_TTL_SECONDS) -> None:
     with _cache_lock:
         if key in _query_cache:
-            # Update existing entry and move to end
-            _query_cache[key] = (time.monotonic(), value)
+            _query_cache[key] = (time.monotonic(), ttl, value)
             _query_cache.move_to_end(key)
             return
-        # Evict oldest (first) entry — O(1) with OrderedDict
         if len(_query_cache) >= _CACHE_MAX_ENTRIES:
             _query_cache.popitem(last=False)
-        _query_cache[key] = (time.monotonic(), value)
+        _query_cache[key] = (time.monotonic(), ttl, value)
 
 
 def invalidate_query_cache(*, table: Optional[str] = None) -> int:
@@ -324,7 +345,7 @@ def sn_query_page(
         data = json_fast.loads(response.content) if response.content else response.json()
         rows = data.get("result", [])
         result = (rows, int(total) if total else None)
-        _cache_put(ck, result)
+        _cache_put(ck, result, ttl=_ttl_for_table(table))
         return result
     except Exception:
         if not fail_silently:
@@ -948,6 +969,21 @@ def sn_schema(
 ) -> Dict[str, Any]:
     url = f"{config.instance_url}/api/now/table/sys_dictionary"
     safe_limit = min(params.limit, 1000)
+    # Schema is stable per session — share the unified cache w/ metadata TTL.
+    ck = _cache_key(
+        "sys_dictionary",
+        f"name={params.table}",
+        "schema_shaped",
+        safe_limit,
+        0,
+        display_value=True,
+        no_count=True,
+        orderby=None,
+    )
+    cached = _cache_get(ck)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
     query_params = {
         "sysparm_query": f"name={params.table}^internal_type!=collection",
         "sysparm_fields": "element,column_label,internal_type,max_length,mandatory,reference",
@@ -975,12 +1011,14 @@ def sn_schema(
             for f in fields
             if f.get("element")
         ]
-        return {
+        result = {
             "success": True,
             "table": params.table,
             "count": len(shaped),
             "fields": shaped,
         }
+        _cache_put(ck, result, ttl=_METADATA_CACHE_TTL_SECONDS)
+        return result
     except Exception as exc:
         return {
             "success": False,
@@ -1003,6 +1041,21 @@ def sn_discover(
     escaped = params.keyword.replace("^", "")
     query = f"nameLIKE{escaped}^ORlabelLIKE{escaped}"
     safe_limit = min(params.limit, 200)
+    # sys_db_object catalog rarely changes — cache w/ metadata TTL.
+    ck = _cache_key(
+        "sys_db_object",
+        query,
+        "discover_shaped",
+        safe_limit,
+        0,
+        display_value=True,
+        no_count=True,
+        orderby=None,
+    )
+    cached = _cache_get(ck)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
     query_params = {
         "sysparm_query": query,
         "sysparm_limit": safe_limit,
@@ -1019,12 +1072,14 @@ def sn_discover(
         )
         response.raise_for_status()
         rows = _safe_json(response).get("result", [])
-        return {
+        result = {
             "success": True,
             "keyword": params.keyword,
             "count": len(rows),
             "tables": rows,
         }
+        _cache_put(ck, result, ttl=_METADATA_CACHE_TTL_SECONDS)
+        return result
     except Exception as exc:
         return {
             "success": False,
