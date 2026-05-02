@@ -19,21 +19,18 @@ from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
-HEAVY_TABLES = {
-    "sp_widget",
-    "sys_script",
-    "sys_script_include",
-    "sys_client_script",
-    "sys_ui_action",
-    "sys_ui_page",
-    "sys_ui_macro",
-    "sys_ui_script",
-    "sys_ws_operation",
-    "sys_script_fix",
-    "sys_metadata",
-}
+# Fields that explode payloads when requested. Trigger limit clamp regardless
+# of table — guards every table, not a hand-picked list.
 HEAVY_FIELDS = {"script", "template", "css", "client_script", "link", "demo_data", "html"}
-DEFAULT_SAFE_FIELDS = "sys_id,name,id,sys_scope"
+
+# Default field projection applied when caller passes no `fields`.
+# ServiceNow Table API silently drops fields that don't exist on the target
+# table, so this list works universally — common columns return when present,
+# missing ones are no-ops. Callers who need more must opt-in via `fields=`.
+UNIVERSAL_SAFE_FIELDS = (
+    "sys_id,sys_class_name,sys_created_on,sys_updated_on,"
+    "name,number,short_description,state,active,sys_scope"
+)
 
 # Maximum total response size in characters to prevent context window overflow.
 MAX_TOTAL_RESPONSE_SIZE = 200_000
@@ -107,29 +104,30 @@ def apply_payload_safety(
     """
     Enforces payload safety by restricting limit and default fields.
     Returns: (safe_limit, safe_fields, safety_notice_message)
+
+    Defaults to UNIVERSAL_SAFE_FIELDS for ANY table when caller omits fields —
+    a whitelist guards only known-bad tables, but custom app tables (x_*, u_*)
+    can also explode payloads. Callers needing more pass fields= explicitly.
     """
     safe_limit = min(limit, 100)
-    safety_notice = None
 
-    if table in HEAVY_TABLES:
-        if not fields:
-            # If no fields specified, only fetch safe fields to prevent payload explosion
-            return (
-                safe_limit,
-                DEFAULT_SAFE_FIELDS,
-                "Fields clamped to safe defaults to prevent payload overload.",
-            )
+    if not fields:
+        return (
+            safe_limit,
+            UNIVERSAL_SAFE_FIELDS,
+            "Fields defaulted to safe set. Pass fields= to opt-in to more.",
+        )
 
-        # If fields are specified, check if they include heavy fields
-        requested_fields = _normalize_fields(fields)
-        has_heavy_fields = any(hf in requested_fields for hf in HEAVY_FIELDS)
+    requested_fields = _normalize_fields(fields)
+    has_heavy_fields = any(hf in requested_fields for hf in HEAVY_FIELDS)
+    if has_heavy_fields and safe_limit > 5:
+        return (
+            5,
+            fields,
+            "Limit clamped to 5 because heavy fields were requested. Fetch remaining items individually.",
+        )
 
-        if has_heavy_fields and safe_limit > 5:
-            # If heavy fields are explicitly requested, heavily restrict the limit
-            safe_limit = 5
-            safety_notice = "Limit clamped to 5 because heavy fields were requested. Fetch remaining items individually."
-
-    return safe_limit, fields, safety_notice
+    return safe_limit, fields, None
 
 
 # ---------------------------------------------------------------------------
@@ -655,7 +653,14 @@ class GenericQueryParams(BaseModel):
     orderby: Optional[str] = Field(
         default=None, description="Order by field, supports -field for desc"
     )
-    display_value: bool = Field(default=True, description="Return display values")
+    display_value: bool = Field(
+        default=False,
+        description="Resolve reference fields to display labels. Slower; opt-in only.",
+    )
+    include_count: bool = Field(
+        default=False,
+        description="Compute total_count via X-Total-Count. Slower; needed for pagination.",
+    )
 
 
 class AggregateParams(BaseModel):
@@ -843,7 +848,7 @@ def sn_query(
             limit=safe_limit,
             offset=params.offset,
             display_value=params.display_value,
-            no_count=False,
+            no_count=not params.include_count,
             orderby=params.orderby,
             fail_silently=False,
         )

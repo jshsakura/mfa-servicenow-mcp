@@ -17,7 +17,7 @@ It is documented below, but package counts in this file reflect the YAML-defined
 | `core` | 15 | Minimal read-only essentials for quick health/schema/table work. |
 | `standard` | 45 | Default read-only package across incidents, changes, portal, logs, and source analysis. |
 | `service_desk` | 46 | standard plus incident and change write workflows for operational support. |
-| `portal_developer` | 55 | standard plus portal, changeset, script include, and local-sync delivery workflows. |
+| `portal_developer` | 57 | standard plus portal, changeset, script include, and local-sync delivery workflows. |
 | `platform_developer` | 55 | standard plus workflow, Flow Designer, UI policy, incident/change, and script writes. |
 | `full` | 66 | Broadest packaged surface: all manage_* workflows plus advanced operations. |
 
@@ -76,7 +76,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | `get_flow_designer_detail` | R | Get Flow Designer workflow structure, triggers, executions. Entry point for modern workflow analysis. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_flow_designer_executions` | R | Get Flow Designer workflow execution history (sys_flow_context). Modern flows only. | standard, portal_developer, platform_developer, service_desk, full |
 | `list_flow_designers` | R | PRIMARY entry point for Flow Designer: lists flows/subflows (sys_hub_flow). Never use sn_query for flows. Legacy→mana... | core, standard, portal_developer, platform_developer, service_desk, full |
-| `update_flow_designer` | W | Update Flow Designer workflow name/description/active by sys_id (modern, sys_hub_flow). | platform_developer, full |
+| `update_flow_designer` | W | Update Flow Designer workflow name/description/active by sys_id (modern, sys_hub_flow). | portal_developer, platform_developer, full |
 
 ### Incident Management (1)
 
@@ -227,7 +227,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_ui_policy` | W | UI Policy create + add field action (tables: sys_ui_policy / sys_ui_policy_action). | platform_developer, full |
+| `manage_ui_policy` | W | UI Policy create + add field action (tables: sys_ui_policy / sys_ui_policy_action). | portal_developer, platform_developer, full |
 
 ### User Tools (2)
 

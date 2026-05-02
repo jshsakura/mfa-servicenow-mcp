@@ -101,15 +101,18 @@ standard:
   # Local Sync (Read)
   - diff_local_component
 
-# --- Portal Developer: standard + portal/changeset/script writes ---
+# --- Portal Developer: portal + flow designer + custom app writes ---
 portal_developer:
   _extends: standard
   _tools:
-    # Bundled (Phase 3)
+    # Bundled CRUD
     - manage_changeset
     - manage_script_include
     - manage_portal_layout
     - manage_portal_component
+    - manage_workflow
+    - manage_catalog
+    - manage_ui_policy
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update
@@ -118,6 +121,8 @@ portal_developer:
     - update_portal_component_from_snapshot
     # Portal CRUD (Page/Layout)
     - scaffold_page
+    # Flow Designer writes
+    - update_flow_designer
     # Local Sync writes
     - update_remote_from_local
 
