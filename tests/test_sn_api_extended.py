@@ -105,24 +105,34 @@ class TestTruncateResults:
 
 
 class TestApplyPayloadSafety:
-    def test_heavy_table_no_fields(self):
+    def test_no_fields_defaults_universal_safe(self):
         limit, fields, notice = apply_payload_safety("sp_widget", 50, None)
-        assert fields == "sys_id,name,id,sys_scope"
+        field_set = set(fields.split(","))
+        assert "sys_id" in field_set
+        assert "script" not in field_set
+        assert "template" not in field_set
         assert notice is not None
 
-    def test_heavy_table_with_heavy_fields(self):
+    def test_heavy_fields_clamp_limit(self):
         limit, fields, notice = apply_payload_safety("sp_widget", 50, "name,script")
         assert limit == 5
         assert "heavy fields" in notice.lower()
 
-    def test_heavy_table_with_safe_fields(self):
+    def test_explicit_safe_fields_passthrough(self):
         limit, fields, notice = apply_payload_safety("sp_widget", 50, "name,sys_id")
         assert limit == 50
         assert notice is None
 
-    def test_normal_table(self):
-        limit, fields, notice = apply_payload_safety("incident", 50, None)
+    def test_custom_table_no_fields_also_defaults(self):
+        # Critical: non-heavy/custom tables must also get safe defaults.
+        limit, fields, notice = apply_payload_safety("x_app_custom_table", 50, None)
+        assert "sys_id" in fields
+        assert notice is not None
+
+    def test_normal_table_explicit_fields_passthrough(self):
+        limit, fields, notice = apply_payload_safety("incident", 50, "number,state")
         assert limit == 50
+        assert fields == "number,state"
         assert notice is None
 
     def test_limit_clamped_to_100(self):
