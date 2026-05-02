@@ -19,12 +19,9 @@ from servicenow_mcp.auth.auth_manager import (
     _build_http_session,
     _cookie_header_to_dict,
     _extract_cookie_names,
-    _has_servicenow_session_cookie,
     _is_login_page_url,
-    _looks_like_instance_main_ui,
     _response_indicates_authenticated_session,
     _response_indicates_login_redirect,
-    _response_indicates_logout_redirect,
     _selector_exists,
     _target_label,
 )
@@ -160,23 +157,6 @@ class TestCookieHeaderToDict:
         assert result == {"token": "abc=def"}
 
 
-class TestHasServicenowSessionCookie:
-    def test_has_jsessionid(self):
-        assert _has_servicenow_session_cookie(["JSESSIONID"]) is True
-
-    def test_has_glide(self):
-        assert _has_servicenow_session_cookie(["glide_user_session"]) is True
-
-    def test_no_match(self):
-        assert _has_servicenow_session_cookie(["random_cookie"]) is False
-
-    def test_empty(self):
-        assert _has_servicenow_session_cookie([]) is False
-
-    def test_case_insensitive(self):
-        assert _has_servicenow_session_cookie(["GLIDE_SESSION"]) is True
-
-
 class TestIsLoginPageUrl:
     def test_login_do(self):
         assert _is_login_page_url("https://x.com/login.do") is True
@@ -221,29 +201,6 @@ class TestIsLoginPageUrl:
         assert _is_login_page_url("https://x.com/sys_auth_info.do") is True
 
 
-class TestLooksLikeInstanceMainUI:
-    def test_now_route(self):
-        assert _looks_like_instance_main_ui("https://x.com/now/nav/ui") is True
-
-    def test_navpage(self):
-        assert _looks_like_instance_main_ui("https://x.com/navpage.do") is True
-
-    def test_home(self):
-        assert _looks_like_instance_main_ui("https://x.com/home.do") is True
-
-    def test_sp(self):
-        assert _looks_like_instance_main_ui("https://x.com/sp") is True
-
-    def test_root(self):
-        assert _looks_like_instance_main_ui("https://x.com/") is True
-
-    def test_empty_path(self):
-        assert _looks_like_instance_main_ui("https://x.com") is True
-
-    def test_api_path(self):
-        assert _looks_like_instance_main_ui("https://x.com/api/v1/resource") is False
-
-
 class TestResponseIndicatesLoginRedirect:
     def test_login_in_location(self):
         resp = MagicMock()
@@ -274,57 +231,6 @@ class TestResponseIndicatesLoginRedirect:
         resp.headers = {}
         resp.url = "https://x.com/api/now/table/sys_user"
         assert _response_indicates_authenticated_session(resp) is True
-
-
-class TestResponseIndicatesLogoutRedirect:
-    def test_logout_success_path(self):
-        resp = MagicMock()
-        resp.status_code = 302
-        resp.headers = {"Location": "/logout_success.do"}
-        assert _response_indicates_logout_redirect(resp) is True
-
-    def test_logout_path(self):
-        resp = MagicMock()
-        resp.status_code = 302
-        resp.headers = {"Location": "/logout.do"}
-        assert _response_indicates_logout_redirect(resp) is True
-
-    def test_logout_with_query(self):
-        resp = MagicMock()
-        resp.status_code = 302
-        resp.headers = {"Location": "/logout?source=session_expired"}
-        assert _response_indicates_logout_redirect(resp) is True
-
-    def test_uppercase_location(self):
-        resp = MagicMock()
-        resp.status_code = 302
-        resp.headers = {"Location": "/Logout_Success.do"}
-        assert _response_indicates_logout_redirect(resp) is True
-
-    def test_non_redirect_status_ignored(self):
-        # 200 response with logout in body is not a logout redirect.
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {"Location": "/logout_success.do"}
-        assert _response_indicates_logout_redirect(resp) is False
-
-    def test_login_redirect_is_not_logout(self):
-        resp = MagicMock()
-        resp.status_code = 302
-        resp.headers = {"Location": "/login.do"}
-        assert _response_indicates_logout_redirect(resp) is False
-
-    def test_empty_location(self):
-        resp = MagicMock()
-        resp.status_code = 302
-        resp.headers = {}
-        assert _response_indicates_logout_redirect(resp) is False
-
-    def test_normal_response(self):
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {}
-        assert _response_indicates_logout_redirect(resp) is False
 
 
 class TestSelectorExists:
@@ -3283,78 +3189,6 @@ class TestComputeLoginWaitBudgetMs:
         assert (
             AuthManager._compute_login_wait_budget_ms(30_000, use_headless=False, debug_mode=False)
             == 60_000
-        )
-
-
-# ===========================================================================
-# _should_skip_probe: state-gate decision
-# ===========================================================================
-
-
-class TestShouldSkipProbe:
-    def test_in_confirmation_never_skips(self):
-        # Once a 200 is seen, the next probe must run regardless of state.
-        assert (
-            AuthManager._should_skip_probe(
-                state_changed=False, in_confirmation=True, iterations_since_probe=0
-            )
-            is False
-        )
-        assert (
-            AuthManager._should_skip_probe(
-                state_changed=False, in_confirmation=True, iterations_since_probe=999
-            )
-            is False
-        )
-
-    def test_state_change_never_skips(self):
-        # URL or cookie set changed → something happened, probe now.
-        assert (
-            AuthManager._should_skip_probe(
-                state_changed=True, in_confirmation=False, iterations_since_probe=0
-            )
-            is False
-        )
-
-    def test_skips_on_stationary_state_under_safety_net(self):
-        # No state change, no in-flight confirmation, fewer than 10
-        # iterations since last probe → skip to avoid 401 spam.
-        assert (
-            AuthManager._should_skip_probe(
-                state_changed=False, in_confirmation=False, iterations_since_probe=5
-            )
-            is True
-        )
-
-    def test_safety_net_forces_probe_at_threshold(self):
-        # At the 10-iteration safety net, force a probe even on stationary
-        # state so a no-state-change completion is never missed.
-        assert (
-            AuthManager._should_skip_probe(
-                state_changed=False, in_confirmation=False, iterations_since_probe=10
-            )
-            is False
-        )
-
-    def test_custom_safety_net_threshold(self):
-        # Threshold parameter is honored.
-        assert (
-            AuthManager._should_skip_probe(
-                state_changed=False,
-                in_confirmation=False,
-                iterations_since_probe=4,
-                safety_net_iterations=5,
-            )
-            is True
-        )
-        assert (
-            AuthManager._should_skip_probe(
-                state_changed=False,
-                in_confirmation=False,
-                iterations_since_probe=5,
-                safety_net_iterations=5,
-            )
-            is False
         )
 
 

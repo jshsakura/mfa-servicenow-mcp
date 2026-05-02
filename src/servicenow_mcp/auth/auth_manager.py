@@ -191,6 +191,7 @@ def _is_login_page_url(url: str) -> bool:
     # Explicit login/logout page markers
     login_markers = [
         "/login.do",
+        "/login_redirect.do",
         "/auth_redirect.do",
         "/external_logout_complete.do",
         "/multi_factor_auth_view.do",
@@ -202,9 +203,11 @@ def _is_login_page_url(url: str) -> bool:
         "/mfa_setup.do",
     ]
     # Generic substring guards — catch instance- or version-specific
-    # variants we have not seen explicitly. "multifactor" / "mfa_" are
-    # narrow enough not to false-positive on dashboard URLs.
-    generic_substrings = ("multifactor", "/mfa_", "/mfa/")
+    # variants we have not seen explicitly. "/login_" covers ServiceNow's
+    # post-MFA bounce pages like login_redirect.do and any future
+    # login_* variants; "multifactor" / "mfa_" are narrow enough not to
+    # false-positive on dashboard URLs.
+    generic_substrings = ("multifactor", "/mfa_", "/mfa/", "/login_")
     return (
         any(marker in path for marker in login_markers)
         or any(sub in path for sub in generic_substrings)
@@ -245,27 +248,6 @@ def _cookie_header_to_dict(cookie_header: Optional[str]) -> dict[str, str]:
     return cookie_map
 
 
-def _has_servicenow_session_cookie(cookie_names: list[str]) -> bool:
-    session_cookie_names = {
-        "jsessionid",
-        "glide_user_session",
-        "glide_session_store",
-        "glide_session",
-        "glide_user_route",
-        "glide_ss",
-    }
-    return any(name.lower() in session_cookie_names for name in cookie_names)
-
-
-def _looks_like_instance_main_ui(url: str) -> bool:
-    parsed = urlparse(url)
-    path = parsed.path.lower()
-    # Common post-login ServiceNow UI routes.
-    return any(
-        marker in path for marker in ["/now/", "/navpage.do", "/home.do", "/sp"]
-    ) or path in ("", "/")
-
-
 def _response_indicates_login_redirect(response: requests.Response) -> bool:
     location = (response.headers.get("Location") or "").lower()
     response_url = str(response.url or "").lower()
@@ -273,35 +255,6 @@ def _response_indicates_login_redirect(response: requests.Response) -> bool:
         "login.do" in location
         or "sysparm_type=login" in location
         or _is_login_page_url(response_url)
-    )
-
-
-def _response_indicates_logout_redirect(response: requests.Response) -> bool:
-    """Return True when ServiceNow redirects an API probe to a logout page.
-
-    ServiceNow returns ``302 Location: /logout_success.do`` (or ``/logout.do``)
-    when the request is being treated as part of a logout flow. This commonly
-    happens when the persistent Chromium profile carries cookies from a
-    server-side-expired session: the next ``login.do`` submission is treated
-    as "this user is logging out", every subsequent API call 302s to the
-    logout success page, and the browser-state confirmation gate
-    (``g_ck`` + ``home_splash.do`` URL) false-positives because the page
-    appearance does not match the API truth.
-
-    Treated as a hard signal that stale session cookies must be purged from
-    the persistent profile before any further login attempt.
-    """
-    if response.status_code not in (301, 302, 303, 307, 308):
-        return False
-    location = (response.headers.get("Location") or "").lower()
-    if not location:
-        return False
-    return (
-        "logout_success" in location
-        or location.startswith("/logout")
-        or "/logout.do" in location
-        or "/logout?" in location
-        or location.endswith("/logout")
     )
 
 
@@ -317,12 +270,7 @@ def _response_indicates_logout_redirect(response: requests.Response) -> bool:
 #              user one MFA prompt per session expiry)
 #   v1.11.20 — back to preserved. The v1.11.18 server-side ``/logout.do``
 #              flush is what actually breaks the phantom loop, so this
-#              cookie can stay and let the user skip MFA on re-auth. If
-#              ``/logout.do`` flush fails AND the wait-loop still hits the
-#              logout_success threshold, ``_abort_with_profile_wipe``
-#              wipes the entire profile anyway, taking this cookie with
-#              it — the user re-MFAs once, recovers, and stays on the
-#              fast path again.
+#              cookie can stay and let the user skip MFA on re-auth.
 _STALE_PROFILE_COOKIE_NAMES: tuple[str, ...] = (
     "glide_session_store",
     "JSESSIONID",
@@ -524,36 +472,6 @@ class AuthManager:
     # ------------------------------------------------------------------
     # Playwright pre-flight check
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _should_skip_probe(
-        *,
-        state_changed: bool,
-        in_confirmation: bool,
-        iterations_since_probe: int,
-        safety_net_iterations: int = 10,
-    ) -> bool:
-        """Return True if the polling loop should skip the HTTP probe this
-        iteration.
-
-        The probe is gated on observable state change (URL path or cookie
-        set) so we do not spam ServiceNow with identical 401s while the
-        user is typing an MFA code on a stationary page.
-
-        Three rules:
-        - In the consecutive-confirmation phase (`in_confirmation=True`,
-          i.e. one successful probe already seen), never skip — we need
-          the next probe immediately to confirm or invalidate.
-        - If state changed (URL or cookie set differs from last probe),
-          never skip — something material happened.
-        - Otherwise, skip until `iterations_since_probe` reaches the
-          safety net so a no-state-change completion is still detected.
-        """
-        if in_confirmation:
-            return False
-        if state_changed:
-            return False
-        return iterations_since_probe < safety_net_iterations
 
     @staticmethod
     def _compute_login_wait_budget_ms(
@@ -2129,84 +2047,6 @@ class AuthManager:
                 return
             raise
 
-    def _abort_with_profile_wipe(self, user_data_dir: str, *, reason: str) -> None:
-        """Abort the wait loop and ``rm -rf`` the persistent profile.
-
-        Called from inside ``_login_with_browser_sync`` when the wait loop
-        cannot recover (logout-redirect threshold OR limbo). v1.11.14
-        added ``glide_mfa_remembered_browser`` to the cookie purge list,
-        but cookies-only is sometimes not enough — IndexedDB, localStorage,
-        and Service Worker registrations on the persistent profile can
-        also keep the profile bound to the dead server session. Wiping
-        the directory guarantees the next attempt starts from a truly
-        clean state.
-
-        The caller must have already closed the Chromium context so we
-        don't race the rmtree against Playwright's own writers. Brief
-        sleep before rmtree to let the OS finish releasing file handles.
-
-        Side effects: arms the cookie purge flag (defensive — the wipe
-        should make purge a no-op on the next attempt, but if rmtree
-        partially failed we want the in-context purge to still run) and
-        sets a long cooldown.
-
-        Cooldown rationale: client-side wipe doesn't unstick the
-        server-side phantom session. v1.11.18 field log showed the wait
-        loop abort + wipe at 02:23:43, the next tool call 1 second later,
-        a fresh login.do submission 11 seconds after the wipe, and the
-        same logout_success.do redirect chain — the server's cleanup TTL
-        had not finished. Hammering re-attempts every 30 s actually keeps
-        re-triggering the cleanup. ``POST_WIPE_COOLDOWN_SECONDS`` (300 s)
-        gives the instance enough time to finish cleaning up so the next
-        attempt can land cleanly.
-        """
-        import shutil
-
-        # Long cooldown after a wipe — server-side phantom needs time to
-        # GC. Don't reset to base; set explicitly to POST_WIPE_COOLDOWN.
-        POST_WIPE_COOLDOWN_SECONDS = 300
-        self._browser_reauth_failure_count = 0
-        self._browser_reauth_cooldown_seconds = POST_WIPE_COOLDOWN_SECONDS
-        self._browser_last_reauth_attempt_at = time.time()
-        self._needs_profile_cookie_purge = True
-
-        # Brief pause for Chromium to finish releasing the profile lock.
-        time.sleep(0.5)
-        try:
-            shutil.rmtree(user_data_dir, ignore_errors=True)
-            logger.warning(
-                "Aborting login wait: %s. Wiped persistent profile "
-                "directory %s — next attempt will start from a clean "
-                "Chromium profile and require MFA re-entry.",
-                reason,
-                user_data_dir,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Aborting login wait: %s. Profile wipe of %s failed: %s "
-                "(continuing — cookie purge will run on next attempt).",
-                reason,
-                user_data_dir,
-                exc,
-            )
-
-        # LLM-friendly recovery message. v1.11.18's wording ("MFA prompt
-        # expected") read as "user action required" to the LLM, which
-        # then asked the human for confirmation instead of just retrying
-        # after the cooldown. Make it explicit that this is an automatic
-        # recovery path: the next tool call opens the browser, the user
-        # types MFA in it directly, no LLM-side approval is needed.
-        cooldown_seconds = int(self._browser_reauth_cooldown_seconds)
-        raise ValueError(
-            f"AUTO_RECOVERY_ARMED: login aborted ({reason}). Persistent "
-            f"Chromium profile wiped, post-wipe cooldown is {cooldown_seconds}s. "
-            "Recovery is automatic: retry the SAME tool call after the "
-            "cooldown — the browser will open by itself and the user types "
-            "MFA in that window. Do NOT ask the user for confirmation; "
-            "just call the tool again. The login window appears in front "
-            "of the user the moment you retry."
-        )
-
     def _purge_stale_profile_cookies(self, context, instance_host: str) -> int:
         """Drop session-bound cookies from the persistent Chromium profile.
 
@@ -2216,11 +2056,7 @@ class AuthManager:
         Preserves ``glide_mfa_remembered_browser`` (v1.11.20). The
         v1.11.18 ``/logout.do`` flush is what actually unblocks the
         phantom-session loop, so the MFA-remembered cookie can stay and
-        let the user skip the MFA prompt on the next login. If the
-        flush fails AND the wait loop still hits the logout_success
-        threshold, ``_abort_with_profile_wipe`` removes the entire
-        profile directory (including the MFA-remembered cookie) so the
-        user re-MFAs once and recovers.
+        let the user skip the MFA prompt on the next login.
 
         ``instance_host`` is informational — Playwright's
         ``clear_cookies(name=...)`` matches by name and we let it remove the
