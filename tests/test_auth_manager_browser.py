@@ -1524,7 +1524,15 @@ def test_login_final_probe_request_error_does_not_persist_session(tmp_path):
 
     mock_context = MagicMock()
     mock_page = MagicMock()
-    mock_page.evaluate.side_effect = ["TestUA", None]
+    # Sequence: navigator.userAgent, then window.g_ck reads in the wait
+    # loop (every poll once stable_ticks>=3 — return non-empty so the
+    # loop confirms login), then one more g_ck capture after confirm.
+    mock_page.evaluate.side_effect = [
+        "TestUA",
+        "g_ck_value",
+        "g_ck_value",
+        "g_ck_value",
+    ]
     mock_page.is_closed.return_value = False
     mock_page.url = "https://example.service-now.com/navpage.do"
     mock_context.pages = [mock_page]
@@ -1536,13 +1544,6 @@ def test_login_final_probe_request_error_does_not_persist_session(tmp_path):
             "path": "/",
         }
     ]
-
-    success_probe = MagicMock()
-    success_probe.status_code = 200
-    success_probe.is_redirect = False
-    success_probe.headers = {"Content-Type": "application/json"}
-    success_probe.url = "https://example.service-now.com/api/now/table/sys_user"
-    success_probe.text = '{"result": []}'
 
     import sys
 
@@ -1565,17 +1566,14 @@ def test_login_final_probe_request_error_does_not_persist_session(tmp_path):
             patch.object(
                 manager,
                 "_probe_browser_api_with_cookie",
-                side_effect=[
-                    success_probe,
-                    success_probe,
-                    requests.RequestException("probe boom"),
-                ],
+                side_effect=[requests.RequestException("probe boom")],
             ),
             patch.object(manager, "_save_session_to_disk") as mock_save,
         ):
             # force_interactive=True bypasses the headless MFA-remembered
-            # cookie gate so this test can exercise the consecutive-probe
-            # success path and final_probe RequestException handler.
+            # cookie gate. The simple wait loop confirms login from page
+            # state alone; the only HTTP probe is the final_probe after
+            # capture, which is what RequestException covers here.
             with pytest.raises(ValueError, match="final API validation failed"):
                 manager._login_with_browser_sync(cfg.browser, force_interactive=True)
     finally:
