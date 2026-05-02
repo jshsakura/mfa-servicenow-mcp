@@ -230,6 +230,55 @@ class TestResponseIndicatesLoginRedirect:
         resp = MagicMock()
         resp.headers = {}
         resp.url = "https://x.com/api/now/table/sys_user"
+        resp.history = []
+        resp.text = ""
+        assert _response_indicates_authenticated_session(resp) is True
+
+
+class TestAuthenticatedSessionRedirectHistoryCheck:
+    """Defence-in-depth: even a final-200 response is unauthenticated if
+    the redirect chain went through /logout_success.do or /logout.do.
+    requests follows 302s silently and returns the logout-success HTML
+    body with status 200, which previously slipped past status-only
+    checks."""
+
+    @staticmethod
+    def _hop(location: str) -> MagicMock:
+        hop = MagicMock()
+        hop.headers = {"Location": location}
+        return hop
+
+    def test_logout_success_hop_makes_response_unauthenticated(self):
+        resp = MagicMock()
+        resp.headers = {}
+        resp.url = "https://x.com/logout_success.do"
+        resp.history = [self._hop("/logout_success.do")]
+        resp.text = "<html>Logout Success</html>"
+        assert _response_indicates_authenticated_session(resp) is False
+
+    def test_logout_do_hop_makes_response_unauthenticated(self):
+        resp = MagicMock()
+        resp.headers = {}
+        resp.url = "https://x.com/logout_success.do"
+        resp.history = [self._hop("/logout.do")]
+        resp.text = ""
+        assert _response_indicates_authenticated_session(resp) is False
+
+    def test_clean_redirect_chain_still_authenticated(self):
+        # Redirect chain that does NOT touch logout endpoints — stays True.
+        resp = MagicMock()
+        resp.headers = {}
+        resp.url = "https://x.com/api/now/table/sys_user"
+        resp.history = [self._hop("/api/now/v1/table/sys_user")]
+        resp.text = '{"result": []}'
+        assert _response_indicates_authenticated_session(resp) is True
+
+    def test_no_history_is_not_an_error(self):
+        resp = MagicMock()
+        resp.headers = {}
+        resp.url = "https://x.com/api/now/table/sys_user"
+        resp.history = []
+        resp.text = '{"result": []}'
         assert _response_indicates_authenticated_session(resp) is True
 
 
