@@ -762,7 +762,8 @@ class TestLoginWithBrowserSync:
                     mgr._login_with_browser_sync(browser_cfg)
 
     def test_login_no_cookies_raises(self):
-        """Login succeeds polling but final cookie capture empty — raises ValueError."""
+        """Page state confirms login but no instance-scoped cookies were
+        captured — raises after capture step."""
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
             timeout_seconds=10,
@@ -771,8 +772,8 @@ class TestLoginWithBrowserSync:
         )
 
         # MFA-remembered cookie on a non-instance domain → headless gate
-        # passes but _build_instance_cookie_header still finds zero
-        # instance-scoped cookies, so the polling loop times out.
+        # passes; page state confirms login (g_ck non-empty by default);
+        # but capture finds no instance-scoped cookies and raises.
         mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks(
             cookies=[
                 {
@@ -783,9 +784,6 @@ class TestLoginWithBrowserSync:
                 }
             ]
         )
-
-        # During polling, _build_instance_cookie_header returns None (no cookies)
-        # so the loop times out without cookies
         mock_page.url = "https://example.service-now.com/now/nav/ui"
 
         mock_spw = MagicMock(return_value=mock_sync)
@@ -794,11 +792,11 @@ class TestLoginWithBrowserSync:
             {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
         ):
             with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
-                with pytest.raises(ValueError, match="headless mode"):
+                with pytest.raises(ValueError, match="No instance-scoped secure cookies"):
                     mgr._login_with_browser_sync(browser_cfg)
 
     def test_login_no_instance_cookies_raises(self):
-        """Cookies exist but none for this instance — raises ValueError."""
+        """Cookies exist but none for this instance — raises after capture."""
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
             timeout_seconds=10,
@@ -809,9 +807,6 @@ class TestLoginWithBrowserSync:
         mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks(
             cookies=[
                 {"name": "other", "value": "x", "domain": "other.com"},
-                # MFA-remembered cookie on a non-instance domain so the
-                # headless gate passes but _build_instance_cookie_header
-                # still finds zero instance-scoped cookies (test intent).
                 {
                     "name": "glide_mfa_remembered_browser",
                     "value": "remembered",
@@ -822,31 +817,21 @@ class TestLoginWithBrowserSync:
         )
         mock_page.url = "https://example.service-now.com/now/nav/ui"
 
-        # _build_instance_cookie_header returns None since cookies don't match
-        # The polling loop times out
         mock_spw = MagicMock(return_value=mock_sync)
         with patch.dict(
             "sys.modules",
             {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
         ):
             with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
-                with pytest.raises(ValueError, match="headless mode"):
+                with pytest.raises(ValueError, match="No instance-scoped secure cookies"):
                     mgr._login_with_browser_sync(browser_cfg)
 
     def test_browser_state_detection_skips_probe_loop_when_g_ck_present(self):
-        """Browser-state-based login detection: when `window.g_ck` is set,
-        the URL is on the instance host on a non-login page, AND the
-        non-login URL has been stable for the required tick count,
-        declare login_confirmed without waiting for two consecutive
-        probe-200s.
-
-        This is the path that recovers users on ServiceNow instances where
-        the external API probe always returns 302/401 (CSRF/SSO require
-        headers our requests-library probe lacks). The browser session is
-        valid — the probe just can't see it. Trust the browser, but only
-        once the URL has stayed off the login/MFA family for several
-        ticks (defends against transient flickers and against MFA URLs
-        we have not enumerated)."""
+        """Page-state confirmation: when ``window.g_ck`` is non-empty and
+        the URL has been on the instance host on a non-login page for
+        ``STABLE_TICKS_REQUIRED`` ticks, declare login complete. The wait
+        loop never issues HTTP probes; only ``final_probe`` runs after
+        capture to validate the cookie header end-to-end."""
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
             timeout_seconds=10,
@@ -858,48 +843,28 @@ class TestLoginWithBrowserSync:
         mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
         mock_page.url = "https://example.service-now.com/now/nav/ui"
 
-        # In-loop probes always 302 — simulates the user's instance where
-        # CSRF/SSO breaks the external probe. Browser-state should still
-        # confirm via g_ck once stable_ticks >= 3.
-        loop_probe = MagicMock()
-        loop_probe.status_code = 302
-        loop_probe.headers = {"Location": "/login.do"}
-        loop_probe.url = "https://example.service-now.com/login.do"
-        loop_probe.text = ""
-
-        # final_probe (after we trust browser-state): with X-UserToken now
-        # in the header, returns 200.
         final_probe = MagicMock()
         final_probe.status_code = 200
         final_probe.headers = {"Content-Type": "application/json"}
         final_probe.url = "https://example.service-now.com/api/now/table/sys_user_preference"
         final_probe.text = '{"result": []}'
 
-        probe_calls: list[MagicMock] = []
-
-        # The first probe runs inside the wait loop and returns 302 — the
-        # broken external-probe path on the user's instance. The state-
-        # gate then skips probes on stationary state while
-        # `stable_instance_ticks` accumulates; once browser-state confirms
-        # via g_ck, we exit the loop and call `final_probe` exactly once
-        # with X-UserToken in the header. That call returns 200.
-        def _mock_probe(cookie_header, timeout_seconds=10, browser_config=None):
-            probe_calls.append(loop_probe)
-            return final_probe if len(probe_calls) >= 2 else loop_probe
-
         mock_spw = MagicMock(return_value=mock_sync)
         with patch.dict(
             "sys.modules",
             {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
         ):
-            with patch.object(mgr, "_probe_browser_api_with_cookie", side_effect=_mock_probe):
+            with patch.object(
+                mgr, "_probe_browser_api_with_cookie", return_value=final_probe
+            ) as mock_probe_fn:
                 with patch.object(mgr, "_save_session_to_disk"):
                     with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
                         mgr._login_with_browser_sync(browser_cfg)
 
-        # Browser-state confirmed despite every loop probe being 302.
         # session_token must equal the captured g_ck.
         assert mgr._browser_session_token == "g_ck_token"
+        # final_probe is the only HTTP probe in the new flow.
+        assert mock_probe_fn.call_count == 1
 
     def test_browser_state_detection_does_not_confirm_on_mfa_prompt(self):
         """Regression: v1.11.8 declared login complete the moment
@@ -935,7 +900,8 @@ class TestLoginWithBrowserSync:
         )
 
     def test_login_probe_unauthorized_after_login(self):
-        """After login, API probe shows unauthorized — invalidates and raises."""
+        """Page state confirms login but final_probe returns redirect —
+        invalidates and raises."""
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
             timeout_seconds=10,
@@ -943,38 +909,24 @@ class TestLoginWithBrowserSync:
             session_ttl_minutes=30,
         )
 
-        # g_ck=None disables browser-state-based detection so this test
-        # exercises the consecutive-probe + final_probe path explicitly.
-        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks(g_ck=None)
+        # g_ck non-empty (default) → page-state confirms login. The single
+        # post-capture final_probe then returns a redirect, which must
+        # invalidate the session and raise.
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
         mock_page.url = "https://example.service-now.com/now/nav/ui"
 
-        # Polling probe succeeds (confirms login)
-        poll_probe = MagicMock()
-        poll_probe.status_code = 200
-        poll_probe.headers = {}
-        poll_probe.url = "https://example.service-now.com/api/now/table/sys_user"
-
-        # Final probe after closing — shows redirect
         final_probe = MagicMock()
         final_probe.status_code = 302
         final_probe.headers = {"Location": "/login.do"}
         final_probe.url = "https://example.service-now.com/login.do"
         final_probe.text = "<html>login</html>"
 
-        probe_count = {"n": 0}
-
-        def _mock_probe(cookie_header, timeout_seconds=10, browser_config=None):
-            probe_count["n"] += 1
-            if probe_count["n"] <= 2:
-                return poll_probe
-            return final_probe
-
         mock_spw = MagicMock(return_value=mock_sync)
         with patch.dict(
             "sys.modules",
             {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
         ):
-            with patch.object(mgr, "_probe_browser_api_with_cookie", side_effect=_mock_probe):
+            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=final_probe):
                 with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
                     with patch.object(mgr, "_save_session_to_disk"):
                         with patch.object(mgr, "invalidate_browser_session"):
@@ -1115,78 +1067,6 @@ class TestLoginWithBrowserSync:
         launch_call.assert_called_once()
         call_kwargs = launch_call.call_args
         assert call_kwargs.kwargs.get("headless") is False
-
-    def test_login_probe_exception_continues(self):
-        """RequestException during probe is caught and polling continues."""
-        mgr = _make_browser_manager()
-        browser_cfg = BrowserAuthConfig(
-            timeout_seconds=10,
-            headless=True,
-            session_ttl_minutes=30,
-        )
-
-        # Disable browser-state detection so the probe-loop path runs.
-        mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks(g_ck=None)
-
-        probe_count = {"n": 0}
-
-        def _mock_probe(cookie_header, timeout_seconds=10, browser_config=None):
-            probe_count["n"] += 1
-            if probe_count["n"] == 1:
-                raise requests.RequestException("network hiccup")
-            return mock_probe
-
-        mock_spw = MagicMock(return_value=mock_sync)
-        with patch.dict(
-            "sys.modules",
-            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
-        ):
-            with patch.object(mgr, "_probe_browser_api_with_cookie", side_effect=_mock_probe):
-                with patch.object(mgr, "_save_session_to_disk"):
-                    with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
-                        mgr._login_with_browser_sync(browser_cfg)
-
-    def test_login_probe_unauthorized_resets_counter(self):
-        """Unauthorized probe resets successful_probes counter."""
-        mgr = _make_browser_manager()
-        browser_cfg = BrowserAuthConfig(
-            timeout_seconds=10,
-            headless=True,
-            session_ttl_minutes=30,
-        )
-
-        # Disable browser-state detection so the probe-loop path runs.
-        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks(g_ck=None)
-        mock_page.url = "https://example.service-now.com/now/nav/ui"
-
-        probe_count = {"n": 0}
-
-        # First: 401, then success twice
-        unauth_probe = MagicMock()
-        unauth_probe.status_code = 401
-        unauth_probe.headers = {}
-        unauth_probe.url = "https://example.service-now.com/api/now/table/sys_user"
-
-        auth_probe = MagicMock()
-        auth_probe.status_code = 200
-        auth_probe.headers = {}
-        auth_probe.url = "https://example.service-now.com/api/now/table/sys_user"
-
-        def _mock_probe(cookie_header, timeout_seconds=10, browser_config=None):
-            probe_count["n"] += 1
-            if probe_count["n"] == 1:
-                return unauth_probe
-            return auth_probe
-
-        mock_spw = MagicMock(return_value=mock_sync)
-        with patch.dict(
-            "sys.modules",
-            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
-        ):
-            with patch.object(mgr, "_probe_browser_api_with_cookie", side_effect=_mock_probe):
-                with patch.object(mgr, "_save_session_to_disk"):
-                    with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
-                        mgr._login_with_browser_sync(browser_cfg)
 
     def test_login_interactive_stable_main_ui_no_longer_confirms_login(self):
         """Interactive mode now also requires a successful probe before confirmation."""
@@ -1354,41 +1234,36 @@ class TestLoginWithBrowserSync:
         assert any("/logout.do" in url for url in non_blank_gotos)
 
     def test_login_g_ck_eval_fails(self):
-        """When window.g_ck eval fails, session_token is None."""
+        """When window.g_ck eval fails, page-state confirmation cannot
+        trigger and the wait loop times out."""
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
-            timeout_seconds=10,
+            timeout_seconds=2,
             headless=True,
             session_ttl_minutes=30,
         )
 
         mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks()
-        # First eval (navigator.userAgent) succeeds, second (g_ck) fails
-        eval_count = {"n": 0}
 
         def _mock_evaluate(expr):
-            eval_count["n"] += 1
             if "userAgent" in expr:
                 return "TestAgent"
             raise Exception("g_ck not found")
 
         mock_page.evaluate = _mock_evaluate
 
-        def _mock_probe(cookie_header, timeout_seconds=10, browser_config=None):
-            return mock_probe
-
         mock_spw = MagicMock(return_value=mock_sync)
         with patch.dict(
             "sys.modules",
             {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
         ):
-            with patch.object(mgr, "_probe_browser_api_with_cookie", side_effect=_mock_probe):
-                with patch.object(mgr, "_save_session_to_disk"):
-                    with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+            with patch.object(mgr, "_save_session_to_disk"):
+                with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                    with pytest.raises(ValueError, match="headless mode"):
                         mgr._login_with_browser_sync(browser_cfg)
 
         assert mgr._browser_session_token is None
-        assert mgr._browser_cookie_header is not None
+        assert mgr._browser_cookie_header is None
 
     def test_login_no_existing_pages(self):
         """When context has no pages, creates a new one."""
@@ -1427,50 +1302,6 @@ class TestLoginWithBrowserSync:
 
         mock_context.new_page.assert_called_once()
         assert mgr._browser_cookie_header is not None
-
-    def test_login_probe_redirect_resets_counter(self):
-        """Probe host mismatch resets successful_probes counter."""
-        mgr = _make_browser_manager()
-        browser_cfg = BrowserAuthConfig(
-            timeout_seconds=10,
-            headless=True,
-            session_ttl_minutes=30,
-        )
-
-        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
-        # Page is on IdP host, not instance host
-        mock_page.url = "https://idp.example.com/mfa"
-
-        # Probe returns 200 but resolved to different host
-        other_host_probe = MagicMock()
-        other_host_probe.status_code = 200
-        other_host_probe.headers = {}
-        other_host_probe.url = "https://idp.example.com/api"
-
-        instance_probe = MagicMock()
-        instance_probe.status_code = 200
-        instance_probe.headers = {}
-        instance_probe.url = "https://example.service-now.com/api"
-
-        probe_count = {"n": 0}
-
-        def _mock_probe(cookie_header, timeout_seconds=10, browser_config=None):
-            probe_count["n"] += 1
-            if probe_count["n"] <= 2:
-                return other_host_probe
-            # Switch page URL to instance
-            mock_page.url = "https://example.service-now.com/now/nav/ui"
-            return instance_probe
-
-        mock_spw = MagicMock(return_value=mock_sync)
-        with patch.dict(
-            "sys.modules",
-            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
-        ):
-            with patch.object(mgr, "_probe_browser_api_with_cookie", side_effect=_mock_probe):
-                with patch.object(mgr, "_save_session_to_disk"):
-                    with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
-                        mgr._login_with_browser_sync(browser_cfg)
 
 
 # ===========================================================================

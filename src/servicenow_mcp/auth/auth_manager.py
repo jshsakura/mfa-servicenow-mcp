@@ -2359,39 +2359,19 @@ class AuthManager:
             # Store the User-Agent from the browser to match in subsequent requests
             self._browser_user_agent = page.evaluate("navigator.userAgent")
 
-            # Server-side phantom session flush. After idle-kill, ServiceNow
-            # holds a phantom record on the user that routes new login.do
-            # submissions through ``/logout_success.do`` until cleanup
-            # finishes server-side (TTL ~minutes). Hitting ``/logout.do``
-            # explicitly tells the server "yes, finish the logout" so the
-            # subsequent login.do can land cleanly. Best-effort: navigation
-            # failure is non-fatal — login.do flow handles its own errors.
-            #
-            # v1.11.19 stabilization: v1.11.18's defaults were too tight —
-            # field log showed `Page.goto: Timeout 10000ms exceeded` on a
-            # busy/cleanup-in-progress server, leaving the cleanup not
-            # actually triggered and the next login.do still hitting the
-            # phantom flow. Bumped to 30 s timeout, wait_until="load" (full
-            # response + resources), and 2 s post-navigation sleep so the
-            # server has time to commit the cleanup before login.do.
-            #
-            # The ``sysparm_url=login.do`` query asks ServiceNow to redirect
-            # to the login page after the logout completes, so the form is
-            # ready to fill on the same page load. Saves one round-trip on
-            # instances that respect that param.
+            # Best-effort logout.do flush so a stale server-side session
+            # does not redirect the upcoming login.do submission through
+            # /logout_success.do. ``sysparm_url=login.do`` asks ServiceNow
+            # to land on the login form after logout completes, saving a
+            # round-trip on instances that respect the param.
             try:
-                logout_url = f"{instance_url.rstrip('/')}/logout.do?sysparm_url=login.do"
-                page.goto(logout_url, timeout=30_000, wait_until="load")
-                page.wait_for_timeout(2000)
-                logger.info(
-                    "Server-side logout flushed via %s (best-effort, pre-login).",
-                    logout_url,
+                page.goto(
+                    f"{instance_url.rstrip('/')}/logout.do?sysparm_url=login.do",
+                    timeout=10_000,
+                    wait_until="domcontentloaded",
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "Pre-login logout.do flush raised: %s (continuing to login.do)",
-                    exc,
-                )
+                logger.debug("Pre-login logout.do flush raised: %s (ignored)", exc)
 
             page.goto(login_url, timeout=timeout_ms, wait_until="load")
 
@@ -2488,46 +2468,23 @@ class AuthManager:
                 "Please complete the login in the opened browser window."
             )
 
-            # Keep browser open until cookie-based API probe confirms authenticated session.
-            # Avoid closing too early on transient cookies while MFA/SSO is still in progress.
+            # Simple wait loop: trust the browser page state.
+            #
+            # Login is considered complete when the page is on the instance
+            # host on a non-login URL AND ``window.g_ck`` is populated, for
+            # ``STABLE_TICKS_REQUIRED`` consecutive 1-second polls. The tick
+            # window absorbs brief navigation flicker through dashboard URLs
+            # during multi-hop SSO redirects.
+            #
+            # No HTTP probes, no logout-redirect counters, no limbo guards.
+            # If captured cookies turn out to be UI-only (rare), the single
+            # ``final_probe`` below catches it. If we miss that too, the
+            # first real API call returns 401 and triggers a clean re-login.
             start = time.time()
             login_confirmed = False
-            successful_probes = 0
             stable_instance_ticks = 0
-            # State gate: only run the HTTP probe when URL path or cookie set has
-            # actually changed since the last probe. While the user is typing
-            # an MFA code, the page state is stationary and there is nothing
-            # new to verify — running 70 identical probes during a 90s wait
-            # just spams 401s and noises up stderr. Safety net forces a probe
-            # every ~10s so we never miss a no-state-change MFA completion.
-            prev_url_path = ""
-            prev_cookie_names: set[str] = set()
-            iterations_since_probe = 0
-            # Track consecutive ``Location: /logout_success.do`` probe
-            # responses. Two purposes:
-            #   1. Block the browser-state confirmation gate so a page that
-            #      has navigated to home_splash.do with a populated g_ck does
-            #      NOT false-positive while the API is still returning logout
-            #      redirects (the field bug fixed alongside this counter).
-            #   2. Abort the wait loop after enough redirects to give the
-            #      caller a clean retry path (invalidate + purge + new login)
-            #      instead of looping for the full wait budget.
-            consecutive_logout_redirects = 0
-            LOGOUT_REDIRECT_ABORT_THRESHOLD = 3
-            # Limbo guard: when probes alternate between 302 logout_success
-            # and 401 (server in mid-cleanup of a recently-killed session),
-            # the logout-redirect counter never reaches the abort threshold
-            # AND the browser-state confirmation gate stays blocked
-            # (counter > 0). Without this guard the wait loop polls 401s
-            # for the full 90 s budget while stable_ticks climbs to 60+;
-            # the user closes the window in frustration, which is then
-            # logged as LOGIN_CANCELLED_BY_USER. v1.11.17: if no probe
-            # has succeeded for ``LIMBO_ABORT_STABLE_TICKS`` polls, abort
-            # via the same path as the redirect-threshold case.
-            LIMBO_ABORT_STABLE_TICKS = 30
+            STABLE_TICKS_REQUIRED = 3
             while (time.time() - start) * 1000 < wait_budget_ms:
-                # Detect browser closed by user — break immediately instead of
-                # looping for minutes until wait_budget_ms expires.
                 try:
                     if page.is_closed():
                         _safe_close_context()
@@ -2546,210 +2503,29 @@ class AuthManager:
                         ) from poll_exc
                     _safe_close_context()
                     raise
+
                 current_host = (urlparse(current_url).hostname or "").lower()
-                # Use full-context cookies; some IdP/ServiceNow flows keep auth
-                # cookies on parent domains that may not be returned for a single URL filter.
-                current_cookies = context.cookies()
-                cookie_header = self._build_instance_cookie_header(
-                    current_cookies,  # type: ignore[arg-type]
-                    instance_url,
-                    instance_host,
-                )
-                if cookie_header:
-                    cookie_names = _extract_cookie_names(cookie_header)
-                    if current_host == instance_host and not _is_login_page_url(current_url):
-                        stable_instance_ticks += 1
-                    else:
-                        stable_instance_ticks = 0
+                if current_host == instance_host and not _is_login_page_url(current_url):
+                    stable_instance_ticks += 1
+                else:
+                    stable_instance_ticks = 0
 
-                    # Browser-state success signal. ServiceNow sets
-                    # `window.g_ck` after authentication, and the URL
-                    # transitions away from the login/MFA family once the
-                    # user finishes the challenge. We require BOTH:
-                    #   - URL is on the instance host AND not classified as
-                    #     login/MFA (`_is_login_page_url` is the gate),
-                    #   - URL has been stable in that state for several
-                    #     iterations (`stable_instance_ticks`) — defends
-                    #     against a brief navigation flicker into a
-                    #     dashboard URL during a multi-hop SSO redirect
-                    #     chain, AND against MFA URLs we have not
-                    #     enumerated explicitly (the tick counter resets
-                    #     to 0 whenever `_is_login_page_url` matches),
-                    #   - `window.g_ck` returns a non-empty string.
-                    # When all three line up, trust the browser and let
-                    # `final_probe` (now armed with X-UserToken) validate.
-                    BROWSER_STATE_STABLE_TICKS_REQUIRED = 3
-                    if (
-                        current_host == instance_host
-                        and not _is_login_page_url(current_url)
-                        and stable_instance_ticks >= BROWSER_STATE_STABLE_TICKS_REQUIRED
-                        # Block browser-state trust while ServiceNow is still
-                        # 302-ing API probes to ``logout_success.do``. The
-                        # page may already be on ``home_splash.do`` with a
-                        # populated ``g_ck`` (visible appearance "logged
-                        # in") while the API surface is in a tear-down
-                        # state — letting this through here is exactly how
-                        # the v1.11.11 repeat-login-window field bug
-                        # produced "confirmed by browser state" followed by
-                        # an immediate ``final_probe`` 302.
-                        and consecutive_logout_redirects == 0
-                    ):
-                        try:
-                            _g_ck = page.evaluate("window.g_ck")
-                        except Exception:  # noqa: BLE001
-                            _g_ck = None
-                        if _g_ck and isinstance(_g_ck, str) and _g_ck.strip():
-                            self._browser_session_token = _g_ck.strip()
-                            logger.info(
-                                "Browser auth confirmed by browser state: "
-                                "url=%s stable_ticks=%s g_ck_present=true cookie_names=%s",
-                                current_url,
-                                stable_instance_ticks,
-                                ",".join(cookie_names),
-                            )
-                            login_confirmed = True
-                            break
-
-                    # Skip probe when neither URL path nor cookie set changed
-                    # since last probe. Safety net: force a probe every ~10
-                    # iterations even on stationary state, so we never get
-                    # stuck waiting on a no-change completion. Once we've
-                    # gotten a successful probe, we are in the consecutive-
-                    # confirmation phase — bypass the gate so the second
-                    # probe runs immediately.
-                    current_path = urlparse(current_url).path
-                    cookie_name_set = set(cookie_names)
-                    state_changed = (
-                        current_path != prev_url_path or cookie_name_set != prev_cookie_names
-                    )
-                    iterations_since_probe += 1
-                    if self._should_skip_probe(
-                        state_changed=state_changed,
-                        in_confirmation=successful_probes > 0,
-                        iterations_since_probe=iterations_since_probe,
-                    ):
-                        time.sleep(1)
-                        continue
-                    prev_url_path = current_path
-                    prev_cookie_names = cookie_name_set
-                    iterations_since_probe = 0
+                if stable_instance_ticks >= STABLE_TICKS_REQUIRED:
                     try:
-                        probe = self._probe_browser_api_with_cookie(
-                            cookie_header,
-                            timeout_seconds=min(int(browser_config.timeout_seconds), 5),
-                            browser_config=browser_config,
+                        g_ck = page.evaluate("window.g_ck")
+                    except Exception:  # noqa: BLE001
+                        g_ck = None
+                    if g_ck and isinstance(g_ck, str) and g_ck.strip():
+                        self._browser_session_token = g_ck.strip()
+                        logger.info(
+                            "Browser auth confirmed by page state: url=%s "
+                            "stable_ticks=%s g_ck_present=true",
+                            current_url,
+                            stable_instance_ticks,
                         )
-                        # Require consecutive successful probes so we do not treat
-                        # intermediate redirect/cookie states as completed MFA login.
-                        # Also ensure the probe returned a clear authenticated status (200 or 403).
-                        # A 401 (Unauthorized) or 3xx (Redirect) indicates login is still in progress.
-                        if _response_indicates_logout_redirect(probe):
-                            consecutive_logout_redirects += 1
-                        elif _response_confirms_browser_probe_session(probe):
-                            # Only an authenticated probe success clears the
-                            # logout-redirect counter. A bare 401 mid-MFA is
-                            # the normal "still logging in" state and used to
-                            # reset the counter — that let the v1.11.12 field
-                            # bug slip past: 302, 302, 401 (reset to 0),
-                            # browser-state confirmed, final_probe 401. The
-                            # counter must persist across the noise so the
-                            # abort threshold still trips.
-                            consecutive_logout_redirects = 0
-                        # Non-success non-logout responses (401, 5xx, etc.)
-                        # leave the counter unchanged.
-                        if _response_confirms_browser_probe_session(probe):
-                            resolved_url = str(probe.url)
-                            resolved_host = (urlparse(resolved_url).hostname or "").lower()
-                            if (
-                                resolved_host == instance_host
-                                and current_host == instance_host
-                                and not _is_login_page_url(resolved_url)
-                                and not _is_login_page_url(current_url)
-                            ):
-                                successful_probes += 1
-                                logger.debug(
-                                    "Browser auth probe success candidate: status=%s current_host=%s "
-                                    "resolved_host=%s stable_ticks=%s successful_probes=%s cookie_count=%s",
-                                    probe.status_code,
-                                    current_host,
-                                    resolved_host,
-                                    stable_instance_ticks,
-                                    successful_probes,
-                                    len(cookie_names),
-                                )
-                                if successful_probes >= 2:
-                                    logger.info(
-                                        "Browser auth confirmed by probe: status=%s current_host=%s "
-                                        "resolved_host=%s cookie_names=%s",
-                                        probe.status_code,
-                                        current_host,
-                                        resolved_host,
-                                        ",".join(cookie_names),
-                                    )
-                                    login_confirmed = True
-                                    break
-                            else:
-                                successful_probes = 0
-                        else:
-                            # Log Location/snippet on non-2xx so a user can
-                            # tell whether the redirect is going to login.do
-                            # (session not established) or to an SSO IdP
-                            # (cookies missing for the API surface).
-                            _diag_location = probe.headers.get("Location") or ""
-                            _diag_set_cookie = (probe.headers.get("Set-Cookie") or "")[:160]
-                            try:
-                                _diag_body_snippet = (probe.text or "")[:120].replace("\n", " ")
-                            except Exception:  # noqa: BLE001
-                                _diag_body_snippet = ""
-                            logger.warning(
-                                "Browser auth probe unauthorized: status=%s current_host=%s "
-                                "stable_ticks=%s cookie_names=%s location=%s "
-                                "set_cookie=%s body_snippet=%s",
-                                probe.status_code,
-                                current_host,
-                                stable_instance_ticks,
-                                ",".join(cookie_names),
-                                _diag_location,
-                                _diag_set_cookie,
-                                _diag_body_snippet,
-                            )
-                            successful_probes = 0
-                        # Persistent ``logout_success.do`` redirects mean the
-                        # current Chromium profile is bound to a server-dead
-                        # session. Looping for the full 90 s wait budget
-                        # cannot recover this — the only fix is to purge
-                        # stale cookies and start a clean login attempt.
-                        # Abort with a marker; the wrapper invalidates so
-                        # the next attempt enters
-                        # _login_with_browser_sync with the purge flag set.
-                        if consecutive_logout_redirects >= LOGOUT_REDIRECT_ABORT_THRESHOLD:
-                            _safe_close_context()
-                            self._abort_with_profile_wipe(
-                                effective_user_data_dir,
-                                reason=(
-                                    f"{consecutive_logout_redirects} consecutive probe "
-                                    "redirects to logout_success.do"
-                                ),
-                            )
-                        # Limbo guard: see LIMBO_ABORT_STABLE_TICKS comment.
-                        # If we've been "on the instance host but probe
-                        # never confirmed" for too long, the wait loop is
-                        # stuck. Same recovery path as the redirect case.
-                        if (
-                            stable_instance_ticks >= LIMBO_ABORT_STABLE_TICKS
-                            and successful_probes == 0
-                        ):
-                            _safe_close_context()
-                            self._abort_with_profile_wipe(
-                                effective_user_data_dir,
-                                reason=(
-                                    f"wait loop in limbo (stable_ticks="
-                                    f"{stable_instance_ticks}, no successful probe)"
-                                ),
-                            )
-                    except requests.RequestException:
-                        # During MFA transitions network hiccups are possible; keep polling until timeout.
-                        successful_probes = 0
+                        login_confirmed = True
+                        break
+
                 time.sleep(1)
 
             if not login_confirmed:
