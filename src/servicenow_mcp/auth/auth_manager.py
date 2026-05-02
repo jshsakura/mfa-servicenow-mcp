@@ -2471,10 +2471,12 @@ class AuthManager:
             # Simple wait loop: trust the browser page state.
             #
             # Login is considered complete when the page is on the instance
-            # host on a non-login URL AND ``window.g_ck`` is populated, for
-            # ``STABLE_TICKS_REQUIRED`` consecutive 1-second polls. The tick
-            # window absorbs brief navigation flicker through dashboard URLs
-            # during multi-hop SSO redirects.
+            # host on a non-login URL for ``STABLE_TICKS_REQUIRED``
+            # consecutive 1-second polls. ``window.g_ck`` is captured if
+            # available (used for X-UserToken on writes) but its absence
+            # does NOT block confirmation — some ServiceNow pages populate
+            # g_ck asynchronously or only inside iframes, and gating on it
+            # caused the wait loop to time out at the dashboard.
             #
             # No HTTP probes, no logout-redirect counters, no limbo guards.
             # If captured cookies turn out to be UI-only (rare), the single
@@ -2483,7 +2485,7 @@ class AuthManager:
             start = time.time()
             login_confirmed = False
             stable_instance_ticks = 0
-            STABLE_TICKS_REQUIRED = 3
+            STABLE_TICKS_REQUIRED = 5
             while (time.time() - start) * 1000 < wait_budget_ms:
                 try:
                     if page.is_closed():
@@ -2517,14 +2519,15 @@ class AuthManager:
                         g_ck = None
                     if g_ck and isinstance(g_ck, str) and g_ck.strip():
                         self._browser_session_token = g_ck.strip()
-                        logger.info(
-                            "Browser auth confirmed by page state: url=%s "
-                            "stable_ticks=%s g_ck_present=true",
-                            current_url,
-                            stable_instance_ticks,
-                        )
-                        login_confirmed = True
-                        break
+                    logger.info(
+                        "Browser auth confirmed by page state: url=%s "
+                        "stable_ticks=%s g_ck_present=%s",
+                        current_url,
+                        stable_instance_ticks,
+                        bool(self._browser_session_token),
+                    )
+                    login_confirmed = True
+                    break
 
                 time.sleep(1)
 
