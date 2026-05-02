@@ -57,6 +57,20 @@ def _normalize_fields(fields: str) -> List[str]:
     return normalized
 
 
+def strip_empty_fields(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop null/empty values to cut token cost.
+
+    ServiceNow returns every requested field even when unset (commonly
+    ``""`` or ``None``). For sparse records — most are sparse — those empty
+    fields can be 30-50% of payload tokens. Field absence is interpreted
+    as "not set" by callers.
+
+    Drops: ``None``, ``""``, ``{}``, ``[]``.
+    Keeps: ``0``, ``False``, ``"0"``, ``"false"`` — meaningful values.
+    """
+    return {k: v for k, v in record.items() if v is not None and v != "" and v != {} and v != []}
+
+
 def truncate_results(
     results: List[Dict[str, Any]],
     max_len: int = 50000,
@@ -874,8 +888,9 @@ def sn_query(
             fail_silently=False,
         )
 
-        # Apply field-level and total-budget truncation for stability
-        safe_result, budget_notice = truncate_results(result)
+        # Strip empty fields per-record (token saver), then size-truncate.
+        compact = [strip_empty_fields(row) for row in result]
+        safe_result, budget_notice = truncate_results(compact)
 
         response_data: Dict[str, Any] = {
             "success": True,

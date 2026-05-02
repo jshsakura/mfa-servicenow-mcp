@@ -24,6 +24,7 @@ from servicenow_mcp.tools.sn_api import (
     sn_query_all,
     sn_query_page,
     sn_schema,
+    strip_empty_fields,
     truncate_results,
 )
 from servicenow_mcp.utils.config import (
@@ -138,6 +139,29 @@ class TestApplyPayloadSafety:
     def test_limit_clamped_to_100(self):
         limit, fields, notice = apply_payload_safety("incident", 200, "name")
         assert limit == 100
+
+
+# ---------------------------------------------------------------------------
+# strip_empty_fields — token saver
+# ---------------------------------------------------------------------------
+
+
+class TestStripEmptyFields:
+    def test_drops_none_and_empty_string(self):
+        record = {"sys_id": "abc", "name": "", "parent": None, "active": True}
+        assert strip_empty_fields(record) == {"sys_id": "abc", "active": True}
+
+    def test_keeps_zero_and_false(self):
+        # Meaningful falsy values must NOT be dropped.
+        record = {"sys_id": "abc", "count": 0, "active": False, "code": "0"}
+        assert strip_empty_fields(record) == record
+
+    def test_drops_empty_collections(self):
+        record = {"sys_id": "abc", "tags": [], "meta": {}, "x": "y"}
+        assert strip_empty_fields(record) == {"sys_id": "abc", "x": "y"}
+
+    def test_empty_record(self):
+        assert strip_empty_fields({}) == {}
 
 
 # ---------------------------------------------------------------------------
