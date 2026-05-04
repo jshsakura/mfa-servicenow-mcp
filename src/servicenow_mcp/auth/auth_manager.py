@@ -783,6 +783,11 @@ class AuthManager:
             # Persist last_validated_at so a sibling process that adopts this
             # session can decide whether to trust it or re-probe before use.
             "last_validated_at": self._browser_last_validated_at,
+            # Persist last_login_at so the post-login grace period (90 s) keeps
+            # working after disk-restore. Without this, a sibling/restarted
+            # process adopts the session with last_login_at=None and the very
+            # next 401 skips the grace branch → opens a redundant browser.
+            "last_login_at": self._browser_last_login_at,
         }
         # Quick content-hash check to skip redundant writes
         content_hash = hash((data["cookie_header"], data["user_agent"], data["session_token"]))
@@ -915,6 +920,8 @@ class AuthManager:
             # A non-expired local TTL only means our cache is fresh enough to try;
             # it does not prove the remote ServiceNow auth state is still valid.
             self._browser_last_validated_at = None
+            disk_login_at = data.get("last_login_at")
+            self._browser_last_login_at = min(disk_login_at, time.time()) if disk_login_at else None
             logger.info("Loaded browser session from disk: %s", self._session_cache_path)
         except Exception as exc:
             logger.warning("Failed to load browser session from disk: %s", exc)
@@ -978,6 +985,11 @@ class AuthManager:
         self._browser_last_validated_at = (
             min(disk_validated_at, time.time()) if disk_validated_at else None
         )
+        # Inherit last_login_at so the post-login grace period (90 s) survives
+        # disk handoff between processes. Without this the adopting process
+        # treats every 401 as "out of grace" and opens a redundant browser.
+        disk_login_at = data.get("last_login_at")
+        self._browser_last_login_at = min(disk_login_at, time.time()) if disk_login_at else None
         logger.info(
             "Reloaded fresher session from disk (written by another process): %s",
             self._session_cache_path,
@@ -2502,19 +2514,38 @@ class AuthManager:
 
             # Final validation: avoid storing UI-only cookies that still fail API
             # auth and cause immediate 401/reopen loops.
-            try:
-                final_probe = self._probe_browser_api_with_cookie(
-                    self._browser_cookie_header,
-                    timeout_seconds=10,
-                    browser_config=browser_config,
-                )
-            except requests.RequestException as exc:
+            #
+            # Light retry absorbs the server-side session-establishment race:
+            # ServiceNow occasionally needs 1-3 s after login.do redirect before
+            # the new session passes API auth. Without the retry, the first
+            # final_probe 401 invalidates the just-captured session, the LLM
+            # auto-retries the tool call, and a second browser window opens —
+            # the "auto-close × 2" symptom users hit on a slower instance.
+            final_probe = None
+            probe_exc: Optional[Exception] = None
+            for attempt in range(3):
+                try:
+                    final_probe = self._probe_browser_api_with_cookie(
+                        self._browser_cookie_header,
+                        timeout_seconds=10,
+                        browser_config=browser_config,
+                    )
+                    probe_exc = None
+                    if _response_confirms_browser_probe_session(final_probe):
+                        break
+                except requests.RequestException as exc:
+                    probe_exc = exc
+                    final_probe = None
+                if attempt < 2:
+                    time.sleep(1.5 * (attempt + 1))  # 1.5 s, 3 s
+            if probe_exc is not None and final_probe is None:
                 self.invalidate_browser_session()
                 raise ValueError(
                     "Browser login appeared to complete, but final API validation failed. "
                     "Not reusing this session; please retry login. "
-                    f"Probe error: {exc}"
-                ) from exc
+                    f"Probe error: {probe_exc}"
+                ) from probe_exc
+            assert final_probe is not None  # narrow type after the loop
             if not _response_confirms_browser_probe_session(final_probe):
                 self.invalidate_browser_session()
                 # Include more detail for debugging auth failures
