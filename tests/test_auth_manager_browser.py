@@ -1566,9 +1566,18 @@ def test_login_final_probe_request_error_does_not_persist_session(tmp_path):
             patch.object(
                 manager,
                 "_probe_browser_api_with_cookie",
-                side_effect=[requests.RequestException("probe boom")],
+                # Three consecutive failures mirror the production retry budget
+                # added to absorb the post-login session-establishment race.
+                # A persistently failing probe must still invalidate.
+                side_effect=[
+                    requests.RequestException("probe boom"),
+                    requests.RequestException("probe boom"),
+                    requests.RequestException("probe boom"),
+                ],
             ),
             patch.object(manager, "_save_session_to_disk") as mock_save,
+            # Skip the inter-attempt sleeps to keep the unit test fast.
+            patch("servicenow_mcp.auth.auth_manager.time.sleep"),
         ):
             # force_interactive=True bypasses the headless MFA-remembered
             # cookie gate. The simple wait loop confirms login from page
