@@ -8,7 +8,11 @@ Detailed setup for each MCP client. All clients use the same MCP server — only
 
 ## Before You Start
 
-Install **uv** first — it handles Python, packages, and execution in one tool. The MCP server runs through `uvx`, which requires `uv`.
+You need **two** things installed up front. Skip either and the first browser-auth tool call will stall trying to download mid-flight.
+
+### 1. Install `uv`
+
+`uv` handles Python, packages, and execution in one tool. The MCP server runs through `uvx`, which requires `uv`.
 
 **macOS / Linux:**
 
@@ -24,8 +28,17 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 Restart your terminal after installation. No Python install, pip, or venv needed.
 
-> Chromium for MFA/SSO browser login is installed automatically on first use.
-> Windows users: see [Windows Installation Guide](WINDOWS_INSTALL.md) for step-by-step details.
+### 2. Pre-install Chromium (REQUIRED)
+
+The MFA/SSO login window is a Playwright-driven Chromium build — a hard dependency. Install it once:
+
+```bash
+uvx --with playwright playwright install chromium
+```
+
+The binary is cached at `~/.cache/ms-playwright/` (macOS/Linux) or `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows) and shared across MCP versions. Re-run only when you upgrade Playwright itself.
+
+> Windows users: see [Windows Installation Guide](WINDOWS_INSTALL.md) for step-by-step details and proxy/antivirus notes.
 
 ### Quick Test
 
