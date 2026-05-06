@@ -8,7 +8,11 @@
 
 ## 시작하기 전에
 
-먼저 **uv**를 설치하세요. Python, 패키지, 실행을 한번에 처리합니다. MCP 서버는 `uvx`로 실행되며 `uv`가 필요합니다.
+**두 가지를 미리 설치**해야 합니다. 둘 중 하나라도 빠지면 첫 브라우저 인증 호출이 도중에 다운로드 시도하다가 멈춥니다.
+
+### 1. `uv` 설치
+
+`uv`가 Python · 패키지 · 실행을 한 번에 처리합니다. MCP 서버는 `uvx`로 실행되며 `uv`가 필요합니다.
 
 **macOS / Linux:**
 
@@ -24,8 +28,17 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 설치 후 터미널을 재시작하세요. Python 설치, pip, venv 전부 필요 없습니다.
 
-> MFA/SSO 브라우저 로그인용 Chromium은 첫 사용 시 자동 설치됩니다.
-> Windows 사용자: [Windows 설치 가이드](WINDOWS_INSTALL.ko.md)에서 단계별 안내를 확인하세요.
+### 2. Chromium 미리 설치 (필수)
+
+MFA/SSO 로그인 창은 Playwright가 띄우는 Chromium입니다 — 필수 종속성입니다. 한 번만 깔면 됩니다:
+
+```bash
+uvx --with playwright playwright install chromium
+```
+
+바이너리는 `~/.cache/ms-playwright/` (macOS/Linux) 또는 `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows)에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체가 업그레이드될 때만 다시 실행하면 됩니다.
+
+> Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](WINDOWS_INSTALL.ko.md) 참조.
 
 ### 동작 확인
 
@@ -108,6 +121,33 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ---
 
+## Zed
+
+| 범위 | 경로 |
+|------|------|
+| 전역 | `~/.config/zed/settings.json` |
+
+Zed에서 **Settings** > **MCP Servers**로 추가하세요:
+
+```json
+{
+  "servicenow": {
+    "command": "uvx",
+    "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+    "env": {
+      "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+      "SERVICENOW_AUTH_TYPE": "browser",
+      "SERVICENOW_BROWSER_HEADLESS": "false",
+      "SERVICENOW_USERNAME": "your-username",
+      "SERVICENOW_PASSWORD": "your-password",
+      "MCP_TOOL_PACKAGE": "standard"
+    }
+  }
+}
+```
+
+---
+
 ## OpenAI Codex (CLI & App)
 
 **Codex CLI**(`codex` 명령어)와 **Codex App**(chatgpt.com/codex) 모두 동일한 `config.toml`을 사용합니다.
@@ -129,6 +169,11 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
+# 다른 MCP 호스트(Claude, Cursor 등)와 로그인 상태를 공유하려면
+# 모든 호스트의 설정에 **같은 절대 경로**를 지정하세요. macOS Codex.app은
+# 샌드박스라 `~`이 리매핑되므로, 이 값을 안 맞추면 호스트마다 별도 세션
+# 캐시를 쓰게 되고 매번 MFA 로그인 창이 새로 뜹니다. `/Users/me`는 본인 $HOME으로 바꾸세요.
+SERVICENOW_BROWSER_USER_DATA_DIR = "/Users/me/.servicenow_mcp/shared/profile_acme"
 MCP_TOOL_PACKAGE = "standard"
 ```
 

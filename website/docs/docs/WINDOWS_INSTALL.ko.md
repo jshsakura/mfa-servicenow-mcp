@@ -1,6 +1,6 @@
 # Windows 설치 가이드
 
-파이썬이나 Playwright를 직접 설치할 필요 없습니다. `uv`가 파이썬, 패키지, Chromium 브라우저 엔진까지 전부 자동으로 설치합니다.
+`uv`가 Python과 패키지를 처리합니다. **MFA/SSO 로그인 창용 Chromium은 반드시 미리 설치해야 합니다** — 미리 안 깔아 두면 첫 툴 호출 시 ~150 MB를 그 자리에서 받아오는데, 네트워크가 느리면 MCP 시작이 호스트 timeout을 넘겨서 로그인 창이 안 뜨는 것처럼 보입니다.
 
 ---
 
@@ -26,9 +26,25 @@ uv --version
 
 ---
 
-## 2단계: MCP 서버 실행
+## 2단계: Chromium 미리 설치 (필수)
 
-명령어 한 줄이면 됩니다 — Chromium은 처음 실행 시 자동 설치됩니다:
+이건 **선택이 아니라 필수 종속성**입니다. ServiceNow MFA/SSO 로그인은 Playwright가 띄우는 Chromium 창으로 진행되는데, MCP 서버가 시작될 때 Chromium이 없으면 그 자리에서 다운로드를 시도하다가 호스트가 timeout으로 잘라서 로그인이 끝나기 전에 끊깁니다.
+
+한 번만 깔면 됩니다:
+
+```powershell
+uvx --with playwright playwright install chromium
+```
+
+바이너리는 `%USERPROFILE%\AppData\Local\ms-playwright\` 에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체를 업그레이드할 때만 다시 실행하면 됩니다.
+
+> 엄격한 프록시/백신 환경이면 설치 동안 `playwright.azureedge.net`, `*.googleapis.com` 화이트리스트해 두세요.
+
+---
+
+## 3단계: MCP 서버 실행
+
+uv와 Chromium이 모두 갖춰지면 매 호출마다 즉시 시작됩니다:
 
 ```powershell
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
@@ -41,7 +57,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
 
 ---
 
-## 3단계: MCP 클라이언트 설정
+## 4단계: MCP 클라이언트 설정
 
 사용하는 MCP 클라이언트에 맞는 설정을 복사해서 넣으세요.
 `your-instance`를 실제 ServiceNow 인스턴스 주소로 바꿔야 합니다.
@@ -188,7 +204,7 @@ args = [
 
 ---
 
-## 4단계: 스킬 설치 (선택사항)
+## 5단계: 스킬 설치 (선택사항)
 
 스킬은 AI 실행 블루프린트입니다 — 안전 게이트가 포함된 검증된 파이프라인으로, MCP 도구를 신뢰할 수 있는 워크플로우로 전환합니다. 현재 5개 카테고리에 16개 스킬을 제공합니다.
 
@@ -226,7 +242,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 ---
 
-## 5단계: 동작 확인
+## 6단계: 동작 확인
 
 1. MCP 클라이언트를 **완전히 종료 후 재시작**합니다 (트레이 아이콘도 닫기).
 2. 첫 번째 도구 호출 시 브라우저 창이 뜹니다 (서버 시작 시점이 아님).
