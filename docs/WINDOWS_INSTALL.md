@@ -1,6 +1,6 @@
 # Windows Installation Guide
 
-No need to install Python or Playwright manually. `uv` handles everything — Python, packages, and the Chromium browser engine are all installed automatically on first run.
+`uv` handles Python and packages. **Chromium for the MFA/SSO login window must be installed up front** — without it, the first tool call has to download ~150 MB on the spot, which on a slow link pushes MCP startup past the host's timeout and looks like the login window never opens.
 
 ---
 
@@ -26,9 +26,25 @@ uv --version
 
 ---
 
-## Step 2: Run the MCP Server
+## Step 2: Pre-install Chromium (REQUIRED)
 
-One command — Chromium is auto-installed if missing:
+This is a **hard dependency**, not an optional step. ServiceNow MFA/SSO login goes through a Playwright-driven Chromium window; if Chromium is missing when the MCP server starts, it tries to download mid-flight and the host times out before login can finish.
+
+Install Chromium once:
+
+```powershell
+uvx --with playwright playwright install chromium
+```
+
+The binary is cached at `%USERPROFILE%\AppData\Local\ms-playwright\` and shared across MCP versions. Re-run only when you upgrade Playwright itself.
+
+> Behind a strict proxy / antivirus? Whitelist `playwright.azureedge.net` and `*.googleapis.com` for the duration of this install.
+
+---
+
+## Step 3: Run the MCP Server
+
+With uv and Chromium in place, MCP startup is instant on every call:
 
 ```powershell
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
@@ -41,7 +57,7 @@ A browser window opens on the first tool call for MFA/SSO login (Okta, Entra ID,
 
 ---
 
-## Step 3: Configure Your MCP Client
+## Step 4: Configure Your MCP Client
 
 Copy the configuration for your MCP client below.
 Replace `your-instance` with your actual ServiceNow instance address.
@@ -188,7 +204,7 @@ Config file location: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
 
 ---
 
-## Step 4: Install Skills (Optional)
+## Step 5: Install Skills (Optional)
 
 Skills are AI execution blueprints — verified pipelines with safety gates that turn raw MCP tools into reliable workflows. 16 skills across 5 categories.
 
@@ -226,7 +242,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 ---
 
-## Step 5: Verify
+## Step 6: Verify
 
 1. **Fully quit and restart** your MCP client (close the tray icon too).
 2. The browser window opens on the first tool call (not on server start).
