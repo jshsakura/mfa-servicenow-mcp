@@ -95,7 +95,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 <span class="c"># 2. MFA/SSO 로그인용 Chromium 미리 설치 (필수 — 안 깔면 첫 호출에서</span>
 <span class="c">#    ~150 MB 받아오다가 timeout 날 수 있습니다)</span>
-uvx --with playwright playwright install chromium
+uv tool install playwright
+playwright install chromium
 
 <span class="c"># 3. 클라이언트 설정 + 선택 스킬 설치</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
@@ -110,7 +111,8 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 <span class="c"># 2. MFA/SSO 로그인용 Chromium 미리 설치 (필수 — 안 깔면 첫 호출에서</span>
 <span class="c">#    ~150 MB 받아오다가 timeout 날 수 있습니다)</span>
-uvx --with playwright playwright install chromium
+uv tool install playwright
+playwright install chromium
 
 <span class="c"># 3. 클라이언트 설정 + 선택 스킬 설치</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `

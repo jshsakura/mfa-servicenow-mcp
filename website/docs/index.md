@@ -94,7 +94,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 <span class="c"># 2. Pre-install Chromium for MFA/SSO login (REQUIRED — skip and the first</span>
 <span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
-uvx --with playwright playwright install chromium
+uv tool install playwright
+playwright install chromium
 
 <span class="c"># 3. Configure your client and install optional skills</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
@@ -109,7 +110,8 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 <span class="c"># 2. Pre-install Chromium for MFA/SSO login (REQUIRED — skip and the first</span>
 <span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
-uvx --with playwright playwright install chromium
+uv tool install playwright
+playwright install chromium
 
 <span class="c"># 3. Configure your client and install optional skills</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
