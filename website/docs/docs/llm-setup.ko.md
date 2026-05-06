@@ -73,15 +73,15 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 설치 후 다시 `uv --version`으로 확인합니다.
 명령이 안 잡히면 셸을 재시작하거나 `~/.local/bin`이 PATH에 들어있는지 안내합니다.
 
-### 2단계 — Playwright 브라우저 설치
+### 2단계 — Playwright Chromium 설치 (필수)
 
-아래를 실행합니다:
+**선택이 아니라 필수 종속성**입니다. 이후 단계 진행 전에 반드시 실행:
 
 ```bash
 uvx --with playwright playwright install chromium
 ```
 
-이 브라우저는 MFA/SSO 로그인 흐름에 필요합니다.
+MFA/SSO 로그인 창은 Playwright Chromium으로 동작합니다. 이 단계를 건너뛰면 첫 브라우저 인증 호출에서 Chromium(~150 MB)을 그 자리에서 받아오는데, 네트워크가 느리면 MCP 시작이 호스트 timeout을 넘겨서 로그인 창이 안 뜨는 것처럼 보입니다. 한 번 깔면 캐시되어 영구 사용.
 
 ### 3단계 — 사용자 설정 수집
 
