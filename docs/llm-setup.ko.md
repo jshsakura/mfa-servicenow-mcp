@@ -73,15 +73,44 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 설치 후 다시 `uv --version`으로 확인합니다.
 명령이 안 잡히면 셸을 재시작하거나 `~/.local/bin`이 PATH에 들어있는지 안내합니다.
 
-### 2단계 — Playwright Chromium 설치 (필수)
+### 2단계 — Playwright Chromium 설치 (필수, 절대 건너뛰지 말 것)
 
-**선택이 아니라 필수 종속성**입니다. 이후 단계 진행 전에 반드시 실행:
+> 필수 종속성입니다. 현장에서 설치 실패하는 1순위 원인이 이거 빼먹는 케이스입니다.
+> "이미 깔려있을 거야"라고 가정하지 말고, 사용자가 "나중에 해도 돼?"라고 해도 미루지 마세요.
+> 이 단계가 성공하기 전엔 3단계로 넘어가지 마세요.
+
+**2.1 — Chromium이 이미 깔려있는지 확인**
+
+- macOS: `ls ~/Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium 2>/dev/null`
+- Linux: `ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null`
+- Windows (PowerShell): `Get-ChildItem "$env:USERPROFILE\AppData\Local\ms-playwright\chromium-*\chrome-win\chrome.exe" -ErrorAction SilentlyContinue`
+
+경로가 출력되면 이미 깔려있는 것 — 3단계로 점프.
+
+**2.2 — Chromium 설치**
+
+2.1에서 아무것도 없으면 Playwright를 uv tool로 깔고(이러면 `playwright` 바이너리가 PATH에 박혀서 로컬에서 재사용 가능) Chromium 빌드를 받습니다:
 
 ```bash
-uvx --with playwright playwright install chromium
+uv tool install playwright
+playwright install chromium
 ```
 
-MFA/SSO 로그인 창은 Playwright Chromium으로 동작합니다. 이 단계를 건너뛰면 첫 브라우저 인증 호출에서 Chromium(~150 MB)을 그 자리에서 받아오는데, 네트워크가 느리면 MCP 시작이 호스트 timeout을 넘겨서 로그인 창이 안 뜨는 것처럼 보입니다. 한 번 깔면 캐시되어 영구 사용.
+> PATH에 새 명령 추가가 부담스러우면 한 줄 대안: `uvx --with playwright playwright install chromium` — 결과는 같지만 uvx가 매번 임시 venv를 만드므로 약간 더 느립니다. 사용자의 첫 설치라면 `uv tool install` 방식을 우선 사용하세요.
+
+처음엔 ~150 MB 다운로드입니다. 느린 회선에선 몇 분 걸릴 수 있는데 정상입니다. 중간에 중단하지 마세요. 사용자에게 진행 메시지("ServiceNow MFA 로그인용 Chromium을 다운로드 중입니다 — 느린 네트워크에선 몇 분 걸릴 수 있습니다…")를 보여서 기다리는 이유를 알게 해주세요.
+
+**2.3 — 검증 및 실패 시 중단**
+
+2.1의 확인 명령을 다시 실행하세요. 그래도 바이너리가 없으면 **설치를 중단**하고 사용자에게 명령 출력 그대로 보고하세요. 흔한 원인:
+
+- 회사 프록시가 `playwright.azureedge.net` 또는 `*.googleapis.com` 차단
+- 백신이 Chromium 아카이브를 격리
+- 디스크 공간 부족
+
+Chromium이 없는 상태로 **절대 3단계로 진행하지 마세요**. MCP 서버는 시작된 것처럼 보이지만 첫 툴 호출이 행 걸리고 사용자 화면엔 로그인 창이 영영 안 뜹니다 — 이게 바로 이 단계가 존재하는 이유의 실제 실패 패턴입니다.
+
+**왜 이렇게까지 강조하는지 (에이전트용 컨텍스트 — 사용자가 묻지 않으면 굳이 설명하지 마세요):** 런타임이 Chromium 부재 시 "필요할 때 설치" 폴백을 시도하지만, 느린 연결에선 그 다운로드가 MCP 호스트의 툴 호출 timeout을 넘깁니다. 사용자는 로그인 창도 못 보고, 에러 UI도 없고, "서버가 깨졌나?" 추측하게 됩니다. 이 단계에서 미리 깔면 첫 호출이 1초 이내로 끝납니다.
 
 ### 3단계 — 사용자 설정 수집
 

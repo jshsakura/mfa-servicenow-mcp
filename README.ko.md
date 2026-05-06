@@ -133,10 +133,13 @@ AI가 자동으로:
 MFA/SSO 로그인은 Playwright Chromium 빌드가 필요합니다. 미리 안 깔아 두면 **첫 브라우저 인증 툴 호출 때** Chromium(~150 MB)을 그 자리에서 받아와야 하는데, 네트워크가 느리면 MCP 시작이 호스트 timeout을 넘겨 로그인 창이 안 뜨는 것처럼 보입니다. 한 번만 미리 깔아두면 첫 호출이 즉시 시작됩니다:
 
 ```bash
-uvx --with playwright playwright install chromium
+uv tool install playwright
+playwright install chromium
 ```
 
-Playwright 버전 올라갈 때만 다시 실행하면 됩니다. 바이너리는 로컬에 캐시되어 MCP 버전과 무관하게 공유됩니다.
+`uv tool install`로 깔면 `playwright` 바이너리가 PATH에 바로 등록되어, 그 후의 `playwright install …` 호출은 임시 venv 만드는 과정 없이 로컬에서 즉시 동작합니다. (한 줄 대안: `uvx --with playwright playwright install chromium`)
+
+Playwright 자체를 업그레이드할 때만 `playwright install chromium`을 다시 실행하면 됩니다. 브라우저 바이너리는 로컬에 캐시되어 MCP 버전과 무관하게 공유됩니다.
 
 > Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 

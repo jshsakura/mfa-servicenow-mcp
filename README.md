@@ -135,10 +135,13 @@ Restart your terminal after installation.
 The MFA/SSO login flow needs a Playwright Chromium build. Without it, the **first** browser-auth tool call has to download Chromium (~150 MB) on the spot — which on a slow link can stretch MCP startup past the host's timeout and make the login window feel like it never opens. Install it once up front and the first tool call is instant:
 
 ```bash
-uvx --with playwright playwright install chromium
+uv tool install playwright
+playwright install chromium
 ```
 
-Run again whenever you upgrade Playwright; the binary is cached locally and shared across MCP versions.
+`uv tool install` puts the `playwright` binary directly in your PATH so subsequent `playwright install …` calls run locally without re-creating an ephemeral venv. (One-liner alternative: `uvx --with playwright playwright install chromium`.)
+
+Re-run `playwright install chromium` whenever you upgrade Playwright; the browser binary is cached locally and shared across MCP versions.
 
 > Windows users: see the [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
 
