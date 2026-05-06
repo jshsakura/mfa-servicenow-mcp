@@ -52,7 +52,7 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 ```
 
 AI가 자동으로:
-1. **uv**와 **Playwright** 설치 (없으면)
+1. **uv**와 **Playwright Chromium** 설치 (없으면 — 첫 로그인 지연 방지)
 2. ServiceNow 인스턴스 URL, 인증 방식, 도구 패키지 질문
 3. 사용 중인 클라이언트에 맞는 MCP 설정 파일 생성
 4. **16개 워크플로우 스킬** 설치 (지원 클라이언트)
@@ -113,7 +113,9 @@ AI가 자동으로:
 
 ## 필수 준비 사항
 
-[uv](https://astral.sh/uv)를 설치하세요 — Python, 패키지, 실행을 한번에 처리합니다.
+### 1. `uv` 설치
+
+[uv](https://astral.sh/uv)가 Python · 패키지 · 실행을 한 번에 처리합니다. Python 별도 설치, `pip`, `venv` 모두 필요 없음.
 
 - **macOS / Linux:**
   ```bash
@@ -124,10 +126,19 @@ AI가 자동으로:
   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
   ```
 
-설치 후 터미널을 재시작하면 끝입니다. Python 설치, pip, venv 전부 필요 없습니다.
+설치 후 터미널을 재시작하세요.
 
-> MFA/SSO 브라우저 로그인용 Chromium은 첫 사용 시 자동 설치됩니다.
-> Windows 사용자: [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
+### 2. Chromium 미리 설치 (강력 권장)
+
+MFA/SSO 로그인은 Playwright Chromium 빌드가 필요합니다. 미리 안 깔아 두면 **첫 브라우저 인증 툴 호출 때** Chromium(~150 MB)을 그 자리에서 받아와야 하는데, 네트워크가 느리면 MCP 시작이 호스트 timeout을 넘겨 로그인 창이 안 뜨는 것처럼 보입니다. 한 번만 미리 깔아두면 첫 호출이 즉시 시작됩니다:
+
+```bash
+uvx --with playwright playwright install chromium
+```
+
+Playwright 버전 올라갈 때만 다시 실행하면 됩니다. 바이너리는 로컬에 캐시되어 MCP 버전과 무관하게 공유됩니다.
+
+> Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
 ---
 
