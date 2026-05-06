@@ -53,7 +53,7 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 ```
 
 Your AI will:
-1. Install **uv** and **Playwright** (if needed)
+1. Install **uv** and **Playwright Chromium** (if needed — prevents first-login download stall)
 2. Ask for your ServiceNow instance URL, auth type, and tool package
 3. Generate the correct MCP config file for your client
 4. Install **24 workflow skills** (if supported)
@@ -115,7 +115,9 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 
 ## Prerequisites
 
-Install [uv](https://astral.sh/uv) — it handles Python, packages, and execution in one tool.
+### 1. Install `uv`
+
+[uv](https://astral.sh/uv) handles Python, packages, and execution in one tool — no separate Python install, no `pip`, no `venv`.
 
 - **macOS / Linux:**
   ```bash
@@ -126,10 +128,19 @@ Install [uv](https://astral.sh/uv) — it handles Python, packages, and executio
   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
   ```
 
-Restart your terminal after installation. That's it — no Python install, no pip, no venv needed.
+Restart your terminal after installation.
 
-> Chromium for MFA/SSO browser login is installed automatically on first use.
-> Windows users: see [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for details.
+### 2. Pre-install Chromium (strongly recommended)
+
+The MFA/SSO login flow needs a Playwright Chromium build. Without it, the **first** browser-auth tool call has to download Chromium (~150 MB) on the spot — which on a slow link can stretch MCP startup past the host's timeout and make the login window feel like it never opens. Install it once up front and the first tool call is instant:
+
+```bash
+uvx --with playwright playwright install chromium
+```
+
+Run again whenever you upgrade Playwright; the binary is cached locally and shared across MCP versions.
+
+> Windows users: see the [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
 
 ---
 
