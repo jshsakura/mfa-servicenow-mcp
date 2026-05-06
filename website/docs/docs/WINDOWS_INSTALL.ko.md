@@ -30,13 +30,16 @@ uv --version
 
 이건 **선택이 아니라 필수 종속성**입니다. ServiceNow MFA/SSO 로그인은 Playwright가 띄우는 Chromium 창으로 진행되는데, MCP 서버가 시작될 때 Chromium이 없으면 그 자리에서 다운로드를 시도하다가 호스트가 timeout으로 잘라서 로그인이 끝나기 전에 끊깁니다.
 
-한 번만 깔면 됩니다:
+한 번만 깔면 됩니다. 권장 경로는 `uv tool install playwright`로 `playwright.exe`를 `%USERPROFILE%\.local\bin\`에 박아두는 방식 — 그 후엔 `playwright` 명령을 직접 호출할 수 있습니다:
 
 ```powershell
-uvx --with playwright playwright install chromium
+uv tool install playwright
+playwright install chromium
 ```
 
-바이너리는 `%USERPROFILE%\AppData\Local\ms-playwright\` 에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체를 업그레이드할 때만 다시 실행하면 됩니다.
+> 한 줄 대안: `uvx --with playwright playwright install chromium` — 결과는 같지만 매번 임시 venv를 만들어서 약간 더 느립니다.
+
+브라우저 바이너리는 `%USERPROFILE%\AppData\Local\ms-playwright\`에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체를 업그레이드할 때만 `playwright install chromium`을 다시 실행하세요.
 
 > 엄격한 프록시/백신 환경이면 설치 동안 `playwright.azureedge.net`, `*.googleapis.com` 화이트리스트해 두세요.
 

@@ -30,13 +30,16 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 ### 2. Chromium 미리 설치 (필수)
 
-MFA/SSO 로그인 창은 Playwright가 띄우는 Chromium입니다 — 필수 종속성입니다. 한 번만 깔면 됩니다:
+MFA/SSO 로그인 창은 Playwright가 띄우는 Chromium입니다 — 필수 종속성입니다. `uv tool install`로 깔면 `playwright` 명령이 PATH에 박혀서 이후 호출이 빨라집니다:
 
 ```bash
-uvx --with playwright playwright install chromium
+uv tool install playwright
+playwright install chromium
 ```
 
-바이너리는 `~/.cache/ms-playwright/` (macOS/Linux) 또는 `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows)에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체가 업그레이드될 때만 다시 실행하면 됩니다.
+> 한 줄 대안: `uvx --with playwright playwright install chromium` — 결과는 같지만 매 호출마다 임시 venv를 만들어 약간 더 느립니다.
+
+브라우저 바이너리는 `~/.cache/ms-playwright/` (macOS/Linux) 또는 `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows)에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체가 업그레이드될 때만 `playwright install chromium`을 다시 실행하세요.
 
 > Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](WINDOWS_INSTALL.ko.md) 참조.
 
