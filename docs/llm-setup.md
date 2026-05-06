@@ -73,14 +73,15 @@ If NOT installed:
 After install, verify: `uv --version`
 If the command is not found, the user may need to restart their shell or add `~/.local/bin` to PATH.
 
-### Step 2 — Install Playwright browser
+### Step 2 — Install Playwright Chromium (REQUIRED)
 
-Run:
+This is a **mandatory dependency**, not optional. Run before going further:
+
 ```bash
 uvx --with playwright playwright install chromium
 ```
 
-This installs a Chromium browser that handles MFA/SSO login flows. It is required for browser auth mode.
+The MFA/SSO login window is a Playwright-driven Chromium. Skipping this step makes the first browser-auth tool call try to download Chromium (~150 MB) on the spot, which on a slow connection pushes MCP startup past the host's timeout — the user sees the login window never appear. Install once, cached forever.
 
 ### Step 3 — Collect user configuration
 
