@@ -89,10 +89,14 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       <div class="install-panels">
         <div class="install-panel active" id="install-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
+            <pre class="install-code"><code><span class="c"># 1. Install uv (if not already installed)</span>
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-<span class="c"># Configure your client and install optional skills</span>
+<span class="c"># 2. Pre-install Chromium for MFA/SSO login (REQUIRED — skip and the first</span>
+<span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
+uvx --with playwright playwright install chromium
+
+<span class="c"># 3. Configure your client and install optional skills</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"</code></pre>
@@ -100,10 +104,14 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
         </div>
         <div class="install-panel" id="install-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
+            <pre class="install-code"><code><span class="c"># 1. Install uv (if not already installed)</span>
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-<span class="c"># Configure your client and install optional skills</span>
+<span class="c"># 2. Pre-install Chromium for MFA/SSO login (REQUIRED — skip and the first</span>
+<span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
+uvx --with playwright playwright install chromium
+
+<span class="c"># 3. Configure your client and install optional skills</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser"</code></pre>

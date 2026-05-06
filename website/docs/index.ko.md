@@ -90,10 +90,14 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       <div class="install-panels">
         <div class="install-panel active" id="install-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
+            <pre class="install-code"><code><span class="c"># 1. uv 설치 (이미 있으면 생략)</span>
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-<span class="c"># 클라이언트 설정과 선택 스킬 설치</span>
+<span class="c"># 2. MFA/SSO 로그인용 Chromium 미리 설치 (필수 — 안 깔면 첫 호출에서</span>
+<span class="c">#    ~150 MB 받아오다가 timeout 날 수 있습니다)</span>
+uvx --with playwright playwright install chromium
+
+<span class="c"># 3. 클라이언트 설정 + 선택 스킬 설치</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"</code></pre>
@@ -101,10 +105,14 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
         </div>
         <div class="install-panel" id="install-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># Install uv (if not already installed)</span>
+            <pre class="install-code"><code><span class="c"># 1. uv 설치 (이미 있으면 생략)</span>
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-<span class="c"># 클라이언트 설정과 선택 스킬 설치</span>
+<span class="c"># 2. MFA/SSO 로그인용 Chromium 미리 설치 (필수 — 안 깔면 첫 호출에서</span>
+<span class="c">#    ~150 MB 받아오다가 timeout 날 수 있습니다)</span>
+uvx --with playwright playwright install chromium
+
+<span class="c"># 3. 클라이언트 설정 + 선택 스킬 설치</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser"</code></pre>
