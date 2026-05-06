@@ -73,15 +73,44 @@ If NOT installed:
 After install, verify: `uv --version`
 If the command is not found, the user may need to restart their shell or add `~/.local/bin` to PATH.
 
-### Step 2 — Install Playwright Chromium (REQUIRED)
+### Step 2 — Install Playwright Chromium (MANDATORY, do NOT skip)
 
-This is a **mandatory dependency**, not optional. Run before going further:
+> Hard dependency. Skipping this is the #1 reason setups fail in the field.
+> Do not assume it's already installed. Do not let the user defer it.
+> Do not proceed to Step 3 until this succeeds.
+
+**2.1 — Check whether Chromium is already installed**
+
+- macOS: `ls ~/Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium 2>/dev/null`
+- Linux: `ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null`
+- Windows (PowerShell): `Get-ChildItem "$env:USERPROFILE\AppData\Local\ms-playwright\chromium-*\chrome-win\chrome.exe" -ErrorAction SilentlyContinue`
+
+If a path is printed, Chromium is already installed — skip to Step 3.
+
+**2.2 — Install Chromium**
+
+If 2.1 found nothing, install Playwright as a uv tool (so the `playwright` binary lands in PATH and can be reused locally), then pull the Chromium build:
 
 ```bash
-uvx --with playwright playwright install chromium
+uv tool install playwright
+playwright install chromium
 ```
 
-The MFA/SSO login window is a Playwright-driven Chromium. Skipping this step makes the first browser-auth tool call try to download Chromium (~150 MB) on the spot, which on a slow connection pushes MCP startup past the host's timeout — the user sees the login window never appear. Install once, cached forever.
+> One-liner alternative if PATH-pollution is a concern: `uvx --with playwright playwright install chromium` — same outcome, slightly slower because uvx creates an ephemeral venv each call. Prefer the `uv tool install` form when this is the user's first install.
+
+This downloads ~150 MB the first time. On a slow link it can take several minutes — that is normal. Do not abort early. Show the user a progress message ("Downloading Chromium for ServiceNow MFA login — this can take a few minutes on slow networks…") so they understand the wait.
+
+**2.3 — Verify and stop on failure**
+
+Re-run the check from 2.1. If the binary is still missing, **STOP the setup** and report the failure to the user with the exact command output. Common causes:
+
+- Corporate proxy blocking `playwright.azureedge.net` or `*.googleapis.com`
+- Antivirus quarantining the Chromium archive
+- Disk full
+
+Do **not** continue to Step 3 with Chromium missing. The MCP server will appear to start, the first tool call will hang, and the user's login window will never open — exactly the failure mode this step exists to prevent.
+
+**Why this matters (context for the agent — do not surface to the user unless asked):** the runtime tries to fall back to "install on demand" when Chromium is absent, but on slow connections that download exceeds the MCP host's tool-call timeout. The user sees no login window, no error UI, and assumes the server is broken. Pre-installing here makes the first tool call subsecond.
 
 ### Step 3 — Collect user configuration
 
