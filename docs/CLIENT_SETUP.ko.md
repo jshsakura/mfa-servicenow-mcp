@@ -8,7 +8,11 @@
 
 ## 시작하기 전에
 
-먼저 **uv**를 설치하세요. Python, 패키지, 실행을 한번에 처리합니다. MCP 서버는 `uvx`로 실행되며 `uv`가 필요합니다.
+**두 가지를 미리 설치**해야 합니다. 둘 중 하나라도 빠지면 첫 브라우저 인증 호출이 도중에 다운로드 시도하다가 멈춥니다.
+
+### 1. `uv` 설치
+
+`uv`가 Python · 패키지 · 실행을 한 번에 처리합니다. MCP 서버는 `uvx`로 실행되며 `uv`가 필요합니다.
 
 **macOS / Linux:**
 
@@ -24,8 +28,17 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 설치 후 터미널을 재시작하세요. Python 설치, pip, venv 전부 필요 없습니다.
 
-> MFA/SSO 브라우저 로그인용 Chromium은 첫 사용 시 자동 설치됩니다.
-> Windows 사용자: [Windows 설치 가이드](WINDOWS_INSTALL.ko.md)에서 단계별 안내를 확인하세요.
+### 2. Chromium 미리 설치 (필수)
+
+MFA/SSO 로그인 창은 Playwright가 띄우는 Chromium입니다 — 필수 종속성입니다. 한 번만 깔면 됩니다:
+
+```bash
+uvx --with playwright playwright install chromium
+```
+
+바이너리는 `~/.cache/ms-playwright/` (macOS/Linux) 또는 `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows)에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체가 업그레이드될 때만 다시 실행하면 됩니다.
+
+> Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](WINDOWS_INSTALL.ko.md) 참조.
 
 ### 동작 확인
 
