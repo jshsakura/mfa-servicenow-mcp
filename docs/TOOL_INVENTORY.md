@@ -73,7 +73,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
 | `compare_flows` | R | Diff two Flow Designer workflows by name/sys_id. Structure, subflow bindings, triggers. | standard, portal_developer, platform_developer, service_desk, full |
-| `get_flow_designer_detail` | R | Get Flow Designer workflow structure, triggers, executions. Entry point for modern workflow analysis. | standard, portal_developer, platform_developer, service_desk, full |
+| `get_flow_designer_detail` | R | Get Flow Designer workflow detail. Use summary_format=True for analysis-friendly tree+warnings+index. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_flow_designer_executions` | R | Get Flow Designer workflow execution history (sys_flow_context). Modern flows only. | standard, portal_developer, platform_developer, service_desk, full |
 | `list_flow_designers` | R | PRIMARY entry point for Flow Designer: lists flows/subflows (sys_hub_flow). Never use sn_query for flows. Legacy→mana... | core, standard, portal_developer, platform_developer, service_desk, full |
 | `update_flow_designer` | W | Update Flow Designer workflow name/description/active by sys_id (modern, sys_hub_flow). | portal_developer, platform_developer, full |

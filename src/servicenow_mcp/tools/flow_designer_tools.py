@@ -88,6 +88,10 @@ class GetFlowDetailsParams(BaseModel):
         default=False,
         description="Include recursive subflow call tree",
     )
+    summary_format: bool = Field(
+        default=False,
+        description="Return flat tree summary with full conditions; analysis-friendly view",
+    )
 
 
 class GetFlowExecutionsParams(BaseModel):
@@ -343,6 +347,570 @@ def _build_processflow_detail(
             "subflows": len(subflow_instances),
         },
     }
+
+
+def _summarize_node_inputs(node: Dict[str, Any]) -> Dict[str, str]:
+    """Flatten a node's inputs into {name: value} preserving full values verbatim.
+
+    When `value` and `displayValue` differ (raw pill vs. human label), keep both
+    in the form ``"<value> / <displayValue>"`` — the UI shows both, so the
+    summary should too. Never truncate.
+    """
+    flat: Dict[str, str] = {}
+    for inp in node.get("inputs", []) or []:
+        if not isinstance(inp, dict):
+            continue
+        name = inp.get("name") or ""
+        if not name:
+            continue
+        value = inp.get("value")
+        display = inp.get("displayValue")
+        value_str = "" if value in (None, "") else str(value)
+        display_str = "" if display in (None, "") else str(display)
+        if value_str and display_str and value_str != display_str:
+            flat[name] = f"{value_str} / {display_str}"
+        elif value_str:
+            flat[name] = value_str
+        else:
+            flat[name] = display_str
+    return flat
+
+
+class FlowSummaryIntegrityError(ValueError):
+    """Raised when a flow structure cannot be summarized without data loss."""
+
+
+def _build_action_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, Any]:
+    """Action row — keeps every semantically meaningful field, drops verbose IDs."""
+    row: Dict[str, Any] = {
+        "order": node.get("order", ""),
+        "depth": depth,
+        "kind": "ACTION",
+        "ui_id": ui,
+        "type": node.get("action_type_name") or "",
+        "name": node.get("name") or "",
+        "inputs": _summarize_node_inputs(node),
+    }
+    outputs = node.get("outputs") or []
+    output_names = [o.get("name", "") for o in outputs if isinstance(o, dict) and o.get("name")]
+    if output_names:
+        row["outputs"] = output_names
+    if node.get("internal_name"):
+        row["internal_name"] = node["internal_name"]
+    if node.get("deleted"):
+        row["deleted"] = True
+    if node.get("comment"):
+        row["comment"] = node["comment"]
+    return row
+
+
+def _build_logic_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, Any]:
+    """Logic row — branching context, full condition verbatim."""
+    row: Dict[str, Any] = {
+        "order": node.get("order", ""),
+        "depth": depth,
+        "kind": "LOGIC",
+        "ui_id": ui,
+        "type": node.get("logic_type") or node.get("logic_name") or "",
+        "label": node.get("condition_label") or "",
+        "condition": node.get("condition") or "",
+    }
+    extra_inputs = {
+        k: v
+        for k, v in _summarize_node_inputs(node).items()
+        if k not in ("condition_name", "condition")
+    }
+    if extra_inputs:
+        row["other_inputs"] = extra_inputs
+    if node.get("connected_to"):
+        row["connected_to"] = node["connected_to"]
+    if node.get("outputs_to_assign"):
+        row["outputs_to_assign"] = node["outputs_to_assign"]
+    return row
+
+
+def _build_subflow_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, Any]:
+    """Subflow row — exposes sys_id + scope so caller can chain into the subflow."""
+    row: Dict[str, Any] = {
+        "order": node.get("order", ""),
+        "depth": depth,
+        "kind": "SUBFLOW",
+        "ui_id": ui,
+        "type": "Call Subflow",
+        "name": node.get("subflow_name") or "",
+        "subflow_sys_id": node.get("subflow_sys_id") or "",
+        "inputs": _summarize_node_inputs(node),
+    }
+    if node.get("subflow_internal_name"):
+        row["subflow_internal_name"] = node["subflow_internal_name"]
+    if node.get("subflow_scope"):
+        row["subflow_scope"] = node["subflow_scope"]
+    return row
+
+
+def _render_row_lines(row: Dict[str, Any]) -> List[str]:
+    """Render a single tree row to one or more text lines (no truncation)."""
+    indent = "  " * int(row.get("depth") or 0)
+    order = row.get("order", "")
+    kind = row.get("kind", "")
+    marker = (
+        f" ⚠orphan(parent={row['_orphan_missing_parent']})"
+        if "_orphan_missing_parent" in row
+        else ""
+    )
+    lines: List[str] = []
+    if kind == "LOGIC":
+        label = row.get("label") or row.get("type") or "logic"
+        head = f"[{order}] {indent}LOGIC {row.get('type','')}: {label}{marker}"
+        lines.append(head)
+        if row.get("condition"):
+            lines.append(f"     {indent}  cond= {row['condition']}")
+        if row.get("connected_to"):
+            lines.append(f"     {indent}  connected_to= {row['connected_to']}")
+        if row.get("outputs_to_assign"):
+            lines.append(f"     {indent}  outputs_to_assign= {row['outputs_to_assign']}")
+        for k, v in (row.get("other_inputs") or {}).items():
+            lines.append(f"     {indent}  {k}= {v}")
+    elif kind == "SUBFLOW":
+        scope_part = f", scope={row['subflow_scope']}" if row.get("subflow_scope") else ""
+        internal_part = (
+            f", internal={row['subflow_internal_name']}" if row.get("subflow_internal_name") else ""
+        )
+        head = (
+            f"[{order}] {indent}SUBFLOW→ {row.get('name','')} "
+            f"(sys_id={row.get('subflow_sys_id','')}{scope_part}{internal_part})"
+            f"{marker}"
+        )
+        lines.append(head)
+        for k, v in (row.get("inputs") or {}).items():
+            lines.append(f"     {indent}  in.{k}= {v}")
+    else:  # ACTION
+        deleted_tag = " [DELETED]" if row.get("deleted") else ""
+        head = (
+            f"[{order}] {indent}ACTION {row.get('type','')}: "
+            f"{row.get('name','')}{deleted_tag}{marker}"
+        )
+        lines.append(head)
+        for k, v in (row.get("inputs") or {}).items():
+            lines.append(f"     {indent}  in.{k}= {v}")
+        if row.get("outputs"):
+            lines.append(f"     {indent}  out= {','.join(row['outputs'])}")
+        if row.get("internal_name"):
+            lines.append(f"     {indent}  internal_name= {row['internal_name']}")
+        if row.get("comment"):
+            lines.append(f"     {indent}  // {row['comment']}")
+    return lines
+
+
+def _render_tree_text(
+    tree: List[Dict[str, Any]],
+    orphans: List[Dict[str, Any]],
+    warnings: List[Dict[str, Any]],
+    index: Dict[str, List[Dict[str, Any]]],
+) -> str:
+    """Compact text rendering — denser than JSON, never truncated.
+
+    Sections:
+      1. WARNINGS (sorted critical → low) — show first so reviewers see issues immediately
+      2. INDEX — quick navigator: approvals / state_changes / subflows / branches
+      3. TREE — canonical flat tree with full conditions and inputs
+      4. ORPHANS — nodes with missing parents (preserved with full subtree)
+    """
+    sections: List[str] = []
+
+    if warnings:
+        severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        sorted_warnings = sorted(
+            warnings, key=lambda w: severity_rank.get(w.get("severity", "low"), 3)
+        )
+        sections.append("=== WARNINGS ===")
+        for w in sorted_warnings:
+            ref = (
+                f"[{w['order']}]"
+                if w.get("order") not in (None, "")
+                else f"(count={w.get('count','')})"
+            )
+            sections.append(f"  {w['severity'].upper():8} {w['code']:30} {ref}  {w['message']}")
+        sections.append("")
+
+    if any(index.values()):
+        sections.append("=== INDEX ===")
+        if index["approvals"]:
+            sections.append(f"  Approvals ({len(index['approvals'])}):")
+            for a in index["approvals"]:
+                approver = a.get("approval_conditions") or a.get("approvers") or "(none)"
+                sections.append(f"    [{a['order']}] {a['name']}  approver= {approver}")
+        if index["state_changes"]:
+            sections.append(f"  State changes ({len(index['state_changes'])}):")
+            for s in index["state_changes"]:
+                sections.append(
+                    f"    [{s['order']}] {s.get('table_name','')} "
+                    f"record={s.get('record','')} values={s.get('values','')}"
+                )
+        if index["subflow_calls"]:
+            sections.append(f"  Subflows ({len(index['subflow_calls'])}):")
+            for sf in index["subflow_calls"]:
+                sections.append(
+                    f"    [{sf['order']}] {sf['name']}  "
+                    f"sys_id={sf['subflow_sys_id']}  scope={sf.get('subflow_scope','')}"
+                )
+        if index["branch_conditions"]:
+            sections.append(f"  Branches ({len(index['branch_conditions'])}):")
+            for b in index["branch_conditions"]:
+                sections.append(f"    [{b['order']}] {b.get('type','')}  cond= {b['condition']}")
+        sections.append("")
+
+    sections.append("=== TREE ===")
+    for row in tree:
+        sections.extend(_render_row_lines(row))
+
+    if orphans:
+        sections.append("")
+        sections.append("=== ORPHANS (missing parents) ===")
+        for row in orphans:
+            sections.extend(_render_row_lines(row))
+
+    return "\n".join(sections)
+
+
+def _detect_flow_warnings(
+    tree: List[Dict[str, Any]],
+    orphans: List[Dict[str, Any]],
+    deleted_logic: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Mechanical config-error detection — surfaces obvious misconfigurations."""
+    warnings: List[Dict[str, Any]] = []
+    all_rows = tree + orphans
+
+    # Sibling order collision: same depth+parent-stack with duplicate `order`
+    # We approximate parent grouping by walking depth (consecutive same-depth peers).
+    last_seen_at_depth: Dict[int, Dict[Any, Dict[str, Any]]] = {}
+    current_branch_at_depth: Dict[int, int] = {}
+    for row in all_rows:
+        depth = int(row.get("depth") or 0)
+        # Reset deeper buckets when we move back to a shallower depth
+        for d in list(last_seen_at_depth.keys()):
+            if d > depth:
+                last_seen_at_depth.pop(d, None)
+                current_branch_at_depth.pop(d, None)
+        bucket = last_seen_at_depth.setdefault(depth, {})
+        order_key = row.get("order")
+        if order_key in bucket:
+            warnings.append(
+                {
+                    "code": "DUPLICATE_SIBLING_ORDER",
+                    "severity": "medium",
+                    "order": order_key,
+                    "ui_id": row.get("ui_id"),
+                    "message": (
+                        f"Duplicate order={order_key} at depth={depth} — "
+                        "execution sequence is ambiguous."
+                    ),
+                }
+            )
+        else:
+            bucket[order_key] = row
+
+    for row in all_rows:
+        kind = row.get("kind")
+        order = row.get("order", "")
+        ui_id = row.get("ui_id")
+        if kind == "LOGIC":
+            type_lower = (row.get("type") or "").lower()
+            if type_lower in {"if", "else_if", "elseif", "while"} and not row.get("condition"):
+                warnings.append(
+                    {
+                        "code": "EMPTY_LOGIC_CONDITION",
+                        "severity": "high",
+                        "order": order,
+                        "ui_id": ui_id,
+                        "message": (
+                            f"{row.get('type')} branch has no condition — "
+                            "always evaluates to default."
+                        ),
+                    }
+                )
+        elif kind == "ACTION":
+            type_name = (row.get("type") or "").lower()
+            inputs = row.get("inputs") or {}
+            if type_name == "ask for approval":
+                approval = inputs.get("approval_conditions") or inputs.get("approvers")
+                if not approval:
+                    warnings.append(
+                        {
+                            "code": "EMPTY_APPROVAL_CONDITIONS",
+                            "severity": "critical",
+                            "order": order,
+                            "ui_id": ui_id,
+                            "message": (
+                                "Ask For Approval has no approver pill — "
+                                "approval will fail at runtime."
+                            ),
+                        }
+                    )
+            elif type_name == "update record":
+                if not inputs.get("record") and not inputs.get("table_name"):
+                    warnings.append(
+                        {
+                            "code": "UPDATE_RECORD_NO_TARGET",
+                            "severity": "high",
+                            "order": order,
+                            "ui_id": ui_id,
+                            "message": "Update Record has no record/table_name input.",
+                        }
+                    )
+                if not inputs.get("values") and not inputs.get("fields_values"):
+                    warnings.append(
+                        {
+                            "code": "UPDATE_RECORD_NO_VALUES",
+                            "severity": "medium",
+                            "order": order,
+                            "ui_id": ui_id,
+                            "message": "Update Record has no values to set.",
+                        }
+                    )
+        if "_orphan_missing_parent" in row:
+            warnings.append(
+                {
+                    "code": "ORPHAN_NODE",
+                    "severity": "high",
+                    "order": order,
+                    "ui_id": ui_id,
+                    "message": (
+                        f"Node references missing parent "
+                        f"{row['_orphan_missing_parent']} — likely deleted."
+                    ),
+                }
+            )
+
+    if deleted_logic:
+        warnings.append(
+            {
+                "code": "DELETED_LOGIC_PRESENT",
+                "severity": "low",
+                "count": len(deleted_logic),
+                "message": (
+                    f"{len(deleted_logic)} deleted_flow_logic_instances entries "
+                    "exist — verify they are not still referenced."
+                ),
+            }
+        )
+    return warnings
+
+
+def _build_summary_index(
+    tree: List[Dict[str, Any]],
+    orphans: List[Dict[str, Any]],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Navigator index — quick lookup for approvals, state changes, subflows, branches."""
+    approvals: List[Dict[str, Any]] = []
+    state_changes: List[Dict[str, Any]] = []
+    subflow_calls: List[Dict[str, Any]] = []
+    branch_conditions: List[Dict[str, Any]] = []
+
+    for row in tree + orphans:
+        kind = row.get("kind")
+        order = row.get("order", "")
+        ui_id = row.get("ui_id")
+        depth = row.get("depth", 0)
+        if kind == "ACTION":
+            type_name = (row.get("type") or "").lower()
+            inputs = row.get("inputs") or {}
+            if type_name == "ask for approval":
+                approvals.append(
+                    {
+                        "order": order,
+                        "ui_id": ui_id,
+                        "depth": depth,
+                        "name": row.get("name", ""),
+                        "approval_conditions": inputs.get("approval_conditions", ""),
+                        "approvers": inputs.get("approvers", ""),
+                        "due_date": inputs.get("due_date", ""),
+                        "wait_for_completion": inputs.get("wait_for_completion", ""),
+                    }
+                )
+            elif type_name == "update record":
+                state_changes.append(
+                    {
+                        "order": order,
+                        "ui_id": ui_id,
+                        "depth": depth,
+                        "name": row.get("name", ""),
+                        "record": inputs.get("record", ""),
+                        "table_name": inputs.get("table_name", ""),
+                        "values": inputs.get("values", "") or inputs.get("fields_values", ""),
+                    }
+                )
+        elif kind == "SUBFLOW":
+            subflow_calls.append(
+                {
+                    "order": order,
+                    "ui_id": ui_id,
+                    "depth": depth,
+                    "name": row.get("name", ""),
+                    "subflow_sys_id": row.get("subflow_sys_id", ""),
+                    "subflow_internal_name": row.get("subflow_internal_name", ""),
+                    "subflow_scope": row.get("subflow_scope", ""),
+                }
+            )
+        elif kind == "LOGIC" and row.get("condition"):
+            branch_conditions.append(
+                {
+                    "order": order,
+                    "ui_id": ui_id,
+                    "depth": depth,
+                    "type": row.get("type", ""),
+                    "label": row.get("label", ""),
+                    "condition": row.get("condition", ""),
+                }
+            )
+    return {
+        "approvals": approvals,
+        "state_changes": state_changes,
+        "subflow_calls": subflow_calls,
+        "branch_conditions": branch_conditions,
+    }
+
+
+def _build_flow_summary(structure: Dict[str, Any]) -> Dict[str, Any]:
+    """Flat tree summary (depth + full conditions) for analysis use cases.
+
+    Works on processflow-shape structure (actions/logic/subflows with parent_ui_id).
+    Conditions and input values are preserved verbatim (no truncation).
+
+    Correctness guarantees:
+    - Every input node with a ui_id appears exactly once in `tree` or `orphans`.
+    - Nodes with no ui_id are reported in `dropped_no_ui_id` (never silently lost).
+    - A child whose parent_ui_id is unknown becomes an orphan-root, marked with
+      `_orphan_missing_parent`; its descendants keep their normal (non-marked) rows.
+    - Duplicate ui_id and cycles raise FlowSummaryIntegrityError instead of
+      producing partial output.
+    - `integrity.input_total_with_ui_id == len(tree) + len(orphans)` always holds.
+    """
+    actions = structure.get("actions", []) or []
+    logic = structure.get("logic", []) or []
+    subflows = structure.get("subflows", []) or []
+    deleted_logic = structure.get("deleted_flow_logic_instances", []) or []
+
+    nodes_by_ui: Dict[str, Dict[str, Any]] = {}
+    duplicate_ui_ids: List[str] = []
+    dropped_no_ui_id: List[Dict[str, Any]] = []
+
+    def _ingest(items: List[Dict[str, Any]], kind: str) -> None:
+        for item in items:
+            ui = item.get("ui_id") or ""
+            if not ui:
+                dropped_no_ui_id.append(
+                    {
+                        "kind": kind,
+                        "order": item.get("order", ""),
+                        "name": item.get("name")
+                        or item.get("logic_name")
+                        or item.get("subflow_name")
+                        or "",
+                    }
+                )
+                continue
+            if ui in nodes_by_ui:
+                duplicate_ui_ids.append(ui)
+                continue
+            nodes_by_ui[ui] = {**item, "_kind": kind}
+
+    _ingest(actions, "ACTION")
+    _ingest(logic, "LOGIC")
+    _ingest(subflows, "SUBFLOW")
+
+    if duplicate_ui_ids:
+        raise FlowSummaryIntegrityError(
+            f"duplicate ui_id(s) across actions/logic/subflows: {duplicate_ui_ids[:5]}"
+        )
+
+    children_by_parent: Dict[str, List[str]] = {}
+    for ui, node in nodes_by_ui.items():
+        parent = node.get("parent_ui_id") or ""
+        children_by_parent.setdefault(parent, []).append(ui)
+    for siblings in children_by_parent.values():
+        siblings.sort(key=lambda u: _safe_int(nodes_by_ui[u].get("order")))
+
+    def _row(ui: str, depth: int) -> Dict[str, Any]:
+        node = nodes_by_ui[ui]
+        kind = node["_kind"]
+        if kind == "LOGIC":
+            return _build_logic_row(node, ui, depth)
+        if kind == "SUBFLOW":
+            return _build_subflow_row(node, ui, depth)
+        return _build_action_row(node, ui, depth)
+
+    visited: set = set()
+
+    def _walk(ui: str, depth: int, path: List[str], dest: List[Dict[str, Any]]) -> None:
+        if ui in path:
+            raise FlowSummaryIntegrityError(f"cycle detected: {' -> '.join(path + [ui])}")
+        visited.add(ui)
+        dest.append(_row(ui, depth))
+        next_path = path + [ui]
+        for child_ui in children_by_parent.get(ui, []):
+            _walk(child_ui, depth + 1, next_path, dest)
+
+    tree: List[Dict[str, Any]] = []
+    for root_ui in children_by_parent.get("", []):
+        _walk(root_ui, 0, [], tree)
+
+    orphans: List[Dict[str, Any]] = []
+    orphan_roots = sorted(
+        (
+            ui
+            for ui, node in nodes_by_ui.items()
+            if (node.get("parent_ui_id") or "") not in {"", *nodes_by_ui.keys()}
+            and ui not in visited
+        ),
+        key=lambda u: _safe_int(nodes_by_ui[u].get("order")),
+    )
+    for orphan_ui in orphan_roots:
+        before = len(orphans)
+        _walk(orphan_ui, 0, [], orphans)
+        orphans[before]["_orphan_missing_parent"] = nodes_by_ui[orphan_ui].get("parent_ui_id") or ""
+
+    unreachable = [ui for ui in nodes_by_ui if ui not in visited]
+    if unreachable:
+        raise FlowSummaryIntegrityError(
+            f"{len(unreachable)} node(s) unreachable from any root: {unreachable[:5]}"
+        )
+
+    warnings = _detect_flow_warnings(tree, orphans, deleted_logic)
+    index = _build_summary_index(tree, orphans)
+
+    summary: Dict[str, Any] = {
+        "tree": tree,
+        "summary_index": index,
+        "warnings": warnings,
+        "counts": {
+            "actions": len(actions),
+            "logic": len(logic),
+            "subflows": len(subflows),
+            "deleted_flow_logic_instances": len(deleted_logic),
+            "approvals": len(index["approvals"]),
+            "state_changes": len(index["state_changes"]),
+            "subflow_calls": len(index["subflow_calls"]),
+            "branch_conditions": len(index["branch_conditions"]),
+        },
+        "integrity": {
+            "input_total_with_ui_id": len(nodes_by_ui),
+            "tree_nodes": len(tree),
+            "orphan_nodes": len(orphans),
+            "dropped_no_ui_id": len(dropped_no_ui_id),
+        },
+    }
+    if orphans:
+        summary["orphans"] = orphans
+    if dropped_no_ui_id:
+        summary["dropped_no_ui_id"] = dropped_no_ui_id
+    if deleted_logic:
+        # Surface deleted-but-still-referenced logic so analyzers don't miss
+        # silent dependencies. Keep raw entries — they may explain orphan parents.
+        summary["deleted_flow_logic_instances"] = deleted_logic
+    summary["tree_text"] = _render_tree_text(tree, orphans, warnings, index)
+    return summary
 
 
 def _trace_pill_usage(flow_data: Dict[str, Any], pill: str) -> Dict[str, Any]:
@@ -644,7 +1212,7 @@ def list_flows(
 @register_tool(
     name="get_flow_designer_detail",
     params=GetFlowDetailsParams,
-    description="Get Flow Designer workflow structure, triggers, executions. Entry point for modern workflow analysis.",
+    description="Get Flow Designer workflow detail. Use summary_format=True for analysis-friendly tree+warnings+index.",
     serialization="json",
     return_type=dict,
 )
@@ -689,7 +1257,9 @@ def get_flow_details(
                     },
                 }
                 if params.include_structure:
-                    result["structure"] = detail
+                    result["structure"] = (
+                        _build_flow_summary(detail) if params.summary_format else detail
+                    )
                 if params.include_triggers:
                     result["triggers"] = detail["triggers"]
                 if params.include_executions_summary:
@@ -735,7 +1305,10 @@ def get_flow_details(
 
         if params.include_structure:
             structure = _fetch_flow_structure(config, auth_manager, flow_id)
-            result["structure"] = structure
+            if params.summary_format and structure.get("success") and "actions" in structure:
+                result["structure"] = _build_flow_summary(structure)
+            else:
+                result["structure"] = structure
             if not structure.get("success"):
                 result["structure_error"] = structure.get("error", "unknown")
 
