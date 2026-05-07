@@ -188,7 +188,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         "lookup_fields": ["sys_id", "name"],
     },
     "client_script": {
-        "table": "sys_client_script",
+        "table": "sys_script_client",
         "identifier_field": "name",
         "summary_fields": [
             "sys_id",
