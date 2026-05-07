@@ -47,7 +47,7 @@ ENTRY_CATEGORY_MAP: Dict[str, str] = {
     "m2m_sp_ng_pro_sp_widget": "m2m_dependency",
     "sys_script_include": "script_include",
     "sys_script": "business_rule",
-    "sys_client_script": "client_script",
+    "sys_script_client": "client_script",
     "sys_ui_action": "ui_action",
     "sys_ui_page": "ui_page",
     "sys_ui_script": "ui_script",
