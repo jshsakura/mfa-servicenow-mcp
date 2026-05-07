@@ -102,7 +102,7 @@ temp/<instance>/<scope>/
   sp_angular_provider/ ← download_portal_sources
   sys_script_include/  ← download_script_includes
   sys_script/          ← download_server_scripts (BR)
-  sys_client_script/   ← download_server_scripts
+  sys_script_client/   ← download_server_scripts
   sys_ui_action/       ← download_ui_components
   sys_ws_operation/    ← download_api_sources
   sys_security_acl/    ← download_security_sources

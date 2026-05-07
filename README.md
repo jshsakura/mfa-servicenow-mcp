@@ -89,7 +89,7 @@ After setup, **restart your AI client** (or reload MCP servers) to load the new 
 |--------------|------------|:---:|:---:|:---:|
 | Script Include | `sys_script_include` | ✅ | ✅ | 🛡️ |
 | Business Rule | `sys_script` | ✅ | ✅ | 🛡️ |
-| Client Script | `sys_client_script` | ✅ | ✅ | 🛡️ |
+| Client Script | `sys_script_client` | ✅ | ✅ | 🛡️ |
 | Catalog Client Script | `catalog_script_client` | ✅ | ⬜ | ⬜ |
 | UI Action | `sys_ui_action` | ✅ | ✅ | 🛡️ |
 | UI Script | `sys_ui_script` | ✅ | ✅ | 🛡️ |
