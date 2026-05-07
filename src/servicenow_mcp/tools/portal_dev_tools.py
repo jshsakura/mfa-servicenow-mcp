@@ -64,7 +64,7 @@ PORTAL_DEV_TABLES: Dict[str, Dict[str, Any]] = {
         "fields": "sys_id,name,collection,sys_scope,sys_updated_on,sys_updated_by,active,when",
     },
     "client_script": {
-        "table": "sys_client_script",
+        "table": "sys_script_client",
         "label": "Client Script",
         "fields": "sys_id,name,table,type,ui_type,sys_scope,sys_updated_on,sys_updated_by,active",
     },
@@ -839,7 +839,7 @@ _SUMMARY_SOURCE_FIELDS: Dict[str, Dict[str, Any]] = {
         "source_fields": ["script"],
     },
     "client_script": {
-        "table": "sys_client_script",
+        "table": "sys_script_client",
         "label": "Client Script",
         "name_field": "name",
         "meta_fields": "sys_id,name,table,type,sys_scope,sys_updated_on",

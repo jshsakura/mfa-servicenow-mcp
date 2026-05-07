@@ -31,7 +31,7 @@ You are reviewing server-side code for issues.
 IF searching for a pattern:
   1. CALL search_server_code
      - query = INPUT_PATTERN (e.g., "eval(")
-     - tables = ["sys_script", "sys_script_include", "sys_client_script", "sys_ui_action"]
+     - tables = ["sys_script", "sys_script_include", "sys_script_client", "sys_ui_action"]
      - scope = INPUT_SCOPE
      - max_results = 50
   2. FOR EACH match with high-risk pattern:
