@@ -626,22 +626,22 @@ class TestExecutionOrderAdvanced:
     def test_client_script_grouped(self, tmp_path):
         root = tmp_path / "scope"
         _write(
-            root / "sys_client_script" / "CS1" / "_metadata.json",
+            root / "sys_script_client" / "CS1" / "_metadata.json",
             {
                 "source_type": "client_script",
-                "table": "sys_client_script",
+                "table": "sys_script_client",
                 "sys_id": "cs-1",
                 "name": "CS1",
                 "active": "true",
                 "collection": "incident",
             },
         )
-        _write(root / "sys_client_script" / "CS1" / "script.js", "// cs\n")
+        _write(root / "sys_script_client" / "CS1" / "script.js", "// cs\n")
         index = _scan_source_index(root)
         exec_order = _build_execution_order(index)
-        # table_field uses entry["table"] for non-BR, so "sys_client_script"
-        assert "sys_client_script" in exec_order
-        assert len(exec_order["sys_client_script"]["client_scripts"]) == 1
+        # table_field uses entry["table"] for non-BR, so "sys_script_client"
+        assert "sys_script_client" in exec_order
+        assert len(exec_order["sys_script_client"]["client_scripts"]) == 1
 
     def test_catalog_client_script_grouped(self, tmp_path):
         root = tmp_path / "scope"
@@ -922,17 +922,17 @@ class TestDomainKnowledgeAdvanced:
         """Client scripts appear in table profiles section (line 1023)."""
         root = tmp_path / "scope"
         _write(
-            root / "sys_client_script" / "CS1" / "_metadata.json",
+            root / "sys_script_client" / "CS1" / "_metadata.json",
             {
                 "source_type": "client_script",
-                "table": "sys_client_script",
+                "table": "sys_script_client",
                 "sys_id": "cs-1",
                 "name": "CS1",
                 "active": "true",
                 "collection": "incident",
             },
         )
-        _write(root / "sys_client_script" / "CS1" / "script.js", "// cs\n")
+        _write(root / "sys_script_client" / "CS1" / "script.js", "// cs\n")
         index = _scan_source_index(root)
         xrefs = _build_cross_references(root, index)
         exec_order = _build_execution_order(index)
