@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 _SESSION_POOL_SIZE = 20  # Max connections per host (default urllib3 is 10)
 _SESSION_MAX_RETRIES_CONNECT = 0  # Connection-level retries handled by make_request
 
+# Bounded retries for capturing window.g_ck after the post-login navigation.
+# Module-level constants so tests can monkeypatch them down to keep the
+# polling loop fast under mocked time.sleep. See _login_with_browser_sync.
+GCK_CAPTURE_MAX_ATTEMPTS = 8
+GCK_CAPTURE_INTERVAL_SECONDS = 1.0
+
 
 def _build_http_session() -> requests.Session:
     """Create a ``requests.Session`` with connection-pooling tuned for
@@ -322,6 +328,34 @@ def _response_indicates_authenticated_session(response: requests.Response) -> bo
         "<title>log in",
     ]
     return not any(marker in body for marker in unauthenticated_markers)
+
+
+def _response_redirected_through_logout(response: requests.Response) -> bool:
+    """Return True if the response chain passed through ServiceNow logout.
+
+    ``requests`` follows 302→/logout_success.do silently and surfaces the
+    logout HTML with status 200, masking a torn-down session. v1.11.44 uses
+    this signal as the runtime self-heal trigger: treat the response as a
+    session-died 401 instead of a success.
+    """
+    try:
+        for hop in response.history or ():
+            location = (hop.headers.get("Location") or "").lower()
+            if (
+                "logout_success" in location
+                or "/logout.do" in location
+                or location.startswith("/logout?")
+            ):
+                return True
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        final_url = (getattr(response, "url", "") or "").lower()
+        if "logout_success" in final_url:
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
 
 
 def _response_confirms_browser_probe_session(response: requests.Response) -> bool:
@@ -2565,12 +2599,44 @@ class AuthManager:
                     confirmed_reason = "non_login_url_stable"
 
                 if confirmed_reason is not None:
-                    try:
-                        g_ck = page.evaluate("window.g_ck")
-                    except Exception:  # noqa: BLE001
-                        g_ck = None
-                    if g_ck and isinstance(g_ck, str) and g_ck.strip():
-                        self._browser_session_token = g_ck.strip()
+                    # Bounded g_ck capture retries. Without X-UserToken (g_ck),
+                    # the first call against a protected-field path (e.g.
+                    # sp_widget.client_script) 302s to /logout_success.do and
+                    # the just-saved session becomes a permanent 401 loop —
+                    # the v1.11.43 outage. v1.11.44 polls window.g_ck (and
+                    # iframes) for several attempts because the token is
+                    # often set by an inline script that runs a beat after
+                    # the post-login navigation settles, and on some SSO
+                    # bounces only inside an iframe.
+                    captured_gck = ""
+                    for _gck_attempt in range(GCK_CAPTURE_MAX_ATTEMPTS):
+                        try:
+                            evald = page.evaluate("window.g_ck")
+                            if evald and isinstance(evald, str) and evald.strip():
+                                captured_gck = evald.strip()
+                        except Exception:  # noqa: BLE001
+                            captured_gck = ""
+                        if not captured_gck:
+                            try:
+                                frames_iter = page.frames
+                            except Exception:  # noqa: BLE001
+                                frames_iter = []
+                            try:
+                                for fr in frames_iter or []:
+                                    try:
+                                        fr_gck = fr.evaluate("window.g_ck")
+                                    except Exception:  # noqa: BLE001
+                                        continue
+                                    if fr_gck and isinstance(fr_gck, str) and fr_gck.strip():
+                                        captured_gck = fr_gck.strip()
+                                        break
+                            except TypeError:
+                                pass
+                        if captured_gck:
+                            break
+                        time.sleep(GCK_CAPTURE_INTERVAL_SECONDS)
+                    if captured_gck:
+                        self._browser_session_token = captured_gck
                     logger.info(
                         "Browser auth confirmed: reason=%s url=%s stable_ticks=%s "
                         "g_ck_present=%s",
@@ -2579,6 +2645,15 @@ class AuthManager:
                         stable_instance_ticks,
                         bool(self._browser_session_token),
                     )
+                    if not self._browser_session_token:
+                        logger.warning(
+                            "Browser auth confirmed without X-UserToken (g_ck) after "
+                            "%d attempts. Protected-field reads (e.g. sp_widget.client_script) "
+                            "may trigger 302→/logout_success.do and a permanent 401 loop. "
+                            "If the very first real call 401s, delete the persistent "
+                            "Chromium profile and retry login.",
+                            GCK_CAPTURE_MAX_ATTEMPTS,
+                        )
                     login_confirmed = True
                     break
 
@@ -2598,10 +2673,16 @@ class AuthManager:
                 )
 
             # Capture from full context for the same reason as in the polling loop.
-            try:
-                self._browser_session_token = page.evaluate("window.g_ck")
-            except Exception:
-                self._browser_session_token = None
+            # If the polling loop already captured a token (possibly from an
+            # iframe), keep it — re-running page.evaluate here can return
+            # None on a transient page state and would clobber the value.
+            if not (self._browser_session_token or "").strip():
+                try:
+                    fallback_gck = page.evaluate("window.g_ck")
+                except Exception:  # noqa: BLE001
+                    fallback_gck = None
+                if fallback_gck and isinstance(fallback_gck, str) and fallback_gck.strip():
+                    self._browser_session_token = fallback_gck.strip()
             cookies = context.cookies()
             if not cookies:
                 _safe_close_context()
@@ -2895,6 +2976,29 @@ class AuthManager:
             response.status_code,
             elapsed_ms,
         )
+
+        # Self-heal: detect 302→/logout_success.do that requests followed
+        # silently. The v1.11.43 outage signature was a doomed call
+        # (protected-field read without a valid X-UserToken) reaching the
+        # logout page — request returns 200 + logout HTML, which would
+        # otherwise be misclassified as success here OR trapped in the
+        # grace-period 401 retry loop on the very next call. Convert it
+        # into the 401 recovery path so re-auth runs immediately.
+        if (
+            self.config.type == AuthType.BROWSER
+            and self._browser_cookie_header
+            and _response_redirected_through_logout(response)
+        ):
+            logger.warning(
+                "Self-heal: response %s %s passed through /logout_success.do — "
+                "session torn down server-side. Forcing invalidation regardless "
+                "of post-login grace period.",
+                method_upper,
+                url,
+            )
+            self._browser_last_login_at = None
+            self.invalidate_browser_session()
+            response.status_code = 401
 
         if (
             self.config.type == AuthType.BROWSER
