@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from servicenow_mcp.cli import _ensure_playwright_browser, arun_server, main
+from servicenow_mcp.cli import _ensure_playwright_browser, _start_parent_watchdog, arun_server, main
 
 
 def _install_playwright_mock():
@@ -150,3 +150,25 @@ class TestMainUninstallAndError:
             with pytest.raises(SystemExit) as exc_info:
                 main()
         assert exc_info.value.code == 1
+
+
+class TestParentWatchdog:
+    """Defends against ghost MCP servers when the host (Claude Code, Codex)
+    dies abruptly without dropping our stdio pipes."""
+
+    def test_skips_when_already_orphaned(self):
+        """ppid <= 1 means we're already detached — nothing to watch."""
+        with patch("servicenow_mcp.cli.os.getppid", return_value=1):
+            with patch("servicenow_mcp.cli.threading.Thread") as mock_thread:
+                _start_parent_watchdog()
+        mock_thread.assert_not_called()
+
+    def test_starts_daemon_thread_when_parented(self):
+        with patch("servicenow_mcp.cli.os.getppid", return_value=12345):
+            with patch("servicenow_mcp.cli.threading.Thread") as mock_thread:
+                _start_parent_watchdog()
+        mock_thread.assert_called_once()
+        kwargs = mock_thread.call_args.kwargs
+        assert kwargs.get("daemon") is True
+        assert kwargs.get("name") == "parent-watchdog"
+        mock_thread.return_value.start.assert_called_once()

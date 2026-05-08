@@ -451,3 +451,122 @@ class TestReloadSessionFromDisk:
 
         assert mgr._reload_session_from_disk() is True
         assert mgr._browser_cookie_header == "reloaded=cookie"
+
+
+class TestCleanupStaleSiblingFiles:
+    """Cross-instance startup sweep — defends against the infinite-login state
+    caused by stale lock/session files from prior crashed runs."""
+
+    def test_removes_lock_with_dead_pid(self, tmp_path):
+        mgr = _make_browser_manager()
+        mgr._session_cache_path = str(tmp_path / "session_active.json")
+        mgr._login_lock_path = str(tmp_path / "session_active.lock")
+
+        sibling_lock = tmp_path / "session_other.lock"
+        with open(sibling_lock, "w") as f:
+            json.dump({"pid": 999_999, "timestamp": time.time()}, f)
+
+        with patch.object(mgr, "_get_cache_dir", return_value=str(tmp_path)):
+            mgr._cleanup_stale_sibling_files()
+        assert not sibling_lock.exists()
+
+    def test_keeps_lock_with_alive_pid(self, tmp_path):
+        """Critical: a peer terminal mid-MFA must not have its lock killed."""
+        mgr = _make_browser_manager()
+        mgr._session_cache_path = str(tmp_path / "session_active.json")
+        mgr._login_lock_path = str(tmp_path / "session_active.lock")
+
+        peer_lock = tmp_path / "session_peer.lock"
+        with open(peer_lock, "w") as f:
+            json.dump({"pid": os.getpid(), "timestamp": time.time()}, f)
+
+        with patch.object(mgr, "_get_cache_dir", return_value=str(tmp_path)):
+            mgr._cleanup_stale_sibling_files()
+        assert peer_lock.exists()
+
+    def test_keeps_old_lock_with_alive_pid(self, tmp_path):
+        """Long-running login (slow MFA, debug mode) must survive sweep."""
+        mgr = _make_browser_manager()
+        mgr._session_cache_path = str(tmp_path / "session_active.json")
+        mgr._login_lock_path = str(tmp_path / "session_active.lock")
+
+        peer_lock = tmp_path / "session_peer.lock"
+        with open(peer_lock, "w") as f:
+            json.dump({"pid": os.getpid(), "timestamp": time.time() - 3600}, f)
+
+        with patch.object(mgr, "_get_cache_dir", return_value=str(tmp_path)):
+            mgr._cleanup_stale_sibling_files()
+        assert peer_lock.exists(), "old-but-alive lock must NOT be swept"
+
+    def test_removes_corrupt_lock(self, tmp_path):
+        mgr = _make_browser_manager()
+        mgr._session_cache_path = str(tmp_path / "session_active.json")
+        mgr._login_lock_path = str(tmp_path / "session_active.lock")
+
+        bad = tmp_path / "session_bad.lock"
+        bad.write_text("not json {")
+        with patch.object(mgr, "_get_cache_dir", return_value=str(tmp_path)):
+            mgr._cleanup_stale_sibling_files()
+        assert not bad.exists()
+
+    def test_removes_expired_sibling_session(self, tmp_path):
+        mgr = _make_browser_manager()
+        mgr._session_cache_path = str(tmp_path / "session_active.json")
+        mgr._login_lock_path = str(tmp_path / "session_active.lock")
+
+        old = tmp_path / "session_old.json"
+        with open(old, "w") as f:
+            json.dump({"expires_at": time.time() - 1000}, f)
+
+        with patch.object(mgr, "_get_cache_dir", return_value=str(tmp_path)):
+            mgr._cleanup_stale_sibling_files()
+        assert not old.exists()
+
+    def test_keeps_active_session_even_if_expired(self, tmp_path):
+        """The active instance's session file is owned by _load_session_from_disk."""
+        mgr = _make_browser_manager()
+        mgr._session_cache_path = str(tmp_path / "session_active.json")
+        mgr._login_lock_path = str(tmp_path / "session_active.lock")
+
+        with open(mgr._session_cache_path, "w") as f:
+            json.dump({"expires_at": time.time() - 1000}, f)
+
+        with patch.object(mgr, "_get_cache_dir", return_value=str(tmp_path)):
+            mgr._cleanup_stale_sibling_files()
+        assert os.path.exists(mgr._session_cache_path)
+
+    def test_keeps_unexpired_sibling_session(self, tmp_path):
+        mgr = _make_browser_manager()
+        mgr._session_cache_path = str(tmp_path / "session_active.json")
+        mgr._login_lock_path = str(tmp_path / "session_active.lock")
+
+        good = tmp_path / "session_other.json"
+        with open(good, "w") as f:
+            json.dump({"expires_at": time.time() + 1000}, f)
+
+        with patch.object(mgr, "_get_cache_dir", return_value=str(tmp_path)):
+            mgr._cleanup_stale_sibling_files()
+        assert good.exists()
+
+    def test_ignores_unrelated_files(self, tmp_path):
+        mgr = _make_browser_manager()
+        mgr._session_cache_path = str(tmp_path / "session_active.json")
+        mgr._login_lock_path = str(tmp_path / "session_active.lock")
+
+        unrelated = tmp_path / "profile_dir"
+        unrelated.mkdir()
+        readme = tmp_path / "README.txt"
+        readme.write_text("hi")
+
+        with patch.object(mgr, "_get_cache_dir", return_value=str(tmp_path)):
+            mgr._cleanup_stale_sibling_files()
+        assert unrelated.exists()
+        assert readme.exists()
+
+    def test_handles_missing_cache_dir(self, tmp_path):
+        mgr = _make_browser_manager()
+        mgr._session_cache_path = str(tmp_path / "session_active.json")
+        mgr._login_lock_path = str(tmp_path / "session_active.lock")
+
+        with patch.object(mgr, "_get_cache_dir", return_value=str(tmp_path / "does_not_exist")):
+            mgr._cleanup_stale_sibling_files()  # Must not raise.
