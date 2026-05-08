@@ -1815,7 +1815,18 @@ class AuthManager:
         if self.instance_url:
             probe_headers["Referer"] = self.instance_url.rstrip("/") + "/"
         probe_cookies = _cookie_header_to_dict(cookie_header)
-        return self._http_session.get(
+        # Diagnostic log — without this, post-login 302 loops are nearly
+        # impossible to debug from logs alone (we can't tell whether cookie
+        # capture lost a required cookie like `factor`, whether g_ck was
+        # captured, or whether the server redirected us somewhere unexpected).
+        logger.debug(
+            "Browser probe outgoing: url=%s cookies=%s x_usertoken=%s referer=%s",
+            probe_url,
+            ",".join(sorted(probe_cookies.keys())),
+            "set" if probe_headers.get("X-UserToken") else "MISSING",
+            probe_headers.get("Referer", ""),
+        )
+        response = self._http_session.get(
             probe_url,
             params=probe_params,
             headers=probe_headers,
@@ -1823,6 +1834,20 @@ class AuthManager:
             timeout=timeout_seconds,
             allow_redirects=False,
         )
+        # Capture redirect Location on non-success — the exact destination
+        # tells us why ServiceNow refused the cookies (login.do vs
+        # logout_success.do vs anywhere else).
+        try:
+            status = int(response.status_code)
+        except (TypeError, ValueError):
+            status = 0
+        if 300 <= status < 400:
+            logger.debug(
+                "Browser probe redirected: status=%s location=%s",
+                response.status_code,
+                response.headers.get("Location", ""),
+            )
+        return response
 
     def _try_restore_browser_session(self, browser_config: BrowserAuthConfig) -> bool:
         if not self.instance_url:
@@ -2646,12 +2671,24 @@ class AuthManager:
             assert final_probe is not None  # narrow type after the loop
             if not _response_confirms_browser_probe_session(final_probe):
                 self.invalidate_browser_session()
-                # Include more detail for debugging auth failures
+                # Include more detail for debugging auth failures.
+                # `Location` is the decisive clue when status is 302/3xx —
+                # it tells us exactly where the server thinks the session
+                # belongs (e.g. /login.do means cookies aren't trusted;
+                # /logout_success.do means the server already terminated us).
+                # `_browser_session_token` (g_ck/X-UserToken) presence is
+                # logged separately so we can tell cookie loss apart from
+                # token loss when the redirect points at login.
                 probe_url = final_probe.url
                 probe_text = final_probe.text[:200]
+                probe_location = final_probe.headers.get("Location", "")
+                cookie_names = ",".join(_extract_cookie_names(self._browser_cookie_header))
                 raise ValueError(
                     f"Browser login completed, but API auth is still unauthorized. "
-                    f"Status: {final_probe.status_code}, URL: {probe_url}, Response: {probe_text}"
+                    f"Status: {final_probe.status_code}, URL: {probe_url}, "
+                    f"Location: {probe_location}, "
+                    f"X-UserToken: {'set' if self._browser_session_token else 'MISSING'}, "
+                    f"cookies={cookie_names}, Response: {probe_text}"
                 )
             self._browser_last_validated_at = time.time()
             self._save_session_to_disk()
