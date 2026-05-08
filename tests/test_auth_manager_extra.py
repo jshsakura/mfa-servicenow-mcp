@@ -570,3 +570,65 @@ class TestCleanupStaleSiblingFiles:
 
         with patch.object(mgr, "_get_cache_dir", return_value=str(tmp_path / "does_not_exist")):
             mgr._cleanup_stale_sibling_files()  # Must not raise.
+
+
+class TestProbeCoalescing:
+    """Concurrent _has_reusable_browser_session calls must coalesce probes."""
+
+    def _prime_session(self, mgr: AuthManager) -> None:
+        mgr._browser_cookie_header = "JSESSIONID=abc"
+        mgr._browser_cookie_expires_at = time.time() + 3600
+        mgr._browser_last_validated_at = None
+        mgr._browser_last_login_at = None
+
+    def test_parallel_callers_run_probe_only_once(self):
+        import threading
+
+        mgr = _make_browser_manager()
+        self._prime_session(mgr)
+        cfg = mgr.config.browser
+        probe_calls = []
+        gate = threading.Event()
+
+        def fake_probe(_cfg):
+            probe_calls.append(time.time())
+            gate.wait(timeout=2)
+            mgr._browser_last_validated_at = time.time()
+            return True
+
+        results: list[bool] = []
+        threads: list[threading.Thread] = []
+
+        def worker():
+            results.append(mgr._has_reusable_browser_session(cfg))
+
+        with patch.object(mgr, "_is_browser_session_valid", side_effect=fake_probe):
+            for _ in range(5):
+                t = threading.Thread(target=worker)
+                threads.append(t)
+                t.start()
+            time.sleep(0.05)  # let all 5 reach the probe lock
+            gate.set()
+            for t in threads:
+                t.join(timeout=3)
+
+        assert all(results)
+        assert len(probe_calls) == 1, f"expected 1 probe, got {len(probe_calls)}"
+
+    def test_skips_lock_when_recently_validated(self):
+        mgr = _make_browser_manager()
+        self._prime_session(mgr)
+        mgr._browser_last_validated_at = time.time()  # fresh
+        cfg = mgr.config.browser
+
+        with patch.object(mgr, "_is_browser_session_valid") as probe:
+            assert mgr._has_reusable_browser_session(cfg) is True
+            probe.assert_not_called()
+
+    def test_failed_probe_returns_false(self):
+        mgr = _make_browser_manager()
+        self._prime_session(mgr)
+        cfg = mgr.config.browser
+
+        with patch.object(mgr, "_is_browser_session_valid", return_value=False):
+            assert mgr._has_reusable_browser_session(cfg) is False
