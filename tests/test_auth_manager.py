@@ -22,6 +22,7 @@ from servicenow_mcp.auth.auth_manager import (
     _is_login_page_url,
     _response_indicates_authenticated_session,
     _response_indicates_login_redirect,
+    _response_redirected_through_logout,
     _selector_exists,
     _target_label,
 )
@@ -280,6 +281,49 @@ class TestAuthenticatedSessionRedirectHistoryCheck:
         resp.history = []
         resp.text = '{"result": []}'
         assert _response_indicates_authenticated_session(resp) is True
+
+
+class TestResponseRedirectedThroughLogout:
+    """v1.11.44 self-heal helper: detect when a doomed call (e.g. protected-
+    field read without g_ck) was silently redirected to /logout_success.do
+    and ended up returning logout HTML with status 200.
+    """
+
+    @staticmethod
+    def _hop(location: str) -> MagicMock:
+        hop = MagicMock()
+        hop.headers = {"Location": location}
+        return hop
+
+    def test_logout_success_in_history(self):
+        resp = MagicMock()
+        resp.url = "https://x.com/logout_success.do"
+        resp.history = [self._hop("/logout_success.do")]
+        assert _response_redirected_through_logout(resp) is True
+
+    def test_logout_do_in_history(self):
+        resp = MagicMock()
+        resp.url = "https://x.com/logout_success.do"
+        resp.history = [self._hop("/logout.do")]
+        assert _response_redirected_through_logout(resp) is True
+
+    def test_clean_chain_returns_false(self):
+        resp = MagicMock()
+        resp.url = "https://x.com/api/now/table/sys_user"
+        resp.history = [self._hop("/api/now/v1/table/sys_user")]
+        assert _response_redirected_through_logout(resp) is False
+
+    def test_no_history_returns_false(self):
+        resp = MagicMock()
+        resp.url = "https://x.com/api/now/table/sys_user"
+        resp.history = []
+        assert _response_redirected_through_logout(resp) is False
+
+    def test_final_url_logout_success_caught(self):
+        resp = MagicMock()
+        resp.url = "https://x.com/logout_success.do"
+        resp.history = []
+        assert _response_redirected_through_logout(resp) is True
 
 
 class TestSelectorExists:
