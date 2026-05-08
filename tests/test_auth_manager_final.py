@@ -1143,6 +1143,79 @@ class TestLoginWithBrowserSync:
         assert mgr._browser_cookie_header is not None
         assert mgr._browser_session_token is None
 
+    def test_login_polls_for_g_ck_until_set(self):
+        """v1.11.44: window.g_ck is sometimes populated a tick or two after
+        post-login navigation. The bounded retry loop should pick it up
+        within GCK_CAPTURE_MAX_ATTEMPTS instead of giving up after one try."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(
+            timeout_seconds=10,
+            headless=True,
+            session_ttl_minutes=30,
+        )
+
+        mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks(g_ck=None)
+        mock_page.url = "https://example.service-now.com/now/nav/ui/classic"
+
+        # First two evaluate("window.g_ck") calls return None, third returns
+        # the real token. navigator.userAgent always answers immediately.
+        gck_calls = {"n": 0}
+
+        def _evaluate(expr):
+            if expr == "window.g_ck":
+                gck_calls["n"] += 1
+                if gck_calls["n"] >= 3:
+                    return "captured_after_polling"
+                return None
+            if expr == "navigator.userAgent":
+                return "TestAgent/1.0"
+            return None
+
+        mock_page.evaluate.side_effect = _evaluate
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=mock_probe):
+                with patch.object(mgr, "_save_session_to_disk"):
+                    with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                        mgr._login_with_browser_sync(browser_cfg, force_interactive=False)
+
+        assert mgr._browser_session_token == "captured_after_polling"
+        assert gck_calls["n"] >= 3
+
+    def test_login_captures_g_ck_from_iframe(self):
+        """v1.11.44: when window.g_ck is empty on the main page but set
+        inside an iframe (some SSO bounces stash it there), the polling
+        loop should pick it up via page.frames."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(
+            timeout_seconds=10,
+            headless=True,
+            session_ttl_minutes=30,
+        )
+
+        mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks(g_ck=None)
+        mock_page.url = "https://example.service-now.com/now/nav/ui/classic"
+
+        mock_iframe = MagicMock()
+        mock_iframe.evaluate.return_value = "iframe_token"
+        mock_page.frames = [mock_page, mock_iframe]
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=mock_probe):
+                with patch.object(mgr, "_save_session_to_disk"):
+                    with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                        mgr._login_with_browser_sync(browser_cfg, force_interactive=False)
+
+        assert mgr._browser_session_token == "iframe_token"
+
     def test_login_with_frames(self):
         """Login with iframe targets — fills in frames too."""
         mgr = _make_browser_manager()
