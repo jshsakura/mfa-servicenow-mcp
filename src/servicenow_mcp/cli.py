@@ -8,6 +8,8 @@ import logging
 import os
 import re
 import sys
+import threading
+import time
 import urllib.parse
 import urllib.request
 
@@ -409,10 +411,50 @@ def create_config(args) -> ServerConfig:
     )
 
 
+def _start_parent_watchdog() -> None:
+    """Exit when the parent process dies (defends against ghost MCP servers).
+
+    The MCP host (Claude Code, Codex, etc.) launches us with stdin/stdout
+    pipes. If the host crashes abruptly, the OS *should* close stdin and
+    we *should* exit cleanly — but in practice ghost servers accumulate
+    when the host dies in a way that doesn't drop the pipes (e.g. parent
+    forks, original parent dies, child holds the pipes open). One observed
+    incident left 16 zombie servicenow-mcp processes consuming memory and
+    holding locks across multiple Claude Code sessions.
+
+    This watchdog polls os.getppid() every 5 seconds. On both Linux and
+    macOS, when the original parent dies the kernel reparents the process
+    to PID 1 (init/launchd), so the ppid changes and we self-exit.
+    """
+    parent_pid = os.getppid()
+    if parent_pid <= 1:
+        return  # Already orphaned / running detached — nothing to watch.
+
+    def _watch() -> None:
+        while True:
+            time.sleep(5)
+            try:
+                current = os.getppid()
+            except Exception:
+                return
+            if current != parent_pid or current <= 1:
+                logger.info(
+                    "Parent process exited (was %d, now %d). Shutting down to "
+                    "avoid becoming a ghost server.",
+                    parent_pid,
+                    current,
+                )
+                os._exit(0)
+
+    thread = threading.Thread(target=_watch, daemon=True, name="parent-watchdog")
+    thread.start()
+
+
 async def arun_server(server_instance):
     """Runs the given MCP server instance using stdio transport."""
     from mcp.server.stdio import stdio_server
 
+    _start_parent_watchdog()
     logger.info("Starting server with stdio transport...")
     async with stdio_server() as streams:
         # Get initialization options from the low-level server
