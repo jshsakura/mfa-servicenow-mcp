@@ -467,6 +467,9 @@ class AuthManager:
         # `dirname(user_data_dir)`). The legacy file would otherwise hang
         # around forever and confuse the user ("why are there two of these?").
         self._cleanup_legacy_session_cache()
+        # Sweep stale lock/session files (real fix for infinite-login incident).
+        # See _cleanup_stale_sibling_files docstring for the two failure modes.
+        self._cleanup_stale_sibling_files()
         self._cached_basic_auth_header: Optional[str] = None
         self._session_disk_hash: Optional[int] = None  # Track disk content to skip redundant writes
         self._keepalive_consecutive_failures: int = 0  # Track consecutive keepalive failures
@@ -825,6 +828,101 @@ class AuthManager:
                     logger.info("Removed legacy session cache: %s", path)
             except Exception as exc:
                 logger.debug("Failed to remove legacy cache %s: %s", path, exc)
+
+    def _cleanup_stale_sibling_files(self) -> None:
+        """Remove stale lock/session files at startup (real bug fix, not cosmetic).
+
+        Two failure modes observed in the field cause infinite-login state:
+
+        1. **Cross-instance residue.** When the user switches instances
+           (e.g. testinstance → devinstance), the previous instance's `.lock` and
+           `session_*.json` files persist forever because each manager only
+           owns its own paths. A `.lock` whose holding process is long dead
+           or a session whose TTL expired weeks ago accumulates indefinitely.
+
+        2. **Own-instance crashed lock.** If a previous run of THIS instance
+           crashed mid-login (kill -9, OOM, panic), our own `.lock` file
+           lingers with a dead PID. `_acquire_login_lock` would normally
+           clean it up at the next login, but corrupt timestamps or PID
+           collisions can defeat that check, producing the observed
+           "Browser login is in progress in another terminal" loop.
+
+        Sweep at startup so neither case can poison subsequent behavior.
+        Active sessions (this instance's session_*.json) are left alone —
+        `_load_session_from_disk` is responsible for probing/discarding them.
+        """
+        cache_dir = self._get_cache_dir()
+        try:
+            entries = os.listdir(cache_dir)
+        except OSError:
+            return
+        active_session = os.path.abspath(self._session_cache_path)
+        now = time.time()
+        for name in entries:
+            path = os.path.join(cache_dir, name)
+            abs_path = os.path.abspath(path)
+            try:
+                if name.endswith(".lock"):
+                    # Sweep ALL lock files (own + sibling). Live login will
+                    # re-acquire its own lock; stale ones must not block.
+                    if self._is_lock_file_stale(path, now):
+                        os.remove(path)
+                        logger.info("Removed stale lock file at startup: %s", path)
+                elif name.startswith("session_") and name.endswith(".json"):
+                    # Don't touch the active session — disk-load probe owns it.
+                    if abs_path == active_session:
+                        continue
+                    if self._is_session_file_expired(path, now):
+                        os.remove(path)
+                        logger.info("Removed expired sibling session cache: %s", path)
+            except Exception as exc:
+                logger.debug("Failed to inspect/remove file %s: %s", path, exc)
+
+    @staticmethod
+    def _is_lock_file_stale(path: str, now: float) -> bool:
+        """Return True only if a lock's holding process is verifiably dead.
+
+        Deliberately conservative: timestamp age alone is NOT used here.
+        A peer terminal can legitimately hold a login lock for a long time
+        (slow MFA entry, debug mode with DevTools open up to 30 min, SSO
+        round-trip). Killing such a lock at our startup would let us open
+        a second browser window for the same login, producing the exact
+        chaos the lock exists to prevent.
+
+        The acceptable case is the one observed in the field: a previous
+        process crashed mid-login and its PID is now reused by something
+        unrelated or simply gone. Only that case is removed here.
+
+        ``now`` is unused but kept for signature symmetry with
+        ``_is_session_file_expired``.
+        """
+        del now  # intentional: see docstring
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except Exception:
+            return True  # Corrupt → safe to drop
+        lock_pid = data.get("pid")
+        if not isinstance(lock_pid, int) or lock_pid <= 0:
+            return True
+        try:
+            os.kill(lock_pid, 0)
+        except OSError:
+            return True
+        return False
+
+    @staticmethod
+    def _is_session_file_expired(path: str, now: float) -> bool:
+        """Return True if a session file's expires_at has passed."""
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except Exception:
+            return False  # Don't delete unreadable files we can't classify
+        expires_at = data.get("expires_at")
+        if not isinstance(expires_at, (int, float)):
+            return False
+        return now > expires_at
 
     def _delete_session_cache_file(self, reason: str) -> None:
         """Remove the on-disk session cache file. Used to garbage-collect cache
