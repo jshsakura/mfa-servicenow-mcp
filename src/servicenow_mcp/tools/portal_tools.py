@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
 from ..utils.config import ServerConfig
+from ..utils.download_map import merge_map_file
 from ..utils.registry import register_tool
 from .sn_api import (
     GenericQueryParams,
@@ -3189,7 +3190,12 @@ def download_portal_sources(
             scope_sys_ids[scope_label] = scope_value
         exported_widgets.append({"sys_id": sys_id, "id": widget_id, "name": widget_name})
 
-    _write_json_file(scope_root / "sp_widget" / "_map.json", widget_map)
+    merge_map_file(
+        scope_root / "sp_widget" / "_map.json",
+        widget_map,
+        writer=_write_json_file,
+        label="sp_widget",
+    )
     _now_iso = datetime.now(UTC).isoformat()
     _widget_sync_meta: Dict[str, Dict[str, str]] = {}
     for widget in widgets:
@@ -3200,7 +3206,12 @@ def download_portal_sources(
                 "sys_updated_on": str(widget.get("sys_updated_on") or ""),
                 "downloaded_at": _now_iso,
             }
-    _write_json_file(scope_root / "sp_widget" / "_sync_meta.json", _widget_sync_meta)
+    merge_map_file(
+        scope_root / "sp_widget" / "_sync_meta.json",
+        _widget_sync_meta,
+        writer=_write_json_file,
+        label="sp_widget_sync_meta",
+    )
 
     provider_map: Dict[str, str] = {}
     _provider_sync_meta: Dict[str, Dict[str, str]] = {}
@@ -3271,8 +3282,18 @@ def download_portal_sources(
                     }
                 exported_providers.append({"name": name, "sys_id": sys_id})
 
-    _write_json_file(scope_root / "sp_angular_provider" / "_map.json", provider_map)
-    _write_json_file(scope_root / "sp_angular_provider" / "_sync_meta.json", _provider_sync_meta)
+    merge_map_file(
+        scope_root / "sp_angular_provider" / "_map.json",
+        provider_map,
+        writer=_write_json_file,
+        label="sp_angular_provider",
+    )
+    merge_map_file(
+        scope_root / "sp_angular_provider" / "_sync_meta.json",
+        _provider_sync_meta,
+        writer=_write_json_file,
+        label="sp_angular_provider_sync_meta",
+    )
 
     si_map: Dict[str, str] = {}
     _si_sync_meta: Dict[str, Dict[str, str]] = {}
@@ -3307,8 +3328,18 @@ def download_portal_sources(
                 }
             )
 
-    _write_json_file(scope_root / "sys_script_include" / "_map.json", si_map)
-    _write_json_file(scope_root / "sys_script_include" / "_sync_meta.json", _si_sync_meta)
+    merge_map_file(
+        scope_root / "sys_script_include" / "_map.json",
+        si_map,
+        writer=_write_json_file,
+        label="sys_script_include",
+    )
+    merge_map_file(
+        scope_root / "sys_script_include" / "_sync_meta.json",
+        _si_sync_meta,
+        writer=_write_json_file,
+        label="sys_script_include_sync_meta",
+    )
     _write_json_file(root / "scopes.json", scope_sys_ids)
 
     return {
