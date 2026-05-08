@@ -452,6 +452,10 @@ class AuthManager:
         self._browser_reauth_failure_count = 0
         self._browser_login_in_progress = False  # True while browser window is open for MFA
         self._browser_login_lock = threading.Lock()  # Prevent concurrent browser login attempts
+        # Coalesce concurrent probes so N parallel tool calls trigger only 1
+        # session-validation round-trip instead of N. The leader probes; others
+        # wait, then re-check the validation timestamp and skip their own probe.
+        self._browser_probe_lock = threading.Lock()
         # When True, the next persistent-context launch must purge stale
         # session cookies from the Chromium profile before navigating to
         # login.do. Set by invalidate_browser_session() and also when the
@@ -1717,10 +1721,16 @@ class AuthManager:
         """Return True only when the current browser session is safe to reuse."""
         if not self._browser_cookie_header or self._is_browser_session_expired():
             return False
-        if self._should_validate_browser_session() and not self._is_browser_session_valid(
-            browser_config
-        ):
-            return False
+        if not self._should_validate_browser_session():
+            return True
+        # Coalesce concurrent probes: only one thread issues the round-trip;
+        # waiters re-check the validation timestamp after the lock and skip if
+        # the leader already updated it.
+        with self._browser_probe_lock:
+            if not self._should_validate_browser_session():
+                return True
+            if not self._is_browser_session_valid(browser_config):
+                return False
         return True
 
     def _mark_browser_session_recently_valid(self) -> None:
