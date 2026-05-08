@@ -25,6 +25,7 @@ from servicenow_mcp.tools.sn_api import (
     sn_query_page,
 )
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.download_map import merge_map_file
 from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
@@ -2256,8 +2257,18 @@ def _download_source_types(
                 ]
                 type_file_count += sum(f.result() for f in futures)
 
-        _dl_write_json(type_dir / "_map.json", name_map)
-        _dl_write_json(type_dir / "_sync_meta.json", sync_meta)
+        merge_map_file(
+            type_dir / "_map.json",
+            name_map,
+            writer=_dl_write_json,
+            label=f"source_{source_type}",
+        )
+        merge_map_file(
+            type_dir / "_sync_meta.json",
+            sync_meta,
+            writer=_dl_write_json,
+            label=f"source_{source_type}_sync_meta",
+        )
         type_results[source_type] = {
             "count": len(records),
             "files": type_file_count,
