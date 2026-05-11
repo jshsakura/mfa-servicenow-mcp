@@ -772,3 +772,233 @@ class TestAclBlock401NoReauth:
                     )
 
         mock_invalidate.assert_called_once()
+
+
+# ================================================================
+# 7. v1.12.1 — Self-heal diagnostic probe (ACL vs session death)
+# ================================================================
+
+
+def _make_logout_response():
+    """A response that requests followed through /logout_success.do."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.headers = {}
+    resp.url = "https://test.service-now.com/logout_success.do"
+    resp.text = "<html>You have been logged out</html>"
+
+    hop = MagicMock()
+    hop.headers = {"Location": "/logout_success.do"}
+    resp.history = [hop]
+    return resp
+
+
+def _make_probe_ok_response():
+    """A probe response that proves the session is alive."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.headers = {"Content-Type": "application/json"}
+    resp.url = "https://test.service-now.com/api/now/table/sys_user_preference"
+    resp.text = '{"result":[{"sys_id":"x"}]}'
+    resp.history = []
+    return resp
+
+
+def _make_probe_dead_response():
+    """A probe response showing the session itself is dead."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.headers = {}
+    resp.url = "https://test.service-now.com/logout_success.do"
+    resp.text = "<html>logged out</html>"
+    hop = MagicMock()
+    hop.headers = {"Location": "/logout_success.do"}
+    resp.history = [hop]
+    return resp
+
+
+class TestSelfHealDiagnosticProbe:
+    """v1.12.1: distinguish table-ACL block vs session death by probing
+    sys_user_preference with the same cookies after a 302→logout."""
+
+    def test_table_blocked_when_probe_succeeds(self):
+        """Call→logout but same-session probe returns 200 → TABLE_BLOCKED,
+        counter stays at 0, session not invalidated."""
+        import pytest as _pytest
+
+        mgr = _make_manager(login_at=time.time())
+        mgr._consecutive_self_heal_count = 0
+
+        with patch.object(mgr, "get_headers", return_value={"Cookie": "JSESSIONID=abc"}):
+            with patch.object(mgr._http_session, "request", return_value=_make_logout_response()):
+                with patch.object(
+                    mgr,
+                    "_probe_browser_api_with_cookie",
+                    return_value=_make_probe_ok_response(),
+                ) as mock_probe:
+                    with patch.object(mgr, "invalidate_browser_session") as mock_inv:
+                        with _pytest.raises(requests.HTTPError, match="TABLE_BLOCKED"):
+                            mgr.make_request(
+                                "GET",
+                                "https://test.service-now.com/api/now/table/x_app_secret_table",
+                                timeout=10,
+                                max_retries=0,
+                            )
+
+        mock_probe.assert_called_once()
+        mock_inv.assert_not_called()
+        assert mgr._consecutive_self_heal_count == 0
+
+    def test_session_death_increments_counter_when_probe_also_fails(self):
+        """Call AND probe both 302→logout → session truly dead, increment
+        counter, raise SESSION_TORN_DOWN_FRESH within grace."""
+        import pytest as _pytest
+
+        mgr = _make_manager(login_at=time.time())
+        mgr._consecutive_self_heal_count = 0
+
+        with patch.object(mgr, "get_headers", return_value={"Cookie": "JSESSIONID=abc"}):
+            with patch.object(mgr._http_session, "request", return_value=_make_logout_response()):
+                with patch.object(
+                    mgr,
+                    "_probe_browser_api_with_cookie",
+                    return_value=_make_probe_dead_response(),
+                ):
+                    with _pytest.raises(requests.HTTPError, match="SESSION_TORN_DOWN_FRESH"):
+                        mgr.make_request(
+                            "GET",
+                            "https://test.service-now.com/api/now/table/sys_user",
+                            timeout=10,
+                            max_retries=0,
+                        )
+
+        assert mgr._consecutive_self_heal_count == 1
+
+    def test_probe_exception_treated_as_session_death(self):
+        """Probe raises RequestException → conservative: treat as session
+        death so we still get the counter-increment + grace path."""
+        import pytest as _pytest
+
+        mgr = _make_manager(login_at=time.time())
+        mgr._consecutive_self_heal_count = 0
+
+        with patch.object(mgr, "get_headers", return_value={"Cookie": "JSESSIONID=abc"}):
+            with patch.object(mgr._http_session, "request", return_value=_make_logout_response()):
+                with patch.object(
+                    mgr,
+                    "_probe_browser_api_with_cookie",
+                    side_effect=requests.ConnectionError("boom"),
+                ):
+                    with _pytest.raises(requests.HTTPError, match="SESSION_TORN_DOWN_FRESH"):
+                        mgr.make_request(
+                            "GET",
+                            "https://test.service-now.com/api/now/table/sys_user",
+                            timeout=10,
+                            max_retries=0,
+                        )
+
+        assert mgr._consecutive_self_heal_count == 1
+
+
+# ================================================================
+# 8. v1.12.1 — Circuit-open escape probe (no longer permanently stuck)
+# ================================================================
+
+
+class TestCircuitEscapeProbe:
+    """v1.12.1: a throttled escape probe runs BEFORE the circuit-open
+    refusal. Successful probe resets the counter so callers aren't stuck
+    forever after a transient policy hiccup."""
+
+    def test_circuit_open_escape_success_resets_and_proceeds(self):
+        """Counter at threshold, escape probe returns 200 → counter resets,
+        real request fires and returns normally."""
+        from servicenow_mcp.auth.auth_manager import _SELF_HEAL_CIRCUIT_THRESHOLD
+
+        mgr = _make_manager(login_at=time.time())
+        mgr._consecutive_self_heal_count = _SELF_HEAL_CIRCUIT_THRESHOLD
+        mgr._browser_circuit_last_escape_at = 0.0
+
+        real_response = MagicMock()
+        real_response.status_code = 200
+        real_response.headers = {"Content-Type": "application/json"}
+        real_response.url = "https://test.service-now.com/api/now/table/sys_user"
+        real_response.text = '{"result":[]}'
+        real_response.history = []
+
+        with patch.object(mgr, "get_headers", return_value={"Cookie": "JSESSIONID=abc"}):
+            with patch.object(
+                mgr,
+                "_probe_browser_api_with_cookie",
+                return_value=_make_probe_ok_response(),
+            ) as mock_probe:
+                with patch.object(
+                    mgr._http_session, "request", return_value=real_response
+                ) as mock_request:
+                    result = mgr.make_request(
+                        "GET",
+                        "https://test.service-now.com/api/now/table/sys_user",
+                        timeout=10,
+                        max_retries=0,
+                    )
+
+        assert result.status_code == 200
+        assert mgr._consecutive_self_heal_count == 0
+        mock_probe.assert_called_once()
+        mock_request.assert_called_once()
+
+    def test_circuit_open_escape_probe_dead_still_refuses(self):
+        """Probe also dead → keep refusing, do NOT send the real request."""
+        import pytest as _pytest
+
+        from servicenow_mcp.auth.auth_manager import _SELF_HEAL_CIRCUIT_THRESHOLD
+
+        mgr = _make_manager(login_at=time.time())
+        mgr._consecutive_self_heal_count = _SELF_HEAL_CIRCUIT_THRESHOLD
+        mgr._browser_circuit_last_escape_at = 0.0
+
+        with patch.object(mgr, "get_headers", return_value={"Cookie": "JSESSIONID=abc"}):
+            with patch.object(
+                mgr,
+                "_probe_browser_api_with_cookie",
+                return_value=_make_probe_dead_response(),
+            ) as mock_probe:
+                with patch.object(mgr._http_session, "request") as mock_request:
+                    with _pytest.raises(requests.HTTPError, match="SELF_HEAL_CIRCUIT_OPEN"):
+                        mgr.make_request(
+                            "GET",
+                            "https://test.service-now.com/api/now/table/sys_user",
+                            timeout=10,
+                            max_retries=0,
+                        )
+
+        mock_probe.assert_called_once()
+        mock_request.assert_not_called()
+        assert (
+            mgr._consecutive_self_heal_count == _SELF_HEAL_CIRCUIT_THRESHOLD
+        ), "counter must NOT have been incremented further"
+
+    def test_circuit_open_probe_throttled_after_recent_attempt(self):
+        """Within the throttle window, no probe runs and call is refused."""
+        import pytest as _pytest
+
+        from servicenow_mcp.auth.auth_manager import _SELF_HEAL_CIRCUIT_THRESHOLD
+
+        mgr = _make_manager(login_at=time.time())
+        mgr._consecutive_self_heal_count = _SELF_HEAL_CIRCUIT_THRESHOLD
+        # A probe ran 1 second ago — well inside the throttle window.
+        mgr._browser_circuit_last_escape_at = time.time() - 1.0
+
+        with patch.object(mgr, "get_headers", return_value={"Cookie": "JSESSIONID=abc"}):
+            with patch.object(mgr, "_probe_browser_api_with_cookie") as mock_probe:
+                with patch.object(mgr._http_session, "request") as mock_request:
+                    with _pytest.raises(requests.HTTPError, match="SELF_HEAL_CIRCUIT_OPEN"):
+                        mgr.make_request(
+                            "GET",
+                            "https://test.service-now.com/api/now/table/sys_user",
+                            timeout=10,
+                            max_retries=0,
+                        )
+
+        mock_probe.assert_not_called()
+        mock_request.assert_not_called()
