@@ -46,7 +46,6 @@ def _make_browser_manager(
     with (
         patch.object(AuthManager, "_ensure_playwright_ready"),
         patch.object(AuthManager, "_load_session_from_disk"),
-        patch.object(AuthManager, "_start_keepalive"),
     ):
         manager = AuthManager(cfg, instance_url)
     manager._browser_cookie_header = "OLD=COOKIE"
@@ -160,7 +159,6 @@ def test_browser_probe_path_query_string_is_split_into_url_and_params():
     with (
         patch.object(AuthManager, "_ensure_playwright_ready"),
         patch.object(AuthManager, "_load_session_from_disk"),
-        patch.object(AuthManager, "_start_keepalive"),
     ):
         manager = AuthManager(cfg, "https://example.service-now.com")
 
@@ -648,70 +646,6 @@ class TestInvalidateSessionDiskSafety:
         assert manager._browser_session_token is None
 
 
-class TestKeepaliveConsecutiveFailures:
-    """Tests for keepalive retry logic — 3 consecutive failures before invalidation."""
-
-    def test_single_keepalive_failure_does_not_invalidate(self):
-        manager = _make_browser_manager()
-        manager._keepalive_consecutive_failures = 0
-
-        # Simulate one failure in keepalive: counter should increment, session stays
-        manager._keepalive_consecutive_failures += 1
-
-        assert manager._keepalive_consecutive_failures == 1
-        assert manager._browser_cookie_header == "OLD=COOKIE"  # Not invalidated
-
-    def test_three_failures_threshold(self):
-        manager = _make_browser_manager()
-
-        # After 3 failures, keepalive should invalidate
-        manager._keepalive_consecutive_failures = 3
-        should_invalidate = manager._keepalive_consecutive_failures >= 3
-
-        assert should_invalidate is True
-
-    def test_success_resets_failure_counter(self):
-        manager = _make_browser_manager()
-        manager._keepalive_consecutive_failures = 2
-
-        # Simulate successful ping
-        manager._keepalive_consecutive_failures = 0
-
-        assert manager._keepalive_consecutive_failures == 0
-
-
-class TestKeepalivePingDedup:
-    """Tests for keepalive ping deduplication across terminals."""
-
-    def test_skip_ping_when_ttl_recently_extended(self):
-        manager = _make_browser_manager(session_ttl_minutes=30)
-        ttl_seconds = 30 * 60  # 1800s
-        ping_interval = ttl_seconds // 2  # 900s
-
-        # TTL was just extended (remaining ≈ full TTL)
-        manager._browser_cookie_expires_at = time.time() + ttl_seconds
-
-        remaining = manager._browser_cookie_expires_at - time.time()
-        threshold = ttl_seconds - ping_interval * 0.3  # 1800 - 270 = 1530
-
-        # remaining (~1800) > threshold (1530) → should skip
-        assert remaining > threshold
-
-    def test_do_ping_when_ttl_getting_low(self):
-        manager = _make_browser_manager(session_ttl_minutes=30)
-        ttl_seconds = 30 * 60
-        ping_interval = ttl_seconds // 2
-
-        # Half the TTL has elapsed
-        manager._browser_cookie_expires_at = time.time() + (ttl_seconds // 2)
-
-        remaining = manager._browser_cookie_expires_at - time.time()
-        threshold = ttl_seconds - ping_interval * 0.3
-
-        # remaining (~900) < threshold (1530) → should ping
-        assert remaining < threshold
-
-
 class TestMakeRequest401DiskReload:
     """Tests for 401 handling — try disk reload before full re-auth."""
 
@@ -929,7 +863,6 @@ class TestLoadSessionFromDisk:
         with (
             patch.object(manager, "_is_browser_session_valid", return_value=True) as mock_valid,
             patch.object(manager, "_login_with_browser") as mock_login,
-            patch.object(manager, "_start_keepalive"),
         ):
             headers = manager.get_headers()
 
@@ -1186,7 +1119,6 @@ class TestBrowserLoginRacePrevention:
         with (
             patch.object(AuthManager, "_ensure_playwright_ready"),
             patch.object(AuthManager, "_load_session_from_disk"),
-            patch.object(AuthManager, "_start_keepalive"),
         ):
             manager = AuthManager(cfg, "https://example.service-now.com")
 
@@ -1258,7 +1190,6 @@ class TestBrowserLoginRacePrevention:
             patch.object(manager, "_reload_session_from_disk", return_value=False),
             patch.object(manager, "_acquire_login_lock", return_value=True),
             patch.object(manager, "_release_login_lock"),
-            patch.object(manager, "_start_keepalive"),
         ):
             # Start two threads nearly simultaneously
             t = threading.Thread(target=_thread_get_headers)
@@ -1307,7 +1238,6 @@ class TestBrowserLoginRacePrevention:
                 side_effect=_restore_that_simulates_other_process_login,
             ),
             patch.object(manager, "_login_with_browser") as mock_login,
-            patch.object(manager, "_start_keepalive"),
         ):
             headers = manager.get_headers()
 
@@ -1333,7 +1263,6 @@ class TestBrowserLoginRacePrevention:
         with (
             patch.object(manager, "_try_restore_browser_session") as mock_restore,
             patch.object(manager, "_login_with_browser") as mock_login,
-            patch.object(manager, "_start_keepalive"),
         ):
             headers = manager.get_headers()
 
@@ -1382,7 +1311,6 @@ class TestTryRestoreBrowserSessionProbe:
         with (
             patch.object(AuthManager, "_ensure_playwright_ready"),
             patch.object(AuthManager, "_load_session_from_disk"),
-            patch.object(AuthManager, "_start_keepalive"),
         ):
             manager = AuthManager(cfg, "https://example.service-now.com")
 
@@ -1524,7 +1452,6 @@ def test_login_final_probe_request_error_does_not_persist_session(tmp_path):
     with (
         patch.object(AuthManager, "_ensure_playwright_ready"),
         patch.object(AuthManager, "_load_session_from_disk"),
-        patch.object(AuthManager, "_start_keepalive"),
     ):
         manager = AuthManager(cfg, "https://example.service-now.com")
 

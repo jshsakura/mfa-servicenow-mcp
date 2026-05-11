@@ -100,7 +100,6 @@ def _make_browser_manager(
     with (
         patch.object(AuthManager, "_ensure_playwright_ready"),
         patch.object(AuthManager, "_load_session_from_disk"),
-        patch.object(AuthManager, "_start_keepalive"),
     ):
         manager = AuthManager(cfg, instance_url)
     return manager
@@ -850,11 +849,7 @@ class TestProbeBrowserApiWithCookie:
             mgr._probe_browser_api_with_cookie("a=1", 10, browser_cfg)
         assert mock_get.call_args.kwargs["headers"]["X-UserToken"] == "g-ck-value-123"
 
-    def test_x_user_token_omitted_when_keepalive_opts_out(self):
-        # v1.11.16 keepalive path passes ``include_user_token=False`` so
-        # ServiceNow scores the ping as plain user activity (cookie-only
-        # read) instead of automation, matching pre-v1.11.0 behaviour
-        # where 15-min pings kept sessions alive all day.
+    def test_x_user_token_omitted_when_include_user_token_false(self):
         mgr = _make_browser_manager()
         mgr._browser_session_token = "g-ck-value-123"
         browser_cfg = BrowserAuthConfig(timeout_seconds=10)
@@ -968,7 +963,6 @@ class TestGetSessionCachePath:
         with (
             patch.object(AuthManager, "_ensure_playwright_ready"),
             patch.object(AuthManager, "_load_session_from_disk"),
-            patch.object(AuthManager, "_start_keepalive"),
         ):
             mgr = AuthManager(cfg, "https://inst.service-now.com")
         path = mgr._get_session_cache_path()
@@ -1354,7 +1348,6 @@ class TestBrowserGetHeadersEdgeCases:
         with (
             patch.object(AuthManager, "_ensure_playwright_ready"),
             patch.object(AuthManager, "_load_session_from_disk"),
-            patch.object(AuthManager, "_start_keepalive"),
         ):
             mgr = AuthManager(cfg, "https://inst.service-now.com")
         with pytest.raises(ValueError, match="Browser auth configuration is required"):
@@ -1413,14 +1406,13 @@ class TestBrowserGetHeadersEdgeCases:
         assert mgr._browser_reauth_cooldown_seconds == mgr._browser_reauth_cooldown_base
         assert headers["Cookie"] == "restored=1"
 
-    def test_login_success_resets_state_and_starts_keepalive(self):
+    def test_login_success_resets_state(self):
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = None
         mgr._browser_cookie_expires_at = None
         mgr._browser_login_in_progress = False
         mgr._browser_reauth_failure_count = 2
         mgr._browser_reauth_cooldown_seconds = 60
-        mgr._keepalive_thread = None
 
         def _mock_login(cfg, force_interactive=False):
             mgr._browser_cookie_header = "fresh=1"
@@ -1432,14 +1424,12 @@ class TestBrowserGetHeadersEdgeCases:
                     with patch.object(mgr, "_login_with_browser", side_effect=_mock_login):
                         with patch.object(mgr, "_mark_browser_reauth_attempt"):
                             with patch.object(mgr, "_release_login_lock"):
-                                with patch.object(mgr, "_start_keepalive") as mock_keepalive:
-                                    headers = mgr.get_headers()
+                                headers = mgr.get_headers()
 
         assert headers["Cookie"] == "fresh=1"
         assert mgr._browser_reauth_failure_count == 0
         assert mgr._browser_reauth_cooldown_seconds == mgr._browser_reauth_cooldown_base
         assert mgr._browser_login_in_progress is False
-        mock_keepalive.assert_called_once()
 
     def test_cooldown_blocks_reauth_raises(self):
         mgr = _make_browser_manager()
@@ -1636,39 +1626,6 @@ class TestBrowserLoginErrorHandling:
         assert mgr._browser_login_in_progress is True
 
 
-# ===========================================================================
-# stop_keepalive tests
-# ===========================================================================
-
-
-class TestStopKeepalive:
-    def test_stop_when_no_thread(self):
-        mgr = _make_browser_manager()
-        mgr._keepalive_thread = None
-        mgr.stop_keepalive()  # should not raise
-
-    def test_stop_running_thread(self):
-        mgr = _make_browser_manager()
-        mock_thread = MagicMock()
-        mock_thread.is_alive.return_value = True
-        mgr._keepalive_thread = mock_thread
-        mgr.stop_keepalive()
-        mock_thread.join.assert_called_once_with(timeout=5)
-
-    def test_stop_dead_thread(self):
-        mgr = _make_browser_manager()
-        mock_thread = MagicMock()
-        mock_thread.is_alive.return_value = False
-        mgr._keepalive_thread = mock_thread
-        mgr.stop_keepalive()
-        mock_thread.join.assert_not_called()
-
-
-# ===========================================================================
-# _save_session_to_disk tests
-# ===========================================================================
-
-
 class TestSaveSessionToDisk:
     def test_noop_for_non_browser(self):
         mgr = _make_basic_manager()
@@ -1744,10 +1701,7 @@ class TestBrowserInit:
             type=AuthType.BROWSER,
             browser=BrowserAuthConfig(timeout_seconds=10),
         )
-        with (
-            patch.object(AuthManager, "_ensure_playwright_ready"),
-            patch.object(AuthManager, "_start_keepalive"),
-        ):
+        with (patch.object(AuthManager, "_ensure_playwright_ready"),):
             with patch.object(AuthManager, "_load_session_from_disk") as mock_load:
                 # Simulate _load_session_from_disk setting a valid session
                 def _set_session():
@@ -1777,12 +1731,11 @@ class TestBrowserInit:
         with (
             patch.object(AuthManager, "_ensure_playwright_ready"),
             patch.object(AuthManager, "_load_session_from_disk", side_effect=_mock_load),
-            patch.object(AuthManager, "_start_keepalive") as mock_keepalive,
         ):
-            AuthManager(cfg, "https://inst.service-now.com")
+            mgr = AuthManager(cfg, "https://inst.service-now.com")
 
-        # No session loaded, keepalive should not start
-        mock_keepalive.assert_not_called()
+        # No session loaded
+        assert mgr._browser_cookie_header is None
 
     def test_init_expired_cached_session_clears(self):
         cfg = AuthConfig(
@@ -1793,10 +1746,7 @@ class TestBrowserInit:
         def _mock_load_expired():
             pass
 
-        with (
-            patch.object(AuthManager, "_ensure_playwright_ready"),
-            patch.object(AuthManager, "_start_keepalive"),
-        ):
+        with (patch.object(AuthManager, "_ensure_playwright_ready"),):
             # Simulate loading a session that is expired
             with patch.object(AuthManager, "_load_session_from_disk") as mock_load:
 
@@ -2038,7 +1988,7 @@ class TestFillClickExceptionBranches:
 
 
 class TestBrowserInitBranches:
-    def test_init_valid_cached_starts_keepalive(self):
+    def test_init_valid_cached_session_restored(self):
         cfg = AuthConfig(
             type=AuthType.BROWSER,
             browser=BrowserAuthConfig(timeout_seconds=10),
@@ -2050,16 +2000,15 @@ class TestBrowserInitBranches:
 
         with (
             patch.object(AuthManager, "_ensure_playwright_ready"),
-            patch.object(AuthManager, "_start_keepalive") as mock_keepalive,
             patch.object(
                 AuthManager,
                 "_load_session_from_disk",
                 lambda self: _mock_load(self),
             ),
         ):
-            AuthManager(cfg, "https://inst.service-now.com")
+            mgr = AuthManager(cfg, "https://inst.service-now.com")
 
-        mock_keepalive.assert_called_once()
+        assert mgr._browser_cookie_header == "cached=1"
 
     def test_init_expired_cookie_clears_state(self):
         cfg = AuthConfig(
@@ -2073,7 +2022,6 @@ class TestBrowserInitBranches:
 
         with (
             patch.object(AuthManager, "_ensure_playwright_ready"),
-            patch.object(AuthManager, "_start_keepalive") as mock_keepalive,
             patch.object(
                 AuthManager,
                 "_load_session_from_disk",
@@ -2085,9 +2033,8 @@ class TestBrowserInitBranches:
         # Expired cookie should be cleared
         assert mgr._browser_cookie_header is None
         assert mgr._browser_cookie_expires_at is None
-        mock_keepalive.assert_not_called()
 
-    def test_init_no_cookie_no_keepalive(self):
+    def test_init_no_cookie_state_remains_empty(self):
         cfg = AuthConfig(
             type=AuthType.BROWSER,
             browser=BrowserAuthConfig(timeout_seconds=10),
@@ -2095,12 +2042,11 @@ class TestBrowserInitBranches:
 
         with (
             patch.object(AuthManager, "_ensure_playwright_ready"),
-            patch.object(AuthManager, "_start_keepalive") as mock_keepalive,
             patch.object(AuthManager, "_load_session_from_disk"),
         ):
-            AuthManager(cfg, "https://inst.service-now.com")
+            mgr = AuthManager(cfg, "https://inst.service-now.com")
 
-        mock_keepalive.assert_not_called()
+        assert mgr._browser_cookie_header is None
 
 
 # ===========================================================================
@@ -2699,329 +2645,6 @@ class TestMakeRequestBrowserDiskReload:
                             max_retries=1,
                         )
         assert resp.status_code == 200
-
-
-# ===========================================================================
-# Keepalive loop behavior tests
-# ===========================================================================
-
-
-class TestKeepaliveLoop:
-    # v1.11.20: keepalive is OFF by default. These tests need it enabled
-    # to exercise the loop body — set the env var for the whole class.
-    @pytest.fixture(autouse=True)
-    def _enable_keepalive(self, monkeypatch):
-        monkeypatch.setenv("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES", "5")
-
-    def test_start_keepalive_no_browser_config_noop(self):
-        mgr = _make_browser_manager()
-        mgr.config = AuthConfig(
-            type=AuthType.BASIC, basic=BasicAuthConfig(username="a", password="b")
-        )
-        mgr._start_keepalive()  # Should be noop since config.browser is None
-
-    def test_stop_keepalive_sets_event(self):
-        mgr = _make_browser_manager()
-        mgr._keepalive_stop_event.clear()
-        mgr.stop_keepalive()
-        assert mgr._keepalive_stop_event.is_set()
-
-    def test_keepalive_probe_success_extends_ttl(self):
-        """Exercise keepalive loop: probe success path."""
-        mgr = _make_browser_manager(session_ttl_minutes=30)
-        mgr._browser_cookie_header = "a=1"
-        mgr._browser_cookie_expires_at = time.time() + 100  # Low TTL to trigger ping
-        mgr._browser_last_login_at = None
-        mgr._browser_last_validated_at = time.time() - 300
-
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.headers = {}
-        mock_resp.url = "https://example.service-now.com/api/now/table/sys_user"
-
-        # Patch wait to return immediately (simulate timer fired) then set stop
-        call_count = 0
-
-        def _mock_wait(timeout):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mgr._keepalive_stop_event.set()
-            return False  # Not stopped yet on first call
-
-        with patch.object(mgr._keepalive_stop_event, "wait", side_effect=_mock_wait):
-            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=mock_resp):
-                with patch.object(mgr, "_reload_session_from_disk", return_value=False):
-                    with patch.object(mgr, "_save_session_to_disk"):
-                        mgr._start_keepalive()
-                        mgr._keepalive_thread.join(timeout=5)
-
-        assert mgr._keepalive_consecutive_failures == 0
-
-    def test_keepalive_probe_invalid_increments_failure(self):
-        """Exercise keepalive loop: probe returns login redirect."""
-        mgr = _make_browser_manager(session_ttl_minutes=30)
-        mgr._browser_cookie_header = "a=1"
-        mgr._browser_cookie_expires_at = time.time() + 100
-        mgr._browser_last_login_at = None
-
-        mock_resp = MagicMock()
-        mock_resp.status_code = 302
-        mock_resp.headers = {"Location": "/login.do"}
-        mock_resp.url = "https://example.service-now.com/login.do"
-
-        call_count = 0
-
-        def _mock_wait(timeout):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mgr._keepalive_stop_event.set()
-            return False
-
-        with patch.object(mgr._keepalive_stop_event, "wait", side_effect=_mock_wait):
-            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=mock_resp):
-                with patch.object(mgr, "_reload_session_from_disk", return_value=False):
-                    mgr._start_keepalive()
-                    mgr._keepalive_thread.join(timeout=5)
-
-        assert mgr._keepalive_consecutive_failures == 1
-
-    def test_keepalive_probe_exception_increments_failure(self):
-        """Exercise keepalive loop: probe raises exception."""
-        mgr = _make_browser_manager(session_ttl_minutes=30)
-        mgr._browser_cookie_header = "a=1"
-        mgr._browser_cookie_expires_at = time.time() + 100
-        mgr._browser_last_login_at = None
-
-        call_count = 0
-
-        def _mock_wait(timeout):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mgr._keepalive_stop_event.set()
-            return False
-
-        with patch.object(mgr._keepalive_stop_event, "wait", side_effect=_mock_wait):
-            with patch.object(
-                mgr,
-                "_probe_browser_api_with_cookie",
-                side_effect=Exception("network err"),
-            ):
-                with patch.object(mgr, "_reload_session_from_disk", return_value=False):
-                    mgr._start_keepalive()
-                    mgr._keepalive_thread.join(timeout=5)
-
-        assert mgr._keepalive_consecutive_failures == 1
-
-    def test_keepalive_3_failures_invalidates(self):
-        """3 consecutive probe exceptions invalidate session."""
-        mgr = _make_browser_manager(session_ttl_minutes=30)
-        mgr._browser_cookie_header = "a=1"
-        mgr._browser_cookie_expires_at = time.time() + 100
-        mgr._browser_last_login_at = None
-        mgr._keepalive_consecutive_failures = 2  # Already at 2
-
-        call_count = 0
-
-        def _mock_wait(timeout):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mgr._keepalive_stop_event.set()
-            return False
-
-        with patch.object(mgr._keepalive_stop_event, "wait", side_effect=_mock_wait):
-            with patch.object(
-                mgr,
-                "_probe_browser_api_with_cookie",
-                side_effect=Exception("err"),
-            ):
-                with patch.object(mgr, "_reload_session_from_disk", return_value=False):
-                    with patch.object(mgr, "invalidate_browser_session") as mock_inv:
-                        mgr._start_keepalive()
-                        mgr._keepalive_thread.join(timeout=5)
-
-        mock_inv.assert_called_once()
-
-    def test_keepalive_3_invalid_probes_invalidates(self):
-        """3 consecutive invalid probe responses invalidate session."""
-        mgr = _make_browser_manager(session_ttl_minutes=30)
-        mgr._browser_cookie_header = "a=1"
-        mgr._browser_cookie_expires_at = time.time() + 100
-        mgr._browser_last_login_at = None
-        mgr._keepalive_consecutive_failures = 2
-
-        mock_resp = MagicMock()
-        mock_resp.status_code = 302
-        mock_resp.headers = {"Location": "/login.do"}
-        mock_resp.url = "https://example.service-now.com/login.do"
-
-        call_count = 0
-
-        def _mock_wait(timeout):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mgr._keepalive_stop_event.set()
-            return False
-
-        with patch.object(mgr._keepalive_stop_event, "wait", side_effect=_mock_wait):
-            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=mock_resp):
-                with patch.object(mgr, "_reload_session_from_disk", return_value=False):
-                    with patch.object(mgr, "invalidate_browser_session") as mock_inv:
-                        mgr._start_keepalive()
-                        mgr._keepalive_thread.join(timeout=5)
-
-        mock_inv.assert_called_once()
-
-    def test_keepalive_no_session_tries_disk(self):
-        """When no session in memory, keepalive tries disk reload."""
-        mgr = _make_browser_manager(session_ttl_minutes=30)
-        mgr._browser_cookie_header = None  # No session
-        mgr._browser_cookie_expires_at = None
-        mgr._browser_last_login_at = None
-
-        call_count = 0
-
-        def _mock_wait(timeout):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mgr._keepalive_stop_event.set()
-            return False
-
-        with patch.object(mgr._keepalive_stop_event, "wait", side_effect=_mock_wait):
-            with patch.object(mgr, "_reload_session_from_disk", return_value=False) as mock_reload:
-                mgr._start_keepalive()
-                mgr._keepalive_thread.join(timeout=5)
-
-        mock_reload.assert_called()
-
-    def test_keepalive_within_grace_period_skips(self):
-        """Within post-login grace period, keepalive skips ping."""
-        mgr = _make_browser_manager(session_ttl_minutes=30)
-        mgr._browser_cookie_header = "a=1"
-        mgr._browser_cookie_expires_at = time.time() + 600
-        mgr._browser_last_login_at = time.time()  # Just logged in
-
-        call_count = 0
-
-        def _mock_wait(timeout):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mgr._keepalive_stop_event.set()
-            return False
-
-        with patch.object(mgr._keepalive_stop_event, "wait", side_effect=_mock_wait):
-            with patch.object(mgr, "_probe_browser_api_with_cookie") as mock_probe:
-                mgr._start_keepalive()
-                mgr._keepalive_thread.join(timeout=5)
-
-        mock_probe.assert_not_called()
-
-    def test_keepalive_disk_dedup_skips_ping(self):
-        """When disk reload returns fresher cookies, skip ping."""
-        mgr = _make_browser_manager(session_ttl_minutes=30)
-        mgr._browser_cookie_header = "a=1"
-        mgr._browser_cookie_expires_at = time.time() + 100
-        mgr._browser_last_login_at = None
-
-        call_count = 0
-        reload_count = 0
-
-        def _mock_wait(timeout):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mgr._keepalive_stop_event.set()
-            return False
-
-        def _mock_reload():
-            nonlocal reload_count
-            reload_count += 1
-            if reload_count == 1:
-                return True  # Fresher session from disk
-            return False
-
-        with patch.object(mgr._keepalive_stop_event, "wait", side_effect=_mock_wait):
-            with patch.object(mgr, "_reload_session_from_disk", side_effect=_mock_reload):
-                with patch.object(mgr, "_probe_browser_api_with_cookie") as mock_probe:
-                    mgr._start_keepalive()
-                    mgr._keepalive_thread.join(timeout=5)
-
-        mock_probe.assert_not_called()
-        assert mgr._keepalive_consecutive_failures == 0
-
-    def test_keepalive_ttl_recently_extended_skips(self):
-        """When TTL was recently extended, skip ping."""
-        mgr = _make_browser_manager(session_ttl_minutes=30)
-        mgr._browser_cookie_header = "a=1"
-        # Set expires_at to nearly full TTL (recently extended)
-        mgr._browser_cookie_expires_at = time.time() + (30 * 60)
-        mgr._browser_last_login_at = None
-
-        call_count = 0
-
-        def _mock_wait(timeout):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mgr._keepalive_stop_event.set()
-            return False
-
-        with patch.object(mgr._keepalive_stop_event, "wait", side_effect=_mock_wait):
-            with patch.object(mgr, "_reload_session_from_disk", return_value=False):
-                with patch.object(mgr, "_probe_browser_api_with_cookie") as mock_probe:
-                    mgr._start_keepalive()
-                    mgr._keepalive_thread.join(timeout=5)
-
-        mock_probe.assert_not_called()
-
-    def test_keepalive_invalid_probe_disk_reload_success(self):
-        """Invalid probe but disk reload succeeds resets failures."""
-        mgr = _make_browser_manager(session_ttl_minutes=30)
-        mgr._browser_cookie_header = "a=1"
-        mgr._browser_cookie_expires_at = time.time() + 100
-        mgr._browser_last_login_at = None
-
-        mock_resp = MagicMock()
-        mock_resp.status_code = 302
-        mock_resp.headers = {"Location": "/login.do"}
-        mock_resp.url = "https://example.service-now.com/login.do"
-
-        call_count = 0
-        reload_count = 0
-
-        def _mock_wait(timeout):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mgr._keepalive_stop_event.set()
-            return False
-
-        def _mock_reload():
-            nonlocal reload_count
-            reload_count += 1
-            # First call is from dedup check (before probe), second is after invalid probe
-            if reload_count == 2:
-                return True  # Fresher session after probe failure
-            return False
-
-        with patch.object(mgr._keepalive_stop_event, "wait", side_effect=_mock_wait):
-            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=mock_resp):
-                with patch.object(mgr, "_reload_session_from_disk", side_effect=_mock_reload):
-                    mgr._start_keepalive()
-                    mgr._keepalive_thread.join(timeout=5)
-
-        assert mgr._keepalive_consecutive_failures == 0
-
-
-# ===========================================================================
-# _ensure_playwright_ready deeper tests
-# ===========================================================================
 
 
 class TestEnsurePlaywrightReadyDeep:
