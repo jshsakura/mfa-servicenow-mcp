@@ -569,15 +569,27 @@ class AuthManager:
 
     def _apply_browser_session_headers(self, headers: dict) -> dict:
         """Mutate `headers` in place to include the captured browser session
-        — Cookie + optional User-Agent + optional X-UserToken — and return
-        the same dict for chaining. Centralises the 10-call pattern that
-        previously copy-pasted the same three assignments around
-        get_auth_headers."""
+        — Cookie + optional User-Agent + optional X-UserToken + Referer —
+        and return the same dict for chaining. Centralises the 10-call
+        pattern that previously copy-pasted the same three assignments
+        around get_auth_headers.
+
+        v1.11.45: Referer parity with `_probe_browser_api_with_cookie`.
+        The probe sends Referer matching the instance origin; make_request
+        previously did not. On strict same-origin instances, the very first
+        real call without Referer can be classified as off-origin
+        automation and 302'd to /logout_success.do — observed when the
+        first post-login call was a complex custom-table query with an
+        invalid field name. Adding Referer here keeps make_request
+        consistent with probe so the same-origin check passes uniformly.
+        """
         headers["Cookie"] = self._browser_cookie_header or ""
         if self._browser_user_agent:
             headers["User-Agent"] = self._browser_user_agent
         if self._browser_session_token:
             headers["X-UserToken"] = self._browser_session_token
+        if self.instance_url:
+            headers["Referer"] = self.instance_url.rstrip("/") + "/"
         return headers
 
     @staticmethod
@@ -2890,13 +2902,30 @@ class AuthManager:
         request_host = (urlparse(url).hostname or "").lower()
         method_upper = method.upper()
         start = time.monotonic()
+        # v1.11.45: include X-UserToken + Referer status so the request
+        # start log can be diffed against the probe log when chasing
+        # 302→/logout_success.do failures. Pre-v1.11.45 only the probe
+        # logged these, leaving real-call header state unverifiable.
+        outgoing_user_token = (
+            "set"
+            if headers.get("X-UserToken")
+            else "MISSING" if self.config.type == AuthType.BROWSER else "n/a"
+        )
+        outgoing_referer = (
+            "set"
+            if headers.get("Referer")
+            else "MISSING" if self.config.type == AuthType.BROWSER else "n/a"
+        )
         logger.info(
-            "ServiceNow request start: method=%s host=%s timeout=%s auth_type=%s cookie_count=%s",
+            "ServiceNow request start: method=%s host=%s timeout=%s auth_type=%s "
+            "cookie_count=%s x_usertoken=%s referer=%s",
             method_upper,
             request_host,
             request_timeout,
             self.config.type.value,
             len(cookie_names),
+            outgoing_user_token,
+            outgoing_referer,
         )
         if cookie_names and logger.isEnabledFor(logging.DEBUG):
             logger.debug("ServiceNow request cookies: %s", ",".join(cookie_names))
