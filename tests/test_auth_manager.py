@@ -966,7 +966,26 @@ class TestGetSessionCachePath:
         ):
             mgr = AuthManager(cfg, "https://inst.service-now.com")
         path = mgr._get_session_cache_path()
-        assert "user_corp_com" in path
+        assert "user_at_corp_com" in path
+
+    def test_username_at_vs_dot_produces_distinct_paths(self):
+        # Regression: ``alice@corp.com`` and ``alice.corp.com`` used to
+        # collapse to the same suffix (both became ``alice_corp_com``).
+        cfg_at = AuthConfig(
+            type=AuthType.BROWSER,
+            browser=BrowserAuthConfig(username="alice@corp.com", timeout_seconds=10),
+        )
+        cfg_dot = AuthConfig(
+            type=AuthType.BROWSER,
+            browser=BrowserAuthConfig(username="alice.corp.com", timeout_seconds=10),
+        )
+        with (
+            patch.object(AuthManager, "_ensure_playwright_ready"),
+            patch.object(AuthManager, "_load_session_from_disk"),
+        ):
+            mgr_at = AuthManager(cfg_at, "https://inst.service-now.com")
+            mgr_dot = AuthManager(cfg_dot, "https://inst.service-now.com")
+        assert mgr_at._get_session_cache_path() != mgr_dot._get_session_cache_path()
 
 
 # ===========================================================================

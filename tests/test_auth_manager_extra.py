@@ -189,7 +189,7 @@ class TestSessionCachePath:
             basic=BasicAuthConfig(username="john.doe@test.com", password="secret"),
         )
         mgr = AuthManager(cfg, "https://myinstance.service-now.com")
-        assert "john_doe_test_com" in mgr._session_cache_path
+        assert "john_doe_at_test_com" in mgr._session_cache_path
 
     def test_browser_username_included(self):
         cfg = AuthConfig(
@@ -201,7 +201,7 @@ class TestSessionCachePath:
             patch.object(AuthManager, "_load_session_from_disk"),
         ):
             mgr = AuthManager(cfg, "https://myinstance.service-now.com")
-        assert "admin_test_com" in mgr._session_cache_path
+        assert "admin_at_test_com" in mgr._session_cache_path
 
     def test_instance_host_in_path(self):
         mgr = _make_browser_manager()
