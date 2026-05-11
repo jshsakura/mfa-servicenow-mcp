@@ -48,6 +48,17 @@ _SELF_HEAL_CIRCUIT_THRESHOLD = 3
 # least this many seconds must elapse between successive login attempts.
 _MIN_LOGIN_INTERVAL_SECONDS = 60.0
 
+# v1.12.1: throttle interval for the circuit-breaker escape probe.
+# When the self-heal circuit is open, BEFORE refusing the next call we
+# attempt one cheap session probe to /sys_user_preference. If the session
+# has recovered (instance policy cleared, idle timer reset, etc.), reset
+# the counter and let the call through. Throttle so we probe at most
+# once every N seconds — avoids hammering the server when it really is
+# rejecting everything. Prior to v1.12.1, an open circuit could only be
+# cleared by restarting MCP, which made transient policy hiccups feel
+# like permanent failures.
+_CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS = 30.0
+
 
 def _build_http_session() -> requests.Session:
     """Create a ``requests.Session`` with connection-pooling tuned for
@@ -536,6 +547,13 @@ class AuthManager:
         # and put the account at risk of being flagged. Initial value 0
         # means "no attempt yet"; the first login is unthrottled.
         self._last_login_started_at: float = 0.0
+        # v1.12.1: timestamp of the last circuit-escape probe. Used to
+        # throttle the per-request escape attempt once the self-heal
+        # circuit is open. Without throttling, a tight retry loop in
+        # the caller would fire a probe on every call — that's still
+        # better than the pre-v1.12.1 "stuck forever" but it spams the
+        # server when nothing has changed.
+        self._browser_circuit_last_escape_at: float = 0.0
         self._keepalive_thread: Optional[threading.Thread] = None
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
@@ -3143,17 +3161,76 @@ class AuthManager:
         # user being flagged or banned. The guard makes all calls return
         # instantly until a successful response resets the counter or the
         # user restarts MCP.
+        #
+        # v1.12.1: BEFORE refusing, throttled escape probe to
+        # sys_user_preference. If the session has actually recovered
+        # (transient instance policy hiccup cleared, idle timer reset by
+        # another path, etc.), reset the counter and let the call through.
+        # Throttled by _CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS — when the
+        # server genuinely is dead the throttle still leaves long stretches
+        # of cheap refusals between probes, so we don't hammer.
         if (
             self.config.type == AuthType.BROWSER
             and self._consecutive_self_heal_count >= _SELF_HEAL_CIRCUIT_THRESHOLD
         ):
-            raise requests.HTTPError(
-                "SELF_HEAL_CIRCUIT_OPEN: %d consecutive auth failures. Refusing "
-                "to send this request. The server is rejecting every session — "
-                "restart MCP or wait for the instance policy to clear. "
-                "(Counter resets on the first successful response.)"
-                % self._consecutive_self_heal_count
-            )
+            now = time.time()
+            probed_just_now = False
+            if (
+                self._browser_cookie_header
+                and self.config.browser is not None
+                and (now - self._browser_circuit_last_escape_at)
+                >= _CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS
+            ):
+                self._browser_circuit_last_escape_at = now
+                probed_just_now = True
+                try:
+                    escape_probe = self._probe_browser_api_with_cookie(
+                        self._browser_cookie_header,
+                        timeout_seconds=10,
+                        browser_config=self.config.browser,
+                    )
+                    if _response_confirms_browser_probe_session(escape_probe):
+                        logger.info(
+                            "Self-heal circuit AUTO-RESET: escape probe to "
+                            "sys_user_preference returned 200 (was "
+                            "consecutive=%d). Letting %s %s proceed.",
+                            self._consecutive_self_heal_count,
+                            method.upper(),
+                            (urlparse(url).hostname or "").lower(),
+                        )
+                        self._mark_browser_session_recently_valid()
+                        # Fall through to the normal request path.
+                    else:
+                        logger.warning(
+                            "Self-heal circuit escape probe rejected by server "
+                            "(status=%s). Continuing to refuse calls; next "
+                            "probe in %.0fs.",
+                            escape_probe.status_code,
+                            _CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS,
+                        )
+                except requests.RequestException as exc:
+                    logger.warning(
+                        "Self-heal circuit escape probe failed: %s. " "Continuing to refuse calls.",
+                        exc,
+                    )
+
+            # If we did not escape, refuse.
+            if self._consecutive_self_heal_count >= _SELF_HEAL_CIRCUIT_THRESHOLD:
+                raise requests.HTTPError(
+                    "SELF_HEAL_CIRCUIT_OPEN: %d consecutive auth failures. Refusing "
+                    "to send this request. The server is rejecting every session — "
+                    "restart MCP or wait for the instance policy to clear. "
+                    "(Counter resets on the first successful response or escape "
+                    "probe; %s)"
+                    % (
+                        self._consecutive_self_heal_count,
+                        (
+                            "escape probe ran this call"
+                            if probed_just_now
+                            else "next probe throttled"
+                        ),
+                    )
+                )
 
         # Get auth headers
         headers = kwargs.pop("headers", {})
@@ -3290,6 +3367,65 @@ class AuthManager:
             and self._browser_cookie_header
             and _response_redirected_through_logout(response)
         ):
+            # v1.12.1: BEFORE touching the self-heal counter, distinguish
+            # the two failure modes that both surface as 302→logout_success:
+            #
+            #   (a) Session is alive, target table denies access (ACL or
+            #       scope policy on a custom app). The session is fine;
+            #       only THIS call is doomed. Incrementing the counter or
+            #       invalidating the session here was the v1.11.x bug
+            #       that produced "every tool call fails after MFA" reports.
+            #
+            #   (b) Session truly died server-side (idle timeout, instance
+            #       policy revoked, MFA-cookie mismatch). Every call dies
+            #       the same way; we want self-heal + circuit breaker.
+            #
+            # A single same-session probe to /sys_user_preference cleanly
+            # separates the two: probe returns 200 → (a), counter stays
+            # at 0 and we raise TABLE_BLOCKED; probe also redirects/fails
+            # → (b), fall through to the existing grace + circuit logic.
+            session_alive_after_failure = False
+            if self.config.browser is not None:
+                try:
+                    diag_probe = self._probe_browser_api_with_cookie(
+                        self._browser_cookie_header,
+                        timeout_seconds=10,
+                        browser_config=self.config.browser,
+                    )
+                    session_alive_after_failure = _response_confirms_browser_probe_session(
+                        diag_probe
+                    )
+                except requests.RequestException as exc:
+                    logger.warning(
+                        "Self-heal diagnostic probe failed: %s. " "Treating as session death.",
+                        exc,
+                    )
+
+            if session_alive_after_failure:
+                logger.warning(
+                    "Self-heal diagnostic: %s %s redirected through "
+                    "/logout_success.do, but a same-session probe to "
+                    "sys_user_preference returned 200. Classifying as a "
+                    "TABLE-LEVEL block (ACL/scope policy on the target), "
+                    "not session death. Self-heal counter NOT incremented; "
+                    "other tools remain callable.",
+                    method_upper,
+                    url,
+                )
+                # Refresh the validity timestamp so the next call doesn't
+                # pay another validation probe.
+                self._mark_browser_session_recently_valid()
+                raise requests.HTTPError(
+                    "TABLE_BLOCKED: ServiceNow redirected this call to "
+                    "/logout_success.do, but a same-session probe to "
+                    "sys_user_preference returned 200. The session is "
+                    "alive — this is a table-level ACL or scope-policy "
+                    f"block on the target ({url}). Check read ACLs / "
+                    "scope rules for that table; other tools remain "
+                    "callable on the current session.",
+                    response=response,
+                )
+
             # v1.11.47: respect the post-login grace period.
             #
             # If the 302→/logout_success.do happens within seconds of a
