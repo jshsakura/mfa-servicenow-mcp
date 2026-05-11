@@ -495,6 +495,15 @@ class AuthManager:
         # login.do. Set by invalidate_browser_session() and also when the
         # wait loop detects ServiceNow redirecting probes to logout_success.
         self._needs_profile_cookie_purge: bool = False
+        # v1.11.46: when True, the next purge ALSO drops
+        # glide_mfa_remembered_browser. Normal invalidation preserves that
+        # cookie so the user is not forced to re-MFA after a routine
+        # session expiry. But after a self-heal (server tore us down with
+        # 302→/logout_success.do), re-using mfa_remembered skips MFA →
+        # no `factor` cookie set on the new session → server-side policy
+        # rejects the cookie-jar as "not MFA'd" → 302 loop forever. Force
+        # full MFA in that case to re-mint the `factor` cookie.
+        self._needs_full_profile_purge: bool = False
         self._keepalive_thread: Optional[threading.Thread] = None
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
@@ -2030,6 +2039,22 @@ class AuthManager:
             return False
 
         if not _response_confirms_browser_probe_session(probe):
+            # v1.11.46: when the probe was 302'd straight to /logout_success.do
+            # or /logout.do, the disk session is server-rejected and reusing
+            # the mfa_remembered cookie on the next login produces a session
+            # without `factor` → infinite login loop. Mark the upcoming
+            # profile purge as "full" so mfa_remembered is dropped too.
+            probe_location = (probe.headers.get("Location") or "").lower()
+            if (
+                "logout_success" in probe_location
+                or "/logout.do" in probe_location
+                or _response_redirected_through_logout(probe)
+            ):
+                self._needs_full_profile_purge = True
+                logger.info(
+                    "Browser session restore probe redirected to logout — "
+                    "next profile purge will drop mfa_remembered (full MFA on next login)."
+                )
             logger.info(
                 "Browser session restore probe rejected cached cookies: status=%s",
                 probe.status_code,
@@ -2273,10 +2298,18 @@ class AuthManager:
         Called when ``self._needs_profile_cookie_purge`` is set (after an
         invalidate, or when a probe redirected to ``logout_success.do``).
 
-        Preserves ``glide_mfa_remembered_browser`` (v1.11.20). The
-        v1.11.18 ``/logout.do`` flush is what actually unblocks the
+        Default behavior preserves ``glide_mfa_remembered_browser`` (v1.11.20).
+        The v1.11.18 ``/logout.do`` flush is what actually unblocks the
         phantom-session loop, so the MFA-remembered cookie can stay and
         let the user skip the MFA prompt on the next login.
+
+        v1.11.46: when ``self._needs_full_profile_purge`` is also set, drop
+        ``glide_mfa_remembered_browser`` too. Required for self-heal
+        recovery: the previous session was torn down server-side, and
+        reusing mfa_remembered skips MFA on the next login → no ``factor``
+        cookie minted → server keeps rejecting the cookie-jar → infinite
+        login loop. Forcing full MFA on self-heal re-mints ``factor`` and
+        the loop breaks.
 
         ``instance_host`` is informational — Playwright's
         ``clear_cookies(name=...)`` matches by name and we let it remove the
@@ -2285,8 +2318,12 @@ class AuthManager:
 
         Returns the number of cookie names successfully cleared.
         """
+        full_purge = self._needs_full_profile_purge
+        cookie_names: tuple[str, ...] = _STALE_PROFILE_COOKIE_NAMES
+        if full_purge:
+            cookie_names = cookie_names + ("glide_mfa_remembered_browser",)
         cleared = 0
-        for cookie_name in _STALE_PROFILE_COOKIE_NAMES:
+        for cookie_name in cookie_names:
             try:
                 context.clear_cookies(name=cookie_name)
                 cleared += 1
@@ -2296,12 +2333,18 @@ class AuthManager:
                     cookie_name,
                     exc,
                 )
+        # Consume the full-purge flag so it doesn't carry over to the next
+        # routine invalidation. v1.11.46.
+        self._needs_full_profile_purge = False
         logger.info(
-            "Purged stale session cookies from persistent profile: "
-            "host=%s cleared=%s (mfa-remembered preserved — MFA prompt "
-            "skipped if cookie still valid server-side).",
+            "Purged stale session cookies from persistent profile: " "host=%s cleared=%s (%s).",
             instance_host,
             cleared,
+            (
+                "full purge — mfa_remembered dropped, next login will force MFA"
+                if full_purge
+                else "mfa-remembered preserved — MFA prompt skipped if cookie still valid server-side"
+            ),
         )
         return cleared
 
@@ -2816,15 +2859,26 @@ class AuthManager:
                 browser_config.session_ttl_minutes,
             )
 
-    def invalidate_browser_session(self):
+    def invalidate_browser_session(self, *, full_purge: bool = False):
         """Invalidate the current browser session, forcing re-authentication on next request.
 
         Only removes the disk cache file if it still contains OUR cookies.
         Another terminal may have already written a fresher session to disk,
         and we must not delete that.
+
+        ``full_purge=True`` (v1.11.46) signals the next profile purge to
+        also drop ``glide_mfa_remembered_browser``. Use it from self-heal
+        paths (server-issued 302→logout_success.do, repeated probe 302s)
+        where preserving the MFA-remembered cookie would skip MFA on the
+        next login and end up minting a session without the ``factor``
+        cookie, which strict instances reject again — the infinite-login
+        loop the user kept hitting on the test instance.
         """
         my_cookie = self._browser_cookie_header
-        logger.info("Browser session invalidated (in-memory)")
+        logger.info(
+            "Browser session invalidated (in-memory)%s",
+            " [full_purge: mfa_remembered will also be dropped]" if full_purge else "",
+        )
         self._browser_cookie_header = None
         self._browser_cookie_expires_at = None
         self._browser_last_validated_at = None
@@ -2838,6 +2892,8 @@ class AuthManager:
         # was the root cause of the persistent logout-redirect loop. See
         # _purge_stale_profile_cookies for full rationale.
         self._needs_profile_cookie_purge = True
+        if full_purge:
+            self._needs_full_profile_purge = True
         if os.path.exists(self._session_cache_path):
             try:
                 with open(self._session_cache_path, "r") as f:
@@ -3021,12 +3077,13 @@ class AuthManager:
             logger.warning(
                 "Self-heal: response %s %s passed through /logout_success.do — "
                 "session torn down server-side. Forcing invalidation regardless "
-                "of post-login grace period.",
+                "of post-login grace period. Full purge (mfa_remembered dropped) "
+                "so next login re-MFAs and re-mints the `factor` cookie.",
                 method_upper,
                 url,
             )
             self._browser_last_login_at = None
-            self.invalidate_browser_session()
+            self.invalidate_browser_session(full_purge=True)
             response.status_code = 401
 
         if (

@@ -5,6 +5,7 @@ Command-line interface for the ServiceNow MCP server.
 import argparse
 import json
 import logging
+import logging.handlers
 import os
 import re
 import sys
@@ -12,6 +13,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from urllib.parse import urlparse
 
 from .server import ServiceNowMCP
 from .utils.config import (
@@ -31,6 +33,72 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Standard log line format reused by the optional file handler below.
+_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+
+def _resolve_log_cache_dir(config) -> str:
+    """Mirror auth_manager._get_cache_dir so log file lives next to session
+    cache and Playwright profile when SERVICENOW_BROWSER_USER_DATA_DIR is
+    set. Otherwise default to ``~/.servicenow_mcp``."""
+    try:
+        browser = getattr(config.auth, "browser", None) if config and config.auth else None
+        user_data_dir = getattr(browser, "user_data_dir", None) if browser else None
+        if user_data_dir and isinstance(user_data_dir, str):
+            return os.path.dirname(os.path.abspath(user_data_dir))
+    except (AttributeError, TypeError):
+        pass
+    return os.path.join(os.path.expanduser("~"), ".servicenow_mcp")
+
+
+def _instance_host_slug(instance_url) -> str:
+    """Convert an instance URL into a filename-safe host slug. Defensive
+    against non-string config values (Mock objects in tests, None, etc.) —
+    returns "default" rather than crashing the whole startup path."""
+    if not isinstance(instance_url, str) or not instance_url:
+        return "default"
+    try:
+        host = urlparse(instance_url).hostname
+    except (TypeError, ValueError):
+        return "default"
+    return (host or "default").replace(".", "_")
+
+
+def _setup_log_file_handler(config) -> str | None:
+    """When debug or SERVICENOW_LOG_FILE is set, mirror logs to a file whose
+    name is tagged with the instance hostname. Two MCP processes pointed at
+    different instances therefore write to different files — no more
+    grepping a shared log to figure out which host emitted a line.
+
+    Path resolution:
+    - ``SERVICENOW_LOG_FILE`` set to an absolute/relative path → use as-is.
+    - Otherwise → ``{cache_dir}/servicenow-mcp_{host}.log``.
+    Rotates at 10 MB × 3 backups so the file cannot grow unbounded.
+    """
+    override = os.getenv("SERVICENOW_LOG_FILE")
+    if override and override.strip().lower() in ("0", "false", "no", "off", "none"):
+        return None
+    if override and override.strip():
+        log_path = os.path.abspath(os.path.expanduser(override.strip()))
+    else:
+        cache_dir = _resolve_log_cache_dir(config)
+        host = _instance_host_slug(config.instance_url if config else None)
+        log_path = os.path.join(cache_dir, f"servicenow-mcp_{host}.log")
+    try:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(
+            log_path,
+            maxBytes=10 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+        )
+        handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+        logging.getLogger().addHandler(handler)
+        return log_path
+    except OSError as exc:
+        logger.warning("Could not enable log file at %s: %s", log_path, exc)
+        return None
 
 
 _PACKAGE_NAME = "mfa-servicenow-mcp"
@@ -556,6 +624,16 @@ def main():
         config = create_config(args)
         # Log the instance URL being used (mask sensitive parts of config if needed)
         logger.info(f"Initializing ServiceNow MCP server for instance: {config.instance_url}")
+
+        # v1.11.46: tee debug+info logs to a host-tagged file. Solves the
+        # "which instance did this line come from" problem when running
+        # multiple MCPs (different ServiceNow instances) concurrently.
+        # Enabled when --debug/SERVICENOW_DEBUG is on, or whenever the
+        # SERVICENOW_LOG_FILE env var is explicitly set.
+        if args.debug or os.getenv("SERVICENOW_LOG_FILE"):
+            log_path = _setup_log_file_handler(config)
+            if log_path:
+                logger.info("Log file: %s (RotatingFileHandler 10MB × 3)", log_path)
 
         # Create server controller instance
         mcp_controller = ServiceNowMCP(config)
