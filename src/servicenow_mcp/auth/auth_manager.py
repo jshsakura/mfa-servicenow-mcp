@@ -8,6 +8,7 @@ import logging
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Dict, Optional
 from urllib.parse import parse_qsl, urljoin, urlparse
 
@@ -504,7 +505,14 @@ class AuthManager:
         self._browser_last_reauth_attempt_at: Optional[float] = None
         self._browser_user_agent: Optional[str] = None
         self._browser_session_token: Optional[str] = None
-        self._browser_validation_interval_seconds = 120
+        # v1.12.4: probe interval effectively disabled (1500s ≈ 25 min, just
+        # below the default 30-min TTL). Periodic re-validation churn was the
+        # main cause of "every few minutes I get a new login window" — a
+        # single transient probe failure invalidated a perfectly fine session.
+        # Trust the token once captured; rely on real-API 401 detection in
+        # make_request for re-auth. The probe still runs on disk-adoption
+        # (probe-before-trust for sessions written by sibling processes).
+        self._browser_validation_interval_seconds = 1500
         self._browser_last_login_at: Optional[float] = None
         self._browser_post_login_grace_seconds = 90
         self._browser_reauth_cooldown_seconds = 15  # Start short, back off on repeated failures
@@ -554,8 +562,6 @@ class AuthManager:
         # better than the pre-v1.12.1 "stuck forever" but it spams the
         # server when nothing has changed.
         self._browser_circuit_last_escape_at: float = 0.0
-        self._keepalive_thread: Optional[threading.Thread] = None
-        self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
         self._login_lock_path = self._session_cache_path.replace(".json", ".lock")
         # Garbage-collect a stale legacy cache that lives in the default
@@ -569,17 +575,20 @@ class AuthManager:
         self._cleanup_stale_sibling_files()
         self._cached_basic_auth_header: Optional[str] = None
         self._session_disk_hash: Optional[int] = None  # Track disk content to skip redundant writes
-        self._keepalive_consecutive_failures: int = 0  # Track consecutive keepalive failures
 
         # Lazy browser auth: only load disk cache on startup (no browser).
         # The actual browser login is deferred to the first tool call
         # via get_headers(), avoiding an unwanted login window on MCP start.
         if self.config.type == AuthType.BROWSER:
+            # Log the resolved session path so users can confirm all MCP hosts
+            # (Claude Desktop / Cursor / terminal / uvx) point at the same dir.
+            # Sandboxed launchers occasionally remap $HOME — visible logging is
+            # the simplest way to spot a path mismatch.
+            logger.info("Session cache: %s", self._session_cache_path)
             self._ensure_playwright_ready()
             self._load_session_from_disk()
             if self._browser_cookie_header and not self._is_browser_session_expired():
                 logger.info("Startup: session restored from disk cache — ready.")
-                self._start_keepalive()
             else:
                 if self._browser_cookie_header:
                     self._browser_cookie_header = None
@@ -742,16 +751,19 @@ class AuthManager:
     def _get_cache_dir(self) -> str:
         """Resolve the root cache directory for session JSON and Playwright profile.
 
-        If the user has set ``browser.user_data_dir`` (via
-        ``SERVICENOW_BROWSER_USER_DATA_DIR``), the session JSON sits next to
-        that profile directory so both files live in the same parent — letting
-        multiple MCP hosts (Claude / Codex / etc.) share login state by
-        pointing at the same path. Otherwise default to ``~/.servicenow_mcp``.
+        Default: ``<user home>/.servicenow_mcp`` resolved via ``Path.home()`` so
+        Windows (``%USERPROFILE%``), macOS, and Linux all land in the per-user
+        home directory regardless of how the MCP host launches the process
+        (uvx, Claude Desktop, terminal). All MCP clients on the same machine
+        share this path, so a single login is reused across hosts.
+
+        Override via ``SERVICENOW_BROWSER_USER_DATA_DIR`` for non-standard
+        layouts; the session JSON sits next to the configured profile dir.
         """
         if self.config.browser and self.config.browser.user_data_dir:
             cache_dir = os.path.dirname(os.path.abspath(self.config.browser.user_data_dir))
         else:
-            cache_dir = os.path.join(os.path.expanduser("~"), ".servicenow_mcp")
+            cache_dir = str(Path.home() / ".servicenow_mcp")
         os.makedirs(cache_dir, exist_ok=True)
         return cache_dir
 
@@ -875,8 +887,7 @@ class AuthManager:
     def _save_session_to_disk(self) -> None:
         """Save the current browser session to disk.
 
-        Skips the write if the serialized content matches the last saved hash,
-        which reduces I/O by ~70-80% during keepalive pings.
+        Skips the write if the serialized content matches the last saved hash.
         """
         if self.config.type != AuthType.BROWSER or not self._browser_cookie_header:
             return
@@ -917,7 +928,7 @@ class AuthManager:
         """
         if not (self.config.browser and self.config.browser.user_data_dir):
             return  # No USER_DATA_DIR set → default IS the active path
-        legacy_dir = os.path.join(os.path.expanduser("~"), ".servicenow_mcp")
+        legacy_dir = str(Path.home() / ".servicenow_mcp")
         if not os.path.isdir(legacy_dir):
             return
         suffix = self._get_instance_user_suffix()
@@ -1131,8 +1142,8 @@ class AuthManager:
     def _reload_session_from_disk(self) -> bool:
         """Reload session from disk if a fresher session exists.
 
-        Used by keepalive and request retry paths to pick up sessions
-        written by another terminal/process sharing the same cache file.
+        Used by request retry paths to pick up sessions written by another
+        terminal/process sharing the same cache file.
         Returns True if a different (fresher) session was loaded.
         """
         if not os.path.exists(self._session_cache_path):
@@ -1171,7 +1182,7 @@ class AuthManager:
         # Disk has different cookies — likely written by another terminal after re-auth
         if disk_expires and time.time() > disk_expires:
             # Remove the expired file so we don't keep re-reading it on every
-            # 401 retry / keepalive cycle. A fresh login will write a new one.
+            # 401 retry cycle. A fresh login will write a new one.
             self._delete_session_cache_file("expired on reload")
             return False
 
@@ -1199,171 +1210,17 @@ class AuthManager:
         return True
 
     def _start_keepalive(self) -> None:
-        """Start a background thread that periodically pings ServiceNow
-        to keep the browser session alive (sliding window reset).
-
-        The ping interval is half the session TTL (default 15 minutes).
-        Only runs when a valid session exists; sleeps quietly otherwise.
+        """No-op stub retained for backward-compat with tests that mock this
+        method. v1.12.4 removed the keep-alive thread entirely: REST API pings
+        don't reset the server-side idle timer on most ServiceNow instances,
+        so the thread burned resources without keeping sessions alive. Session
+        expiry now recovers via 401 detection in make_request → re-login.
         """
-        if not self.config.browser:
-            return
-
-        import random
-
-        ttl_minutes = self.config.browser.session_ttl_minutes or 30
-        # Ping interval policy (v1.11.20):
-        #   * env unset       → DISABLED (default behaviour)
-        #   * env == 0        → DISABLED (explicit)
-        #   * env > 0         → enable, use that value as minutes
-        #   * env malformed   → DISABLED (treat like unset)
-        #
-        # v1.3.0 → v1.11.19 had keepalive enabled by default. Field
-        # testing on multiple instances confirmed REST API pings do not
-        # reset the server-side idle timer on the common ServiceNow
-        # configuration — the ping returns 200 but the server scores it
-        # as automation, not user activity, and the session dies at the
-        # instance idle timeout regardless. The thread was burning
-        # memory + bandwidth + chromium resources for no benefit, and
-        # the visible "Keep-alive ping: session invalid" warnings made
-        # users think something was broken when it wasn't.
-        #
-        # v1.11.20 default is OFF. The v1.11.18/19 recovery path
-        # (logout.do flush → login.do → mfa-remembered cookie skips
-        # MFA → 200) handles session expiry on the next tool call with
-        # zero user interaction in the happy path. Users on instances
-        # where REST API pings DO reset the idle timer can re-enable by
-        # setting SERVICENOW_KEEPALIVE_INTERVAL_MINUTES to a positive
-        # number of minutes.
-        env_override = (os.environ.get("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES") or "").strip()
-        try:
-            override_minutes = int(env_override) if env_override else None
-        except ValueError:
-            override_minutes = None
-        if override_minutes is None or override_minutes <= 0:
-            if override_minutes == 0:
-                logger.info(
-                    "Keep-alive disabled via SERVICENOW_KEEPALIVE_INTERVAL_MINUTES=0. "
-                    "Session expiry will be recovered on the next tool call."
-                )
-            else:
-                logger.info(
-                    "Keep-alive disabled (default in v1.11.20+). Set "
-                    "SERVICENOW_KEEPALIVE_INTERVAL_MINUTES to a positive "
-                    "number to enable. Session expiry will be recovered "
-                    "on the next tool call."
-                )
-            return
-        base_interval = override_minutes * 60
-        # Add jitter so multiple MCP processes don't ping at the same time
-        ping_interval = base_interval + random.randint(10, 60)
-
-        def _keepalive_loop() -> None:
-            while not self._keepalive_stop_event.is_set():
-                self._keepalive_stop_event.wait(ping_interval)
-                if self._keepalive_stop_event.is_set():
-                    break
-                # Only ping if we have a valid session outside grace period
-                if not self._browser_cookie_header or self._is_browser_session_expired():
-                    # No session in memory — try loading from disk
-                    # (another terminal may have written a fresh session)
-                    self._reload_session_from_disk()
-                    if not self._browser_cookie_header or self._is_browser_session_expired():
-                        continue
-                if (
-                    self._browser_last_login_at is not None
-                    and (time.time() - self._browser_last_login_at)
-                    < self._browser_post_login_grace_seconds
-                ):
-                    continue
-                # Dedup: if another process recently extended TTL on disk,
-                # skip our ping to avoid redundant requests from multiple terminals.
-                if self._reload_session_from_disk():
-                    # Disk had fresher cookies — adopted them, skip ping this cycle.
-                    self._keepalive_consecutive_failures = 0
-                    continue
-                if self._browser_cookie_expires_at and (
-                    self._browser_cookie_expires_at - time.time()
-                ) > (ttl_minutes * 60 - ping_interval * 0.3):
-                    # TTL was recently extended (by another process's ping) —
-                    # remaining TTL is close to full, no need to ping again.
-                    logger.debug(
-                        "Keep-alive: TTL recently extended (remaining %.0fs), skipping ping.",
-                        self._browser_cookie_expires_at - time.time(),
-                    )
-                    continue
-                try:
-                    # Keepalive ping intentionally omits X-UserToken so the
-                    # request looks like a plain cookie-authenticated read,
-                    # not a CSRF-protected automation call. v1.3.0 → v1.11.0
-                    # had this implicit behaviour and field reports showed
-                    # 15-min pings kept sessions alive all day; v1.11.0
-                    # added X-UserToken to all probes and sessions began
-                    # dying at the instance idle timeout despite pings
-                    # returning 200. See _probe_browser_api_with_cookie
-                    # for the full hypothesis.
-                    probe = self._probe_browser_api_with_cookie(
-                        self._browser_cookie_header,
-                        timeout_seconds=10,
-                        browser_config=self.config.browser,  # type: ignore[arg-type]
-                        include_user_token=False,
-                    )
-                    if _response_confirms_browser_probe_session(probe):
-                        # Session is alive — extend TTL
-                        self._browser_cookie_expires_at = time.time() + (ttl_minutes * 60)
-                        self._browser_last_validated_at = time.time()
-                        self._keepalive_consecutive_failures = 0
-                        self._save_session_to_disk()
-                        logger.debug(
-                            "Keep-alive ping OK: session extended by %d minutes.",
-                            ttl_minutes,
-                        )
-                    else:
-                        self._keepalive_consecutive_failures += 1
-                        logger.info(
-                            "Keep-alive ping: session invalid (status=%s, failure %d/3). "
-                            "Trying disk reload...",
-                            probe.status_code,
-                            self._keepalive_consecutive_failures,
-                        )
-                        # Another terminal may have re-authenticated — try disk reload
-                        if self._reload_session_from_disk():
-                            logger.info("Keep-alive: reloaded fresher session from disk.")
-                            self._keepalive_consecutive_failures = 0
-                        elif self._keepalive_consecutive_failures >= 3:
-                            logger.info(
-                                "Keep-alive: 3 consecutive failures — "
-                                "invalidating session. Will re-authenticate on next tool call."
-                            )
-                            self.invalidate_browser_session()
-                            self._keepalive_consecutive_failures = 0
-                except Exception as exc:
-                    self._keepalive_consecutive_failures += 1
-                    logger.debug(
-                        "Keep-alive ping failed (failure %d/3): %s",
-                        self._keepalive_consecutive_failures,
-                        exc,
-                    )
-                    if self._keepalive_consecutive_failures >= 3:
-                        logger.info("Keep-alive: 3 consecutive failures — " "invalidating session.")
-                        self.invalidate_browser_session()
-                        self._keepalive_consecutive_failures = 0
-
-        self._keepalive_thread = threading.Thread(
-            target=_keepalive_loop, daemon=True, name="sn-session-keepalive"
-        )
-        self._keepalive_thread.start()
-        logger.info(
-            "Session keep-alive started: ping every %d minutes (TTL=%d minutes).",
-            ping_interval // 60,
-            ttl_minutes,
-        )
+        return
 
     def stop_keepalive(self) -> None:
-        """Stop the keep-alive background thread."""
-        self._keepalive_stop_event.set()
-        if self._keepalive_thread and self._keepalive_thread.is_alive():
-            self._keepalive_thread.join(timeout=5)
-            logger.info("Session keep-alive stopped.")
+        """No-op stub. See `_start_keepalive` for rationale."""
+        return
 
     def get_headers(self) -> Dict[str, str]:
         """
@@ -1439,8 +1296,6 @@ class AuthManager:
                                 self._browser_reauth_cooldown_seconds = (
                                     self._browser_reauth_cooldown_base
                                 )
-                                if not self._keepalive_thread:
-                                    self._start_keepalive()
                                 self._apply_browser_session_headers(headers)
                                 return headers
                             logger.info(
@@ -1453,8 +1308,6 @@ class AuthManager:
                     if self._try_restore_browser_session(self.config.browser):
                         self._browser_reauth_failure_count = 0
                         self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
-                        if not self._keepalive_thread:
-                            self._start_keepalive()
                         self._apply_browser_session_headers(headers)
                         return headers
 
@@ -1472,8 +1325,6 @@ class AuthManager:
                                 self._browser_reauth_cooldown_seconds = (
                                     self._browser_reauth_cooldown_base
                                 )
-                                if not self._keepalive_thread:
-                                    self._start_keepalive()
                                 self._apply_browser_session_headers(headers)
                                 return headers
                             logger.info(
@@ -1501,8 +1352,6 @@ class AuthManager:
                                 self._browser_reauth_cooldown_seconds = (
                                     self._browser_reauth_cooldown_base
                                 )
-                                if not self._keepalive_thread:
-                                    self._start_keepalive()
                                 self._apply_browser_session_headers(headers)
                                 return headers
                             logger.info(
@@ -1546,8 +1395,6 @@ class AuthManager:
                         self._browser_reauth_cooldown_seconds = self._browser_reauth_cooldown_base
                         self._browser_login_in_progress = False
                         self._release_login_lock()
-                        if not self._keepalive_thread:
-                            self._start_keepalive()
                     except Exception as exc:
                         error_text = str(exc).lower()
                         if "still in progress" in error_text or "still be completing" in error_text:
@@ -1576,8 +1423,6 @@ class AuthManager:
                                 self._browser_reauth_cooldown_seconds = (
                                     self._browser_reauth_cooldown_base
                                 )
-                                if not self._keepalive_thread:
-                                    self._start_keepalive()
                                 self._apply_browser_session_headers(headers)
                                 return headers
                             # Genuine user cancellation before auth completed.
@@ -1637,8 +1482,6 @@ class AuthManager:
                         if self._wait_for_other_login(
                             timeout=self.config.browser.timeout_seconds + 60
                         ):
-                            if not self._keepalive_thread:
-                                self._start_keepalive()
                             self._apply_browser_session_headers(headers)
                             return headers
                         # Wait timed out — peer process is still logging in.
@@ -1684,8 +1527,6 @@ class AuthManager:
                                 self._browser_reauth_cooldown_seconds = (
                                     self._browser_reauth_cooldown_base
                                 )
-                                if not self._keepalive_thread:
-                                    self._start_keepalive()
                                 self._apply_browser_session_headers(headers)
                                 return headers
                             user_close_cooldown = (
@@ -1912,17 +1753,6 @@ class AuthManager:
         # without it, plain cookie auth gets a 302 to login even when the
         # browser session is fully valid. The token is captured from the
         # live page via `window.g_ck` during the wait loop.
-        #
-        # ``include_user_token=False`` is for the keepalive path. v1.11.0
-        # added X-UserToken to all probes; field reports indicated that
-        # before that change a 15-min ping kept sessions alive all day,
-        # but afterwards sessions started dying at the instance idle
-        # timeout. Hypothesis: ServiceNow classifies probe requests with
-        # X-UserToken as "background CSRF-protected automation" and skips
-        # them when scoring user-activity for the idle timer, while
-        # cookie-only probes count as user activity and reset the timer.
-        # The keepalive path opts out of the header to test/preserve the
-        # old "ping is activity" behaviour.
         if include_user_token and self._browser_session_token:
             probe_headers["X-UserToken"] = self._browser_session_token
         # Referer matching the instance keeps strict same-origin checks

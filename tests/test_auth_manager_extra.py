@@ -32,7 +32,6 @@ def _make_browser_manager(
     with (
         patch.object(AuthManager, "_ensure_playwright_ready"),
         patch.object(AuthManager, "_load_session_from_disk"),
-        patch.object(AuthManager, "_start_keepalive"),
     ):
         manager = AuthManager(cfg, instance_url)
     return manager

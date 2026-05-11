@@ -41,7 +41,6 @@ def _make_browser_manager(
     with (
         patch.object(AuthManager, "_ensure_playwright_ready"),
         patch.object(AuthManager, "_load_session_from_disk"),
-        patch.object(AuthManager, "_start_keepalive"),
     ):
         manager = AuthManager(cfg, instance_url)
     return manager
@@ -94,7 +93,6 @@ class TestDefaultUserDataDirBrowserUsername:
         with (
             patch.object(AuthManager, "_ensure_playwright_ready"),
             patch.object(AuthManager, "_load_session_from_disk"),
-            patch.object(AuthManager, "_start_keepalive"),
         ):
             mgr = AuthManager(cfg, "https://myinst.service-now.com")
         result = mgr._get_default_user_data_dir()
@@ -272,7 +270,6 @@ class TestGetHeadersRestoreWithUserAgentToken:
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = None
         mgr._browser_cookie_expires_at = None
-        mgr._keepalive_thread = None
 
         def _mock_restore(cfg):
             mgr._browser_cookie_header = "restored=1"
@@ -301,7 +298,6 @@ class TestGetHeadersWaitOtherLoginWithDetails:
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = None
         mgr._browser_cookie_expires_at = None
-        mgr._keepalive_thread = None
 
         def _mock_wait(timeout):
             mgr._browser_cookie_header = "waited=1"
@@ -1693,12 +1689,10 @@ class TestMakeRequest401OtherProcess:
 
 
 class TestGetHeadersDiskReloadFastPath:
-    def test_fast_path_disk_reload_with_keepalive_start(self):
-        """Disk reload succeeds in fast path, keepalive starts."""
+    def test_fast_path_disk_reload_returns_headers(self):
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = None
         mgr._browser_cookie_expires_at = None
-        mgr._keepalive_thread = None
 
         def _mock_reload():
             mgr._browser_cookie_header = "disk=1"
@@ -1708,13 +1702,11 @@ class TestGetHeadersDiskReloadFastPath:
             return True
 
         with patch.object(mgr, "_reload_session_from_disk", side_effect=_mock_reload):
-            with patch.object(mgr, "_start_keepalive") as mock_keepalive:
-                headers = mgr.get_headers()
+            headers = mgr.get_headers()
 
         assert headers["Cookie"] == "disk=1"
         assert headers["User-Agent"] == "DiskUA"
         assert headers["X-UserToken"] == "disk_tok"
-        mock_keepalive.assert_called_once()
 
 
 # ===========================================================================
@@ -1728,7 +1720,6 @@ class TestGetHeadersPostRestoreDiskCheck:
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = None
         mgr._browser_cookie_expires_at = None
-        mgr._keepalive_thread = None
 
         reload_count = {"n": 0}
 
@@ -1764,7 +1755,6 @@ class TestGetHeadersValidationRestorePath:
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = None
         mgr._browser_cookie_expires_at = None
-        mgr._keepalive_thread = None
 
         def _mock_restore(cfg):
             mgr._browser_cookie_header = "restored=1"
@@ -1778,54 +1768,3 @@ class TestGetHeadersValidationRestorePath:
 
         assert headers["Cookie"] == "restored=1"
         assert mgr._browser_reauth_failure_count == 0
-
-
-class TestKeepaliveDisableViaEnv:
-    """v1.11.20: SERVICENOW_KEEPALIVE_INTERVAL_MINUTES=0 disables the
-    keepalive thread entirely. ServiceNow instances that do not count
-    REST API calls toward idle-timer reset (where the ping returns 200
-    but doesn't actually keep the session alive) gain nothing from the
-    thread — turn it off and let the v1.11.18/19 recovery path handle
-    session expiry on the next tool call.
-    """
-
-    def test_zero_disables_keepalive(self, monkeypatch):
-        mgr = _make_browser_manager()
-        monkeypatch.setenv("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES", "0")
-
-        # Patch threading.Thread so we can detect whether a thread was started.
-        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
-            mgr._start_keepalive()
-
-        mock_thread.assert_not_called()
-
-    def test_positive_value_starts_keepalive(self, monkeypatch):
-        mgr = _make_browser_manager()
-        monkeypatch.setenv("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES", "3")
-
-        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
-            mgr._start_keepalive()
-
-        mock_thread.assert_called_once()
-
-    def test_unset_env_disabled_by_default(self, monkeypatch):
-        # v1.11.20: keepalive is OFF by default. Users must explicitly
-        # set SERVICENOW_KEEPALIVE_INTERVAL_MINUTES to a positive number
-        # to enable.
-        mgr = _make_browser_manager()
-        monkeypatch.delenv("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES", raising=False)
-
-        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
-            mgr._start_keepalive()
-
-        mock_thread.assert_not_called()
-
-    def test_malformed_env_disabled(self, monkeypatch):
-        # Garbage value treated as unset → disabled.
-        mgr = _make_browser_manager()
-        monkeypatch.setenv("SERVICENOW_KEEPALIVE_INTERVAL_MINUTES", "abc")
-
-        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
-            mgr._start_keepalive()
-
-        mock_thread.assert_not_called()
