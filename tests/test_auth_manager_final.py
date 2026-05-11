@@ -408,6 +408,16 @@ class TestLoginWithBrowserEventLoop:
 # ===========================================================================
 
 
+@pytest.fixture(autouse=True)
+def _disable_profile_cookie_probe():
+    """v1.11.49: most TestLoginWithBrowserSync cases pre-date the
+    profile-cookie pre-check that runs before the real login flow.
+    Bypass it so the existing assertions about the login dance still
+    fire. Tests that specifically exercise the new helper opt back in."""
+    with patch.object(AuthManager, "_try_profile_cookies_directly", return_value=False):
+        yield
+
+
 class TestLoginWithBrowserSync:
     def _make_playwright_mocks(
         self,

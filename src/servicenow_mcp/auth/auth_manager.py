@@ -2387,12 +2387,128 @@ class AuthManager:
         )
         return cleared
 
+    def _try_profile_cookies_directly(self, browser_config: BrowserAuthConfig) -> bool:
+        """v1.11.49: try the persistent profile's live cookies as a session,
+        without touching login.do or logout.do.
+
+        Mirrors `_try_restore_browser_session_sync` but reads cookies from a
+        Playwright persistent context directly (instead of from the disk
+        session JSON), so it catches the case where the profile has fresh
+        cookies the disk cache hasn't seen yet — e.g. when the user has been
+        interacting with ServiceNow in the same browser profile out-of-band.
+
+        Returns True iff the probe with profile cookies confirmed an
+        authenticated session; in that case, session state is populated and
+        the caller should NOT proceed with the login flow.
+        """
+        if not self.instance_url:
+            return False
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception:  # noqa: BLE001
+            return False
+
+        instance_host = (urlparse(self.instance_url).hostname or "").lower()
+        effective_user_data_dir = self._resolve_user_data_dir(browser_config)
+        try:
+            with sync_playwright() as playwright:
+                context = _launch_persistent_with_retry(
+                    playwright.chromium,
+                    effective_user_data_dir,
+                    headless=True,  # invisible — we are just inspecting cookies
+                )
+                try:
+                    profile_cookies = context.cookies()
+                    cookie_header = self._build_instance_cookie_header(
+                        profile_cookies, self.instance_url, instance_host
+                    )
+                    if not cookie_header:
+                        return False
+                    probe = self._probe_browser_api_with_cookie(
+                        cookie_header,
+                        timeout_seconds=10,
+                        browser_config=browser_config,
+                    )
+                    if not _response_confirms_browser_probe_session(probe):
+                        return False
+                    # Profile already has a valid session. Capture g_ck
+                    # + User-Agent from a lightweight navigation so the
+                    # captured headers match what make_request will send.
+                    page = context.pages[0] if context.pages else context.new_page()
+                    try:
+                        ua = page.evaluate("navigator.userAgent")
+                        if isinstance(ua, str) and ua.strip():
+                            self._browser_user_agent = ua.strip()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    try:
+                        page.goto(
+                            self.instance_url.rstrip("/")
+                            + "/now/nav/ui/classic/params/target/home_splash.do",
+                            timeout=10_000,
+                            wait_until="domcontentloaded",
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug(
+                            "Profile-cookie home navigation failed: %s (ignored, "
+                            "session still considered valid based on probe).",
+                            exc,
+                        )
+                    try:
+                        gck = page.evaluate("window.g_ck")
+                        if isinstance(gck, str) and gck.strip():
+                            self._browser_session_token = gck.strip()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self._browser_cookie_header = cookie_header
+                    self._browser_cookie_expires_at = time.time() + (
+                        browser_config.session_ttl_minutes * 60
+                    )
+                    self._browser_session_key = instance_host
+                    self._browser_last_validated_at = time.time()
+                    self._browser_last_login_at = time.time()
+                    self._clear_browser_reauth_attempt()
+                    self._consecutive_self_heal_count = 0
+                    self._save_session_to_disk()
+                    logger.info(
+                        "Browser session adopted from live profile cookies — "
+                        "no logout/login dance, no MFA. cookie_count=%d "
+                        "g_ck_present=%s",
+                        len(profile_cookies),
+                        bool(self._browser_session_token),
+                    )
+                    return True
+                finally:
+                    try:
+                        context.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "Profile-cookie direct probe failed: %s — falling through to login.",
+                exc,
+            )
+            return False
+        return False
+
     def _login_with_browser_sync(
         self, browser_config: BrowserAuthConfig, force_interactive: bool = False
     ) -> None:
         instance_url = self.instance_url
         if not instance_url:
             raise ValueError("Instance URL is required for browser authentication")
+
+        # v1.11.49: before the destructive logout-then-login dance, try
+        # the persistent Chromium profile's CURRENT cookies as-is. The
+        # disk session JSON may be stale while the profile itself holds
+        # a still-valid session (e.g. the user logged in via the same
+        # profile from another tool, or a sibling MCP process refreshed
+        # it). If a direct probe with profile cookies returns 200, we
+        # already have a working session and the whole logout/login/MFA
+        # cascade can be skipped — exactly the "stop shadow-boxing"
+        # behaviour the user asked for.
+        if self._try_profile_cookies_directly(browser_config):
+            return
 
         # v1.11.48: circuit breaker enforcement at login entry.
         # Once the breaker is open (≥ threshold consecutive 302→logouts),
