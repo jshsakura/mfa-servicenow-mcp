@@ -768,15 +768,23 @@ class AuthManager:
         return cache_dir
 
     def _get_instance_user_suffix(self) -> str:
-        """Return the ``{instance}{_user}`` suffix used in cache filenames."""
+        """Return the ``{instance}{_user}`` suffix used in cache filenames.
+
+        Replace ``@`` with ``_at_`` before ``.`` so usernames like
+        ``alice@corp.com`` and ``alice.corp.com`` produce distinct suffixes
+        (previously both collapsed to ``alice_corp_com``).
+        """
         instance_id = "default"
         if self.instance_url:
             instance_id = (urlparse(self.instance_url).hostname or "default").replace(".", "_")
         username = ""
+        raw_user: Optional[str] = None
         if self.config.browser and self.config.browser.username:
-            username = f"_{self.config.browser.username.replace('.', '_').replace('@', '_')}"
+            raw_user = self.config.browser.username
         elif self.config.basic and self.config.basic.username:
-            username = f"_{self.config.basic.username.replace('.', '_').replace('@', '_')}"
+            raw_user = self.config.basic.username
+        if raw_user:
+            username = f"_{raw_user.replace('@', '_at_').replace('.', '_')}"
         return f"{instance_id}{username}"
 
     def _get_session_cache_path(self) -> str:
