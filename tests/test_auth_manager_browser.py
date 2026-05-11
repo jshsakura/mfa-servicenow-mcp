@@ -23,6 +23,14 @@ from servicenow_mcp.auth.auth_manager import (
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig
 
 
+@pytest.fixture(autouse=True)
+def _disable_profile_cookie_probe():
+    """v1.11.49: bypass the profile-cookie pre-check helper so existing
+    login-flow tests still exercise the actual login.do dance."""
+    with patch.object(AuthManager, "_try_profile_cookies_directly", return_value=False):
+        yield
+
+
 def _make_browser_manager(
     instance_url: str = "https://example.service-now.com",
     session_ttl_minutes: int = 30,
