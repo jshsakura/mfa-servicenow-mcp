@@ -3460,26 +3460,48 @@ class AuthManager:
                 < self._browser_post_login_grace_seconds
             )
             if in_grace:
+                # v1.12.2: reaching this branch means the auto-relogin just
+                # finished, the actual call still got 302→logout, AND the
+                # v1.12.1 diagnostic probe to sys_user_preference also
+                # failed (otherwise we'd have raised TABLE_BLOCKED above).
+                #
+                # In other words: the brand-new session is "born dead" —
+                # the server accepts our login but kills every subsequent
+                # API call. The single most common cause is the
+                # ``glide_mfa_remembered_browser`` cookie producing an
+                # MFA-skipped session whose factor-cookie shape is
+                # rejected by the server's session policy. The session is
+                # "logged in" but lacks the post-MFA marker the server
+                # expects, so every real API call is routed to
+                # /logout_success.do.
+                #
+                # Old behaviour (v1.11.47–v1.12.1): raise a generic
+                # SESSION_TORN_DOWN_FRESH error and tell the user to
+                # restart MCP. Painful — user has to manually intervene
+                # for what we can already diagnose precisely.
+                #
+                # New behaviour: trip the full-purge flag so the next
+                # _login_with_browser drops mfa_remembered too, then
+                # convert this response to a 401 so the existing 401
+                # retry path below re-auths with full MFA. End result:
+                # user gets ONE visible MFA prompt and the call succeeds.
+                # No counter increment (this isn't repeated session
+                # rejection — it's a single mfa_remembered glitch).
                 logger.warning(
-                    "Self-heal skipped (within %ds post-login grace): %s %s passed "
-                    "through /logout_success.do. consecutive=%d. Not invalidating — "
-                    "re-auth on every call would just produce another rejected "
-                    "session and force MFA. Raising error so caller can investigate.",
-                    self._browser_post_login_grace_seconds,
+                    "Self-heal: in-grace logout (%s %s) + diagnostic probe also "
+                    "failed → fresh session born dead. Auto-purging mfa_remembered "
+                    "and re-authenticating with full MFA on this call's retry.",
                     method_upper,
                     url,
-                    self._consecutive_self_heal_count,
                 )
-                raise requests.HTTPError(
-                    "SESSION_TORN_DOWN_FRESH: server rejected a session created "
-                    f"<{self._browser_post_login_grace_seconds}s ago "
-                    f"(consecutive={self._consecutive_self_heal_count}). "
-                    "Not re-authenticating — this is an instance-level policy "
-                    "rejection that another login will not fix. Likely causes: "
-                    "ACL on the target table/field, MFA-cookie mismatch with "
-                    "server session policy, or test-environment hardening.",
-                    response=response,
-                )
+                self._consecutive_self_heal_count -= 1  # don't punish — we're handling it
+                self._needs_full_profile_purge = True
+                self._browser_last_login_at = None
+                self.invalidate_browser_session(full_purge=False)
+                response.status_code = 401
+                # Fall through to the 401 retry block below; it will call
+                # get_headers() → _login_with_browser() → which sees
+                # _needs_full_profile_purge=True and forces full MFA.
             logger.warning(
                 "Self-heal: response %s %s passed through /logout_success.do — "
                 "session torn down server-side (outside grace). consecutive=%d. "

@@ -849,13 +849,23 @@ class TestSelfHealDiagnosticProbe:
         mock_inv.assert_not_called()
         assert mgr._consecutive_self_heal_count == 0
 
-    def test_session_death_increments_counter_when_probe_also_fails(self):
-        """Call AND probe both 302→logout → session truly dead, increment
-        counter, raise SESSION_TORN_DOWN_FRESH within grace."""
-        import pytest as _pytest
+    def test_session_death_in_grace_arms_full_mfa_recovery(self):
+        """v1.12.2: in-grace logout + diag probe also fail → arm full MFA
+        on retry, do NOT raise SESSION_TORN_DOWN_FRESH.
 
+        Pre-v1.12.2 this raised the user-hostile SESSION_TORN_DOWN_FRESH
+        error telling people to restart MCP. With v1.12.2 we now know
+        (via the v1.12.1 diagnostic probe) that the auto-relogin produced
+        a session the server immediately rejects — almost always because
+        mfa_remembered cookie produced an MFA-skipped session that fails
+        the instance's session policy. So we arm full-profile-purge and
+        convert the response to 401 so the existing 401 retry block
+        re-authenticates with a fresh MFA window. User experience: ONE
+        MFA prompt instead of "restart MCP".
+        """
         mgr = _make_manager(login_at=time.time())
         mgr._consecutive_self_heal_count = 0
+        mgr._needs_full_profile_purge = False
 
         with patch.object(mgr, "get_headers", return_value={"Cookie": "JSESSIONID=abc"}):
             with patch.object(mgr._http_session, "request", return_value=_make_logout_response()):
@@ -864,23 +874,32 @@ class TestSelfHealDiagnosticProbe:
                     "_probe_browser_api_with_cookie",
                     return_value=_make_probe_dead_response(),
                 ):
-                    with _pytest.raises(requests.HTTPError, match="SESSION_TORN_DOWN_FRESH"):
-                        mgr.make_request(
-                            "GET",
-                            "https://test.service-now.com/api/now/table/sys_user",
-                            timeout=10,
-                            max_retries=0,
-                        )
+                    # max_retries=0 skips the 401 retry block (which would
+                    # open a real browser). We only assert state setup.
+                    result = mgr.make_request(
+                        "GET",
+                        "https://test.service-now.com/api/now/table/sys_user",
+                        timeout=10,
+                        max_retries=0,
+                    )
 
-        assert mgr._consecutive_self_heal_count == 1
+        # Counter NOT incremented — we self-recover, not punish the user.
+        assert mgr._consecutive_self_heal_count == 0
+        # Full purge armed → next _login_with_browser drops mfa_remembered
+        # → fresh MFA → sustained working session.
+        assert mgr._needs_full_profile_purge is True
+        # Grace cleared so the 401 retry path takes the re-auth branch
+        # instead of polling-with-old-cookies.
+        assert mgr._browser_last_login_at is None
+        # Response converted to 401 to drive the retry pipeline.
+        assert result.status_code == 401
 
-    def test_probe_exception_treated_as_session_death(self):
-        """Probe raises RequestException → conservative: treat as session
-        death so we still get the counter-increment + grace path."""
-        import pytest as _pytest
-
+    def test_probe_exception_treated_as_session_death_in_grace(self):
+        """Probe raises RequestException → treat as dead session, same
+        full-MFA recovery path as the explicit logout case."""
         mgr = _make_manager(login_at=time.time())
         mgr._consecutive_self_heal_count = 0
+        mgr._needs_full_profile_purge = False
 
         with patch.object(mgr, "get_headers", return_value={"Cookie": "JSESSIONID=abc"}):
             with patch.object(mgr._http_session, "request", return_value=_make_logout_response()):
@@ -889,15 +908,17 @@ class TestSelfHealDiagnosticProbe:
                     "_probe_browser_api_with_cookie",
                     side_effect=requests.ConnectionError("boom"),
                 ):
-                    with _pytest.raises(requests.HTTPError, match="SESSION_TORN_DOWN_FRESH"):
-                        mgr.make_request(
-                            "GET",
-                            "https://test.service-now.com/api/now/table/sys_user",
-                            timeout=10,
-                            max_retries=0,
-                        )
+                    result = mgr.make_request(
+                        "GET",
+                        "https://test.service-now.com/api/now/table/sys_user",
+                        timeout=10,
+                        max_retries=0,
+                    )
 
-        assert mgr._consecutive_self_heal_count == 1
+        assert mgr._consecutive_self_heal_count == 0
+        assert mgr._needs_full_profile_purge is True
+        assert mgr._browser_last_login_at is None
+        assert result.status_code == 401
 
 
 # ================================================================
