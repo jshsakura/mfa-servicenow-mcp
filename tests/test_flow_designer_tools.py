@@ -102,6 +102,7 @@ class TestFlowDesignerTools(unittest.TestCase):
                 include_executions_summary=True,
                 trace_pill="trigger.current",
                 include_subflow_tree=True,
+                summary_format=False,
             ),
         )
 
