@@ -89,8 +89,8 @@ class GetFlowDetailsParams(BaseModel):
         description="Include recursive subflow call tree",
     )
     summary_format: bool = Field(
-        default=False,
-        description="Return flat tree summary with full conditions; analysis-friendly view",
+        default=True,
+        description="Compact tree+warnings+index (default). Set False only if raw JSON needed.",
     )
 
 
@@ -1212,7 +1212,7 @@ def list_flows(
 @register_tool(
     name="get_flow_designer_detail",
     params=GetFlowDetailsParams,
-    description="Get Flow Designer workflow detail. Use summary_format=True for analysis-friendly tree+warnings+index.",
+    description="Get Flow Designer workflow detail. summary_format=True by default (compact). Pass False for raw dump.",
     serialization="json",
     return_type=dict,
 )
