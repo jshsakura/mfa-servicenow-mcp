@@ -504,6 +504,16 @@ class AuthManager:
         # rejects the cookie-jar as "not MFA'd" → 302 loop forever. Force
         # full MFA in that case to re-mint the `factor` cookie.
         self._needs_full_profile_purge: bool = False
+        # v1.11.47: how many self-heals (302→logout_success.do) have fired
+        # consecutively without a successful response in between. The first
+        # self-heal preserves mfa_remembered so a transient server hiccup
+        # doesn't punish the user with re-MFA. Only when we get TWO+ in a
+        # row — meaning the mfa_remembered-cookie path is producing
+        # repeatedly-rejected sessions — do we full-purge and force MFA.
+        # This was the v1.11.46 UX regression: every self-heal forced MFA,
+        # even when the test instance's 302s weren't actually caused by
+        # mfa_remembered. Counter resets to 0 on any successful response.
+        self._consecutive_self_heal_count: int = 0
         self._keepalive_thread: Optional[threading.Thread] = None
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
@@ -1794,8 +1804,14 @@ class AuthManager:
 
         This avoids paying an additional validation probe on the next request
         when the server already accepted the current cookie + user token pair.
+
+        v1.11.47: also resets the consecutive-self-heal counter — a successful
+        response means the server is happy with our session, so the next time
+        a logout-302 fires we should start the escalation ladder from zero
+        again (don't force MFA based on stale counter state).
         """
         self._browser_last_validated_at = time.time()
+        self._consecutive_self_heal_count = 0
 
     def _absorb_response_token_rotation(self, response: requests.Response) -> None:
         """Pick up rotated X-UserToken / X-CSRF-Token from a server response.
@@ -2039,22 +2055,36 @@ class AuthManager:
             return False
 
         if not _response_confirms_browser_probe_session(probe):
-            # v1.11.46: when the probe was 302'd straight to /logout_success.do
-            # or /logout.do, the disk session is server-rejected and reusing
-            # the mfa_remembered cookie on the next login produces a session
-            # without `factor` → infinite login loop. Mark the upcoming
-            # profile purge as "full" so mfa_remembered is dropped too.
+            # v1.11.46/47: when the probe was 302'd straight to
+            # /logout_success.do or /logout.do, the disk session is
+            # server-rejected. Reusing mfa_remembered on the next login
+            # may produce a session without `factor` → infinite login
+            # loop. But forcing MFA on EVERY such event is too painful
+            # for instances where the 302 is caused by something else
+            # (the v1.11.46 UX regression). So count consecutive logout
+            # probes; only escalate to full purge when ≥2 happen back
+            # to back without a successful call in between.
             probe_location = (probe.headers.get("Location") or "").lower()
             if (
                 "logout_success" in probe_location
                 or "/logout.do" in probe_location
                 or _response_redirected_through_logout(probe)
             ):
-                self._needs_full_profile_purge = True
-                logger.info(
-                    "Browser session restore probe redirected to logout — "
-                    "next profile purge will drop mfa_remembered (full MFA on next login)."
-                )
+                self._consecutive_self_heal_count += 1
+                if self._consecutive_self_heal_count >= 2:
+                    self._needs_full_profile_purge = True
+                    logger.info(
+                        "Browser session restore probe redirected to logout "
+                        "(consecutive=%d) — escalating to full purge: "
+                        "mfa_remembered will be dropped, next login will force MFA.",
+                        self._consecutive_self_heal_count,
+                    )
+                else:
+                    logger.info(
+                        "Browser session restore probe redirected to logout "
+                        "(consecutive=%d) — keeping mfa_remembered for first attempt.",
+                        self._consecutive_self_heal_count,
+                    )
             logger.info(
                 "Browser session restore probe rejected cached cookies: status=%s",
                 probe.status_code,
@@ -3074,16 +3104,63 @@ class AuthManager:
             and self._browser_cookie_header
             and _response_redirected_through_logout(response)
         ):
+            # v1.11.47: respect the post-login grace period.
+            #
+            # If the 302→/logout_success.do happens within seconds of a
+            # successful login (probe was 200, session saved), this is the
+            # "fresh session born dead" pattern. Re-authenticating produces
+            # another fresh session that hits the same server-side policy
+            # and dies the same way — but every re-auth means another MFA
+            # prompt. The user ends up MFAing on every tool call. Raise a
+            # clear error WITHOUT invalidating: caller sees the failure,
+            # session stays in memory for the user to retry/investigate,
+            # no MFA loop. Outside grace (server's idle timeout fired), do
+            # the standard self-heal: invalidate + re-auth on next call.
+            in_grace = (
+                self._browser_last_login_at is not None
+                and (time.time() - self._browser_last_login_at)
+                < self._browser_post_login_grace_seconds
+            )
+            if in_grace:
+                self._consecutive_self_heal_count += 1
+                logger.warning(
+                    "Self-heal skipped (within %ds post-login grace): %s %s passed "
+                    "through /logout_success.do. consecutive=%d. Not invalidating — "
+                    "re-auth on every call would just produce another rejected "
+                    "session and force MFA. Raising error so caller can investigate.",
+                    self._browser_post_login_grace_seconds,
+                    method_upper,
+                    url,
+                    self._consecutive_self_heal_count,
+                )
+                raise requests.HTTPError(
+                    "SESSION_TORN_DOWN_FRESH: server rejected a session created "
+                    f"<{self._browser_post_login_grace_seconds}s ago "
+                    f"(consecutive={self._consecutive_self_heal_count}). "
+                    "Not re-authenticating — this is an instance-level policy "
+                    "rejection that another login will not fix. Likely causes: "
+                    "ACL on the target table/field, MFA-cookie mismatch with "
+                    "server session policy, or test-environment hardening.",
+                    response=response,
+                )
+            self._consecutive_self_heal_count += 1
+            force_full_purge = self._consecutive_self_heal_count >= 2
             logger.warning(
                 "Self-heal: response %s %s passed through /logout_success.do — "
-                "session torn down server-side. Forcing invalidation regardless "
-                "of post-login grace period. Full purge (mfa_remembered dropped) "
-                "so next login re-MFAs and re-mints the `factor` cookie.",
+                "session torn down server-side (outside grace). consecutive=%d "
+                "full_purge=%s%s",
                 method_upper,
                 url,
+                self._consecutive_self_heal_count,
+                force_full_purge,
+                (
+                    " (mfa_remembered dropped — re-MFA on next login)"
+                    if force_full_purge
+                    else " (mfa_remembered preserved — first self-heal is forgiving)"
+                ),
             )
             self._browser_last_login_at = None
-            self.invalidate_browser_session(full_purge=True)
+            self.invalidate_browser_session(full_purge=force_full_purge)
             response.status_code = 401
 
         if (
