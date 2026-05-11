@@ -32,6 +32,15 @@ _SESSION_MAX_RETRIES_CONNECT = 0  # Connection-level retries handled by make_req
 GCK_CAPTURE_MAX_ATTEMPTS = 8
 GCK_CAPTURE_INTERVAL_SECONDS = 1.0
 
+# v1.11.48: circuit breaker threshold for consecutive 302→/logout_success.do
+# responses. Once the server has rejected this many sessions in a row —
+# including ones minted via fresh full-MFA login — keep re-authenticating
+# is hopeless and just punishes the user with repeated MFA prompts. After
+# the threshold, raise SELF_HEAL_CIRCUIT_OPEN instead. Counter resets on
+# any successful response via _mark_browser_session_recently_valid, so a
+# transient server hiccup never trips the breaker.
+_SELF_HEAL_CIRCUIT_THRESHOLD = 3
+
 
 def _build_http_session() -> requests.Session:
     """Create a ``requests.Session`` with connection-pooling tuned for
@@ -2055,15 +2064,6 @@ class AuthManager:
             return False
 
         if not _response_confirms_browser_probe_session(probe):
-            # v1.11.46/47: when the probe was 302'd straight to
-            # /logout_success.do or /logout.do, the disk session is
-            # server-rejected. Reusing mfa_remembered on the next login
-            # may produce a session without `factor` → infinite login
-            # loop. But forcing MFA on EVERY such event is too painful
-            # for instances where the 302 is caused by something else
-            # (the v1.11.46 UX regression). So count consecutive logout
-            # probes; only escalate to full purge when ≥2 happen back
-            # to back without a successful call in between.
             probe_location = (probe.headers.get("Location") or "").lower()
             if (
                 "logout_success" in probe_location
@@ -2071,6 +2071,15 @@ class AuthManager:
                 or _response_redirected_through_logout(probe)
             ):
                 self._consecutive_self_heal_count += 1
+                # v1.11.48: circuit breaker. If the restore probe keeps
+                # getting redirected to logout AND we've already burned
+                # this many recovery cycles, do not let the next layer
+                # trigger another full login + MFA. Caller will see
+                # `restore returned False` and the standard re-auth path
+                # WILL run anyway — but the circuit-breaker check inside
+                # _login_with_browser_sync entry won't fire here, so the
+                # main guard lives in make_request's self-heal path.
+                # Still tag full purge for the next purge if it happens.
                 if self._consecutive_self_heal_count >= 2:
                     self._needs_full_profile_purge = True
                     logger.info(
@@ -2384,6 +2393,30 @@ class AuthManager:
         instance_url = self.instance_url
         if not instance_url:
             raise ValueError("Instance URL is required for browser authentication")
+
+        # v1.11.48: circuit breaker enforcement at login entry.
+        # Once the breaker is open (≥ threshold consecutive 302→logouts),
+        # opening another browser window just produces another rejected
+        # session and another MFA prompt. Bail out immediately. The user
+        # restarting MCP or hitting a successful response resets the
+        # counter and re-enables login.
+        if self._consecutive_self_heal_count >= _SELF_HEAL_CIRCUIT_THRESHOLD:
+            logger.error(
+                "Browser login blocked: SELF_HEAL_CIRCUIT_OPEN "
+                "(consecutive_self_heal=%d ≥ %d). The previous %d sessions "
+                "were rejected by the server. Refusing to open another "
+                "browser window — another MFA round would not help.",
+                self._consecutive_self_heal_count,
+                _SELF_HEAL_CIRCUIT_THRESHOLD,
+                self._consecutive_self_heal_count,
+            )
+            raise ValueError(
+                "SELF_HEAL_CIRCUIT_OPEN: %d consecutive sessions rejected "
+                "server-side, including fresh full-MFA logins. Refusing to "
+                "trigger yet another browser login. Investigate ACL/account "
+                "status on the ServiceNow instance, or restart MCP to reset."
+                % self._consecutive_self_heal_count
+            )
 
         try:
             from playwright.sync_api import sync_playwright
@@ -3116,13 +3149,43 @@ class AuthManager:
             # session stays in memory for the user to retry/investigate,
             # no MFA loop. Outside grace (server's idle timeout fired), do
             # the standard self-heal: invalidate + re-auth on next call.
+            self._consecutive_self_heal_count += 1
+            # v1.11.48: circuit breaker. Once consecutive_self_heal_count
+            # crosses SELF_HEAL_CIRCUIT_THRESHOLD, refuse all re-auth. The
+            # server has rejected the last N+ sessions in a row including
+            # ones minted right after a fresh full-MFA login — clearly an
+            # instance-side rejection that re-auth cannot fix. Continuing
+            # to re-auth just pumps the user through MFA prompt after MFA
+            # prompt with zero chance of success. Raise immediately, don't
+            # invalidate. Counter resets on any successful response via
+            # _mark_browser_session_recently_valid, or on MCP restart.
+            if self._consecutive_self_heal_count >= _SELF_HEAL_CIRCUIT_THRESHOLD:
+                logger.error(
+                    "Self-heal CIRCUIT OPEN: %s %s — consecutive_self_heal=%d "
+                    "≥ threshold(%d). Refusing to re-authenticate. The server "
+                    "has rejected every recent session including fresh full-MFA "
+                    "ones. Bail out so the user can investigate or restart MCP.",
+                    method_upper,
+                    url,
+                    self._consecutive_self_heal_count,
+                    _SELF_HEAL_CIRCUIT_THRESHOLD,
+                )
+                raise requests.HTTPError(
+                    "SELF_HEAL_CIRCUIT_OPEN: %d consecutive 302→/logout_success.do "
+                    "responses, including after fresh full-MFA logins. The server "
+                    "is rejecting this account/instance combination at the policy "
+                    "layer — another re-auth would just prompt MFA again with the "
+                    "same result. Investigate ACL/account status server-side, or "
+                    "restart MCP to reset the counter. (Counter also resets on "
+                    "the first successful response.)" % self._consecutive_self_heal_count,
+                    response=response,
+                )
             in_grace = (
                 self._browser_last_login_at is not None
                 and (time.time() - self._browser_last_login_at)
                 < self._browser_post_login_grace_seconds
             )
             if in_grace:
-                self._consecutive_self_heal_count += 1
                 logger.warning(
                     "Self-heal skipped (within %ds post-login grace): %s %s passed "
                     "through /logout_success.do. consecutive=%d. Not invalidating — "
@@ -3143,7 +3206,6 @@ class AuthManager:
                     "server session policy, or test-environment hardening.",
                     response=response,
                 )
-            self._consecutive_self_heal_count += 1
             force_full_purge = self._consecutive_self_heal_count >= 2
             logger.warning(
                 "Self-heal: response %s %s passed through /logout_success.do — "
