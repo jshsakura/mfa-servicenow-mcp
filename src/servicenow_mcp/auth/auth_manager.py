@@ -41,6 +41,13 @@ GCK_CAPTURE_INTERVAL_SECONDS = 1.0
 # transient server hiccup never trips the breaker.
 _SELF_HEAL_CIRCUIT_THRESHOLD = 3
 
+# v1.12.0: hard minimum interval between two browser-login attempts. Even
+# below the circuit-breaker threshold, firing login.do repeatedly inside
+# a few seconds looks like brute-force from the server's side and can
+# get the account flagged. This cooldown enforces a "safe zone" — at
+# least this many seconds must elapse between successive login attempts.
+_MIN_LOGIN_INTERVAL_SECONDS = 60.0
+
 
 def _build_http_session() -> requests.Session:
     """Create a ``requests.Session`` with connection-pooling tuned for
@@ -523,6 +530,12 @@ class AuthManager:
         # even when the test instance's 302s weren't actually caused by
         # mfa_remembered. Counter resets to 0 on any successful response.
         self._consecutive_self_heal_count: int = 0
+        # v1.12.0: timestamp of the last browser-login attempt. Used to
+        # enforce _MIN_LOGIN_INTERVAL_SECONDS — back-to-back login.do
+        # submissions within seconds look like brute-force to the server
+        # and put the account at risk of being flagged. Initial value 0
+        # means "no attempt yet"; the first login is unthrottled.
+        self._last_login_started_at: float = 0.0
         self._keepalive_thread: Optional[threading.Thread] = None
         self._keepalive_stop_event = threading.Event()
         self._session_cache_path = self._get_session_cache_path()
@@ -597,27 +610,22 @@ class AuthManager:
 
     def _apply_browser_session_headers(self, headers: dict) -> dict:
         """Mutate `headers` in place to include the captured browser session
-        — Cookie + optional User-Agent + optional X-UserToken + Referer —
-        and return the same dict for chaining. Centralises the 10-call
-        pattern that previously copy-pasted the same three assignments
-        around get_auth_headers.
+        — Cookie + optional User-Agent + optional X-UserToken — and return
+        the same dict for chaining.
 
-        v1.11.45: Referer parity with `_probe_browser_api_with_cookie`.
-        The probe sends Referer matching the instance origin; make_request
-        previously did not. On strict same-origin instances, the very first
-        real call without Referer can be classified as off-origin
-        automation and 302'd to /logout_success.do — observed when the
-        first post-login call was a complex custom-table query with an
-        invalid field name. Adding Referer here keeps make_request
-        consistent with probe so the same-origin check passes uniformly.
+        v1.12.0 reverts the v1.11.45 Referer addition. Field report from
+        a user whose test instance worked pre-patches and broke after:
+        adding Referer changed the request signature enough that the
+        server started 302'ing every call to /logout_success.do. The
+        probe path still sends Referer (it has to look UI-driven for the
+        validation hit), but the actual API call path is back to the
+        pre-v1.11.45 header set users had been relying on for months.
         """
         headers["Cookie"] = self._browser_cookie_header or ""
         if self._browser_user_agent:
             headers["User-Agent"] = self._browser_user_agent
         if self._browser_session_token:
             headers["X-UserToken"] = self._browser_session_token
-        if self.instance_url:
-            headers["Referer"] = self.instance_url.rstrip("/") + "/"
         return headers
 
     @staticmethod
@@ -2071,29 +2079,17 @@ class AuthManager:
                 or _response_redirected_through_logout(probe)
             ):
                 self._consecutive_self_heal_count += 1
-                # v1.11.48: circuit breaker. If the restore probe keeps
-                # getting redirected to logout AND we've already burned
-                # this many recovery cycles, do not let the next layer
-                # trigger another full login + MFA. Caller will see
-                # `restore returned False` and the standard re-auth path
-                # WILL run anyway — but the circuit-breaker check inside
-                # _login_with_browser_sync entry won't fire here, so the
-                # main guard lives in make_request's self-heal path.
-                # Still tag full purge for the next purge if it happens.
-                if self._consecutive_self_heal_count >= 2:
-                    self._needs_full_profile_purge = True
-                    logger.info(
-                        "Browser session restore probe redirected to logout "
-                        "(consecutive=%d) — escalating to full purge: "
-                        "mfa_remembered will be dropped, next login will force MFA.",
-                        self._consecutive_self_heal_count,
-                    )
-                else:
-                    logger.info(
-                        "Browser session restore probe redirected to logout "
-                        "(consecutive=%d) — keeping mfa_remembered for first attempt.",
-                        self._consecutive_self_heal_count,
-                    )
+                # v1.12.0: do NOT auto-trigger full profile purge. Repeated
+                # logout-302s do not necessarily mean mfa_remembered is
+                # poisoned, and forcing MFA on every recovery proved more
+                # painful than helpful in production. Counter increments
+                # feed the circuit breaker, which stops re-auth after
+                # _SELF_HEAL_CIRCUIT_THRESHOLD failures.
+                logger.info(
+                    "Browser session restore probe redirected to logout "
+                    "(consecutive=%d) — mfa_remembered preserved.",
+                    self._consecutive_self_heal_count,
+                )
             logger.info(
                 "Browser session restore probe rejected cached cookies: status=%s",
                 probe.status_code,
@@ -2498,17 +2494,16 @@ class AuthManager:
         if not instance_url:
             raise ValueError("Instance URL is required for browser authentication")
 
-        # v1.11.49: before the destructive logout-then-login dance, try
-        # the persistent Chromium profile's CURRENT cookies as-is. The
-        # disk session JSON may be stale while the profile itself holds
-        # a still-valid session (e.g. the user logged in via the same
-        # profile from another tool, or a sibling MCP process refreshed
-        # it). If a direct probe with profile cookies returns 200, we
-        # already have a working session and the whole logout/login/MFA
-        # cascade can be skipped — exactly the "stop shadow-boxing"
-        # behaviour the user asked for.
-        if self._try_profile_cookies_directly(browser_config):
-            return
+        # v1.12.0: the v1.11.49 profile-cookie pre-probe was REMOVED.
+        # Field report: it sometimes adopted an incomplete cookie set
+        # (missing JSESSIONID and BIGipServer*) that passed the
+        # sys_user_preference probe but caused parallel API calls to be
+        # routed to random load-balancer backends where the session did
+        # not exist, producing a wave of 401s. Pre-v1.11.49 callers had
+        # been depending on a clean login.do flow that yields a full
+        # cookie jar, and the field user confirmed that earlier
+        # behaviour was working fine. Helper retained in the file in
+        # case a future caller wants to opt back in deliberately.
 
         # v1.11.48: circuit breaker enforcement at login entry.
         # Once the breaker is open (≥ threshold consecutive 302→logouts),
@@ -2533,6 +2528,29 @@ class AuthManager:
                 "status on the ServiceNow instance, or restart MCP to reset."
                 % self._consecutive_self_heal_count
             )
+
+        # v1.12.0: minimum interval between login attempts (safe zone).
+        # Server-side abuse detection flags accounts that submit login.do
+        # rapidly. Even when the circuit breaker is still closed, two
+        # logins within seconds is suspicious. Enforce a hard floor.
+        now = time.time()
+        since_last = now - self._last_login_started_at if self._last_login_started_at else None
+        if since_last is not None and since_last < _MIN_LOGIN_INTERVAL_SECONDS:
+            remaining = _MIN_LOGIN_INTERVAL_SECONDS - since_last
+            logger.warning(
+                "Browser login blocked: last attempt was %.1fs ago, "
+                "minimum interval is %.1fs. Refusing to fire another login.do "
+                "submission. %.1fs until allowed.",
+                since_last,
+                _MIN_LOGIN_INTERVAL_SECONDS,
+                remaining,
+            )
+            raise ValueError(
+                f"LOGIN_COOLDOWN: previous browser login attempted {since_last:.1f}s "
+                f"ago. Wait {remaining:.1f}s before retrying — back-to-back login "
+                f"submissions risk getting the account flagged."
+            )
+        self._last_login_started_at = now
 
         try:
             from playwright.sync_api import sync_playwright
@@ -3118,6 +3136,25 @@ class AuthManager:
         Raises:
             requests.RequestException: If the request fails after all retries.
         """
+        # v1.12.0: fail fast when the self-heal circuit is open. Without
+        # this guard, every retry from source_tools / sn_api parallel page
+        # fetch / etc. would still try to send (and fail), pumping
+        # ServiceNow with 100+ 401 calls in a few seconds and risking the
+        # user being flagged or banned. The guard makes all calls return
+        # instantly until a successful response resets the counter or the
+        # user restarts MCP.
+        if (
+            self.config.type == AuthType.BROWSER
+            and self._consecutive_self_heal_count >= _SELF_HEAL_CIRCUIT_THRESHOLD
+        ):
+            raise requests.HTTPError(
+                "SELF_HEAL_CIRCUIT_OPEN: %d consecutive auth failures. Refusing "
+                "to send this request. The server is rejecting every session — "
+                "restart MCP or wait for the instance policy to clear. "
+                "(Counter resets on the first successful response.)"
+                % self._consecutive_self_heal_count
+            )
+
         # Get auth headers
         headers = kwargs.pop("headers", {})
         headers.update(self.get_headers())
@@ -3266,34 +3303,19 @@ class AuthManager:
             # no MFA loop. Outside grace (server's idle timeout fired), do
             # the standard self-heal: invalidate + re-auth on next call.
             self._consecutive_self_heal_count += 1
-            # v1.11.48: circuit breaker. Once consecutive_self_heal_count
-            # crosses SELF_HEAL_CIRCUIT_THRESHOLD, refuse all re-auth. The
-            # server has rejected the last N+ sessions in a row including
-            # ones minted right after a fresh full-MFA login — clearly an
-            # instance-side rejection that re-auth cannot fix. Continuing
-            # to re-auth just pumps the user through MFA prompt after MFA
-            # prompt with zero chance of success. Raise immediately, don't
-            # invalidate. Counter resets on any successful response via
-            # _mark_browser_session_recently_valid, or on MCP restart.
             if self._consecutive_self_heal_count >= _SELF_HEAL_CIRCUIT_THRESHOLD:
                 logger.error(
-                    "Self-heal CIRCUIT OPEN: %s %s — consecutive_self_heal=%d "
-                    "≥ threshold(%d). Refusing to re-authenticate. The server "
-                    "has rejected every recent session including fresh full-MFA "
-                    "ones. Bail out so the user can investigate or restart MCP.",
+                    "Self-heal CIRCUIT OPEN: %s %s — consecutive=%d ≥ threshold(%d). "
+                    "Refusing further calls.",
                     method_upper,
                     url,
                     self._consecutive_self_heal_count,
                     _SELF_HEAL_CIRCUIT_THRESHOLD,
                 )
                 raise requests.HTTPError(
-                    "SELF_HEAL_CIRCUIT_OPEN: %d consecutive 302→/logout_success.do "
-                    "responses, including after fresh full-MFA logins. The server "
-                    "is rejecting this account/instance combination at the policy "
-                    "layer — another re-auth would just prompt MFA again with the "
-                    "same result. Investigate ACL/account status server-side, or "
-                    "restart MCP to reset the counter. (Counter also resets on "
-                    "the first successful response.)" % self._consecutive_self_heal_count,
+                    "SELF_HEAL_CIRCUIT_OPEN: %d consecutive auth failures. "
+                    "Server rejects every session. Restart MCP or wait for the "
+                    "instance policy to clear." % self._consecutive_self_heal_count,
                     response=response,
                 )
             in_grace = (
@@ -3322,23 +3344,16 @@ class AuthManager:
                     "server session policy, or test-environment hardening.",
                     response=response,
                 )
-            force_full_purge = self._consecutive_self_heal_count >= 2
             logger.warning(
                 "Self-heal: response %s %s passed through /logout_success.do — "
-                "session torn down server-side (outside grace). consecutive=%d "
-                "full_purge=%s%s",
+                "session torn down server-side (outside grace). consecutive=%d. "
+                "mfa_remembered preserved (v1.12.0 — no auto full_purge).",
                 method_upper,
                 url,
                 self._consecutive_self_heal_count,
-                force_full_purge,
-                (
-                    " (mfa_remembered dropped — re-MFA on next login)"
-                    if force_full_purge
-                    else " (mfa_remembered preserved — first self-heal is forgiving)"
-                ),
             )
             self._browser_last_login_at = None
-            self.invalidate_browser_session(full_purge=force_full_purge)
+            self.invalidate_browser_session(full_purge=False)
             response.status_code = 401
 
         if (
@@ -3443,24 +3458,21 @@ class AuthManager:
                                 response=reloaded_response,
                             )
                     # The session was JUST created and final_probe passed, yet the
-                    # very next real call still 401s. Re-authenticating would just
-                    # produce another fresh-but-rejected session and the user would
-                    # see another browser window. Raise a clear, non-retriable signal
-                    # so the LLM stops retrying and the user can investigate the
-                    # actual root cause (X-UserToken policy, ACL on this endpoint,
-                    # cookie-domain mismatch, instance security policy).
+                    # very next real call still 401s. v1.12.0: increment the
+                    # circuit breaker counter on plain 401s that we could not
+                    # recover from in-grace. test-environment hardening was
+                    # firing only 401s (not 302→logout), so the previous
+                    # counter never reached the threshold and source_tools
+                    # kept hammering the server with retries — exactly the
+                    # "왜 비인증 호출이 이렇게 많아" symptom. Now any 401 that
+                    # makes it to this raise contributes to the breaker.
+                    self._consecutive_self_heal_count += 1
                     raise requests.HTTPError(
-                        "FRESH_SESSION_REJECTED: a brand-new browser session "
-                        "(<{grace}s old) is being rejected by ServiceNow with 401 on "
-                        "this endpoint, even though final_probe passed. "
-                        "Re-authentication will not help — the session itself is fine. "
-                        "Likely causes: X-UserToken (g_ck) policy/rotation on this "
-                        "endpoint, ACL restriction with a non-standard error body, "
-                        "cookie-domain mismatch (.service-now.com vs instance host), "
-                        "or instance security policy blocking the call. "
-                        "Inspect the 401 diagnostic log line above for body/headers.".format(
-                            grace=self._browser_post_login_grace_seconds
-                        ),
+                        "FRESH_SESSION_REJECTED: brand-new browser session "
+                        f"(<{self._browser_post_login_grace_seconds}s old) rejected by "
+                        f"ServiceNow with 401 (consecutive={self._consecutive_self_heal_count}). "
+                        "Re-auth would just produce another rejected session. "
+                        "Likely instance-policy/ACL/X-UserToken rotation issue.",
                         response=retry_response,
                     )
 
