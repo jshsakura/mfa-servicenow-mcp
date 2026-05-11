@@ -96,7 +96,7 @@ class TestDefaultUserDataDirBrowserUsername:
         ):
             mgr = AuthManager(cfg, "https://myinst.service-now.com")
         result = mgr._get_default_user_data_dir()
-        assert "admin_example_com" in result
+        assert "admin_at_example_com" in result
         assert "profile_" in result
 
 
