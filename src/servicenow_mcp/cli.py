@@ -5,6 +5,7 @@ Command-line interface for the ServiceNow MCP server.
 import argparse
 import json
 import logging
+import logging.handlers
 import os
 import re
 import sys
@@ -25,10 +26,34 @@ from .utils.config import (
 )
 from .version import __version__
 
-# Configure logging
+# Opt-in file logging: stderr-only by default (preserves the v1.11.47
+# decision to let users manage log paths via shell redirect). When
+# LOG_FILE is set, also write to that path with rotation so a runaway
+# session can't fill the disk.
+_log_handlers: list[logging.Handler] = [logging.StreamHandler()]
+_log_file_path = os.getenv("LOG_FILE")
+if _log_file_path:
+    try:
+        _log_file_path = os.path.expanduser(_log_file_path)
+        _log_dir = os.path.dirname(_log_file_path)
+        if _log_dir:
+            os.makedirs(_log_dir, exist_ok=True)
+        _log_handlers.append(
+            logging.handlers.RotatingFileHandler(
+                _log_file_path,
+                maxBytes=10_000_000,
+                backupCount=3,
+                encoding="utf-8",
+            )
+        )
+    except OSError:
+        # Silent fallback to stderr-only — never block startup on log path issues.
+        pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=_log_handlers,
 )
 logger = logging.getLogger(__name__)
 
