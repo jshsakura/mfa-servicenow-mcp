@@ -626,6 +626,26 @@ class TestSnHealth:
         assert result["ok"] is False
         assert result["diagnostics"]["looks_like_login_redirect"] is True
 
+    def test_health_returns_running_version(self):
+        """Every sn_health response carries the running MCP server version so
+        the LLM can diagnose stale-uvx-cache symptoms without log access."""
+        from servicenow_mcp.version import __version__
+
+        scenarios = [
+            # success
+            lambda auth: auth.make_request.__setattr__(
+                "return_value", _mock_response({"result": []})
+            ),
+            # exception
+            lambda auth: auth.make_request.__setattr__("side_effect", Exception("boom")),
+        ]
+        for setup in scenarios:
+            config = _make_config("basic")
+            auth = MagicMock()
+            setup(auth)
+            result = sn_health(config, auth, HealthCheckParams())
+            assert result["version"] == __version__
+
 
 # ---------------------------------------------------------------------------
 # sn_nl (natural language)

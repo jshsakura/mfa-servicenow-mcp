@@ -987,6 +987,41 @@ class TestGetSessionCachePath:
             mgr_dot = AuthManager(cfg_dot, "https://inst.service-now.com")
         assert mgr_at._get_session_cache_path() != mgr_dot._get_session_cache_path()
 
+    def test_legacy_cache_dir_is_migrated_on_first_access(self, tmp_path):
+        # Users on v1.12.4-v1.12.6 keep sessions under ``~/.servicenow_mcp/``.
+        # The rename to ``~/.mfa_servicenow_mcp/`` (v1.12.7+) must move the
+        # whole directory in-place so existing logins survive the upgrade.
+        legacy = tmp_path / ".servicenow_mcp"
+        legacy.mkdir()
+        (legacy / "session_x.json").write_text("{}")
+
+        cfg = AuthConfig(type=AuthType.BASIC, basic=BasicAuthConfig(username="a", password="b"))
+        with patch("servicenow_mcp.auth.auth_manager.Path.home", return_value=tmp_path):
+            mgr = AuthManager(cfg, "https://inst.service-now.com")
+            cache_dir = mgr._get_cache_dir()
+
+        assert cache_dir == str(tmp_path / ".mfa_servicenow_mcp")
+        assert (tmp_path / ".mfa_servicenow_mcp" / "session_x.json").exists()
+        assert not legacy.exists()
+
+    def test_migration_skipped_when_new_dir_already_exists(self, tmp_path):
+        # If the user already has the new directory (e.g. they re-installed
+        # cleanly), do NOT clobber it with legacy data.
+        legacy = tmp_path / ".servicenow_mcp"
+        legacy.mkdir()
+        (legacy / "session_old.json").write_text("{}")
+        new = tmp_path / ".mfa_servicenow_mcp"
+        new.mkdir()
+        (new / "session_new.json").write_text("{}")
+
+        cfg = AuthConfig(type=AuthType.BASIC, basic=BasicAuthConfig(username="a", password="b"))
+        with patch("servicenow_mcp.auth.auth_manager.Path.home", return_value=tmp_path):
+            mgr = AuthManager(cfg, "https://inst.service-now.com")
+            mgr._get_cache_dir()
+
+        assert (new / "session_new.json").exists()
+        assert legacy.exists()  # left alone for the user to inspect
+
 
 # ===========================================================================
 # make_request tests
