@@ -135,7 +135,7 @@ class CreatePortalComponentSnapshotParams(BaseModel):
     )
     output_dir: str | None = Field(
         default=None,
-        description="Optional snapshot directory. Defaults to ./.servicenow_mcp/portal_component_snapshots/<instance>/",
+        description="Optional snapshot directory. Defaults to ./.mfa_servicenow_mcp/portal_component_snapshots/<instance>/",
     )
 
 
@@ -712,7 +712,7 @@ DEFAULT_ANGULAR_IMPLICIT_SNIPPET_LENGTH = 180
 MAX_COMPONENT_SCRIPT_CHARS = 12000
 MAX_PREVIEW_TEXT_LENGTH = 600
 MAX_PREVIEW_DIFF_LINES = 80
-SNAPSHOT_ROOT_DIRNAME = ".servicenow_mcp/portal_component_snapshots"
+SNAPSHOT_ROOT_DIRNAME = ".mfa_servicenow_mcp/portal_component_snapshots"
 
 PORTAL_COMPONENT_EDITABLE_FIELDS: Dict[str, Set[str]] = {
     "sp_widget": {"template", "script", "client_script", "link", "css"},

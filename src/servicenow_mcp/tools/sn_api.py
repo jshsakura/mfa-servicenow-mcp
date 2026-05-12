@@ -16,6 +16,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
+from servicenow_mcp.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -779,7 +780,7 @@ def _is_login_redirect_response(response: requests.Response) -> bool:
 @register_tool(
     name="sn_health",
     params=HealthCheckParams,
-    description="Check ServiceNow API connectivity and auth status. Triggers browser login on first use in MFA mode.",
+    description="Check ServiceNow API connectivity, auth status, and return MCP server version. Triggers browser login on first use in MFA mode.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -810,6 +811,7 @@ def sn_health(
             if config.auth.type.value == "browser" and not looks_like_login_redirect:
                 return {
                     "ok": True,
+                    "version": __version__,
                     "status_code": response.status_code,
                     "instance_url": config.instance_url,
                     "message": "Browser session is authenticated. Additional API credentials are not required; the configured probe path is unauthorized or blocked by ACLs.",
@@ -828,6 +830,7 @@ def sn_health(
             response_url = str(response.url)
             return {
                 "ok": False,
+                "version": __version__,
                 "status_code": response.status_code,
                 "message": "ServiceNow API reachable but request failed",
                 "auth_type": config.auth.type.value,
@@ -847,6 +850,7 @@ def sn_health(
             }
         return {
             "ok": True,
+            "version": __version__,
             "status_code": response.status_code,
             "instance_url": config.instance_url,
             "message": "ServiceNow API health check passed",
@@ -854,6 +858,7 @@ def sn_health(
     except Exception as exc:
         return {
             "ok": False,
+            "version": __version__,
             "message": "ServiceNow API health check failed",
             "error": str(exc),
         }
