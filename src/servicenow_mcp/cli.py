@@ -30,11 +30,35 @@ from .version import __version__
 # decision to let users manage log paths via shell redirect). When
 # LOG_FILE is set, also write to that path with rotation so a runaway
 # session can't fill the disk.
+#
+# If LOG_FILE points to a directory (or ends with a path separator),
+# auto-append a host-tagged filename so multiple instances running
+# concurrently don't interleave into the same file. This restores the
+# v1.11.46 host-tagging idea on top of the v1.11.47 opt-in default.
+
+
+def _instance_host_slug() -> str:
+    url = os.getenv("SERVICENOW_INSTANCE_URL", "")
+    if not url:
+        return "default"
+    try:
+        host = urllib.parse.urlparse(url).hostname or ""
+    except (TypeError, ValueError):
+        return "default"
+    if not host:
+        return "default"
+    return re.sub(r"[^A-Za-z0-9._-]", "_", host)
+
+
 _log_handlers: list[logging.Handler] = [logging.StreamHandler()]
 _log_file_path = os.getenv("LOG_FILE")
 if _log_file_path:
     try:
         _log_file_path = os.path.expanduser(_log_file_path)
+        if os.path.isdir(_log_file_path) or _log_file_path.endswith(os.sep):
+            _log_file_path = os.path.join(
+                _log_file_path, f"servicenow-mcp_{_instance_host_slug()}.log"
+            )
         _log_dir = os.path.dirname(_log_file_path)
         if _log_dir:
             os.makedirs(_log_dir, exist_ok=True)
