@@ -71,6 +71,7 @@ scopes.json
 x_bpm/
 .tmp*/
 .servicenow_mcp/
+.mfa_servicenow_mcp/
 
 # External tool artifacts
 .playwright-mcp/
