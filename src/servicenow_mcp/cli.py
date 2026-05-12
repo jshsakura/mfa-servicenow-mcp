@@ -74,11 +74,22 @@ if _log_file_path:
         # Silent fallback to stderr-only — never block startup on log path issues.
         pass
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=_log_handlers,
-)
+# Wire handlers onto the root logger directly. logging.basicConfig is a
+# no-op when the root logger already has handlers, and `from .server
+# import ServiceNowMCP` above pulls in mcp/anyio which can register a
+# default handler before we get here. Going through basicConfig means
+# our RotatingFileHandler silently never gets attached on real Claude
+# Desktop / Claude Code installs — exactly the v1.12.8/v1.12.9 symptom
+# users hit. Reset and re-attach explicitly so we don't depend on
+# import-order luck.
+_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+_root_logger = logging.getLogger()
+_root_logger.setLevel(logging.INFO)
+for _existing_handler in list(_root_logger.handlers):
+    _root_logger.removeHandler(_existing_handler)
+for _handler in _log_handlers:
+    _handler.setFormatter(_formatter)
+    _root_logger.addHandler(_handler)
 logger = logging.getLogger(__name__)
 
 
