@@ -575,6 +575,11 @@ class AuthManager:
         self._cleanup_stale_sibling_files()
         self._cached_basic_auth_header: Optional[str] = None
         self._session_disk_hash: Optional[int] = None  # Track disk content to skip redundant writes
+        # Track last-observed mtime of the session JSON. Lets get_headers()
+        # cheaply detect when a sibling process has rewritten the file
+        # (rotated g_ck, fresh re-auth) so we can adopt the update before
+        # firing a request with our now-stale in-memory token.
+        self._session_disk_mtime: float = 0.0
 
         # Lazy browser auth: only load disk cache on startup (no browser).
         # The actual browser login is deferred to the first tool call
@@ -923,6 +928,12 @@ class AuthManager:
             with open(self._session_cache_path, "w") as f:
                 json.dump(data, f)
             self._session_disk_hash = content_hash
+            # Record our own mtime so _maybe_adopt_sibling_session_update()
+            # doesn't treat this write as a sibling update on the next call.
+            try:
+                self._session_disk_mtime = os.path.getmtime(self._session_cache_path)
+            except OSError:
+                pass
             logger.info("Browser session saved to disk: %s", self._session_cache_path)
         except Exception as exc:
             logger.warning("Failed to save browser session to disk: %s", exc)
@@ -1143,6 +1154,12 @@ class AuthManager:
             self._browser_last_validated_at = None
             disk_login_at = data.get("last_login_at")
             self._browser_last_login_at = min(disk_login_at, time.time()) if disk_login_at else None
+            # Anchor mtime so subsequent _maybe_adopt_sibling_session_update()
+            # only fires when a sibling rewrites the file after this load.
+            try:
+                self._session_disk_mtime = os.path.getmtime(self._session_cache_path)
+            except OSError:
+                pass
             logger.info("Loaded browser session from disk: %s", self._session_cache_path)
         except Exception as exc:
             logger.warning("Failed to load browser session from disk: %s", exc)
@@ -1170,9 +1187,23 @@ class AuthManager:
             return False
 
         disk_expires = data.get("expires_at")
-        # Skip if disk session is the same as what we already have in memory
+        disk_token = data.get("session_token")
+        # Cookies match — but session_token (X-UserToken / g_ck) may have been
+        # rotated by a sibling process via _absorb_response_token_rotation().
+        # If so, adopt the rotated token so our next request doesn't send the
+        # stale value the server now rejects with 302→/logout_success.do.
         if disk_cookie == self._browser_cookie_header:
-            # But refresh TTL if disk has a later expiry (another process extended it)
+            token_rotated = bool(disk_token) and disk_token != self._browser_session_token
+            if token_rotated:
+                self._browser_session_token = disk_token
+                # Force a probe before trusting — the rotation may be paired
+                # with server-side ACL change we haven't seen yet.
+                self._browser_last_validated_at = None
+                logger.info(
+                    "Cross-process X-UserToken rotation adopted from disk "
+                    "(session_token differs, cookies unchanged)."
+                )
+            # Refresh TTL if disk has a later expiry (another process extended it)
             if disk_expires and (
                 not self._browser_cookie_expires_at
                 or disk_expires > self._browser_cookie_expires_at
@@ -1182,10 +1213,10 @@ class AuthManager:
                 # validated_at if present (capped to now) so we don't claim a fresher
                 # validation than actually happened.
                 disk_validated_at = data.get("last_validated_at")
-                if disk_validated_at:
+                if disk_validated_at and not token_rotated:
                     self._browser_last_validated_at = min(disk_validated_at, time.time())
                 logger.debug("Reload: same cookies but extended TTL from disk.")
-            return False
+            return token_rotated
 
         # Disk has different cookies — likely written by another terminal after re-auth
         if disk_expires and time.time() > disk_expires:
@@ -1196,7 +1227,7 @@ class AuthManager:
 
         self._browser_cookie_header = disk_cookie
         self._browser_user_agent = data.get("user_agent")
-        self._browser_session_token = data.get("session_token")
+        self._browser_session_token = disk_token
         self._browser_cookie_expires_at = disk_expires
         # Pair with v1.10.21 probe-before-trust in get_headers(): inherit the disk
         # validation timestamp if present (capped to now); otherwise leave None so
@@ -1211,11 +1242,57 @@ class AuthManager:
         # treats every 401 as "out of grace" and opens a redundant browser.
         disk_login_at = data.get("last_login_at")
         self._browser_last_login_at = min(disk_login_at, time.time()) if disk_login_at else None
+        try:
+            self._session_disk_mtime = os.path.getmtime(self._session_cache_path)
+        except OSError:
+            pass
         logger.info(
             "Reloaded fresher session from disk (written by another process): %s",
             self._session_cache_path,
         )
         return True
+
+    def _maybe_adopt_sibling_session_update(self) -> bool:
+        """Adopt session updates written by a sibling MCP process.
+
+        Single os.stat() fast path: only opens/parses the session JSON when
+        its mtime is newer than what we last loaded. Cheap enough to call on
+        every get_headers(); ~sub-millisecond when no sibling write has
+        occurred.
+
+        Why this exists: ServiceNow rotates the X-UserToken (g_ck) on response
+        headers periodically. _absorb_response_token_rotation() persists the
+        rotated token to disk so other processes can pick it up — but without
+        an active reload trigger, sibling processes keep using their stale
+        in-memory token and the server 302s them to /logout_success.do on the
+        next protected call, kicking off an invalidate→re-auth loop. mtime
+        polling closes that loop: when one process rotates, every sibling's
+        next get_headers() adopts the new token.
+
+        Returns True when an update was adopted.
+        """
+        if self.config.type != AuthType.BROWSER:
+            return False
+        try:
+            mtime = os.path.getmtime(self._session_cache_path)
+        except OSError:
+            return False
+        # Tolerance for filesystem mtime granularity (HFS+ is 1 s) and minor
+        # clock skew between writes within the same process.
+        if mtime <= self._session_disk_mtime + 0.5:
+            return False
+        adopted = self._reload_session_from_disk()
+        # Even when reload returned False (disk content unchanged or expired
+        # and deleted), bump our mtime watermark so we don't re-stat-and-parse
+        # the same unchanged file on every subsequent call.
+        try:
+            self._session_disk_mtime = os.path.getmtime(self._session_cache_path)
+        except OSError:
+            # File may have been deleted by reload (expired branch). Use the
+            # mtime we already saw to suppress repeated re-checks until a new
+            # file appears.
+            self._session_disk_mtime = mtime
+        return adopted
 
     def _start_keepalive(self) -> None:
         """No-op stub retained for backward-compat with tests that mock this
@@ -1267,6 +1344,13 @@ class AuthManager:
         elif self.config.type == AuthType.BROWSER:
             if not self.config.browser:
                 raise ValueError("Browser auth configuration is required")
+            # Cross-process sync: pick up any session update (rotated g_ck,
+            # fresh re-auth) that a sibling MCP process wrote since we last
+            # touched disk. Without this, sibling rotations stay invisible to
+            # us and the next request goes out with a stale X-UserToken → the
+            # server 302s to /logout_success.do → we invalidate and re-login
+            # for no real reason. See _maybe_adopt_sibling_session_update().
+            self._maybe_adopt_sibling_session_update()
             if not self._browser_cookie_header or self._is_browser_session_expired():
                 # In-process lock: prevent concurrent tool calls from opening
                 # multiple browser windows (both restore AND login are serialized).
