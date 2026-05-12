@@ -646,6 +646,60 @@ class TestCrossProcessSessionSync:
         assert headers.get("X-UserToken") == "SIBLING_ROTATED_g_ck"
 
 
+class TestSelfHealCounterIsPerProcess:
+    """Pins the documented R3 gap (see WEB_LOGIN_FAILURE_ANALYSIS.md):
+    `_consecutive_self_heal_count` is in-memory only and NOT persisted via
+    `_save_session_to_disk`, so a sibling MCP host that's deep into the
+    self-heal escalation ladder leaks no signal to other hosts.
+
+    This test documents the current behavior. If someone later adds disk
+    persistence for the counter (resolving R3), this test will fail and the
+    catalog entry should be updated accordingly.
+    """
+
+    def test_self_heal_counter_does_not_round_trip_through_disk(self, tmp_path):
+        manager_a = _make_browser_manager()
+        cache_path = str(tmp_path / "session.json")
+        manager_a._session_cache_path = cache_path
+        manager_a._browser_cookie_header = "SHARED=COOKIE"
+        manager_a._browser_cookie_expires_at = time.time() + 1800
+        manager_a._session_disk_hash = None  # force write
+        # Process A has escalated self-heal three times.
+        manager_a._consecutive_self_heal_count = 3
+        manager_a._save_session_to_disk()
+
+        manager_b = _make_browser_manager()
+        manager_b._session_cache_path = cache_path
+        # Process B starts fresh; counter is the __init__ default.
+        assert manager_b._consecutive_self_heal_count == 0
+
+        manager_b._load_session_from_disk()
+
+        # Process B adopted the cookies but the self-heal counter stayed at
+        # zero — confirms the documented in-memory-only gap.
+        assert manager_b._browser_cookie_header == "SHARED=COOKIE"
+        assert manager_b._consecutive_self_heal_count == 0
+
+    def test_save_session_payload_omits_self_heal_counter(self, tmp_path):
+        """Direct contract test: the on-disk JSON schema has no field for
+        the self-heal counter. Catches a future regression where someone
+        adds the field to the saved payload but forgets to load it (or vice
+        versa) — both halves must change together."""
+        manager = _make_browser_manager()
+        manager._session_cache_path = str(tmp_path / "session.json")
+        manager._browser_cookie_header = "X=Y"
+        manager._browser_cookie_expires_at = time.time() + 1800
+        manager._consecutive_self_heal_count = 5
+        manager._session_disk_hash = None
+
+        manager._save_session_to_disk()
+
+        with open(manager._session_cache_path) as f:
+            payload = json.load(f)
+        assert "consecutive_self_heal_count" not in payload
+        assert "self_heal_count" not in payload
+
+
 class TestAbsorbResponseTokenRotation:
     """Tests for _absorb_response_token_rotation() — ServiceNow rotates g_ck
     (X-UserToken) periodically and pushes the new value via response headers.
