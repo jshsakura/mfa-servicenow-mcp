@@ -1507,7 +1507,7 @@ class TestTryRestoreBrowserSessionProbe:
             manager = AuthManager(cfg, "https://example.service-now.com")
 
         # Redirect session cache to tmp_path to avoid polluting the real
-        # ~/.servicenow_mcp/ directory (which breaks other tests that call
+        # ~/.mfa_servicenow_mcp/ directory (which breaks other tests that call
         # _reload_session_from_disk via get_headers).
         manager._session_cache_path = str(tmp_path / "session.json")
 

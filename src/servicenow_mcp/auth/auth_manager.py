@@ -565,7 +565,7 @@ class AuthManager:
         self._session_cache_path = self._get_session_cache_path()
         self._login_lock_path = self._session_cache_path.replace(".json", ".lock")
         # Garbage-collect a stale legacy cache that lives in the default
-        # `~/.servicenow_mcp/` directory when the user has since set
+        # `~/.mfa_servicenow_mcp/` directory when the user has since set
         # SERVICENOW_BROWSER_USER_DATA_DIR (active cache moved to
         # `dirname(user_data_dir)`). The legacy file would otherwise hang
         # around forever and confuse the user ("why are there two of these?").
@@ -756,19 +756,34 @@ class AuthManager:
     def _get_cache_dir(self) -> str:
         """Resolve the root cache directory for session JSON and Playwright profile.
 
-        Default: ``<user home>/.servicenow_mcp`` resolved via ``Path.home()`` so
-        Windows (``%USERPROFILE%``), macOS, and Linux all land in the per-user
+        Default: ``<user home>/.mfa_servicenow_mcp`` resolved via ``Path.home()``
+        so Windows (``%USERPROFILE%``), macOS, and Linux all land in the per-user
         home directory regardless of how the MCP host launches the process
         (uvx, Claude Desktop, terminal). All MCP clients on the same machine
         share this path, so a single login is reused across hosts.
 
         Override via ``SERVICENOW_BROWSER_USER_DATA_DIR`` for non-standard
         layouts; the session JSON sits next to the configured profile dir.
+
+        Performs a one-time migration from the v1.12.4-1.12.6 location
+        (``~/.servicenow_mcp/``) so users keep their existing sessions.
         """
         if self.config.browser and self.config.browser.user_data_dir:
             cache_dir = os.path.dirname(os.path.abspath(self.config.browser.user_data_dir))
         else:
-            cache_dir = str(Path.home() / ".servicenow_mcp")
+            cache_dir = str(Path.home() / ".mfa_servicenow_mcp")
+            legacy_dir = str(Path.home() / ".servicenow_mcp")
+            if os.path.isdir(legacy_dir) and not os.path.exists(cache_dir):
+                try:
+                    os.rename(legacy_dir, cache_dir)
+                    logger.info("Migrated cache directory: %s → %s", legacy_dir, cache_dir)
+                except OSError as exc:
+                    logger.warning(
+                        "Failed to migrate %s → %s: %s. Starting fresh in new location.",
+                        legacy_dir,
+                        cache_dir,
+                        exc,
+                    )
         os.makedirs(cache_dir, exist_ok=True)
         return cache_dir
 
@@ -940,28 +955,32 @@ class AuthManager:
 
     def _cleanup_legacy_session_cache(self) -> None:
         """When the user has set SERVICENOW_BROWSER_USER_DATA_DIR, the active
-        cache lives in `dirname(user_data_dir)`. A pre-existing copy in the
-        default `~/.servicenow_mcp/` directory (left over from a run that did
-        NOT set USER_DATA_DIR) is unreachable from the active path resolver
-        but stays on disk forever, confusing the user. Remove it.
+        cache lives in `dirname(user_data_dir)`. Pre-existing copies in the
+        default ``~/.mfa_servicenow_mcp/`` directory (or the older
+        ``~/.servicenow_mcp/`` from v1.12.4-1.12.6) are unreachable from the
+        active path resolver but stay on disk forever, confusing the user.
+        Remove them.
         """
         if not (self.config.browser and self.config.browser.user_data_dir):
             return  # No USER_DATA_DIR set → default IS the active path
-        legacy_dir = str(Path.home() / ".servicenow_mcp")
-        if not os.path.isdir(legacy_dir):
-            return
         suffix = self._get_instance_user_suffix()
-        legacy_session = os.path.join(legacy_dir, f"session_{suffix}.json")
-        legacy_lock = legacy_session.replace(".json", ".lock")
-        for path in (legacy_session, legacy_lock):
-            try:
-                if os.path.exists(path) and os.path.abspath(path) != os.path.abspath(
-                    self._session_cache_path
-                ):
-                    os.remove(path)
-                    logger.info("Removed legacy session cache: %s", path)
-            except Exception as exc:
-                logger.debug("Failed to remove legacy cache %s: %s", path, exc)
+        for legacy_dir in (
+            str(Path.home() / ".mfa_servicenow_mcp"),
+            str(Path.home() / ".servicenow_mcp"),
+        ):
+            if not os.path.isdir(legacy_dir):
+                continue
+            legacy_session = os.path.join(legacy_dir, f"session_{suffix}.json")
+            legacy_lock = legacy_session.replace(".json", ".lock")
+            for path in (legacy_session, legacy_lock):
+                try:
+                    if os.path.exists(path) and os.path.abspath(path) != os.path.abspath(
+                        self._session_cache_path
+                    ):
+                        os.remove(path)
+                        logger.info("Removed legacy session cache: %s", path)
+                except Exception as exc:
+                    logger.debug("Failed to remove legacy cache %s: %s", path, exc)
 
     def _cleanup_stale_sibling_files(self) -> None:
         """Remove stale lock/session files at startup (real bug fix, not cosmetic).
