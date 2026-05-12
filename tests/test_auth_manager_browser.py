@@ -51,6 +51,10 @@ def _make_browser_manager(
     manager._browser_cookie_header = "OLD=COOKIE"
     manager._browser_cookie_expires_at = time.time() + 600
     manager._browser_last_validated_at = None
+    # Default in-memory token matches _write_session_cache's default so the
+    # cross-process rotation detection path (added in v1.12.6) treats the
+    # default fixture as "in sync with disk" instead of "sibling rotated".
+    manager._browser_session_token = "g_ck_tok"
     return manager
 
 
@@ -506,6 +510,140 @@ class TestReloadSessionFromDisk:
         with open(manager._session_cache_path) as f:
             data = json.load(f)
         assert data["last_validated_at"] == validated
+
+
+class TestCrossProcessSessionSync:
+    """Tests for _maybe_adopt_sibling_session_update() and the
+    _reload_session_from_disk() token-rotation branch — both added in v1.12.6
+    so multiple MCP host processes share rotated X-UserToken via disk.
+
+    Pre-v1.12.6: _reload_session_from_disk() returned False whenever disk
+    cookies matched in-memory cookies, even if the disk session_token had
+    been rotated by a sibling. Pre-v1.12.6: get_headers() never checked the
+    disk file unless the in-memory session was expired. Together those two
+    gaps left siblings using a stale g_ck → 302 → invalidate → loop.
+    """
+
+    def test_reload_adopts_rotated_token_when_cookies_match(self, tmp_path):
+        manager = _make_browser_manager()
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+
+        # Cookies match in-memory, but a sibling absorbed a rotated g_ck
+        # and persisted the new value to disk.
+        _write_session_cache(
+            cache_path,
+            "OLD=COOKIE",
+            time.time() + 1800,
+            session_token="ROTATED_g_ck",
+        )
+
+        result = manager._reload_session_from_disk()
+
+        assert result is True  # rotation IS a meaningful adopt
+        assert manager._browser_session_token == "ROTATED_g_ck"
+        assert manager._browser_cookie_header == "OLD=COOKIE"  # cookies untouched
+        # Force a probe before trusting — rotation may be paired with ACL
+        # change we haven't observed yet.
+        assert manager._browser_last_validated_at is None
+
+    def test_reload_returns_false_when_cookies_and_token_both_match(self, tmp_path):
+        manager = _make_browser_manager()
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+
+        # Truly idempotent: disk has exactly what we already hold in memory.
+        _write_session_cache(
+            cache_path,
+            "OLD=COOKIE",
+            time.time() + 1800,
+            session_token="g_ck_tok",  # matches _make_browser_manager default
+        )
+
+        result = manager._reload_session_from_disk()
+
+        assert result is False
+        assert manager._browser_session_token == "g_ck_tok"
+
+    def test_maybe_adopt_picks_up_sibling_write_via_mtime(self, tmp_path):
+        manager = _make_browser_manager()
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+        # Anchor mtime in the past so the test write registers as newer.
+        manager._session_disk_mtime = 0.0
+
+        _write_session_cache(
+            cache_path,
+            "OLD=COOKIE",
+            time.time() + 1800,
+            session_token="SIBLING_ROTATED",
+        )
+
+        adopted = manager._maybe_adopt_sibling_session_update()
+
+        assert adopted is True
+        assert manager._browser_session_token == "SIBLING_ROTATED"
+        # mtime watermark should advance so subsequent calls don't re-parse
+        # the same unchanged file.
+        assert manager._session_disk_mtime > 0.0
+
+    def test_maybe_adopt_skips_when_mtime_unchanged(self, tmp_path):
+        manager = _make_browser_manager()
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+
+        _write_session_cache(cache_path, "OLD=COOKIE", time.time() + 1800)
+        # Pretend we've already seen this exact mtime (and the 0.5s tolerance).
+        manager._session_disk_mtime = os.path.getmtime(cache_path) + 1.0
+
+        with patch.object(
+            manager, "_reload_session_from_disk", wraps=manager._reload_session_from_disk
+        ) as reload_spy:
+            adopted = manager._maybe_adopt_sibling_session_update()
+
+        assert adopted is False
+        # Cheap fast-path: no JSON parse, no reload call.
+        assert reload_spy.call_count == 0
+
+    def test_maybe_adopt_no_op_for_non_browser_auth(self):
+        manager = _make_browser_manager()
+        manager.config.type = AuthType.BASIC  # type: ignore[assignment]
+
+        adopted = manager._maybe_adopt_sibling_session_update()
+
+        assert adopted is False
+
+    def test_maybe_adopt_handles_missing_file(self, tmp_path):
+        manager = _make_browser_manager()
+        manager._session_cache_path = str(tmp_path / "nonexistent.json")
+
+        adopted = manager._maybe_adopt_sibling_session_update()
+
+        assert adopted is False
+
+    def test_get_headers_adopts_sibling_rotation_before_returning(self, tmp_path):
+        """End-to-end: a sibling rotates g_ck on disk; this manager's next
+        get_headers() picks up the rotation and emits the fresh X-UserToken
+        — no 302/invalidate/re-auth needed.
+        """
+        manager = _make_browser_manager()
+        cache_path = str(tmp_path / "session.json")
+        manager._session_cache_path = cache_path
+        manager._session_disk_mtime = 0.0
+        # Force the session to look valid so get_headers takes the fast path.
+        manager._browser_last_validated_at = time.time()
+
+        _write_session_cache(
+            cache_path,
+            "OLD=COOKIE",
+            time.time() + 1800,
+            session_token="SIBLING_ROTATED_g_ck",
+        )
+
+        headers = manager.get_headers()
+
+        assert headers.get("Cookie") == "OLD=COOKIE"
+        assert headers.get("X-UserToken") == "SIBLING_ROTATED_g_ck"
 
 
 class TestAbsorbResponseTokenRotation:
