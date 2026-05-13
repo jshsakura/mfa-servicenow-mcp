@@ -24,7 +24,7 @@ Tool definitions are sent to the LLM on every request. Every character costs tok
 5. Add tests: happy path, error, not-found (for detail), count_only (for list), filters.
 6. Run `python -m pytest tests/ -x` before committing.
 
-## TLS Impersonation (curl_cffi opt-in)
+## TLS Impersonation (curl_cffi)
 
 Some ServiceNow instances (especially those fronted by Cloudflare/Akamai
 or running internal JA3-based bot detection) reject Python's stock
@@ -36,11 +36,12 @@ sent from `requests`. Symptom: web login works, `sn_health` produces
 `SERVICENOW_TLS_IMPERSONATE=chrome120` (or any curl_cffi profile name)
 switches `_build_http_session` to a `curl_cffi.requests.Session` so the
 TLS handshake matches a real browser byte-for-byte (cipher order, TLS
-extensions, GREASE, HTTP/2 SETTINGS, ALPN). Install with
-`pip install 'mfa-servicenow-mcp[tls-impersonate]'`.
+extensions, GREASE, HTTP/2 SETTINGS, ALPN). curl_cffi is bundled with
+the package as of v1.12.20 — `uvx mfa-servicenow-mcp@latest` works as
+before, no extras flag needed.
 
-Default OFF — most instances don't need it, and curl_cffi ships a
-~20MB compiled binary. Leave unset unless field logs show the
+Default OFF (env var unset) — most instances don't need it and stock
+requests is faster. Flip the env var on only after field logs show the
 fingerprint-detection signature: real browser works, MCP doesn't, both
 get 302→logout, server keeps minting fresh anonymous JSESSIONIDs.
 
