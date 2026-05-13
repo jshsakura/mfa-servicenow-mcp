@@ -405,6 +405,111 @@ def _response_confirms_browser_probe_session(response: requests.Response) -> boo
     return response.status_code == 403 or 200 <= response.status_code < 300
 
 
+# ---------------------------------------------------------------------------
+# v1.12.16: comprehensive auth-event diagnostic helpers.
+#
+# Cookie *names* alone don't reveal whether values rotated between events;
+# when ServiceNow kills a session by minting a fresh JSESSIONID and our
+# captured one becomes stale, names-only logs hide the smoking gun. These
+# helpers redact values to short prefixes (enough to compare across log
+# lines without leaking the live credential) and pack the full response
+# forensics into a single grep-able dict.
+# ---------------------------------------------------------------------------
+
+_LOG_COOKIE_VALUE_PREFIX_LEN = 8
+_LOG_TOKEN_VALUE_PREFIX_LEN = 8
+_LOG_BODY_PREVIEW_LEN = 200
+_LOG_HEADER_VALUE_MAX = 240
+
+
+def _redact_value(value: Optional[str], n: int = _LOG_COOKIE_VALUE_PREFIX_LEN) -> str:
+    if not value:
+        return "<empty>"
+    value = str(value)
+    if len(value) <= n:
+        return value
+    return f"{value[:n]}..."
+
+
+def _format_cookie_values_for_log(cookie_header: Optional[str]) -> str:
+    """Return cookies as 'name=valpref... | name=valpref...' for diagnostics.
+
+    Two log lines emitted seconds apart with identical cookie *names* but
+    different prefixes prove the server rotated session cookies between
+    capture and use — which is exactly the failure mode we cannot diagnose
+    from names-only logs.
+    """
+    if not cookie_header:
+        return "<none>"
+    pairs = []
+    for piece in cookie_header.split(";"):
+        piece = piece.strip()
+        if not piece:
+            continue
+        if "=" in piece:
+            name, _, value = piece.partition("=")
+            pairs.append(f"{name.strip()}={_redact_value(value.strip())}")
+        else:
+            pairs.append(piece)
+    return " | ".join(pairs) if pairs else "<none>"
+
+
+def _format_request_cookies_dict_for_log(cookie_map: Optional[Dict[str, str]]) -> str:
+    """Same shape as _format_cookie_values_for_log but for the dict form
+    used when cookies live in ``kwargs['cookies']`` instead of the Cookie
+    header."""
+    if not cookie_map:
+        return "<none>"
+    return " | ".join(f"{n}={_redact_value(v)}" for n, v in cookie_map.items())
+
+
+def _format_response_diagnostic(
+    response: requests.Response,
+    body_chars: int = _LOG_BODY_PREVIEW_LEN,
+) -> Dict[str, str]:
+    """Capture every shred of forensic info a logout/401/302 response can
+    carry. Designed to be passed as ``**context`` to ``_auth_event``.
+
+    Fields:
+    - status: HTTP status code
+    - final_url: requests' resolved URL after redirect-follow (or the
+      original URL when allow_redirects=False, which is the more honest
+      shape for 302 responses)
+    - location: Location header (truncated)
+    - set_cookie: Set-Cookie header value (truncated) — server's attempt
+      to rotate / revoke / refresh cookies
+    - x_usertoken_resp: X-UserToken response header (rotated g_ck), so we
+      can see if the server tried to hand back a fresh token even on
+      failure
+    - content_type: Content-Type header
+    - hops: redirect chain as 'NNN Location -> NNN Location'
+    - body_head: first N chars of body (newlines stripped)
+    """
+    out: Dict[str, str] = {
+        "status": str(response.status_code),
+        "final_url": str(getattr(response, "url", "<n/a>")),
+        "location": str(response.headers.get("Location", "-"))[:_LOG_HEADER_VALUE_MAX],
+        "set_cookie_resp": str(response.headers.get("Set-Cookie", "-"))[:_LOG_HEADER_VALUE_MAX],
+        "x_usertoken_resp": _redact_value(
+            response.headers.get("X-UserToken"), _LOG_TOKEN_VALUE_PREFIX_LEN
+        ),
+        "content_type": str(response.headers.get("Content-Type", "-")),
+    }
+    hops = []
+    try:
+        for hop in response.history or ():
+            hops.append(f"{hop.status_code} {(hop.headers.get('Location') or '-')[:80]}")
+    except Exception:  # noqa: BLE001
+        pass
+    out["hops"] = " -> ".join(hops) if hops else "-"
+    try:
+        body = (response.text or "")[:body_chars]
+        out["body_head"] = body.replace("\n", " ").replace("\r", " ")
+    except Exception:  # noqa: BLE001
+        out["body_head"] = "<unreadable>"
+    return out
+
+
 def _response_indicates_acl_block(response: requests.Response) -> bool:
     """Return True only when a 401 JSON body clearly indicates an ACL/permission block
     (not a session/token expiry).
@@ -672,6 +777,13 @@ class AuthManager:
         snapshot: Dict[str, Any] = {
             "cookies": "set" if self._browser_cookie_header else "none",
             "token": "set" if self._browser_session_token else "none",
+            # v1.12.16: redacted prefixes so two events can be compared for
+            # cookie/token rotation. Same NAMES but different prefixes between
+            # capture and probe == server-side rotation == captured session
+            # is stale by the time we use it.
+            "cookies_redacted": _format_cookie_values_for_log(self._browser_cookie_header),
+            "token_prefix": _redact_value(self._browser_session_token, _LOG_TOKEN_VALUE_PREFIX_LEN),
+            "user_agent_prefix": _redact_value(self._browser_user_agent, 32),
             "last_login_ago": _ago(last_login_at),
             "last_attempt_ago": _ago(last_attempt),
             "last_started_ago": _ago(last_started),
@@ -2157,9 +2269,9 @@ class AuthManager:
             )
             self._auth_event(
                 "profile.restore.rejected",
-                status=probe.status_code,
-                location=probe_location or "-",
                 logout_redirect=went_to_logout,
+                attempted_cookies=_format_cookie_values_for_log(cookie_header),
+                **{f"resp_{k}": v for k, v in _format_response_diagnostic(probe).items()},
             )
             return False
 
@@ -3225,11 +3337,9 @@ class AuthManager:
                 )
                 self._auth_event(
                     "login.probe.failed",
-                    status=final_probe.status_code,
-                    probe_url=probe_url,
-                    location=probe_location or "-",
                     captured_cookies=cookie_names or "<none>",
                     looks_like_logout=looks_like_logout,
+                    **{f"resp_{k}": v for k, v in _format_response_diagnostic(final_probe).items()},
                 )
                 if looks_like_logout:
                     # Arm full purge so the next _login_with_browser_sync drops
@@ -3435,8 +3545,11 @@ class AuthManager:
                         )
                         self._auth_event(
                             "request.circuit.escape_rejected",
-                            status=escape_probe.status_code,
                             next_probe_in_s=_CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS,
+                            **{
+                                f"resp_{k}": v
+                                for k, v in _format_response_diagnostic(escape_probe).items()
+                            },
                         )
                 except requests.RequestException as exc:
                     logger.warning(
@@ -3519,6 +3632,28 @@ class AuthManager:
         )
         if cookie_names and logger.isEnabledFor(logging.DEBUG):
             logger.debug("ServiceNow request cookies: %s", ",".join(cookie_names))
+        # v1.12.16: emit a single auth_event=request.sent line that fully
+        # describes the request shape — cookie name=valuePrefix pairs, token
+        # prefix, UA prefix, the URL. Crucial for diagnosing "captured one
+        # session, sent another" failures where the symptom is logout-302 on
+        # a request that looks superficially correct.
+        if self.config.type == AuthType.BROWSER:
+            request_cookies_dict = kwargs.get("cookies") if "cookies" in kwargs else None
+            if request_cookies_dict:
+                cookies_sent_log = _format_request_cookies_dict_for_log(request_cookies_dict)
+            else:
+                cookies_sent_log = _format_cookie_values_for_log(headers.get("Cookie"))
+            self._auth_event(
+                "request.sent",
+                method=method_upper,
+                target_host=request_host,
+                url=url,
+                cookies_sent=cookies_sent_log,
+                x_usertoken_sent=_redact_value(
+                    headers.get("X-UserToken"), _LOG_TOKEN_VALUE_PREFIX_LEN
+                ),
+                user_agent_sent=_redact_value(headers.get("User-Agent"), 32),
+            )
 
         # Retry on transient network errors (ConnectionError, Timeout) and
         # transient upstream gateway errors (502/503/504) before giving up.
@@ -3686,6 +3821,7 @@ class AuthManager:
                 url=url,
                 consecutive=self._consecutive_self_heal_count,
                 threshold=_SELF_HEAL_CIRCUIT_THRESHOLD,
+                **{f"resp_{k}": v for k, v in _format_response_diagnostic(response).items()},
             )
             if self._consecutive_self_heal_count >= _SELF_HEAL_CIRCUIT_THRESHOLD:
                 logger.error(
@@ -3751,6 +3887,7 @@ class AuthManager:
                     "request.born_dead",
                     method=method_upper,
                     url=url,
+                    **{f"resp_{k}": v for k, v in _format_response_diagnostic(response).items()},
                 )
                 self._consecutive_self_heal_count -= 1  # don't punish — we're handling it
                 self._needs_full_profile_purge = True
