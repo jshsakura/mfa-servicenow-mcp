@@ -491,6 +491,50 @@ class TestLoginWithBrowserSync:
             with pytest.raises(ValueError, match="Playwright is required"):
                 mgr._login_with_browser_sync(browser_cfg)
 
+    def test_min_login_interval_blocks_back_to_back(self):
+        """v1.12.0 baseline: a second login within _MIN_LOGIN_INTERVAL_SECONDS
+        is refused with LOGIN_COOLDOWN to keep the account out of brute-force
+        territory."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+        mgr._last_login_started_at = time.time() - 5  # well under the 60s floor
+        mgr._last_login_was_born_dead = False
+
+        with pytest.raises(ValueError, match="LOGIN_COOLDOWN"):
+            mgr._login_with_browser_sync(browser_cfg)
+
+    def test_born_dead_flag_bypasses_min_login_interval(self):
+        """v1.12.12: when the previous login produced a born-dead session
+        (in-grace 302→logout), the next submission must NOT be blocked by
+        the 60s rate-limit. Otherwise the user is wedged between stale
+        cookies producing logout-redirect probes and the rate-limiter, with
+        MCP restart as the only escape.
+
+        Verified by mocking out the Playwright import so the gate is the
+        ONLY thing that could raise LOGIN_COOLDOWN — if the gate fires we
+        see LOGIN_COOLDOWN, if the gate is bypassed we see the Playwright
+        import error instead.
+        """
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+        mgr._last_login_started_at = time.time() - 5
+        mgr._last_login_was_born_dead = True
+
+        real_import = __import__
+
+        def _mock_import(name, *args, **kwargs):
+            if "playwright" in name:
+                raise ImportError("sentinel — gate was bypassed")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_mock_import):
+            with pytest.raises(ValueError, match="Playwright is required"):
+                mgr._login_with_browser_sync(browser_cfg)
+
+        # Flag consumed by the bypass — the next attempt re-engages the
+        # rate-limiter so a real brute-force loop still gets stopped.
+        assert mgr._last_login_was_born_dead is False
+
     def test_full_login_no_credentials(self):
         """Login without username/password — waits for manual completion."""
         mgr = _make_browser_manager()
