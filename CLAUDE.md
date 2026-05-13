@@ -24,26 +24,39 @@ Tool definitions are sent to the LLM on every request. Every character costs tok
 5. Add tests: happy path, error, not-found (for detail), count_only (for list), filters.
 6. Run `python -m pytest tests/ -x` before committing.
 
-## TLS Impersonation (curl_cffi)
+## TLS Impersonation (curl_cffi, default-ON as of v1.12.21)
 
 Some ServiceNow instances (especially those fronted by Cloudflare/Akamai
 or running internal JA3-based bot detection) reject Python's stock
 `requests` library regardless of cookie validity — the same captured
 session works fine in a real browser but 302→/logout_success.do when
 sent from `requests`. Symptom: web login works, `sn_health` produces
-"born dead" sessions repeatedly.
+"born dead" sessions repeatedly. See issue #37 for the full post-mortem
+of the 2026-05-13 saga.
 
-`SERVICENOW_TLS_IMPERSONATE=chrome120` (or any curl_cffi profile name)
-switches `_build_http_session` to a `curl_cffi.requests.Session` so the
-TLS handshake matches a real browser byte-for-byte (cipher order, TLS
-extensions, GREASE, HTTP/2 SETTINGS, ALPN). curl_cffi is bundled with
-the package as of v1.12.20 — `uvx mfa-servicenow-mcp@latest` works as
-before, no extras flag needed.
+`_build_http_session` uses `curl_cffi.requests.Session(impersonate=...)`
+to make the TLS handshake byte-for-byte identical to a real browser
+(cipher order, TLS extensions, GREASE, HTTP/2 SETTINGS, ALPN). The
+`SERVICENOW_TLS_IMPERSONATE` environment variable controls which
+profile via a tri-state:
 
-Default OFF (env var unset) — most instances don't need it and stock
-requests is faster. Flip the env var on only after field logs show the
-fingerprint-detection signature: real browser works, MCP doesn't, both
-get 302→logout, server keeps minting fresh anonymous JSESSIONIDs.
+| env value | result |
+|---|---|
+| (unset) | `chrome120` — default since v1.12.21 |
+| `off` / `false` / `0` / `disable` / `no` / `none` | stock `requests.Session`, explicit opt-out |
+| anything else | use the value as the curl_cffi profile (e.g. `chrome131`, `chrome120_arm64`, `safari17_0`) |
+
+Default-ON because the failure mode is invisible to users until they
+hit it (and then they don't know to look for an env var). The cost is
+~10MB extra wheel and a tiny per-request overhead from libcurl; the
+benefit is "uvx mfa-servicenow-mcp@latest just works on hardened
+instances". Verify the active wire layer by looking for
+`HTTP session: curl_cffi impersonate=...` at startup or the
+`http_client=curl_cffi:<profile>` field on any `auth_event=` line.
+
+Flip to `off` only if curl_cffi causes a regression on an instance —
+the diagnostic infrastructure (v1.12.14+ auth_event channel) will say
+so clearly when something breaks.
 
 ## Auth Separation
 

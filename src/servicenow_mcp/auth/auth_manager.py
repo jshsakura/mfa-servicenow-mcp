@@ -66,32 +66,77 @@ _MIN_LOGIN_INTERVAL_SECONDS = 60.0
 _CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS = 10.0
 
 
-# v1.13.0: TLS-impersonation profile name read from the
-# SERVICENOW_TLS_IMPERSONATE environment variable. When set to a curl_cffi
-# impersonation profile (e.g. ``chrome120``, ``chrome131``, ``safari17_0``)
-# AND ``curl_cffi`` is importable, _build_http_session uses curl_cffi's
-# Session which routes through libcurl-impersonate (BoringSSL fork). That
+# v1.12.21: TLS impersonation default-ON via the
+# SERVICENOW_TLS_IMPERSONATE environment variable, with tri-state semantics:
+#
+#   unset  → use ``chrome120`` profile (the default, after field evidence
+#            on acme-dev showed JA3-gated rejection of stock Python
+#            ``requests``; turning this on by default catches the next
+#            user hitting the symptom without forcing them to find an
+#            env-var flag).
+#   off / false / 0 / disable / no  → stock requests.Session, explicit
+#            opt-out for instances where impersonation either isn't
+#            needed or causes regressions.
+#   anything else  → use the value as the curl_cffi impersonation profile
+#            name (e.g. ``chrome131``, ``chrome120_arm64``, ``safari17_0``).
+#
+# curl_cffi routes through libcurl-impersonate (BoringSSL fork). That
 # makes our TLS handshake byte-for-byte identical to a real browser —
 # matching JA3/JA4 fingerprint, TLS extension order, GREASE values, HTTP/2
 # SETTINGS frames, and ALPN. ServiceNow instances fronted by JA3-based
 # bot detection (Cloudflare, Akamai, ServiceNow's own) reject Python's
 # stock requests with 302→/logout_success.do regardless of whether the
 # session cookies are valid; impersonation is the only client-side fix.
-#
-# Default empty → stock requests.Session (existing behaviour, no
-# regression). Opt-in keeps the new dependency from being mandatory.
 _TLS_IMPERSONATE_ENV_VAR = "SERVICENOW_TLS_IMPERSONATE"
+_TLS_IMPERSONATE_DEFAULT_PROFILE = "chrome120"
+_TLS_IMPERSONATE_OFF_VALUES = frozenset({"off", "false", "0", "disable", "disabled", "no", "none"})
+
+
+def _describe_http_session(session) -> str:
+    """Return a short label for the active HTTP session: 'curl_cffi:<profile>'
+    when libcurl-impersonate is in play, otherwise 'requests'.
+
+    Used by ``_auth_event`` so every emitted auth_event line carries the
+    wire-layer identity. Two events with identical cookies but different
+    ``http_client`` values mean a wire-layer switch (default-ON flipped
+    off, or curl_cffi failed init and we fell back); a routing or
+    fingerprint regression then localizes to that boundary.
+    """
+    cls = type(session)
+    module = getattr(cls, "__module__", "") or ""
+    if "curl_cffi" in module:
+        impersonate = (
+            getattr(session, "impersonate", None) or getattr(session, "_impersonate", None) or "?"
+        )
+        return f"curl_cffi:{impersonate}"
+    return "requests"
+
+
+def _resolve_tls_impersonate_profile() -> Optional[str]:
+    """Apply the tri-state env var semantics; returns the curl_cffi profile
+    name to use, or ``None`` for the explicit-off branch.
+
+    Pulled out so tests and tooling can read the resolution without
+    spinning up a full session.
+    """
+    raw = (os.environ.get(_TLS_IMPERSONATE_ENV_VAR) or "").strip()
+    if not raw:
+        return _TLS_IMPERSONATE_DEFAULT_PROFILE
+    if raw.lower() in _TLS_IMPERSONATE_OFF_VALUES:
+        return None
+    return raw
 
 
 def _build_http_session():
     """Create the HTTP session for ServiceNow API calls.
 
-    When ``SERVICENOW_TLS_IMPERSONATE`` is set to a curl_cffi impersonation
-    profile, returns a ``curl_cffi.requests.Session`` so the TLS handshake
-    matches a real browser. Otherwise falls back to a stock
-    ``requests.Session`` with the historical connection-pool tuning.
+    Env-var-driven (v1.12.21 default-ON, tri-state):
+      - unset       → curl_cffi.Session(impersonate='chrome120')
+      - off/false/0 → stock requests.Session (explicit opt-out)
+      - <name>      → curl_cffi.Session(impersonate=<name>)
 
-    The return type is intentionally untyped — curl_cffi's Session is API-
+    See _resolve_tls_impersonate_profile for the resolution rules. The
+    return type is intentionally untyped — curl_cffi's Session is API-
     compatible with ``requests.Session`` for the methods we actually call
     (``.request``, ``.headers``, ``.cookies``, ``.close``) but is NOT a
     subclass, so typing it as ``requests.Session`` would lie. Callers stay
@@ -102,49 +147,62 @@ def _build_http_session():
     - TLS session resumption: saves ~100-300ms per request
     - urllib3 connection pool: reuses sockets across threads
     """
-    impersonate = (os.environ.get(_TLS_IMPERSONATE_ENV_VAR) or "").strip()
+    raw_env = (os.environ.get(_TLS_IMPERSONATE_ENV_VAR) or "").strip()
+    impersonate = _resolve_tls_impersonate_profile()
     if impersonate:
-        # Try the impersonation path. Any failure (import, wrong profile,
-        # init error) logs a clear warning and falls through to stock
-        # requests, so a bad env var never breaks a working install.
+        # Default ON path or explicit profile name. Any failure (import,
+        # wrong profile, init error) logs a clear warning and falls
+        # through to stock requests, so a bad env var never breaks a
+        # working install.
         try:
             from curl_cffi import requests as cffi_requests  # type: ignore
         except ImportError:
-            # v1.12.20: curl_cffi is now a regular dependency, so this
-            # branch should only fire if something corrupted the install
-            # (e.g. the libcurl-impersonate wheel got stripped, the env
-            # is a stripped-down system Python without the bundled
-            # binary). Log clearly and fall back to stock requests so a
-            # broken extra never breaks a working session.
             logger.warning(
-                "%s=%s requested but curl_cffi is not importable in this "
-                "environment. (curl_cffi is bundled with this package; if "
-                "this fires, the install is incomplete.) Falling back to "
-                "stock requests — JA3 fingerprint will identify this client "
-                "as Python, so JA3-gated instances will keep rejecting.",
-                _TLS_IMPERSONATE_ENV_VAR,
+                "TLS impersonation requested (profile=%s, %s=%r) but "
+                "curl_cffi is not importable. curl_cffi is a regular "
+                "dependency as of v1.12.20; if this fires, the install "
+                "is incomplete. Falling back to stock requests — "
+                "JA3-gated ServiceNow instances will reject. To suppress "
+                "this attempt entirely, set %s=off.",
                 impersonate,
+                _TLS_IMPERSONATE_ENV_VAR,
+                raw_env or "<unset (default)>",
+                _TLS_IMPERSONATE_ENV_VAR,
             )
         else:
             try:
                 session = cffi_requests.Session(impersonate=impersonate)
             except Exception as exc:  # noqa: BLE001 — bad profile name etc.
                 logger.warning(
-                    "curl_cffi Session(impersonate=%r) failed: %s. "
-                    "Falling back to stock requests.",
+                    "curl_cffi.Session(impersonate=%r) failed: %s. "
+                    "Falling back to stock requests. Set %s=off to skip "
+                    "this attempt, or pick a different profile (chrome131, "
+                    "chrome120_arm64, safari17_0, etc.).",
                     impersonate,
                     exc,
+                    _TLS_IMPERSONATE_ENV_VAR,
                 )
             else:
                 session.headers.update({"Accept-Encoding": "gzip, deflate"})
                 logger.info(
-                    "HTTP session: curl_cffi impersonate=%s "
-                    "(TLS fingerprint matched to a real browser to defeat "
-                    "JA3-based bot detection on hardened ServiceNow "
-                    "instances).",
+                    "HTTP session: curl_cffi impersonate=%s (TLS "
+                    "handshake matches a real browser to defeat JA3-based "
+                    "bot detection on hardened ServiceNow instances). "
+                    "Env source: %s=%r%s",
                     impersonate,
+                    _TLS_IMPERSONATE_ENV_VAR,
+                    raw_env,
+                    " (default applied: empty value → chrome120)" if not raw_env else "",
                 )
                 return session
+    else:
+        logger.info(
+            "HTTP session: stock requests (TLS impersonation explicitly "
+            "disabled via %s=%r). Switch back on by unsetting the env "
+            "var if a hardened instance starts rejecting calls.",
+            _TLS_IMPERSONATE_ENV_VAR,
+            raw_env,
+        )
 
     session = requests.Session()
     # Enable gzip/deflate — reduces payload 60-80% on large JSON responses.
@@ -908,6 +966,11 @@ class AuthManager:
             "cookies_redacted": _format_cookie_values_for_log(self._browser_cookie_header),
             "token_prefix": _redact_value(self._browser_session_token, _LOG_TOKEN_VALUE_PREFIX_LEN),
             "user_agent_prefix": _redact_value(self._browser_user_agent, 32),
+            # v1.12.21: surface the active HTTP client so each event shows
+            # whether the call went out under TLS impersonation. Two events
+            # with identical cookies but different http_client values
+            # immediately localizes a regression to the wire layer.
+            "http_client": _describe_http_session(self._http_session),
             "last_login_ago": _ago(last_login_at),
             "last_attempt_ago": _ago(last_attempt),
             "last_started_ago": _ago(last_started),
@@ -2081,10 +2144,17 @@ class AuthManager:
             return False
 
         self._browser_last_validated_at = time.time()
+        # v1.12.21: compute is_redirect inline. ``requests.Response.is_redirect``
+        # is requests-specific; curl_cffi's Response object exposes
+        # status_code/headers/url but not that property, so the previous
+        # ``response.is_redirect`` reference crashed under default-ON
+        # impersonation. The semantics it tested for were "3xx with a
+        # Location header" — recompute that directly.
+        is_redirect = 300 <= response.status_code < 400 and bool(response.headers.get("Location"))
         logger.debug(
             "Browser session probe result: status=%s redirect=%s url_host=%s",
             response.status_code,
-            response.is_redirect,
+            is_redirect,
             (urlparse(str(response.url)).hostname or "").lower(),
         )
 
