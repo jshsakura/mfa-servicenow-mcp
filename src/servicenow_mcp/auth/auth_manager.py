@@ -110,12 +110,18 @@ def _build_http_session():
         try:
             from curl_cffi import requests as cffi_requests  # type: ignore
         except ImportError:
+            # v1.12.20: curl_cffi is now a regular dependency, so this
+            # branch should only fire if something corrupted the install
+            # (e.g. the libcurl-impersonate wheel got stripped, the env
+            # is a stripped-down system Python without the bundled
+            # binary). Log clearly and fall back to stock requests so a
+            # broken extra never breaks a working session.
             logger.warning(
-                "%s=%s requested but curl_cffi is not installed. "
-                "Install with: pip install 'mfa-servicenow-mcp[tls-impersonate]' "
-                "or: pip install curl_cffi. Falling back to stock requests "
-                "(no TLS impersonation — JA3 fingerprint will identify this "
-                "client as Python).",
+                "%s=%s requested but curl_cffi is not importable in this "
+                "environment. (curl_cffi is bundled with this package; if "
+                "this fires, the install is incomplete.) Falling back to "
+                "stock requests — JA3 fingerprint will identify this client "
+                "as Python, so JA3-gated instances will keep rejecting.",
                 _TLS_IMPERSONATE_ENV_VAR,
                 impersonate,
             )

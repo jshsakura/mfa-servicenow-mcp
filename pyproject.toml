@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.12.19"
+version = "1.12.20"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,23 +27,22 @@ dependencies = [
     "httpx>=0.28.0",
     "PyYAML>=6.0",
     "orjson>=3.9.0",
+    # v1.12.20: curl_cffi promoted from optional to regular dependency.
+    # Routing through libcurl-impersonate (BoringSSL fork) lets the auth
+    # manager switch to a real-browser TLS handshake at runtime when
+    # SERVICENOW_TLS_IMPERSONATE=<profile> is set. Without it, ServiceNow
+    # instances fronted by Cloudflare/Akamai or running JA3-based bot
+    # detection (the customer-instance pattern in field logs) reject stock
+    # Python requests no matter how valid the captured session is. Wheels
+    # ship for macOS / Linux / Windows × Python 3.11+, ~20MB on first
+    # install — small enough not to gate the feature behind extras when
+    # the symptom is "real browser works, MCP doesn't, no recovery path".
+    "curl_cffi>=0.7.0",
 ]
 
 [project.optional-dependencies]
 browser = [
     "playwright>=1.44.0",
-]
-tls-impersonate = [
-    # curl_cffi binds Python to libcurl-impersonate, a curl fork compiled
-    # against BoringSSL with the cipher/extension order patched to match
-    # real browser builds. Setting SERVICENOW_TLS_IMPERSONATE=chrome120
-    # (or similar profile) at runtime switches _build_http_session to a
-    # curl_cffi Session, defeating JA3-based bot detection on ServiceNow
-    # instances fronted by Cloudflare/Akamai or running ServiceNow's own
-    # fingerprint check. Optional because (a) it ships a ~20MB compiled
-    # binary, (b) most instances don't need it. Most users won't install
-    # this; the env var stays unset and the stock requests session is used.
-    "curl_cffi>=0.7.0",
 ]
 dev = [
     "pytest>=7.0.0",
