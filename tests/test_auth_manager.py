@@ -1601,6 +1601,42 @@ class TestBrowserLoginErrorHandling:
         assert mgr._browser_reauth_cooldown_seconds >= 15
         assert mgr._browser_last_reauth_attempt_at is not None
 
+    def test_manual_login_timeout_is_treated_as_user_cancel(self):
+        # v1.12.11: when the visible browser opens for MFA and the user walks
+        # away, the polling loop raises "Timed out waiting for manual browser
+        # login/MFA completion." Without the timeout-as-cancel mapping that
+        # error fed the regular failure counter and inflated cooldown to
+        # 30/60/120s, so the next legitimate retry felt blocked. The marker
+        # was added to USER_CLOSE_ERROR_MARKERS so the path emits
+        # LOGIN_CANCELLED_BY_USER with the fixed 15s cooldown instead.
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = None
+        mgr._browser_cookie_expires_at = None
+        mgr._browser_login_in_progress = False
+        mgr._browser_reauth_failure_count = 0
+
+        with patch.object(mgr, "_try_restore_browser_session", return_value=False):
+            with patch.object(mgr, "_acquire_login_lock", return_value=True):
+                with patch.object(mgr, "_can_attempt_browser_reauth", return_value=True):
+                    with patch.object(
+                        mgr,
+                        "_login_with_browser",
+                        side_effect=ValueError(
+                            "Timed out waiting for manual browser login/MFA completion. "
+                            "Increase SERVICENOW_BROWSER_TIMEOUT and try again."
+                        ),
+                    ):
+                        with patch.object(mgr, "_release_login_lock"):
+                            with patch.object(mgr, "_mark_browser_reauth_attempt"):
+                                with pytest.raises(ValueError, match="LOGIN_CANCELLED_BY_USER"):
+                                    mgr.get_headers()
+
+        # Failure count capped at 1 (no exponential growth), cooldown stays at
+        # the user-cancel value (15s), NOT the previous 30+ from a doubled
+        # base.
+        assert mgr._browser_reauth_failure_count == 1
+        assert mgr._browser_reauth_cooldown_seconds == 15
+
     def test_user_close_after_session_capture_returns_success(self):
         """First-flow mirror of the validation-flow test: when login
         captures the session and the user dismisses the window only
