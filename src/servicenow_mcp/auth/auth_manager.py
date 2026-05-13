@@ -291,6 +291,63 @@ def _cookie_header_to_dict(cookie_header: Optional[str]) -> dict[str, str]:
     return cookie_map
 
 
+def _replace_cookie_value_in_header(cookie_header: str, name: str, new_value: str) -> str:
+    """Swap the value of cookie ``name`` in a serialized ``Cookie:`` header.
+
+    If ``name`` is not present, append it. Used by v1.12.18 BIG-IP
+    routing absorption to overwrite ``BIGipServerpool_<host>`` with the
+    backend value the server hinted at via Set-Cookie. Preserves order
+    and other cookies untouched so the request looks otherwise identical
+    to the rejected one.
+    """
+    pairs: list[str] = []
+    found = False
+    for piece in cookie_header.split(";"):
+        piece = piece.strip()
+        if not piece:
+            continue
+        if "=" in piece:
+            cur_name, _, _ = piece.partition("=")
+            if cur_name.strip() == name:
+                pairs.append(f"{name}={new_value}")
+                found = True
+                continue
+        pairs.append(piece)
+    if not found:
+        pairs.append(f"{name}={new_value}")
+    return "; ".join(pairs)
+
+
+def _extract_bigip_routing_hint(response: requests.Response) -> Optional[tuple]:
+    """v1.12.18: pull BIGipServerpool_<host>=<value> from a response's
+    Set-Cookie if present. Returns ``(name, value)`` or ``None``.
+
+    F5 BIG-IP uses BIGipServerpool to bind a client to a specific backend.
+    When the client's existing BIG-IP cookie sticks it to backend A but
+    the session was minted on backend B (because Playwright Chromium
+    connected at a different time and got round-robined elsewhere), F5
+    responds 302 with a Set-Cookie redirecting future requests to B.
+    Absorbing that hint and retrying with the new BIG-IP cookie lets the
+    same captured session work without a re-auth round.
+
+    ``requests`` parses Set-Cookie into ``response.cookies`` correctly
+    even when multiple cookies are comma-merged in the raw header
+    (which Python's stdlib SimpleCookie chokes on). Only values that
+    are non-empty and aren't being expired (no Max-Age=0 + past Expires)
+    are returned.
+    """
+    try:
+        for cookie in response.cookies:
+            if not cookie.name or not cookie.name.startswith("BIGipServerpool"):
+                continue
+            if not cookie.value:
+                continue  # an empty / revocation Set-Cookie — not a routing hint
+            return (cookie.name, cookie.value)
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 def _response_indicates_login_redirect(response: requests.Response) -> bool:
     location = (response.headers.get("Location") or "").lower()
     response_url = str(response.url or "").lower()
@@ -2005,6 +2062,39 @@ class AuthManager:
         self._browser_last_validated_at = time.time()
         self._consecutive_self_heal_count = 0
 
+    def _absorb_response_bigip_rotation(self, response: requests.Response) -> Optional[str]:
+        """v1.12.18: when a logout-redirect response carries a new
+        ``BIGipServerpool_<host>`` value, overwrite the captured cookie
+        with the F5-indicated backend so the *next* request lands on
+        the server that actually hosts the session.
+
+        Returns the new BIG-IP value (first 8 chars) if updated, else None.
+        Caller is expected to retry the failed request once with the
+        updated cookies; the retry path is bounded inside ``make_request``
+        so this cannot loop.
+        """
+        if self.config.type != AuthType.BROWSER:
+            return None
+        if not self._browser_cookie_header:
+            return None
+        hint = _extract_bigip_routing_hint(response)
+        if not hint:
+            return None
+        name, new_value = hint
+        current = _cookie_header_to_dict(self._browser_cookie_header).get(name)
+        if current == new_value:
+            return None  # same backend — not a redirection hint
+        self._browser_cookie_header = _replace_cookie_value_in_header(
+            self._browser_cookie_header, name, new_value
+        )
+        # Persist so a sibling MCP for the same user picks up the corrected
+        # routing on its next disk reload instead of repeating the dance.
+        try:
+            self._save_session_to_disk()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to persist BIG-IP-rotated cookie: %s", exc)
+        return new_value[:8]
+
     def _absorb_response_token_rotation(self, response: requests.Response) -> None:
         """Pick up rotated X-UserToken / X-CSRF-Token from a server response.
 
@@ -3701,6 +3791,74 @@ class AuthManager:
             response.status_code,
             elapsed_ms,
         )
+
+        # v1.12.18: F5 BIG-IP backend re-routing absorption.
+        #
+        # When a logout-redirect response carries a Set-Cookie with a
+        # BIGipServerpool_<host>=<value> that differs from the one we just
+        # sent, F5 is telling us "you reached the wrong backend; switch
+        # to this one". The captured session lives on backend B but our
+        # cookie stuck us to backend A — fixable client-side by swapping
+        # the cookie value and re-sending the same request to F5, which
+        # will then route to backend B.
+        #
+        # Bounded to ONE retry per make_request call via the local flag,
+        # so a misbehaving server that keeps shifting the hint can't loop
+        # us. If the retry still produces a logout-redirect the original
+        # born-dead handling below runs against the updated response.
+        if (
+            self.config.type == AuthType.BROWSER
+            and self._browser_cookie_header
+            and _response_redirected_through_logout(response)
+        ):
+            new_bigip_prefix = self._absorb_response_bigip_rotation(response)
+            if new_bigip_prefix:
+                logger.warning(
+                    "BIG-IP backend redirect detected: server hinted "
+                    "BIGipServerpool=%s..., overriding our cookie and "
+                    "retrying %s %s once before treating as session death.",
+                    new_bigip_prefix,
+                    method_upper,
+                    request_host,
+                )
+                self._auth_event(
+                    "request.bigip_absorbed",
+                    method=method_upper,
+                    target_host=request_host,
+                    new_bigip_prefix=new_bigip_prefix,
+                )
+                # Re-prime kwargs with the updated cookie set. Browser auth
+                # uses kwargs["cookies"] (dict form); other auth types fall
+                # back to the Cookie header on the headers dict.
+                if "cookies" in kwargs:
+                    kwargs["cookies"] = _cookie_header_to_dict(self._browser_cookie_header)
+                else:
+                    kwargs.setdefault("headers", {})["Cookie"] = self._browser_cookie_header
+                try:
+                    response = self._http_session.request(method, url, **kwargs)
+                    elapsed_ms = int((time.monotonic() - start) * 1000)
+                    logger.info(
+                        "ServiceNow request end (bigip-retry): method=%s host=%s "
+                        "status=%s elapsed_ms=%s",
+                        method_upper,
+                        request_host,
+                        response.status_code,
+                        elapsed_ms,
+                    )
+                    self._auth_event(
+                        "request.bigip_retry",
+                        method=method_upper,
+                        target_host=request_host,
+                        **{
+                            f"resp_{k}": v for k, v in _format_response_diagnostic(response).items()
+                        },
+                    )
+                except (requests.ConnectionError, requests.Timeout) as exc:
+                    logger.error(
+                        "BIG-IP retry network error — falling through to "
+                        "born-dead handling with original response: %s",
+                        exc,
+                    )
 
         # Self-heal: detect 302→/logout_success.do that requests followed
         # silently. The v1.11.43 outage signature was a doomed call
