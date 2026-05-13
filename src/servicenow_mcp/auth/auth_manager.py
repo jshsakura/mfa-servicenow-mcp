@@ -567,6 +567,16 @@ class AuthManager:
         # and put the account at risk of being flagged. Initial value 0
         # means "no attempt yet"; the first login is unthrottled.
         self._last_login_started_at: float = 0.0
+        # v1.12.12: set by the self-heal in-grace logout path when the most
+        # recent login produced a born-dead session (first real API call
+        # 302→/logout_success.do within the post-login grace window). Allows
+        # the very next _login_with_browser to bypass the
+        # _MIN_LOGIN_INTERVAL_SECONDS floor — the previous attempt was a
+        # session-mint failure, not a brute-force probe, so the rate-limit
+        # rationale does not apply. Cleared on the first successful login
+        # completion or the bypassed retry, whichever comes first, so the
+        # interval re-engages for normal traffic.
+        self._last_login_was_born_dead: bool = False
         # v1.12.1: timestamp of the last circuit-escape probe. Used to
         # throttle the per-request escape attempt once the self-heal
         # circuit is open. Without throttling, a tight retry loop in
@@ -2504,9 +2514,19 @@ class AuthManager:
         # Server-side abuse detection flags accounts that submit login.do
         # rapidly. Even when the circuit breaker is still closed, two
         # logins within seconds is suspicious. Enforce a hard floor.
+        #
+        # v1.12.12: bypass the floor when the previous login produced a
+        # born-dead session (in-grace 302→logout). That attempt did not
+        # mint a usable session; the next submission is recovery, not
+        # brute-force, so blocking it for 60s strands the user with no
+        # path forward except MCP restart.
         now = time.time()
         since_last = now - self._last_login_started_at if self._last_login_started_at else None
-        if since_last is not None and since_last < _MIN_LOGIN_INTERVAL_SECONDS:
+        if (
+            since_last is not None
+            and since_last < _MIN_LOGIN_INTERVAL_SECONDS
+            and not self._last_login_was_born_dead
+        ):
             remaining = _MIN_LOGIN_INTERVAL_SECONDS - since_last
             logger.warning(
                 "Browser login blocked: last attempt was %.1fs ago, "
@@ -2521,6 +2541,15 @@ class AuthManager:
                 f"ago. Wait {remaining:.1f}s before retrying — back-to-back login "
                 f"submissions risk getting the account flagged."
             )
+        if self._last_login_was_born_dead and since_last is not None:
+            logger.info(
+                "Bypassing %.1fs min-login-interval: previous login was "
+                "born-dead (%.1fs ago). Born-dead flag cleared; the next "
+                "submission counts as a fresh attempt.",
+                _MIN_LOGIN_INTERVAL_SECONDS,
+                since_last,
+            )
+            self._last_login_was_born_dead = False
         self._last_login_started_at = now
 
         try:
@@ -2760,7 +2789,19 @@ class AuthManager:
             # authentication. Their presence is a stronger signal than
             # page.url stability — page.url can stick on an SSO bounce or
             # SPA fragment for longer than the user takes to MFA.
-            POST_AUTH_COOKIE_MARKERS = ("glide_user_session", "glide_session_store")
+            #
+            # v1.12.12: dropped ``glide_session_store`` from this list.
+            # ServiceNow sets ``glide_session_store`` while the user is
+            # still on the MFA challenge page — i.e. it is part of the
+            # half-session, not a post-MFA marker. Confirming on it caused
+            # the polling loop to declare success with stable_ticks=1, the
+            # captured cookies belonged to the half-session, and the very
+            # first real API call 302'd to /logout_success.do (the
+            # "born-dead session" outage observed on this instance).
+            # ``glide_user_session`` is only minted AFTER MFA completes,
+            # so it is a safe single-cookie shortcut. When SSO flows never
+            # set it, the loop still confirms via the stable-URL fallback.
+            POST_AUTH_COOKIE_MARKERS = ("glide_user_session",)
             while (time.time() - start) * 1000 < wait_budget_ms:
                 try:
                     if page.is_closed():
@@ -2922,6 +2963,7 @@ class AuthManager:
             self._browser_session_key = instance_host
             self._browser_last_validated_at = None
             self._browser_last_login_at = time.time()
+            self._last_login_was_born_dead = False
             self._clear_browser_reauth_attempt()
             # Drop heavy in-flight work (Polaris Service Worker, AMB
             # WebSocket, dashboard XHRs) by navigating each open page to
@@ -3450,6 +3492,13 @@ class AuthManager:
                 self._consecutive_self_heal_count -= 1  # don't punish — we're handling it
                 self._needs_full_profile_purge = True
                 self._browser_last_login_at = None
+                # v1.12.12: mark the next login as "recovery from born-dead",
+                # so it can bypass the 60s min-login-interval floor. Without
+                # this the recovery submission gets blocked, the stale
+                # half-session cookies keep producing logout probes, and the
+                # self-heal circuit trips after 3 such probes — leaving MCP
+                # restart as the only way out.
+                self._last_login_was_born_dead = True
                 self.invalidate_browser_session(full_purge=False)
                 response.status_code = 401
                 # Fall through to the 401 retry block below; it will call
