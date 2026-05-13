@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.12.18"
+version = "1.12.19"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +32,18 @@ dependencies = [
 [project.optional-dependencies]
 browser = [
     "playwright>=1.44.0",
+]
+tls-impersonate = [
+    # curl_cffi binds Python to libcurl-impersonate, a curl fork compiled
+    # against BoringSSL with the cipher/extension order patched to match
+    # real browser builds. Setting SERVICENOW_TLS_IMPERSONATE=chrome120
+    # (or similar profile) at runtime switches _build_http_session to a
+    # curl_cffi Session, defeating JA3-based bot detection on ServiceNow
+    # instances fronted by Cloudflare/Akamai or running ServiceNow's own
+    # fingerprint check. Optional because (a) it ships a ~20MB compiled
+    # binary, (b) most instances don't need it. Most users won't install
+    # this; the env var stays unset and the stock requests session is used.
+    "curl_cffi>=0.7.0",
 ]
 dev = [
     "pytest>=7.0.0",

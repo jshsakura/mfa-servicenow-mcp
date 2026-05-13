@@ -24,6 +24,26 @@ Tool definitions are sent to the LLM on every request. Every character costs tok
 5. Add tests: happy path, error, not-found (for detail), count_only (for list), filters.
 6. Run `python -m pytest tests/ -x` before committing.
 
+## TLS Impersonation (curl_cffi opt-in)
+
+Some ServiceNow instances (especially those fronted by Cloudflare/Akamai
+or running internal JA3-based bot detection) reject Python's stock
+`requests` library regardless of cookie validity — the same captured
+session works fine in a real browser but 302→/logout_success.do when
+sent from `requests`. Symptom: web login works, `sn_health` produces
+"born dead" sessions repeatedly.
+
+`SERVICENOW_TLS_IMPERSONATE=chrome120` (or any curl_cffi profile name)
+switches `_build_http_session` to a `curl_cffi.requests.Session` so the
+TLS handshake matches a real browser byte-for-byte (cipher order, TLS
+extensions, GREASE, HTTP/2 SETTINGS, ALPN). Install with
+`pip install 'mfa-servicenow-mcp[tls-impersonate]'`.
+
+Default OFF — most instances don't need it, and curl_cffi ships a
+~20MB compiled binary. Leave unset unless field logs show the
+fingerprint-detection signature: real browser works, MCP doesn't, both
+get 302→logout, server keeps minting fresh anonymous JSESSIONIDs.
+
 ## Auth Separation
 
 - **Basic/OAuth/API Key**: Table API only. Never call undocumented APIs.

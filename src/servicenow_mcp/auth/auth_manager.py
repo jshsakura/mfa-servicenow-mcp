@@ -66,15 +66,80 @@ _MIN_LOGIN_INTERVAL_SECONDS = 60.0
 _CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS = 10.0
 
 
-def _build_http_session() -> requests.Session:
-    """Create a ``requests.Session`` with connection-pooling tuned for
-    repeated calls to a single ServiceNow instance.
+# v1.13.0: TLS-impersonation profile name read from the
+# SERVICENOW_TLS_IMPERSONATE environment variable. When set to a curl_cffi
+# impersonation profile (e.g. ``chrome120``, ``chrome131``, ``safari17_0``)
+# AND ``curl_cffi`` is importable, _build_http_session uses curl_cffi's
+# Session which routes through libcurl-impersonate (BoringSSL fork). That
+# makes our TLS handshake byte-for-byte identical to a real browser —
+# matching JA3/JA4 fingerprint, TLS extension order, GREASE values, HTTP/2
+# SETTINGS frames, and ALPN. ServiceNow instances fronted by JA3-based
+# bot detection (Cloudflare, Akamai, ServiceNow's own) reject Python's
+# stock requests with 302→/logout_success.do regardless of whether the
+# session cookies are valid; impersonation is the only client-side fix.
+#
+# Default empty → stock requests.Session (existing behaviour, no
+# regression). Opt-in keeps the new dependency from being mandatory.
+_TLS_IMPERSONATE_ENV_VAR = "SERVICENOW_TLS_IMPERSONATE"
 
-    Benefits over bare ``requests.request()``:
+
+def _build_http_session():
+    """Create the HTTP session for ServiceNow API calls.
+
+    When ``SERVICENOW_TLS_IMPERSONATE`` is set to a curl_cffi impersonation
+    profile, returns a ``curl_cffi.requests.Session`` so the TLS handshake
+    matches a real browser. Otherwise falls back to a stock
+    ``requests.Session`` with the historical connection-pool tuning.
+
+    The return type is intentionally untyped — curl_cffi's Session is API-
+    compatible with ``requests.Session`` for the methods we actually call
+    (``.request``, ``.headers``, ``.cookies``, ``.close``) but is NOT a
+    subclass, so typing it as ``requests.Session`` would lie. Callers stay
+    duck-typed.
+
+    Benefits of pooling (stock-requests path):
     - TCP keep-alive: avoids 3-way handshake on every call
     - TLS session resumption: saves ~100-300ms per request
     - urllib3 connection pool: reuses sockets across threads
     """
+    impersonate = (os.environ.get(_TLS_IMPERSONATE_ENV_VAR) or "").strip()
+    if impersonate:
+        # Try the impersonation path. Any failure (import, wrong profile,
+        # init error) logs a clear warning and falls through to stock
+        # requests, so a bad env var never breaks a working install.
+        try:
+            from curl_cffi import requests as cffi_requests  # type: ignore
+        except ImportError:
+            logger.warning(
+                "%s=%s requested but curl_cffi is not installed. "
+                "Install with: pip install 'mfa-servicenow-mcp[tls-impersonate]' "
+                "or: pip install curl_cffi. Falling back to stock requests "
+                "(no TLS impersonation — JA3 fingerprint will identify this "
+                "client as Python).",
+                _TLS_IMPERSONATE_ENV_VAR,
+                impersonate,
+            )
+        else:
+            try:
+                session = cffi_requests.Session(impersonate=impersonate)
+            except Exception as exc:  # noqa: BLE001 — bad profile name etc.
+                logger.warning(
+                    "curl_cffi Session(impersonate=%r) failed: %s. "
+                    "Falling back to stock requests.",
+                    impersonate,
+                    exc,
+                )
+            else:
+                session.headers.update({"Accept-Encoding": "gzip, deflate"})
+                logger.info(
+                    "HTTP session: curl_cffi impersonate=%s "
+                    "(TLS fingerprint matched to a real browser to defeat "
+                    "JA3-based bot detection on hardened ServiceNow "
+                    "instances).",
+                    impersonate,
+                )
+                return session
+
     session = requests.Session()
     # Enable gzip/deflate — reduces payload 60-80% on large JSON responses.
     # NOTE: Do NOT set Accept or Content-Type here — individual requests set
