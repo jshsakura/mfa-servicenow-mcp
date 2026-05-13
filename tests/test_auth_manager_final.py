@@ -503,37 +503,22 @@ class TestLoginWithBrowserSync:
         with pytest.raises(ValueError, match="LOGIN_COOLDOWN"):
             mgr._login_with_browser_sync(browser_cfg)
 
-    def test_born_dead_flag_bypasses_min_login_interval(self):
-        """v1.12.12: when the previous login produced a born-dead session
-        (in-grace 302→logout), the next submission must NOT be blocked by
-        the 60s rate-limit. Otherwise the user is wedged between stale
-        cookies producing logout-redirect probes and the rate-limiter, with
-        MCP restart as the only escape.
-
-        Verified by mocking out the Playwright import so the gate is the
-        ONLY thing that could raise LOGIN_COOLDOWN — if the gate fires we
-        see LOGIN_COOLDOWN, if the gate is bypassed we see the Playwright
-        import error instead.
+    def test_born_dead_flag_does_not_bypass_min_login_interval(self):
+        """v1.12.17: bypass removed. The born-dead flag (which used to
+        skip the 60s rate-limit) is no longer set anywhere, but defensive
+        setting it to True must NOT punch through the gate. Field logs
+        proved the bypass was load-bearing for an MFA-fatigue loop that
+        kicked in when ServiceNow's single-session policy + multi-MCP
+        contention turned every retry into another born-dead session.
         """
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(timeout_seconds=10)
         mgr._last_login_started_at = time.time() - 5
+        # Even with the legacy flag set, the gate must still fire.
         mgr._last_login_was_born_dead = True
 
-        real_import = __import__
-
-        def _mock_import(name, *args, **kwargs):
-            if "playwright" in name:
-                raise ImportError("sentinel — gate was bypassed")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=_mock_import):
-            with pytest.raises(ValueError, match="Playwright is required"):
-                mgr._login_with_browser_sync(browser_cfg)
-
-        # Flag consumed by the bypass — the next attempt re-engages the
-        # rate-limiter so a real brute-force loop still gets stopped.
-        assert mgr._last_login_was_born_dead is False
+        with pytest.raises(ValueError, match="LOGIN_COOLDOWN"):
+            mgr._login_with_browser_sync(browser_cfg)
 
     def test_full_login_no_credentials(self):
         """Login without username/password — waits for manual completion."""
@@ -1027,15 +1012,20 @@ class TestLoginWithBrowserSync:
 
         assert mgr._browser_cookie_header is not None
 
-    def test_login_final_probe_logout_arms_full_purge(self):
-        """v1.12.15: final_probe redirect through /logout_success.do during
-        the login flow must arm _needs_full_profile_purge so the next login
-        drops mfa_remembered and forces full MFA.
+    def test_login_final_probe_logout_invalidates_without_auto_arm(self):
+        """v1.12.17: the v1.12.15 auto-arm-full-purge behaviour was reverted.
+        Field logs proved the assumption wrong — even after dropping
+        mfa_remembered and forcing full MFA, the next session minted was
+        equally born-dead (ServiceNow single-session policy + multi-MCP
+        contention + F5 BIG-IP backend mismatch were the real causes, none
+        of which mfa_remembered purge fixes). The auto-arm just produced
+        an extra MFA prompt per retry for no benefit.
 
-        Without this, the persistent profile keeps the mfa_remembered cookie,
-        the next login auto-skips MFA, the server hands back the same
-        half-session, final_probe rejects it again — infinite born-dead loop
-        whose only published recovery was 'rm -rf the profile dir'.
+        New contract: final_probe redirect through /logout_success.do
+        invalidates the just-captured session and raises with full
+        diagnostics, but does NOT touch _needs_full_profile_purge. The
+        caller decides whether to retry; the rate-limit gate handles
+        back-pressure.
         """
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
@@ -1044,8 +1034,8 @@ class TestLoginWithBrowserSync:
             session_ttl_minutes=30,
             probe_path="/api/now/table/sys_user_preference",
         )
-        # Flag must be cleared before — we are checking that the login flow
-        # itself sets it in response to the logout-redirect probe.
+        # Flag explicitly cleared so we can prove the login flow does
+        # NOT set it as a side effect of the failed probe.
         mgr._needs_full_profile_purge = False
 
         mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
@@ -1085,11 +1075,11 @@ class TestLoginWithBrowserSync:
                         ):
                             mgr._login_with_browser_sync(browser_cfg)
 
-        # Born-dead recovery is now armed for the next login. Without this,
-        # _purge_stale_profile_cookies on the next attempt preserves
-        # mfa_remembered and walks straight into the same dead session.
-        assert mgr._needs_full_profile_purge is True
-        # Session itself was invalidated as usual.
+        # v1.12.17: NO auto-arm. The caller's next attempt goes through
+        # the normal flow — _purge_stale_profile_cookies preserves
+        # mfa_remembered, and the rate-limit gate spaces retries.
+        assert mgr._needs_full_profile_purge is False
+        # Session was still invalidated — the failure is real.
         assert mgr._browser_cookie_header is None
 
     def test_login_timeout_headless(self):
