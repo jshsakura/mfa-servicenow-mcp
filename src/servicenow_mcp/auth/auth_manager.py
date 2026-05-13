@@ -2790,18 +2790,25 @@ class AuthManager:
             # page.url stability — page.url can stick on an SSO bounce or
             # SPA fragment for longer than the user takes to MFA.
             #
-            # v1.12.12: dropped ``glide_session_store`` from this list.
-            # ServiceNow sets ``glide_session_store`` while the user is
-            # still on the MFA challenge page — i.e. it is part of the
-            # half-session, not a post-MFA marker. Confirming on it caused
-            # the polling loop to declare success with stable_ticks=1, the
-            # captured cookies belonged to the half-session, and the very
-            # first real API call 302'd to /logout_success.do (the
-            # "born-dead session" outage observed on this instance).
-            # ``glide_user_session`` is only minted AFTER MFA completes,
-            # so it is a safe single-cookie shortcut. When SSO flows never
-            # set it, the loop still confirms via the stable-URL fallback.
-            POST_AUTH_COOKIE_MARKERS = ("glide_user_session",)
+            # v1.12.12 tried dropping ``glide_session_store`` here on the
+            # theory that it represents a half-session set during the MFA
+            # challenge. v1.12.13 reverted that change: on instances that
+            # never mint ``glide_user_session``, the tighter list forced
+            # the slower ``stable_ticks=5`` fallback path, which captures
+            # cookies a full 5 s after the post-login URL stabilizes — by
+            # which point the SPA has issued enough background XHRs that
+            # the server has rotated session state and our captured jar
+            # no longer matches what the server now expects. Result:
+            # ``final_probe`` rejects the just-captured session and the
+            # user lands in a "login confirmed → immediate 401" loop.
+            #
+            # The born-dead pattern that motivated v1.12.12 #1 is already
+            # handled by the in-grace logout path (which auto-purges
+            # ``mfa_remembered`` and re-runs full MFA) combined with the
+            # v1.12.12 #2 min-login-interval bypass — capturing cookies
+            # earlier is fine because the recovery path catches anything
+            # the server actually rejects on the first real call.
+            POST_AUTH_COOKIE_MARKERS = ("glide_user_session", "glide_session_store")
             while (time.time() - start) * 1000 < wait_budget_ms:
                 try:
                     if page.is_closed():
@@ -3018,6 +3025,15 @@ class AuthManager:
                 if attempt < 2:
                     time.sleep(1.5 * (attempt + 1))  # 1.5 s, 3 s
             if probe_exc is not None and final_probe is None:
+                # v1.12.13: emit the failure detail to the log too. The
+                # raised ValueError reaches get_headers' except block but is
+                # only re-raised, not unpacked, so LOG_FILE consumers see
+                # "Browser session invalidated" with no probe diagnostic.
+                logger.error(
+                    "final_probe network failure: %s (no response). "
+                    "Invalidating just-captured session.",
+                    probe_exc,
+                )
                 self.invalidate_browser_session()
                 raise ValueError(
                     "Browser login appeared to complete, but final API validation failed. "
@@ -3026,7 +3042,6 @@ class AuthManager:
                 ) from probe_exc
             assert final_probe is not None  # narrow type after the loop
             if not _response_confirms_browser_probe_session(final_probe):
-                self.invalidate_browser_session()
                 # Include more detail for debugging auth failures.
                 # `Location` is the decisive clue when status is 302/3xx —
                 # it tells us exactly where the server thinks the session
@@ -3039,6 +3054,23 @@ class AuthManager:
                 probe_text = final_probe.text[:200]
                 probe_location = final_probe.headers.get("Location", "")
                 cookie_names = ",".join(_extract_cookie_names(self._browser_cookie_header))
+                # v1.12.13: log the diagnostic BEFORE raising. The caller in
+                # get_headers swallows the exception detail (only logs
+                # "Browser re-auth failed (attempt #N)"), so without this
+                # line LOG_FILE has no record of WHY the probe rejected the
+                # session — making the "login confirmed → immediate
+                # invalidate" pattern undebuggable from logs alone.
+                logger.error(
+                    "final_probe rejected just-captured session — status=%s url=%s "
+                    "location=%s x_usertoken=%s cookies=%s body[:200]=%r",
+                    final_probe.status_code,
+                    probe_url,
+                    probe_location,
+                    "set" if self._browser_session_token else "MISSING",
+                    cookie_names,
+                    probe_text,
+                )
+                self.invalidate_browser_session()
                 raise ValueError(
                     f"Browser login completed, but API auth is still unauthorized. "
                     f"Status: {final_probe.status_code}, URL: {probe_url}, "
