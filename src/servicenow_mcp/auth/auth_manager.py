@@ -9,7 +9,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import parse_qsl, urljoin, urlparse
 
 import requests
@@ -624,6 +624,77 @@ class AuthManager:
                     "Startup: no cached session. "
                     "Browser login will be triggered on the first tool call."
                 )
+
+    # ------------------------------------------------------------------
+    # v1.12.14: single structured channel for auth lifecycle events.
+    # Every state transition + every failure should call _auth_event so
+    # LOG_FILE has a complete trace of "what the auth state machine knew
+    # and did" without grepping through scattered logger.info lines.
+    # ------------------------------------------------------------------
+
+    def _auth_event(self, event: str, **context: Any) -> None:
+        """Emit one structured auth-state log line.
+
+        Captures the full 16-field auth snapshot at the call site, then
+        appends any caller-supplied context. Always goes to ``logger.info``
+        with the prefix ``auth_event=<name>`` so a single
+        ``grep 'auth_event='`` filters the entire session lifecycle out of
+        a noisy LOG_FILE.
+
+        Why this exists: today the auth manager carries ~16 mutually
+        interacting state fields. When a sn_health call ends up refused,
+        it can be because of any of those — and pre-v1.12.14 logs only
+        recorded the human-readable narrative ("Browser session
+        invalidated", "Browser re-auth failed"), leaving every post-mortem
+        as guesswork. With this event channel the answer to "what did the
+        state machine think at the moment of the refusal?" is one line.
+        """
+        now = time.time()
+        last_login_at = self._browser_last_login_at
+        last_attempt = self._browser_last_reauth_attempt_at
+        last_started = self._last_login_started_at
+
+        def _ago(ts: Optional[float]) -> str:
+            if not ts:
+                return "never"
+            return f"{now - ts:.1f}s"
+
+        flags = []
+        if self._last_login_was_born_dead:
+            flags.append("born_dead_armed")
+        if self._needs_full_profile_purge:
+            flags.append("needs_full_purge")
+        if self._needs_profile_cookie_purge:
+            flags.append("needs_cookie_purge")
+        if self._browser_login_in_progress:
+            flags.append("login_in_progress")
+
+        snapshot: Dict[str, Any] = {
+            "cookies": "set" if self._browser_cookie_header else "none",
+            "token": "set" if self._browser_session_token else "none",
+            "last_login_ago": _ago(last_login_at),
+            "last_attempt_ago": _ago(last_attempt),
+            "last_started_ago": _ago(last_started),
+            "cooldown_s": self._browser_reauth_cooldown_seconds,
+            "failure_count": self._browser_reauth_failure_count,
+            "selfheal_consec": self._consecutive_self_heal_count,
+            "circuit": (
+                "open"
+                if self._consecutive_self_heal_count >= _SELF_HEAL_CIRCUIT_THRESHOLD
+                else "closed"
+            ),
+            "flags": ",".join(flags) if flags else "-",
+        }
+        # Caller context overrides snapshot keys on collision (rare; lets
+        # call sites pass e.g. a freshly-computed cookie_count without
+        # waiting for the snapshot to see it).
+        snapshot.update(context)
+        parts = [f"auth_event={event}"]
+        for key, value in snapshot.items():
+            # Repr non-strings cheaply so log line stays single-line and
+            # grep-friendly. None becomes "None", booleans stay bare.
+            parts.append(f"{key}={value}")
+        logger.info(" ".join(parts))
 
     # ------------------------------------------------------------------
     # Playwright pre-flight check
@@ -1501,6 +1572,10 @@ class AuthManager:
                     if not self._can_attempt_browser_reauth():
                         self._release_login_lock()
                         cooldown_remaining = self._get_reauth_cooldown_remaining()
+                        self._auth_event(
+                            "login.cooldown.refused",
+                            cooldown_remaining_s=cooldown_remaining,
+                        )
                         raise ValueError(
                             f"Browser session expired. Re-login will be attempted automatically "
                             f"in {cooldown_remaining}s. "
@@ -2050,15 +2125,20 @@ class AuthManager:
             )
         except requests.RequestException as exc:
             logger.info("Browser session restore probe failed: %s", exc)
+            self._auth_event(
+                "profile.restore.network_error",
+                error=str(exc)[:120],
+            )
             return False
 
         if not _response_confirms_browser_probe_session(probe):
             probe_location = (probe.headers.get("Location") or "").lower()
-            if (
+            went_to_logout = (
                 "logout_success" in probe_location
                 or "/logout.do" in probe_location
                 or _response_redirected_through_logout(probe)
-            ):
+            )
+            if went_to_logout:
                 self._consecutive_self_heal_count += 1
                 # v1.12.0: do NOT auto-trigger full profile purge. Repeated
                 # logout-302s do not necessarily mean mfa_remembered is
@@ -2074,6 +2154,12 @@ class AuthManager:
             logger.info(
                 "Browser session restore probe rejected cached cookies: status=%s",
                 probe.status_code,
+            )
+            self._auth_event(
+                "profile.restore.rejected",
+                status=probe.status_code,
+                location=probe_location or "-",
+                logout_redirect=went_to_logout,
             )
             return False
 
@@ -2502,6 +2588,10 @@ class AuthManager:
                 _SELF_HEAL_CIRCUIT_THRESHOLD,
                 self._consecutive_self_heal_count,
             )
+            self._auth_event(
+                "login.circuit.refused",
+                threshold=_SELF_HEAL_CIRCUIT_THRESHOLD,
+            )
             raise ValueError(
                 "SELF_HEAL_CIRCUIT_OPEN: %d consecutive sessions rejected "
                 "server-side, including fresh full-MFA logins. Refusing to "
@@ -2536,6 +2626,12 @@ class AuthManager:
                 _MIN_LOGIN_INTERVAL_SECONDS,
                 remaining,
             )
+            self._auth_event(
+                "login.rate_limited",
+                since_last_s=f"{since_last:.1f}",
+                remaining_s=f"{remaining:.1f}",
+                min_interval_s=_MIN_LOGIN_INTERVAL_SECONDS,
+            )
             raise ValueError(
                 f"LOGIN_COOLDOWN: previous browser login attempted {since_last:.1f}s "
                 f"ago. Wait {remaining:.1f}s before retrying — back-to-back login "
@@ -2549,8 +2645,18 @@ class AuthManager:
                 _MIN_LOGIN_INTERVAL_SECONDS,
                 since_last,
             )
+            self._auth_event(
+                "login.bypass.born_dead",
+                since_last_s=f"{since_last:.1f}",
+            )
             self._last_login_was_born_dead = False
         self._last_login_started_at = now
+        self._auth_event(
+            "login.start",
+            interactive=not (browser_config.headless and not force_interactive),
+            force_interactive=force_interactive,
+            needs_full_purge=self._needs_full_profile_purge,
+        )
 
         try:
             from playwright.sync_api import sync_playwright
@@ -2782,6 +2888,8 @@ class AuthManager:
             login_confirmed = False
             stable_instance_ticks = 0
             STABLE_TICKS_REQUIRED = 5
+            current_url = ""  # v1.12.14: pre-init so the timeout-log code path
+            # can read the last observed URL even if the loop never assigned
             # Cookies ServiceNow only sets AFTER a successful login.
             # ``_purge_stale_profile_cookies`` cleared everything just before
             # login.do submission, so any of these names in the persistent
@@ -2916,6 +3024,12 @@ class AuthManager:
                         stable_instance_ticks,
                         bool(self._browser_session_token),
                     )
+                    self._auth_event(
+                        "login.poll.confirmed",
+                        reason=confirmed_reason,
+                        url=current_url,
+                        stable_ticks=stable_instance_ticks,
+                    )
                     if not self._browser_session_token:
                         logger.warning(
                             "Browser auth confirmed without X-UserToken (g_ck) after "
@@ -2925,12 +3039,35 @@ class AuthManager:
                             "Chromium profile and retry login.",
                             GCK_CAPTURE_MAX_ATTEMPTS,
                         )
+                        self._auth_event(
+                            "login.poll.token_missing",
+                            gck_attempts=GCK_CAPTURE_MAX_ATTEMPTS,
+                            url=current_url,
+                        )
                     login_confirmed = True
                     break
 
                 time.sleep(1)
 
             if not login_confirmed:
+                # v1.12.14: snapshot last polling state so the timeout log
+                # carries WHY we never confirmed — last URL we saw, how many
+                # stable ticks we accumulated, whether post-auth cookie was
+                # ever observed. Without this the timeout was undebuggable.
+                try:
+                    last_cookie_names = ",".join(
+                        sorted({c.get("name", "") for c in context.cookies()})
+                    )[:240]
+                except Exception:  # noqa: BLE001
+                    last_cookie_names = "<cookies_unavailable>"
+                self._auth_event(
+                    "login.poll.timeout",
+                    mode="headless" if use_headless else "interactive",
+                    wait_budget_ms=wait_budget_ms,
+                    last_url=current_url or "<never_polled>",
+                    last_stable_ticks=stable_instance_ticks,
+                    last_cookies=last_cookie_names or "<none>",
+                )
                 _safe_close_context()
                 if use_headless:
                     raise ValueError(
@@ -3070,6 +3207,13 @@ class AuthManager:
                     cookie_names,
                     probe_text,
                 )
+                self._auth_event(
+                    "login.probe.failed",
+                    status=final_probe.status_code,
+                    probe_url=probe_url,
+                    location=probe_location or "-",
+                    captured_cookies=cookie_names or "<none>",
+                )
                 self.invalidate_browser_session()
                 raise ValueError(
                     f"Browser login completed, but API auth is still unauthorized. "
@@ -3091,14 +3235,21 @@ class AuthManager:
             # already handles the failure paths; this one is a no-op safety
             # net for the success path.
             _safe_close_context()
+            cookie_names_str = ",".join(_extract_cookie_names(self._browser_cookie_header))
             logger.info(
                 "Browser session stored: mode=%s session_key=%s cookie_count=%s "
                 "cookie_names=%s ttl_minutes=%s",
                 "headless" if use_headless else "interactive",
                 self._browser_session_key,
                 len(_extract_cookie_names(self._browser_cookie_header)),
-                ",".join(_extract_cookie_names(self._browser_cookie_header)),
+                cookie_names_str,
                 browser_config.session_ttl_minutes,
+            )
+            self._auth_event(
+                "login.stored",
+                mode="headless" if use_headless else "interactive",
+                cookie_names=cookie_names_str,
+                ttl_minutes=browser_config.session_ttl_minutes,
             )
 
     def invalidate_browser_session(self, *, full_purge: bool = False):
@@ -3117,9 +3268,15 @@ class AuthManager:
         loop the user kept hitting on the test instance.
         """
         my_cookie = self._browser_cookie_header
+        had_cookies = bool(my_cookie)
         logger.info(
             "Browser session invalidated (in-memory)%s",
             " [full_purge: mfa_remembered will also be dropped]" if full_purge else "",
+        )
+        self._auth_event(
+            "session.invalidated",
+            full_purge=full_purge,
+            had_cookies=had_cookies,
         )
         self._browser_cookie_header = None
         self._browser_cookie_expires_at = None
@@ -3225,6 +3382,11 @@ class AuthManager:
                             method.upper(),
                             (urlparse(url).hostname or "").lower(),
                         )
+                        self._auth_event(
+                            "request.circuit.escaped",
+                            method=method.upper(),
+                            target_host=(urlparse(url).hostname or "").lower(),
+                        )
                         self._mark_browser_session_recently_valid()
                         # Fall through to the normal request path.
                     else:
@@ -3235,14 +3397,30 @@ class AuthManager:
                             escape_probe.status_code,
                             _CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS,
                         )
+                        self._auth_event(
+                            "request.circuit.escape_rejected",
+                            status=escape_probe.status_code,
+                            next_probe_in_s=_CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS,
+                        )
                 except requests.RequestException as exc:
                     logger.warning(
                         "Self-heal circuit escape probe failed: %s. " "Continuing to refuse calls.",
                         exc,
                     )
+                    self._auth_event(
+                        "request.circuit.escape_network_error",
+                        error=str(exc)[:120],
+                    )
 
             # If we did not escape, refuse.
             if self._consecutive_self_heal_count >= _SELF_HEAL_CIRCUIT_THRESHOLD:
+                self._auth_event(
+                    "request.circuit.refused",
+                    method=method.upper(),
+                    target_host=(urlparse(url).hostname or "").lower(),
+                    probed_just_now=probed_just_now,
+                    has_cookies=bool(self._browser_cookie_header),
+                )
                 raise requests.HTTPError(
                     "SELF_HEAL_CIRCUIT_OPEN: %d consecutive auth failures. Refusing "
                     "to send this request. The server is rejecting every session — "
@@ -3466,6 +3644,13 @@ class AuthManager:
             # no MFA loop. Outside grace (server's idle timeout fired), do
             # the standard self-heal: invalidate + re-auth on next call.
             self._consecutive_self_heal_count += 1
+            self._auth_event(
+                "request.logout_detected",
+                method=method_upper,
+                url=url,
+                consecutive=self._consecutive_self_heal_count,
+                threshold=_SELF_HEAL_CIRCUIT_THRESHOLD,
+            )
             if self._consecutive_self_heal_count >= _SELF_HEAL_CIRCUIT_THRESHOLD:
                 logger.error(
                     "Self-heal CIRCUIT OPEN: %s %s — consecutive=%d ≥ threshold(%d). "
@@ -3474,6 +3659,11 @@ class AuthManager:
                     url,
                     self._consecutive_self_heal_count,
                     _SELF_HEAL_CIRCUIT_THRESHOLD,
+                )
+                self._auth_event(
+                    "request.circuit.tripped",
+                    method=method_upper,
+                    url=url,
                 )
                 raise requests.HTTPError(
                     "SELF_HEAL_CIRCUIT_OPEN: %d consecutive auth failures. "
@@ -3520,6 +3710,11 @@ class AuthManager:
                     "and re-authenticating with full MFA on this call's retry.",
                     method_upper,
                     url,
+                )
+                self._auth_event(
+                    "request.born_dead",
+                    method=method_upper,
+                    url=url,
                 )
                 self._consecutive_self_heal_count -= 1  # don't punish — we're handling it
                 self._needs_full_profile_purge = True
