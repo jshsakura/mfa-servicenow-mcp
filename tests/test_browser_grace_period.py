@@ -882,19 +882,22 @@ class TestSelfHealDiagnosticProbe:
                         max_retries=0,
                     )
 
-        # Counter NOT incremented — we self-recover, not punish the user.
-        assert mgr._consecutive_self_heal_count == 0
-        # Full purge armed → next _login_with_browser drops mfa_remembered
-        # → fresh MFA → sustained working session.
-        assert mgr._needs_full_profile_purge is True
-        # Grace cleared so the 401 retry path takes the re-auth branch
-        # instead of polling-with-old-cookies.
-        assert mgr._browser_last_login_at is None
-        # v1.12.12: recovery from born-dead must bypass the 60s
-        # min-login-interval, otherwise the user is trapped between
-        # logout-redirect probes and the rate limiter until MCP restart.
-        assert mgr._last_login_was_born_dead is True
-        # Response converted to 401 to drive the retry pipeline.
+        # v1.12.17 behaviour: born-dead handling no longer auto-arms the
+        # recovery cascade. The handler invalidates and converts to 401
+        # so the existing 401-retry path runs, but it does NOT:
+        #   - decrement-only the self-heal counter (the original v1.12.2
+        #     decrement to "undo punishment" is still there since an
+        #     isolated born-dead shouldn't trip the circuit breaker),
+        #   - arm _needs_full_profile_purge (proven not to help on this
+        #     instance — same shape session was rejected after full MFA),
+        #   - arm _last_login_was_born_dead (no min-login-interval bypass
+        #     anymore — repeated born-deads have to wait their turn).
+        # Net effect: clean, surfaced LOGIN_COOLDOWN error after the 401
+        # retry hits the rate limit instead of a silent MFA loop.
+        assert mgr._consecutive_self_heal_count == 0  # decrement still applied
+        assert mgr._needs_full_profile_purge is False  # NO auto-arm anymore
+        assert mgr._browser_last_login_at is None  # grace cleared
+        assert mgr._last_login_was_born_dead is False  # NO bypass anymore
         assert result.status_code == 401
 
     def test_probe_exception_treated_as_session_death_in_grace(self):
@@ -918,8 +921,9 @@ class TestSelfHealDiagnosticProbe:
                         max_retries=0,
                     )
 
+        # v1.12.17: same as the explicit-logout case — no auto-arm.
         assert mgr._consecutive_self_heal_count == 0
-        assert mgr._needs_full_profile_purge is True
+        assert mgr._needs_full_profile_purge is False
         assert mgr._browser_last_login_at is None
         assert result.status_code == 401
 

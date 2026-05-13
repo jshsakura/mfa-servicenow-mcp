@@ -672,15 +672,11 @@ class AuthManager:
         # and put the account at risk of being flagged. Initial value 0
         # means "no attempt yet"; the first login is unthrottled.
         self._last_login_started_at: float = 0.0
-        # v1.12.12: set by the self-heal in-grace logout path when the most
-        # recent login produced a born-dead session (first real API call
-        # 302→/logout_success.do within the post-login grace window). Allows
-        # the very next _login_with_browser to bypass the
-        # _MIN_LOGIN_INTERVAL_SECONDS floor — the previous attempt was a
-        # session-mint failure, not a brute-force probe, so the rate-limit
-        # rationale does not apply. Cleared on the first successful login
-        # completion or the bypassed retry, whichever comes first, so the
-        # interval re-engages for normal traffic.
+        # v1.12.12 → v1.12.17: born-dead bypass field retained as a no-op
+        # for downstream code that still touches it via the auth-event
+        # snapshot. The flag is never set anywhere now — v1.12.17 removed
+        # the auto-recovery cascade that used to arm it, so the rate-limit
+        # gate applies uniformly and the user retries on a normal cadence.
         self._last_login_was_born_dead: bool = False
         # v1.12.1: timestamp of the last circuit-escape probe. Used to
         # throttle the per-request escape attempt once the self-heal
@@ -2717,18 +2713,17 @@ class AuthManager:
         # rapidly. Even when the circuit breaker is still closed, two
         # logins within seconds is suspicious. Enforce a hard floor.
         #
-        # v1.12.12: bypass the floor when the previous login produced a
-        # born-dead session (in-grace 302→logout). That attempt did not
-        # mint a usable session; the next submission is recovery, not
-        # brute-force, so blocking it for 60s strands the user with no
-        # path forward except MCP restart.
+        # v1.12.17: removed the v1.12.12 born-dead bypass. That bypass was
+        # the load-bearing piece of an auto-recovery cascade that, when the
+        # server kept producing born-dead sessions (multi-MCP single-session
+        # contention, BIG-IP backend mismatch, abuse detection), looped the
+        # user through MFA prompts every retry. With the bypass gone the
+        # min-login-interval applies uniformly: born-dead is just another
+        # failure that has to wait its turn, surfacing a clear LOGIN_COOLDOWN
+        # error instead of silently re-firing login.do.
         now = time.time()
         since_last = now - self._last_login_started_at if self._last_login_started_at else None
-        if (
-            since_last is not None
-            and since_last < _MIN_LOGIN_INTERVAL_SECONDS
-            and not self._last_login_was_born_dead
-        ):
+        if since_last is not None and since_last < _MIN_LOGIN_INTERVAL_SECONDS:
             remaining = _MIN_LOGIN_INTERVAL_SECONDS - since_last
             logger.warning(
                 "Browser login blocked: last attempt was %.1fs ago, "
@@ -2749,19 +2744,6 @@ class AuthManager:
                 f"ago. Wait {remaining:.1f}s before retrying — back-to-back login "
                 f"submissions risk getting the account flagged."
             )
-        if self._last_login_was_born_dead and since_last is not None:
-            logger.info(
-                "Bypassing %.1fs min-login-interval: previous login was "
-                "born-dead (%.1fs ago). Born-dead flag cleared; the next "
-                "submission counts as a fresh attempt.",
-                _MIN_LOGIN_INTERVAL_SECONDS,
-                since_last,
-            )
-            self._auth_event(
-                "login.bypass.born_dead",
-                since_last_s=f"{since_last:.1f}",
-            )
-            self._last_login_was_born_dead = False
         self._last_login_started_at = now
         self._auth_event(
             "login.start",
@@ -3341,25 +3323,14 @@ class AuthManager:
                     looks_like_logout=looks_like_logout,
                     **{f"resp_{k}": v for k, v in _format_response_diagnostic(final_probe).items()},
                 )
-                if looks_like_logout:
-                    # Arm full purge so the next _login_with_browser_sync drops
-                    # mfa_remembered. invalidate_browser_session(full_purge=False)
-                    # below only touches in-memory state and the disk cache; it
-                    # does NOT clear the persistent Chromium profile, so we have
-                    # to flag the purge separately and let _purge_stale_profile_cookies
-                    # consume the flag on the next login attempt.
-                    self._needs_full_profile_purge = True
-                    logger.warning(
-                        "final_probe redirected through logout — arming "
-                        "_needs_full_profile_purge so the next login drops "
-                        "mfa_remembered and forces full MFA. This breaks the "
-                        "born-dead loop without requiring the documented "
-                        "'rm -rf persistent profile' manual recovery."
-                    )
-                    self._auth_event(
-                        "login.probe.armed_full_purge",
-                        reason="logout_redirect",
-                    )
+                # v1.12.17: removed the auto-arm-full-purge introduced in
+                # v1.12.15. Field logs proved the assumption wrong — even
+                # after dropping mfa_remembered and forcing full MFA, the
+                # next session was equally born-dead. The auto-arm just
+                # produced an extra MFA prompt per retry for no benefit.
+                # See request.born_dead handler above for the v1.12.17
+                # recovery model: invalidate, surface the failure, let the
+                # user manually retry under the normal rate-limit.
                 self.invalidate_browser_session()
                 raise ValueError(
                     f"Browser login completed, but API auth is still unauthorized. "
@@ -3876,10 +3847,44 @@ class AuthManager:
                 # user gets ONE visible MFA prompt and the call succeeds.
                 # No counter increment (this isn't repeated session
                 # rejection — it's a single mfa_remembered glitch).
+                # v1.12.17: removed the auto-recovery cascade that v1.12.2 +
+                # v1.12.12 + v1.12.15 had built up:
+                #   - _needs_full_profile_purge=True (would force MFA next time)
+                #   - _last_login_was_born_dead=True (would bypass 60s rate-limit)
+                #   - _consecutive_self_heal_count-=1 (would un-punish, keeping
+                #     circuit closed indefinitely)
+                # Combined, those auto-armed an immediate full-MFA retry. When
+                # the server keeps rejecting (e.g. ServiceNow single-session
+                # policy and a sibling Claude/MCP for the same user kills this
+                # session, or an F5 BIG-IP backend-affinity mismatch), the
+                # retry produced ANOTHER born-dead and re-armed itself — the
+                # MFA-fatigue loop users hit on 2026-05-13 where every retry
+                # demanded another MFA challenge.
+                #
+                # New behaviour: just invalidate and let the normal 401-retry
+                # path run. The retry will hit the 60s min-login-interval
+                # gate (un-bypassed) and refuse with a clear cooldown error,
+                # so the user manually retries 1 min later. Meanwhile the
+                # disk session cache is left intact if a sibling MCP wrote
+                # a fresher session (invalidate_browser_session already
+                # respects that), so the next manual retry's _reload_session_
+                # from_disk picks up the sibling's working session.
+                #
+                # Keep the counter decrement so isolated born-deads don't
+                # trip the circuit and trap the user; the rate-limit alone
+                # is enough back-pressure.
                 logger.warning(
-                    "Self-heal: in-grace logout (%s %s) + diagnostic probe also "
-                    "failed → fresh session born dead. Auto-purging mfa_remembered "
-                    "and re-authenticating with full MFA on this call's retry.",
+                    "Session torn down by server within %.0fs of login "
+                    "(%s %s) → session born dead. Invalidating. Likely "
+                    "causes: (a) another Claude/MCP terminal for the same "
+                    "user logged in and killed this session under "
+                    "ServiceNow's single-session policy, (b) F5 BIG-IP "
+                    "routed this client to a backend that does not host "
+                    "the freshly-minted session, (c) instance abuse "
+                    "detection. Retry after the rate-limit cooldown; if "
+                    "repeated, close other MCP/login sessions on this "
+                    "instance.",
+                    self._browser_post_login_grace_seconds,
                     method_upper,
                     url,
                 )
@@ -3889,21 +3894,15 @@ class AuthManager:
                     url=url,
                     **{f"resp_{k}": v for k, v in _format_response_diagnostic(response).items()},
                 )
-                self._consecutive_self_heal_count -= 1  # don't punish — we're handling it
-                self._needs_full_profile_purge = True
+                self._consecutive_self_heal_count -= 1  # isolated born-dead — don't trip circuit
                 self._browser_last_login_at = None
-                # v1.12.12: mark the next login as "recovery from born-dead",
-                # so it can bypass the 60s min-login-interval floor. Without
-                # this the recovery submission gets blocked, the stale
-                # half-session cookies keep producing logout probes, and the
-                # self-heal circuit trips after 3 such probes — leaving MCP
-                # restart as the only way out.
-                self._last_login_was_born_dead = True
                 self.invalidate_browser_session(full_purge=False)
                 response.status_code = 401
-                # Fall through to the 401 retry block below; it will call
-                # get_headers() → _login_with_browser() → which sees
-                # _needs_full_profile_purge=True and forces full MFA.
+                # Fall through to the 401 retry block below. Without the
+                # bypass flags, get_headers() → _login_with_browser_sync's
+                # min-login-interval gate fires after the first attempt
+                # and raises LOGIN_COOLDOWN, surfacing the wait to the
+                # user instead of triggering another silent MFA round.
             logger.warning(
                 "Self-heal: response %s %s passed through /logout_success.do — "
                 "session torn down server-side (outside grace). consecutive=%d. "
