@@ -3191,12 +3191,28 @@ class AuthManager:
                 probe_text = final_probe.text[:200]
                 probe_location = final_probe.headers.get("Location", "")
                 cookie_names = ",".join(_extract_cookie_names(self._browser_cookie_header))
-                # v1.12.13: log the diagnostic BEFORE raising. The caller in
-                # get_headers swallows the exception detail (only logs
-                # "Browser re-auth failed (attempt #N)"), so without this
-                # line LOG_FILE has no record of WHY the probe rejected the
-                # session — making the "login confirmed → immediate
-                # invalidate" pattern undebuggable from logs alone.
+                # v1.12.15: detect the "born-dead via mfa_remembered" pattern
+                # right here in the login flow, not just in make_request. The
+                # in-grace logout handler in make_request only fires for real
+                # API calls AFTER the session is saved. final_probe runs DURING
+                # the login flow, so when IT redirects through /logout_success
+                # we already know the captured session is dead — and the only
+                # plausible cause that doesn't depend on server state is the
+                # mfa_remembered_browser cookie auto-skipping MFA. Arming
+                # _needs_full_profile_purge here means the NEXT login automatically
+                # drops mfa_remembered and forces a full MFA round, which mints
+                # a session the server actually accepts. Without this, the user
+                # is stuck in an infinite loop: login → probe rejects → invalidate
+                # (but mfa_remembered preserved on disk) → next login uses the
+                # same mfa_remembered → same dead session, ad infinitum. The
+                # documented workaround was "delete the persistent Chromium
+                # profile and retry login" — v1.12.15 makes that automatic.
+                location_lower = probe_location.lower()
+                looks_like_logout = (
+                    "logout_success" in location_lower
+                    or "/logout.do" in location_lower
+                    or _response_redirected_through_logout(final_probe)
+                )
                 logger.error(
                     "final_probe rejected just-captured session — status=%s url=%s "
                     "location=%s x_usertoken=%s cookies=%s body[:200]=%r",
@@ -3213,7 +3229,27 @@ class AuthManager:
                     probe_url=probe_url,
                     location=probe_location or "-",
                     captured_cookies=cookie_names or "<none>",
+                    looks_like_logout=looks_like_logout,
                 )
+                if looks_like_logout:
+                    # Arm full purge so the next _login_with_browser_sync drops
+                    # mfa_remembered. invalidate_browser_session(full_purge=False)
+                    # below only touches in-memory state and the disk cache; it
+                    # does NOT clear the persistent Chromium profile, so we have
+                    # to flag the purge separately and let _purge_stale_profile_cookies
+                    # consume the flag on the next login attempt.
+                    self._needs_full_profile_purge = True
+                    logger.warning(
+                        "final_probe redirected through logout — arming "
+                        "_needs_full_profile_purge so the next login drops "
+                        "mfa_remembered and forces full MFA. This breaks the "
+                        "born-dead loop without requiring the documented "
+                        "'rm -rf persistent profile' manual recovery."
+                    )
+                    self._auth_event(
+                        "login.probe.armed_full_purge",
+                        reason="logout_redirect",
+                    )
                 self.invalidate_browser_session()
                 raise ValueError(
                     f"Browser login completed, but API auth is still unauthorized. "
