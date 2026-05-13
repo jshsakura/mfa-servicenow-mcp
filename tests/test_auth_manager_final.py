@@ -1027,6 +1027,71 @@ class TestLoginWithBrowserSync:
 
         assert mgr._browser_cookie_header is not None
 
+    def test_login_final_probe_logout_arms_full_purge(self):
+        """v1.12.15: final_probe redirect through /logout_success.do during
+        the login flow must arm _needs_full_profile_purge so the next login
+        drops mfa_remembered and forces full MFA.
+
+        Without this, the persistent profile keeps the mfa_remembered cookie,
+        the next login auto-skips MFA, the server hands back the same
+        half-session, final_probe rejects it again — infinite born-dead loop
+        whose only published recovery was 'rm -rf the profile dir'.
+        """
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(
+            timeout_seconds=10,
+            headless=True,
+            session_ttl_minutes=30,
+            probe_path="/api/now/table/sys_user_preference",
+        )
+        # Flag must be cleared before — we are checking that the login flow
+        # itself sets it in response to the logout-redirect probe.
+        mgr._needs_full_profile_purge = False
+
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        mock_page.url = "https://example.service-now.com/now/nav/ui"
+
+        # _login_with_browser_sync's polling loop never calls
+        # _probe_browser_api_with_cookie — only the final_probe retry loop
+        # does. So every invocation here represents a final_probe attempt.
+        # Returning the logout-redirected response from the first call
+        # exercises the v1.12.15 auto-purge branch directly.
+        #
+        # `requests` silently follows 302→/logout_success.do and surfaces
+        # the logout HTML with status 200, which is exactly the shape that
+        # would have fooled status-only validation. The history hop carries
+        # the Location header that _response_redirected_through_logout
+        # actually inspects.
+        final_probe = MagicMock()
+        final_probe.status_code = 200
+        final_probe.headers = {"Location": "/logout_success.do"}
+        final_probe.url = "https://example.service-now.com/logout_success.do"
+        final_probe.text = "<html>You have been logged out</html>"
+        hop = MagicMock()
+        hop.headers = {"Location": "/logout_success.do"}
+        final_probe.history = [hop]
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=final_probe):
+                with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                    with patch.object(mgr, "_save_session_to_disk"):
+                        with pytest.raises(
+                            ValueError,
+                            match="Browser login completed, but API auth is still unauthorized",
+                        ):
+                            mgr._login_with_browser_sync(browser_cfg)
+
+        # Born-dead recovery is now armed for the next login. Without this,
+        # _purge_stale_profile_cookies on the next attempt preserves
+        # mfa_remembered and walks straight into the same dead session.
+        assert mgr._needs_full_profile_purge is True
+        # Session itself was invalidated as usual.
+        assert mgr._browser_cookie_header is None
+
     def test_login_timeout_headless(self):
         """Timeout in headless mode raises specific error."""
         mgr = _make_browser_manager()
