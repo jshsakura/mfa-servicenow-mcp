@@ -58,7 +58,12 @@ _MIN_LOGIN_INTERVAL_SECONDS = 60.0
 # rejecting everything. Prior to v1.12.1, an open circuit could only be
 # cleared by restarting MCP, which made transient policy hiccups feel
 # like permanent failures.
-_CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS = 30.0
+# v1.12.11: dropped 30s → 10s. The probe is one cheap GET; the previous
+# value made an open circuit feel like a 30-second blackout even when the
+# session had already recovered. 10s is still well above any sane retry
+# storm yet recovers fast enough that the user does not perceive it as
+# a hard block.
+_CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS = 10.0
 
 
 def _build_http_session() -> requests.Session:
@@ -108,9 +113,12 @@ _PROFILE_LOCK_HINTS = (
 
 
 # Substrings (lowercase) that indicate the persistent Chromium context was
-# closed before login completed. We treat any match as "user-cancelled the
-# login window" — the LLM/auth state machine then applies a cooldown rather
-# than re-opening another window immediately.
+# closed before login completed OR that the user simply walked away without
+# completing MFA before the polling-loop budget expired. Both shapes carry the
+# same intent — the user did not authenticate this session — so they share the
+# same path: short fixed cooldown, no exponential backoff. Without this the
+# walk-away timeout would feed the regular failure counter and inflate the
+# cooldown to 30/60/120s, making the next legitimate retry feel "stuck".
 USER_CLOSE_ERROR_MARKERS = (
     "target closed",
     "browser closed",
@@ -119,6 +127,7 @@ USER_CLOSE_ERROR_MARKERS = (
     "target page, context or browser has been closed",
     "connection closed",
     "login_cancelled_by_user",
+    "timed out waiting for manual browser login/mfa completion",
 )
 
 
@@ -517,7 +526,10 @@ class AuthManager:
         self._browser_post_login_grace_seconds = 90
         self._browser_reauth_cooldown_seconds = 15  # Start short, back off on repeated failures
         self._browser_reauth_cooldown_base = 15
-        self._browser_reauth_cooldown_max = 120
+        # v1.12.11: 120 → 60. Cap was an internal heuristic, not a server
+        # requirement; 60s is enough headroom for the slowest sane retry and
+        # avoids the "stuck for 2 minutes" feeling on repeated walk-aways.
+        self._browser_reauth_cooldown_max = 60
         self._browser_reauth_failure_count = 0
         self._browser_login_in_progress = False  # True while browser window is open for MFA
         self._browser_login_lock = threading.Lock()  # Prevent concurrent browser login attempts
