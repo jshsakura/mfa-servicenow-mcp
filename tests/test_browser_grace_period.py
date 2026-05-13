@@ -890,6 +890,10 @@ class TestSelfHealDiagnosticProbe:
         # Grace cleared so the 401 retry path takes the re-auth branch
         # instead of polling-with-old-cookies.
         assert mgr._browser_last_login_at is None
+        # v1.12.12: recovery from born-dead must bypass the 60s
+        # min-login-interval, otherwise the user is trapped between
+        # logout-redirect probes and the rate limiter until MCP restart.
+        assert mgr._last_login_was_born_dead is True
         # Response converted to 401 to drive the retry pipeline.
         assert result.status_code == 401
 
