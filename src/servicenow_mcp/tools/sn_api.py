@@ -842,7 +842,11 @@ def sn_health(
                 ),
                 "diagnostics": {
                     "response_url": response_url,
-                    "is_redirect": bool(response.is_redirect),
+                    # v1.12.21: inline computation — see auth_manager note for why
+                    # response.is_redirect cannot be relied on under curl_cffi.
+                    "is_redirect": (
+                        300 <= response.status_code < 400 and bool(response.headers.get("Location"))
+                    ),
                     "location": location,
                     "looks_like_login_redirect": looks_like_login_redirect,
                 },
