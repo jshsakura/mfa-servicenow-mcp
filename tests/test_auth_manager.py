@@ -366,6 +366,21 @@ class TestTargetLabel:
 
 class TestBuildHttpSession:
     def test_returns_session(self):
+        # v1.12.21 default-ON: when SERVICENOW_TLS_IMPERSONATE is unset
+        # the session is a curl_cffi.requests.Session (not a subclass of
+        # requests.Session), so the assertion checks the duck-typed
+        # interface that callers actually depend on instead of the
+        # concrete class.
+        s = _build_http_session()
+        assert callable(getattr(s, "request", None))
+        assert hasattr(s, "headers")
+        assert "Accept-Encoding" in s.headers
+
+    def test_off_returns_stock_requests_session(self, monkeypatch):
+        """Explicit SERVICENOW_TLS_IMPERSONATE=off yields a plain
+        requests.Session — the documented opt-out for instances where
+        curl_cffi causes a regression."""
+        monkeypatch.setenv("SERVICENOW_TLS_IMPERSONATE", "off")
         s = _build_http_session()
         assert isinstance(s, requests.Session)
         assert "Accept-Encoding" in s.headers
