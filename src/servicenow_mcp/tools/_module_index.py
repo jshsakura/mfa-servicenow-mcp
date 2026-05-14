@@ -10,6 +10,7 @@ TOOL_MODULE_INDEX = {
     "approve_change": "change_tools",
     "audit_local_sources": "source_audit_tools",
     "audit_pending_changes": "audit_tools",
+    "capture_screenshot": "browser_tools",
     "compare_flows": "flow_designer_tools",
     "create_category": "knowledge_base",
     "create_knowledge_base": "knowledge_base",
