@@ -49,7 +49,7 @@ def capture_screenshot(
     if not _is_browser_auth(config):
         return {"success": False, "error": "capture_screenshot requires browser auth"}
 
-    browser_config = config.browser
+    browser_config = auth_manager.config.browser
     if not browser_config:
         return {"success": False, "error": "No browser config available"}
 
