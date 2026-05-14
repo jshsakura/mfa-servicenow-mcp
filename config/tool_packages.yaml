@@ -132,6 +132,7 @@ platform_developer:
   _tools:
     # Flow Designer writes
     - update_flow_designer
+    - manage_flow_edit
     # UI Policy writes
     # Portal CRUD
     - scaffold_page
@@ -182,6 +183,7 @@ full:
     - reject_change
     # Flow Designer writes
     - update_flow_designer
+    - manage_flow_edit
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update

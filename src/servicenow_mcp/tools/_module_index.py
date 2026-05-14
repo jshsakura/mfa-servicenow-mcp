@@ -49,6 +49,7 @@ TOOL_MODULE_INDEX = {
     "manage_change": "change_tools",
     "manage_changeset": "changeset_tools",
     "manage_epic": "epic_tools",
+    "manage_flow_edit": "flow_edit_tools",
     "manage_group": "user_tools",
     "manage_incident": "incident_tools",
     "manage_kb_article": "knowledge_base",
