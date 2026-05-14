@@ -177,7 +177,7 @@ def manage_flow_edit(
     if action == "checkout":
         pf = _try_processflow_api(config, auth_manager, flow_id)
         if not pf or pf.get("_error"):
-            return {"success": False, "error": pf.get("_error", "Failed to fetch flow")}
+            return {"success": False, "error": (pf or {}).get("_error", "Failed to fetch flow")}
         flow_data = pf.get("result", pf)
         if not flow_data.get("security", {}).get("can_write", False):
             return {
