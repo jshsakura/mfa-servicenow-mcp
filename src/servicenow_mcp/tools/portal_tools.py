@@ -88,11 +88,15 @@ class GetPortalComponentParams(BaseModel):
     )
     script_offset: int = Field(
         default=0,
-        description="Character offset to start reading script fields from. Use for paginating large scripts.",
+        description="Character offset to start reading script fields from.",
     )
     script_max_length: int = Field(
         default=8000,
-        description="Maximum characters to return per script field (default 8000, clamped to 12000). Use with script_offset to paginate.",
+        description="Max chars per script field (default 8000, clamped to 12000). Ignored when fetch_complete=True.",
+    )
+    fetch_complete: bool = Field(
+        default=False,
+        description="Return full content of all fields without chunking. Use when full source is needed.",
     )
 
 
@@ -1859,33 +1863,21 @@ def get_portal_component_code(
     # Only return requested code fields to keep context clean
     result = _strip_metadata(response["results"][0], params.fields)
 
-    budget = _clamp_script_chunk_length(params.script_max_length)
-    offset = max(0, params.script_offset)
-    remaining_budget = budget
-
     for field in params.fields:
         val = result.get(field, "")
         if not isinstance(val, str):
             continue
         total_length = len(val)
-
         result[f"_{field}_sha256"] = hashlib.sha256(val.encode()).hexdigest()
+        result[f"_{field}_total_length"] = total_length
 
-        if remaining_budget <= 0:
-            # Budget exhausted — don't include this field's content
-            result[field] = ""
-            result[f"_{field}_total_length"] = total_length
-            result[f"_{field}_offset"] = offset
-            result[f"_{field}_returned_length"] = 0
-            if offset < total_length:
-                result[f"_{field}_has_more"] = True
-                result[f"_{field}_next_offset"] = offset
+        if params.fetch_complete:
+            result[f"_{field}_returned_length"] = total_length
             continue
 
-        # Apply windowing with remaining budget
-        field_max = remaining_budget
-        end = offset + field_max
-        # Snap to a safe boundary so we never split mid-token
+        budget = _clamp_script_chunk_length(params.script_max_length)
+        offset = max(0, params.script_offset)
+        end = offset + budget
         if end < total_length:
             snap = val.rfind("\n", offset, end)
             if snap <= offset:
@@ -1897,10 +1889,8 @@ def get_portal_component_code(
                 end = snap + 1
         chunk = val[offset:end]
         result[field] = chunk
-        result[f"_{field}_total_length"] = total_length
         result[f"_{field}_offset"] = offset
         result[f"_{field}_returned_length"] = len(chunk)
-        remaining_budget -= len(chunk)
         if end < total_length:
             result[f"_{field}_has_more"] = True
             result[f"_{field}_next_offset"] = end
