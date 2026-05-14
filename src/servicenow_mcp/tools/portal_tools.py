@@ -4,6 +4,7 @@ Optimized for speed, token efficiency, and context safety.
 """
 
 import difflib
+import hashlib
 import logging
 import re
 from concurrent.futures import as_completed
@@ -1867,6 +1868,8 @@ def get_portal_component_code(
         if not isinstance(val, str):
             continue
         total_length = len(val)
+
+        result[f"_{field}_sha256"] = hashlib.sha256(val.encode()).hexdigest()
 
         if remaining_budget <= 0:
             # Budget exhausted — don't include this field's content
