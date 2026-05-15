@@ -85,8 +85,6 @@ standard:
   - get_repo_change_report
   # Logs
   - get_logs
-  # Browser
-  - capture_screenshot
   # Search & Analysis
   - search_server_code
   - get_metadata_source
