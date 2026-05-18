@@ -187,7 +187,7 @@ class TestServerPackageLoading:
     def test_tool_counts_unchanged_by_allowlist(self):
         # Allowlists narrow visible actions but don't add or remove tools.
         # These counts must match the headline numbers in TOOL_INVENTORY.md.
-        expected = {"core": 15, "standard": 45, "service_desk": 46, "full": 67}
+        expected = {"core": 15, "standard": 42, "service_desk": 43, "full": 62}
         for pkg, count in expected.items():
             s = _server_with_package(pkg)
             assert (
