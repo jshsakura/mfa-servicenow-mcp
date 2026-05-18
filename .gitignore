@@ -20,6 +20,9 @@ dist/
 sdist/
 wheels/
 
+# uv lockfile — published MCP package, lockfile not required for reproducibility
+uv.lock
+
 # Testing
 .pytest_cache/
 .coverage
