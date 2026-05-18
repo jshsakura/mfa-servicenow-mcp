@@ -1,16 +1,15 @@
 """Tests for write guards (servicenow_mcp.policies.write_guards).
 
-Covers v1.12.28 guards:
+Guards covered (v1.12.28.1 — simplified):
+  G3 — Concurrent edit detection on sn_write update/delete
   G6 — Flow Designer raw write block
   G7 — Publish-class extra confirmation
-  read-only bypass
-
-G1/G2/G5 require live ServiceNow lookups so they're exercised via the
-mocked _fetch_current_update_set path.
+  read-only bypass + master-toggle
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 from unittest.mock import patch
 
@@ -20,15 +19,26 @@ from servicenow_mcp.policies import PolicyViolation, run_write_guards, strip_gua
 from servicenow_mcp.policies.write_guards import _is_publish_class, _is_read_only
 
 
-class _MockServer:
-    """Stand-in for ServiceNowMCP — guards only touch server.config /
-    .auth_manager when fetching update set info, which is mocked below."""
+class _MockAuth:
+    username = "dev@example.com"
 
-    config = None
-    auth_manager = None
+
+class _MockConfig:
+    auth = _MockAuth()
+
+
+class _MockServer:
+    config = _MockConfig()
+    auth_manager = _MockAuth()
 
 
 _SERVER = _MockServer()
+
+
+def _utc_iso_minus_min(minutes: int) -> str:
+    """Return 'YYYY-MM-DD HH:MM:SS' minutes ago (UTC)."""
+    ts = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    return ts.strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ---------------------------------------------------------------------------
@@ -42,24 +52,17 @@ _SERVER = _MockServer()
         ("sn_query", {}, True),
         ("sn_aggregate", {}, True),
         ("sn_schema", {}, True),
-        ("sn_discover", {}, True),
         ("sn_health", {}, True),
         ("sn_nl", {}, True),
         ("sn_nl", {"execute": True}, False),
         ("sn_write", {"table": "incident", "action": "create"}, False),
-        ("sn_batch", {}, False),
         ("manage_workflow", {"action": "list"}, True),
-        ("manage_workflow", {"action": "get"}, True),
         ("manage_workflow", {"action": "create"}, False),
         ("manage_flow_designer", {"action": "list"}, True),
-        ("manage_flow_designer", {"action": "get_detail"}, True),
         ("manage_flow_designer", {"action": "save"}, False),
-        ("manage_flow_designer", {"action": "checkout"}, False),
-        ("manage_incident", {"action": "get"}, True),
-        ("manage_incident", {"action": "create"}, False),
+        ("manage_flow_designer", {"action": "get_detail"}, True),
         ("update_remote_from_local", {}, False),
         ("publish_changeset", {}, False),
-        ("audit_pending_changes", {}, True),
         ("get_widget_bundle", {}, True),
         ("download_app_sources", {}, True),
     ],
@@ -79,11 +82,9 @@ def test_is_read_only(tool: str, args: Dict[str, Any], expected_read_only: bool)
         ("manage_changeset", {"action": "publish"}, True),
         ("manage_changeset", {"action": "commit"}, True),
         ("manage_changeset", {"action": "create"}, False),
-        ("manage_changeset", {"action": "get"}, False),
         ("manage_flow_designer", {"action": "save", "publish": True}, True),
         ("manage_flow_designer", {"action": "save", "publish": False}, False),
         ("manage_flow_designer", {"action": "save"}, False),
-        ("manage_flow_designer", {"action": "checkout"}, False),
         ("sn_query", {}, False),
         ("sn_write", {}, False),
     ],
@@ -93,7 +94,7 @@ def test_is_publish_class(tool: str, args: Dict[str, Any], expected: bool) -> No
 
 
 # ---------------------------------------------------------------------------
-# G6 — Flow Designer raw write block
+# G6 — Flow Designer raw write
 # ---------------------------------------------------------------------------
 
 
@@ -127,7 +128,6 @@ def test_g6_blocks_variable_value_for_flow_document() -> None:
 
 
 def test_g6_allows_variable_value_for_non_flow_document() -> None:
-    # Should not raise G6 — incident document is OK
     run_write_guards(
         _SERVER,
         "sn_write",
@@ -140,8 +140,6 @@ def test_g6_allows_variable_value_for_non_flow_document() -> None:
 
 
 def test_g6_allows_sn_write_to_unrelated_table() -> None:
-    # sn_write to "incident" is fine from G6's perspective.
-    # (G1/G2/G5 may block, but those need env vars / live data — skipped here.)
     run_write_guards(_SERVER, "sn_write", {"table": "incident", "action": "create", "fields": {}})
 
 
@@ -172,7 +170,6 @@ def test_g7_blocks_manage_changeset_publish() -> None:
 
 
 def test_g7_allows_manage_changeset_create() -> None:
-    # create is write but not publish-class
     run_write_guards(_SERVER, "manage_changeset", {"action": "create", "name": "x"})
 
 
@@ -192,15 +189,124 @@ def test_g7_allows_manage_flow_designer_save_without_publish() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Read-only bypass
+# G3 — Concurrent edit detection
+# ---------------------------------------------------------------------------
+
+
+def test_g3_blocks_when_other_user_edited_recently() -> None:
+    """Within the 10-min window, other user's edit blocks our update."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value={
+            "sys_updated_by": "alice@example.com",
+            "sys_updated_on": _utc_iso_minus_min(3),
+        },
+    ):
+        with pytest.raises(PolicyViolation, match=r"(?s)\[G3\].*alice"):
+            run_write_guards(
+                _SERVER,
+                "sn_write",
+                {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+            )
+
+
+def test_g3_allows_when_my_own_recent_edit() -> None:
+    """My own recent edit should not block."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value={
+            "sys_updated_by": _MockAuth.username,
+            "sys_updated_on": _utc_iso_minus_min(3),
+        },
+    ):
+        run_write_guards(
+            _SERVER,
+            "sn_write",
+            {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+        )
+
+
+def test_g3_allows_when_other_user_edit_is_old() -> None:
+    """Outside window, other user's edit should not block."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value={
+            "sys_updated_by": "alice@example.com",
+            "sys_updated_on": _utc_iso_minus_min(60),  # 1 hour ago
+        },
+    ):
+        run_write_guards(
+            _SERVER,
+            "sn_write",
+            {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+        )
+
+
+def test_g3_only_applies_to_update_and_delete() -> None:
+    """Create has no target record to check — skip."""
+    with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:
+        run_write_guards(
+            _SERVER,
+            "sn_write",
+            {"table": "incident", "action": "create", "fields": {}},
+        )
+        mocked_fetch.assert_not_called()
+
+
+def test_g3_only_applies_to_sn_write() -> None:
+    """manage_X writes not yet covered by G3 — that's OK in v1.12.28.1."""
+    with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:
+        run_write_guards(_SERVER, "manage_changeset", {"action": "update", "changeset_id": "abc"})
+        mocked_fetch.assert_not_called()
+
+
+def test_g3_fails_open_on_missing_audit_data() -> None:
+    """If audit fetch returns None, don't block (fail-open)."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=None,
+    ):
+        run_write_guards(
+            _SERVER,
+            "sn_write",
+            {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+        )
+
+
+def test_g3_custom_window_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Window configurable via env var."""
+    monkeypatch.setenv("SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN", "60")
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value={
+            "sys_updated_by": "alice@example.com",
+            "sys_updated_on": _utc_iso_minus_min(30),
+        },
+    ):
+        with pytest.raises(PolicyViolation, match=r"\[G3\]"):
+            run_write_guards(
+                _SERVER,
+                "sn_write",
+                {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+            )
+
+
+# ---------------------------------------------------------------------------
+# Read-only bypass + master toggle
 # ---------------------------------------------------------------------------
 
 
 def test_read_only_tools_skip_all_guards() -> None:
-    # sn_query against sys_hub_flow — should NOT trigger G6
     run_write_guards(_SERVER, "sn_query", {"table": "sys_hub_flow"})
-    # manage_flow_designer get_detail — read-only
     run_write_guards(_SERVER, "manage_flow_designer", {"action": "get_detail", "flow_id": "abc"})
+
+
+def test_guards_disabled_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SERVICENOW_WRITE_GUARDS", "off")
+    # Even raw sys_hub_flow write goes through
+    run_write_guards(
+        _SERVER, "sn_write", {"table": "sys_hub_flow", "action": "create", "fields": {}}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -208,171 +314,7 @@ def test_read_only_tools_skip_all_guards() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_strip_guard_fields_removes_publish_and_large_set_flags() -> None:
-    cleaned = strip_guard_fields(
-        {
-            "action": "save",
-            "confirm_publish": "approve",
-            "confirm_large_update_set": "approve",
-            "flow_id": "abc",
-        }
-    )
+def test_strip_guard_fields_removes_confirm_publish() -> None:
+    cleaned = strip_guard_fields({"action": "save", "confirm_publish": "approve", "flow_id": "abc"})
     assert "confirm_publish" not in cleaned
-    assert "confirm_large_update_set" not in cleaned
     assert cleaned == {"action": "save", "flow_id": "abc"}
-
-
-# ---------------------------------------------------------------------------
-# Master toggle
-# ---------------------------------------------------------------------------
-
-
-def test_guards_disabled_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERVICENOW_WRITE_GUARDS", "off")
-    # Should NOT raise even though raw sys_hub_flow write is attempted
-    run_write_guards(
-        _SERVER, "sn_write", {"table": "sys_hub_flow", "action": "create", "fields": {}}
-    )
-
-
-# ---------------------------------------------------------------------------
-# G1 (mocked) — active update set mismatch
-# ---------------------------------------------------------------------------
-
-
-def test_g1_active_update_set_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERVICENOW_ACTIVE_UPDATE_SET", "expected_sys_id")
-    monkeypatch.setenv("SERVICENOW_ACTIVE_UPDATE_SET_NAME", "Expected Set")
-
-    with patch(
-        "servicenow_mcp.policies.write_guards._fetch_current_update_set",
-        return_value={"sys_id": "wrong_sys_id", "name": "Wrong Set"},
-    ):
-        with pytest.raises(PolicyViolation, match=r"\[G1\].*Active update set mismatch"):
-            run_write_guards(
-                _SERVER, "sn_write", {"table": "incident", "action": "create", "fields": {}}
-            )
-
-
-def test_g1_passes_when_active_us_matches(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERVICENOW_ACTIVE_UPDATE_SET", "expected_sys_id")
-    with (
-        patch(
-            "servicenow_mcp.policies.write_guards._fetch_current_update_set",
-            return_value={"sys_id": "expected_sys_id", "name": "Expected Set"},
-        ),
-        patch(
-            "servicenow_mcp.policies.write_guards._fetch_update_set_size",
-            return_value=10,
-        ),
-    ):
-        # Should pass
-        run_write_guards(
-            _SERVER, "sn_write", {"table": "incident", "action": "create", "fields": {}}
-        )
-
-
-# ---------------------------------------------------------------------------
-# G2 (mocked) — name denylist
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "us_name",
-    [
-        "[NOT USE] Old Backup",
-        "[notuse] thing",
-        "Default Update Set",
-        "stash_temp",
-        "Preview only",
-        "archive_2024",
-        "Deprecated DMR work",
-    ],
-)
-def test_g2_denylist_blocks(us_name: str) -> None:
-    with patch(
-        "servicenow_mcp.policies.write_guards._fetch_current_update_set",
-        return_value={"sys_id": "x", "name": us_name},
-    ):
-        with pytest.raises(PolicyViolation, match=r"\[G2\]"):
-            run_write_guards(
-                _SERVER, "sn_write", {"table": "incident", "action": "create", "fields": {}}
-            )
-
-
-def test_g2_allows_clean_name() -> None:
-    with (
-        patch(
-            "servicenow_mcp.policies.write_guards._fetch_current_update_set",
-            return_value={"sys_id": "x", "name": "DMR20 Sandbox Work"},
-        ),
-        patch(
-            "servicenow_mcp.policies.write_guards._fetch_update_set_size",
-            return_value=10,
-        ),
-    ):
-        run_write_guards(
-            _SERVER, "sn_write", {"table": "incident", "action": "create", "fields": {}}
-        )
-
-
-# ---------------------------------------------------------------------------
-# G5 (mocked) — update set size
-# ---------------------------------------------------------------------------
-
-
-def test_g5_blocks_at_hard_threshold() -> None:
-    with (
-        patch(
-            "servicenow_mcp.policies.write_guards._fetch_current_update_set",
-            return_value={"sys_id": "x", "name": "Working Set"},
-        ),
-        patch(
-            "servicenow_mcp.policies.write_guards._fetch_update_set_size",
-            return_value=6000,
-        ),
-    ):
-        with pytest.raises(PolicyViolation, match=r"\[G5\].*hard block"):
-            run_write_guards(
-                _SERVER, "sn_write", {"table": "incident", "action": "create", "fields": {}}
-            )
-
-
-def test_g5_warn_threshold_requires_extra_confirm() -> None:
-    with (
-        patch(
-            "servicenow_mcp.policies.write_guards._fetch_current_update_set",
-            return_value={"sys_id": "x", "name": "Working Set"},
-        ),
-        patch(
-            "servicenow_mcp.policies.write_guards._fetch_update_set_size",
-            return_value=1500,
-        ),
-    ):
-        with pytest.raises(PolicyViolation, match=r"\[G5\].*warning"):
-            run_write_guards(
-                _SERVER, "sn_write", {"table": "incident", "action": "create", "fields": {}}
-            )
-
-
-def test_g5_warn_threshold_passes_with_confirm() -> None:
-    with (
-        patch(
-            "servicenow_mcp.policies.write_guards._fetch_current_update_set",
-            return_value={"sys_id": "x", "name": "Working Set"},
-        ),
-        patch(
-            "servicenow_mcp.policies.write_guards._fetch_update_set_size",
-            return_value=1500,
-        ),
-    ):
-        run_write_guards(
-            _SERVER,
-            "sn_write",
-            {
-                "table": "incident",
-                "action": "create",
-                "fields": {},
-                "confirm_large_update_set": "approve",
-            },
-        )
