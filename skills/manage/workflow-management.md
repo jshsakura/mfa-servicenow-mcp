@@ -8,10 +8,7 @@ required_input: workflow name, sys_id, or table name
 output: action
 tools:
   - manage_workflow
-  - list_flow_designers
-  - get_flow_designer_detail
-  - update_flow_designer
-  - get_flow_designer_executions
+  - manage_flow_designer
 triggers:
   - "워크플로우 목록"
   - "워크플로우 수정"
@@ -40,14 +37,14 @@ You are managing ServiceNow workflows. Two engines exist — identify which one 
 
 When user says "workflow" without specifying, check BOTH engines:
 1. CALL manage_workflow(action="list", query=INPUT)
-2. CALL list_flow_designers(name=INPUT)
+2. CALL manage_flow_designer(action="list", name_filter=INPUT)
 3. SHOW results from both, ask which one
 
 ## Pipeline: List
 
 IF "목록" or "list":
   CALL manage_workflow(action="list", query=FILTER) for Workflow Engine
-  CALL list_flow_designers(name=FILTER, scope=FILTER) for Flow Designer
+  CALL manage_flow_designer(action="list", name_filter=FILTER, scope=FILTER) for Flow Designer
   RETURN combined results with engine labels
 
 ## Pipeline: Inspect
@@ -56,17 +53,17 @@ IF "상세" or "details":
   IF wf_workflow:
     CALL manage_workflow(action="get", workflow_id=INPUT, include_activities=true)
   IF sys_hub_flow:
-    CALL get_flow_designer_detail(flow_id=INPUT, include_structure=true, include_triggers=true)
+    CALL manage_flow_designer(action="get_detail", flow_id=INPUT, include_structure=true, include_triggers=true)
 
 ## Pipeline: Activate / Deactivate
 
 IF "활성화" or "activate":
   IF wf_workflow: CALL manage_workflow(action="activate", workflow_id=INPUT, confirm="approve")
-  IF sys_hub_flow: CALL update_flow_designer(flow_id=INPUT, active=true, confirm="approve")
+  IF sys_hub_flow: CALL manage_flow_designer(action="update", flow_id=INPUT, active=true, confirm="approve")
 
 IF "비활성화" or "deactivate":
   IF wf_workflow: CALL manage_workflow(action="deactivate", workflow_id=INPUT, confirm="approve")
-  IF sys_hub_flow: CALL update_flow_designer(flow_id=INPUT, active=false, confirm="approve")
+  IF sys_hub_flow: CALL manage_flow_designer(action="update", flow_id=INPUT, active=false, confirm="approve")
 
 ## Pipeline: Modify
 
@@ -75,7 +72,7 @@ IF "수정" or "update":
   IF wf_workflow: CALL manage_workflow(action="update", workflow_id=INPUT, <fields>, dry_run=True)
   # 2. Show user `proposed_changes` + `no_op_fields`, then apply
   IF wf_workflow: CALL manage_workflow(action="update", workflow_id=INPUT, <fields>, confirm="approve")
-  IF sys_hub_flow: CALL update_flow_designer(flow_id=INPUT, name/description/active, confirm="approve")
+  IF sys_hub_flow: CALL manage_flow_designer(action="update", flow_id=INPUT, new_name=..., description=..., active=..., confirm="approve")
 
 > Flow Designer note: action/subflow structure changes require the Flow Designer UI + Publish. MCP can modify metadata and state only.
 
@@ -96,7 +93,7 @@ IF "액티비티 순서" or "reorder":
 ## Pipeline: Execution History (Flow Designer only)
 
 IF "실행 이력" or "executions":
-  CALL get_flow_designer_executions(flow_id=INPUT, errors_only=true/false)
+  CALL manage_flow_designer(action="get_executions", flow_id=INPUT, errors_only=true/false)
 
 ## ON ERROR
 

@@ -122,6 +122,21 @@ ALLOWLIST: set[str] = {
     "get_headers",
     "get_auth_headers",
     "get_started",
+    # Historical references in docs explaining the Flow Designer tool consolidation
+    # (6 standalone tools → manage_flow_designer composite). Listed by name for
+    # changelog/diff readability; the live tool is manage_flow_designer.
+    "list_flow_designers",
+    "get_flow_designer_detail",
+    "get_flow_designer_executions",
+    "compare_flows",
+    "update_flow_designer",
+    "manage_flow_edit",
+    # Parameter name on manage_flow_designer(action="get_detail"), matches tool-name shape
+    "trace_pill",
+    # manage_flow_designer action values — shape matches tool names but they are
+    # sub-actions, not top-level tools.
+    "get_detail",
+    "get_executions",
     "get_tool_definitions",
     "get_tool_schema",
     "list_tools",

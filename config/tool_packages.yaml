@@ -27,7 +27,8 @@ core:
       actions: [list_items, get_item, list_categories, list_item_variables]
   - manage_workflow:
       actions: [list, get, list_versions, get_activities]
-  - list_flow_designers
+  - manage_flow_designer:
+      actions: [list]
   - get_portal
   - get_page
   - get_logs
@@ -56,11 +57,9 @@ standard:
   # Workflow (Read)
   - manage_workflow:
       actions: [list, get, list_versions, get_activities]
-  # Flow Designer (Read)
-  - list_flow_designers
-  - get_flow_designer_detail
-  - get_flow_designer_executions
-  - compare_flows
+  # Flow Designer (Read) — unified tool, write actions blocked here
+  - manage_flow_designer:
+      actions: [list, get_detail, get_executions, compare]
   # Portal (Read)
   - get_portal
   - get_page
@@ -121,8 +120,8 @@ portal_developer:
     - update_portal_component_from_snapshot
     # Portal CRUD (Page/Layout)
     - scaffold_page
-    # Flow Designer writes
-    - update_flow_designer
+    # Flow Designer — full action surface (read+update+edit workflow)
+    - manage_flow_designer
     # Local Sync writes
     - update_remote_from_local
 
@@ -130,9 +129,8 @@ portal_developer:
 platform_developer:
   _extends: standard
   _tools:
-    # Flow Designer writes
-    - update_flow_designer
-    - manage_flow_edit
+    # Flow Designer — full action surface
+    - manage_flow_designer
     # UI Policy writes
     # Portal CRUD
     - scaffold_page
@@ -181,9 +179,8 @@ full:
     - submit_change_for_approval
     - approve_change
     - reject_change
-    # Flow Designer writes
-    - update_flow_designer
-    - manage_flow_edit
+    # Flow Designer — full action surface
+    - manage_flow_designer
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update
