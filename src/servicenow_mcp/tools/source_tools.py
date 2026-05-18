@@ -2074,18 +2074,22 @@ def _download_source_types(
     only_active: bool = False,
     extra_query: Optional[Dict[str, str]] = None,
     query_override: Optional[Dict[str, str]] = None,
+    skip_empty_source_retry: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
     """Core download loop shared by all individual download tools.
 
     Args:
         extra_query: Per-source_type extra query clauses (e.g. {"acl": "scriptISNOTEMPTY"}).
         query_override: Per-source_type full query replacement (replaces sys_scope filter).
+        skip_empty_source_retry: Source types whose blank source fields are valid and
+            should not trigger per-record retry.
 
     Returns dict with keys: type_results, manifest_entries, warnings, total_files.
     """
     max_per_type = _clamp_download_per_type(max_per_type)
     page_size = max(10, min(page_size, 100))
     extra_query = extra_query or {}
+    skip_empty_source_retry = skip_empty_source_retry or set()
 
     type_results: Dict[str, Dict[str, Any]] = {}
     manifest_entries: List[Dict[str, Any]] = []
@@ -2101,7 +2105,10 @@ def _download_source_types(
         table = source_cfg["table"]
 
         all_fields = list(source_cfg["summary_fields"]) + list(source_cfg["source_fields"])
-        effective_page_size = min(page_size, 10) if source_cfg["source_fields"] else page_size
+        restrict_source_page_size = (
+            bool(source_cfg["source_fields"]) and source_type not in skip_empty_source_retry
+        )
+        effective_page_size = min(page_size, 10) if restrict_source_page_size else page_size
 
         # Build base query filters (active, extra)
         base_filters: List[str] = []
@@ -2218,7 +2225,12 @@ def _download_source_types(
                 type_file_count += 1
 
             # Queue for individual retry if batch returned empty source
-            if not has_source and sys_id and source_cfg["source_fields"]:
+            if (
+                not has_source
+                and sys_id
+                and source_cfg["source_fields"]
+                and source_type not in skip_empty_source_retry
+            ):
                 retry_records.append((sys_id, safe_name, record_dir))
 
             name_map[safe_name] = sys_id
@@ -2548,6 +2560,7 @@ def download_security_sources(
         page_size=params.page_size,
         only_active=params.only_active,
         extra_query=extra_q,
+        skip_empty_source_retry=set() if params.acl_script_only else {"acl"},
     )
     return _build_download_result(
         params.scope,
@@ -2947,6 +2960,7 @@ def download_app_sources(
             page_size=params.page_size,
             only_active=params.only_active,
             extra_query=extra_query,
+            skip_empty_source_retry=set() if params.acl_script_only else {"acl"},
         )
         all_type_results.update(dl["type_results"])
         all_manifest_entries.extend(dl["manifest_entries"])
