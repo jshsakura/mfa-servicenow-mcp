@@ -731,6 +731,8 @@ class TestDownloadSecuritySources:
 
         call_kwargs = mock_query_all.call_args[1]
         assert "scriptISNOTEMPTY" not in call_kwargs["query"]
+        assert call_kwargs["page_size"] == 20
+        mock_query_page.assert_not_called()
 
 
 class TestDownloadAdminScripts:
@@ -1055,6 +1057,41 @@ class TestDownloadAppSources:
         for call in mock_query_all.call_args_list:
             if call[1].get("table") == "sys_security_acl":
                 assert "scriptISNOTEMPTY" in call[1]["query"]
+                break
+
+    @patch("servicenow_mcp.tools.source_tools._fetch_and_write_schema")
+    @patch("servicenow_mcp.tools.source_tools._scan_tables_from_source_root")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_orchestrator_acl_all_skips_empty_source_retry(
+        self, mock_query_page, mock_query_all, mock_scan, mock_schema, config, auth, tmp_path
+    ):
+        def _query_all(*args, **kwargs):
+            if kwargs.get("table") == "sys_security_acl":
+                return _strip_source(_acl_records())
+            return []
+
+        mock_query_all.side_effect = _query_all
+        mock_scan.return_value = set()
+        mock_schema.return_value = ({}, [])
+
+        result = download_app_sources(
+            config,
+            auth,
+            DownloadAppSourcesParams(
+                scope="x_app",
+                include_widget_sources=False,
+                include_schema=False,
+                acl_script_only=False,
+                output_dir=str(tmp_path),
+            ),
+        )
+
+        assert result["success"] is True
+        mock_query_page.assert_not_called()
+        for call in mock_query_all.call_args_list:
+            if call[1].get("table") == "sys_security_acl":
+                assert "scriptISNOTEMPTY" not in call[1]["query"]
                 break
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
