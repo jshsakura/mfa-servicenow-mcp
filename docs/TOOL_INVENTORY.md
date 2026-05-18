@@ -124,8 +124,8 @@ These tools are registered in code but intentionally excluded from the packaged 
 | `analyze_portal_component_update` | R | Analyze a proposed portal component edit and return bounded risk and field-change summaries | portal_developer, full |
 | `create_portal_component_snapshot` | W | Save the current editable state of a portal component to a local snapshot file for rollback or review | portal_developer, full |
 | `detect_angular_implicit_globals` | R | Detect undeclared variable assignments in Angular provider scripts that cause runtime 'not defined' errors. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_portal_sources` | R | Export widget, provider, and SI sources to local files. Filter by scope or widget name. | standard, portal_developer, platform_developer, service_desk, full |
-| `get_portal_component_code` | R | Fetch specific code fields from a widget/provider/SI. Lighter than get_widget_bundle. | standard, portal_developer, platform_developer, service_desk, full |
+| `download_portal_sources` | R | Targeted widget/provider export to disk. Use widget_ids for one widget; download_app_sources for full app. | standard, portal_developer, platform_developer, service_desk, full |
+| `get_portal_component_code` | R | Fetch widget/provider/SI fields. Set fetch_complete=True for full body (default chunks at 8KB). | standard, portal_developer, platform_developer, service_desk, full |
 | `get_widget_bundle` | R | Fetch full widget bundle (HTML, scripts, providers) in one call. Use as analysis starting point. | standard, portal_developer, platform_developer, service_desk, full |
 | `preview_portal_component_update` | R | Preview bounded before/after snippets and diff for a proposed portal component edit | portal_developer, full |
 | `resolve_page_dependencies` | R | Resolve all widgets on a page with dependency chains. Deduplicates shared providers/SIs. | standard, portal_developer, platform_developer, service_desk, full |
@@ -187,14 +187,14 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `download_admin_scripts` | R | Download Fix Scripts, Scheduled Jobs, Script Actions, and Email Notifications for a scope. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_api_sources` | R | Download Scripted REST API operations and Processors for a scope. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_app_sources` | R | Download ALL source code for an app scope. Runs all download_* sub-tools, returns unified summary. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_script_includes` | R | Download all Script Includes for a scope to local files. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_security_sources` | R | Download ACL rules for a scope. By default only ACLs with scripts. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_server_scripts` | R | Download Business Rules, Client Scripts, and Catalog Client Scripts for a scope. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_table_schema` | R | Download sys_dictionary field definitions for tables. Specify names or auto-detect from sources. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_ui_components` | R | Download UI Actions, UI Scripts, UI Pages, and UI Macros for a scope. | standard, portal_developer, platform_developer, service_desk, full |
+| `download_admin_scripts` | R | Download Fix Scripts/Scheduled Jobs/Script Actions/Email Notifications (subset of download_app_sources). | standard, portal_developer, platform_developer, service_desk, full |
+| `download_api_sources` | R | Download Scripted REST APIs/Processors for a scope (subset of download_app_sources). | standard, portal_developer, platform_developer, service_desk, full |
+| `download_app_sources` | R | Full app dump (all source groups + cross-scope deps). Use as Step 1 before audit/diff. | standard, portal_developer, platform_developer, service_desk, full |
+| `download_script_includes` | R | Download Script Includes for a scope (subset of download_app_sources). | standard, portal_developer, platform_developer, service_desk, full |
+| `download_security_sources` | R | Download ACLs for a scope (subset of download_app_sources). Script-only by default. | standard, portal_developer, platform_developer, service_desk, full |
+| `download_server_scripts` | R | Download BR/Client Scripts/Catalog Client Scripts for a scope (subset of download_app_sources). | standard, portal_developer, platform_developer, service_desk, full |
+| `download_table_schema` | R | Download sys_dictionary field defs. Specify tables or auto-detect from local sources. | standard, portal_developer, platform_developer, service_desk, full |
+| `download_ui_components` | R | Download UI Actions/Scripts/Pages/Macros for a scope (subset of download_app_sources). | standard, portal_developer, platform_developer, service_desk, full |
 | `extract_table_dependencies` | R | Build a GlideRecord table dependency graph from server scripts. Scans SI, BR, and widget code. | standard, portal_developer, platform_developer, service_desk, full |
 | `extract_widget_table_dependencies` | R | Build a table dependency graph for a single widget, optionally expanding linked script includes. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_metadata_source` | R | Get a single source record (SI, BR, widget, etc.) by name or sys_id. Returns metadata + truncated script body. | standard, portal_developer, platform_developer, service_desk, full |
@@ -216,7 +216,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `diff_local_component` | R | Compare local source files against remote ServiceNow. Returns diffs and status summaries only. | standard, portal_developer, platform_developer, service_desk, full |
+| `diff_local_component` | R | Diff local download vs remote. Run before re-downloading to skip if fresh. | standard, portal_developer, platform_developer, service_desk, full |
 | `update_remote_from_local` | W | Push local file changes to ServiceNow. Auto-snapshots remote state before push for rollback. | portal_developer, platform_developer, full |
 
 ### UI Policy (1)
