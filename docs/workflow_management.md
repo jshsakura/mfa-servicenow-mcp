@@ -3,9 +3,9 @@
 This document covers two workflow engines exposed by the MCP server:
 
 1. **Legacy Workflow** (`wf_workflow`) — driven by the `manage_workflow` action router below.
-2. **Flow Designer** (`sys_hub_flow`) — read-mostly tools (`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`) plus a narrow writer (`update_flow_designer`). Action/SubFlow/Playbook tables are documented in the [Flow Designer table map](#flow-designer-table-map).
+2. **Flow Designer** (`sys_hub_flow`) — unified `manage_flow_designer` tool with action dispatch. Standard package exposes read actions (`list` / `get_detail` / `get_executions` / `compare`); higher packages unlock writes (`update` / `checkout` / `set_*` / `save` / `discard`). Action/SubFlow/Playbook tables are documented in the [Flow Designer table map](#flow-designer-table-map).
 
-If you are not sure which engine a process uses, start with `list_flow_designers` (modern instances) and fall back to `manage_workflow(action="list")` for legacy `wf_workflow` records.
+If you are not sure which engine a process uses, start with `manage_flow_designer(action="list")` (modern instances) and fall back to `manage_workflow(action="list")` for legacy `wf_workflow` records.
 
 ## Overview
 
@@ -215,39 +215,24 @@ result = manage_workflow({"action": "reorder_activities",
 
 Flow Designer (`sys_hub_flow`) is the modern successor to legacy workflows. The MCP server exposes it as a read-mostly surface — full CRUD requires the undocumented processflow API and is intentionally not surfaced through Table API tools.
 
-### `list_flow_designers`
-Search flows / subflows by name, scope, or status.
+### `manage_flow_designer` (unified)
+Single composite tool with action dispatch. Replaces the previous 6 standalone flow tools (`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`, `update_flow_designer`, `manage_flow_edit`). Action enum is narrowed to read-only in `standard` and unlocked in `portal_developer` / `platform_developer` / `full`.
 
-Key params:
-- `limit` (default 20, max 100), `offset`
-- `include_inactive` (default `false` — active-only)
-- `status`, `scope`, `name` filters
+Read actions (available in `standard`):
+- `action="list"` — search flows/subflows. Key params: `limit`, `offset`, `include_inactive`, `flow_status`, `scope`, `name_filter`.
+- `action="get_detail"` — flow metadata + optional heavy sections. Key params: `flow_id` (required), `include_structure`, `include_triggers`, `include_executions_summary`, `trace_pill`, `include_subflow_tree`, `summary_format`.
+- `action="get_executions"` — runtime history (filters) or single execution detail. Key params: `context_id` (single mode), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
+- `action="compare"` — diff two flows by `flow_id_a`/`flow_id_b` or `name_a`/`name_b`. Reports structural diff, subflow bindings, trigger differences. Preferred over calling `get_detail` twice.
 
-### `get_flow_designer_detail`
-Read one flow's metadata; opt into heavier sections only when needed.
-
-Key params:
-- `flow_id` (required, `sys_hub_flow.sys_id`)
-- `include_structure` — actions, logic, subflow nesting tree
-- `include_triggers` — trigger bindings
-- `include_data_pills` — data pill traces
-
-### `get_flow_designer_executions`
-Inspect runtime behavior. Either browse history (filters) or get one execution detail.
-
-Key params:
-- `context_id` — single execution detail by `sys_flow_context.sys_id` (other filters ignored when set)
-- `flow_name`, `state`, `started_after`, `limit`
-
-### `compare_flows`
-Diff two flows by `sys_id` or by `name_a` / `name_b`. Reports structural diff, subflow bindings, and trigger differences. Preferred over calling `get_flow_designer_detail` twice.
-
-### `update_flow_designer`
-Narrow writer — name / description / active toggle only. Anything else (steps, triggers, publish) requires the Workflow Studio UI or the processflow API.
-
-Key params:
-- `flow_id` (required)
-- `name`, `description`, `active` (any combination; nulls ignored)
+Write actions (only in `portal_developer` / `platform_developer` / `full`):
+- `action="update"` — metadata only (`new_name` / `description` / `active`). Anything structural (steps, triggers, publish) requires the edit workflow below or the Workflow Studio UI.
+- `action="checkout"` — start a local edit session (browser auth required, uses processflow API).
+- `action="set_action_input"` — patch action input value. Requires `node_id`, `input_name`, `value`.
+- `action="set_branch_condition"` — patch flow logic branch condition. Requires `node_id`, `value`; optional `condition_label`.
+- `action="set_trigger_condition"` — patch trigger condition. Requires `value`; `node_id` optional (first trigger if omitted).
+- `action="save"` — persist edits via processflow API. Optional `publish=true` to publish after save.
+- `action="discard"` — drop the local edit session.
+- `action="edit_status"` — inspect current local checkout state.
 
 ### Flow Designer Table Map
 
@@ -260,7 +245,7 @@ Key params:
 
 ### Read-only Bias
 
-Flow modifications carry the highest risk in this codebase — corrupting a published flow can break automation across the instance. Default to read tools, gate writes behind explicit user confirmation, and prefer `compare_flows` + `get_flow_designer_executions` to verify behavior before any change.
+Flow modifications carry the highest risk in this codebase — corrupting a published flow can break automation across the instance. Default to read actions, gate writes behind explicit user confirmation, and prefer `manage_flow_designer(action="compare")` + `manage_flow_designer(action="get_executions")` to verify behavior before any change.
 
 ## Common Activity Types
 

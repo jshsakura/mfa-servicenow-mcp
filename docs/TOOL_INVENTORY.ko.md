@@ -22,15 +22,16 @@
 
 ## Flow Designer 표면
 
-Flow Designer는 요청하신 축소 표면 기준으로 다음 5개 도구만 유지됩니다.
+Flow Designer는 단일 통합 도구 `manage_flow_designer`(action 디스패치)로 정리되었습니다. action별 노출은 패키지에서 제어합니다.
 
-| 도구 | 읽기/쓰기 | 용도 |
-|------|-----------|------|
-| `list_flow_designers` | R | 플로우/서브플로우 목록 조회 |
-| `get_flow_designer_detail` | R | 구조, 트리거, 실행 요약, data pill 추적, subflow tree 조회 |
-| `get_flow_designer_executions` | R | 실행 이력/단건 실행 상세 조회 |
-| `compare_flows` | R | 두 플로우 구조 비교 |
-| `update_flow_designer` | W | 이름/설명/active 상태 수정 |
+| 도구 | 읽기/쓰기 | 액션 | 용도 |
+|------|-----------|------|------|
+| `manage_flow_designer` | R | `list` | 플로우/서브플로우 목록 조회 |
+| `manage_flow_designer` | R | `get_detail` | 구조, 트리거, 실행 요약, data pill 추적, subflow tree 조회 |
+| `manage_flow_designer` | R | `get_executions` | 실행 이력/단건 실행 상세 조회 |
+| `manage_flow_designer` | R | `compare` | 두 플로우 구조 비교 |
+| `manage_flow_designer` | W | `update` | 이름/설명/active 상태 수정 |
+| `manage_flow_designer` | W | `checkout`/`set_*`/`save`/`discard`/`edit_status` | processflow 기반 플로우 편집 (브라우저 auth 필요) |
 
 제거된 전용 도구들(예: trigger-by-table, full-detail, action/playbook/decision-table 전용 조회)은 `sn_query` 기반 조회로 대체되었습니다.
 
