@@ -2371,7 +2371,7 @@ class DownloadScriptIncludesParams(_ScopeDownloadParams):
 @register_tool(
     "download_script_includes",
     params=DownloadScriptIncludesParams,
-    description="Download all Script Includes for a scope to local files.",
+    description="Download Script Includes for a scope (subset of download_app_sources).",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2412,7 +2412,7 @@ class DownloadServerScriptsParams(_ScopeDownloadParams):
 @register_tool(
     "download_server_scripts",
     params=DownloadServerScriptsParams,
-    description="Download Business Rules, Client Scripts, and Catalog Client Scripts for a scope.",
+    description="Download BR/Client Scripts/Catalog Client Scripts for a scope (subset of download_app_sources).",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2453,7 +2453,7 @@ class DownloadUIComponentsParams(_ScopeDownloadParams):
 @register_tool(
     "download_ui_components",
     params=DownloadUIComponentsParams,
-    description="Download UI Actions, UI Scripts, UI Pages, and UI Macros for a scope.",
+    description="Download UI Actions/Scripts/Pages/Macros for a scope (subset of download_app_sources).",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2494,7 +2494,7 @@ class DownloadAPISourcesParams(_ScopeDownloadParams):
 @register_tool(
     "download_api_sources",
     params=DownloadAPISourcesParams,
-    description="Download Scripted REST API operations and Processors for a scope.",
+    description="Download Scripted REST APIs/Processors for a scope (subset of download_app_sources).",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2535,7 +2535,7 @@ class DownloadSecuritySourcesParams(_ScopeDownloadParams):
 @register_tool(
     "download_security_sources",
     params=DownloadSecuritySourcesParams,
-    description="Download ACL rules for a scope. By default only ACLs with scripts.",
+    description="Download ACLs for a scope (subset of download_app_sources). Script-only by default.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2581,7 +2581,7 @@ class DownloadAdminScriptsParams(_ScopeDownloadParams):
 @register_tool(
     "download_admin_scripts",
     params=DownloadAdminScriptsParams,
-    description="Download Fix Scripts, Scheduled Jobs, Script Actions, and Email Notifications for a scope.",
+    description="Download Fix Scripts/Scheduled Jobs/Script Actions/Email Notifications (subset of download_app_sources).",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2728,7 +2728,7 @@ def _fetch_and_write_schema(
 @register_tool(
     "download_table_schema",
     params=DownloadTableSchemaParams,
-    description="Download sys_dictionary field definitions for tables. Specify names or auto-detect from sources.",
+    description="Download sys_dictionary field defs. Specify tables or auto-detect from local sources.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2813,7 +2813,7 @@ class DownloadAppSourcesParams(BaseModel):
 @register_tool(
     "download_app_sources",
     params=DownloadAppSourcesParams,
-    description="Download ALL source code for an app scope. Runs all download_* sub-tools, returns unified summary.",
+    description="Full app dump (all source groups + cross-scope deps). Use as Step 1 before audit/diff.",
     serialization="raw_dict",
     return_type=dict,
 )

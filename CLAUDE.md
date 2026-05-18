@@ -24,6 +24,26 @@ Tool definitions are sent to the LLM on every request. Every character costs tok
 5. Add tests: happy path, error, not-found (for detail), count_only (for list), filters.
 6. Run `python -m pytest tests/ -x` before committing.
 
+## Download / Sync Flow (LLM must follow)
+
+Source downloads write full bodies to disk; only summaries return to context.
+Picking the wrong tool wastes round-trips and tokens. Default decision tree:
+
+1. **Reading one widget/SI body** → `get_widget_bundle` (widget only) or
+   `get_portal_component_code` with `fetch_complete=True`. Do NOT loop on
+   `script_offset` unless the field is genuinely >12KB and you only need a slice.
+2. **Bulk source dump for analysis** → `download_app_sources(scope=...)` (Step 1).
+   Then `audit_local_sources(source_root=...)` (Step 2). Do NOT chain 7
+   individual `download_*` sub-tools — they exist for targeted refreshes only.
+3. **Targeted refresh** (one widget or one source family) → the specific
+   `download_portal_sources(widget_ids=...)` or `download_<family>` sub-tool.
+4. **Already downloaded before** → `diff_local_component(path=...)` first.
+   Re-download only if diff reports drift, or if `_manifest.json` is missing.
+5. **Push back to ServiceNow** → `diff_local_component` → `update_remote_from_local`.
+
+Standard download root: `temp/<instance>/<scope>/_manifest.json`. Treat its
+presence as "already fetched"; check `downloaded_at` for freshness.
+
 ## TLS Impersonation (curl_cffi, default-ON as of v1.12.21)
 
 Some ServiceNow instances (especially those fronted by Cloudflare/Akamai
