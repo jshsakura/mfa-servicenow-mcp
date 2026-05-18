@@ -523,7 +523,7 @@ def _scan_download_root(
 @register_tool(
     "diff_local_component",
     params=DiffLocalComponentParams,
-    description="Compare local source files against remote ServiceNow. Returns diffs and status summaries only.",
+    description="Diff local download vs remote. Run before re-downloading to skip if fresh.",
     serialization="raw_dict",
     return_type=dict,
 )

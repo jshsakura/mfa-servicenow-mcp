@@ -88,15 +88,15 @@ class GetPortalComponentParams(BaseModel):
     )
     script_offset: int = Field(
         default=0,
-        description="Character offset to start reading script fields from.",
+        description="Chunk start offset; only used when fetch_complete=False.",
     )
     script_max_length: int = Field(
         default=8000,
-        description="Max chars per script field (default 8000, clamped to 12000). Ignored when fetch_complete=True.",
+        description="Chunk size when fetch_complete=False (default 8000, max 12000).",
     )
     fetch_complete: bool = Field(
         default=False,
-        description="Return full content of all fields without chunking. Use when full source is needed.",
+        description="True = full body in one call (preferred). False = chunked from script_offset.",
     )
 
 
@@ -1839,7 +1839,7 @@ def get_widget_bundle(
 @register_tool(
     "get_portal_component_code",
     params=GetPortalComponentParams,
-    description="Fetch specific code fields from a widget/provider/SI. Lighter than get_widget_bundle.",
+    description="Fetch widget/provider/SI fields. Set fetch_complete=True for full body (default chunks at 8KB).",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -3002,7 +3002,7 @@ def update_portal_component_from_snapshot(
 @register_tool(
     "download_portal_sources",
     params=DownloadPortalSourcesParams,
-    description="Export widget, provider, and SI sources to local files. Filter by scope or widget name.",
+    description="Targeted widget/provider export to disk. Use widget_ids for one widget; download_app_sources for full app.",
     serialization="raw_dict",
     return_type=dict,
 )
