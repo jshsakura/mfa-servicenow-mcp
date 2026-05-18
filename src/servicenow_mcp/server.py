@@ -845,6 +845,15 @@ class ServiceNowMCP:
                     f"Allowed: {sorted(allowed_actions)}."
                 )
 
+        # Write guards: block writes against wrong/denied/bloated update sets,
+        # raw Flow Designer table writes, and publish-class actions without
+        # extra confirmation. Read-only calls skip this. Runs before confirm
+        # so unsafe writes fail with a specific, actionable message.
+        from servicenow_mcp.policies import run_write_guards, strip_guard_fields
+
+        run_write_guards(self, name, arguments)
+        arguments = strip_guard_fields(arguments)
+
         # Safety check for mutating actions: require confirmation
         requires_confirmation = self._is_blocked_mutating_tool(name) or (
             name == "sn_nl" and bool(arguments.get("execute", False))
