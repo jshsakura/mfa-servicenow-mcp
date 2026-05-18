@@ -11,7 +11,7 @@ Backed by existing implementations in:
 """
 
 import logging
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional, cast
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -260,6 +260,7 @@ def _do_list(
 def _do_get_detail(
     config: ServerConfig, auth_manager: AuthManager, p: ManageFlowDesignerParams
 ) -> Dict[str, Any]:
+    assert p.flow_id is not None  # guaranteed by _validate_per_action
     return get_flow_details(
         config,
         auth_manager,
@@ -313,6 +314,7 @@ def _do_compare(
 def _do_update(
     config: ServerConfig, auth_manager: AuthManager, p: ManageFlowDesignerParams
 ) -> Dict[str, Any]:
+    assert p.flow_id is not None  # guaranteed by _validate_per_action
     return update_flow_designer(
         config,
         auth_manager,
@@ -337,10 +339,22 @@ _EDIT_ACTION_MAP: Dict[str, str] = {
 }
 
 
+_EditActionT = Literal[
+    "checkout",
+    "set_action_input",
+    "set_trigger_condition",
+    "set_branch_condition",
+    "save",
+    "discard",
+    "status",
+]
+
+
 def _do_edit(
     config: ServerConfig, auth_manager: AuthManager, p: ManageFlowDesignerParams
 ) -> Dict[str, Any]:
-    edit_action = _EDIT_ACTION_MAP[p.action]
+    assert p.flow_id is not None  # guaranteed by _validate_per_action
+    edit_action = cast(_EditActionT, _EDIT_ACTION_MAP[p.action])
     return manage_flow_edit(
         config,
         auth_manager,
