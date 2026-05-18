@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
-from ..utils.registry import register_tool
 from .flow_designer_tools import _is_browser_auth, _try_processflow_api
 
 logger = logging.getLogger(__name__)
@@ -156,13 +155,6 @@ class ManageFlowEditParams(BaseModel):
     publish: bool = Field(default=False, description="Publish after save")
 
 
-@register_tool(
-    "manage_flow_edit",
-    params=ManageFlowEditParams,
-    description="Checkout/patch/save Flow Designer flows. Browser auth only. checkout→patch→save workflow.",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def manage_flow_edit(
     config: ServerConfig,
     auth_manager: AuthManager,

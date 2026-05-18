@@ -63,6 +63,7 @@ MANAGE_READ_ACTIONS: Dict[str, set[str]] = {
     "manage_script_include": {"list", "get"},
     "manage_catalog": {"list_items", "get_item", "list_categories", "list_item_variables"},
     "manage_kb_article": {"list_kbs", "list_articles", "get_article", "list_categories"},
+    "manage_flow_designer": {"list", "get_detail", "get_executions", "compare", "edit_status"},
     "manage_project": {"list"},
     "manage_epic": {"list"},
     "manage_scrum_task": {"list"},

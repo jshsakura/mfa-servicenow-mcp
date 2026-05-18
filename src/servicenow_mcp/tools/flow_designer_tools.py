@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import AuthType, ServerConfig
-from servicenow_mcp.utils.registry import register_tool
 
 from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 
@@ -1147,13 +1146,6 @@ def _try_processflow_api(
 # ---------------------------------------------------------------------------
 
 
-@register_tool(
-    name="list_flow_designers",
-    params=ListFlowsParams,
-    description="PRIMARY entry point for Flow Designer: lists flows/subflows (sys_hub_flow). Never use sn_query for flows. Legacy→manage_workflow.",
-    serialization="json",
-    return_type=dict,
-)
 def list_flows(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1209,13 +1201,6 @@ def list_flows(
         return {"success": False, "error": str(e)}
 
 
-@register_tool(
-    name="get_flow_designer_detail",
-    params=GetFlowDetailsParams,
-    description="Get Flow Designer workflow detail. summary_format=True by default (compact). Pass False for raw dump.",
-    serialization="json",
-    return_type=dict,
-)
 def get_flow_details(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1740,13 +1725,6 @@ def _fetch_flow_structure(
         return {"success": False, "error": str(e)}
 
 
-@register_tool(
-    name="get_flow_designer_executions",
-    params=GetFlowExecutionsParams,
-    description="Get Flow Designer workflow execution history (sys_flow_context). Modern flows only.",
-    serialization="json",
-    return_type=dict,
-)
 def get_flow_executions(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1845,13 +1823,6 @@ def _fetch_flow_triggers(
 # ---------------------------------------------------------------------------
 
 
-@register_tool(
-    name="update_flow_designer",
-    params=UpdateFlowDesignerParams,
-    description="Update Flow Designer workflow name/description/active by sys_id (modern, sys_hub_flow).",
-    serialization="json",
-    return_type=dict,
-)
 def update_flow_designer(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -2118,13 +2089,6 @@ def _resolve_flow_id(
     return None, f"Flow {label}: no flow found with name '{name}'"
 
 
-@register_tool(
-    name="compare_flows",
-    params=CompareFlowsParams,
-    description="Diff two Flow Designer workflows by name/sys_id. Structure, subflow bindings, triggers.",
-    serialization="json",
-    return_type=dict,
-)
 def compare_flows(
     config: ServerConfig,
     auth_manager: AuthManager,
