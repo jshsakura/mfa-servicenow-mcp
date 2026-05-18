@@ -1,56 +1,51 @@
 """Write guards — block unsafe writes before they reach ServiceNow.
 
-Guards enforced (v1.12.28):
-  G1 — Active update set whitelist (env-configured)
-  G2 — Update set name denylist (hard block on suspicious names)
-  G5 — Update set size threshold (warn/hard-block on bloated sets)
-  G6 — Flow Designer raw write block (sys_hub_* via sn_write denied)
+Design philosophy (v1.12.28.1): keep this lean.
+Most "write safety" concerns are handled by:
+  - ServiceNow session/ACL (user identity, update set selection)
+  - The user's own discipline (which update set is current)
+  - Existing confirm='approve' gate (action-level intent)
+
+This layer adds only what the above can't catch:
+
+  G3 — Concurrent-edit warning
+       sn_write(update|delete) on a record edited by someone else within
+       a configurable window. Blocks with a specific, actionable message.
+
+  G6 — Flow Designer raw-write block
+       sn_write to sys_hub_* tables (or sys_variable_value where
+       document=sys_hub_*) corrupts flow snapshots. Force use of
+       manage_flow_designer (checkout/save).
+
   G7 — Publish-class extra confirmation
+       publish/commit/push tools require a separate confirm_publish='approve'
+       beyond the regular confirm. Prevents accidental rollouts.
 
-Deferred to v1.12.29:
-  G3 — Concurrent-edit detection
-  G4 — Optimistic locking
+Removed (delegated to ServiceNow / session):
+  G1, G2, G5 — Update set membership/size policing. Each user's session
+               writes only to their own current update set. Self-management.
 
-Each guard is independent. Failures raise PolicyViolation with a
-LLM-readable message describing what was blocked and how to proceed.
+Deferred:
+  G4 — Optimistic locking via sys_mod_count.
 """
 
 import logging
 import os
-import time
-from typing import Any, Dict, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Configuration (env vars)
+# Configuration
 # ---------------------------------------------------------------------------
 
-ENV_WRITE_GUARDS = "SERVICENOW_WRITE_GUARDS"  # master toggle: "off" disables all
-ENV_ACTIVE_US = "SERVICENOW_ACTIVE_UPDATE_SET"
-ENV_ACTIVE_US_NAME = "SERVICENOW_ACTIVE_UPDATE_SET_NAME"
-ENV_US_WARN = "SERVICENOW_US_WARN_THRESHOLD"
-ENV_US_BLOCK = "SERVICENOW_US_BLOCK_THRESHOLD"
+ENV_WRITE_GUARDS = "SERVICENOW_WRITE_GUARDS"  # master toggle ("off" disables all)
+ENV_CONCURRENT_WINDOW_MIN = "SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN"
+DEFAULT_CONCURRENT_WINDOW_MIN = 10
 
-DEFAULT_US_WARN = 1000
-DEFAULT_US_BLOCK = 5000
-
-# G2 denylist — case-insensitive substring match on update set name.
-UPDATE_SET_NAME_DENYLIST = (
-    "[not use]",
-    "[notuse]",
-    "[no use]",
-    "default",
-    "ignore",
-    "stash",
-    "preview",
-    "backup",
-    "deprecated",
-    "archive",
-)
-
-# G6 — tables that must only be written via scaffold tools (manage_flow_designer).
+# G6 — tables that must only be written via scaffold tools.
 FLOW_DESIGNER_INTERNAL_TABLES = frozenset(
     {
         "sys_hub_flow",
@@ -93,7 +88,7 @@ _PUBLISH_CLASS_TOOLS: Dict[str, Optional[Dict[str, Any]]] = {
 
 # Read-only manage_X sub-actions (mirror of server.MANAGE_READ_ACTIONS).
 # Duplicated here to avoid circular import; keep in sync.
-_MANAGE_READ_ACTIONS: Dict[str, frozenset[str]] = {
+_MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_incident": frozenset({"get"}),
     "manage_change": frozenset({"get"}),
     "manage_changeset": frozenset({"get"}),
@@ -121,11 +116,7 @@ _MANAGE_READ_ACTIONS: Dict[str, frozenset[str]] = {
 
 
 class PolicyViolation(ValueError):
-    """Raised when a write guard blocks an action.
-
-    Inherits ValueError so the existing call_tool error-handling path
-    (returns the message back to the LLM) Just Works.
-    """
+    """Raised when a write guard blocks an action."""
 
     def __init__(self, guard: str, message: str):
         self.guard = guard
@@ -133,26 +124,12 @@ class PolicyViolation(ValueError):
 
 
 class WriteGuardContext:
-    """Per-call context passed to each guard.
-
-    Holds a reference to the running server (for auth/config) plus the
-    tool name and arguments. Caches lookups so guards can share work
-    (e.g. fetching the current update set once even if multiple guards
-    need it).
-    """
+    """Per-call context — holds server, tool, args; caches lookups."""
 
     def __init__(self, server: Any, tool_name: str, arguments: Dict[str, Any]):
         self.server = server
         self.tool_name = tool_name
         self.arguments = arguments
-        self._current_us_cache: Optional[Dict[str, str]] = None
-        self._us_size_cache: Optional[int] = None
-
-
-# Cache the user's current update set for ~30s to avoid hammering sn_query
-# during a burst of write attempts. Keyed by user sys_id.
-_us_cache: Dict[str, Tuple[float, Dict[str, str]]] = {}
-_US_CACHE_TTL_SEC = 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -165,24 +142,16 @@ def _guards_enabled() -> bool:
 
 
 def _is_read_only(tool_name: str, arguments: Dict[str, Any]) -> bool:
-    """Return True if this tool call doesn't mutate ServiceNow data.
-
-    Mirrors server._is_blocked_mutating_tool but is action-aware for
-    manage_X composite tools.
-    """
-    # Explicit writers
+    """True if this call doesn't mutate ServiceNow data."""
     if tool_name in {"sn_write", "sn_batch"}:
         return False
-    # sn_nl is read unless execute=true
     if tool_name == "sn_nl":
         return not bool(arguments.get("execute", False))
-    # manage_X tools: action determines read/write
     if tool_name.startswith("manage_"):
         read_actions = _MANAGE_READ_ACTIONS.get(tool_name)
         if read_actions is not None:
             return arguments.get("action") in read_actions
-        return False  # manage_X without read-action listing → assume write
-    # Other mutation prefixes
+        return False
     mutation_prefixes = (
         "create_",
         "update_",
@@ -204,18 +173,15 @@ def _is_read_only(tool_name: str, arguments: Dict[str, Any]) -> bool:
     )
     if tool_name.startswith(mutation_prefixes):
         return False
-    # Default: read-only (most tools are get_/list_/search_/download_/audit_/...)
     return True
 
 
 def _is_publish_class(tool_name: str, arguments: Dict[str, Any]) -> bool:
-    """G7 — does this call publish/commit changes (extra-risky)?"""
     cond = _PUBLISH_CLASS_TOOLS.get(tool_name, "__nope__")
     if cond == "__nope__":
         return False
     if cond is None:
-        return True  # always publish-class
-    # dict match: every key in cond must match arguments
+        return True
     if not isinstance(cond, dict):
         return False
     for key, expected in cond.items():
@@ -229,116 +195,52 @@ def _is_publish_class(tool_name: str, arguments: Dict[str, Any]) -> bool:
     return True
 
 
-def _current_user_sys_id(server: Any) -> Optional[str]:
-    """Best-effort: look up the auth user's sys_user.sys_id."""
+def _current_username(server: Any) -> Optional[str]:
+    """Best-effort: return the auth user's user_name."""
     try:
-        username = getattr(server.config.auth, "username", None) or getattr(
+        return getattr(server.config.auth, "username", None) or getattr(
             server.auth_manager, "username", None
         )
-        if not username:
-            return None
+    except Exception:
+        return None
+
+
+def _fetch_record_audit(
+    ctx: WriteGuardContext, table: str, sys_id: str
+) -> Optional[Dict[str, str]]:
+    """Return dict with sys_updated_by and sys_updated_on for the record."""
+    try:
         from servicenow_mcp.tools.sn_api import sn_query_page
 
         records, _ = sn_query_page(
-            server.config,
-            server.auth_manager,
-            table="sys_user",
-            query=f"user_name={username}",
-            fields="sys_id",
+            ctx.server.config,
+            ctx.server.auth_manager,
+            table=table,
+            query=f"sys_id={sys_id}",
+            fields="sys_updated_by,sys_updated_on",
             limit=1,
             offset=0,
             display_value=False,
             fail_silently=True,
         )
         if records:
-            return records[0].get("sys_id")
+            return records[0]
     except Exception:
-        logger.debug("Could not resolve current user sys_id", exc_info=True)
+        logger.debug("Audit fetch failed for %s/%s", table, sys_id, exc_info=True)
     return None
 
 
-def _fetch_current_update_set(ctx: WriteGuardContext) -> Optional[Dict[str, str]]:
-    """Read the user's currently-selected update set.
-
-    Returns dict {"sys_id": ..., "name": ...} or None if it can't be
-    determined (in which case G1/G2/G5 will skip — guard-failing-open is
-    safer than blocking everything when the lookup is broken).
-    """
-    if ctx._current_us_cache is not None:
-        return ctx._current_us_cache
-
-    user_sys_id = _current_user_sys_id(ctx.server)
-    if not user_sys_id:
+def _elapsed_minutes(timestamp_str: Optional[str]) -> Optional[float]:
+    """ServiceNow datetimes are UTC, "YYYY-MM-DD HH:MM:SS"."""
+    if not timestamp_str:
         return None
-
-    now = time.monotonic()
-    cached = _us_cache.get(user_sys_id)
-    if cached and (now - cached[0]) < _US_CACHE_TTL_SEC:
-        ctx._current_us_cache = cached[1]
-        return cached[1]
-
     try:
-        from servicenow_mcp.tools.sn_api import sn_query_page
-
-        records, _ = sn_query_page(
-            ctx.server.config,
-            ctx.server.auth_manager,
-            table="sys_user_preference",
-            query=f"user={user_sys_id}^name=sys_update_set",
-            fields="value",
-            limit=1,
-            offset=0,
-            display_value=False,
-            fail_silently=True,
-        )
-        if not records:
-            return None
-        us_sys_id = records[0].get("value")
-        if not us_sys_id:
-            return None
-
-        us_records, _ = sn_query_page(
-            ctx.server.config,
-            ctx.server.auth_manager,
-            table="sys_update_set",
-            query=f"sys_id={us_sys_id}",
-            fields="sys_id,name,state",
-            limit=1,
-            offset=0,
-            display_value=False,
-            fail_silently=True,
-        )
-        if not us_records:
-            return None
-        info = {
-            "sys_id": us_records[0].get("sys_id", us_sys_id),
-            "name": us_records[0].get("name", ""),
-            "state": us_records[0].get("state", ""),
-        }
-        _us_cache[user_sys_id] = (now, info)
-        ctx._current_us_cache = info
-        return info
+        ts = datetime.fromisoformat(timestamp_str.replace(" ", "T"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - ts
+        return delta.total_seconds() / 60.0
     except Exception:
-        logger.debug("Failed to fetch current update set", exc_info=True)
-        return None
-
-
-def _fetch_update_set_size(ctx: WriteGuardContext, us_sys_id: str) -> Optional[int]:
-    if ctx._us_size_cache is not None:
-        return ctx._us_size_cache
-    try:
-        from servicenow_mcp.tools.sn_api import sn_count
-
-        count = sn_count(
-            ctx.server.config,
-            ctx.server.auth_manager,
-            table="sys_update_xml",
-            query=f"update_set={us_sys_id}",
-        )
-        ctx._us_size_cache = count
-        return count
-    except Exception:
-        logger.debug("Failed to count sys_update_xml", exc_info=True)
         return None
 
 
@@ -352,15 +254,8 @@ def _g6_flow_designer_raw_write(ctx: WriteGuardContext) -> None:
     if ctx.tool_name != "sn_write":
         return
     table = (ctx.arguments.get("table") or "").lower()
-    if not table:
+    if not table or table not in FLOW_DESIGNER_INTERNAL_TABLES:
         return
-    if table not in FLOW_DESIGNER_INTERNAL_TABLES:
-        # Special case: sys_variable_value only blocked when document=sys_hub_*
-        return
-
-    # Some sys_hub_* targets are permitted IF the row keys to a non-flow
-    # document (handled by sys_variable_value; but that table is not in the
-    # frozenset above so we don't reach here for it).
     raise PolicyViolation(
         "G6",
         f"Direct write to Flow Designer internal table '{table}' is blocked.\n"
@@ -389,77 +284,6 @@ def _g6_variable_value_for_flow(ctx: WriteGuardContext) -> None:
     )
 
 
-def _g1_active_update_set(ctx: WriteGuardContext) -> None:
-    """G1 — only allow writes when the user's current update set matches
-    the env-configured one."""
-    expected = os.getenv(ENV_ACTIVE_US)
-    if not expected:
-        # Guard not configured → skip with a debug log.
-        logger.debug("G1 skipped: %s not set", ENV_ACTIVE_US)
-        return
-    current = _fetch_current_update_set(ctx)
-    if current is None:
-        logger.debug("G1 skipped: could not determine current update set")
-        return
-    if current["sys_id"] == expected:
-        return
-    expected_name = os.getenv(ENV_ACTIVE_US_NAME, "<not set>")
-    raise PolicyViolation(
-        "G1",
-        f"Active update set mismatch — write blocked.\n"
-        f"  Expected: {expected_name} ({expected})\n"
-        f"  Current:  {current['name']} ({current['sys_id']})\n"
-        f"To fix: switch via switch_update_set(target_sys_id='{expected}') "
-        f"or update SERVICENOW_ACTIVE_UPDATE_SET env var.",
-    )
-
-
-def _g2_update_set_denylist(ctx: WriteGuardContext) -> None:
-    """G2 — refuse to write when current update set name looks unsafe."""
-    current = _fetch_current_update_set(ctx)
-    if current is None:
-        return
-    name = (current.get("name") or "").lower()
-    if not name:
-        return
-    for pattern in UPDATE_SET_NAME_DENYLIST:
-        if pattern in name:
-            raise PolicyViolation(
-                "G2",
-                f"Current update set '{current['name']}' matches "
-                f"denylist pattern '{pattern}' — write blocked.\n"
-                f"This is a hard block (no override). "
-                f"Switch to a proper working update set first.",
-            )
-
-
-def _g5_update_set_size(ctx: WriteGuardContext) -> None:
-    """G5 — bloated update set → require strong confirm or hard block."""
-    current = _fetch_current_update_set(ctx)
-    if current is None:
-        return
-    size = _fetch_update_set_size(ctx, current["sys_id"])
-    if size is None:
-        return
-    block_threshold = int(os.getenv(ENV_US_BLOCK, DEFAULT_US_BLOCK))
-    warn_threshold = int(os.getenv(ENV_US_WARN, DEFAULT_US_WARN))
-    if size >= block_threshold:
-        raise PolicyViolation(
-            "G5",
-            f"Active update set '{current['name']}' has {size} entries "
-            f"(>= {block_threshold} hard block). "
-            f"Split into a new update set before writing.",
-        )
-    if size >= warn_threshold:
-        if ctx.arguments.get("confirm_large_update_set") != "approve":
-            raise PolicyViolation(
-                "G5",
-                f"Active update set '{current['name']}' has {size} entries "
-                f"(>= {warn_threshold} warning). "
-                f"Add confirm_large_update_set='approve' to proceed.",
-            )
-
-
 def _g7_publish_extra_confirm(ctx: WriteGuardContext) -> None:
     """G7 — publish/commit/push class needs separate confirm field."""
     if not _is_publish_class(ctx.tool_name, ctx.arguments):
@@ -473,6 +297,54 @@ def _g7_publish_extra_confirm(ctx: WriteGuardContext) -> None:
         f"confirm='approve' AND {CONFIRM_PUBLISH_FIELD}='{CONFIRM_PUBLISH_VALUE}'. "
         f"This prevents accidental publish/commit/push. "
         f"Review what will be published before adding these flags.",
+    )
+
+
+def _g3_concurrent_edit(ctx: WriteGuardContext) -> None:
+    """G3 — block sn_write(update|delete) when target was recently edited
+    by someone else.
+
+    Scope (v1.12.28.1): only sn_write update/delete cases. manage_X and
+    update_remote_from_local have variable arg shapes — covered later.
+    """
+    if ctx.tool_name != "sn_write":
+        return
+    action = (ctx.arguments.get("action") or "").lower()
+    if action not in ("update", "delete"):
+        return
+    table = ctx.arguments.get("table")
+    sys_id = ctx.arguments.get("sys_id")
+    if not (table and sys_id):
+        # Missing required args — let sn_write itself reject; guard skips.
+        return
+
+    target = _fetch_record_audit(ctx, table, sys_id)
+    if target is None:
+        return  # fail-open if audit fetch fails
+
+    other = (target.get("sys_updated_by") or "").strip()
+    me = (_current_username(ctx.server) or "").strip()
+    if not other or other == me:
+        return
+
+    elapsed = _elapsed_minutes(target.get("sys_updated_on"))
+    if elapsed is None:
+        return
+
+    try:
+        window = int(os.getenv(ENV_CONCURRENT_WINDOW_MIN, str(DEFAULT_CONCURRENT_WINDOW_MIN)))
+    except ValueError:
+        window = DEFAULT_CONCURRENT_WINDOW_MIN
+
+    if elapsed > window:
+        return
+
+    raise PolicyViolation(
+        "G3",
+        f"Concurrent edit detected on {table}/{sys_id}.\n"
+        f"  Last edited by '{other}' ~{int(elapsed)} min ago "
+        f"(window: {window} min, current user: '{me}').\n"
+        f"Wait or coordinate, then re-fetch and retry.",
     )
 
 
@@ -494,20 +366,13 @@ def run_write_guards(server: Any, tool_name: str, arguments: Dict[str, Any]) -> 
 
     ctx = WriteGuardContext(server, tool_name, arguments)
 
-    # Order: cheap/local checks first, then guards that need an API call.
+    # Order: cheap local checks first; G3 fetches audit record (one API call).
     _g6_flow_designer_raw_write(ctx)
     _g6_variable_value_for_flow(ctx)
     _g7_publish_extra_confirm(ctx)
-    _g2_update_set_denylist(ctx)
-    _g1_active_update_set(ctx)
-    _g5_update_set_size(ctx)
+    _g3_concurrent_edit(ctx)
 
 
-# Strip publish/large-set confirm fields after guards so tool impls don't
-# see them in their params.
 def strip_guard_fields(arguments: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        k: v
-        for k, v in arguments.items()
-        if k not in (CONFIRM_PUBLISH_FIELD, "confirm_large_update_set")
-    }
+    """Remove guard-specific fields before passing to tool impl."""
+    return {k: v for k, v in arguments.items() if k != CONFIRM_PUBLISH_FIELD}
