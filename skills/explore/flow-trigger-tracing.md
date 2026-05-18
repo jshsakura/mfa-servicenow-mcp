@@ -9,8 +9,7 @@ output: report
 tools:
   - sn_query
   - manage_workflow
-  - list_flow_designers
-  - get_flow_designer_detail
+  - manage_flow_designer
 triggers:
   - "이 테이블 바뀌면 뭐가 실행돼"
   - "트리거 추적"
@@ -61,7 +60,7 @@ You are tracing all automation (workflows + flows) that fire when a specific tab
    ```
 
 5. IF user wants details on a specific flow/workflow:
-   - Flow Designer: CALL get_flow_designer_detail(flow_id=ID, include_structure=true, include_triggers=true)
+   - Flow Designer: CALL manage_flow_designer(action="get_detail", flow_id=ID, include_structure=true, include_triggers=true)
    - Workflow Engine: CALL manage_workflow(action="get", workflow_id=ID, include_activities=true)
 
 ## ON ERROR

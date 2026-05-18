@@ -114,8 +114,7 @@ def test_consolidated_tools_replaced_old_ones():
     pkgs = _load_packages()
     full_tools = pkgs["full"]
 
-    assert "get_flow_designer_detail" in full_tools
-    assert "get_flow_designer_executions" in full_tools
+    assert "manage_flow_designer" in full_tools
     assert "manage_workflow" in full_tools
 
     removed = [
@@ -128,6 +127,13 @@ def test_consolidated_tools_replaced_old_ones():
         "list_incidents",
         "list_change_requests",
         "list_changesets",
+        # Replaced by unified manage_flow_designer:
+        "list_flow_designers",
+        "get_flow_designer_detail",
+        "get_flow_designer_executions",
+        "compare_flows",
+        "update_flow_designer",
+        "manage_flow_edit",
     ]
     for tool in removed:
         for pkg_name, pkg_tools in pkgs.items():
@@ -167,13 +173,9 @@ def test_consolidated_flow_designer_tools_in_standard():
     pkgs = _load_packages()
     standard = pkgs["standard"]
 
-    for tool in [
-        "list_flow_designers",
-        "get_flow_designer_detail",
-        "get_flow_designer_executions",
-        "compare_flows",
-    ]:
-        assert tool in standard, f"'{tool}' missing from standard package"
+    # Unified manage_flow_designer covers the previous 4 read-only flow tools
+    # (list/get_detail/get_executions/compare) via action allowlist in yaml.
+    assert "manage_flow_designer" in standard, "manage_flow_designer missing from standard"
 
     removed = [
         "get_flow_full_detail",
