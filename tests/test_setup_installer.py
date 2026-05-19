@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from servicenow_mcp.setup_installer import (
+    _install_chromium_if_needed,
     format_summary,
     install_client,
     main,
@@ -371,10 +372,36 @@ class TestRemoveClient:
         mock_remove_skills.assert_not_called()
 
 
+class TestChromiumInstall:
+    @patch("subprocess.run")
+    def test_chromium_install_uses_uvx(self, mock_run):
+        status = _install_chromium_if_needed(_args())
+
+        assert status == "installed via uvx"
+        mock_run.assert_called_once_with(
+            ["uvx", "--with", "playwright", "playwright", "install", "chromium"],
+            check=True,
+            timeout=600,
+        )
+
+    @patch("subprocess.run")
+    def test_chromium_install_skipped_for_non_browser_auth(self, mock_run):
+        status = _install_chromium_if_needed(_args(auth_type="basic"))
+
+        assert status == "skipped (auth_type != browser)"
+        mock_run.assert_not_called()
+
+
 class TestMain:
+    @patch(
+        "servicenow_mcp.setup_installer._install_chromium_if_needed",
+        return_value="installed via uvx",
+    )
     @patch("servicenow_mcp.setup_installer.install_skills", return_value=20)
     @patch("builtins.print")
-    def test_main_runs_multiple_clients(self, mock_print, mock_install_skills, tmp_path):
+    def test_main_runs_multiple_clients(
+        self, mock_print, mock_install_skills, mock_install_chromium, tmp_path
+    ):
         with patch("servicenow_mcp.setup_installer.Path.cwd", return_value=tmp_path):
             exit_code = main(
                 [
@@ -389,6 +416,8 @@ class TestMain:
         rendered = mock_print.call_args[0][0]
         assert "Client: opencode" in rendered
         assert "Client: codex" in rendered
+        assert "Playwright Chromium: installed via uvx" in rendered
+        mock_install_chromium.assert_called_once()
 
     @patch("servicenow_mcp.setup_installer.remove_skills", return_value=True)
     @patch("builtins.print")
