@@ -26,6 +26,8 @@ It is documented below, but package counts in this file reflect the YAML-defined
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
 | `list_tool_packages` | R | Lists the available tool packages and the currently active one. | `core`, `standard`, `service_desk`, `portal_developer`, `platform_developer`, `full` |
+| `list_instances` | R | Lists configured ServiceNow instance aliases in multi-instance mode. | runtime multi-instance helper |
+| `compare_instances` | R | Read-only record comparison across two configured instance aliases. | runtime multi-instance helper |
 
 ## Registered but Unpackaged Tools
 

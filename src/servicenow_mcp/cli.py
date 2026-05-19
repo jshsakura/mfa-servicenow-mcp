@@ -24,6 +24,13 @@ from .utils.config import (
     OAuthConfig,
     ServerConfig,
 )
+from .utils.instances import (
+    ACTIVE_INSTANCE_ENV,
+    INSTANCE_CONFIG_ENV,
+    build_instance_definition,
+    load_instance_config_env,
+    select_active_alias,
+)
 from .version import __version__
 
 # Opt-in file logging: stderr-only by default (preserves the v1.11.47
@@ -128,6 +135,35 @@ def _pick_first_resolved(*values: str | None) -> str | None:
     return None
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _split_csv(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _default_http_allowed_hosts(host: str, port: int) -> list[str]:
+    hosts = {
+        host,
+        f"{host}:{port}",
+        "localhost",
+        f"localhost:{port}",
+        "127.0.0.1",
+        f"127.0.0.1:{port}",
+        "::1",
+        f"[::1]:{port}",
+    }
+    if host in {"0.0.0.0", "::"}:
+        hosts.update({"0.0.0.0", f"0.0.0.0:{port}", "::", f"[::]:{port}"})
+    return sorted(hosts)
+
+
 def parse_args():
     """Parse command-line arguments."""
     from servicenow_mcp.version import get_version
@@ -152,6 +188,48 @@ def parse_args():
         type=int,
         help="Request timeout in seconds",
         default=int(os.environ.get("SERVICENOW_TIMEOUT", "30")),
+    )
+
+    # MCP transport
+    transport_group = parser.add_argument_group("MCP Transport")
+    transport_group.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        help="MCP transport to run: stdio (default) or streamable HTTP",
+        default=os.environ.get("SERVICENOW_MCP_TRANSPORT", "stdio"),
+    )
+    transport_group.add_argument(
+        "--http-host",
+        help="Host for --transport http",
+        default=os.environ.get("SERVICENOW_MCP_HTTP_HOST", "127.0.0.1"),
+    )
+    transport_group.add_argument(
+        "--http-port",
+        type=int,
+        help="Port for --transport http",
+        default=int(os.environ.get("SERVICENOW_MCP_HTTP_PORT", "8000")),
+    )
+    transport_group.add_argument(
+        "--http-path",
+        help="MCP endpoint path for --transport http",
+        default=os.environ.get("SERVICENOW_MCP_HTTP_PATH", "/mcp"),
+    )
+    transport_group.add_argument(
+        "--http-json-response",
+        action="store_true",
+        help="Return JSON responses instead of SSE streams for HTTP requests",
+        default=_env_bool("SERVICENOW_MCP_HTTP_JSON_RESPONSE", False),
+    )
+    transport_group.add_argument(
+        "--http-allowed-hosts",
+        help="Comma-separated allowed Host headers for HTTP DNS rebinding protection",
+        default=os.environ.get("SERVICENOW_MCP_HTTP_ALLOWED_HOSTS"),
+    )
+    transport_group.add_argument(
+        "--http-disable-dns-rebinding-protection",
+        action="store_true",
+        help="Disable HTTP DNS rebinding protection. Use only behind trusted network controls.",
+        default=_env_bool("SERVICENOW_MCP_HTTP_DISABLE_DNS_REBINDING_PROTECTION", False),
     )
 
     # Authentication
@@ -286,8 +364,22 @@ def create_config(args) -> ServerConfig:
     # NOTE: This assumes the ServerConfig model takes instance_url, auth, debug, timeout etc.
     # The ServiceNowMCP class now expects a ServerConfig object matching this.
 
-    # Instance URL validation
-    instance_url = args.instance_url
+    # Instance URL validation. SERVICENOW_INSTANCE_CONFIG is an opt-in layer:
+    # without SERVICENOW_ACTIVE_INSTANCE, legacy SERVICENOW_INSTANCE_URL behavior
+    # wins so existing single-instance installs do not change.
+    instance_entries = load_instance_config_env(os.getenv(INSTANCE_CONFIG_ENV))
+    active_alias = select_active_alias(
+        instance_entries,
+        active_alias=os.getenv(ACTIVE_INSTANCE_ENV),
+        legacy_instance_url=args.instance_url or os.getenv("SERVICENOW_INSTANCE_URL"),
+    )
+    active_entry = (
+        build_instance_definition(active_alias, instance_entries[active_alias])
+        if active_alias
+        else None
+    )
+
+    instance_url = active_entry.url if active_entry else args.instance_url
     if not instance_url:
         # Attempt to load from .env if not provided via args/env vars directly in parse_args
         instance_url = os.getenv("SERVICENOW_INSTANCE_URL")
@@ -297,14 +389,26 @@ def create_config(args) -> ServerConfig:
             )
 
     # Create authentication configuration based on args
-    auth_type = AuthType(args.auth_type.lower())
+    auth_type_value = (
+        str(active_entry.raw.get("auth_type"))  # type: ignore[union-attr]
+        if active_entry and active_entry.raw and active_entry.raw.get("auth_type")
+        else args.auth_type
+    )
+    auth_type = AuthType(auth_type_value.lower())
     # This will hold the final AuthConfig instance for ServerConfig
     final_auth_config: AuthConfig
+    active_raw = active_entry.raw if active_entry and active_entry.raw else {}
 
     if auth_type == AuthType.BASIC:
-        username = _pick_first_resolved(args.username, os.getenv("SERVICENOW_USERNAME"))
+        username = _pick_first_resolved(
+            active_raw.get("username"),
+            args.username,
+            os.getenv("SERVICENOW_USERNAME"),
+        )
         password = _pick_first_resolved(
-            args.password, os.getenv("SERVICENOW_PASSWORD")
+            active_raw.get("password"),
+            args.password,
+            os.getenv("SERVICENOW_PASSWORD"),
         )  # Get password from arg or env
         if not username or not password:
             raise ValueError(
@@ -321,15 +425,27 @@ def create_config(args) -> ServerConfig:
 
     elif auth_type == AuthType.OAUTH:
         # Simplified - assuming password grant for now based on previous args
-        client_id = args.client_id or os.getenv("SERVICENOW_CLIENT_ID")
-        client_secret = args.client_secret or os.getenv("SERVICENOW_CLIENT_SECRET")
+        client_id = (
+            active_raw.get("client_id") or args.client_id or os.getenv("SERVICENOW_CLIENT_ID")
+        )
+        client_secret = (
+            active_raw.get("client_secret")
+            or args.client_secret
+            or os.getenv("SERVICENOW_CLIENT_SECRET")
+        )
         username = _pick_first_resolved(
-            args.username, os.getenv("SERVICENOW_USERNAME")
+            active_raw.get("username"),
+            args.username,
+            os.getenv("SERVICENOW_USERNAME"),
         )  # Needed for password grant
         password = _pick_first_resolved(
-            args.password, os.getenv("SERVICENOW_PASSWORD")
+            active_raw.get("password"),
+            args.password,
+            os.getenv("SERVICENOW_PASSWORD"),
         )  # Needed for password grant
-        token_url = args.token_url or os.getenv("SERVICENOW_TOKEN_URL")
+        token_url = (
+            active_raw.get("token_url") or args.token_url or os.getenv("SERVICENOW_TOKEN_URL")
+        )
 
         if not client_id or not client_secret or not username or not password:
             raise ValueError(
@@ -353,9 +469,11 @@ def create_config(args) -> ServerConfig:
         final_auth_config = AuthConfig(type=auth_type, oauth=oauth_cfg)
 
     elif auth_type == AuthType.API_KEY:
-        api_key = args.api_key or os.getenv("SERVICENOW_API_KEY")
-        api_key_header = args.api_key_header or os.getenv(
-            "SERVICENOW_API_KEY_HEADER", "X-ServiceNow-API-Key"
+        api_key = active_raw.get("api_key") or args.api_key or os.getenv("SERVICENOW_API_KEY")
+        api_key_header = (
+            active_raw.get("api_key_header")
+            or args.api_key_header
+            or os.getenv("SERVICENOW_API_KEY_HEADER", "X-ServiceNow-API-Key")
         )
         if not api_key:
             raise ValueError(
@@ -370,17 +488,27 @@ def create_config(args) -> ServerConfig:
         final_auth_config = AuthConfig(type=auth_type, api_key=api_key_cfg)
     elif auth_type == AuthType.BROWSER:
         browser_username = _pick_first_resolved(
+            active_raw.get("username"),
             args.browser_username,
             os.getenv("SERVICENOW_BROWSER_USERNAME"),
             os.getenv("SERVICENOW_USERNAME"),
         )
         browser_password = _pick_first_resolved(
+            active_raw.get("password"),
             args.browser_password,
             os.getenv("SERVICENOW_BROWSER_PASSWORD"),
             os.getenv("SERVICENOW_PASSWORD"),
         )
-        browser_login_url = args.browser_login_url or os.getenv("SERVICENOW_BROWSER_LOGIN_URL")
-        _explicit_probe = args.browser_probe_path or os.getenv("SERVICENOW_BROWSER_PROBE_PATH")
+        browser_login_url = (
+            active_raw.get("login_url")
+            or args.browser_login_url
+            or os.getenv("SERVICENOW_BROWSER_LOGIN_URL")
+        )
+        _explicit_probe = (
+            active_raw.get("probe_path")
+            or args.browser_probe_path
+            or os.getenv("SERVICENOW_BROWSER_PROBE_PATH")
+        )
         if _explicit_probe:
             browser_probe_path = _explicit_probe
         else:
@@ -426,13 +554,21 @@ def create_config(args) -> ServerConfig:
             browser_probe_path = (
                 "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
             )
-        browser_headless = str(args.browser_headless).lower() == "true"
-        browser_timeout = args.browser_timeout or int(os.getenv("SERVICENOW_BROWSER_TIMEOUT", "90"))
-        browser_user_data_dir = args.browser_user_data_dir or os.getenv(
-            "SERVICENOW_BROWSER_USER_DATA_DIR"
+        browser_headless = str(active_raw.get("headless", args.browser_headless)).lower() == "true"
+        browser_timeout = (
+            active_raw.get("timeout_seconds")
+            or args.browser_timeout
+            or int(os.getenv("SERVICENOW_BROWSER_TIMEOUT", "90"))
         )
-        browser_session_ttl = args.browser_session_ttl or int(
-            os.getenv("SERVICENOW_BROWSER_SESSION_TTL", "30")
+        browser_user_data_dir = (
+            active_raw.get("user_data_dir")
+            or args.browser_user_data_dir
+            or os.getenv("SERVICENOW_BROWSER_USER_DATA_DIR")
+        )
+        browser_session_ttl = (
+            active_raw.get("session_ttl_minutes")
+            or args.browser_session_ttl
+            or int(os.getenv("SERVICENOW_BROWSER_SESSION_TTL", "30"))
         )
 
         browser_cfg = BrowserAuthConfig(
@@ -521,6 +657,70 @@ async def arun_server(server_instance):
         init_options = server_instance.create_initialization_options()
         await server_instance.run(streams[0], streams[1], init_options)
     logger.info("Stdio server finished.")
+
+
+async def arun_http_server(server_instance, args):
+    """Runs the given MCP server instance using Streamable HTTP transport."""
+    from contextlib import asynccontextmanager
+
+    import uvicorn
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from mcp.server.transport_security import TransportSecuritySettings
+    from starlette.applications import Starlette
+    from starlette.responses import JSONResponse
+    from starlette.routing import Mount, Route
+
+    path = args.http_path if str(args.http_path).startswith("/") else f"/{args.http_path}"
+    allowed_hosts = _split_csv(args.http_allowed_hosts) or _default_http_allowed_hosts(
+        args.http_host, args.http_port
+    )
+    security_settings = TransportSecuritySettings(
+        enable_dns_rebinding_protection=not args.http_disable_dns_rebinding_protection,
+        allowed_hosts=allowed_hosts,
+    )
+    session_manager = StreamableHTTPSessionManager(
+        server_instance,
+        json_response=args.http_json_response,
+        stateless=False,
+        security_settings=security_settings,
+        session_idle_timeout=1800,
+    )
+
+    class StreamableHTTPApp:
+        async def __call__(self, scope, receive, send):
+            await session_manager.handle_request(scope, receive, send)
+
+    async def health(_request):
+        return JSONResponse({"status": "ok", "transport": "http", "mcp_path": path})
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        async with session_manager.run():
+            yield
+
+    app = Starlette(
+        routes=[
+            Route("/health", endpoint=health, methods=["GET"]),
+            Mount(path, app=StreamableHTTPApp()),
+        ],
+        lifespan=lifespan,
+    )
+
+    _start_parent_watchdog()
+    logger.info(
+        "Starting server with Streamable HTTP transport on http://%s:%s%s",
+        args.http_host,
+        args.http_port,
+        path,
+    )
+    config = uvicorn.Config(
+        app,
+        host=args.http_host,
+        port=args.http_port,
+        log_level="debug" if args.debug else "info",
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
 
 
 def _check_for_updates() -> None:
@@ -622,10 +822,13 @@ def main():
         # Get the low-level server instance to run
         server_to_run = mcp_controller.start()
 
-        # Run the server using anyio and the stdio transport
+        # Run the server using anyio and the selected transport
         import anyio
 
-        anyio.run(arun_server, server_to_run)
+        if args.transport == "http":
+            anyio.run(arun_http_server, server_to_run, args)
+        else:
+            anyio.run(arun_server, server_to_run)
 
     except ValueError as e:
         logger.error(f"Configuration or runtime error: {e}")

@@ -18,7 +18,24 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.resources.skill_resources import build_tool_to_skills_map, load_skills
 from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.chromium import check_chromium_install_hint
-from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.config import (
+    ApiKeyConfig,
+    AuthConfig,
+    AuthType,
+    BasicAuthConfig,
+    BrowserAuthConfig,
+    OAuthConfig,
+    ServerConfig,
+)
+from servicenow_mcp.utils.instances import (
+    ACTIVE_INSTANCE_ENV,
+    INSTANCE_CONFIG_ENV,
+    build_instance_definition,
+    coerce_bool,
+    load_instance_config_env,
+    safe_instance_url,
+    select_active_alias,
+)
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 
 logger = logging.getLogger(__name__)
@@ -72,6 +89,8 @@ MANAGE_READ_ACTIONS: Dict[str, set[str]] = {
 }
 # Tools that need confirmation but don't match a prefix above.
 MUTATING_TOOL_NAMES = {"sn_batch", "sn_write"}
+
+INSTANCE_HELPER_TOOLS = {"list_instances", "compare_instances"}
 
 CONFIRM_FIELD = "confirm"
 CONFIRM_VALUE = "approve"
@@ -434,6 +453,14 @@ class ServiceNowMCP:
         self.auth_manager = AuthManager(self.config.auth, self.config.instance_url)
         self.mcp_server: Server = FastMCP("ServiceNow")  # Use low-level Server
         self.name = "ServiceNow"
+        self.instance_entries = load_instance_config_env(os.getenv(INSTANCE_CONFIG_ENV))
+        self.active_instance_alias = select_active_alias(
+            self.instance_entries,
+            active_alias=os.getenv(ACTIVE_INSTANCE_ENV),
+            legacy_instance_url=os.getenv("SERVICENOW_INSTANCE_URL"),
+        )
+        self.instance_contexts: Dict[str, Dict[str, Any]] = self._build_instance_contexts()
+        self.active_instance_meta = self._active_instance_meta()
 
         self.package_definitions: Dict[str, List[str]] = {}
         # Per-package per-tool action allowlists. Populated when YAML uses the
@@ -507,6 +534,117 @@ class ServiceNowMCP:
         self.mcp_server.read_resource()(self._read_resource_impl)
         self.mcp_server.list_resource_templates()(self._list_resource_templates_impl)
         logger.info("Registered list_tools, call_tool, and resource handlers.")
+
+    def _build_instance_contexts(self) -> Dict[str, Dict[str, Any]]:
+        """Build named instance contexts for read-only comparison helpers.
+
+        Legacy single-instance mode has no named peers. The active server config
+        remains the source of truth for ordinary tools.
+        """
+        contexts: Dict[str, Dict[str, Any]] = {}
+        for alias, entry in self.instance_entries.items():
+            definition = build_instance_definition(alias, entry)
+            config = ServerConfig(
+                instance_url=definition.url,
+                auth=self._auth_for_instance_entry(entry),
+                debug=self.config.debug,
+                timeout=self.config.timeout,
+                connect_timeout=self.config.connect_timeout,
+                script_execution_api_resource_path=self.config.script_execution_api_resource_path,
+            )
+            contexts[alias] = {
+                "alias": alias,
+                "definition": definition,
+                "config": config,
+                "auth_manager": AuthManager(config.auth, config.instance_url),
+            }
+        return contexts
+
+    def _auth_for_instance_entry(self, entry: Dict[str, Any]) -> AuthConfig:
+        """Return auth config for a named instance, falling back to active auth."""
+        base = self.config.auth
+        auth_type = str(entry.get("auth_type") or base.type.value).lower()
+        parsed = AuthType(auth_type)
+        if parsed == AuthType.BROWSER:
+            base_browser = base.browser or BrowserAuthConfig()
+            return AuthConfig(
+                type=parsed,
+                browser=BrowserAuthConfig(
+                    username=entry.get("username", base_browser.username),
+                    password=entry.get("password", base_browser.password),
+                    login_url=entry.get("login_url", base_browser.login_url),
+                    probe_path=entry.get("probe_path", base_browser.probe_path),
+                    headless=coerce_bool(entry.get("headless"), base_browser.headless),
+                    timeout_seconds=int(entry.get("timeout_seconds", base_browser.timeout_seconds)),
+                    user_data_dir=entry.get("user_data_dir", base_browser.user_data_dir),
+                    session_ttl_minutes=int(
+                        entry.get("session_ttl_minutes", base_browser.session_ttl_minutes)
+                    ),
+                ),
+            )
+        if parsed == AuthType.BASIC:
+            base_basic = base.basic
+            username = entry.get("username", base_basic.username if base_basic else None)
+            password = entry.get("password", base_basic.password if base_basic else None)
+            if not username or not password:
+                raise ValueError("Named basic-auth instance requires username and password")
+            return AuthConfig(
+                type=parsed,
+                basic=BasicAuthConfig(username=str(username), password=str(password)),
+            )
+        if parsed == AuthType.API_KEY:
+            base_api = base.api_key
+            api_key = entry.get("api_key", base_api.api_key if base_api else None)
+            header = entry.get("api_key_header", base_api.header_name if base_api else None)
+            if not api_key:
+                raise ValueError("Named api_key instance requires api_key")
+            return AuthConfig(
+                type=parsed,
+                api_key=ApiKeyConfig(
+                    api_key=str(api_key),
+                    header_name=str(header or "X-ServiceNow-API-Key"),
+                ),
+            )
+        if parsed == AuthType.OAUTH:
+            base_oauth = base.oauth
+            client_id = entry.get("client_id", base_oauth.client_id if base_oauth else None)
+            client_secret = entry.get(
+                "client_secret", base_oauth.client_secret if base_oauth else None
+            )
+            username = entry.get("username", base_oauth.username if base_oauth else None)
+            password = entry.get("password", base_oauth.password if base_oauth else None)
+            token_url = entry.get("token_url", base_oauth.token_url if base_oauth else None)
+            if not client_id or not client_secret or not username or not password:
+                raise ValueError("Named oauth instance requires OAuth credentials")
+            return AuthConfig(
+                type=parsed,
+                oauth=OAuthConfig(
+                    client_id=str(client_id),
+                    client_secret=str(client_secret),
+                    username=str(username),
+                    password=str(password),
+                    token_url=str(token_url) if token_url else None,
+                ),
+            )
+        return base
+
+    def _active_instance_meta(self) -> Dict[str, Any]:
+        if self.active_instance_alias and self.active_instance_alias in self.instance_contexts:
+            definition = self.instance_contexts[self.active_instance_alias]["definition"]
+            return {
+                "alias": definition.alias,
+                "role": definition.role,
+                "tool_package": definition.tool_package,
+                "allow_writes": definition.allow_writes,
+                "url": definition.url,
+            }
+        return {
+            "alias": "default",
+            "role": "default",
+            "tool_package": None,
+            "allow_writes": True,
+            "url": self.config.instance_url,
+        }
 
     def _load_package_config(self):
         """Load tool package definitions from the YAML configuration file."""
@@ -602,9 +740,19 @@ class ServiceNowMCP:
         Unknown package names emit a warning and are skipped — the merge continues so
         one typo does not wipe out the session.
         """
-        env_package = os.getenv("MCP_TOOL_PACKAGE")
+        instance_package = self.active_instance_meta.get("tool_package")
+        env_package = (
+            str(instance_package).strip() if instance_package else os.getenv("MCP_TOOL_PACKAGE")
+        )
 
-        if env_package:
+        if instance_package:
+            raw = str(instance_package).strip()
+            logger.info(
+                "Active instance '%s' selected tool package: '%s'",
+                self.active_instance_meta.get("alias"),
+                raw,
+            )
+        elif env_package:
             raw = env_package.strip()
             logger.info(f"MCP_TOOL_PACKAGE found: '{raw}'")
         else:
@@ -783,6 +931,40 @@ class ServiceNowMCP:
                     },
                 )
             )
+            if self.instance_contexts:
+                tool_list.append(
+                    types.Tool(
+                        name="list_instances",
+                        description="List configured ServiceNow instances and the active instance.",
+                        inputSchema={"type": "object", "properties": {}},
+                    )
+                )
+                tool_list.append(
+                    types.Tool(
+                        name="compare_instances",
+                        description="Read-only compare records across two configured instances.",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "source": {"type": "string"},
+                                "target": {"type": "string"},
+                                "table": {"type": "string"},
+                                "key_field": {"type": "string"},
+                                "query": {"type": "string"},
+                                "fields": {"type": "string"},
+                                "ignore_fields": {"type": "array", "items": {"type": "string"}},
+                                "limit": {"type": "integer", "default": 100},
+                                "output": {
+                                    "type": "string",
+                                    "enum": ["summary", "compact", "full"],
+                                    "default": "compact",
+                                },
+                                "normalize_strings": {"type": "boolean", "default": True},
+                            },
+                            "required": ["source", "target", "table", "key_field", "fields"],
+                        },
+                    )
+                )
 
         # Iterate through defined tools and add enabled ones
         for tool_name, definition in self.tool_definitions.items():
@@ -845,6 +1027,26 @@ class ServiceNowMCP:
             serialized_string = json_fast.dumps(result_dict)
             # Return a list with a TextContent object
             return [types.TextContent(type="text", text=serialized_string)]
+        if name == "list_instances":
+            if not self.instance_contexts:
+                raise ValueError("Tool 'list_instances' is available only in multi-instance mode.")
+            return [
+                types.TextContent(
+                    type="text",
+                    text=json_fast.dumps(self._list_instances_impl()),
+                )
+            ]
+        if name == "compare_instances":
+            if not self.instance_contexts:
+                raise ValueError(
+                    "Tool 'compare_instances' is available only in multi-instance mode."
+                )
+            return [
+                types.TextContent(
+                    type="text",
+                    text=json_fast.dumps(self._compare_instances_impl(arguments)),
+                )
+            ]
 
         # Check enabled-set FIRST. With lazy discovery `tool_definitions` only
         # holds enabled tools, so the "Unknown tool" check below would eclipse
@@ -885,6 +1087,13 @@ class ServiceNowMCP:
                     f"in package '{self.current_package_name}'. "
                     f"Allowed: {sorted(allowed_actions)}."
                 )
+
+        if not self._active_instance_allows_tool_write(name, arguments):
+            raise ValueError(
+                f"Active instance '{self.active_instance_meta.get('alias')}' "
+                "does not allow write operations. Use a read-only tool or start the "
+                "server with a different SERVICENOW_ACTIVE_INSTANCE."
+            )
 
         # Write guards: block writes against wrong/denied/bloated update sets,
         # raw Flow Designer table writes, and publish-class actions without
@@ -983,12 +1192,198 @@ class ServiceNowMCP:
         # Return a list with a TextContent object
         return [types.TextContent(type="text", text=serialized_string)]
 
+    def _is_read_only_call(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
+        if tool_name == "sn_nl":
+            return not bool(arguments.get("execute", False))
+        if tool_name in MANAGE_READ_ACTIONS:
+            return arguments.get("action") in MANAGE_READ_ACTIONS[tool_name]
+        return not self._is_blocked_mutating_tool(tool_name)
+
+    def _active_instance_allows_tool_write(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
+        if self._is_read_only_call(tool_name, arguments):
+            return True
+        return bool(self.active_instance_meta.get("allow_writes", True))
+
+    def _list_instances_impl(self) -> Dict[str, Any]:
+        instances = []
+        for alias, ctx in self.instance_contexts.items():
+            definition = ctx["definition"]
+            instances.append(
+                {
+                    "alias": alias,
+                    "active": alias == self.active_instance_alias,
+                    "role": definition.role,
+                    "tool_package": definition.tool_package or "default",
+                    "allow_writes": definition.allow_writes,
+                    "host": safe_instance_url(definition.url),
+                }
+            )
+        return {
+            "success": True,
+            "active_instance": self.active_instance_meta.get("alias"),
+            "instances": instances,
+            "ordinary_tools_route_to": self.active_instance_meta.get("alias"),
+            "compare_instances": "read_only",
+        }
+
+    @staticmethod
+    def _record_key_value(record: Dict[str, Any], key_field: str) -> str:
+        value = record.get(key_field)
+        if isinstance(value, dict):
+            value = value.get("value") or value.get("display_value")
+        return str(value or "")
+
+    @staticmethod
+    def _normalize_compare_value(value: Any, *, normalize_strings: bool) -> Any:
+        if isinstance(value, str) and normalize_strings:
+            return "\n".join(line.rstrip() for line in value.replace("\r\n", "\n").split("\n"))
+        if isinstance(value, dict):
+            return {
+                key: ServiceNowMCP._normalize_compare_value(
+                    val, normalize_strings=normalize_strings
+                )
+                for key, val in sorted(value.items())
+            }
+        if isinstance(value, list):
+            return [
+                ServiceNowMCP._normalize_compare_value(item, normalize_strings=normalize_strings)
+                for item in value
+            ]
+        return value
+
+    @staticmethod
+    def _truncate_compare_value(value: Any, max_len: int = 1200) -> Any:
+        if not isinstance(value, str) or len(value) <= max_len:
+            return value
+        return value[:max_len] + f"... (truncated, original length: {len(value)})"
+
+    def _compare_instances_impl(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        from servicenow_mcp.tools.sn_api import sn_query_page
+
+        source = str(arguments.get("source") or "").strip()
+        target = str(arguments.get("target") or "").strip()
+        table = str(arguments.get("table") or "").strip()
+        key_field = str(arguments.get("key_field") or "").strip()
+        fields = str(arguments.get("fields") or "").strip()
+        query = str(arguments.get("query") or "").strip()
+        limit = min(max(int(arguments.get("limit") or 100), 1), 500)
+        output = str(arguments.get("output") or "compact").strip().lower()
+        normalize_strings = coerce_bool(arguments.get("normalize_strings"), True)
+        ignore_fields = set(arguments.get("ignore_fields") or [])
+        if output not in {"summary", "compact", "full"}:
+            raise ValueError("output must be one of: summary, compact, full")
+        for required_name, value in {
+            "source": source,
+            "target": target,
+            "table": table,
+            "key_field": key_field,
+            "fields": fields,
+        }.items():
+            if not value:
+                raise ValueError(f"{required_name} is required")
+        if source not in self.instance_contexts or target not in self.instance_contexts:
+            raise ValueError(f"Unknown instance alias. Available: {sorted(self.instance_contexts)}")
+
+        field_names = [f.strip() for f in fields.split(",") if f.strip()]
+        if key_field not in field_names:
+            field_names.insert(0, key_field)
+        effective_fields = ",".join(dict.fromkeys(field_names))
+
+        def fetch(alias: str) -> List[Dict[str, Any]]:
+            ctx = self.instance_contexts[alias]
+            rows, _total = sn_query_page(
+                ctx["config"],
+                ctx["auth_manager"],
+                table=table,
+                query=query,
+                fields=effective_fields,
+                limit=limit,
+                offset=0,
+                display_value="all",
+                fail_silently=False,
+            )
+            return rows
+
+        source_rows = fetch(source)
+        target_rows = fetch(target)
+        source_by_key = {
+            self._record_key_value(row, key_field): row
+            for row in source_rows
+            if self._record_key_value(row, key_field)
+        }
+        target_by_key = {
+            self._record_key_value(row, key_field): row
+            for row in target_rows
+            if self._record_key_value(row, key_field)
+        }
+        source_keys = set(source_by_key)
+        target_keys = set(target_by_key)
+        shared_keys = sorted(source_keys & target_keys)
+        compared_fields = [f for f in field_names if f != key_field and f not in ignore_fields]
+
+        changed = []
+        for key in shared_keys:
+            srow = source_by_key[key]
+            trow = target_by_key[key]
+            changed_fields = []
+            diffs: Dict[str, Dict[str, Any]] = {}
+            for field in compared_fields:
+                sval = self._normalize_compare_value(
+                    srow.get(field), normalize_strings=normalize_strings
+                )
+                tval = self._normalize_compare_value(
+                    trow.get(field), normalize_strings=normalize_strings
+                )
+                if sval != tval:
+                    changed_fields.append(field)
+                    if output == "full":
+                        diffs[field] = {
+                            "source": self._truncate_compare_value(sval),
+                            "target": self._truncate_compare_value(tval),
+                        }
+            if changed_fields:
+                item: Dict[str, Any] = {"key": key, "fields_changed": changed_fields}
+                if output == "full":
+                    item["diffs"] = diffs
+                changed.append(item)
+
+        result: Dict[str, Any] = {
+            "success": True,
+            "source": source,
+            "target": target,
+            "table": table,
+            "key_field": key_field,
+            "query": query,
+            "compared_fields": compared_fields,
+            "source_count": len(source_rows),
+            "target_count": len(target_rows),
+            "matched": len(shared_keys),
+            "changed_count": len(changed),
+            "only_in_source_count": len(source_keys - target_keys),
+            "only_in_target_count": len(target_keys - source_keys),
+        }
+        if output != "summary":
+            result.update(
+                {
+                    "only_in_source": sorted(source_keys - target_keys)[:50],
+                    "only_in_target": sorted(target_keys - source_keys)[:50],
+                    "changed": changed[:50],
+                    "truncated": {
+                        "changed": len(changed) > 50,
+                        "only_in_source": len(source_keys - target_keys) > 50,
+                        "only_in_target": len(target_keys - source_keys) > 50,
+                    },
+                }
+            )
+        return result
+
     def _list_tool_packages_impl(self) -> Dict[str, Any]:
         """Implementation logic for the list_tool_packages tool."""
         available_packages = list(self.package_definitions.keys())
         return {
             "current_package": self.current_package_name,
             "available_packages": available_packages,
+            "active_instance": self.active_instance_meta.get("alias"),
             "message": (
                 f"Currently loaded package: '{self.current_package_name}'. "
                 f"Set MCP_TOOL_PACKAGE env var to one of {available_packages} to switch."
