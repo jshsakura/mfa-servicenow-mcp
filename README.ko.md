@@ -162,34 +162,26 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 
 #### 2단계 — zip을 한 폴더에 풀기
 
-메인 zip의 압축을 풀면 다음과 같은 구조가 만들어집니다 (Linux 예시):
+핵심 파일은 두 개입니다 — **실행 파일과 설치 스크립트**. 메인 zip을 풀면 다음과 같이 들어 있습니다 (Linux 예시, Windows는 `.exe`와 `.ps1`):
 
 ```
 servicenow-mcp-linux-x64-1.13.5/
-├── servicenow-mcp            ← PyInstaller로 빌드된 실행 파일
-├── install.sh                ← 설치 스크립트
-├── PLAYWRIGHT_VERSION.txt    ← 이 빌드가 요구하는 Playwright 버전
-├── README.md
-└── LICENSE
+├── servicenow-mcp     ← PyInstaller로 빌드된 실행 파일
+└── install.sh         ← 설치 스크립트
 ```
 
-Windows라면 `servicenow-mcp.exe`와 `install.ps1`이 들어 있습니다.
-
-**Chromium도 같이 받았다면**, 받은 `ms-playwright-chromium-*.zip` 파일을 **압축 해제하지 말고** 위 폴더 안에 그대로 복사해 둡니다. install 스크립트가 자동으로 찾아 표준 Playwright 캐시에 풀어 줍니다.
+**Chromium zip도 받았다면**, `ms-playwright-chromium-*.zip` 파일을 **압축 해제하지 말고** 위 폴더에 그대로 복사해 두세요. 설치 스크립트가 자동으로 찾아 표준 Playwright 캐시에 풀어 줍니다.
 
 ```
 servicenow-mcp-linux-x64-1.13.5/
 ├── servicenow-mcp
 ├── install.sh
-├── ms-playwright-chromium-linux-x64-1.13.5.zip   ← (선택) 같은 폴더에 그대로 두기
-├── PLAYWRIGHT_VERSION.txt
-├── README.md
-└── LICENSE
+└── ms-playwright-chromium-linux-x64-1.13.5.zip   ← 같은 폴더에 그대로 두기
 ```
 
 #### 3단계 — 설치 스크립트 실행
 
-압축 푼 폴더로 이동해서 본인 OS에 맞는 명령을 실행하세요. `-Client` / `CLIENT` 값에 사용 중인 MCP 클라이언트를 넣습니다 — 지원 목록: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
+압축 푼 폴더로 이동해서 본인 OS에 맞는 명령을 실행하세요. **세 OS 모두 인자 형태가 동일** — 스크립트 이름과 플래그 접두문자(`-` vs `--`)만 다릅니다. 지원 `--client` 값: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
 
 ```powershell
 # Windows
@@ -199,17 +191,16 @@ cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
 
 ```bash
 # macOS / Linux
-cd ~/Downloads/servicenow-mcp-linux-x64-1.13.5
+cd ~/Downloads/servicenow-mcp-linux-x64-*
 chmod +x install.sh
-SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
-  CLIENT=opencode ./install.sh
+./install.sh --client opencode --instance-url "https://your-instance.service-now.com"
 ```
 
 설치 스크립트가 하는 일:
 
 1. **실행 파일 복사** — 압축 해제 폴더 안의 바이너리를 영구 설치 위치로 복사.
-   - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir` 플래그로 변경 가능)
-   - macOS/Linux: `~/.local/bin/servicenow-mcp` (`INSTALL_DIR` 환경변수로 변경 가능)
+   - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir`로 변경)
+   - macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir`로 변경)
 2. **Chromium 캐시 설치 (해당 zip이 있을 때만)** — Playwright의 표준 브라우저 캐시에 풉니다.
    - Windows: `%LOCALAPPDATA%\ms-playwright`
    - macOS: `~/Library/Caches/ms-playwright`
@@ -230,16 +221,87 @@ SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
 
 버전이 찍히면 바이너리는 정상. 이후 MCP 클라이언트에서 도구를 호출하면 브라우저 로그인이 한 번 뜨고 세션이 캐시됩니다.
 
-#### Chromium 관련 별도 처리 (선택)
+#### 5단계 — MCP 설정 (복붙용)
 
-브라우저 zip을 같이 받지 않았는데 사내 망에서 Playwright의 Chromium 자동 다운로드가 막히면, Python이 사용 가능한 PC에서 동일한 Playwright 버전을 설치해 캐시만 따로 만들 수도 있습니다.
+설치 스크립트가 이미 클라이언트 설정에 항목을 추가했지만, 수동으로 점검·교체해야 한다면 아래를 그대로 복사하세요. `command`만 본인 OS의 실행 파일 경로로 바꾸면 됩니다. **env는 uvx 방식과 동일** — instance URL과 자격 증명만 본인 값으로 채우면 끝.
 
-```powershell
-py -m pip install "playwright==<PLAYWRIGHT_VERSION.txt의 버전>"
-py -m playwright install chromium
+**Claude Code** — `.mcp.json` (프로젝트 루트) / `~/.claude.json` (전역):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "/home/you/.local/bin/servicenow-mcp",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
 ```
 
-그 외에는 [Playwright 브라우저 문서](https://playwright.dev/python/docs/browsers)를 참고해 표준 캐시 경로(위 2단계 참고)에 Chromium 빌드를 배치하면 됩니다.
+Windows라면 `"command"`를 `"C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"`로.
+
+**Codex** — `.codex/config.toml` (프로젝트 루트) / `~/.codex/config.toml` (전역):
+
+```toml
+[mcp_servers.servicenow]
+command = "/home/you/.local/bin/servicenow-mcp"
+args = []
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
+
+[mcp_servers.servicenow.env]
+SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
+SERVICENOW_AUTH_TYPE = "browser"
+SERVICENOW_BROWSER_HEADLESS = "false"
+SERVICENOW_USERNAME = "your.username"
+SERVICENOW_PASSWORD = "your-password"
+MCP_TOOL_PACKAGE = "standard"
+```
+
+**OpenCode** — `opencode.json` (프로젝트 루트):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": ["/home/you/.local/bin/servicenow-mcp"],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택 — MFA 로그인 폼을 미리 채워 줍니다. 빈 값으로 두면 매번 직접 입력하면 됩니다. 다른 클라이언트(Cursor, VS Code Copilot, Gemini, Zed 등) 설정은 [클라이언트 설정 가이드](docs/CLIENT_SETUP.ko.md) 참조.
+
+#### Chromium 대체 (선택)
+
+Chromium zip을 받지 않았는데 사내 망에서 Playwright 자동 다운로드도 막힌다면, Python이 사용 가능한 PC에서 동일 버전 Playwright로 캐시를 미리 만든 뒤 표준 캐시 경로(3단계 참고)에 복사하세요.
+
+```bash
+pip install playwright
+python -m playwright install chromium
+```
+
+자세한 캐시 위치는 [Playwright 브라우저 문서](https://playwright.dev/python/docs/browsers) 참조.
 
 > Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
@@ -516,6 +578,8 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.5" servicenow-m
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -541,6 +605,8 @@ enabled = true
 SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
 SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
+SERVICENOW_USERNAME = "your.username"
+SERVICENOW_PASSWORD = "your-password"
 MCP_TOOL_PACKAGE = "standard"
 ```
 
@@ -563,6 +629,8 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -591,6 +659,8 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -614,6 +684,8 @@ enabled = true
 SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
 SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
+SERVICENOW_USERNAME = "your.username"
+SERVICENOW_PASSWORD = "your-password"
 MCP_TOOL_PACKAGE = "standard"
 ```
 
@@ -633,6 +705,8 @@ Windows Codex에서는 `command = "C:/Users/you/AppData/Local/servicenow-mcp/ser
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
