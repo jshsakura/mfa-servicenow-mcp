@@ -30,16 +30,13 @@ Restart your terminal after installation. No Python install, pip, or venv needed
 
 ### 2. Pre-install Chromium (REQUIRED)
 
-The MFA/SSO login window is a Playwright-driven Chromium build — a hard dependency. Install it once via `uv tool install`, which adds the `playwright` binary to your PATH:
+The MFA/SSO login window is a Playwright-driven Chromium build — a hard dependency. Use `uvx` for the install so the same execution path is used for both Playwright and the MCP server:
 
 ```bash
-uv tool install playwright
-playwright install chromium
+uvx --with playwright playwright install chromium
 ```
 
-> One-liner alternative: `uvx --with playwright playwright install chromium` — same result, slower per call because uvx creates an ephemeral venv each time.
-
-The browser binary is cached at `~/.cache/ms-playwright/` (macOS/Linux) or `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows) and shared across MCP versions. Re-run `playwright install chromium` only when you upgrade Playwright itself.
+The browser binary is cached at `~/.cache/ms-playwright/` (macOS/Linux) or `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows) and shared across MCP versions. Re-run the same `uvx --with playwright playwright install chromium` command only when you upgrade Playwright itself.
 
 > Windows users: see [Windows Installation Guide](WINDOWS_INSTALL.md) for step-by-step details and proxy/antivirus notes.
 

@@ -147,8 +147,6 @@ uvx --with playwright playwright install chromium
 
 If you use `servicenow-mcp setup <client>` (next section), this command runs automatically — skip ahead.
 
-> **Power users:** `uv tool install playwright` puts `playwright` on your PATH permanently. Most users don't need this.
-
 > Windows users: see the [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
 
 ---
@@ -706,7 +704,7 @@ cd mfa-servicenow-mcp
 
 uv venv
 uv pip install -e ".[browser,dev]"
-uv run playwright install chromium
+uvx --with playwright playwright install chromium
 ```
 
 ### Running Tests

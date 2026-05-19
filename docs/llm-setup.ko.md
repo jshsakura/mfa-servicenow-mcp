@@ -89,14 +89,11 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 
 **2.2 — Chromium 설치**
 
-2.1에서 아무것도 없으면 Playwright를 uv tool로 깔고(이러면 `playwright` 바이너리가 PATH에 박혀서 로컬에서 재사용 가능) Chromium 빌드를 받습니다:
+2.1에서 아무것도 없으면 MCP 서버와 같은 실행 흐름을 쓰도록 `uvx`로 Chromium 빌드를 받습니다:
 
 ```bash
-uv tool install playwright
-playwright install chromium
+uvx --with playwright playwright install chromium
 ```
-
-> PATH에 새 명령 추가가 부담스러우면 한 줄 대안: `uvx --with playwright playwright install chromium` — 결과는 같지만 uvx가 매번 임시 venv를 만드므로 약간 더 느립니다. 사용자의 첫 설치라면 `uv tool install` 방식을 우선 사용하세요.
 
 처음엔 ~150 MB 다운로드입니다. 느린 회선에선 몇 분 걸릴 수 있는데 정상입니다. 중간에 중단하지 마세요. 사용자에게 진행 메시지("ServiceNow MFA 로그인용 Chromium을 다운로드 중입니다 — 느린 네트워크에선 몇 분 걸릴 수 있습니다…")를 보여서 기다리는 이유를 알게 해주세요.
 
