@@ -164,18 +164,13 @@ Grab the zip(s) for your OS from <https://github.com/jshsakura/mfa-servicenow-mc
 
 #### Step 2 — Extract into a single folder
 
-Unzipping the main zip produces this layout (Linux example):
+The two files that matter are the **executable and the installer script**. Unzipping produces (Linux example, Windows ships `.exe` + `.ps1`):
 
 ```
 servicenow-mcp-linux-x64-1.13.5/
-├── servicenow-mcp            ← PyInstaller-built executable
-├── install.sh                ← installer script
-├── PLAYWRIGHT_VERSION.txt    ← Playwright version this build expects
-├── README.md
-└── LICENSE
+├── servicenow-mcp     ← PyInstaller-built executable
+└── install.sh         ← installer script
 ```
-
-Windows ships `servicenow-mcp.exe` and `install.ps1` instead.
 
 **If you also downloaded the Chromium zip**, copy that `ms-playwright-chromium-*.zip` file (do **not** extract it) into the same folder. The installer auto-detects it and extracts it into the standard Playwright cache.
 
@@ -183,15 +178,12 @@ Windows ships `servicenow-mcp.exe` and `install.ps1` instead.
 servicenow-mcp-linux-x64-1.13.5/
 ├── servicenow-mcp
 ├── install.sh
-├── ms-playwright-chromium-linux-x64-1.13.5.zip   ← (optional) drop here as-is
-├── PLAYWRIGHT_VERSION.txt
-├── README.md
-└── LICENSE
+└── ms-playwright-chromium-linux-x64-1.13.5.zip   ← drop here as-is
 ```
 
 #### Step 3 — Run the installer
 
-`cd` into the extracted folder and run the script for your OS. Set the `-Client` / `CLIENT` value to your MCP client — supported: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
+`cd` into the extracted folder and run the script for your OS. The argument shape is the same across all platforms — only the script name and the flag-prefix character differ. Supported `--client` values: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
 
 ```powershell
 # Windows
@@ -201,17 +193,16 @@ cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
 
 ```bash
 # macOS / Linux
-cd ~/Downloads/servicenow-mcp-linux-x64-1.13.5
+cd ~/Downloads/servicenow-mcp-linux-x64-*
 chmod +x install.sh
-SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
-  CLIENT=opencode ./install.sh
+./install.sh --client opencode --instance-url "https://your-instance.service-now.com"
 ```
 
 The installer does three things:
 
 1. **Copies the executable** to a permanent location.
    - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (override with `-InstallDir`)
-   - macOS/Linux: `~/.local/bin/servicenow-mcp` (override with `INSTALL_DIR=...`)
+   - macOS/Linux: `~/.local/bin/servicenow-mcp` (override with `--install-dir`)
 2. **Installs the Chromium cache (only if the matching zip is present)** into Playwright's standard browser cache.
    - Windows: `%LOCALAPPDATA%\ms-playwright`
    - macOS: `~/Library/Caches/ms-playwright`
@@ -232,16 +223,87 @@ The installer does three things:
 
 If the version prints, the binary is good. The first MCP tool call after that triggers a one-time browser login; the session is cached for reuse.
 
-#### Standalone Chromium fallback (optional)
+#### Step 5 — MCP config (copy-paste)
 
-If you didn't take the Chromium zip and Playwright's auto-download is blocked, you can pre-stage the cache on any machine with Python:
+The installer already writes a `servicenow` entry into your client's config. If you ever need to inspect or fix it by hand, copy one of these — only `command` differs from the uvx setup, the `env` block is identical.
 
-```powershell
-py -m pip install "playwright==<version-from-PLAYWRIGHT_VERSION.txt>"
-py -m playwright install chromium
+**Claude Code** — `.mcp.json` (project root) / `~/.claude.json` (global):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "/home/you/.local/bin/servicenow-mcp",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
 ```
 
-Otherwise see the [Playwright browser docs](https://playwright.dev/python/docs/browsers) and drop the matching Chromium build into the standard cache path listed in Step 3 above.
+On Windows replace `"command"` with `"C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"`.
+
+**Codex** — `.codex/config.toml` (project) / `~/.codex/config.toml` (global):
+
+```toml
+[mcp_servers.servicenow]
+command = "/home/you/.local/bin/servicenow-mcp"
+args = []
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
+
+[mcp_servers.servicenow.env]
+SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
+SERVICENOW_AUTH_TYPE = "browser"
+SERVICENOW_BROWSER_HEADLESS = "false"
+SERVICENOW_USERNAME = "your.username"
+SERVICENOW_PASSWORD = "your-password"
+MCP_TOOL_PACKAGE = "standard"
+```
+
+**OpenCode** — `opencode.json` (project root):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": ["/home/you/.local/bin/servicenow-mcp"],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional — they pre-fill the MFA login form. Leave them out and you'll type them by hand each time. Configs for other clients (Cursor, VS Code Copilot, Gemini, Zed, …) live in the [Client Setup Guide](docs/CLIENT_SETUP.md).
+
+#### Chromium fallback (optional)
+
+If you didn't grab the Chromium zip and Playwright's auto-download is blocked, pre-stage the cache on any machine with Python and copy the resulting cache directory over:
+
+```bash
+pip install playwright
+python -m playwright install chromium
+```
+
+See the [Playwright browser docs](https://playwright.dev/python/docs/browsers) for the standard cache paths (listed in Step 3 above).
 
 > Windows users: see the [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
 
@@ -521,6 +583,8 @@ Choose one execution style:
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -546,6 +610,8 @@ enabled = true
 SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
 SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
+SERVICENOW_USERNAME = "your.username"
+SERVICENOW_PASSWORD = "your-password"
 MCP_TOOL_PACKAGE = "standard"
 ```
 
@@ -568,6 +634,8 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -596,6 +664,8 @@ Common install paths:
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -619,6 +689,8 @@ enabled = true
 SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
 SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
+SERVICENOW_USERNAME = "your.username"
+SERVICENOW_PASSWORD = "your-password"
 MCP_TOOL_PACKAGE = "standard"
 ```
 
@@ -638,6 +710,8 @@ For Windows Codex config, use `command = "C:/Users/you/AppData/Local/servicenow-
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }

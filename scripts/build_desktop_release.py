@@ -21,7 +21,6 @@ import shutil
 import subprocess
 import sys
 import zipfile
-from importlib import metadata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,9 +63,6 @@ def _zip_dir(source_dir: Path, zip_path: Path) -> None:
 def _build_executable(bundle_dir: Path, exe_name: str) -> None:
     _run([sys.executable, "-m", "pip", "install", "-e", ".[browser]"])
     _run([sys.executable, "-m", "pip", "install", "--upgrade", "pyinstaller"])
-    (bundle_dir / "PLAYWRIGHT_VERSION.txt").write_text(
-        metadata.version("playwright") + "\n", encoding="utf-8"
-    )
     _run(
         [
             sys.executable,
@@ -139,7 +135,6 @@ def main() -> int:
 
     _build_executable(bundle_dir, exe_name)
     _copy_install_script(bundle_dir, platform_tag)
-    shutil.copy2(ROOT / "README.md", bundle_dir / "README.md")
     shutil.copy2(ROOT / "LICENSE", bundle_dir / "LICENSE")
 
     bundle_zip = output_dir / f"{bundle_name}.zip"

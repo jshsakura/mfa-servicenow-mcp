@@ -58,38 +58,34 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 | macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>-<version>.zip` |
 | Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64-<version>.zip` |
 
-**2. 압축 해제 — 폴더 구조는 다음과 같습니다 (Linux 예시):**
+**2. 압축 해제 — 핵심 파일은 두 개 (실행 파일 + 설치 스크립트):**
 
 ```
-servicenow-mcp-linux-x64-1.13.5/
-├── servicenow-mcp            ← PyInstaller로 빌드된 실행 파일
-├── install.sh                ← 설치 스크립트
-├── PLAYWRIGHT_VERSION.txt    ← 이 빌드가 요구하는 Playwright 버전
-├── README.md
-└── LICENSE
+servicenow-mcp-linux-x64-<ver>/
+├── servicenow-mcp     ← PyInstaller로 빌드된 실행 파일
+└── install.sh         ← 설치 스크립트
 ```
 
-Windows는 `servicenow-mcp.exe` + `install.ps1`이 들어 있습니다. Chromium zip을 같이 받았다면 **압축을 풀지 말고 그대로 같은 폴더에 복사**해 두세요 — 설치 스크립트가 자동으로 찾아 처리합니다.
+Windows는 `servicenow-mcp.exe` + `install.ps1`. Chromium zip을 같이 받았다면 **압축을 풀지 말고 그대로 같은 폴더에 복사**하세요 — 설치 스크립트가 자동으로 찾아 처리합니다.
 
-**3. 설치 스크립트 실행** (`opencode` 자리에 본인 클라이언트: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`):
+**3. 설치 스크립트 실행** — 세 OS 모두 인자 형태가 동일. 지원 `--client` 값: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
 
 ```powershell
 # Windows
-cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
+cd $HOME\Downloads\servicenow-mcp-windows-x64-*
 .\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
 ```
 
 ```bash
 # macOS / Linux
-cd ~/Downloads/servicenow-mcp-linux-x64-1.13.5
+cd ~/Downloads/servicenow-mcp-linux-x64-*
 chmod +x install.sh
-SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
-  CLIENT=opencode ./install.sh
+./install.sh --client opencode --instance-url "https://your-instance.service-now.com"
 ```
 
 설치 스크립트가 하는 일:
 
-1. 실행 파일을 영구 위치로 복사 — Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir`로 변경), macOS/Linux: `~/.local/bin/servicenow-mcp` (`INSTALL_DIR=...`로 변경).
+1. 실행 파일을 영구 위치로 복사 — Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir`로 변경), macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir`로 변경).
 2. Chromium zip이 있으면 표준 Playwright 캐시에 추출 — Windows: `%LOCALAPPDATA%\ms-playwright`, macOS: `~/Library/Caches/ms-playwright`, Linux: `~/.cache/ms-playwright`.
 3. MCP 클라이언트 설정 파일(`.mcp.json`, `~/.codex/config.toml`, `opencode.json` 등)에 `servicenow` 항목을 자동으로 추가하고 `command`를 1단계 경로로 지정.
 
@@ -103,7 +99,7 @@ SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
 & "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version
 ```
 
-Chromium zip을 받지 않았는데 사내 망에서 Playwright 자동 다운로드도 막힌다면, Python이 사용 가능한 다른 PC에서 동일 버전의 Playwright로 캐시를 미리 만든 뒤 복사하세요: `py -m pip install "playwright==<PLAYWRIGHT_VERSION.txt의 버전>" && py -m playwright install chromium`.
+Chromium zip을 받지 않았는데 사내 망에서 Playwright 자동 다운로드도 막힌다면 Python이 가능한 PC에서 캐시를 미리 만든 뒤 복사하세요 — `pip install playwright && python -m playwright install chromium`.
 
 > Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](WINDOWS_INSTALL.ko.md) 참조.
 
