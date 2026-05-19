@@ -182,69 +182,37 @@ class GetLogsParams(BaseModel):
     # system=script errors/gs.log | journal=work notes/comments |
     # transaction=HTTP req/resp | background=scheduled job/fix script runs.
     log_type: Literal["system", "journal", "transaction", "background"] = Field(
-        ...,
-        description="Log type (see enum values).",
+        ..., description="Log type"
     )
-    limit: int = Field(
-        default=DEFAULT_LOG_LIMIT,
-        description=f"Max records. Clamped to {MAX_LOG_LIMIT}.",
-    )
-    offset: int = Field(default=0, description="Pagination offset.")
+    limit: int = Field(default=DEFAULT_LOG_LIMIT, description="Max records")
+    offset: int = Field(default=0, description="Pagination offset")
     timeframe: Literal["last_hour", "last_24h", "last_7d", "all"] = Field(
-        default="last_24h",
-        description="Time filter.",
+        default="last_24h", description="Time filter"
     )
     # --- Universal filter ---
-    contains: Optional[str] = Field(
-        default=None,
-        description="Text search on the main content field (message/value).",
-    )
+    contains: Optional[str] = Field(default=None, description="Text search (message/value)")
     # --- system filters ---
-    level: Optional[str] = Field(
-        default=None, description="[system] Log level: error, warning, info, debug"
-    )
-    source: Optional[str] = Field(
-        default=None, description="[system/background] Source name (LIKE match)"
-    )
+    level: Optional[str] = Field(default=None, description="[system] error|warning|info|debug")
+    source: Optional[str] = Field(default=None, description="[system/background] Source LIKE")
     # --- journal filters ---
-    table: Optional[str] = Field(
-        default=None, description="[journal] Target table (e.g. incident, x_app_request)"
-    )
-    record_sys_id: Optional[str] = Field(
-        default=None, description="[journal] Specific record sys_id"
-    )
-    field_name: Optional[str] = Field(
-        default=None, description="[journal] Field name (work_notes, comments)"
-    )
-    created_by: Optional[str] = Field(
-        default=None, description="[journal/transaction] Filter by user"
-    )
+    table: Optional[str] = Field(default=None, description="[journal] Target table")
+    record_sys_id: Optional[str] = Field(default=None, description="[journal] Record sys_id")
+    field_name: Optional[str] = Field(default=None, description="[journal] work_notes|comments")
+    created_by: Optional[str] = Field(default=None, description="[journal/transaction] User filter")
     # --- transaction filters ---
-    url_contains: Optional[str] = Field(
-        default=None, description="[transaction] URL pattern (LIKE match)"
-    )
-    response_status: Optional[str] = Field(
-        default=None, description="[transaction] HTTP status code"
-    )
+    url_contains: Optional[str] = Field(default=None, description="[transaction] URL LIKE")
+    response_status: Optional[str] = Field(default=None, description="[transaction] HTTP status")
     min_response_time_ms: Optional[int] = Field(
-        default=None, description="[transaction] Slow request threshold (ms)"
+        default=None, description="[transaction] Slow threshold (ms)"
     )
     # --- background filters ---
-    name: Optional[str] = Field(
-        default=None, description="[background] Execution name (LIKE match)"
-    )
+    name: Optional[str] = Field(default=None, description="[background] Execution name LIKE")
     state: Optional[str] = Field(
-        default=None, description="[background] State: running, complete, cancelled"
+        default=None, description="[background] running|complete|cancelled"
     )
     # --- advanced ---
-    query: Optional[str] = Field(
-        default=None,
-        description="Raw encoded query appended to filters.",
-    )
-    max_text_length: int = Field(
-        default=DEFAULT_TEXT_PREVIEW,
-        description=f"Max text field length. Clamped to {MAX_TEXT_PREVIEW}.",
-    )
+    query: Optional[str] = Field(default=None, description="Raw encoded query appended")
+    max_text_length: int = Field(default=DEFAULT_TEXT_PREVIEW, description="Max text length")
 
 
 @register_tool(

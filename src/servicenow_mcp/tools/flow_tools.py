@@ -11,7 +11,7 @@ Backed by existing implementations in:
 """
 
 import logging
-from typing import Any, Dict, Literal, Optional, cast
+from typing import Any, ClassVar, Dict, Literal, Optional, cast
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -100,99 +100,117 @@ class ManageFlowDesignerParams(BaseModel):
         "edit_status",
     ] = Field(
         ...,
-        description="Action to perform. Read: list/get_detail/get_executions/compare/edit_status. Write: update/checkout/set_*/save/discard.",
+        description="Read: list/get_detail/get_executions/compare/edit_status. Write: update/checkout/set_*/save/discard.",
     )
 
     # ---- Common ----
     flow_id: Optional[str] = Field(
         default=None,
-        description="Flow sys_id (sys_hub_flow). Required for get_detail/get_executions/update/edit actions.",
+        description="Flow sys_id (sys_hub_flow); required for get_detail/get_executions/update/edit",
     )
-    limit: int = Field(default=20, description="Max records (list, get_executions)")
-    offset: int = Field(default=0, description="Pagination offset (list, get_executions)")
+    limit: int = Field(default=20, description="Max records")
+    offset: int = Field(default=0, description="Pagination offset")
 
     # ---- list ----
-    include_inactive: bool = Field(default=False, description="Include inactive flows (list)")
-    flow_status: Optional[str] = Field(
-        default=None, description="Status filter: Draft, Published, etc. (list)"
-    )
-    name_filter: Optional[str] = Field(default=None, description="Flow name contains-match (list)")
-    scope: Optional[str] = Field(default=None, description="Scope namespace filter (list)")
-    query: Optional[str] = Field(default=None, description="Additional encoded query (list)")
-    count_only: bool = Field(default=False, description="Return count only (list)")
+    include_inactive: bool = Field(default=False, description="Include inactive flows")
+    flow_status: Optional[str] = Field(default=None, description="Status: Draft/Published/etc")
+    name_filter: Optional[str] = Field(default=None, description="Name contains-match")
+    scope: Optional[str] = Field(default=None, description="Scope namespace")
+    query: Optional[str] = Field(default=None, description="Additional encoded query")
+    count_only: bool = Field(default=False, description="Return count only")
     flow_type: Optional[Literal["flow", "subflow", "all"]] = Field(
-        default=None, description="Type filter (list); None = flows only"
+        default=None, description="Type filter; None = flows only"
     )
 
     # ---- get_detail ----
-    include_structure: bool = Field(
-        default=False, description="Include flow structure tree (get_detail)"
-    )
-    include_triggers: bool = Field(default=False, description="Include trigger config (get_detail)")
+    include_structure: bool = Field(default=False, description="Include flow structure tree")
+    include_triggers: bool = Field(default=False, description="Include trigger config")
     include_executions_summary: bool = Field(
-        default=False, description="Include recent execution summary (get_detail)"
+        default=False, description="Include recent execution summary"
     )
-    trace_pill: Optional[str] = Field(
-        default=None, description="Trace data pill string through flow (get_detail)"
-    )
+    trace_pill: Optional[str] = Field(default=None, description="Trace data pill through flow")
     include_subflow_tree: bool = Field(
-        default=False, description="Include recursive subflow call tree (get_detail)"
+        default=False, description="Include recursive subflow call tree"
     )
-    summary_format: bool = Field(
-        default=True, description="Compact format (get_detail). False = raw JSON"
-    )
+    summary_format: bool = Field(default=True, description="Compact format; False = raw JSON")
 
     # ---- get_executions ----
     context_id: Optional[str] = Field(
-        default=None,
-        description="Execution sys_id (sys_flow_context) for single detail (get_executions)",
+        default=None, description="Execution sys_id (sys_flow_context)"
     )
-    flow_name: Optional[str] = Field(
-        default=None, description="Flow name contains-match for executions (get_executions)"
-    )
+    flow_name: Optional[str] = Field(default=None, description="Flow name contains-match")
     exec_state: Optional[str] = Field(
-        default=None,
-        description="State filter: Complete/Error/Waiting/Cancelled/In Progress (get_executions)",
+        default=None, description="State: Complete/Error/Waiting/Cancelled/In Progress"
     )
-    source_record: Optional[str] = Field(
-        default=None, description="Source record display value filter (get_executions)"
-    )
-    errors_only: bool = Field(default=False, description="Only errored executions (get_executions)")
+    source_record: Optional[str] = Field(default=None, description="Source record display value")
+    errors_only: bool = Field(default=False, description="Only errored executions")
 
     # ---- compare ----
-    flow_id_a: Optional[str] = Field(default=None, description="First flow sys_id (compare)")
-    flow_id_b: Optional[str] = Field(default=None, description="Second flow sys_id (compare)")
-    name_a: Optional[str] = Field(
-        default=None, description="First flow name lookup if no flow_id_a (compare)"
-    )
-    name_b: Optional[str] = Field(
-        default=None, description="Second flow name lookup if no flow_id_b (compare)"
-    )
-    include_label_cache: bool = Field(
-        default=True, description="Include label_cache diff (compare)"
-    )
+    flow_id_a: Optional[str] = Field(default=None, description="First flow sys_id")
+    flow_id_b: Optional[str] = Field(default=None, description="Second flow sys_id")
+    name_a: Optional[str] = Field(default=None, description="First flow name fallback")
+    name_b: Optional[str] = Field(default=None, description="Second flow name fallback")
+    include_label_cache: bool = Field(default=True, description="Include label_cache diff")
 
     # ---- update ----
-    new_name: Optional[str] = Field(default=None, description="New flow name (update)")
-    description: Optional[str] = Field(default=None, description="New flow description (update)")
-    active: Optional[bool] = Field(default=None, description="New active status (update)")
+    new_name: Optional[str] = Field(default=None, description="New flow name")
+    description: Optional[str] = Field(default=None, description="New flow description")
+    active: Optional[bool] = Field(default=None, description="New active status")
 
     # ---- edit workflow ----
-    node_id: Optional[str] = Field(
-        default=None,
-        description="Action/logic/trigger instance id (set_action_input/set_branch_condition/set_trigger_condition)",
-    )
-    input_name: Optional[str] = Field(
-        default=None, description="Input field name (set_action_input)"
-    )
-    value: Optional[str] = Field(
-        default=None,
-        description="New value (set_action_input/set_trigger_condition/set_branch_condition)",
-    )
-    condition_label: Optional[str] = Field(
-        default=None, description="Branch condition label (set_branch_condition)"
-    )
-    publish: bool = Field(default=False, description="Publish after save (save)")
+    node_id: Optional[str] = Field(default=None, description="Action/logic/trigger instance id")
+    input_name: Optional[str] = Field(default=None, description="Input field name")
+    value: Optional[str] = Field(default=None, description="New value")
+    condition_label: Optional[str] = Field(default=None, description="Branch condition label")
+    publish: bool = Field(default=False, description="Publish after save")
+
+    _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
+        "list": frozenset(
+            {
+                "limit",
+                "offset",
+                "include_inactive",
+                "flow_status",
+                "name_filter",
+                "scope",
+                "query",
+                "count_only",
+                "flow_type",
+            }
+        ),
+        "get_detail": frozenset(
+            {
+                "flow_id",
+                "include_structure",
+                "include_triggers",
+                "include_executions_summary",
+                "trace_pill",
+                "include_subflow_tree",
+                "summary_format",
+            }
+        ),
+        "get_executions": frozenset(
+            {
+                "flow_id",
+                "limit",
+                "offset",
+                "context_id",
+                "flow_name",
+                "exec_state",
+                "source_record",
+                "errors_only",
+            }
+        ),
+        "compare": frozenset({"flow_id_a", "flow_id_b", "name_a", "name_b", "include_label_cache"}),
+        "update": frozenset({"flow_id", "new_name", "description", "active"}),
+        "checkout": frozenset({"flow_id"}),
+        "set_action_input": frozenset({"flow_id", "node_id", "input_name", "value"}),
+        "set_trigger_condition": frozenset({"flow_id", "node_id", "value"}),
+        "set_branch_condition": frozenset({"flow_id", "node_id", "value", "condition_label"}),
+        "save": frozenset({"flow_id", "publish"}),
+        "discard": frozenset({"flow_id"}),
+        "edit_status": frozenset({"flow_id"}),
+    }
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageFlowDesignerParams":
@@ -388,11 +406,9 @@ _DISPATCH = {
     name="manage_flow_designer",
     params=ManageFlowDesignerParams,
     description=(
-        "PRIMARY Flow Designer tool (sys_hub_flow). Unified surface for "
-        "list/get_detail/get_executions/compare (read) and "
-        "update/checkout/set_action_input/set_trigger_condition/set_branch_condition/save/discard/edit_status (write). "
-        "Edit workflow: checkout → set_* → save (publish=true to publish). "
-        "Browser auth required for edit actions. Never use sn_query for flows."
+        "PRIMARY Flow Designer tool (sys_hub_flow). Read + edit. "
+        "Edit flow: checkout → set_* → save (publish=true). Browser auth for writes. "
+        "Never use sn_query for flows."
     ),
     serialization="json",
     return_type=dict,

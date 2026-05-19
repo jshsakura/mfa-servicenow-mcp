@@ -774,173 +774,86 @@ IMPLICIT_ASSIGNMENT_RE = re.compile(r"(?<![.\w$])([A-Za-z_$][\w$]*)\s*([+\-*/%]?
 class SearchPortalRegexMatchesParams(BaseModel):
     regex: str = Field(
         default=DEFAULT_REDIRECT_PATTERN,
-        description=(
-            "Pattern to find in source code. In auto mode (default), plain strings are treated literally and regex-looking patterns stay regex."
-        ),
+        description="Pattern to find in source",
     )
-    match_mode: str = Field(
-        default="auto",
-        description="Pattern mode: auto | literal | regex. Use auto for LLM-friendly matching without manual escaping.",
-    )
-    updated_by: str | None = Field(
-        default=None,
-        description="Optional updater filter (sys_updated_by). Example: admin@example.com",
-    )
-    scope: str | None = Field(
-        default=None,
-        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
-    )
-    widget_ids: List[str] | None = Field(
-        default=None,
-        description="Optional widget id/sys_id/name filters. If provided, scan only these widgets.",
-    )
+    match_mode: str = Field(default="auto", description="auto | literal | regex")
+    updated_by: str | None = Field(default=None, description="sys_updated_by filter")
+    scope: str | None = Field(default=None, description="sys_scope filter")
+    widget_ids: List[str] | None = Field(default=None, description="Widget id/sys_id/name filter")
     provider_ids: List[str] | None = Field(
-        default=None,
-        description="Optional angular provider sys_id/name filters. If provided, scan these providers directly (bypasses widget→M2M lookup).",
+        default=None, description="Angular provider sys_id/name filter (bypasses M2M)"
     )
     source_types: List[str] = Field(
         default=["widget"],
-        description="Source types to include. Allowed: widget, script_include, angular_provider",
+        description="Source types: widget | script_include | angular_provider",
     )
-    updated_after: str | None = Field(
-        default=None,
-        description="Optional lower bound for sys_updated_on (YYYY-MM-DD or datetime)",
-    )
-    updated_before: str | None = Field(
-        default=None,
-        description="Optional upper bound for sys_updated_on (YYYY-MM-DD or datetime)",
-    )
+    updated_after: str | None = Field(default=None, description="sys_updated_on >= (YYYY-MM-DD)")
+    updated_before: str | None = Field(default=None, description="sys_updated_on <= (YYYY-MM-DD)")
     include_linked_script_includes: bool = Field(
-        default=False,
-        description="Expand scan to script includes referenced by matched widgets",
+        default=False, description="Also scan referenced Script Includes"
     )
     include_linked_angular_providers: bool = Field(
-        default=False,
-        description="Expand scan to angular providers linked to matched widgets",
+        default=False, description="Also scan linked Angular Providers"
     )
     linked_components_updated_by_only: bool = Field(
-        default=False,
-        description="When true, linked Script Includes/Providers are filtered by same updated_by",
+        default=False, description="Filter linked SI/Providers by same updated_by"
     )
     include_widget_fields: List[str] = Field(
         default=["template", "script", "client_script", "link", "css"],
-        description="Widget fields to scan for pattern",
+        description="Widget fields to scan",
     )
-    max_widgets: int = Field(
-        default=25,
-        description=f"Maximum widgets to scan after filter. Clamped to {MAX_WIDGET_REVIEW_LIMIT}.",
-    )
-    page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
-    max_matches: int = Field(
-        default=25,
-        description=f"Maximum total matches to return. Clamped to {MAX_WIDGET_REVIEW_MATCHES}.",
-    )
+    max_widgets: int = Field(default=25, description="Max widgets to scan")
+    page_size: int = Field(default=50, description="API page size (10-100)")
+    max_matches: int = Field(default=25, description="Max matches to return")
     snippet_length: int = Field(
-        default=DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH,
-        description="Maximum one-line snippet length per match",
+        default=DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH, description="Max snippet length per match"
     )
-    compact_output: bool = Field(
-        default=True,
-        description="Return compact output (location, line, snippet) to minimize tokens",
-    )
-    output_mode: str | None = Field(
-        default=None,
-        description="Optional output shape override: minimal | compact | full",
-    )
+    compact_output: bool = Field(default=True, description="Compact output")
+    output_mode: str | None = Field(default=None, description="minimal | compact | full")
 
 
 class TracePortalRouteTargetsParams(BaseModel):
     regex: str = Field(
-        default=DEFAULT_REDIRECT_PATTERN,
-        description=(
-            "Pattern for the route/target to trace. In auto mode (default), plain strings are treated literally and regex-looking patterns stay regex."
-        ),
+        default=DEFAULT_REDIRECT_PATTERN, description="Route/target pattern to trace"
     )
-    match_mode: str = Field(
-        default="auto",
-        description="Pattern mode: auto | literal | regex. Use auto for LLM-friendly matching without manual escaping.",
-    )
-    updated_by: str | None = Field(
-        default=None,
-        description="Optional updater filter (sys_updated_by). Example: admin@example.com",
-    )
-    scope: str | None = Field(
-        default=None,
-        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
-    )
-    widget_ids: List[str] | None = Field(
-        default=None,
-        description="Optional widget id/sys_id/name filters. If provided, only these widgets are traced.",
-    )
+    match_mode: str = Field(default="auto", description="auto | literal | regex")
+    updated_by: str | None = Field(default=None, description="sys_updated_by filter")
+    scope: str | None = Field(default=None, description="sys_scope filter")
+    widget_ids: List[str] | None = Field(default=None, description="Widget id/sys_id/name filter")
     provider_ids: List[str] | None = Field(
-        default=None,
-        description="Optional provider id/sys_id/name filters. When provided, linked widgets are resolved first.",
+        default=None, description="Provider id/sys_id/name filter"
     )
     include_linked_angular_providers: bool = Field(
-        default=True,
-        description="Expand each widget trace to linked Angular Providers before scanning for route matches.",
+        default=True, description="Also trace linked Angular Providers"
     )
     include_widget_fields: List[str] = Field(
         default=["template", "script", "client_script", "link"],
-        description="Widget fields to inspect for route matches or click-handler clues.",
+        description="Widget fields to inspect",
     )
-    max_widgets: int = Field(
-        default=10,
-        description=f"Maximum widgets to analyze after filters. Clamped to {MAX_WIDGET_REVIEW_LIMIT}.",
-    )
-    page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
-    max_traces: int = Field(
-        default=25,
-        description=f"Maximum widget trace rows to return. Clamped to {MAX_WIDGET_REVIEW_MATCHES}.",
-    )
+    max_widgets: int = Field(default=10, description="Max widgets to analyze")
+    page_size: int = Field(default=50, description="API page size (10-100)")
+    max_traces: int = Field(default=25, description="Max trace rows to return")
     snippet_length: int = Field(
-        default=DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH,
-        description="Maximum one-line evidence snippet length per match",
+        default=DEFAULT_WIDGET_REVIEW_SNIPPET_LENGTH, description="Max snippet length per match"
     )
-    output_mode: str = Field(
-        default="minimal",
-        description="Output shape: minimal | compact | full",
-    )
+    output_mode: str = Field(default="minimal", description="minimal | compact | full")
 
 
 class DetectAngularImplicitGlobalsParams(BaseModel):
-    updated_by: str | None = Field(
-        default=None,
-        description="Optional updater filter (sys_updated_by). Example: admin@example.com",
-    )
-    scope: str | None = Field(
-        default=None,
-        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
-    )
+    updated_by: str | None = Field(default=None, description="sys_updated_by filter")
+    scope: str | None = Field(default=None, description="sys_scope filter")
     provider_ids: List[str] | None = Field(
-        default=None,
-        description="Optional provider id/sys_id/name filters. If provided, scan only these providers.",
+        default=None, description="Provider id/sys_id/name filter"
     )
-    updated_after: str | None = Field(
-        default=None,
-        description="Optional lower bound for sys_updated_on (YYYY-MM-DD or datetime)",
-    )
-    updated_before: str | None = Field(
-        default=None,
-        description="Optional upper bound for sys_updated_on (YYYY-MM-DD or datetime)",
-    )
-    max_providers: int = Field(
-        default=25,
-        description=f"Maximum providers to scan after filter. Clamped to {MAX_ANGULAR_PROVIDER_SCAN_LIMIT}.",
-    )
-    page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
-    max_matches: int = Field(
-        default=25,
-        description=f"Maximum total findings to return. Clamped to {MAX_ANGULAR_IMPLICIT_GLOBAL_MATCHES}.",
-    )
+    updated_after: str | None = Field(default=None, description="sys_updated_on >= (YYYY-MM-DD)")
+    updated_before: str | None = Field(default=None, description="sys_updated_on <= (YYYY-MM-DD)")
+    max_providers: int = Field(default=25, description="Max providers to scan")
+    page_size: int = Field(default=50, description="API page size (10-100)")
+    max_matches: int = Field(default=25, description="Max findings to return")
     snippet_length: int = Field(
-        default=DEFAULT_ANGULAR_IMPLICIT_SNIPPET_LENGTH,
-        description="Maximum one-line snippet length per finding",
+        default=DEFAULT_ANGULAR_IMPLICIT_SNIPPET_LENGTH, description="Max snippet length"
     )
-    output_mode: str = Field(
-        default="minimal",
-        description="Output shape: minimal | compact | full",
-    )
+    output_mode: str = Field(default="minimal", description="minimal | compact | full")
 
 
 def _safe_name(value: str) -> str:
@@ -2112,7 +2025,7 @@ def route_portal_component_edit(
 @register_tool(
     "search_portal_regex_matches",
     params=SearchPortalRegexMatchesParams,
-    description="Regex search across widget sources (HTML/scripts/providers). Supports minimal, compact, and full output modes.",
+    description="Regex search across widget/SI/provider sources. Output: minimal|compact|full.",
     serialization="raw_dict",
     return_type=dict,
 )

@@ -72,7 +72,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_flow_designer` | R/W | PRIMARY Flow Designer tool (sys_hub_flow). Unified surface for list/get_detail/get_executions/compare (read) and upda... | core, standard, portal_developer, platform_developer, service_desk, full |
+| `manage_flow_designer` | R/W | PRIMARY Flow Designer tool (sys_hub_flow). Read + edit. Edit flow: checkout → set_* → save (publish=true). Browser au... | core, standard, portal_developer, platform_developer, service_desk, full |
 
 ### Incident Management (1)
 
@@ -131,7 +131,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | `resolve_page_dependencies` | R | Resolve all widgets on a page with dependency chains. Deduplicates shared providers/SIs. | standard, portal_developer, platform_developer, service_desk, full |
 | `resolve_widget_chain` | R | Resolve widget dependency chain with source code. Returns widget + providers + script includes. | standard, portal_developer, platform_developer, service_desk, full |
 | `route_portal_component_edit` | R | Route a portal edit instruction to the right analyze/preview/apply tool. | portal_developer, full |
-| `search_portal_regex_matches` | R | Regex search across widget sources (HTML/scripts/providers). Supports minimal, compact, and full output modes. | standard, portal_developer, platform_developer, service_desk, full |
+| `search_portal_regex_matches` | R | Regex search across widget/SI/provider sources. Output: minimal|compact|full. | standard, portal_developer, platform_developer, service_desk, full |
 | `trace_portal_route_targets` | R | Map widget→provider→route relationships. Metadata only, no script bodies. | standard, portal_developer, platform_developer, service_desk, full |
 | `update_portal_component_from_snapshot` | W | Restore a portal component's editable fields from a previously saved local snapshot | portal_developer, full |
 
