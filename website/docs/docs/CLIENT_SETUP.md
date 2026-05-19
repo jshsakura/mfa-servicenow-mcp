@@ -86,7 +86,7 @@ chmod +x install.sh
 What the installer does:
 
 1. Copies the executable to a permanent location — Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir` to override), macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir` to override).
-2. Extracts the bundled Chromium zip (if present) into Playwright's standard cache — Windows: `%LOCALAPPDATA%\ms-playwright`, macOS: `~/Library/Caches/ms-playwright`, Linux: `~/.cache/ms-playwright`.
+2. Extracts the bundled Chromium zip only if Playwright's standard cache doesn't already contain a `chromium-*` directory — that way an existing Playwright install on the machine stays intact. Cache paths: Windows `%LOCALAPPDATA%\ms-playwright`, macOS `~/Library/Caches/ms-playwright`, Linux `~/.cache/ms-playwright`.
 
 When it finishes it prints the installed executable path. Paste the MCP config snippet from the [Configuration Guide](#configuration-guide) below into your client's config file, setting `command` to that path.
 

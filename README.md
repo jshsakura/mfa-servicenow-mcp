@@ -203,7 +203,7 @@ The installer does two things:
 1. **Copies the executable** to a permanent location.
    - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (override with `-InstallDir`)
    - macOS/Linux: `~/.local/bin/servicenow-mcp` (override with `--install-dir`)
-2. **Installs the Chromium cache (only if the matching zip is present)** into Playwright's standard browser cache.
+2. **Installs the Chromium cache only if it isn't already there.** The installer first checks the Playwright standard cache for an existing `chromium-*` directory — if found, the bundled zip is skipped so your current Chromium revision stays intact. Otherwise, the matching zip (if present next to `install.sh` / `install.ps1`) is extracted into:
    - Windows: `%LOCALAPPDATA%\ms-playwright`
    - macOS: `~/Library/Caches/ms-playwright`
    - Linux: `~/.cache/ms-playwright`
