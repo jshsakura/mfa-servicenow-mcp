@@ -25,8 +25,8 @@
 | 도구 | 읽기/쓰기 | 설명 | 패키지 |
 |------|-----------|------|--------|
 | `list_tool_packages` | R | 사용 가능한 도구 패키지와 현재 활성 패키지를 조회 | `core`, `standard`, `service_desk`, `portal_developer`, `platform_developer`, `full` |
-| `list_instances` | R | 멀티 인스턴스 모드에서 설정된 인스턴스 alias 조회 | runtime multi-instance helper |
-| `compare_instances` | R | 두 인스턴스 alias 간 read-only 레코드 비교 | runtime multi-instance helper |
+| `list_instances` | R | read-only 데이터 비교 모드에 설정된 alias 조회 | runtime comparison helper |
+| `compare_instances` | R | 설정된 alias 간 레코드를 read-only로 비교. 쓰기 라우팅 용도가 아님 | runtime comparison helper |
 
 ## Flow Designer 표면
 
