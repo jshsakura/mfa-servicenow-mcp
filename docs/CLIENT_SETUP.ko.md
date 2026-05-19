@@ -86,7 +86,7 @@ chmod +x install.sh
 설치 스크립트가 하는 일:
 
 1. 실행 파일을 영구 위치로 복사 — Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir`로 변경), macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir`로 변경).
-2. Chromium zip이 있으면 표준 Playwright 캐시에 추출 — Windows: `%LOCALAPPDATA%\ms-playwright`, macOS: `~/Library/Caches/ms-playwright`, Linux: `~/.cache/ms-playwright`.
+2. 표준 Playwright 캐시에 `chromium-*` 디렉토리가 없을 때만 번들 zip에서 추출 — 이미 설치된 Playwright 환경을 덮어쓰지 않습니다. 캐시 경로: Windows `%LOCALAPPDATA%\ms-playwright`, macOS `~/Library/Caches/ms-playwright`, Linux `~/.cache/ms-playwright`.
 
 종료 시 설치된 실행 파일 경로를 출력합니다. 아래 [설정 가이드](#설정-가이드) 섹션의 MCP 설정 스니펫을 본인 클라이언트 설정 파일에 직접 붙여넣고, `command`를 그 경로로 지정하세요.
 

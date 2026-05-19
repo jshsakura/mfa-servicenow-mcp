@@ -201,7 +201,7 @@ chmod +x install.sh
 1. **실행 파일 복사** — 압축 해제 폴더 안의 바이너리를 영구 설치 위치로 복사.
    - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir`로 변경)
    - macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir`로 변경)
-2. **Chromium 캐시 설치 (해당 zip이 있을 때만)** — Playwright의 표준 브라우저 캐시에 풉니다.
+2. **Chromium 캐시는 없을 때만 설치.** Playwright 표준 캐시에 `chromium-*` 디렉토리가 이미 있으면 번들 zip은 건너뜁니다 — 사용자가 이미 갖고 있는 Chromium 리비전을 덮어쓰지 않습니다. 캐시에 없는데 zip이 `install.sh` / `install.ps1` 옆에 있을 때만 아래 경로로 추출:
    - Windows: `%LOCALAPPDATA%\ms-playwright`
    - macOS: `~/Library/Caches/ms-playwright`
    - Linux: `~/.cache/ms-playwright`
