@@ -178,45 +178,20 @@ def _compact_record(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class GetDeveloperChangesParams(BaseModel):
-    developer: str = Field(
-        default=...,
-        description="Developer username (sys_updated_by value). Example: admin@example.com",
-    )
-    scope: Optional[str] = Field(
-        default=None,
-        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
-    )
+    developer: str = Field(default=..., description="sys_updated_by value")
+    scope: Optional[str] = Field(default=None, description="sys_scope filter")
     source_types: List[str] = Field(
         default=["widget", "angular_provider", "script_include"],
-        description=(
-            "Source types to scan. Allowed: widget, angular_provider, "
-            "script_include, ui_script, business_rule"
-        ),
+        description="Source types: widget|angular_provider|script_include|ui_script|business_rule",
     )
-    updated_after: Optional[str] = Field(
-        default=None,
-        description="Lower bound for sys_updated_on (YYYY-MM-DD or datetime). Example: 2026-03-01",
-    )
+    updated_after: Optional[str] = Field(default=None, description="sys_updated_on >= (YYYY-MM-DD)")
     updated_before: Optional[str] = Field(
-        default=None,
-        description="Upper bound for sys_updated_on (YYYY-MM-DD or datetime)",
+        default=None, description="sys_updated_on <= (YYYY-MM-DD)"
     )
-    filter_by: str = Field(
-        default="updated_by",
-        description="Filter mode: updated_by (default) or created_by",
-    )
-    limit_per_table: int = Field(
-        default=20,
-        description=f"Max records per source type (max {MAX_DEVELOPER_CHANGES_PER_TABLE}). Default 20.",
-    )
-    count_only: bool = Field(
-        default=False,
-        description="When true, returns counts per table without fetching records (fast preview).",
-    )
-    orderby: str = Field(
-        default="-sys_updated_on",
-        description="Order by field. Default: -sys_updated_on (newest first)",
-    )
+    filter_by: str = Field(default="updated_by", description="Filter mode: updated_by | created_by")
+    limit_per_table: int = Field(default=20, description="Max records per source type")
+    count_only: bool = Field(default=False, description="Count only (fast preview)")
+    orderby: str = Field(default="-sys_updated_on", description="Order by field")
 
 
 @register_tool(

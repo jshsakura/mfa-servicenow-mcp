@@ -285,6 +285,45 @@ def _narrow_action_enum(schema: Dict[str, Any], allowed: frozenset[str]) -> Dict
     }
 
 
+def _narrow_action_schema(
+    schema: Dict[str, Any],
+    allowed: frozenset[str],
+    fields_by_action: Optional[Dict[str, frozenset[str]]],
+) -> Dict[str, Any]:
+    """Narrow action enum + drop properties not used by any allowed action.
+
+    When ``fields_by_action`` maps each action to its fieldset, properties not
+    referenced by any allowed action are dropped from the schema. Fields not
+    appearing in the mapping at all are preserved (treated as universally
+    applicable) so undeclared fields don't silently disappear.
+    """
+    schema = _narrow_action_enum(schema, allowed)
+    if not fields_by_action:
+        return schema
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return schema
+
+    declared: set[str] = set()
+    for fs in fields_by_action.values():
+        declared |= set(fs)
+    used: set[str] = {"action"}
+    for act in allowed:
+        used |= set(fields_by_action.get(act, frozenset()))
+
+    narrowed_props = {
+        name: ps for name, ps in properties.items() if name not in declared or name in used
+    }
+    if narrowed_props == properties:
+        return schema
+
+    new_schema = {**schema, "properties": narrowed_props}
+    required = schema.get("required")
+    if isinstance(required, list):
+        new_schema["required"] = [r for r in required if r in narrowed_props]
+    return new_schema
+
+
 def _get_tool_schema(params_model: type[Any]) -> Dict[str, Any]:
     """Cache compacted Pydantic schema for LLM-optimal context usage.
 
@@ -758,7 +797,8 @@ class ServiceNowMCP:
                     schema = _get_tool_schema(params_model)
                     allowed = self._active_action_allowlists.get(tool_name)
                     if allowed is not None:
-                        schema = _narrow_action_enum(schema, allowed)
+                        fields_by_action = getattr(params_model, "_FIELDS_BY_ACTION", None)
+                        schema = _narrow_action_schema(schema, allowed, fields_by_action)
                     if self._tool_requires_confirmation(tool_name):
                         schema = self._inject_confirmation_schema(schema)
                     tool_list.append(
