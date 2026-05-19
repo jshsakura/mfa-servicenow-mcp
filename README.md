@@ -146,36 +146,102 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 
 `uvx` does not use a locally installed Playwright Python package, but it does use the standard Playwright browser cache when the matching Chromium revision is already installed. If Chromium is missing, run the Playwright install command above.
 
-### Release zip/exe
+### Release zip/exe (local install)
 
-Use this when `uvx` is blocked. Download the platform zip from GitHub Releases:
+Use this path when `uvx` or PyPI is blocked by corporate security. The zip ships a **PyInstaller-built single-file executable** plus an installer script, so you don't need to install Python yourself.
 
-- Windows: `servicenow-mcp-windows-x64-<version>.zip`
-- macOS: `servicenow-mcp-macos-<arch>-<version>.zip`
-- Linux: `servicenow-mcp-linux-x64-<version>.zip`
+#### Step 1 — Download from GitHub Releases
 
-Then run the included installer:
+Grab the zip(s) for your OS from <https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest>.
+
+| Platform | Required zip | Extra zip (only if Chromium download is also blocked) |
+|----------|--------------|-------------------------------------------------------|
+| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64-<version>.zip` |
+| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>-<version>.zip` |
+| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64-<version>.zip` |
+
+> On locked-down corporate networks where Chromium can't be auto-downloaded, **grab both zips** for a fully-offline install.
+
+#### Step 2 — Extract into a single folder
+
+Unzipping the main zip produces this layout (Linux example):
+
+```
+servicenow-mcp-linux-x64-1.13.5/
+├── servicenow-mcp            ← PyInstaller-built executable
+├── install.sh                ← installer script
+├── PLAYWRIGHT_VERSION.txt    ← Playwright version this build expects
+├── README.md
+└── LICENSE
+```
+
+Windows ships `servicenow-mcp.exe` and `install.ps1` instead.
+
+**If you also downloaded the Chromium zip**, copy that `ms-playwright-chromium-*.zip` file (do **not** extract it) into the same folder. The installer auto-detects it and extracts it into the standard Playwright cache.
+
+```
+servicenow-mcp-linux-x64-1.13.5/
+├── servicenow-mcp
+├── install.sh
+├── ms-playwright-chromium-linux-x64-1.13.5.zip   ← (optional) drop here as-is
+├── PLAYWRIGHT_VERSION.txt
+├── README.md
+└── LICENSE
+```
+
+#### Step 3 — Run the installer
+
+`cd` into the extracted folder and run the script for your OS. Set the `-Client` / `CLIENT` value to your MCP client — supported: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
 
 ```powershell
 # Windows
+cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
 .\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
 ```
 
 ```bash
 # macOS / Linux
-SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" CLIENT=opencode ./install.sh
+cd ~/Downloads/servicenow-mcp-linux-x64-1.13.5
+chmod +x install.sh
+SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
+  CLIENT=opencode ./install.sh
 ```
 
-The release installer writes MCP config with the built executable as `command`. Playwright Chromium still uses the standard browser cache.
+The installer does three things:
 
-If Chromium is not installed and downloads are allowed, install Python from <https://www.python.org/downloads/>, install the Playwright version listed in `PLAYWRIGHT_VERSION.txt`, then run:
+1. **Copies the executable** to a permanent location.
+   - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (override with `-InstallDir`)
+   - macOS/Linux: `~/.local/bin/servicenow-mcp` (override with `INSTALL_DIR=...`)
+2. **Installs the Chromium cache (only if the matching zip is present)** into Playwright's standard browser cache.
+   - Windows: `%LOCALAPPDATA%\ms-playwright`
+   - macOS: `~/Library/Caches/ms-playwright`
+   - Linux: `~/.cache/ms-playwright`
+3. **Writes MCP client config** — adds a `servicenow` entry to the chosen client's config file (e.g. `~/.codex/config.toml`, `.mcp.json`, `opencode.json`) with `command` pointing at the path from step 1.
+
+**Restart your MCP client** when the installer finishes.
+
+#### Step 4 — Verify
+
+```bash
+# macOS / Linux
+~/.local/bin/servicenow-mcp --version
+
+# Windows PowerShell
+& "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version
+```
+
+If the version prints, the binary is good. The first MCP tool call after that triggers a one-time browser login; the session is cached for reuse.
+
+#### Standalone Chromium fallback (optional)
+
+If you didn't take the Chromium zip and Playwright's auto-download is blocked, you can pre-stage the cache on any machine with Python:
 
 ```powershell
 py -m pip install "playwright==<version-from-PLAYWRIGHT_VERSION.txt>"
 py -m playwright install chromium
 ```
 
-If browser download is also blocked, download the matching `ms-playwright-chromium-<platform>-<version>.zip` from the same release and extract it to the standard Playwright cache before starting your MCP client. See the Playwright browser docs: <https://playwright.dev/python/docs/browsers>.
+Otherwise see the [Playwright browser docs](https://playwright.dev/python/docs/browsers) and drop the matching Chromium build into the standard cache path listed in Step 3 above.
 
 > Windows users: see the [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
 
@@ -425,10 +491,19 @@ Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is determinist
 
 ```bash
 # One-off run
-uvx --with "playwright==1.60.0" --from "mfa-servicenow-mcp==1.13.0" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.5" servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
+
+Put project-local config in the repository root. This lets each dev/test/prod project point at its own ServiceNow instance and tool profile.
+
+Choose one execution style:
+
+- `uvx`: default recommended path. Runs from PyPI and uses the `uvx` cache.
+- Local release zip/exe: use when endpoint security blocks `uvx` or package execution. Extract `servicenow-mcp-<platform>-<version>.zip`, run the included installer, then point MCP `command` at the installed executable.
+
+##### `uvx`
 
 **Claude Code** (`.mcp.json` in repo root):
 
@@ -438,8 +513,8 @@ uvx --with "playwright==1.60.0" --from "mfa-servicenow-mcp==1.13.0" servicenow-m
     "servicenow": {
       "command": "uvx",
       "args": [
-        "--with", "playwright==1.60.0",
-        "--from", "mfa-servicenow-mcp==1.13.0",
+        "--with", "playwright==1.58.0",
+        "--from", "mfa-servicenow-mcp==1.13.5",
         "servicenow-mcp"
       ],
       "env": {
@@ -459,8 +534,8 @@ uvx --with "playwright==1.60.0" --from "mfa-servicenow-mcp==1.13.0" servicenow-m
 [mcp_servers.servicenow]
 command = "uvx"
 args = [
-  "--with", "playwright==1.60.0",
-  "--from", "mfa-servicenow-mcp==1.13.0",
+  "--with", "playwright==1.58.0",
+  "--from", "mfa-servicenow-mcp==1.13.5",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -484,8 +559,8 @@ MCP_TOOL_PACKAGE = "standard"
       "type": "local",
       "command": [
         "uvx",
-        "--with", "playwright==1.60.0",
-        "--from", "mfa-servicenow-mcp==1.13.0",
+        "--with", "playwright==1.58.0",
+        "--from", "mfa-servicenow-mcp==1.13.5",
         "servicenow-mcp"
       ],
       "enabled": true,
@@ -499,6 +574,78 @@ MCP_TOOL_PACKAGE = "standard"
   }
 }
 ```
+
+##### Local release zip/exe
+
+The included install script writes this config automatically. If you need to edit it by hand, only replace `command` with the local executable path and keep `args` empty.
+
+Common install paths:
+
+- Windows: `C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe`
+- macOS/Linux: `/Users/you/.local/bin/servicenow-mcp` or `/home/you/.local/bin/servicenow-mcp`
+
+**Claude Code** (`.mcp.json` in repo root):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+On macOS/Linux, change `command` to a path such as `/home/you/.local/bin/servicenow-mcp`.
+
+**Codex** (`.codex/config.toml` in repo root):
+
+```toml
+[mcp_servers.servicenow]
+command = "/home/you/.local/bin/servicenow-mcp"
+args = []
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
+
+[mcp_servers.servicenow.env]
+SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
+SERVICENOW_AUTH_TYPE = "browser"
+SERVICENOW_BROWSER_HEADLESS = "false"
+MCP_TOOL_PACKAGE = "standard"
+```
+
+For Windows Codex config, use `command = "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"` to avoid backslash escaping noise.
+
+**OpenCode** (`opencode.json` in repo root):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": ["/home/you/.local/bin/servicenow-mcp"],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+For Windows OpenCode, change `command` to `["C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"]`.
 
 #### Upgrading
 
