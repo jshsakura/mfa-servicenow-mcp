@@ -73,10 +73,8 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem;">
-      회사 보안툴이 <code>uvx</code>를 막으면 플랫폼별 릴리즈 zip을 사용하세요.
-      포함된 installer가 빌드된 실행 파일 경로를 MCP config에 씁니다.
-      브라우저 다운로드도 막히면 같은 릴리즈의
-      <code>ms-playwright-chromium</code> zip을 사용하면 됩니다.
+      회사 보안툴이 <code>uvx</code>를 막는 환경이라면
+      아래 <a href="#local-install">로컬 설치 (릴리즈 zip)</a> 섹션을 참고하세요.
     </p>
 
     <div style="margin-top:56px;" class="reveal">
@@ -125,6 +123,71 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
         </div>
       </div>
     </div>
+
+    <div id="local-install" style="margin-top:56px;" class="reveal">
+      <span class="section-label">로컬 설치 — 오프라인 친화</span>
+      <h2 class="section-title">릴리즈 zip으로 설치하기</h2>
+      <p class="section-desc">
+        <code>uvx</code>나 PyPI 접속이 막히는 사내망에서 사용하세요. 릴리즈 zip에는 PyInstaller로 빌드된 단일 실행 파일과 설치 스크립트가 같이 들어 있어, 대상 PC에 Python을 깔 필요가 없습니다. <a href="https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>에서 플랫폼 zip(필요 시 같은 릴리즈의 <code>ms-playwright-chromium</code> zip도)을 받은 뒤 설치 스크립트를 실행하면 됩니다.
+      </p>
+    </div>
+    <div class="install-block reveal">
+      <div class="install-tabs">
+        <button class="install-tab active" data-target="local-mac">macOS / Linux</button>
+        <button class="install-tab" data-target="local-win">Windows</button>
+      </div>
+      <div class="install-panels">
+        <div class="install-panel active" id="local-mac">
+          <div class="install-code-block">
+            <pre class="install-code"><code><span class="c"># 1. zip 압축 해제 — 폴더 구조:</span>
+<span class="c">#    servicenow-mcp-linux-x64-1.13.5/</span>
+<span class="c">#    ├── servicenow-mcp            ← 빌드된 실행 파일</span>
+<span class="c">#    ├── install.sh                ← 설치 스크립트</span>
+<span class="c">#    ├── PLAYWRIGHT_VERSION.txt</span>
+<span class="c">#    ├── README.md</span>
+<span class="c">#    └── LICENSE</span>
+<span class="c">#</span>
+<span class="c"># 2. (선택) Chromium zip을 같은 폴더에 그대로 복사:</span>
+<span class="c">#    ms-playwright-chromium-linux-x64-1.13.5.zip  (압축 해제 X)</span>
+<span class="c">#    설치 스크립트가 자동으로 Playwright 표준 캐시에 추출합니다.</span>
+
+<span class="c"># 3. 설치 스크립트 실행 (CLIENT = 본인 MCP 클라이언트):</span>
+cd ~/Downloads/servicenow-mcp-linux-x64-1.13.5
+chmod +x install.sh
+SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
+  CLIENT=opencode ./install.sh
+
+<span class="c"># 4. 동작 확인 후 MCP 클라이언트 재시작:</span>
+~/.local/bin/servicenow-mcp --version</code></pre>
+          </div>
+        </div>
+        <div class="install-panel" id="local-win">
+          <div class="install-code-block">
+            <pre class="install-code"><code><span class="c"># 1. zip 압축 해제 — 폴더 구조:</span>
+<span class="c">#    servicenow-mcp-windows-x64-1.13.5\</span>
+<span class="c">#    |-- servicenow-mcp.exe        &lt;- 빌드된 실행 파일</span>
+<span class="c">#    |-- install.ps1               &lt;- 설치 스크립트</span>
+<span class="c">#    |-- PLAYWRIGHT_VERSION.txt</span>
+<span class="c">#    |-- README.md</span>
+<span class="c">#    `-- LICENSE</span>
+<span class="c">#</span>
+<span class="c"># 2. (선택) Chromium zip을 같은 폴더에 그대로 복사:</span>
+<span class="c">#    ms-playwright-chromium-windows-x64-1.13.5.zip  (압축 해제 X)</span>
+<span class="c">#    설치 스크립트가 자동으로 %LOCALAPPDATA%\ms-playwright 에 추출합니다.</span>
+
+<span class="c"># 3. 설치 스크립트 실행 (-Client = 본인 MCP 클라이언트):</span>
+cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
+.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
+
+<span class="c"># 4. 동작 확인 후 MCP 클라이언트 재시작:</span>
+& "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.8;">
+      파일이 설치되는 위치 — 실행 파일: <code>~/.local/bin/servicenow-mcp</code> (macOS/Linux) 또는 <code>%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</code> (Windows). Chromium 캐시: <code>~/.cache/ms-playwright</code> (Linux), <code>~/Library/Caches/ms-playwright</code> (macOS), <code>%LOCALAPPDATA%\ms-playwright</code> (Windows). MCP 설정은 선택한 클라이언트의 설정 파일에 자동으로 기록됩니다. 지원 <code>CLIENT</code> 값: <code>claude-code</code>, <code>claude-desktop</code>, <code>cursor</code>, <code>vscode-copilot</code>, <code>opencode</code>, <code>codex</code>, <code>windsurf</code>, <code>gemini</code>, <code>zed</code>, <code>antigravity</code>.
+    </p>
 
     <div style="margin-top:56px;" class="reveal">
       <span class="section-label">수동 복구용</span>
