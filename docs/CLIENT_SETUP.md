@@ -68,26 +68,27 @@ servicenow-mcp-linux-x64-<ver>/
 
 Windows ships `servicenow-mcp.exe` + `install.ps1`. If you also took the Chromium zip, **drop it into the same folder (don't extract it)** — the installer auto-detects it.
 
-**3. Run the installer** — same argument shape on every OS. Supported `--client` values: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
+**3. Run the installer** — no flags required. The installer only copies the executable and (if present) extracts the Chromium cache; it never edits any MCP client config, so an existing `.mcp.json` / `config.toml` / `opencode.json` cannot be broken by a merge bug.
 
 ```powershell
 # Windows
 cd $HOME\Downloads\servicenow-mcp-windows-x64-*
-.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
+.\install.ps1
 ```
 
 ```bash
 # macOS / Linux
 cd ~/Downloads/servicenow-mcp-linux-x64-*
 chmod +x install.sh
-./install.sh --client opencode --instance-url "https://your-instance.service-now.com"
+./install.sh
 ```
 
-The installer:
+What the installer does:
 
 1. Copies the executable to a permanent location — Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir` to override), macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir` to override).
 2. Extracts the bundled Chromium zip (if present) into Playwright's standard cache — Windows: `%LOCALAPPDATA%\ms-playwright`, macOS: `~/Library/Caches/ms-playwright`, Linux: `~/.cache/ms-playwright`.
-3. Writes the MCP client config (`.mcp.json`, `~/.codex/config.toml`, `opencode.json`, etc.) with `command` pointing at the installed executable.
+
+When it finishes it prints the installed executable path. Paste the MCP config snippet from the [Configuration Guide](#configuration-guide) below into your client's config file, setting `command` to that path.
 
 **4. Verify, then restart your MCP client:**
 
