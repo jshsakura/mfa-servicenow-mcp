@@ -102,6 +102,17 @@ def build_setup_parser(action: str = "setup") -> argparse.ArgumentParser:
             default="false",
             help="Browser headless mode",
         )
+        parser.add_argument(
+            "--server-command",
+            help="Command path to write into MCP config. Defaults to uvx.",
+        )
+        parser.add_argument(
+            "--playwright-browsers-path",
+            help=(
+                "Directory containing Playwright browser binaries. Useful for "
+                "Windows offline bundles that ship ms-playwright next to the exe."
+            ),
+        )
     parser.add_argument(
         "--scope",
         choices=["project", "global"],
@@ -272,21 +283,27 @@ def build_env(args: argparse.Namespace) -> dict[str, str]:
     if args.api_key:
         env["SERVICENOW_API_KEY"] = args.api_key
         env["SERVICENOW_API_KEY_HEADER"] = args.api_key_header
+    if getattr(args, "playwright_browsers_path", None):
+        env["PLAYWRIGHT_BROWSERS_PATH"] = str(
+            Path(args.playwright_browsers_path).expanduser().resolve()
+        )
 
     return env
 
 
 def build_client_config(
     client: str, args: argparse.Namespace
-) -> tuple[str, list[str], dict[str, str], bool]:
+) -> tuple[str, str, list[str], dict[str, str], bool]:
     """Return format-specific server config pieces."""
     env = build_env(args)
     base_args = ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"]
+    server_command = getattr(args, "server_command", None) or "uvx"
+    command_args = [] if getattr(args, "server_command", None) else base_args
 
     if client == "opencode":
-        return "array_command", ["uvx", *base_args], env, True
+        return "array_command", server_command, [server_command, *command_args], env, True
 
-    return "split_command", base_args, env, True
+    return "split_command", server_command, command_args, env, True
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -307,16 +324,16 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 def update_json_config(client: str, path: Path, args: argparse.Namespace) -> None:
     """Merge the ServiceNow server into a JSON config file."""
-    mode, command_args, env, enabled = build_client_config(client, args)
+    mode, command, command_args, env, enabled = build_client_config(client, args)
     data = _read_json(path)
 
     if client in {"claude-code", "claude-desktop", "cursor", "windsurf", "gemini", "antigravity"}:
         servers = data.setdefault("mcpServers", {})
-        entry: dict[str, Any] = {"command": "uvx", "args": command_args, "env": env}
+        entry: dict[str, Any] = {"command": command, "args": command_args, "env": env}
         servers["servicenow"] = entry
     elif client == "vscode-copilot":
         servers = data.setdefault("servers", {})
-        servers["servicenow"] = {"command": "uvx", "args": command_args, "env": env}
+        servers["servicenow"] = {"command": command, "args": command_args, "env": env}
     elif client == "opencode":
         mcp = data.setdefault("mcp", {})
         mcp["servicenow"] = {
@@ -327,7 +344,7 @@ def update_json_config(client: str, path: Path, args: argparse.Namespace) -> Non
         }
         data.setdefault("$schema", "https://opencode.ai/config.json")
     elif client == "zed":
-        data["servicenow"] = {"command": "uvx", "args": command_args, "env": env}
+        data["servicenow"] = {"command": command, "args": command_args, "env": env}
     else:
         raise ValueError(f"Unsupported JSON client: {client}")
 
@@ -425,10 +442,10 @@ def _write_toml(path: Path, data: dict[str, Any]) -> None:
 
 
 def _render_codex_sections(args: argparse.Namespace) -> str:
-    _, command_args, env, enabled = build_client_config("codex", args)
+    _, command, command_args, env, enabled = build_client_config("codex", args)
     server_lines = [
         "[mcp_servers.servicenow]",
-        'command = "uvx"',
+        f"command = {_format_toml_value(command)}",
         f"args = {_format_toml_value(command_args)}",
         f"enabled = {_format_toml_value(enabled)}",
         "",
@@ -627,14 +644,17 @@ def _install_chromium_if_needed(args: argparse.Namespace) -> str | None:
 
     import subprocess
 
-    cmd = ["uvx", "--with", "playwright", "playwright", "install", "chromium"]
+    cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
     cmd_text = " ".join(cmd)
-    print("Installing Playwright Chromium via uvx (one-time, prevents MCP handshake timeout)…")
+    print(
+        "Installing Playwright Chromium with the current Python environment "
+        "(one-time, prevents MCP handshake timeout)…"
+    )
     try:
         subprocess.run(cmd, check=True, timeout=600)
-        return "installed via uvx"
+        return "installed"
     except FileNotFoundError:
-        return "failed: uvx not found — install uv first"
+        return "failed: playwright executable not found in current Python environment"
     except subprocess.CalledProcessError as exc:
         return f"failed: exit {exc.returncode} — run `{cmd_text}`"
     except subprocess.TimeoutExpired:

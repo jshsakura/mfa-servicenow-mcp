@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -37,6 +38,8 @@ def _args(**overrides):
         "api_key_header": "X-ServiceNow-API-Key",
         "tool_package": "standard",
         "browser_headless": "false",
+        "server_command": None,
+        "playwright_browsers_path": None,
         "scope": None,
         "skip_skills": False,
         "keep_skills": False,
@@ -114,6 +117,35 @@ class TestJsonConfigUpdates:
         assert data["mcpServers"]["servicenow"]["command"] == "uvx"
         assert data["mcpServers"]["servicenow"]["env"]["SERVICENOW_INSTANCE_URL"]
 
+    def test_local_server_command_written_without_uvx_args(self, tmp_path):
+        path = tmp_path / ".mcp.json"
+        server_command = "/workspace/mfa-servicenow-mcp/.venv/bin/servicenow-mcp"
+
+        update_json_config(
+            "claude-code",
+            path,
+            _args(clients=["claude-code"], server_command=server_command),
+        )
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        entry = data["mcpServers"]["servicenow"]
+        assert entry["command"] == server_command
+        assert entry["args"] == []
+
+    def test_playwright_browsers_path_written(self, tmp_path):
+        path = tmp_path / ".mcp.json"
+        browser_path = tmp_path / "ms-playwright"
+
+        update_json_config(
+            "claude-code",
+            path,
+            _args(clients=["claude-code"], playwright_browsers_path=str(browser_path)),
+        )
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        entry = data["mcpServers"]["servicenow"]
+        assert entry["env"]["PLAYWRIGHT_BROWSERS_PATH"] == str(browser_path.resolve())
+
     def test_opencode_config_merged(self, tmp_path):
         path = tmp_path / "opencode.json"
         path.write_text(json.dumps({"mcp": {"other": {"type": "local"}}}), encoding="utf-8")
@@ -124,6 +156,15 @@ class TestJsonConfigUpdates:
         assert data["$schema"] == "https://opencode.ai/config.json"
         assert "other" in data["mcp"]
         assert data["mcp"]["servicenow"]["environment"]["SERVICENOW_INSTANCE_URL"]
+
+    def test_opencode_local_server_command_is_array_command(self, tmp_path):
+        path = tmp_path / "opencode.json"
+        server_command = "/workspace/mfa-servicenow-mcp/.venv/bin/servicenow-mcp"
+
+        update_json_config("opencode", path, _args(server_command=server_command))
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["mcp"]["servicenow"]["command"] == [server_command]
 
     def test_vscode_config_uses_servers_key(self, tmp_path):
         path = tmp_path / ".vscode/mcp.json"
@@ -244,6 +285,16 @@ class TestTomlConfigUpdates:
         assert "[mcp_servers.other]" in content
         assert "[mcp_servers.servicenow]" in content
         assert 'SERVICENOW_INSTANCE_URL = "https://demo.service-now.com"' in content
+
+    def test_codex_local_server_command_written(self, tmp_path):
+        path = tmp_path / ".codex/config.toml"
+        server_command = "/workspace/mfa-servicenow-mcp/.venv/bin/servicenow-mcp"
+
+        update_codex_config(path, _args(clients=["codex"], server_command=server_command))
+
+        content = path.read_text(encoding="utf-8")
+        assert f'command = "{server_command}"' in content
+        assert "args = []" in content
 
     def test_codex_config_preserves_numeric_values(self, tmp_path):
         path = tmp_path / ".codex/config.toml"
@@ -374,12 +425,12 @@ class TestRemoveClient:
 
 class TestChromiumInstall:
     @patch("subprocess.run")
-    def test_chromium_install_uses_uvx(self, mock_run):
+    def test_chromium_install_uses_current_python(self, mock_run):
         status = _install_chromium_if_needed(_args())
 
-        assert status == "installed via uvx"
+        assert status == "installed"
         mock_run.assert_called_once_with(
-            ["uvx", "--with", "playwright", "playwright", "install", "chromium"],
+            [sys.executable, "-m", "playwright", "install", "chromium"],
             check=True,
             timeout=600,
         )
@@ -395,7 +446,7 @@ class TestChromiumInstall:
 class TestMain:
     @patch(
         "servicenow_mcp.setup_installer._install_chromium_if_needed",
-        return_value="installed via uvx",
+        return_value="installed",
     )
     @patch("servicenow_mcp.setup_installer.install_skills", return_value=20)
     @patch("builtins.print")
@@ -416,7 +467,7 @@ class TestMain:
         rendered = mock_print.call_args[0][0]
         assert "Client: opencode" in rendered
         assert "Client: codex" in rendered
-        assert "Playwright Chromium: installed via uvx" in rendered
+        assert "Playwright Chromium: installed" in rendered
         mock_install_chromium.assert_called_once()
 
     @patch("servicenow_mcp.setup_installer.remove_skills", return_value=True)
