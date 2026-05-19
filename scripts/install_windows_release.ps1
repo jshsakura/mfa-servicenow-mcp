@@ -1,15 +1,16 @@
+<#
+.SYNOPSIS
+  Copies the bundled servicenow-mcp.exe to %LOCALAPPDATA%\servicenow-mcp
+  (or -InstallDir) and, if a ms-playwright Chromium zip sits next to
+  this script, extracts it into the standard Playwright browser cache.
+
+.DESCRIPTION
+  This script does NOT modify any MCP client config — paste the config
+  snippet from the README's "Local install" section into your client by
+  hand to avoid breaking existing entries.
+#>
 param(
-  [ValidateSet("claude-code", "claude-desktop", "cursor", "vscode-copilot", "opencode", "codex", "windsurf", "gemini", "zed", "antigravity")]
-  [string]$Client = "opencode",
-
-  [Parameter(Mandatory = $true)]
-  [string]$InstanceUrl,
-
-  [ValidateSet("browser", "basic", "oauth", "api_key")]
-  [string]$AuthType = "browser",
-
-  [string]$InstallDir = "$env:LOCALAPPDATA\servicenow-mcp",
-  [switch]$InstallSkills
+  [string]$InstallDir = "$env:LOCALAPPDATA\servicenow-mcp"
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,24 +33,15 @@ if ($BrowserZip) {
   Write-Host "Installed bundled Playwright Chromium cache to $BrowserCache"
 } else {
   Write-Host "No ms-playwright browser zip found next to install.ps1."
-  Write-Host "If browser auth fails, install Chromium with Playwright or place the release ms-playwright zip next to install.ps1 and run again."
+  Write-Host "Place the matching ms-playwright zip next to install.ps1 and rerun if browser auth needs Chromium offline,"
+  Write-Host "or run 'playwright install chromium' on a host with internet access."
 }
-
-$setupArgs = @(
-  "setup", $Client,
-  "--server-command", $TargetExe,
-  "--instance-url", $InstanceUrl,
-  "--auth-type", $AuthType,
-  "--skip-chromium"
-)
-
-if (-not $InstallSkills) {
-  $setupArgs += "--skip-skills"
-}
-
-& $TargetExe @setupArgs
 
 Write-Host ""
 Write-Host "Installed ServiceNow MCP:"
-Write-Host "  Server: $TargetExe"
-Write-Host "Restart your MCP client so it loads the updated config."
+Write-Host "  Server:  $TargetExe"
+Write-Host ""
+Write-Host "Next: paste the MCP config snippet from the README 'Local install' section"
+Write-Host "      into your client's config file (e.g. .mcp.json / %USERPROFILE%\.codex\config.toml / opencode.json)."
+Write-Host "      Set 'command' to: $TargetExe"
+Write-Host "      Then restart your MCP client."

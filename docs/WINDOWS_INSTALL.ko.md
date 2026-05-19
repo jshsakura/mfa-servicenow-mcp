@@ -32,47 +32,40 @@ install.ps1
 zip을 풀고 실행:
 
 ```powershell
-.\install.ps1 `
-  -Client opencode `
-  -InstanceUrl "https://your-instance.service-now.com"
+.\install.ps1
 ```
 
-설치 스크립트는 내부적으로 이런 설정을 씁니다:
+플래그 필요 없음. 설치 스크립트는 `servicenow-mcp.exe`를 `%LOCALAPPDATA%\servicenow-mcp`로 복사하고, 같은 폴더에 `ms-playwright-chromium-*.zip`이 있으면 `%LOCALAPPDATA%\ms-playwright`로 추출합니다. **MCP 클라이언트 설정 파일은 절대 건드리지 않습니다** — 기존 `.mcp.json` / `~/.codex/config.toml` / `opencode.json`이 잘못된 머지로 망가질 일을 원천 차단하기 위함입니다.
 
-```powershell
-$Exe = "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe"
-& $Exe setup opencode `
-  --server-command "$Exe" `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type browser `
-  --skip-chromium `
-  --skip-skills
-```
-
-생성되는 MCP 설정 형태:
+설치 종료 후, 본인 클라이언트 설정 파일에 아래 스니펫을 직접 붙여넣으세요 (Claude Code / Claude Desktop 예):
 
 ```json
 {
   "mcpServers": {
     "servicenow": {
-      "command": "C:\\Users\\you\\AppData\\Local\\servicenow-mcp\\servicenow-mcp.exe",
+      "command": "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe",
       "args": [],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false"
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
       }
     }
   }
 }
 ```
 
+`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택 — MFA 로그인 폼을 미리 채워 줍니다. Codex(`config.toml`) / OpenCode(`opencode.json`) / Cursor / Gemini / Zed 등 다른 클라이언트 설정 스니펫은 [클라이언트 설정 가이드](CLIENT_SETUP.ko.md) 참조.
+
 이 방식은 runtime에서 `uvx`를 쓰지 않습니다. Playwright Chromium은 표준 브라우저 캐시인 `%LOCALAPPDATA%\ms-playwright`를 사용합니다.
 
-Chromium이 없고 다운로드가 허용되는 환경이면 <https://www.python.org/downloads/> 에서 Python을 설치하고, `PLAYWRIGHT_VERSION.txt`에 적힌 Playwright 버전을 설치한 뒤 실행하세요:
+Chromium이 없고 다운로드가 허용되는 환경이면 <https://www.python.org/downloads/> 에서 Python을 설치한 뒤 실행하세요:
 
 ```powershell
-py -m pip install "playwright==<PLAYWRIGHT_VERSION.txt의 버전>"
+py -m pip install playwright
 py -m playwright install chromium
 ```
 
