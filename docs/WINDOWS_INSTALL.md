@@ -30,16 +30,13 @@ uv --version
 
 This is a **hard dependency**, not an optional step. ServiceNow MFA/SSO login goes through a Playwright-driven Chromium window; if Chromium is missing when the MCP server starts, it tries to download mid-flight and the host times out before login can finish.
 
-Install Chromium once. The recommended path is `uv tool install playwright` so the `playwright.exe` lands in `%USERPROFILE%\.local\bin\` and you can call it directly afterwards:
+Install Chromium once with `uvx`, matching the MCP server execution style and avoiding PATH confusion:
 
 ```powershell
-uv tool install playwright
-playwright install chromium
+uvx --with playwright playwright install chromium
 ```
 
-> One-liner alternative: `uvx --with playwright playwright install chromium` — same result, slightly slower because uvx spins up a fresh venv each call.
-
-The browser binary is cached at `%USERPROFILE%\AppData\Local\ms-playwright\` and shared across MCP versions. Re-run `playwright install chromium` only when you upgrade Playwright itself.
+The browser binary is cached at `%USERPROFILE%\AppData\Local\ms-playwright\` and shared across MCP versions. Re-run the same `uvx --with playwright playwright install chromium` command only when you upgrade Playwright itself.
 
 > Behind a strict proxy / antivirus? Whitelist `playwright.azureedge.net` and `*.googleapis.com` for the duration of this install.
 
@@ -253,7 +250,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 Test: call the `sn_health` tool from your client.
 
-> If the browser doesn't open, check that Chromium was installed automatically. You can force-install it with: `uvx playwright install chromium`
+> If the browser doesn't open, check that Chromium was installed. You can force-install it with: `uvx --with playwright playwright install chromium`
 
 ---
 
@@ -322,7 +319,7 @@ If there's a conflict with system Python, uninstall and reinstall `uv`.
 ### "Browser won't open"
 → Chromium is auto-installed on first run. If it fails, install manually:
 ```powershell
-uvx playwright install chromium
+uvx --with playwright playwright install chromium
 ```
 → Corporate proxies/firewalls may block the download. Check with your IT team.
 

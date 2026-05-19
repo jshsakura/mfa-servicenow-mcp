@@ -89,14 +89,11 @@ If a path is printed, Chromium is already installed — skip to Step 3.
 
 **2.2 — Install Chromium**
 
-If 2.1 found nothing, install Playwright as a uv tool (so the `playwright` binary lands in PATH and can be reused locally), then pull the Chromium build:
+If 2.1 found nothing, install Chromium through `uvx` so Playwright setup uses the same execution style as the MCP server:
 
 ```bash
-uv tool install playwright
-playwright install chromium
+uvx --with playwright playwright install chromium
 ```
-
-> One-liner alternative if PATH-pollution is a concern: `uvx --with playwright playwright install chromium` — same outcome, slightly slower because uvx creates an ephemeral venv each call. Prefer the `uv tool install` form when this is the user's first install.
 
 This downloads ~150 MB the first time. On a slow link it can take several minutes — that is normal. Do not abort early. Show the user a progress message ("Downloading Chromium for ServiceNow MFA login — this can take a few minutes on slow networks…") so they understand the wait.
 
