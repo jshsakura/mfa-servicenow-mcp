@@ -38,31 +38,51 @@ uvx --with playwright playwright install chromium
 
 브라우저 바이너리는 `~/.cache/ms-playwright/` (macOS/Linux) 또는 `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows)에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체가 업그레이드될 때만 같은 `uvx --with playwright playwright install chromium` 명령을 다시 실행하세요.
 
-#### 회사 프록시 / Zscaler 우회
+#### 회사망 fallback: 로컬 소스 폴더
 
-TLS 검사나 엄격한 outbound allowlist 때문에 `uvx` 또는 Chromium 아카이브 다운로드가 막히면, 설치 명령은 그대로 두고 사내 네트워크 변수만 먼저 지정하세요:
+`uvx` 패키지 실행은 막히지만 GitHub 소스 접근은 가능한 환경이면, 저장소를 한 번 clone하고 MCP 클라이언트가 로컬 실행 파일을 직접 보게 설정하세요:
 
 ```bash
 # macOS/Linux
-export HTTPS_PROXY="http://proxy.company.example:8080"
-export HTTP_PROXY="$HTTPS_PROXY"
-export UV_NATIVE_TLS=true
-export UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # PyPI를 사내 미러로 받는 경우
-export PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # 브라우저 아카이브를 사내 미러로 받는 경우
-uvx --with playwright playwright install chromium
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+uv sync --extra browser
+.venv/bin/python -m playwright install chromium
 ```
 
 ```powershell
 # Windows PowerShell
-$env:HTTPS_PROXY="http://proxy.company.example:8080"
-$env:HTTP_PROXY=$env:HTTPS_PROXY
-$env:UV_NATIVE_TLS="true"
-$env:UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # PyPI를 사내 미러로 받는 경우
-$env:PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # 브라우저 아카이브를 사내 미러로 받는 경우
-uvx --with playwright playwright install chromium
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+uv sync --extra browser
+.\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-프록시, 사내 PyPI 인덱스, 브라우저 아카이브 미러 값은 반드시 사내 IT/보안팀이 제공한 값만 사용하세요. `UV_DEFAULT_INDEX`는 Python 패키지 다운로드 정책용이고, `PLAYWRIGHT_DOWNLOAD_HOST`는 Playwright 브라우저 아카이브 위치용입니다.
+그 다음 MCP 설정에는 로컬 실행 파일 경로를 넣습니다:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false"
+      }
+    }
+  }
+}
+```
+
+Windows command 경로:
+
+```json
+"command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe"
+```
+
+이 방식은 MCP runtime에서 `uv`를 쓰지 않습니다. `uv`는 최초 로컬 환경 생성과 Chromium 캐시에만 한 번 사용됩니다.
 
 > Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](WINDOWS_INSTALL.ko.md) 참조.
 
