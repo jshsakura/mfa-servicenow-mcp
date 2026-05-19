@@ -77,7 +77,6 @@ MCP 클라이언트를 재시작하면 새 설정이 로드됩니다. 첫 브라
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
 - **등록 도구 73개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
 - **16개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
-- **active-instance 멀티 인스턴스 모드** — dev/test 데이터는 read-only로 비교하고, 일반 도구는 하나의 active 인스턴스에만 고정
 - **Streamable HTTP transport** — 기본 stdio는 그대로 두고, HTTP 지원 클라이언트/브리지에는 `/mcp` 엔드포인트 제공
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
 - **크로스-스코프 의존성 자동 해석** — `download_app_sources`가 앱 코드에서 참조하는 글로벌 스코프의 Script Include, Widget, Angular Provider, UI Macro까지 함께 받아 로컬 번들을 분석에 자족적으로 만듭니다
@@ -267,7 +266,42 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 | `platform_developer` | 47 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
 | `full` | 62 | ⚠️ **고급 전용** — 모든 도메인의 쓰기 도구 전체. 위 경고 참고. |
 
-서버 프로세스 하나는 의도적으로 ServiceNow 인스턴스 하나에만 연결됩니다. 운영/개발 인스턴스 혼동으로 인한 오반영을 막기 위해 요청별 멀티 인스턴스 라우팅은 지원하지 않습니다. 다른 인스턴스가 필요하면 프로젝트/클라이언트 설정을 분리하세요.
+일반 도구는 서버 프로세스 하나당 하나의 active ServiceNow 인스턴스에만 연결됩니다. 안전을 위해 요청별 쓰기 라우팅으로 인스턴스를 오가는 방식은 지원하지 않습니다.
+
+### 읽기 전용 데이터 비교 모드
+
+개발/테스트 데이터 차이를 비교해야 할 때만 `SERVICENOW_INSTANCE_CONFIG`로 named instance를 설정할 수 있습니다. `SERVICENOW_ACTIVE_INSTANCE`는 여전히 필요하지만, 이 모드는 read-only 패키지와 쓰기 비활성화 설정으로 사용하는 것을 기준으로 합니다.
+
+이 모드는 **오직 데이터 비교용**입니다.
+
+- 일반 도구는 항상 active 인스턴스만 사용합니다.
+- 쓰기 가능한 도구에는 인스턴스 선택 파라미터가 없습니다.
+- `list_instances`는 설정된 alias만 보여줍니다.
+- `compare_instances`는 alias 간 테이블 데이터를 read-only로 비교합니다.
+- alias별 인증 필드는 선택이며, 없으면 기존 전역 인증 환경변수에서 fallback됩니다.
+- 이 모드를 환경 간 쓰기 작업에 사용하지 마세요.
+
+예시:
+
+```bash
+export SERVICENOW_ACTIVE_INSTANCE=dev
+export SERVICENOW_INSTANCE_CONFIG='{
+  "dev": {
+    "url": "https://dev.service-now.com",
+    "role": "development",
+    "tool_package": "standard",
+    "allow_writes": false
+  },
+  "test": {
+    "url": "https://test.service-now.com",
+    "role": "test",
+    "tool_package": "standard",
+    "allow_writes": false
+  }
+}'
+```
+
+dev/test drift 확인에는 `compare_instances`를 사용하세요. 다른 인스턴스에 실제 작업을 해야 한다면 프로젝트/클라이언트 설정을 분리하는 방식을 권장합니다.
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 
@@ -301,30 +335,6 @@ servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
 ```
 
 MCP 엔드포인트는 `http://127.0.0.1:8000/mcp`이고, `/health`는 가벼운 상태 응답을 반환합니다.
-
-### 선택적 멀티 인스턴스 비교 모드
-
-기존 단일 인스턴스 환경변수는 그대로 지원됩니다. 멀티 인스턴스는 JSON 환경변수 하나로 opt-in합니다.
-
-```bash
-export SERVICENOW_ACTIVE_INSTANCE=dev
-export SERVICENOW_INSTANCE_CONFIG='{
-  "dev": {
-    "url": "https://dev.service-now.com",
-    "role": "development",
-    "tool_package": "platform_developer",
-    "allow_writes": true
-  },
-  "test": {
-    "url": "https://test.service-now.com",
-    "role": "test",
-    "tool_package": "standard",
-    "allow_writes": false
-  }
-}'
-```
-
-일반 도구는 항상 `SERVICENOW_ACTIVE_INSTANCE`로만 라우팅됩니다. 쓰기 가능한 도구에는 요청별 인스턴스 선택 파라미터가 없습니다. `list_instances`로 alias 구성을 확인하고, dev/test 데이터 차이는 read-only `compare_instances`로 비교하세요. 인증 세부값은 alias에 없으면 기존 `SERVICENOW_AUTH_TYPE`, browser/basic/OAuth/API key 환경변수와 `MCP_TOOL_PACKAGE`에서 fallback됩니다. active alias에 `tool_package`가 있으면 그 값이 우선합니다.
 
 ### Basic 인증
 

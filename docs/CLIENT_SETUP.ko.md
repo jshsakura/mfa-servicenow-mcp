@@ -64,7 +64,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 > **프로젝트 로컬 설정을 권장합니다**: 프로젝트 단위로 설정하면 각 프로젝트가 서로 다른 ServiceNow 인스턴스에 연결할 수 있습니다.
 
-> **단일 인스턴스 설계**: MCP 서버 프로세스 하나는 ServiceNow 인스턴스 하나에만 연결됩니다. dev/test/prod 사이를 오갈 때 운영에 잘못 쓰는 사고를 막기 위해 요청별 멀티 인스턴스 라우팅은 의도적으로 지원하지 않습니다.
+> **단일 active 인스턴스 설계**: 일반 도구는 하나의 active ServiceNow 인스턴스에만 라우팅됩니다. dev/test/prod 사이를 오갈 때 운영에 잘못 쓰는 사고를 막기 위해 요청 시점의 쓰기 대상 전환은 의도적으로 피합니다.
 
 ---
 
@@ -80,9 +80,16 @@ MCP 엔드포인트는 `http://127.0.0.1:8000/mcp`이고, `/health`는 가벼운
 
 ---
 
-## 멀티 인스턴스 비교 모드
+## 읽기 전용 데이터 비교 모드
 
-단일 인스턴스 설정이 기본입니다. 모든 도구에 `instance` 파라미터를 붙이지 않고 dev/test 데이터를 비교하려면 JSON으로 named instance를 설정합니다.
+dev/test drift 분석이 필요할 때 `SERVICENOW_INSTANCE_CONFIG`로 named instance를 설정할 수 있습니다. 이 모드는 의도적으로 데이터 비교 용도로만 제한됩니다.
+
+- 일반 도구는 여전히 `SERVICENOW_ACTIVE_INSTANCE`로만 라우팅됩니다.
+- 쓰기 가능한 도구에는 인스턴스 선택 파라미터가 없습니다.
+- `compare_instances`는 alias 간 레코드를 read-only로 비교합니다.
+- `list_instances`는 설정된 alias만 보여줍니다.
+- 비교 alias는 read-only 패키지와 `allow_writes=false`로 설정하세요.
+- 이 모드를 환경 간 쓰기 작업에 사용하지 마세요.
 
 ```bash
 SERVICENOW_ACTIVE_INSTANCE=dev
@@ -90,8 +97,8 @@ SERVICENOW_INSTANCE_CONFIG='{
   "dev": {
     "url": "https://dev.service-now.com",
     "role": "development",
-    "tool_package": "platform_developer",
-    "allow_writes": true
+    "tool_package": "standard",
+    "allow_writes": false
   },
   "test": {
     "url": "https://test.service-now.com",
@@ -101,14 +108,6 @@ SERVICENOW_INSTANCE_CONFIG='{
   }
 }'
 ```
-
-규칙:
-
-- `SERVICENOW_INSTANCE_CONFIG`가 없으면 기존 동작과 동일합니다.
-- 일반 도구는 항상 active instance만 사용합니다.
-- 멀티 인스턴스 모드에서만 `list_instances`와 read-only `compare_instances`가 노출됩니다.
-- alias별 인증 필드는 선택입니다. 없으면 기존 전역 인증 환경변수에서 fallback됩니다.
-- active alias에 `tool_package`가 있으면 해당 서버 프로세스에서는 `MCP_TOOL_PACKAGE`보다 우선합니다.
 
 비교 예시:
 
@@ -122,6 +121,8 @@ SERVICENOW_INSTANCE_CONFIG='{
   "query": "sys_scope.scope=x_company_app"
 }
 ```
+
+다른 인스턴스에 실제 작업을 해야 한다면 프로젝트/클라이언트 설정을 분리하세요.
 
 ---
 
