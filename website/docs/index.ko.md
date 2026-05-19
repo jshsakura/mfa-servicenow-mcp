@@ -139,23 +139,18 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
       <div class="install-panels">
         <div class="install-panel active" id="local-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. zip 압축 해제 — 폴더 구조:</span>
-<span class="c">#    servicenow-mcp-linux-x64-1.13.5/</span>
-<span class="c">#    ├── servicenow-mcp            ← 빌드된 실행 파일</span>
-<span class="c">#    ├── install.sh                ← 설치 스크립트</span>
-<span class="c">#    ├── PLAYWRIGHT_VERSION.txt</span>
-<span class="c">#    ├── README.md</span>
-<span class="c">#    └── LICENSE</span>
+            <pre class="install-code"><code><span class="c"># 1. 압축 해제 — 핵심 파일은 두 개 (실행 파일 + 설치 스크립트):</span>
+<span class="c">#    servicenow-mcp-linux-x64-&lt;ver&gt;/</span>
+<span class="c">#    ├── servicenow-mcp     ← 빌드된 실행 파일</span>
+<span class="c">#    └── install.sh         ← 설치 스크립트</span>
 <span class="c">#</span>
 <span class="c"># 2. (선택) Chromium zip을 같은 폴더에 그대로 복사:</span>
-<span class="c">#    ms-playwright-chromium-linux-x64-1.13.5.zip  (압축 해제 X)</span>
-<span class="c">#    설치 스크립트가 자동으로 Playwright 표준 캐시에 추출합니다.</span>
+<span class="c">#    ms-playwright-chromium-linux-x64-&lt;ver&gt;.zip   (압축 해제 X)</span>
 
-<span class="c"># 3. 설치 스크립트 실행 (CLIENT = 본인 MCP 클라이언트):</span>
-cd ~/Downloads/servicenow-mcp-linux-x64-1.13.5
+<span class="c"># 3. 설치 스크립트 실행 (macOS / Linux 동일):</span>
+cd ~/Downloads/servicenow-mcp-linux-x64-*
 chmod +x install.sh
-SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
-  CLIENT=opencode ./install.sh
+./install.sh --client opencode --instance-url "https://your-instance.service-now.com"
 
 <span class="c"># 4. 동작 확인 후 MCP 클라이언트 재시작:</span>
 ~/.local/bin/servicenow-mcp --version</code></pre>
@@ -163,20 +158,16 @@ SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
         </div>
         <div class="install-panel" id="local-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. zip 압축 해제 — 폴더 구조:</span>
-<span class="c">#    servicenow-mcp-windows-x64-1.13.5\</span>
-<span class="c">#    |-- servicenow-mcp.exe        &lt;- 빌드된 실행 파일</span>
-<span class="c">#    |-- install.ps1               &lt;- 설치 스크립트</span>
-<span class="c">#    |-- PLAYWRIGHT_VERSION.txt</span>
-<span class="c">#    |-- README.md</span>
-<span class="c">#    `-- LICENSE</span>
+            <pre class="install-code"><code><span class="c"># 1. 압축 해제 — 핵심 파일은 두 개 (실행 파일 + 설치 스크립트):</span>
+<span class="c">#    servicenow-mcp-windows-x64-&lt;ver&gt;\</span>
+<span class="c">#    |-- servicenow-mcp.exe   &lt;- 빌드된 실행 파일</span>
+<span class="c">#    `-- install.ps1          &lt;- 설치 스크립트</span>
 <span class="c">#</span>
 <span class="c"># 2. (선택) Chromium zip을 같은 폴더에 그대로 복사:</span>
-<span class="c">#    ms-playwright-chromium-windows-x64-1.13.5.zip  (압축 해제 X)</span>
-<span class="c">#    설치 스크립트가 자동으로 %LOCALAPPDATA%\ms-playwright 에 추출합니다.</span>
+<span class="c">#    ms-playwright-chromium-windows-x64-&lt;ver&gt;.zip   (압축 해제 X)</span>
 
-<span class="c"># 3. 설치 스크립트 실행 (-Client = 본인 MCP 클라이언트):</span>
-cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
+<span class="c"># 3. 설치 스크립트 실행 (인자 형태는 Unix와 동일, 접두만 PowerShell식):</span>
+cd $HOME\Downloads\servicenow-mcp-windows-x64-*
 .\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
 
 <span class="c"># 4. 동작 확인 후 MCP 클라이언트 재시작:</span>
