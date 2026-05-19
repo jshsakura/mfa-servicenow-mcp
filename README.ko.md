@@ -21,9 +21,8 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 ## 목차
 
 - [주요 특징](#주요-특징)
-- [AI 자동 설치](#ai-자동-설치)
+- [설치](#설치)
 - [필수 준비 사항](#필수-준비-사항)
-- [바로 쓰기](#바로-쓰기)
 - [MCP 클라이언트 설정](#mcp-클라이언트-설정)
 - [인증 방법](#인증-방법)
 - [도구 패키지](#도구-패키지)
@@ -40,28 +39,46 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 
 ---
 
-## AI 자동 설치
+## 설치
+
+두 가지 경로 중 하나 선택. 둘 다 결과는 같으니 한 번만 하면 됩니다.
+
+### 경로 A — AI에게 맡기기
 
 > **한 줄이면 끝. AI가 알아서 전부 설정합니다.**
 
-Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI 등 아무 AI 코딩 도구에 아래 내용을 붙여넣으세요:
+Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI 등에 아래 내용을 붙여넣으세요:
 
 ```
 Install and configure mfa-servicenow-mcp by following the instructions here:
 curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md
 ```
 
-AI가 자동으로:
-1. **uv**와 **Playwright Chromium** 설치 (없으면 — 첫 로그인 지연 방지)
-2. ServiceNow 인스턴스 URL, 인증 방식, 도구 패키지 질문
-3. 사용 중인 클라이언트에 맞는 MCP 설정 파일 생성
-4. **16개 워크플로우 스킬** 설치 (지원 클라이언트)
+AI가 `uv` + Chromium 설치, 인스턴스 URL / 인증 방식 / 도구 패키지 질문, 클라이언트에 맞는 MCP 설정 작성, 워크플로우 스킬 설치까지 알아서 처리합니다.
 
-설정 파일 직접 편집할 필요 없습니다. 포맷 차이 신경 쓸 필요 없습니다. macOS, Linux, Windows 전부 지원.
+### 경로 B — 직접 한 줄 실행
 
-설치 후 **AI 클라이언트를 재시작**하면 MCP 서버가 로드됩니다. 첫 도구 호출 시 브라우저가 열려 MFA 로그인을 진행합니다.
+직접 installer를 실행하고 싶다면:
 
-> 수동 설치는 아래 [필수 준비 사항](#필수-준비-사항)과 [바로 쓰기](#바로-쓰기) 참조.
+```bash
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser"
+```
+
+`opencode`를 사용 중인 클라이언트(`claude-code`, `codex`, `cursor`, `gemini` 등)로 교체. installer가 기존 설정에 엔트리 병합, Chromium 설치(`--skip-chromium`로 opt-out 가능), 지원 클라이언트면 스킬도 설치. 전역 설치는 `--scope global` (기본값은 프로젝트별).
+
+제거:
+
+```bash
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove opencode
+```
+
+### 어느 경로든 끝나면
+
+MCP 클라이언트를 재시작하면 새 설정이 로드됩니다. 첫 브라우저 인증 도구 호출 시 Okta/Entra ID/SAML/MFA 로그인 창이 뜹니다. 세션은 유지되어 매번 재로그인할 필요 없습니다.
+
+> 클라이언트 설정을 직접 작성해야 할 때는 [MCP 클라이언트 설정](#mcp-클라이언트-설정) 참고. 서버만 직접 실행하려면 [CLI 레퍼런스](#cli-레퍼런스) 참고.
 
 ---
 
@@ -130,55 +147,23 @@ AI가 자동으로:
 
 ### 2. Chromium 미리 설치 (강력 권장)
 
-MFA/SSO 로그인은 Playwright Chromium 빌드가 필요합니다. 미리 안 깔아 두면 **첫 브라우저 인증 툴 호출 때** Chromium(~150 MB)을 그 자리에서 받아와야 하는데, 네트워크가 느리면 MCP 시작이 호스트 timeout을 넘겨 로그인 창이 안 뜨는 것처럼 보입니다. 한 번만 미리 깔아두면 첫 호출이 즉시 시작됩니다:
+MFA/SSO 로그인은 Playwright Chromium 빌드가 필요합니다. MCP 서버는 더 이상 startup이나 첫 도구 호출에서 Chromium을 자동 다운로드하지 않습니다 (느린 회선에서 handshake timeout 발생 — [버전 고정](#특정-버전-고정) 참조). 한 번만 미리 받아두세요:
 
 ```bash
 uvx --with playwright playwright install chromium
 ```
 
-끝. MCP 서버 실행에도 같은 `uvx`를 쓰니 별도 도구 설치는 필요 없습니다.
+`servicenow-mcp setup <client>`를 사용하면 이 명령이 자동 실행됩니다 — 다음 섹션으로 건너뛰세요.
 
-Playwright 자체를 업그레이드할 때 같은 명령을 다시 실행하면 됩니다. 브라우저 바이너리는 로컬에 캐시되어 MCP 버전과 무관하게 공유됩니다.
-
-> **자주 쓰는 사용자:** `playwright` CLI를 일상적으로 사용한다면 `uv tool install playwright`로 PATH에 영구 설치한 뒤 `playwright install chromium`을 바로 호출할 수 있습니다. 대부분 사용자에게는 불필요합니다.
+> **자주 쓰는 사용자:** `uv tool install playwright`로 PATH에 영구 설치 가능. 대부분 사용자에게는 불필요.
 
 > Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
 ---
 
-## 바로 쓰기
-
-수동 설치를 한다면, 먼저 installer가 클라이언트 설정까지 써 주는 경로를 쓰는 것이 가장 쉽습니다.
-
-클론 필요 없습니다. 한 줄 — macOS, Linux, Windows 전부 동작:
-
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
-```
-
-`opencode` 대신 사용 중인 클라이언트 이름(`claude-code`, `codex`, `cursor`, `gemini` 등)을 넣으세요. installer가 기존 설정 파일에 ServiceNow 엔트리를 병합하고, 지원 클라이언트면 스킬도 설치합니다.
-
-전역 설치가 필요할 때만 `--scope global`을 추가하세요. 기본값은 프로젝트 단위 설치입니다.
-
-나중에 제거하려면 해당 클라이언트용 제거 명령을 실행하세요:
-
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove opencode
-```
-
-전역 설치를 제거할 때는 `--scope global`을 함께 사용하세요. MCP 설정만 지우고 스킬은 유지하려면 `--keep-skills`를 추가하면 됩니다.
-
-첫 브라우저 인증 도구 호출 시 Okta/Entra ID/SAML/MFA 로그인 창이 뜹니다. Chromium은 자동 설치됩니다. 세션은 유지되어 매번 재로그인할 필요 없습니다.
-
-> AI가 끝까지 안내하게 하려면 위의 [AI 자동 설치](#ai-자동-설치)를 사용하세요. 클라이언트 설정 없이 서버만 직접 실행하려면 [CLI 레퍼런스](#cli-레퍼런스)를 참고하세요.
-
----
-
 ## MCP 클라이언트 설정
 
-> 권장: 위의 AI 자동 설치 또는 `servicenow-mcp setup <client> ...`를 먼저 사용하세요. 아래 복사-붙여넣기 설정은 직접 점검하거나 수동 복구가 필요할 때 쓰는 용도입니다.
+> 권장: 위의 [설치](#설치) 섹션 사용. 아래 복사-붙여넣기 설정은 직접 점검하거나 수동 복구가 필요할 때 쓰는 용도.
 
 프로젝트마다 다른 ServiceNow 인스턴스에 접속할 수 있습니다. **프로젝트 디렉토리**에 설정 파일을 두세요.
 
@@ -205,7 +190,7 @@ ServiceNow 환경에 맞는 인증 방식을 선택하세요.
 
 ### 브라우저 인증 (MFA/SSO) — 기본
 
-[바로 쓰기](#바로-쓰기)의 명령어가 브라우저 인증입니다. 추가 옵션:
+[설치](#설치)의 명령어가 브라우저 인증입니다. 추가 옵션:
 
 | 플래그 | 환경변수 | 기본값 | 설명 |
 |------|---------|--------|------|

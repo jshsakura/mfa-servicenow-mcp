@@ -777,14 +777,35 @@ def _is_login_redirect_response(response: requests.Response) -> bool:
     )
 
 
+def _chromium_health_fields(config: ServerConfig) -> Dict[str, Any]:
+    """Surface Chromium install status on browser auth so sn_health users
+    discover a missing binary before they hit a real tool call."""
+    if not (config.auth and config.auth.type.value == "browser"):
+        return {}
+    from servicenow_mcp.utils.chromium import check_chromium_install_hint
+
+    hint = check_chromium_install_hint()
+    if hint is None:
+        return {"chromium": "ready"}
+    return {"chromium": "missing", "chromium_install_hint": hint}
+
+
 @register_tool(
     name="sn_health",
     params=HealthCheckParams,
-    description="Check ServiceNow API connectivity, auth status, and return MCP server version. Triggers browser login on first use in MFA mode.",
+    description="Check ServiceNow API connectivity, auth status, Chromium install state (browser auth), and MCP server version.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
 def sn_health(
+    config: ServerConfig, auth_manager: AuthManager, params: HealthCheckParams
+) -> Dict[str, Any]:
+    result = _sn_health_impl(config, auth_manager, params)
+    result.update(_chromium_health_fields(config))
+    return result
+
+
+def _sn_health_impl(
     config: ServerConfig, auth_manager: AuthManager, params: HealthCheckParams
 ) -> Dict[str, Any]:
     probe_path = "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
