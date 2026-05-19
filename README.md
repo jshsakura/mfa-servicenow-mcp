@@ -24,6 +24,7 @@ MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so 
 - [CLI Reference](#cli-reference)
 - [Keeping Up to Date](#keeping-up-to-date)
 - [Safety Policy](#safety-policy)
+- [Performance Optimizations](#performance-optimizations)
 - [Local Source Audit](#local-source-audit)
 - [Skills](#skills)
 - [Docker](#docker)
@@ -431,13 +432,6 @@ uvx --with "playwright==<new>" playwright install chromium
 ```
 
 > **Why we no longer auto-install Chromium inside the MCP server:** that download used to run during the first tool call. On a slow link the subprocess outlived the host's handshake deadline and the client reported "connection closed". v1.13.1 changed this — the MCP server now only *warns* if Chromium is missing, and the `servicenow-mcp setup <client>` command handles the install at setup time (out-of-band, no handshake timer).
-
-### Version release process
-
-1. Version is defined in `pyproject.toml` (`version = "x.y.z"`)
-2. On push to `main`, CI auto-creates a git tag `v{version}` if it doesn't exist
-3. Tagged pushes trigger PyPI publishing and GitHub Release creation
-4. Docker images (standard + playwright variants) are built for `amd64` and `arm64`
 
 ---
 
