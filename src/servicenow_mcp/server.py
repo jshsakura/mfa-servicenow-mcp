@@ -17,6 +17,7 @@ from pydantic import AnyUrl, ValidationError
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.resources.skill_resources import build_tool_to_skills_map, load_skills
 from servicenow_mcp.utils import json_fast
+from servicenow_mcp.utils.chromium import check_chromium_install_hint
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 
@@ -1008,7 +1009,15 @@ class ServiceNowMCP:
         logger.info(
             "ServiceNowMCP instance configured. Returning low-level server instance for external execution."
         )
-        # The actual running of the server (server.run(...)) must happen
-        # within an async context managed by the caller (e.g., using anyio
-        # and a specific transport like stdio_server or SseServerTransport).
+        # When browser auth is selected and Chromium is missing, surface a
+        # clear notice through MCP `instructions` so the client/LLM sees the
+        # exact remediation command on the initialize response — instead of
+        # silently failing on the first browser tool call.
+        if self.config.auth and self.config.auth.type.value == "browser":
+            chromium_notice = check_chromium_install_hint()
+            if chromium_notice:
+                existing = getattr(self.mcp_server, "instructions", None) or ""
+                self.mcp_server.instructions = (
+                    f"{existing}\n\n{chromium_notice}" if existing else chromium_notice
+                )
         return self.mcp_server
