@@ -1,61 +1,61 @@
 # Windows Installation Guide
 
-`uv` handles Python and packages. **Chromium for the MFA/SSO login window must be installed up front** — without it, the first tool call has to download ~150 MB on the spot, which on a slow link pushes MCP startup past the host's timeout and looks like the login window never opens.
+Use `uvx` by default. If endpoint security/Zscaler blocks `uvx` or package downloads, use the release zip/exe section below.
 
 ---
 
-## Step 1: Install uv
+## Step 1: Default uvx install
 
-`uv` is a tool that manages Python versions and packages in one step.
-
-Open PowerShell **without admin privileges** and run:
+Open PowerShell without admin privileges:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uvx --with playwright playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+  --instance-url "https://your-instance.service-now.com" `
+  --auth-type "browser"
 ```
 
-After installation, **close and reopen PowerShell** (to refresh PATH).
-
-Verify:
-```powershell
-uv --version
-```
-
-> If you get "uv not found", make sure you reopened PowerShell.
-> If it still fails, check that `$env:USERPROFILE\.local\bin` is in your PATH.
+`uvx` does not use a locally installed Playwright Python package. It can reuse a matching Chromium already present in the standard Playwright browser cache. If Chromium is missing, run the Playwright install command above.
 
 ---
 
-## Step 2: Pre-install Chromium (REQUIRED)
+## Step 2: Release zip/exe install
 
-This is a **hard dependency**, not an optional step. ServiceNow MFA/SSO login goes through a Playwright-driven Chromium window; if Chromium is missing when the MCP server starts, it tries to download mid-flight and the host times out before login can finish.
+Use this when `uvx` is blocked. Download `servicenow-mcp-windows-x64-<version>.zip` from GitHub Releases. It contains:
 
-Install Chromium once with `uvx`, matching the MCP server execution style and avoiding PATH confusion:
-
-```powershell
-uvx --with playwright playwright install chromium
+```text
+servicenow-mcp.exe
+install.ps1
 ```
 
-The browser binary is cached at `%USERPROFILE%\AppData\Local\ms-playwright\` and shared across MCP versions. Re-run the same `uvx --with playwright playwright install chromium` command only when you upgrade Playwright itself.
-
-### Corporate network fallback: local source folder
-
-If `uvx` package execution is blocked but GitHub source access is allowed, clone the repository once and point your MCP client at the local executable:
+Extract the zip, then run:
 
 ```powershell
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.\.venv\Scripts\python.exe -m playwright install chromium
+.\install.ps1 `
+  -Client opencode `
+  -InstanceUrl "https://your-instance.service-now.com"
 ```
 
-Then use the local executable path in the MCP config:
+The installer copies files to `%LOCALAPPDATA%\servicenow-mcp` and runs:
+
+```powershell
+$Exe = "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe"
+& $Exe setup opencode `
+  --server-command "$Exe" `
+  --instance-url "https://your-instance.service-now.com" `
+  --auth-type browser `
+  --skip-chromium `
+  --skip-skills
+```
+
+That writes MCP config like:
 
 ```json
 {
   "mcpServers": {
     "servicenow": {
-      "command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe",
+      "command": "C:\\Users\\you\\AppData\\Local\\servicenow-mcp\\servicenow-mcp.exe",
       "args": [],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -67,22 +67,34 @@ Then use the local executable path in the MCP config:
 }
 ```
 
-This keeps `uv` out of MCP runtime. `uv` is used only once to create the local environment and cache Chromium.
+This keeps `uvx` out of runtime. Playwright Chromium still uses the standard browser cache at `%LOCALAPPDATA%\ms-playwright`.
+
+If Chromium is not installed and downloads are allowed, install Python from <https://www.python.org/downloads/>, install the Playwright version listed in `PLAYWRIGHT_VERSION.txt`, then run:
+
+```powershell
+py -m pip install "playwright==<version-from-PLAYWRIGHT_VERSION.txt>"
+py -m playwright install chromium
+```
+
+If the Playwright browser download is blocked too, download `ms-playwright-chromium-windows-x64-<version>.zip` from the same release and extract its contents to:
+
+```text
+%LOCALAPPDATA%\ms-playwright
+```
+
+Playwright browser docs: <https://playwright.dev/python/docs/browsers>
 
 ---
 
-## Step 3: Run the MCP Server
+## Step 3: Build release assets
 
-With uv and Chromium in place, MCP startup is instant on every call:
+Maintainers build the release zip on Windows:
 
 ```powershell
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser" `
-  --browser-headless "false"
+py scripts\build_desktop_release.py --browser-zip
 ```
 
-A browser window opens on the first tool call for MFA/SSO login (Okta, Entra ID, SAML). After authentication, the browser closes automatically and the session persists.
+This creates the executable zip and the optional Playwright Chromium cache zip for blocked networks.
 
 ---
 
@@ -350,7 +362,7 @@ If there's a conflict with system Python, uninstall and reinstall `uv`.
 ```powershell
 uvx --with playwright playwright install chromium
 ```
-→ If `uvx` package execution is blocked, use the local source folder fallback above and point MCP at `.venv\Scripts\servicenow-mcp.exe`.
+→ If browser download is blocked, use the matching `ms-playwright-chromium-windows-x64-<version>.zip` release asset and extract it to `%LOCALAPPDATA%\ms-playwright`.
 
 ### "MCP server won't connect"
 → Check config file syntax:

@@ -97,34 +97,19 @@ uvx --with playwright playwright install chromium
 
 This downloads ~150 MB the first time. On a slow link it can take several minutes — that is normal. Do not abort early. Show the user a progress message ("Downloading Chromium for ServiceNow MFA login — this can take a few minutes on slow networks…") so they understand the wait.
 
-If `uvx` package execution is blocked but GitHub source access is allowed, switch to the local source folder fallback. `uv` is used only once to create the environment; MCP runtime must point directly to the `.venv` executable:
+If `uvx` package execution is blocked, switch to the release zip/exe path:
 
-```bash
-# macOS/Linux
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.venv/bin/python -m playwright install chromium
-```
+- Download `servicenow-mcp-<platform>-<version>.zip` from GitHub Releases.
+- Run the included `install.ps1` (Windows) or `install.sh` (macOS/Linux).
+- If the browser download is blocked too, download `ms-playwright-chromium-<platform>-<version>.zip` from the same release and extract it to the standard Playwright cache.
 
-```powershell
-# Windows PowerShell
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.\.venv\Scripts\python.exe -m playwright install chromium
-```
-
-Use these command paths in the generated MCP config:
-
-- macOS/Linux: `/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp`
-- Windows: `C:\absolute\path\mfa-servicenow-mcp\.venv\Scripts\servicenow-mcp.exe`
+Do not mix this with source-folder or venv instructions; the release installer writes the built executable path into MCP config.
 
 **2.3 — Verify and stop on failure**
 
 Re-run the check from 2.1. If the binary is still missing, **STOP the setup** and report the failure to the user with the exact command output. Common causes:
 
-- Corporate policy blocking package or browser downloads; use the local source folder fallback if GitHub source access is allowed
+- Corporate policy blocking package or browser downloads; use the release zip/exe path
 - Antivirus quarantining the Chromium archive
 - Disk full
 
