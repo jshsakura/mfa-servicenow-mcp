@@ -1,61 +1,61 @@
 # Windows 설치 가이드
 
-`uv`가 Python과 패키지를 처리합니다. **MFA/SSO 로그인 창용 Chromium은 반드시 미리 설치해야 합니다** — 미리 안 깔아 두면 첫 툴 호출 시 ~150 MB를 그 자리에서 받아오는데, 네트워크가 느리면 MCP 시작이 호스트 timeout을 넘겨서 로그인 창이 안 뜨는 것처럼 보입니다.
+기본 설치는 `uvx`입니다. Zscaler/보안툴이 `uvx`나 패키지 다운로드를 막는 Windows 환경에서는 아래 릴리즈 zip/exe 섹션을 사용하세요.
 
 ---
 
-## 1단계: uv 설치
+## 1단계: 기본 uvx 설치
 
-`uv`는 파이썬 버전 관리 + 패키지 설치를 한 번에 해주는 도구입니다.
-
-PowerShell을 **관리자 권한 없이** 열고 아래 명령어를 실행하세요:
+관리자 권한 없는 PowerShell에서 실행:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uvx --with playwright playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+  --instance-url "https://your-instance.service-now.com" `
+  --auth-type "browser"
 ```
 
-설치 후 **PowerShell을 닫고 다시 열어주세요** (PATH 반영을 위해).
-
-확인:
-```powershell
-uv --version
-```
-
-> `uv`를 찾을 수 없다는 오류가 나면 PowerShell을 다시 열었는지 확인하세요.
-> 그래도 안 되면 `$env:USERPROFILE\.local\bin`이 PATH에 있는지 확인하세요.
+`uvx`는 로컬 Playwright Python 패키지를 자동으로 우선 사용하지 않습니다. 다만 같은 Chromium revision이 표준 Playwright 브라우저 캐시에 있으면 다시 다운로드하지 않습니다. Chromium이 없으면 위 Playwright 설치 명령을 먼저 실행하세요.
 
 ---
 
-## 2단계: Chromium 미리 설치 (필수)
+## 2단계: 릴리즈 zip/exe 설치
 
-이건 **선택이 아니라 필수 종속성**입니다. ServiceNow MFA/SSO 로그인은 Playwright가 띄우는 Chromium 창으로 진행되는데, MCP 서버가 시작될 때 Chromium이 없으면 그 자리에서 다운로드를 시도하다가 호스트가 timeout으로 잘라서 로그인이 끝나기 전에 끊깁니다.
+`uvx`가 막히면 GitHub Releases에서 `servicenow-mcp-windows-x64-<version>.zip`을 받으세요. 구성:
 
-한 번만 깔면 됩니다. MCP 서버 실행 방식과 맞추고 PATH 혼동을 줄이기 위해 Chromium 설치도 `uvx`로 실행하세요:
-
-```powershell
-uvx --with playwright playwright install chromium
+```text
+servicenow-mcp.exe
+install.ps1
 ```
 
-브라우저 바이너리는 `%USERPROFILE%\AppData\Local\ms-playwright\`에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체를 업그레이드할 때만 같은 `uvx --with playwright playwright install chromium` 명령을 다시 실행하세요.
-
-### 회사망 fallback: 로컬 소스 폴더
-
-`uvx` 패키지 실행은 막히지만 GitHub 소스 접근은 가능한 환경이면, 저장소를 한 번 clone하고 MCP 클라이언트가 로컬 실행 파일을 직접 보게 설정하세요:
+zip을 풀고 실행:
 
 ```powershell
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.\.venv\Scripts\python.exe -m playwright install chromium
+.\install.ps1 `
+  -Client opencode `
+  -InstanceUrl "https://your-instance.service-now.com"
 ```
 
-그 다음 MCP 설정에는 로컬 실행 파일 경로를 넣습니다:
+설치 스크립트는 내부적으로 이런 설정을 씁니다:
+
+```powershell
+$Exe = "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe"
+& $Exe setup opencode `
+  --server-command "$Exe" `
+  --instance-url "https://your-instance.service-now.com" `
+  --auth-type browser `
+  --skip-chromium `
+  --skip-skills
+```
+
+생성되는 MCP 설정 형태:
 
 ```json
 {
   "mcpServers": {
     "servicenow": {
-      "command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe",
+      "command": "C:\\Users\\you\\AppData\\Local\\servicenow-mcp\\servicenow-mcp.exe",
       "args": [],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -67,22 +67,34 @@ uv sync --extra browser
 }
 ```
 
-이 방식은 MCP runtime에서 `uv`를 쓰지 않습니다. `uv`는 최초 로컬 환경 생성과 Chromium 캐시에만 한 번 사용됩니다.
+이 방식은 runtime에서 `uvx`를 쓰지 않습니다. Playwright Chromium은 표준 브라우저 캐시인 `%LOCALAPPDATA%\ms-playwright`를 사용합니다.
+
+Chromium이 없고 다운로드가 허용되는 환경이면 <https://www.python.org/downloads/> 에서 Python을 설치하고, `PLAYWRIGHT_VERSION.txt`에 적힌 Playwright 버전을 설치한 뒤 실행하세요:
+
+```powershell
+py -m pip install "playwright==<PLAYWRIGHT_VERSION.txt의 버전>"
+py -m playwright install chromium
+```
+
+브라우저 다운로드까지 막히면 같은 릴리즈의 `ms-playwright-chromium-windows-x64-<version>.zip`을 받아 아래 위치에 풀면 됩니다.
+
+```text
+%LOCALAPPDATA%\ms-playwright
+```
+
+Playwright 브라우저 문서: <https://playwright.dev/python/docs/browsers>
 
 ---
 
-## 3단계: MCP 서버 실행
+## 3단계: 릴리즈 빌드
 
-uv와 Chromium이 모두 갖춰지면 매 호출마다 즉시 시작됩니다:
+관리자는 Windows 빌드 머신에서 릴리즈 zip을 만듭니다:
 
 ```powershell
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser" `
-  --browser-headless "false"
+py scripts\build_desktop_release.py --browser-zip
 ```
 
-첫 번째 도구 호출 시 브라우저 창이 열리고 MFA/SSO 로그인(Okta, Entra ID, SAML)을 진행합니다. 인증 완료 후 브라우저가 자동으로 닫히고 세션이 유지됩니다.
+이 명령은 실행 파일 zip과, 차단망용 Playwright Chromium 캐시 zip을 생성합니다.
 
 ---
 
@@ -350,7 +362,7 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 ```powershell
 uvx --with playwright playwright install chromium
 ```
-→ `uvx` 패키지 실행이 차단되면 위의 로컬 소스 폴더 fallback을 사용하고 MCP가 `.venv\Scripts\servicenow-mcp.exe`를 보게 설정하세요.
+→ 브라우저 다운로드가 차단되면 같은 릴리즈의 `ms-playwright-chromium-windows-x64-<version>.zip`을 받아 `%LOCALAPPDATA%\ms-playwright`에 풀어 주세요.
 
 ### "MCP 서버가 연결되지 않습니다"
 → 설정 파일의 문법 오류를 확인하세요:

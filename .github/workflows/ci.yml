@@ -280,10 +280,50 @@ jobs:
             docker pull ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
             docker pull ghcr.io/${{ github.repository }}:latest
             ```
+
+            ## Desktop Release Zips
+
+            If `uvx` is blocked by endpoint security/Zscaler, download the zip for your platform and run the included installer:
+
+            - `servicenow-mcp-windows-x64-*.zip`
+            - `servicenow-mcp-macos-*.zip`
+            - `servicenow-mcp-linux-x64-*.zip`
+
+            Playwright Chromium normally uses its standard browser cache. If browser downloads are blocked too, download the matching `ms-playwright-chromium-*.zip` asset and extract it to the standard Playwright cache for your OS before starting your MCP client.
           draft: false
           prerelease: ${{ contains(steps.version.outputs.VERSION, '-rc') || contains(steps.version.outputs.VERSION, '-beta') || contains(steps.version.outputs.VERSION, '-alpha') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  desktop-release-assets:
+    name: Build desktop release assets (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build desktop zips
+        run: python scripts/build_desktop_release.py --browser-zip
+
+      - name: Upload desktop assets to release
+        shell: bash
+        run: gh release upload "${GITHUB_REF#refs/tags/}" dist/desktop/*.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ============================================
   # Publish to PyPI (tag push only — create git tag manually to deploy)
