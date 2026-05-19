@@ -78,7 +78,6 @@ Restart the MCP client so it loads the new config. The first browser-authenticat
 - **4 auth modes**: Browser, Basic, OAuth, API Key
 - **73 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **16 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
-- **Active-instance multi-instance mode** — compare dev/test data read-only while ordinary tools stay pinned to one active instance
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
@@ -272,7 +271,42 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 | `platform_developer` | 47 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
 | `full` | 62 | ⚠️ **Advanced only** — all write tools across all domains. See warning above. |
 
-Each server process is intentionally bound to one ServiceNow instance. For safety, there is no per-request multi-instance routing; use a separate project/client config when you need a different instance.
+Each server process is intentionally bound to one active ServiceNow instance for ordinary tools. For safety, there is no per-request write routing across instances.
+
+### Read-Only Data Comparison Mode
+
+When you need to compare development and test data, you can opt into named instances with `SERVICENOW_INSTANCE_CONFIG`. `SERVICENOW_ACTIVE_INSTANCE` is still required, but the mode should be configured with read-only packages and writes disabled.
+
+This mode is **only for data comparison**:
+
+- Ordinary tools always use the active instance.
+- Write-capable tools do not accept an instance selector.
+- `list_instances` only reports configured aliases.
+- `compare_instances` performs read-only table comparisons across aliases.
+- Alias auth fields are optional and fall back to the existing global auth env vars.
+- Do not use this mode for write work across environments.
+
+Example:
+
+```bash
+export SERVICENOW_ACTIVE_INSTANCE=dev
+export SERVICENOW_INSTANCE_CONFIG='{
+  "dev": {
+    "url": "https://dev.service-now.com",
+    "role": "development",
+    "tool_package": "standard",
+    "allow_writes": false
+  },
+  "test": {
+    "url": "https://test.service-now.com",
+    "role": "test",
+    "tool_package": "standard",
+    "allow_writes": false
+  }
+}'
+```
+
+Use `compare_instances` for dev/test drift checks. Use separate project/client configs for actual work against a different instance.
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
@@ -306,30 +340,6 @@ servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
 ```
 
 The MCP endpoint is `http://127.0.0.1:8000/mcp`; `/health` returns a lightweight health response.
-
-### Optional Multi-Instance Compare Mode
-
-Existing single-instance environment variables remain fully supported. Multi-instance mode is opt-in via one JSON env var:
-
-```bash
-export SERVICENOW_ACTIVE_INSTANCE=dev
-export SERVICENOW_INSTANCE_CONFIG='{
-  "dev": {
-    "url": "https://dev.service-now.com",
-    "role": "development",
-    "tool_package": "platform_developer",
-    "allow_writes": true
-  },
-  "test": {
-    "url": "https://test.service-now.com",
-    "role": "test",
-    "tool_package": "standard",
-    "allow_writes": false
-  }
-}'
-```
-
-Ordinary tools always route to `SERVICENOW_ACTIVE_INSTANCE`; there is no per-call instance selector on write-capable tools. Use `list_instances` to inspect configured aliases and `compare_instances` for read-only dev/test data comparisons. Missing auth details fall back to the existing `SERVICENOW_AUTH_TYPE`, browser/basic/OAuth/API key env vars, and `MCP_TOOL_PACKAGE` unless the active alias sets `tool_package`.
 
 ### Basic Auth
 
