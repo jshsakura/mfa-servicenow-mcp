@@ -269,53 +269,21 @@ def _detect_clones(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 class AuditPendingChangesParams(BaseModel):
     """Parameters for auditing pending update set changes."""
 
-    developer: str = Field(
-        default=...,
-        description="Developer username (sys_updated_by). Example: admin@example.com",
-    )
-    date_from: Optional[str] = Field(
-        default=None,
-        description="Start date (YYYY-MM-DD). Defaults to 7 days ago.",
-    )
-    date_to: Optional[str] = Field(
-        default=None,
-        description="End date (YYYY-MM-DD). Defaults to today.",
-    )
+    developer: str = Field(default=..., description="Developer username (sys_updated_by)")
+    date_from: Optional[str] = Field(default=None, description="YYYY-MM-DD (default: -7d)")
+    date_to: Optional[str] = Field(default=None, description="YYYY-MM-DD (default: today)")
     exclude_pattern: Optional[str] = Field(
-        default=None,
-        description=(
-            "Exclude entries whose target_name matches this substring "
-            "(case-insensitive). Example: 'hopes'"
-        ),
+        default=None, description="Exclude target_name substring (case-insensitive)"
     )
-    scope: Optional[str] = Field(
-        default=None,
-        description="App scope filter (application name). Example: x_company_bpm",
-    )
-    update_set: Optional[str] = Field(
-        default=None,
-        description="Filter to specific update set name. Example: 'My Feature v2'",
-    )
+    scope: Optional[str] = Field(default=None, description="App scope filter")
+    update_set: Optional[str] = Field(default=None, description="Update set name filter")
     custom_risk_patterns: Optional[List[str]] = Field(
-        default=None,
-        description="Additional regex patterns to scan for. Auto-classified as medium severity.",
+        default=None, description="Extra regex patterns (medium severity)"
     )
-    max_entries: int = Field(
-        default=200,
-        description="Maximum update_xml entries to process (max 500).",
-    )
-    include_code_snippets: bool = Field(
-        default=False,
-        description="Include code snippets around risk matches. Default false for token efficiency.",
-    )
-    snippet_chars: int = Field(
-        default=100,
-        description="Max snippet length when include_code_snippets=true.",
-    )
-    scan_code: bool = Field(
-        default=True,
-        description="Fetch and scan code bodies for risk patterns. Set false for inventory-only mode.",
-    )
+    max_entries: int = Field(default=200, description="Max update_xml entries (cap 500)")
+    include_code_snippets: bool = Field(default=False, description="Include code snippets")
+    snippet_chars: int = Field(default=100, description="Snippet length")
+    scan_code: bool = Field(default=True, description="Scan code bodies; false = inventory only")
 
 
 @register_tool(
