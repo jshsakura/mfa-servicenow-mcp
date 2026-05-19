@@ -73,10 +73,8 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem;">
-      If <code>uvx</code> is blocked by corporate security tooling, use the
-      release zip for your platform. The included installer writes the built
-      executable path into MCP config. If browser downloads are blocked too,
-      use the matching <code>ms-playwright-chromium</code> zip from the same release.
+      If <code>uvx</code> is blocked by corporate security tooling, jump to the
+      <a href="#local-install">Local install (release zip)</a> section below.
     </p>
 
     <div style="margin-top:56px;" class="reveal">
@@ -124,6 +122,71 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
         </div>
       </div>
     </div>
+
+    <div id="local-install" style="margin-top:56px;" class="reveal">
+      <span class="section-label">Local install — offline-friendly</span>
+      <h2 class="section-title">Install from the release zip</h2>
+      <p class="section-desc">
+        Use this when <code>uvx</code> or PyPI is blocked. The release zip ships a PyInstaller-built single-file executable plus an installer script — no Python required on the target machine. Grab the platform zip (and optionally the matching <code>ms-playwright-chromium</code> zip if Chromium download is blocked too) from <a href="https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>, then run the installer.
+      </p>
+    </div>
+    <div class="install-block reveal">
+      <div class="install-tabs">
+        <button class="install-tab active" data-target="local-mac">macOS / Linux</button>
+        <button class="install-tab" data-target="local-win">Windows</button>
+      </div>
+      <div class="install-panels">
+        <div class="install-panel active" id="local-mac">
+          <div class="install-code-block">
+            <pre class="install-code"><code><span class="c"># 1. Extract the zip — folder layout looks like this:</span>
+<span class="c">#    servicenow-mcp-linux-x64-1.13.5/</span>
+<span class="c">#    ├── servicenow-mcp            ← prebuilt executable</span>
+<span class="c">#    ├── install.sh                ← installer script</span>
+<span class="c">#    ├── PLAYWRIGHT_VERSION.txt</span>
+<span class="c">#    ├── README.md</span>
+<span class="c">#    └── LICENSE</span>
+<span class="c">#</span>
+<span class="c"># 2. (Optional) Drop the Chromium zip into the SAME folder, as-is:</span>
+<span class="c">#    ms-playwright-chromium-linux-x64-1.13.5.zip</span>
+<span class="c">#    The installer auto-extracts it to Playwright's standard cache.</span>
+
+<span class="c"># 3. Run the installer (CLIENT = your MCP client):</span>
+cd ~/Downloads/servicenow-mcp-linux-x64-1.13.5
+chmod +x install.sh
+SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
+  CLIENT=opencode ./install.sh
+
+<span class="c"># 4. Verify, then restart your MCP client:</span>
+~/.local/bin/servicenow-mcp --version</code></pre>
+          </div>
+        </div>
+        <div class="install-panel" id="local-win">
+          <div class="install-code-block">
+            <pre class="install-code"><code><span class="c"># 1. Extract the zip — folder layout looks like this:</span>
+<span class="c">#    servicenow-mcp-windows-x64-1.13.5\</span>
+<span class="c">#    |-- servicenow-mcp.exe        &lt;- prebuilt executable</span>
+<span class="c">#    |-- install.ps1               &lt;- installer script</span>
+<span class="c">#    |-- PLAYWRIGHT_VERSION.txt</span>
+<span class="c">#    |-- README.md</span>
+<span class="c">#    `-- LICENSE</span>
+<span class="c">#</span>
+<span class="c"># 2. (Optional) Drop the Chromium zip into the SAME folder, as-is:</span>
+<span class="c">#    ms-playwright-chromium-windows-x64-1.13.5.zip</span>
+<span class="c">#    The installer auto-extracts it to %LOCALAPPDATA%\ms-playwright.</span>
+
+<span class="c"># 3. Run the installer (-Client = your MCP client):</span>
+cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
+.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
+
+<span class="c"># 4. Verify, then restart your MCP client:</span>
+& "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.8;">
+      Where files land — executable: <code>~/.local/bin/servicenow-mcp</code> (macOS/Linux) or <code>%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</code> (Windows). Chromium cache: <code>~/.cache/ms-playwright</code> (Linux), <code>~/Library/Caches/ms-playwright</code> (macOS), <code>%LOCALAPPDATA%\ms-playwright</code> (Windows). MCP config is written automatically to your chosen client's config file. Supported <code>CLIENT</code> values: <code>claude-code</code>, <code>claude-desktop</code>, <code>cursor</code>, <code>vscode-copilot</code>, <code>opencode</code>, <code>codex</code>, <code>windsurf</code>, <code>gemini</code>, <code>zed</code>, <code>antigravity</code>.
+    </p>
 
     <div style="margin-top:56px;" class="reveal">
       <span class="section-label">Manual fallback</span>

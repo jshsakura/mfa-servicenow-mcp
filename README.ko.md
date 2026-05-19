@@ -144,36 +144,102 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 
 `uvx`는 로컬에 설치된 Playwright Python 패키지를 자동으로 우선 사용하지 않습니다. 다만 같은 Chromium revision이 표준 Playwright 브라우저 캐시에 있으면 다시 다운로드하지 않습니다. Chromium이 없으면 위 Playwright 설치 명령을 먼저 실행하세요.
 
-### 릴리즈 zip/exe
+### 릴리즈 zip/exe (로컬 설치)
 
-`uvx`가 막히는 회사망에서는 GitHub Releases에서 플랫폼별 zip을 받으세요.
+`uvx`나 PyPI 접속이 막히는 회사망에서 사용하는 경로입니다. **PyInstaller로 미리 빌드된 단일 실행 파일**과 **설치 스크립트**가 zip에 같이 들어 있어, Python을 따로 설치할 필요가 없습니다.
 
-- Windows: `servicenow-mcp-windows-x64-<version>.zip`
-- macOS: `servicenow-mcp-macos-<arch>-<version>.zip`
-- Linux: `servicenow-mcp-linux-x64-<version>.zip`
+#### 1단계 — GitHub Releases에서 파일 다운로드
 
-압축을 풀고 포함된 설치 스크립트를 실행합니다.
+<https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest> 에서 본인 OS에 맞는 zip을 받으세요.
+
+| 플랫폼 | 필수 zip | 인터넷이 막혀 Chromium도 자동으로 못 받는 경우 추가로 받기 |
+|--------|---------|---------------------------------------------|
+| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64-<version>.zip` |
+| macOS (Intel/Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>-<version>.zip` |
+| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64-<version>.zip` |
+
+> 사내 망에서 Chromium 다운로드가 막힌다면 **두 zip을 같이 받아야** 완전 오프라인 설치가 됩니다.
+
+#### 2단계 — zip을 한 폴더에 풀기
+
+메인 zip의 압축을 풀면 다음과 같은 구조가 만들어집니다 (Linux 예시):
+
+```
+servicenow-mcp-linux-x64-1.13.5/
+├── servicenow-mcp            ← PyInstaller로 빌드된 실행 파일
+├── install.sh                ← 설치 스크립트
+├── PLAYWRIGHT_VERSION.txt    ← 이 빌드가 요구하는 Playwright 버전
+├── README.md
+└── LICENSE
+```
+
+Windows라면 `servicenow-mcp.exe`와 `install.ps1`이 들어 있습니다.
+
+**Chromium도 같이 받았다면**, 받은 `ms-playwright-chromium-*.zip` 파일을 **압축 해제하지 말고** 위 폴더 안에 그대로 복사해 둡니다. install 스크립트가 자동으로 찾아 표준 Playwright 캐시에 풀어 줍니다.
+
+```
+servicenow-mcp-linux-x64-1.13.5/
+├── servicenow-mcp
+├── install.sh
+├── ms-playwright-chromium-linux-x64-1.13.5.zip   ← (선택) 같은 폴더에 그대로 두기
+├── PLAYWRIGHT_VERSION.txt
+├── README.md
+└── LICENSE
+```
+
+#### 3단계 — 설치 스크립트 실행
+
+압축 푼 폴더로 이동해서 본인 OS에 맞는 명령을 실행하세요. `-Client` / `CLIENT` 값에 사용 중인 MCP 클라이언트를 넣습니다 — 지원 목록: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
 
 ```powershell
 # Windows
+cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
 .\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
 ```
 
 ```bash
 # macOS / Linux
-SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" CLIENT=opencode ./install.sh
+cd ~/Downloads/servicenow-mcp-linux-x64-1.13.5
+chmod +x install.sh
+SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
+  CLIENT=opencode ./install.sh
 ```
 
-릴리즈 설치 스크립트는 빌드된 실행 파일을 MCP `command`로 설정합니다. Playwright Chromium은 기본 브라우저 캐시를 사용합니다.
+설치 스크립트가 하는 일:
 
-Chromium이 없고 다운로드가 허용되는 환경이면 <https://www.python.org/downloads/> 에서 Python을 설치하고, `PLAYWRIGHT_VERSION.txt`에 적힌 Playwright 버전을 설치한 뒤 실행하세요:
+1. **실행 파일 복사** — 압축 해제 폴더 안의 바이너리를 영구 설치 위치로 복사.
+   - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir` 플래그로 변경 가능)
+   - macOS/Linux: `~/.local/bin/servicenow-mcp` (`INSTALL_DIR` 환경변수로 변경 가능)
+2. **Chromium 캐시 설치 (해당 zip이 있을 때만)** — Playwright의 표준 브라우저 캐시에 풉니다.
+   - Windows: `%LOCALAPPDATA%\ms-playwright`
+   - macOS: `~/Library/Caches/ms-playwright`
+   - Linux: `~/.cache/ms-playwright`
+3. **MCP 클라이언트 설정 자동 작성** — 선택한 클라이언트의 설정 파일(예: `~/.codex/config.toml`, `.mcp.json`, `opencode.json` 등)에 `servicenow` 항목을 추가하고 `command`를 위 1단계 경로로 지정.
+
+설치가 끝나면 **MCP 클라이언트를 재시작**하세요.
+
+#### 4단계 — 동작 확인
+
+```bash
+# macOS / Linux
+~/.local/bin/servicenow-mcp --version
+
+# Windows PowerShell
+& "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version
+```
+
+버전이 찍히면 바이너리는 정상. 이후 MCP 클라이언트에서 도구를 호출하면 브라우저 로그인이 한 번 뜨고 세션이 캐시됩니다.
+
+#### Chromium 관련 별도 처리 (선택)
+
+브라우저 zip을 같이 받지 않았는데 사내 망에서 Playwright의 Chromium 자동 다운로드가 막히면, Python이 사용 가능한 PC에서 동일한 Playwright 버전을 설치해 캐시만 따로 만들 수도 있습니다.
 
 ```powershell
 py -m pip install "playwright==<PLAYWRIGHT_VERSION.txt의 버전>"
 py -m playwright install chromium
 ```
 
-브라우저 다운로드도 막히는 환경이면 같은 릴리즈의 `ms-playwright-chromium-<platform>-<version>.zip`을 받아 표준 Playwright 캐시에 풀면 됩니다. Playwright 브라우저 문서: <https://playwright.dev/python/docs/browsers>
+그 외에는 [Playwright 브라우저 문서](https://playwright.dev/python/docs/browsers)를 참고해 표준 캐시 경로(위 2단계 참고)에 Chromium 빌드를 배치하면 됩니다.
 
 > Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
@@ -420,10 +486,19 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 
 ```bash
 # 일회 실행
-uvx --with "playwright==1.60.0" --from "mfa-servicenow-mcp==1.13.0" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.5" servicenow-mcp --version
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
+
+프로젝트별 설정은 저장소 루트에 두세요. 이렇게 하면 개발/테스트/운영 프로젝트가 각각 다른 ServiceNow 인스턴스와 도구 프로필을 가질 수 있습니다.
+
+아래 두 방식 중 하나를 고르면 됩니다.
+
+- `uvx` 방식: 기본 권장. PyPI에서 실행하며 `uvx` 캐시를 사용합니다.
+- 로컬 설치 방식: 회사 보안툴이 `uvx`/패키지 실행을 막을 때 사용. GitHub Releases의 `servicenow-mcp-<platform>-<version>.zip`을 풀고 포함된 설치 스크립트를 실행한 뒤, 빌드된 실행 파일 경로를 MCP `command`로 둡니다.
+
+##### `uvx` 방식
 
 **Claude Code** (`.mcp.json` 저장소 루트):
 
@@ -433,8 +508,8 @@ uvx --with "playwright==1.60.0" --from "mfa-servicenow-mcp==1.13.0" servicenow-m
     "servicenow": {
       "command": "uvx",
       "args": [
-        "--with", "playwright==1.60.0",
-        "--from", "mfa-servicenow-mcp==1.13.0",
+        "--with", "playwright==1.58.0",
+        "--from", "mfa-servicenow-mcp==1.13.5",
         "servicenow-mcp"
       ],
       "env": {
@@ -454,8 +529,8 @@ uvx --with "playwright==1.60.0" --from "mfa-servicenow-mcp==1.13.0" servicenow-m
 [mcp_servers.servicenow]
 command = "uvx"
 args = [
-  "--with", "playwright==1.60.0",
-  "--from", "mfa-servicenow-mcp==1.13.0",
+  "--with", "playwright==1.58.0",
+  "--from", "mfa-servicenow-mcp==1.13.5",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -479,8 +554,8 @@ MCP_TOOL_PACKAGE = "standard"
       "type": "local",
       "command": [
         "uvx",
-        "--with", "playwright==1.60.0",
-        "--from", "mfa-servicenow-mcp==1.13.0",
+        "--with", "playwright==1.58.0",
+        "--from", "mfa-servicenow-mcp==1.13.5",
         "servicenow-mcp"
       ],
       "enabled": true,
@@ -494,6 +569,78 @@ MCP_TOOL_PACKAGE = "standard"
   }
 }
 ```
+
+##### 릴리즈 zip/exe 로컬 설치 방식
+
+설치 스크립트를 사용하면 이 설정은 자동으로 작성됩니다. 수동으로 고쳐야 한다면 `command`만 로컬 실행 파일 경로로 바꾸고 `args`는 비워두세요.
+
+일반 설치 경로:
+
+- Windows: `C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe`
+- macOS/Linux: `/Users/you/.local/bin/servicenow-mcp` 또는 `/home/you/.local/bin/servicenow-mcp`
+
+**Claude Code** (`.mcp.json` 저장소 루트):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+macOS/Linux에서는 `command`를 예를 들어 `/home/you/.local/bin/servicenow-mcp`로 바꾸면 됩니다.
+
+**Codex** (`.codex/config.toml` 저장소 루트):
+
+```toml
+[mcp_servers.servicenow]
+command = "/home/you/.local/bin/servicenow-mcp"
+args = []
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
+
+[mcp_servers.servicenow.env]
+SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
+SERVICENOW_AUTH_TYPE = "browser"
+SERVICENOW_BROWSER_HEADLESS = "false"
+MCP_TOOL_PACKAGE = "standard"
+```
+
+Windows Codex에서는 `command = "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"`처럼 forward slash 경로를 쓰면 이스케이프가 덜 헷갈립니다.
+
+**OpenCode** (`opencode.json` 저장소 루트):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": ["/home/you/.local/bin/servicenow-mcp"],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+Windows OpenCode에서는 `command`를 `["C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"]`로 바꾸세요.
 
 #### 업그레이드
 
