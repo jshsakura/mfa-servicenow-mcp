@@ -198,17 +198,14 @@ chmod +x install.sh
 ./install.sh
 ```
 
-The installer does two things:
+The installer does two things — and on purpose **does not touch the system Playwright cache or any other existing environment**:
 
 1. **Copies the executable** to a permanent location.
    - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (override with `-InstallDir`)
    - macOS/Linux: `~/.local/bin/servicenow-mcp` (override with `--install-dir`)
-2. **Installs the Chromium cache only if it isn't already there.** The installer first checks the Playwright standard cache for an existing `chromium-*` directory — if found, the bundled zip is skipped so your current Chromium revision stays intact. Otherwise, the matching zip (if present next to `install.sh` / `install.ps1`) is extracted into:
-   - Windows: `%LOCALAPPDATA%\ms-playwright`
-   - macOS: `~/Library/Caches/ms-playwright`
-   - Linux: `~/.cache/ms-playwright`
+2. **Extracts Chromium next to the executable**, into `<install_dir>/ms-playwright/`. The MCP server is wired to that path via `PLAYWRIGHT_BROWSERS_PATH` in the config snippet below, so the system standard cache (`~/.cache/ms-playwright`, `%LOCALAPPDATA%\ms-playwright`, etc.) and any other Playwright install on the machine stay completely untouched. If `<install_dir>/ms-playwright/` already has a `chromium-*` directory, the bundled zip is skipped.
 
-When it finishes it prints the installed executable path — keep that handy for step 5.
+When it finishes it prints the installed executable path and the `PLAYWRIGHT_BROWSERS_PATH` value — keep those for step 5.
 
 #### Step 4 — Verify
 
@@ -224,7 +221,7 @@ If the version prints, the binary is good. The first MCP tool call after that tr
 
 #### Step 5 — Wire it up in your MCP client (copy-paste)
 
-The installer deliberately does **not** touch your client config — paste one of the snippets below into the file your client reads. Only `command` differs from the uvx setup; the `env` block is identical.
+The installer deliberately does **not** touch your client config — paste one of the snippets below into the file your client reads. Compared to the uvx config the only differences are `command` (the local executable path) and the extra `PLAYWRIGHT_BROWSERS_PATH` env var, which points at the Chromium directory next to the executable — that's the whole reason we keep Chromium out of the system-wide cache.
 
 **Claude Code** — `.mcp.json` (project root) / `~/.claude.json` (global):
 
@@ -240,6 +237,7 @@ The installer deliberately does **not** touch your client config — paste one o
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
+        "PLAYWRIGHT_BROWSERS_PATH": "/home/you/.local/bin/ms-playwright",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -247,7 +245,7 @@ The installer deliberately does **not** touch your client config — paste one o
 }
 ```
 
-On Windows replace `"command"` with `"C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"`.
+On Windows replace `"command"` with `"C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"` and `"PLAYWRIGHT_BROWSERS_PATH"` with `"C:/Users/you/AppData/Local/servicenow-mcp/ms-playwright"`.
 
 **Codex** — `.codex/config.toml` (project) / `~/.codex/config.toml` (global):
 
@@ -265,6 +263,7 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your.username"
 SERVICENOW_PASSWORD = "your-password"
+PLAYWRIGHT_BROWSERS_PATH = "/home/you/.local/bin/ms-playwright"
 MCP_TOOL_PACKAGE = "standard"
 ```
 
@@ -284,6 +283,7 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
+        "PLAYWRIGHT_BROWSERS_PATH": "/home/you/.local/bin/ms-playwright",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -291,18 +291,18 @@ MCP_TOOL_PACKAGE = "standard"
 }
 ```
 
-> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional — they pre-fill the MFA login form. Leave them out and you'll type them by hand each time. Configs for other clients (Cursor, VS Code Copilot, Gemini, Zed, …) live in the [Client Setup Guide](docs/CLIENT_SETUP.md).
+> The installer prints the exact `command` path and `PLAYWRIGHT_BROWSERS_PATH` value at the end of step 3 — copy those instead of the placeholders. `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional (MFA login pre-fill). Configs for other clients (Cursor, VS Code Copilot, Gemini, Zed, …) live in the [Client Setup Guide](docs/CLIENT_SETUP.md).
 
 #### Chromium fallback (optional)
 
-If you didn't grab the Chromium zip and Playwright's auto-download is blocked, pre-stage the cache on any machine with Python and copy the resulting cache directory over:
+If you didn't grab the Chromium zip and Playwright's auto-download is blocked, pre-stage the directory yourself on any machine with Python:
 
 ```bash
 pip install playwright
-python -m playwright install chromium
+PLAYWRIGHT_BROWSERS_PATH="$HOME/.local/bin/ms-playwright" python -m playwright install chromium
 ```
 
-See the [Playwright browser docs](https://playwright.dev/python/docs/browsers) for the standard cache paths (listed in Step 3 above).
+Then point the MCP config's `PLAYWRIGHT_BROWSERS_PATH` at that location.
 
 > Windows users: see the [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
 
@@ -644,81 +644,7 @@ MCP_TOOL_PACKAGE = "standard"
 
 ##### Local release zip/exe
 
-The included install script writes this config automatically. If you need to edit it by hand, only replace `command` with the local executable path and keep `args` empty.
-
-Common install paths:
-
-- Windows: `C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe`
-- macOS/Linux: `/Users/you/.local/bin/servicenow-mcp` or `/home/you/.local/bin/servicenow-mcp`
-
-**Claude Code** (`.mcp.json` in repo root):
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-On macOS/Linux, change `command` to a path such as `/home/you/.local/bin/servicenow-mcp`.
-
-**Codex** (`.codex/config.toml` in repo root):
-
-```toml
-[mcp_servers.servicenow]
-command = "/home/you/.local/bin/servicenow-mcp"
-args = []
-startup_timeout_sec = 30
-tool_timeout_sec = 120
-enabled = true
-
-[mcp_servers.servicenow.env]
-SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
-SERVICENOW_AUTH_TYPE = "browser"
-SERVICENOW_BROWSER_HEADLESS = "false"
-SERVICENOW_USERNAME = "your.username"
-SERVICENOW_PASSWORD = "your-password"
-MCP_TOOL_PACKAGE = "standard"
-```
-
-For Windows Codex config, use `command = "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"` to avoid backslash escaping noise.
-
-**OpenCode** (`opencode.json` in repo root):
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": ["/home/you/.local/bin/servicenow-mcp"],
-      "enabled": true,
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-For Windows OpenCode, change `command` to `["C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"]`.
+See [Step 5 of the local install section](#step-5--wire-it-up-in-your-mcp-client-copy-paste) above for per-client copy-paste snippets. Two key differences from the uvx config: `command` points at the local executable, and the env block includes `PLAYWRIGHT_BROWSERS_PATH` pointing at the Chromium directory next to the executable — that's how the server stays out of the system standard Playwright cache. The installer prints both values when it finishes, so copy those directly.
 
 #### Upgrading
 
