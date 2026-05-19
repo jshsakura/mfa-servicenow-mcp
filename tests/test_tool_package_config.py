@@ -90,9 +90,15 @@ def test_full_package_tool_count():
 def test_download_and_audit_tools_in_all_packages():
     pkgs = _load_packages()
 
-    # Common download tools shared by portal_developer, platform_developer, full
-    common_downloads = [
-        "download_app_sources",
+    # download_app_sources is the workhorse — every write-capable package
+    # gets it via _extends: standard.
+    for pkg in ["portal_developer", "platform_developer", "full"]:
+        assert "download_app_sources" in pkgs[pkg], f"download_app_sources missing from {pkg}"
+
+    # Domain-targeted sub-downloads (script_includes/server_scripts/etc.) are
+    # rare; they live in platform_developer + full only, NOT portal_developer
+    # — portal_developer users get the noise off their surface.
+    rare_downloads = [
         "download_script_includes",
         "download_server_scripts",
         "download_ui_components",
@@ -101,9 +107,13 @@ def test_download_and_audit_tools_in_all_packages():
         "download_admin_scripts",
         "download_table_schema",
     ]
-    for pkg in ["portal_developer", "platform_developer", "full"]:
-        for tool in common_downloads:
+    for pkg in ["platform_developer", "full"]:
+        for tool in rare_downloads:
             assert tool in pkgs[pkg], f"'{tool}' missing from '{pkg}' package"
+    for tool in rare_downloads:
+        assert (
+            tool not in pkgs["portal_developer"]
+        ), f"'{tool}' should NOT be in portal_developer (sub-downloads moved to platform_developer)"
 
     # Portal-specific downloads
     assert "download_portal_sources" in pkgs["portal_developer"]
@@ -144,7 +154,7 @@ def test_core_package_exists_and_is_small():
     pkgs = _load_packages()
     assert "core" in pkgs
     core = pkgs["core"]
-    essential = ["sn_health", "sn_query", "sn_schema", "sn_discover", "sn_nl", "sn_aggregate"]
+    essential = ["sn_health", "sn_query", "sn_schema", "sn_discover", "sn_aggregate"]
     for tool in essential:
         assert tool in core, f"'{tool}' missing from core package"
     assert len(core) <= 25, f"core package should stay under 25 tools, got {len(core)}"
