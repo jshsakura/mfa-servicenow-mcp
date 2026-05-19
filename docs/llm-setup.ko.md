@@ -97,35 +97,34 @@ uvx --with playwright playwright install chromium
 
 처음엔 ~150 MB 다운로드입니다. 느린 회선에선 몇 분 걸릴 수 있는데 정상입니다. 중간에 중단하지 마세요. 사용자에게 진행 메시지("ServiceNow MFA 로그인용 Chromium을 다운로드 중입니다 — 느린 네트워크에선 몇 분 걸릴 수 있습니다…")를 보여서 기다리는 이유를 알게 해주세요.
 
-사용자가 Zscaler 또는 엄격한 회사 프록시 뒤에 있다면, 사내에서 제공한 프록시/인덱스/아티팩트 미러 값을 먼저 지정한 뒤 같은 명령을 다시 실행하세요:
+`uvx` 패키지 실행은 막히지만 GitHub 소스 접근은 가능한 환경이면 로컬 소스 폴더 fallback으로 전환하세요. `uv`는 환경 생성에 한 번만 쓰고, MCP runtime은 `.venv` 실행 파일을 직접 보게 해야 합니다:
 
 ```bash
 # macOS/Linux
-export HTTPS_PROXY="http://proxy.company.example:8080"
-export HTTP_PROXY="$HTTPS_PROXY"
-export UV_NATIVE_TLS=true
-export UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # PyPI를 사내 미러로 받는 경우
-export PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # 브라우저 아카이브를 사내 미러로 받는 경우
-uvx --with playwright playwright install chromium
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+uv sync --extra browser
+.venv/bin/python -m playwright install chromium
 ```
 
 ```powershell
 # Windows PowerShell
-$env:HTTPS_PROXY="http://proxy.company.example:8080"
-$env:HTTP_PROXY=$env:HTTPS_PROXY
-$env:UV_NATIVE_TLS="true"
-$env:UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # PyPI를 사내 미러로 받는 경우
-$env:PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # 브라우저 아카이브를 사내 미러로 받는 경우
-uvx --with playwright playwright install chromium
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+uv sync --extra browser
+.\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-프록시, 사내 PyPI 인덱스, 브라우저 아카이브 미러 값은 반드시 사용자의 IT/보안팀이 제공한 값만 사용하세요. `UV_DEFAULT_INDEX`는 Python 패키지 다운로드용이고, `PLAYWRIGHT_DOWNLOAD_HOST`는 Playwright 브라우저 아카이브 다운로드용입니다.
+생성할 MCP 설정에는 다음 command 경로를 사용하세요:
+
+- macOS/Linux: `/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp`
+- Windows: `C:\absolute\path\mfa-servicenow-mcp\.venv\Scripts\servicenow-mcp.exe`
 
 **2.3 — 검증 및 실패 시 중단**
 
 2.1의 확인 명령을 다시 실행하세요. 그래도 바이너리가 없으면 **설치를 중단**하고 사용자에게 명령 출력 그대로 보고하세요. 흔한 원인:
 
-- 회사 프록시가 `playwright.azureedge.net` 또는 `*.googleapis.com` 차단
+- 회사 정책이 패키지 또는 브라우저 다운로드를 차단; GitHub 소스 접근이 가능하면 로컬 소스 폴더 fallback 사용
 - 백신이 Chromium 아카이브를 격리
 - 디스크 공간 부족
 
