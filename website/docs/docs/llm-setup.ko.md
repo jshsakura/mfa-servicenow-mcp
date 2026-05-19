@@ -99,11 +99,10 @@ uvx --with playwright playwright install chromium
 
 `uvx` 패키지 실행이 막히면 릴리즈 zip/exe 경로로 전환하세요:
 
-- GitHub Releases에서 `servicenow-mcp-<platform>-<version>.zip`을 받습니다.
-- 포함된 `install.ps1`(Windows) 또는 `install.sh`(macOS/Linux)를 실행합니다.
-- 브라우저 다운로드도 막히면 같은 릴리즈의 `ms-playwright-chromium-<platform>-<version>.zip`을 받아 표준 Playwright 캐시에 풉니다.
-
-이 경로에서는 소스 폴더나 venv 안내를 섞지 마세요. 릴리즈 installer가 빌드된 실행 파일 경로를 MCP config에 씁니다.
+- GitHub Releases에서 `servicenow-mcp-<platform>-<version>.zip`을 받습니다. 설치 스크립트는 없고, PyInstaller로 빌드된 실행 파일만 들어 있습니다.
+- 사용자가 정한 안정 폴더에 실행 파일을 풉니다 (`~/apps/servicenow-mcp/` 등).
+- 브라우저 다운로드도 막히면 같은 릴리즈의 `ms-playwright-chromium-<platform>-<version>.zip`을 받아 같은 부모 디렉토리의 `ms-playwright/` 서브폴더에 풉니다 — 실행 파일이 시작 시 이 구조를 자동으로 인식해 자신의 프로세스에만 `PLAYWRIGHT_BROWSERS_PATH`를 설정합니다.
+- MCP 클라이언트의 `command`를 그 실행 파일 절대 경로로 지정하세요. env 블록은 uvx 설정과 동일.
 
 **2.3 — 검증 및 실패 시 중단**
 

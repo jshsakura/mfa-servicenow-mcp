@@ -13,9 +13,35 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
-from .server import ServiceNowMCP
-from .utils.config import (
+
+def _maybe_use_bundled_chromium() -> None:
+    """If a ms-playwright/ directory sits next to the running executable,
+    point Playwright at it via PLAYWRIGHT_BROWSERS_PATH.
+
+    This is what makes the release zip "extract and run" — users drop the
+    Chromium zip into the same folder as the binary and the server picks it
+    up without needing any install script or env-var setup. Skipped when:
+      - PLAYWRIGHT_BROWSERS_PATH is already set (user override wins), or
+      - no sibling ms-playwright/chromium-* exists (uvx/dev mode → Playwright
+        falls back to its standard cache, which is what we want there).
+    """
+    if os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        return
+    exe_dir = Path(sys.executable).resolve().parent
+    candidate = exe_dir / "ms-playwright"
+    if not candidate.is_dir():
+        return
+    if not any(candidate.glob("chromium-*")):
+        return
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(candidate)
+
+
+_maybe_use_bundled_chromium()
+
+from .server import ServiceNowMCP  # noqa: E402
+from .utils.config import (  # noqa: E402
     ApiKeyConfig,
     AuthConfig,
     AuthType,
@@ -24,14 +50,14 @@ from .utils.config import (
     OAuthConfig,
     ServerConfig,
 )
-from .utils.instances import (
+from .utils.instances import (  # noqa: E402
     ACTIVE_INSTANCE_ENV,
     INSTANCE_CONFIG_ENV,
     build_instance_definition,
     load_instance_config_env,
     select_active_alias,
 )
-from .version import __version__
+from .version import __version__  # noqa: E402
 
 # Opt-in file logging: stderr-only by default (preserves the v1.11.47
 # decision to let users manage log paths via shell redirect). When
