@@ -147,29 +147,47 @@ uvx --with playwright playwright install chromium
 
 If you use `servicenow-mcp setup <client>` (next section), this command runs automatically — skip ahead.
 
-Corporate proxy / Zscaler fallback:
+Corporate network fallback: run from a local source folder
 
 ```bash
 # macOS/Linux
-export HTTPS_PROXY="http://proxy.company.example:8080"
-export HTTP_PROXY="$HTTPS_PROXY"
-export UV_NATIVE_TLS=true
-export UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # if PyPI is mirrored
-export PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # if browser archives are mirrored
-uvx --with playwright playwright install chromium
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+uv sync --extra browser
+.venv/bin/python -m playwright install chromium
 ```
 
 ```powershell
 # Windows PowerShell
-$env:HTTPS_PROXY="http://proxy.company.example:8080"
-$env:HTTP_PROXY=$env:HTTPS_PROXY
-$env:UV_NATIVE_TLS="true"
-$env:UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # if PyPI is mirrored
-$env:PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # if browser archives are mirrored
-uvx --with playwright playwright install chromium
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+uv sync --extra browser
+.\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-Use only the proxy, index, and artifact mirror values your IT/security team provides. `UV_DEFAULT_INDEX` is for the Python package download; `PLAYWRIGHT_DOWNLOAD_HOST` is for the Chromium archive.
+Then point your MCP client at the local executable, not `uvx`:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false"
+      }
+    }
+  }
+}
+```
+
+Windows command path:
+
+```json
+"command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe"
+```
 
 > Windows users: see the [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
 

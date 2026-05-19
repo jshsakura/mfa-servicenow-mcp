@@ -73,11 +73,11 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem;">
-      Zscaler나 엄격한 회사 프록시 뒤에 있다면 같은
-      <code>uvx --with playwright playwright install chromium</code> 명령을 실행하기 전에
-      사내에서 제공한 <code>HTTPS_PROXY</code>, <code>UV_NATIVE_TLS=true</code>,
-      사내 PyPI 미러용 <code>UV_DEFAULT_INDEX</code>, Playwright 브라우저 아카이브 미러용
-      <code>PLAYWRIGHT_DOWNLOAD_HOST</code>를 먼저 지정하세요.
+      회사망 fallback: GitHub 소스를 로컬로 clone하고
+      <code>uv sync --extra browser</code>를 한 번 실행한 뒤, 로컬
+      <code>.venv</code>로 Chromium을 설치하세요. 그 다음 MCP 설정의 command는
+      <code>/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp</code>
+      또는 Windows <code>.venv\Scripts\servicenow-mcp.exe</code> 경로를 보게 합니다.
     </p>
 
     <div style="margin-top:56px;" class="reveal">

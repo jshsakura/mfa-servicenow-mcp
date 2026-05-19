@@ -38,20 +38,36 @@ uvx --with playwright playwright install chromium
 
 브라우저 바이너리는 `%USERPROFILE%\AppData\Local\ms-playwright\`에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체를 업그레이드할 때만 같은 `uvx --with playwright playwright install chromium` 명령을 다시 실행하세요.
 
-### 회사 프록시 / Zscaler 우회
+### 회사망 fallback: 로컬 소스 폴더
 
-TLS 검사나 엄격한 outbound allowlist 때문에 `uvx` 또는 Chromium 아카이브 다운로드가 막히면, 설치 명령은 그대로 두고 사내 네트워크 변수만 먼저 지정하세요:
+`uvx` 패키지 실행은 막히지만 GitHub 소스 접근은 가능한 환경이면, 저장소를 한 번 clone하고 MCP 클라이언트가 로컬 실행 파일을 직접 보게 설정하세요:
 
 ```powershell
-$env:HTTPS_PROXY="http://proxy.company.example:8080"
-$env:HTTP_PROXY=$env:HTTPS_PROXY
-$env:UV_NATIVE_TLS="true"
-$env:UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # PyPI를 사내 미러로 받는 경우
-$env:PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # 브라우저 아카이브를 사내 미러로 받는 경우
-uvx --with playwright playwright install chromium
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+uv sync --extra browser
+.\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-프록시, 사내 PyPI 인덱스, 브라우저 아카이브 미러 값은 반드시 사내 IT/보안팀이 제공한 값만 사용하세요. `UV_DEFAULT_INDEX`는 Python 패키지 다운로드 정책용이고, `PLAYWRIGHT_DOWNLOAD_HOST`는 Playwright 브라우저 아카이브 위치용입니다. 사내 미러가 없다면 설치 시간 동안 패키지 인덱스와 Playwright 브라우저 아카이브 호스트를 허용해 달라고 요청하세요.
+그 다음 MCP 설정에는 로컬 실행 파일 경로를 넣습니다:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false"
+      }
+    }
+  }
+}
+```
+
+이 방식은 MCP runtime에서 `uv`를 쓰지 않습니다. `uv`는 최초 로컬 환경 생성과 Chromium 캐시에만 한 번 사용됩니다.
 
 ---
 
@@ -330,11 +346,11 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 혹시 시스템 Python과 충돌하면 `uv`를 삭제 후 재설치해 보세요.
 
 ### "브라우저가 열리지 않습니다"
-→ Chromium은 처음 실행 시 자동 설치됩니다. 실패하면 수동 설치:
+→ Chromium은 MCP 시작 전에 설치되어 있어야 합니다:
 ```powershell
 uvx --with playwright playwright install chromium
 ```
-→ 회사 프록시/방화벽이 다운로드를 차단할 수 있습니다. IT팀에 확인하세요.
+→ `uvx` 패키지 실행이 차단되면 위의 로컬 소스 폴더 fallback을 사용하고 MCP가 `.venv\Scripts\servicenow-mcp.exe`를 보게 설정하세요.
 
 ### "MCP 서버가 연결되지 않습니다"
 → 설정 파일의 문법 오류를 확인하세요:
@@ -347,16 +363,6 @@ uvx --with playwright playwright install chromium
 → 아래 명령어로 현재 사용자의 실행 권한을 허용하세요:
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-### "회사 프록시/SSL 인증서 오류"
-→ 회사 내부 CA 인증서를 사용하는 환경에서는 아래 환경 변수를 설정하세요:
-```powershell
-$env:NODE_TLS_REJECT_UNAUTHORIZED = "0"
-```
-또는 회사 루트 인증서를 시스템에 등록한 후:
-```powershell
-$env:REQUESTS_CA_BUNDLE = "C:\path\to\company-ca-bundle.crt"
 ```
 
 ### 세션 초기화

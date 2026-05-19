@@ -38,20 +38,36 @@ uvx --with playwright playwright install chromium
 
 The browser binary is cached at `%USERPROFILE%\AppData\Local\ms-playwright\` and shared across MCP versions. Re-run the same `uvx --with playwright playwright install chromium` command only when you upgrade Playwright itself.
 
-### Corporate proxy / Zscaler fallback
+### Corporate network fallback: local source folder
 
-If `uvx` or the Chromium archive download is blocked by TLS inspection or a strict outbound allowlist, keep the same install command and set the corporate network variables first:
+If `uvx` package execution is blocked but GitHub source access is allowed, clone the repository once and point your MCP client at the local executable:
 
 ```powershell
-$env:HTTPS_PROXY="http://proxy.company.example:8080"
-$env:HTTP_PROXY=$env:HTTPS_PROXY
-$env:UV_NATIVE_TLS="true"
-$env:UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # if PyPI is mirrored
-$env:PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # if browser archives are mirrored
-uvx --with playwright playwright install chromium
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+uv sync --extra browser
+.\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-Use only values provided by your IT/security team. `UV_DEFAULT_INDEX` handles Python package download policy; `PLAYWRIGHT_DOWNLOAD_HOST` handles the Playwright browser archive location. If your organization does not provide mirrors, ask them to allow the package index plus the Playwright browser archive hosts for this install window.
+Then use the local executable path in the MCP config:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false"
+      }
+    }
+  }
+}
+```
+
+This keeps `uv` out of MCP runtime. `uv` is used only once to create the local environment and cache Chromium.
 
 ---
 
@@ -330,11 +346,11 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 If there's a conflict with system Python, uninstall and reinstall `uv`.
 
 ### "Browser won't open"
-→ Chromium is auto-installed on first run. If it fails, install manually:
+→ Chromium must be installed before MCP startup:
 ```powershell
 uvx --with playwright playwright install chromium
 ```
-→ Corporate proxies/firewalls may block the download. Check with your IT team.
+→ If `uvx` package execution is blocked, use the local source folder fallback above and point MCP at `.venv\Scripts\servicenow-mcp.exe`.
 
 ### "MCP server won't connect"
 → Check config file syntax:
@@ -347,16 +363,6 @@ uvx --with playwright playwright install chromium
 → Allow execution for the current user:
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-### "Corporate proxy/SSL certificate errors"
-→ For environments with internal CA certificates:
-```powershell
-$env:NODE_TLS_REJECT_UNAUTHORIZED = "0"
-```
-Or, after registering your company root certificate:
-```powershell
-$env:REQUESTS_CA_BUNDLE = "C:\path\to\company-ca-bundle.crt"
 ```
 
 ### Reset Session
