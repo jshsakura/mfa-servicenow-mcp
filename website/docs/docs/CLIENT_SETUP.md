@@ -46,23 +46,64 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --auth-type "browser"
 ```
 
-### Release zip/exe
+### Local install (release zip/exe)
 
-If `uvx` or Python package downloads are blocked, download the platform release zip from GitHub Releases and run the included installer.
+Use this when `uvx` or PyPI is blocked. The release zip ships a **PyInstaller-built single-file executable** plus an installer script — no Python needed on the target machine.
 
-Windows:
+**1. Download from [GitHub Releases](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest):**
+
+| Platform | Required zip | Add this too if Chromium download is also blocked |
+|----------|--------------|----------------------------------------------------|
+| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64-<version>.zip` |
+| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>-<version>.zip` |
+| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64-<version>.zip` |
+
+**2. Extract — your folder should look like this (Linux example):**
+
+```
+servicenow-mcp-linux-x64-1.13.5/
+├── servicenow-mcp            ← PyInstaller-built executable
+├── install.sh                ← installer script
+├── PLAYWRIGHT_VERSION.txt    ← Playwright version this build expects
+├── README.md
+└── LICENSE
+```
+
+Windows ships `servicenow-mcp.exe` + `install.ps1` instead. If you also took the Chromium zip, **drop it into the same folder (don't extract it)** — the installer picks it up automatically.
+
+**3. Run the installer** (replace `opencode` with your client: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`):
 
 ```powershell
+# Windows
+cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
 .\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
 ```
 
-macOS / Linux:
-
 ```bash
-SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" CLIENT=opencode ./install.sh
+# macOS / Linux
+cd ~/Downloads/servicenow-mcp-linux-x64-1.13.5
+chmod +x install.sh
+SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
+  CLIENT=opencode ./install.sh
 ```
 
-If browser downloads are also blocked, download the matching `ms-playwright-chromium-<platform>-<version>.zip` release asset and extract it to the standard Playwright cache before starting your MCP client.
+The installer:
+
+1. Copies the executable to a permanent location — Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (override with `-InstallDir`), macOS/Linux: `~/.local/bin/servicenow-mcp` (override with `INSTALL_DIR=...`).
+2. Extracts the bundled Chromium zip (if present) into Playwright's standard cache — Windows: `%LOCALAPPDATA%\ms-playwright`, macOS: `~/Library/Caches/ms-playwright`, Linux: `~/.cache/ms-playwright`.
+3. Writes the MCP client config (`.mcp.json`, `~/.codex/config.toml`, `opencode.json`, etc.) with `command` pointing at the installed executable.
+
+**4. Verify, then restart your MCP client:**
+
+```bash
+# macOS / Linux
+~/.local/bin/servicenow-mcp --version
+
+# Windows PowerShell
+& "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version
+```
+
+If browser downloads are blocked and you didn't grab the Chromium zip, pre-stage the cache on a machine with Python: `py -m pip install "playwright==<from PLAYWRIGHT_VERSION.txt>" && py -m playwright install chromium`, then copy the cache directory over.
 
 > Windows users: see [Windows Installation Guide](WINDOWS_INSTALL.md) for step-by-step details and proxy/antivirus notes.
 
