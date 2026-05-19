@@ -83,12 +83,12 @@ chmod +x install.sh
 ./install.sh
 ```
 
-설치 스크립트가 하는 일:
+설치 스크립트가 하는 일 — 파일 복사만 하고 **시스템 Playwright 캐시나 클라이언트 설정 파일은 절대 건드리지 않습니다**:
 
 1. 실행 파일을 영구 위치로 복사 — Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir`로 변경), macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir`로 변경).
-2. 표준 Playwright 캐시에 `chromium-*` 디렉토리가 없을 때만 번들 zip에서 추출 — 이미 설치된 Playwright 환경을 덮어쓰지 않습니다. 캐시 경로: Windows `%LOCALAPPDATA%\ms-playwright`, macOS `~/Library/Caches/ms-playwright`, Linux `~/.cache/ms-playwright`.
+2. 번들 Chromium zip을 실행 파일 옆 `<install_dir>/ms-playwright/`에 추출. 아래 MCP 설정에서 `PLAYWRIGHT_BROWSERS_PATH`를 이 경로로 지정하므로, 시스템 표준 Playwright 캐시(`~/.cache/ms-playwright` 등) 와 PC에 이미 깔린 다른 Playwright 환경은 일절 영향받지 않습니다. `<install_dir>/ms-playwright/`에 이미 `chromium-*` 디렉토리가 있으면 zip은 건너뜁니다.
 
-종료 시 설치된 실행 파일 경로를 출력합니다. 아래 [설정 가이드](#설정-가이드) 섹션의 MCP 설정 스니펫을 본인 클라이언트 설정 파일에 직접 붙여넣고, `command`를 그 경로로 지정하세요.
+종료 시 실행 파일 경로와 `PLAYWRIGHT_BROWSERS_PATH` 값 모두 출력합니다. 아래 [설정 가이드](#설정-가이드)의 MCP 스니펫을 본인 클라이언트 설정 파일에 직접 붙여넣고, `command`와 `PLAYWRIGHT_BROWSERS_PATH`를 그 값으로 지정하세요.
 
 **4. 동작 확인 후 MCP 클라이언트 재시작:**
 
