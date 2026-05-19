@@ -240,7 +240,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 | `explore/` | 5 | Health check, schema discovery, route tracing, flow trigger tracing, ESC catalog flow |
 
 **Update:** Re-run the same install command to replace all existing skill files.
-**Remove skills only:** delete the skill directory manually (for example `Remove-Item -Recurse .claude\commands\servicenow\`) if you intentionally want to keep the MCP config.
+**Remove skills only:** delete the skill directory manually (for example `Remove-Item -Recurse .claude\commands\servicenow\`).
 
 ---
 
@@ -284,12 +284,12 @@ Set `MCP_TOOL_PACKAGE` to choose a tool set. Default: `standard` (read-only).
 
 | Package | Tools | Description |
 |---------|:-----:|-------------|
-| `core` | 15 | Minimal read-only essentials for health, schema, discovery, and key lookups |
-| `standard` | 45 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 46 | standard + incident and change operational writes |
-| `portal_developer` | 55 | standard + portal, changeset, script include, and local-sync delivery workflows |
-| `platform_developer` | 55 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 66 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
+| `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key lookups |
+| `standard` | 31 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 33 | standard + incident and change operational writes |
+| `portal_developer` | 43 | standard + portal, changeset, script include, and local-sync delivery workflows |
+| `platform_developer` | 47 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 62 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
 
 To change, update the `MCP_TOOL_PACKAGE` value:
 
