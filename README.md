@@ -63,12 +63,6 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
 
 Replace `opencode` with your client (`claude-code`, `codex`, `cursor`, `gemini`, etc.). The installer merges the entry into your existing config, installs Chromium (`--skip-chromium` to opt out), and pulls the skills when supported. Add `--scope global` for a global install (default is project-local).
 
-To remove later:
-
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove opencode
-```
-
 ### After either path
 
 Restart the MCP client so it loads the new config. The first browser-authenticated tool call opens a window for Okta/Entra ID/SAML/MFA login. Sessions persist — no re-login every time.
@@ -595,9 +589,7 @@ The installer downloads 24 skill files from this repository's `skills/` director
 
 **Update:** Re-run the same install command — it replaces all existing skill files (clean install, no merge).
 
-**Remove full setup:** `uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove claude-code`
-
-**Remove skills only:** delete the skill install directory manually (for example `rm -rf .claude/commands/servicenow/`) if you intentionally want to keep the MCP config entry.
+**Remove skills only:** delete the skill install directory manually (for example `rm -rf .claude/commands/servicenow/`).
 
 ### Skill Categories
 

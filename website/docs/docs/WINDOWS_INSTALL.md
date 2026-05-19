@@ -240,7 +240,6 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 | `explore/` | 5 | Health check, schema discovery, route tracing, flow trigger tracing, ESC catalog flow |
 
 **Update:** Re-run the same install command to replace all existing skill files.
-**Remove full setup:** `uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove claude-code`
 **Remove skills only:** delete the skill directory manually (for example `Remove-Item -Recurse .claude\commands\servicenow\`) if you intentionally want to keep the MCP config.
 
 ---

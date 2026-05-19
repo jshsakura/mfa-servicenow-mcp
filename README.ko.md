@@ -62,12 +62,6 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
 
 `opencode`를 사용 중인 클라이언트(`claude-code`, `codex`, `cursor`, `gemini` 등)로 교체. installer가 기존 설정에 엔트리 병합, Chromium 설치(`--skip-chromium`로 opt-out 가능), 지원 클라이언트면 스킬도 설치. 전역 설치는 `--scope global` (기본값은 프로젝트별).
 
-제거:
-
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove opencode
-```
-
 ### 어느 경로든 끝나면
 
 MCP 클라이언트를 재시작하면 새 설정이 로드됩니다. 첫 브라우저 인증 도구 호출 시 Okta/Entra ID/SAML/MFA 로그인 창이 뜹니다. 세션은 유지되어 매번 재로그인할 필요 없습니다.
