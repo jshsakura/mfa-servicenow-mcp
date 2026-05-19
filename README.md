@@ -22,9 +22,8 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 ## Table of Contents
 
 - [Features](#features)
-- [AI-Powered Setup](#ai-powered-setup)
+- [Setup](#setup)
 - [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
 - [MCP Client Configuration](#mcp-client-configuration)
 - [Authentication](#authentication)
 - [Tool Packages](#tool-packages)
@@ -41,7 +40,11 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 
 ---
 
-## AI-Powered Setup
+## Setup
+
+Pick one path. Both end at the same configured MCP server; you don't need both.
+
+### Path A — Let an AI do it
 
 > **One line. Any AI coding assistant. Everything configured automatically.**
 
@@ -52,17 +55,31 @@ Install and configure mfa-servicenow-mcp by following the instructions here:
 curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md
 ```
 
-Your AI will:
-1. Install **uv** and **Playwright Chromium** (if needed — prevents first-login download stall)
-2. Ask for your ServiceNow instance URL, auth type, and tool package
-3. Generate the correct MCP config file for your client
-4. Install **24 workflow skills** (if supported)
+The AI installs `uv` + Chromium, asks for your instance URL / auth type / tool package, writes the right MCP config for your client, and installs the workflow skills.
 
-No manual config editing. No format differences to worry about. Works on macOS, Linux, and Windows.
+### Path B — One-line command (manual)
 
-After setup, **restart your AI client** (or reload MCP servers) to load the new configuration. A browser window will open on the first tool call for MFA login.
+If you'd rather run the installer yourself:
 
-> For manual setup, see [Prerequisites](#prerequisites) and [Quick Start](#quick-start) below.
+```bash
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser"
+```
+
+Replace `opencode` with your client (`claude-code`, `codex`, `cursor`, `gemini`, etc.). The installer merges the entry into your existing config, installs Chromium (`--skip-chromium` to opt out), and pulls the skills when supported. Add `--scope global` for a global install (default is project-local).
+
+To remove later:
+
+```bash
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove opencode
+```
+
+### After either path
+
+Restart the MCP client so it loads the new config. The first browser-authenticated tool call opens a window for Okta/Entra ID/SAML/MFA login. Sessions persist — no re-login every time.
+
+> Need to write the client config by hand? See [MCP Client Configuration](#mcp-client-configuration). Need to launch the server directly? See [CLI Reference](#cli-reference).
 
 ---
 
@@ -132,55 +149,23 @@ Restart your terminal after installation.
 
 ### 2. Pre-install Chromium (strongly recommended)
 
-The MFA/SSO login flow needs a Playwright Chromium build. Without it, the **first** browser-auth tool call has to download Chromium (~150 MB) on the spot — which on a slow link can stretch MCP startup past the host's timeout and make the login window feel like it never opens. Install it once up front and the first tool call is instant:
+The MFA/SSO login flow needs a Playwright Chromium build. The MCP server itself never auto-downloads it (a slow download inside the MCP handshake used to time the server out — see [pinning](#pinning-a-specific-version) for the full story). Install it once up front:
 
 ```bash
 uvx --with playwright playwright install chromium
 ```
 
-That's it. The same `uvx` that runs the MCP server later — no extra tooling.
+If you use `servicenow-mcp setup <client>` (next section), this command runs automatically — skip ahead.
 
-Re-run the same command whenever you upgrade Playwright; the browser binary is cached locally and shared across MCP versions.
-
-> **Power users:** if you call `playwright` CLI often, `uv tool install playwright` puts the binary on your PATH permanently — then `playwright install chromium` works directly. Most users won't need this.
+> **Power users:** `uv tool install playwright` puts `playwright` on your PATH permanently. Most users don't need this.
 
 > Windows users: see the [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
 
 ---
 
-## Quick Start
-
-Recommended manual path: let the installer write the right MCP config for your client.
-
-No clone needed. One command — works on macOS, Linux, and Windows:
-
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
-```
-
-Replace `opencode` with your client (`claude-code`, `codex`, `cursor`, `gemini`, etc.). The installer merges the ServiceNow entry into your existing client config and installs skills when supported.
-
-Add `--scope global` only if you want a global install instead of the default project-local setup.
-
-To remove the setup later, run the matching client uninstall command:
-
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove opencode
-```
-
-Add `--scope global` when removing a global install. Add `--keep-skills` if you only want to remove the MCP config entry and keep installed skills.
-
-A browser window opens on the first browser-authenticated tool call for Okta/Entra ID/SAML/MFA login. Chromium is auto-installed if missing. Session persists after login — no need to re-authenticate every time.
-
-> Want AI-guided setup instead? Use [AI-Powered Setup](#ai-powered-setup). Want raw server execution without writing client config? See [CLI Reference](#cli-reference).
-
----
-
 ## MCP Client Configuration
 
-> Recommended: use the AI-guided flow above or run `servicenow-mcp setup <client> ...`. Use the copy-paste configs below when you need to inspect, repair, or hand-manage a client config file.
+> Recommended: use [Setup](#setup) above. Use the copy-paste configs below when you need to inspect, repair, or hand-manage a client config file.
 
 Each project can connect to a different ServiceNow instance. Set the config in your **project directory** so each project has its own instance URL and credentials.
 
@@ -210,7 +195,7 @@ Choose the auth mode based on your ServiceNow environment.
 
 ### Browser Auth (MFA/SSO) — Default
 
-The [Quick Start](#quick-start) command uses browser auth. Optional flags:
+The [Setup](#setup) command uses browser auth by default. Optional flags:
 
 | Flag | Env Variable | Default | Description |
 |------|-------------|---------|-------------|
