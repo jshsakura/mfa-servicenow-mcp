@@ -101,7 +101,11 @@ class PushLocalComponentParams(BaseModel):
 
     path: str = Field(
         default=...,
-        description="Path to a local file (e.g. script.js) or widget directory to push",
+        description=(
+            "Local path. sp_widget = <table>/<name>/<file> (folder). "
+            "sp_angular_provider|sys_script_include|sp_css|sp_ng_template = "
+            "<table>/<name>.<suffix> (single file, NO subfolder)."
+        ),
     )
     force: bool = Field(
         default=False,
@@ -327,10 +331,18 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             instance_url=settings.get("url", ""),
         )
 
-    supported_tables = sorted(FOLDER_TABLES | SINGLE_FILE_TABLES)
     raise ValueError(
-        f"Cannot resolve '{path}' to a ServiceNow component. "
-        f"Expected path under one of: {', '.join(supported_tables)}"
+        f"Cannot resolve '{path}' to a ServiceNow component.\n"
+        f"Expected layout:\n"
+        f"  - Folder tables (one dir per component, multiple files inside): "
+        f"{', '.join(sorted(FOLDER_TABLES))}\n"
+        f"    e.g. sp_widget/<name>/script.js, sp_widget/<name>/template.html\n"
+        f"  - Single-file tables (one file per component, NO subfolder): "
+        f"{', '.join(sorted(SINGLE_FILE_TABLES))}\n"
+        f"    e.g. sp_angular_provider/<name>.script.js, "
+        f"sys_script_include/<name>.script.js\n"
+        f"Tip: run diff_local_component on the parent scope dir to list "
+        f"actual file paths that exist locally."
     )
 
 
@@ -625,7 +637,11 @@ def diff_local_component(
 @register_tool(
     "update_remote_from_local",
     params=PushLocalComponentParams,
-    description="Push local file changes to ServiceNow. Auto-snapshots remote state before push for rollback.",
+    description=(
+        "Push local file changes to ServiceNow. Auto-snapshots remote first. "
+        "Path: sp_widget/<name>/<file> (folder) | sp_angular_provider|sys_script_include|"
+        "sp_css|sp_ng_template/<name>.<suffix> (single file)."
+    ),
     serialization="raw_dict",
     return_type=dict,
 )
