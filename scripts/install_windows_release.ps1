@@ -25,16 +25,21 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
 $TargetExe = Join-Path $InstallDir "servicenow-mcp.exe"
 Copy-Item $SourceExe $TargetExe -Force
 
-$BrowserZip = Get-ChildItem -Path $BundleDir -Filter "ms-playwright*.zip" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($BrowserZip) {
-  $BrowserCache = Join-Path $env:LOCALAPPDATA "ms-playwright"
-  New-Item -ItemType Directory -Force $BrowserCache | Out-Null
-  Expand-Archive -Path $BrowserZip.FullName -DestinationPath $BrowserCache -Force
-  Write-Host "Installed bundled Playwright Chromium cache to $BrowserCache"
+$BrowserCache = Join-Path $env:LOCALAPPDATA "ms-playwright"
+$ExistingChromium = Get-ChildItem -Path $BrowserCache -Directory -Filter "chromium-*" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($ExistingChromium) {
+  Write-Host "Chromium already installed at $($ExistingChromium.FullName) - skipping bundled Chromium zip."
 } else {
-  Write-Host "No ms-playwright browser zip found next to install.ps1."
-  Write-Host "Place the matching ms-playwright zip next to install.ps1 and rerun if browser auth needs Chromium offline,"
-  Write-Host "or run 'playwright install chromium' on a host with internet access."
+  $BrowserZip = Get-ChildItem -Path $BundleDir -Filter "ms-playwright*.zip" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($BrowserZip) {
+    New-Item -ItemType Directory -Force $BrowserCache | Out-Null
+    Expand-Archive -Path $BrowserZip.FullName -DestinationPath $BrowserCache -Force
+    Write-Host "Installed bundled Playwright Chromium cache to $BrowserCache"
+  } else {
+    Write-Host "Chromium not found at $BrowserCache and no ms-playwright zip next to install.ps1."
+    Write-Host "Place the matching ms-playwright zip next to install.ps1 and rerun if browser auth needs Chromium offline,"
+    Write-Host "or run 'playwright install chromium' on a host with internet access."
+  }
 }
 
 Write-Host ""
