@@ -5,7 +5,7 @@ This module provides tools for viewing and managing workflows in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, List, Literal, Optional, Type, TypeVar
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Type, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -1006,16 +1006,14 @@ class ManageWorkflowParams(BaseModel):
     workflow_version_id: Optional[str] = Field(default=None, description="add_activity")
 
     # list/get params
-    limit: int = Field(default=10, description="Max records (list mode)")
-    offset: int = Field(default=0, description="Pagination offset (list mode)")
-    query: Optional[str] = Field(default=None, description="Additional query string (list mode)")
-    count_only: bool = Field(default=False, description="Return count only (list mode)")
-    include_versions: bool = Field(default=False, description="Include version history (get mode)")
-    include_activities: bool = Field(default=False, description="Include activity list (get mode)")
+    limit: int = Field(default=10, description="Max records")
+    offset: int = Field(default=0, description="Pagination offset")
+    query: Optional[str] = Field(default=None, description="Additional query string")
+    count_only: bool = Field(default=False, description="Return count only")
+    include_versions: bool = Field(default=False, description="Include version history")
+    include_activities: bool = Field(default=False, description="Include activity list")
     version_id: Optional[str] = Field(default=None, description="Specific version for activities")
-    published_only: bool = Field(
-        default=False, description="Only published versions (list_versions mode)"
-    )
+    published_only: bool = Field(default=False, description="Only published versions")
 
     # Activity identifier
     activity_id: Optional[str] = Field(default=None)
@@ -1036,6 +1034,34 @@ class ManageWorkflowParams(BaseModel):
     activity_ids: Optional[List[str]] = Field(default=None)
 
     dry_run: bool = Field(default=False)
+
+    _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
+        "list": frozenset({"limit", "offset", "query", "count_only", "active"}),
+        "get": frozenset({"workflow_id", "include_versions", "include_activities"}),
+        "list_versions": frozenset({"workflow_id", "published_only"}),
+        "get_activities": frozenset({"workflow_id", "version_id"}),
+        "create": frozenset({"name", "description", "table", "active", "attributes", "dry_run"}),
+        "update": frozenset(
+            {"workflow_id", "name", "description", "table", "active", "attributes", "dry_run"}
+        ),
+        "activate": frozenset({"workflow_id", "dry_run"}),
+        "deactivate": frozenset({"workflow_id", "dry_run"}),
+        "delete": frozenset({"workflow_id", "dry_run"}),
+        "add_activity": frozenset(
+            {
+                "workflow_version_id",
+                "activity_name",
+                "activity_description",
+                "activity_type",
+                "dry_run",
+            }
+        ),
+        "update_activity": frozenset(
+            {"activity_id", "activity_name", "activity_description", "dry_run"}
+        ),
+        "delete_activity": frozenset({"activity_id", "dry_run"}),
+        "reorder_activities": frozenset({"workflow_id", "activity_ids", "dry_run"}),
+    }
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageWorkflowParams":
