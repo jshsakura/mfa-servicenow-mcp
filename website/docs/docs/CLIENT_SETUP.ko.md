@@ -68,26 +68,27 @@ servicenow-mcp-linux-x64-<ver>/
 
 Windows는 `servicenow-mcp.exe` + `install.ps1`. Chromium zip을 같이 받았다면 **압축을 풀지 말고 그대로 같은 폴더에 복사**하세요 — 설치 스크립트가 자동으로 찾아 처리합니다.
 
-**3. 설치 스크립트 실행** — 세 OS 모두 인자 형태가 동일. 지원 `--client` 값: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
+**3. 설치 스크립트 실행** — 플래그 필요 없음. 설치 스크립트는 실행 파일 복사와 (있을 경우) Chromium 캐시 추출만 합니다. 기존 `.mcp.json` / `config.toml` / `opencode.json`을 절대 건드리지 않아 머지 사고로 기존 설정이 망가질 일이 없습니다.
 
 ```powershell
 # Windows
 cd $HOME\Downloads\servicenow-mcp-windows-x64-*
-.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
+.\install.ps1
 ```
 
 ```bash
 # macOS / Linux
 cd ~/Downloads/servicenow-mcp-linux-x64-*
 chmod +x install.sh
-./install.sh --client opencode --instance-url "https://your-instance.service-now.com"
+./install.sh
 ```
 
 설치 스크립트가 하는 일:
 
 1. 실행 파일을 영구 위치로 복사 — Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir`로 변경), macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir`로 변경).
 2. Chromium zip이 있으면 표준 Playwright 캐시에 추출 — Windows: `%LOCALAPPDATA%\ms-playwright`, macOS: `~/Library/Caches/ms-playwright`, Linux: `~/.cache/ms-playwright`.
-3. MCP 클라이언트 설정 파일(`.mcp.json`, `~/.codex/config.toml`, `opencode.json` 등)에 `servicenow` 항목을 자동으로 추가하고 `command`를 1단계 경로로 지정.
+
+종료 시 설치된 실행 파일 경로를 출력합니다. 아래 [설정 가이드](#설정-가이드) 섹션의 MCP 설정 스니펫을 본인 클라이언트 설정 파일에 직접 붙여넣고, `command`를 그 경로로 지정하세요.
 
 **4. 동작 확인 후 MCP 클라이언트 재시작:**
 
