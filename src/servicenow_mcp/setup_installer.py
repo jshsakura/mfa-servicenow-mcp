@@ -604,8 +604,8 @@ def main(argv: list[str] | None = None, action: str = "setup") -> int:
 
     cwd = Path.cwd()
     if action == "setup":
-        results = [install_client(client, args, cwd) for client in args.clients]
         chromium_status = _install_chromium_if_needed(args)
+        results = [install_client(client, args, cwd) for client in args.clients]
     else:
         results = [remove_client(client, args, cwd) for client in args.clients]
         chromium_status = None
@@ -627,17 +627,15 @@ def _install_chromium_if_needed(args: argparse.Namespace) -> str | None:
 
     import subprocess
 
-    cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
-    print("Installing Playwright Chromium (one-time, prevents MCP handshake timeout)…")
+    cmd = ["uvx", "--with", "playwright", "playwright", "install", "chromium"]
+    cmd_text = " ".join(cmd)
+    print("Installing Playwright Chromium via uvx (one-time, prevents MCP handshake timeout)…")
     try:
         subprocess.run(cmd, check=True, timeout=600)
-        return "installed"
+        return "installed via uvx"
     except FileNotFoundError:
-        return (
-            "skipped (playwright Python package not in this venv; run "
-            "`uvx --with playwright playwright install chromium` separately)"
-        )
+        return "failed: uvx not found — install uv first"
     except subprocess.CalledProcessError as exc:
-        return f"failed: exit {exc.returncode} — run `uvx --with playwright playwright install chromium`"
+        return f"failed: exit {exc.returncode} — run `{cmd_text}`"
     except subprocess.TimeoutExpired:
-        return "failed: timeout — run `uvx --with playwright playwright install chromium`"
+        return f"failed: timeout — run `{cmd_text}`"
