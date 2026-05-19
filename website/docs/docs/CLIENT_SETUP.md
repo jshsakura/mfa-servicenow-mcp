@@ -38,6 +38,32 @@ uvx --with playwright playwright install chromium
 
 The browser binary is cached at `~/.cache/ms-playwright/` (macOS/Linux) or `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows) and shared across MCP versions. Re-run the same `uvx --with playwright playwright install chromium` command only when you upgrade Playwright itself.
 
+#### Corporate proxy / Zscaler fallback
+
+If `uvx` or the Chromium archive download is blocked by TLS inspection or a strict outbound allowlist, keep the same install command and set the corporate network variables first:
+
+```bash
+# macOS/Linux
+export HTTPS_PROXY="http://proxy.company.example:8080"
+export HTTP_PROXY="$HTTPS_PROXY"
+export UV_NATIVE_TLS=true
+export UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # if PyPI is mirrored
+export PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # if browser archives are mirrored
+uvx --with playwright playwright install chromium
+```
+
+```powershell
+# Windows PowerShell
+$env:HTTPS_PROXY="http://proxy.company.example:8080"
+$env:HTTP_PROXY=$env:HTTPS_PROXY
+$env:UV_NATIVE_TLS="true"
+$env:UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # if PyPI is mirrored
+$env:PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # if browser archives are mirrored
+uvx --with playwright playwright install chromium
+```
+
+Use only values provided by your IT/security team. `UV_DEFAULT_INDEX` handles Python package download policy; `PLAYWRIGHT_DOWNLOAD_HOST` handles the Playwright browser archive location.
+
 > Windows users: see [Windows Installation Guide](WINDOWS_INSTALL.md) for step-by-step details and proxy/antivirus notes.
 
 ### Quick Test
