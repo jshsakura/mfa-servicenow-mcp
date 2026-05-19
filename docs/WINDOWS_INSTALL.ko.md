@@ -38,7 +38,20 @@ uvx --with playwright playwright install chromium
 
 브라우저 바이너리는 `%USERPROFILE%\AppData\Local\ms-playwright\`에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체를 업그레이드할 때만 같은 `uvx --with playwright playwright install chromium` 명령을 다시 실행하세요.
 
-> 엄격한 프록시/백신 환경이면 설치 동안 `playwright.azureedge.net`, `*.googleapis.com` 화이트리스트해 두세요.
+### 회사 프록시 / Zscaler 우회
+
+TLS 검사나 엄격한 outbound allowlist 때문에 `uvx` 또는 Chromium 아카이브 다운로드가 막히면, 설치 명령은 그대로 두고 사내 네트워크 변수만 먼저 지정하세요:
+
+```powershell
+$env:HTTPS_PROXY="http://proxy.company.example:8080"
+$env:HTTP_PROXY=$env:HTTPS_PROXY
+$env:UV_NATIVE_TLS="true"
+$env:UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # PyPI를 사내 미러로 받는 경우
+$env:PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # 브라우저 아카이브를 사내 미러로 받는 경우
+uvx --with playwright playwright install chromium
+```
+
+프록시, 사내 PyPI 인덱스, 브라우저 아카이브 미러 값은 반드시 사내 IT/보안팀이 제공한 값만 사용하세요. `UV_DEFAULT_INDEX`는 Python 패키지 다운로드 정책용이고, `PLAYWRIGHT_DOWNLOAD_HOST`는 Playwright 브라우저 아카이브 위치용입니다. 사내 미러가 없다면 설치 시간 동안 패키지 인덱스와 Playwright 브라우저 아카이브 호스트를 허용해 달라고 요청하세요.
 
 ---
 
