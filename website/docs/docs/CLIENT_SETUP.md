@@ -64,7 +64,7 @@ If the server starts and a browser window opens for login, you're ready to confi
 
 > **Project-local recommended**: Use project-scoped config so each project can connect to a different ServiceNow instance.
 
-> **Single-instance by design**: one MCP server process routes to one ServiceNow instance only. This intentionally avoids per-request multi-instance routing, which can cause accidental writes to production when switching between dev/test/prod.
+> **Single active instance by design**: ordinary tools route to one active ServiceNow instance only. This intentionally avoids request-time write switching, which can cause accidental writes to production when moving between dev/test/prod.
 
 ---
 
@@ -80,9 +80,16 @@ The MCP endpoint is `http://127.0.0.1:8000/mcp`; `/health` returns a lightweight
 
 ---
 
-## Multi-Instance Compare Mode
+## Read-Only Data Comparison Mode
 
-Single-instance setup remains the default. To compare dev/test data without adding an `instance` parameter to every tool, configure named instances with JSON:
+For dev/test drift analysis, you can configure named instances with `SERVICENOW_INSTANCE_CONFIG`. This mode is intentionally limited to data comparison:
+
+- Ordinary tools still route only to `SERVICENOW_ACTIVE_INSTANCE`.
+- Write-capable tools do not expose an instance selector.
+- `compare_instances` is read-only and compares records across aliases.
+- `list_instances` only reports configured aliases.
+- Configure comparison aliases with read-only packages and `allow_writes=false`.
+- Do not use this mode for write work across environments.
 
 ```bash
 SERVICENOW_ACTIVE_INSTANCE=dev
@@ -90,8 +97,8 @@ SERVICENOW_INSTANCE_CONFIG='{
   "dev": {
     "url": "https://dev.service-now.com",
     "role": "development",
-    "tool_package": "platform_developer",
-    "allow_writes": true
+    "tool_package": "standard",
+    "allow_writes": false
   },
   "test": {
     "url": "https://test.service-now.com",
@@ -101,14 +108,6 @@ SERVICENOW_INSTANCE_CONFIG='{
   }
 }'
 ```
-
-Rules:
-
-- If `SERVICENOW_INSTANCE_CONFIG` is absent, behavior is unchanged.
-- Ordinary tools always use the active instance.
-- `list_instances` and read-only `compare_instances` are exposed only in multi-instance mode.
-- Alias auth fields are optional; missing values fall back to the existing global auth env vars.
-- If an active alias sets `tool_package`, it overrides `MCP_TOOL_PACKAGE` for that server process.
 
 Example comparison:
 
@@ -122,6 +121,8 @@ Example comparison:
   "query": "sys_scope.scope=x_company_app"
 }
 ```
+
+Use separate project/client configs for actual work against another instance.
 
 ---
 
