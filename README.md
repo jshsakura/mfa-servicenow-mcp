@@ -11,12 +11,6 @@ MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-live-blue?logo=github)](https://jshsakura.github.io/mfa-servicenow-mcp/)
 
-```bash
-# Paste this into any AI coding assistant for fully guided setup
-Install and configure mfa-servicenow-mcp by following the instructions here:
-curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md
-```
-
 ---
 
 ## Table of Contents
