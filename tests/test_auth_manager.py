@@ -2753,72 +2753,17 @@ class TestMakeRequestBrowserDiskReload:
 
 
 class TestEnsurePlaywrightReadyDeep:
-    def test_binary_missing_installs_with_cli(self):
-        """When browser binary is missing, install via playwright CLI."""
+    def test_binary_missing_raises_runtime_error(self):
+        """Missing Chromium binary must raise — never auto-install inline.
 
+        v1.13.1: previously this method would shell out to
+        ``playwright install chromium`` which can take ~30s on a slow link
+        and blow past MCP host handshake timeouts. The new contract is
+        to raise with the install command in the error so the user runs
+        it once out-of-band (or via servicenow-mcp setup which handles it).
+        """
         mock_pw = MagicMock()
         mock_pw.chromium.launch.side_effect = Exception("Executable doesn't exist at /path")
-        mock_pw.chromium.launch.return_value = None
-
-        mock_sync_pw = MagicMock()
-        mock_sync_pw.__enter__ = MagicMock(return_value=mock_pw)
-        mock_sync_pw.__exit__ = MagicMock(return_value=False)
-
-        real_import = __import__
-
-        def _mock_import(name, *args, **kwargs):
-            if name == "playwright.sync_api" or (
-                name == "playwright" and args and "sync_api" in str(args)
-            ):
-                mod = MagicMock()
-                mod.sync_playwright = MagicMock(return_value=mock_sync_pw)
-                return mod
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=_mock_import):
-            with patch("shutil.which", return_value="/usr/bin/playwright"):
-                with patch("subprocess.check_call") as mock_check_call:
-                    AuthManager._ensure_playwright_ready()
-
-        mock_check_call.assert_called_once_with(
-            ["/usr/bin/playwright", "install", "chromium"], timeout=300
-        )
-
-    def test_binary_missing_fallback_to_python_m(self):
-        """When playwright CLI not on PATH, use python -m playwright."""
-        import sys
-
-        mock_pw = MagicMock()
-        mock_pw.chromium.launch.side_effect = Exception("Executable doesn't exist at /path")
-
-        mock_sync_pw = MagicMock()
-        mock_sync_pw.__enter__ = MagicMock(return_value=mock_pw)
-        mock_sync_pw.__exit__ = MagicMock(return_value=False)
-
-        real_import = __import__
-
-        def _mock_import(name, *args, **kwargs):
-            if name == "playwright.sync_api" or (
-                name == "playwright" and args and "sync_api" in str(args)
-            ):
-                mod = MagicMock()
-                mod.sync_playwright = MagicMock(return_value=mock_sync_pw)
-                return mod
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=_mock_import):
-            with patch("shutil.which", return_value=None):
-                with patch("subprocess.check_call") as mock_check_call:
-                    AuthManager._ensure_playwright_ready()
-
-        mock_check_call.assert_called_once_with(
-            [sys.executable, "-m", "playwright", "install", "chromium"], timeout=300
-        )
-
-    def test_non_binary_error_logs_debug(self):
-        """Non-binary probe error should not trigger install."""
-        mock_pw = MagicMock()
-        mock_pw.chromium.launch.side_effect = Exception("some other problem")
 
         mock_sync_pw = MagicMock()
         mock_sync_pw.__enter__ = MagicMock(return_value=mock_pw)
@@ -2837,9 +2782,36 @@ class TestEnsurePlaywrightReadyDeep:
 
         with patch("builtins.__import__", side_effect=_mock_import):
             with patch("subprocess.check_call") as mock_check_call:
-                AuthManager._ensure_playwright_ready()
+                with pytest.raises(RuntimeError, match="playwright install chromium"):
+                    AuthManager._ensure_playwright_ready()
+        # Critical: must NOT shell out to install — that's the regression we're guarding.
+        mock_check_call.assert_not_called()
 
-        # Should not have called install since it's not a binary error
+    def test_non_binary_error_reraises(self):
+        """Non-binary probe error should propagate so the caller sees it."""
+        mock_pw = MagicMock()
+        original = RuntimeError("some other problem")
+        mock_pw.chromium.launch.side_effect = original
+
+        mock_sync_pw = MagicMock()
+        mock_sync_pw.__enter__ = MagicMock(return_value=mock_pw)
+        mock_sync_pw.__exit__ = MagicMock(return_value=False)
+
+        real_import = __import__
+
+        def _mock_import(name, *args, **kwargs):
+            if name == "playwright.sync_api" or (
+                name == "playwright" and args and "sync_api" in str(args)
+            ):
+                mod = MagicMock()
+                mod.sync_playwright = MagicMock(return_value=mock_sync_pw)
+                return mod
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_mock_import):
+            with patch("subprocess.check_call") as mock_check_call:
+                with pytest.raises(RuntimeError, match="some other problem"):
+                    AuthManager._ensure_playwright_ready()
         mock_check_call.assert_not_called()
 
 

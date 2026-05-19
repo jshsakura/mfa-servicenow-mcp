@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from servicenow_mcp.cli import _ensure_playwright_browser, _start_parent_watchdog, arun_server, main
+from servicenow_mcp.cli import _start_parent_watchdog, _warn_if_chromium_missing, arun_server, main
 
 
 def _install_playwright_mock():
@@ -57,11 +57,11 @@ class TestArunServer:
 
 
 # ---------------------------------------------------------------------------
-# Lines 419-437: _ensure_playwright_browser with browser auth
+# _warn_if_chromium_missing — must warn but never install (handshake-safe)
 # ---------------------------------------------------------------------------
 
 
-class TestEnsurePlaywrightBrowserBrowserAuth:
+class TestWarnIfChromiumMissing:
     def test_browser_auth_chromium_found(self):
         _install_playwright_mock()
         args = MagicMock()
@@ -75,9 +75,15 @@ class TestEnsurePlaywrightBrowserBrowserAuth:
         mock_cm.__exit__ = MagicMock(return_value=False)
 
         with patch("playwright.sync_api.sync_playwright", return_value=mock_cm):
-            _ensure_playwright_browser(args)
+            _warn_if_chromium_missing(args)
 
-    def test_browser_auth_chromium_missing_installs(self):
+    def test_browser_auth_chromium_missing_does_not_install(self):
+        """Critical: missing Chromium must NOT trigger a subprocess install.
+
+        Prior auto-install caused MCP handshake timeouts (Codex
+        "connection closed: initialize response") when Playwright shipped
+        a new Chromium build. New contract: warn only, never block startup.
+        """
         _install_playwright_mock()
         args = MagicMock()
         args.auth_type = "browser"
@@ -93,28 +99,13 @@ class TestEnsurePlaywrightBrowserBrowserAuth:
 
         with patch("playwright.sync_api.sync_playwright", return_value=mock_cm):
             with patch("subprocess.run") as mock_run:
-                _ensure_playwright_browser(args)
-                mock_run.assert_called_once()
-
-    def test_browser_auth_chromium_install_fails_logs_warning(self):
-        _install_playwright_mock()
-        args = MagicMock()
-        args.auth_type = "browser"
-
-        mock_pw = MagicMock()
-        type(mock_pw.chromium).executable_path = property(
-            lambda self: (_ for _ in ()).throw(Exception("not found"))
-        )
-
-        mock_cm = MagicMock()
-        mock_cm.__enter__ = MagicMock(return_value=mock_pw)
-        mock_cm.__exit__ = MagicMock(return_value=False)
-
-        with patch("playwright.sync_api.sync_playwright", return_value=mock_cm):
-            with patch("subprocess.run", side_effect=Exception("install failed")):
-                _ensure_playwright_browser(args)
+                with patch("subprocess.check_call") as mock_check_call:
+                    _warn_if_chromium_missing(args)
+        mock_run.assert_not_called()
+        mock_check_call.assert_not_called()
 
     def test_browser_auth_playwright_import_fails(self):
+        """Missing playwright package must not crash startup either — warn only."""
         _install_playwright_mock()
         args = MagicMock()
         args.auth_type = "browser"
@@ -123,7 +114,8 @@ class TestEnsurePlaywrightBrowserBrowserAuth:
             "playwright.sync_api.sync_playwright",
             side_effect=ImportError("no playwright"),
         ):
-            _ensure_playwright_browser(args)
+            # Should not raise.
+            _warn_if_chromium_missing(args)
 
 
 # ---------------------------------------------------------------------------

@@ -7,9 +7,9 @@ import pytest
 
 from servicenow_mcp.cli import (
     _check_for_updates,
-    _ensure_playwright_browser,
     _pick_first_resolved,
     _resolve_env_reference,
+    _warn_if_chromium_missing,
     create_config,
     main,
     parse_args,
@@ -306,16 +306,29 @@ class TestCheckForUpdates:
 
 
 # ---------------------------------------------------------------------------
-# _ensure_playwright_browser
+# _warn_if_chromium_missing
 # ---------------------------------------------------------------------------
 
 
-class TestEnsurePlaywrightBrowser:
+class TestWarnIfChromiumMissing:
     def test_non_browser_auth_skips(self):
         args = MagicMock()
         args.auth_type = "basic"
-        # Should not raise
-        _ensure_playwright_browser(args)
+        # Should not raise — early-exit for non-browser auth.
+        _warn_if_chromium_missing(args)
+
+    def test_browser_auth_does_not_install(self):
+        # Critical contract: this helper must NEVER call subprocess to
+        # install Chromium (that would re-create the MCP handshake stall
+        # we just removed). It only warns.
+        import subprocess as _sp
+
+        args = MagicMock()
+        args.auth_type = "browser"
+        with patch.object(_sp, "run") as mock_run, patch.object(_sp, "check_call") as mock_call:
+            _warn_if_chromium_missing(args)
+        mock_run.assert_not_called()
+        mock_call.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +358,7 @@ class TestMain:
         mock_setup_main.assert_called_once_with(["opencode"], action="remove")
 
     @patch("dotenv.load_dotenv")
-    @patch("servicenow_mcp.cli._ensure_playwright_browser")
+    @patch("servicenow_mcp.cli._warn_if_chromium_missing")
     @patch("servicenow_mcp.cli._check_for_updates")
     @patch("servicenow_mcp.cli.parse_args")
     @patch("servicenow_mcp.cli.create_config")
@@ -379,7 +392,7 @@ class TestMain:
         assert exc_info.value.code == 1
 
     @patch("dotenv.load_dotenv")
-    @patch("servicenow_mcp.cli._ensure_playwright_browser")
+    @patch("servicenow_mcp.cli._warn_if_chromium_missing")
     @patch("servicenow_mcp.cli._check_for_updates")
     @patch("servicenow_mcp.cli.parse_args")
     @patch("servicenow_mcp.cli.create_config")
