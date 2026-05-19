@@ -437,7 +437,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Connect</h3>
-        <p>Point Claude, Cursor, Zed, or any MCP client. 73 registered tools plus runtime helpers load through active package profiles.</p>
+        <p>Point Claude, Cursor, Zed, or any MCP client. 73 registered tools load through active package profiles.</p>
       </div>
     </div>
   </div>
@@ -463,8 +463,8 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         <p>Lazy tool discovery, package-scoped schemas, compact JSON, response caching, and batched reads keep startup and LLM context cost under control.</p>
       </div>
       <div class="step-card" style="--i:3">
-        <h3>🧩 Safe Instance Control</h3>
-        <p>Single-instance remains the default. Optional active-instance mode adds read-only dev/test comparison without per-tool production switching.</p>
+        <h3>🧩 Safe Data Comparison</h3>
+        <p>Optional named instances are limited to read-only dev/test drift checks. Ordinary tools stay pinned to one active instance.</p>
       </div>
       <div class="step-card" style="--i:4">
         <h3>🤖 Broad Client Support</h3>

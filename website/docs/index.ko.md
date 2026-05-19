@@ -438,7 +438,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>연결</h3>
-        <p>Claude, Cursor, Zed 또는 모든 MCP 클라이언트에 연결하세요. 등록 도구 73개와 런타임 helper가 활성 패키지 프로필을 통해 준비됩니다.</p>
+        <p>Claude, Cursor, Zed 또는 모든 MCP 클라이언트에 연결하세요. 등록 도구 73개가 활성 패키지 프로필을 통해 준비됩니다.</p>
       </div>
     </div>
   </div>
@@ -465,8 +465,8 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         <p>레이지 도구 디스커버리, 패키지별 스키마, 컴팩트 JSON, 응답 캐싱, 배치 조회로 startup과 LLM 컨텍스트 비용을 낮춥니다.</p>
       </div>
       <div class="step-card" style="--i:3">
-        <h3>🧩 안전한 인스턴스 제어</h3>
-        <p>단일 인스턴스가 기본입니다. 선택형 active-instance 모드는 운영 전환 파라미터 없이 dev/test를 read-only로 비교합니다.</p>
+        <h3>🧩 안전한 데이터 비교</h3>
+        <p>선택형 named instance는 read-only dev/test drift 확인으로 제한됩니다. 일반 도구는 하나의 active 인스턴스에만 고정됩니다.</p>
       </div>
       <div class="step-card" style="--i:4">
         <h3>🤖 폭넓은 클라이언트 지원</h3>
