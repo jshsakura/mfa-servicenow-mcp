@@ -86,17 +86,17 @@ class GetPortalComponentParams(BaseModel):
         default=["template", "script", "client_script", "css"],
         description="Specific code fields to fetch",
     )
+    fetch_complete: bool = Field(
+        default=True,
+        description="Default True: full body in one call. Set False only for rare >12KB single-field reads.",
+    )
     script_offset: int = Field(
         default=0,
-        description="Chunk start offset; only used when fetch_complete=False.",
+        description="Rare: only when fetch_complete=False. Leave 0 for normal use.",
     )
     script_max_length: int = Field(
         default=8000,
-        description="Chunk size when fetch_complete=False (default 8000, max 12000).",
-    )
-    fetch_complete: bool = Field(
-        default=False,
-        description="True = full body in one call (preferred). False = chunked from script_offset.",
+        description="Rare: chunk size when fetch_complete=False. Leave default unless field >12KB.",
     )
 
 
@@ -1752,7 +1752,7 @@ def get_widget_bundle(
 @register_tool(
     "get_portal_component_code",
     params=GetPortalComponentParams,
-    description="Fetch widget/provider/SI fields. Set fetch_complete=True for full body (default chunks at 8KB).",
+    description="Fetch widget/provider/SI fields. Returns full body by default. Never chunk for analysis.",
     serialization="raw_dict",
     return_type=dict,
 )
