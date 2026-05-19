@@ -22,28 +22,25 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 
 ## Step 2: Release zip/exe install
 
-Use this when `uvx` is blocked. Download `servicenow-mcp-windows-x64-<version>.zip` from GitHub Releases. It contains:
+Use this when `uvx` is blocked. Download `servicenow-mcp-windows-x64-<version>.zip` from GitHub Releases. It contains a single PyInstaller-built `servicenow-mcp.exe` plus `LICENSE`. No installer script is needed — the executable handles Chromium discovery itself. Pick a stable folder you control (e.g. `C:\Users\you\apps\servicenow-mcp\`), extract `servicenow-mcp.exe` into it, and — if you have the Chromium zip — **extract that into a subfolder named `ms-playwright`** so it sits as a direct sibling of the executable:
 
-```text
-servicenow-mcp.exe
-install.ps1
+```
+C:\Users\you\apps\servicenow-mcp\
+├── servicenow-mcp.exe
+└── ms-playwright\
+    └── chromium-1185\
+        └── …
 ```
 
-Extract the zip, then run:
+At startup the executable looks for a sibling `ms-playwright\chromium-*` directory and points Playwright at it via `PLAYWRIGHT_BROWSERS_PATH` for the current process only. It does not touch the system standard Playwright cache (`%LOCALAPPDATA%\ms-playwright`), does not modify any MCP client config, and does not write anywhere on disk.
 
-```powershell
-.\install.ps1
-```
-
-No flags required. The installer copies `servicenow-mcp.exe` to `%LOCALAPPDATA%\servicenow-mcp` and, if a `ms-playwright-chromium-*.zip` is in the same folder, extracts it into `%LOCALAPPDATA%\servicenow-mcp\ms-playwright` — **right next to the executable, never into the system standard Playwright cache** at `%LOCALAPPDATA%\ms-playwright`. It also **does not touch any MCP client config** — that's intentional, so an existing `.mcp.json` / `~/.codex/config.toml` / `opencode.json` cannot be broken by a merge bug.
-
-When the installer finishes, paste this snippet into your client config file by hand (Claude Code / Claude Desktop example):
+Then paste this into your client config file (Claude Code / Claude Desktop example):
 
 ```json
 {
   "mcpServers": {
     "servicenow": {
-      "command": "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe",
+      "command": "C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe",
       "args": [],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -51,7 +48,6 @@ When the installer finishes, paste this snippet into your client config file by 
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
-        "PLAYWRIGHT_BROWSERS_PATH": "C:/Users/you/AppData/Local/servicenow-mcp/ms-playwright",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -59,15 +55,15 @@ When the installer finishes, paste this snippet into your client config file by 
 }
 ```
 
-`PLAYWRIGHT_BROWSERS_PATH` is what tells the bundled MCP server to use the Chromium directory next to the executable instead of the system standard cache — that's why we can install offline without polluting the user's existing Playwright environment. `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional MFA login pre-fill. Snippets for Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Gemini / Zed live in the [Client Setup Guide](CLIENT_SETUP.md).
+`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional MFA login pre-fill. If you put Chromium somewhere other than the sibling `ms-playwright\` directory, add `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"` to the `env` block. Snippets for Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Gemini / Zed live in the [Client Setup Guide](CLIENT_SETUP.md).
 
 This keeps `uvx` out of runtime entirely.
 
-If Chromium isn't installed and downloads are allowed, install Python from <https://www.python.org/downloads/>, then run:
+If Chromium isn't bundled and downloads are allowed, install Python from <https://www.python.org/downloads/>, then run:
 
 ```powershell
 py -m pip install playwright
-$env:PLAYWRIGHT_BROWSERS_PATH = "$env:LOCALAPPDATA\servicenow-mcp\ms-playwright"
+$env:PLAYWRIGHT_BROWSERS_PATH = "$HOME\apps\servicenow-mcp\ms-playwright"
 py -m playwright install chromium
 ```
 

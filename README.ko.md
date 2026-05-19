@@ -146,80 +146,47 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 
 ### 릴리즈 zip/exe (로컬 설치)
 
-`uvx`나 PyPI 접속이 막히는 회사망에서 사용하는 경로입니다. **PyInstaller로 미리 빌드된 단일 실행 파일**과 **설치 스크립트**가 zip에 같이 들어 있어, Python을 따로 설치할 필요가 없습니다.
+`uvx`나 PyPI 접속이 막히는 사내망에서 사용하는 경로입니다. 릴리즈 zip에는 **PyInstaller로 빌드된 단일 실행 파일**만 들어 있습니다 — Python 설치 불필요, 설치 스크립트 없음, 시스템 캐시 오염 없음. 실행 파일이 자기 옆 `ms-playwright/` 폴더를 자동으로 인식하므로 설치 절차는 "풀고, MCP 클라이언트의 `command`에 경로 박는 것" 두 가지뿐입니다.
 
-#### 1단계 — GitHub Releases에서 파일 다운로드
+#### 1. 다운로드
 
-<https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest> 에서 본인 OS에 맞는 zip을 받으세요.
+<https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest> 에서:
 
-| 플랫폼 | 필수 zip | 인터넷이 막혀 Chromium도 자동으로 못 받는 경우 추가로 받기 |
-|--------|---------|---------------------------------------------|
+| 플랫폼 | 필수 | Chromium도 막혀 있다면 추가로 |
+|--------|------|-------------------------------|
 | Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64-<version>.zip` |
 | macOS (Intel/Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>-<version>.zip` |
 | Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64-<version>.zip` |
 
-> 사내 망에서 Chromium 다운로드가 막힌다면 **두 zip을 같이 받아야** 완전 오프라인 설치가 됩니다.
+#### 2. 아래 폴더 구조로 풀기
 
-#### 2단계 — zip을 한 폴더에 풀기
-
-핵심 파일은 두 개입니다 — **실행 파일과 설치 스크립트**. 메인 zip을 풀면 다음과 같이 들어 있습니다 (Linux 예시, Windows는 `.exe`와 `.ps1`):
+본인이 관리하는 안정적인 경로면 어디든 OK (`~/apps/servicenow-mcp/`, `D:\Tools\servicenow-mcp\` 등). Chromium zip을 풀 때 **타겟 폴더 이름을 `ms-playwright`** 로 지정해 실행 파일과 같은 부모 디렉토리에 두는 것이 핵심:
 
 ```
-servicenow-mcp-linux-x64-1.13.5/
-├── servicenow-mcp     ← PyInstaller로 빌드된 실행 파일
-└── install.sh         ← 설치 스크립트
+~/apps/servicenow-mcp/             (본인이 정하는 경로)
+├── servicenow-mcp                 ← 플랫폼 zip에서 (Windows는 .exe)
+└── ms-playwright/                 ← Chromium zip을 여기에 풀기
+    └── chromium-1185/             (하나만 있으면 Playwright가 잡습니다)
+        └── …
 ```
 
-**Chromium zip도 받았다면**, `ms-playwright-chromium-*.zip` 파일을 **압축 해제하지 말고** 위 폴더에 그대로 복사해 두세요. 설치 스크립트가 자동으로 찾아 표준 Playwright 캐시에 풀어 줍니다.
+실행 파일이 시작될 때 자기 옆 `ms-playwright/` 폴더를 확인하고, `chromium-*` 디렉토리가 있으면 `PLAYWRIGHT_BROWSERS_PATH`를 그 경로로 설정합니다 — **현재 프로세스에만** 영향. 디스크에 아무것도 쓰지 않고, MCP 클라이언트 설정 파일도 절대 건드리지 않고, 시스템 표준 Playwright 캐시(`~/.cache/ms-playwright`, `%LOCALAPPDATA%\ms-playwright`) 도 건드리지 않습니다. Chromium 번들을 안 받았으면 Playwright 자체 탐색에 맡기거나 `playwright install chromium`을 별도로 돌리세요.
 
-```
-servicenow-mcp-linux-x64-1.13.5/
-├── servicenow-mcp
-├── install.sh
-└── ms-playwright-chromium-linux-x64-1.13.5.zip   ← 같은 폴더에 그대로 두기
-```
-
-#### 3단계 — 설치 스크립트 실행
-
-압축 푼 폴더로 이동해 본인 OS 스크립트를 실행하세요. **플래그 필요 없음** — 설치 스크립트는 실행 파일 복사와 (있을 경우) Chromium 캐시 추출 두 가지만 합니다. 기존 `.mcp.json` / `config.toml` / `opencode.json` 등 사용자의 MCP 설정 파일은 **건드리지 않습니다** (잘못된 머지로 기존 설정 망가지는 사고 방지). 클라이언트 연결은 5단계에서 직접 복붙으로 합니다.
-
-```powershell
-# Windows
-cd $HOME\Downloads\servicenow-mcp-windows-x64-*
-.\install.ps1
-```
+#### 3. 동작 확인
 
 ```bash
 # macOS / Linux
-cd ~/Downloads/servicenow-mcp-linux-x64-*
-chmod +x install.sh
-./install.sh
-```
-
-설치 스크립트가 하는 일 — **시스템의 기존 Playwright 캐시나 다른 환경은 일절 건드리지 않습니다**:
-
-1. **실행 파일 복사** — 압축 해제 폴더 안의 바이너리를 영구 설치 위치로 복사.
-   - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir`로 변경)
-   - macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir`로 변경)
-2. **Chromium은 실행 파일 옆 `<install_dir>/ms-playwright/`에 풉니다.** MCP 서버는 아래 5단계 설정의 `PLAYWRIGHT_BROWSERS_PATH` env로 이 경로만 보도록 명시되므로, 시스템 표준 캐시(`~/.cache/ms-playwright`, `%LOCALAPPDATA%\ms-playwright` 등) 와 PC에 이미 깔린 다른 Playwright 환경은 그대로 보존됩니다. `<install_dir>/ms-playwright/`에 이미 `chromium-*` 디렉토리가 있으면 번들 zip은 건너뜁니다.
-
-종료 시 설치된 실행 파일 경로와 `PLAYWRIGHT_BROWSERS_PATH` 값을 출력합니다 — 5단계에서 그대로 복사해 쓰세요.
-
-#### 4단계 — 동작 확인
-
-```bash
-# macOS / Linux
-~/.local/bin/servicenow-mcp --version
+~/apps/servicenow-mcp/servicenow-mcp --version
 
 # Windows PowerShell
-& "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version
+& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
 ```
 
-버전이 찍히면 바이너리는 정상. 이후 MCP 클라이언트에서 도구를 호출하면 브라우저 로그인이 한 번 뜨고 세션이 캐시됩니다.
+버전이 찍히면 바이너리 쪽은 끝 — 남은 건 설정 파일 한 곳뿐입니다.
 
-#### 5단계 — MCP 클라이언트에 직접 연결 (복붙)
+#### 4. MCP 클라이언트에 직접 연결 (복붙)
 
-설치 스크립트는 의도적으로 클라이언트 설정 파일을 **건드리지 않습니다**. 아래 스니펫 중 본인 클라이언트에 맞는 것을 그대로 설정 파일에 붙여넣으세요. uvx 방식과 비교해 다른 점은 두 가지뿐 — `command`(로컬 실행 파일 경로)와 `PLAYWRIGHT_BROWSERS_PATH`(실행 파일 옆 Chromium 경로). 이 env 덕분에 시스템 표준 Playwright 캐시를 건드리지 않습니다.
+본인 클라이언트가 읽는 설정 파일에 아래를 그대로 붙여넣으세요. uvx 설정과 비교해 다른 점은 `command` 하나뿐 — env 블록은 동일.
 
 **Claude Code** — `.mcp.json` (프로젝트 루트) / `~/.claude.json` (전역):
 
@@ -227,7 +194,7 @@ chmod +x install.sh
 {
   "mcpServers": {
     "servicenow": {
-      "command": "/home/you/.local/bin/servicenow-mcp",
+      "command": "/home/you/apps/servicenow-mcp/servicenow-mcp",
       "args": [],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -235,7 +202,6 @@ chmod +x install.sh
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
-        "PLAYWRIGHT_BROWSERS_PATH": "/home/you/.local/bin/ms-playwright",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -243,13 +209,13 @@ chmod +x install.sh
 }
 ```
 
-Windows라면 `"command"`를 `"C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"`로, `"PLAYWRIGHT_BROWSERS_PATH"`를 `"C:/Users/you/AppData/Local/servicenow-mcp/ms-playwright"`로 바꾸세요.
+Windows라면 `"command"`를 `"C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe"`로.
 
 **Codex** — `.codex/config.toml` (프로젝트 루트) / `~/.codex/config.toml` (전역):
 
 ```toml
 [mcp_servers.servicenow]
-command = "/home/you/.local/bin/servicenow-mcp"
+command = "/home/you/apps/servicenow-mcp/servicenow-mcp"
 args = []
 startup_timeout_sec = 30
 tool_timeout_sec = 120
@@ -261,7 +227,6 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your.username"
 SERVICENOW_PASSWORD = "your-password"
-PLAYWRIGHT_BROWSERS_PATH = "/home/you/.local/bin/ms-playwright"
 MCP_TOOL_PACKAGE = "standard"
 ```
 
@@ -273,7 +238,7 @@ MCP_TOOL_PACKAGE = "standard"
   "mcp": {
     "servicenow": {
       "type": "local",
-      "command": ["/home/you/.local/bin/servicenow-mcp"],
+      "command": ["/home/you/apps/servicenow-mcp/servicenow-mcp"],
       "enabled": true,
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -281,7 +246,6 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
-        "PLAYWRIGHT_BROWSERS_PATH": "/home/you/.local/bin/ms-playwright",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -289,18 +253,18 @@ MCP_TOOL_PACKAGE = "standard"
 }
 ```
 
-> 설치 스크립트가 종료 시 출력하는 `command` 경로와 `PLAYWRIGHT_BROWSERS_PATH` 값을 그대로 복사해 쓰면 됩니다. `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택(MFA 폼 미리 채우기). 다른 클라이언트(Cursor, VS Code Copilot, Gemini, Zed 등) 설정은 [클라이언트 설정 가이드](docs/CLIENT_SETUP.ko.md) 참조.
+> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택 (MFA 폼 미리 채우기). Chromium을 실행 파일 옆이 *아닌* 다른 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"`를 추가하세요 — 자동 인식은 위 구조 (실행 파일과 같은 부모 디렉토리) 에서만 동작합니다. 다른 클라이언트(Cursor, VS Code Copilot, Gemini, Zed 등) 설정은 [클라이언트 설정 가이드](docs/CLIENT_SETUP.ko.md) 참조.
 
 #### Chromium 대체 (선택)
 
-Chromium zip을 받지 못했고 사내 망에서 Playwright 자동 다운로드도 막힌다면, Python이 가능한 PC에서 install 디렉토리를 그대로 만들어 두세요. 시스템 표준 캐시를 쓰지 않도록 `PLAYWRIGHT_BROWSERS_PATH`를 명시:
+Chromium zip을 받지 못했고 사내 망에서 Playwright 자동 다운로드도 막힌다면, Python이 가능한 PC에서 같은 구조로 디렉토리를 만들어 두세요:
 
 ```bash
 pip install playwright
-PLAYWRIGHT_BROWSERS_PATH="$HOME/.local/bin/ms-playwright" python -m playwright install chromium
+PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m playwright install chromium
 ```
 
-MCP 설정의 `PLAYWRIGHT_BROWSERS_PATH`를 그 경로로 맞춰 주면 끝.
+번들 zip을 푼 것과 동일한 `ms-playwright/chromium-*/…` 구조가 만들어지므로 자동 인식이 그대로 동작합니다.
 
 > Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
