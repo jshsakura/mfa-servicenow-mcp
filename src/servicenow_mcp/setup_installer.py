@@ -113,6 +113,11 @@ def build_setup_parser(action: str = "setup") -> argparse.ArgumentParser:
             action="store_true",
             help="Skip optional skills install",
         )
+        parser.add_argument(
+            "--skip-chromium",
+            action="store_true",
+            help="Skip Playwright Chromium install (browser auth only).",
+        )
     else:
         parser.add_argument(
             "--keep-skills",
@@ -542,7 +547,11 @@ def install_client(client: str, args: argparse.Namespace, cwd: Path) -> dict[str
     }
 
 
-def format_summary(results: list[dict[str, str]], action: str = "setup") -> str:
+def format_summary(
+    results: list[dict[str, str]],
+    action: str = "setup",
+    chromium_status: str | None = None,
+) -> str:
     """Format setup/remove summary."""
     is_setup = action == "setup"
     lines = ["Setup complete!" if is_setup else "Removal complete!", ""]
@@ -555,6 +564,8 @@ def format_summary(results: list[dict[str, str]], action: str = "setup") -> str:
         else:
             lines.append(f"  Config entry: {result['config_status']}")
             lines.append(f"  Skills: {result['skills']}")
+    if is_setup and chromium_status is not None:
+        lines.append(f"- Playwright Chromium: {chromium_status}")
     if is_setup:
         lines.extend(
             [
@@ -594,7 +605,39 @@ def main(argv: list[str] | None = None, action: str = "setup") -> int:
     cwd = Path.cwd()
     if action == "setup":
         results = [install_client(client, args, cwd) for client in args.clients]
+        chromium_status = _install_chromium_if_needed(args)
     else:
         results = [remove_client(client, args, cwd) for client in args.clients]
-    print(format_summary(results, action))
+        chromium_status = None
+    print(format_summary(results, action, chromium_status=chromium_status))
     return 0
+
+
+def _install_chromium_if_needed(args: argparse.Namespace) -> str | None:
+    """Install Playwright Chromium so the first browser tool call doesn't stall MCP startup.
+
+    Returns a status string for the summary, or None when skipped.
+    Runs out-of-band from MCP startup (one-time setup), so the ~150 MB
+    download here is safe — the host's MCP handshake timer is not running.
+    """
+    if getattr(args, "skip_chromium", False):
+        return "skipped (--skip-chromium)"
+    if getattr(args, "auth_type", "browser") != "browser":
+        return "skipped (auth_type != browser)"
+
+    import subprocess
+
+    cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+    print("Installing Playwright Chromium (one-time, prevents MCP handshake timeout)…")
+    try:
+        subprocess.run(cmd, check=True, timeout=600)
+        return "installed"
+    except FileNotFoundError:
+        return (
+            "skipped (playwright Python package not in this venv; run "
+            "`uvx --with playwright playwright install chromium` separately)"
+        )
+    except subprocess.CalledProcessError as exc:
+        return f"failed: exit {exc.returncode} — run `uvx --with playwright playwright install chromium`"
+    except subprocess.TimeoutExpired:
+        return "failed: timeout — run `uvx --with playwright playwright install chromium`"
