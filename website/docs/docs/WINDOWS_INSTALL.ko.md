@@ -240,7 +240,6 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 | `explore/` | 5 | 헬스체크, 스키마 탐색, 라우트 추적, 플로우 트리거 추적, ESC 카탈로그 흐름 |
 
 **업데이트:** 같은 설치 명령어를 다시 실행하면 기존 스킬 파일을 통째로 교체합니다.
-**전체 제거:** `uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp remove claude-code`
 **스킬만 제거:** MCP 설정은 유지하고 싶다면 스킬 디렉터리만 직접 삭제하세요 (예: `Remove-Item -Recurse .claude\commands\servicenow\`).
 
 ---
