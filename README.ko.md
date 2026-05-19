@@ -145,8 +145,6 @@ uvx --with playwright playwright install chromium
 
 `servicenow-mcp setup <client>`를 사용하면 이 명령이 자동 실행됩니다 — 다음 섹션으로 건너뛰세요.
 
-> **자주 쓰는 사용자:** `uv tool install playwright`로 PATH에 영구 설치 가능. 대부분 사용자에게는 불필요.
-
 > Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
 ---
@@ -701,7 +699,7 @@ cd mfa-servicenow-mcp
 
 uv venv
 uv pip install -e ".[browser,dev]"
-uv run playwright install chromium
+uvx --with playwright playwright install chromium
 ```
 
 ### 테스트 실행
