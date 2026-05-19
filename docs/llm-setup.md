@@ -99,11 +99,10 @@ This downloads ~150 MB the first time. On a slow link it can take several minute
 
 If `uvx` package execution is blocked, switch to the release zip/exe path:
 
-- Download `servicenow-mcp-<platform>-<version>.zip` from GitHub Releases.
-- Run the included `install.ps1` (Windows) or `install.sh` (macOS/Linux).
-- If the browser download is blocked too, download `ms-playwright-chromium-<platform>-<version>.zip` from the same release and extract it to the standard Playwright cache.
-
-Do not mix this with source-folder or venv instructions; the release installer writes the built executable path into MCP config.
+- Download `servicenow-mcp-<platform>-<version>.zip` from GitHub Releases. There is no installer script — the zip contains the PyInstaller-built executable only.
+- Extract the executable into any stable folder the user controls (e.g. `~/apps/servicenow-mcp/`).
+- If the browser download is blocked too, download `ms-playwright-chromium-<platform>-<version>.zip` from the same release and extract it to a sibling folder named `ms-playwright/` — the executable auto-detects that layout at startup and sets `PLAYWRIGHT_BROWSERS_PATH` to it for its own process.
+- Set the MCP client `command` to the absolute path of that executable. The env block is identical to the uvx setup.
 
 **2.3 — Verify and stop on failure**
 

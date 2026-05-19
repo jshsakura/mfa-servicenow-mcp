@@ -139,55 +139,50 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
       <div class="install-panels">
         <div class="install-panel active" id="local-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. 압축 해제 — 핵심 파일은 두 개 (실행 파일 + 설치 스크립트):</span>
-<span class="c">#    servicenow-mcp-linux-x64-&lt;ver&gt;/</span>
-<span class="c">#    ├── servicenow-mcp     ← 빌드된 실행 파일</span>
-<span class="c">#    └── install.sh         ← 설치 스크립트</span>
+            <pre class="install-code"><code><span class="c"># 1. 본인이 정한 안정 폴더에 아래 구조로 배치:</span>
 <span class="c">#</span>
-<span class="c"># 2. (선택) Chromium zip을 같은 폴더에 그대로 복사:</span>
-<span class="c">#    ms-playwright-chromium-linux-x64-&lt;ver&gt;.zip   (압축 해제 X)</span>
-
-<span class="c"># 3. 설치 스크립트 실행 — 플래그 필요 없음. 실행 파일 복사와</span>
-<span class="c">#    (있을 경우) Chromium 캐시 추출만 수행. MCP 클라이언트 설정 파일은</span>
-<span class="c">#    절대 건드리지 않습니다 — 클라이언트 연결은 아래에서 직접 복붙.</span>
-cd ~/Downloads/servicenow-mcp-linux-x64-*
-chmod +x install.sh
-./install.sh
+<span class="c">#    ~/apps/servicenow-mcp/             (본인이 정하는 경로)</span>
+<span class="c">#    ├── servicenow-mcp                 ← zip의 실행 파일</span>
+<span class="c">#    └── ms-playwright/                 ← Chromium zip을 여기 풀기</span>
+<span class="c">#        └── chromium-1185/             (하나 이상)</span>
+<span class="c">#</span>
+<span class="c"># 2. 시작 시 실행 파일이 옆 ms-playwright/ 폴더를 자동 인식해</span>
+<span class="c">#    Playwright를 그쪽으로 보냅니다. 시스템 표준 캐시</span>
+<span class="c">#    (~/.cache/ms-playwright) 와 MCP 클라이언트 설정은 그대로.</span>
+<span class="c"># 3. 바이너리 동작 확인:</span>
+~/apps/servicenow-mcp/servicenow-mcp --version
 
 <span class="c"># 4. 아래 "수동 복구용" 섹션의 설정 스니펫을 본인 클라이언트 설정 파일에</span>
 <span class="c">#    붙여넣고 'command'를 아래 경로로 지정:</span>
-<span class="c">#       ~/.local/bin/servicenow-mcp</span>
-<span class="c"># 5. 동작 확인 후 MCP 클라이언트 재시작:</span>
-~/.local/bin/servicenow-mcp --version</code></pre>
+<span class="c">#       ~/apps/servicenow-mcp/servicenow-mcp</span>
+<span class="c"># 클라이언트 재시작 끝.</span></code></pre>
           </div>
         </div>
         <div class="install-panel" id="local-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. 압축 해제 — 핵심 파일은 두 개 (실행 파일 + 설치 스크립트):</span>
-<span class="c">#    servicenow-mcp-windows-x64-&lt;ver&gt;\</span>
-<span class="c">#    |-- servicenow-mcp.exe   &lt;- 빌드된 실행 파일</span>
-<span class="c">#    `-- install.ps1          &lt;- 설치 스크립트</span>
+            <pre class="install-code"><code><span class="c"># 1. 본인이 정한 안정 폴더에 아래 구조로 배치:</span>
 <span class="c">#</span>
-<span class="c"># 2. (선택) Chromium zip을 같은 폴더에 그대로 복사:</span>
-<span class="c">#    ms-playwright-chromium-windows-x64-&lt;ver&gt;.zip   (압축 해제 X)</span>
-
-<span class="c"># 3. 설치 스크립트 실행 — 플래그 필요 없음. 실행 파일 복사와</span>
-<span class="c">#    (있을 경우) Chromium 캐시 추출만 수행. MCP 클라이언트 설정 파일은</span>
-<span class="c">#    절대 건드리지 않습니다 — 클라이언트 연결은 아래에서 직접 복붙.</span>
-cd $HOME\Downloads\servicenow-mcp-windows-x64-*
-.\install.ps1
+<span class="c">#    C:\Users\you\apps\servicenow-mcp\</span>
+<span class="c">#    ├── servicenow-mcp.exe              ← zip의 실행 파일</span>
+<span class="c">#    └── ms-playwright\                  ← Chromium zip을 여기 풀기</span>
+<span class="c">#        └── chromium-1185\              (하나 이상)</span>
+<span class="c">#</span>
+<span class="c"># 2. 시작 시 실행 파일이 옆 ms-playwright\ 폴더를 자동 인식해</span>
+<span class="c">#    Playwright를 그쪽으로 보냅니다. 시스템 표준 캐시</span>
+<span class="c">#    (%LOCALAPPDATA%\ms-playwright) 와 MCP 클라이언트 설정은 그대로.</span>
+<span class="c"># 3. 바이너리 동작 확인:</span>
+& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
 
 <span class="c"># 4. 아래 "수동 복구용" 섹션의 설정 스니펫을 본인 클라이언트 설정 파일에</span>
 <span class="c">#    붙여넣고 'command'를 아래 경로로 지정:</span>
-<span class="c">#       %LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</span>
-<span class="c"># 5. 동작 확인 후 MCP 클라이언트 재시작:</span>
-& "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version</code></pre>
+<span class="c">#       C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe</span>
+<span class="c"># 클라이언트 재시작 끝.</span></code></pre>
           </div>
         </div>
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.8;">
-      파일이 설치되는 위치 — 실행 파일: <code>~/.local/bin/servicenow-mcp</code> (macOS/Linux) 또는 <code>%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</code> (Windows). Chromium은 실행 파일 옆 <code>&lt;install_dir&gt;/ms-playwright/</code>에 들어갑니다. 번들된 MCP 서버는 <code>PLAYWRIGHT_BROWSERS_PATH</code>로 이 경로만 보도록 지정되므로, 시스템 표준 Playwright 캐시(<code>~/.cache/ms-playwright</code>, <code>%LOCALAPPDATA%\ms-playwright</code>) 와 PC에 이미 깔린 다른 Playwright 환경은 그대로 보존됩니다. 설치 스크립트는 MCP 클라이언트 설정 파일도 절대 건드리지 않습니다 — 아래 <a href="#mcp-tabs">수동 복구용</a> 섹션의 스니펫을 본인 설정 파일에 직접 붙여넣고 <code>command</code>와 <code>PLAYWRIGHT_BROWSERS_PATH</code>를 설치 스크립트가 출력한 경로로 지정하세요.
+      설치 스크립트 없음. 본인이 정한 안정 폴더에 실행 파일을 풀고, Chromium zip을 그 옆 <code>ms-playwright</code> 서브폴더로 풀면, 실행 파일이 시작 시 그 구조를 자동 인식해 <code>PLAYWRIGHT_BROWSERS_PATH</code>를 현재 프로세스에만 지정합니다. 시스템 표준 Playwright 캐시(<code>~/.cache/ms-playwright</code>, <code>%LOCALAPPDATA%\ms-playwright</code>) 는 보존되고, MCP 클라이언트 설정 파일도 본인이 직접 관리 — 아래 <a href="#mcp-tabs">수동 복구용</a> 섹션의 스니펫을 붙여넣고 <code>command</code>를 실행 파일 절대 경로로 지정하세요.
     </p>
 
     <div style="margin-top:56px;" class="reveal">
