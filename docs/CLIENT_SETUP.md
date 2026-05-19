@@ -2,17 +2,15 @@
 
 Detailed setup for each MCP client. All clients use the same MCP server — only the config format differs.
 
-> **Recommended first:** run `servicenow-mcp setup <client> --instance-url ...` or use the AI-guided flow in [`llm-setup.md`](llm-setup.md). Use the config snippets below when you need to inspect, repair, or hand-manage an MCP config file.
+> **Recommended first:** use the `uvx` setup command below. If `uvx` is blocked by corporate security tooling, use the release zip/exe section.
 
 ---
 
 ## Before You Start
 
-You need **two** things installed up front. Skip either and the first browser-auth tool call will stall trying to download mid-flight.
+Use `uvx` by default. It keeps install and client config consistent across macOS, Linux, and Windows.
 
-### 1. Install `uv`
-
-`uv` handles Python, packages, and execution in one tool. The MCP server runs through `uvx`, which requires `uv`.
+### 1. Install uv
 
 **macOS / Linux:**
 
@@ -20,69 +18,51 @@ You need **two** things installed up front. Skip either and the first browser-au
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-**Windows:**
+**Windows PowerShell:**
 
 ```powershell
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Restart your terminal after installation. No Python install, pip, or venv needed.
-
-### 2. Pre-install Chromium (REQUIRED)
-
-The MFA/SSO login window is a Playwright-driven Chromium build — a hard dependency. Use `uvx` for the install so the same execution path is used for both Playwright and the MCP server:
+### 2. Install Playwright Chromium
 
 ```bash
 uvx --with playwright playwright install chromium
 ```
 
-The browser binary is cached at `~/.cache/ms-playwright/` (macOS/Linux) or `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows) and shared across MCP versions. Re-run the same `uvx --with playwright playwright install chromium` command only when you upgrade Playwright itself.
+Playwright uses its standard browser cache. `uvx` does not use a locally installed Playwright Python package, but it can reuse a matching Chromium already present in that cache.
 
-#### Corporate network fallback: local source folder
-
-If `uvx` package execution is blocked but GitHub source access is allowed, clone the repository once and point your MCP client at the local executable:
+### 3. Run setup
 
 ```bash
-# macOS/Linux
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.venv/bin/python -m playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser"
 ```
 
 ```powershell
-# Windows PowerShell
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.\.venv\Scripts\python.exe -m playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+  --instance-url "https://your-instance.service-now.com" `
+  --auth-type "browser"
 ```
 
-Then use the local executable path in the MCP config:
+### Release zip/exe
 
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false"
-      }
-    }
-  }
-}
+If `uvx` or Python package downloads are blocked, download the platform release zip from GitHub Releases and run the included installer.
+
+Windows:
+
+```powershell
+.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
 ```
 
-Windows command path:
+macOS / Linux:
 
-```json
-"command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe"
+```bash
+SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" CLIENT=opencode ./install.sh
 ```
 
-This keeps `uv` out of MCP runtime. `uv` is used only once to create the local environment and cache Chromium.
+If browser downloads are also blocked, download the matching `ms-playwright-chromium-<platform>-<version>.zip` release asset and extract it to the standard Playwright cache before starting your MCP client.
 
 > Windows users: see [Windows Installation Guide](WINDOWS_INSTALL.md) for step-by-step details and proxy/antivirus notes.
 
