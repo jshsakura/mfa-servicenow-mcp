@@ -86,6 +86,8 @@ TOOL_PREFIXES: tuple[str, ...] = (
 # (registered directly in server.py rather than via @register_tool).
 RUNTIME_INJECTED_TOOLS: set[str] = {
     "list_tool_packages",
+    "list_instances",
+    "compare_instances",
 }
 
 # Identifiers that match the tool-name shape but legitimately appear in docs as

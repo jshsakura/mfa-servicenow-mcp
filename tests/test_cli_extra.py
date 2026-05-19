@@ -3,11 +3,17 @@
 import asyncio
 import sys
 import types
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from servicenow_mcp.cli import _start_parent_watchdog, _warn_if_chromium_missing, arun_server, main
+from servicenow_mcp.cli import (
+    _start_parent_watchdog,
+    _warn_if_chromium_missing,
+    arun_http_server,
+    arun_server,
+    main,
+)
 
 
 def _install_playwright_mock():
@@ -54,6 +60,36 @@ class TestArunServer:
 
         mock_server.create_initialization_options.assert_called_once()
         mock_server.run.assert_called_once()
+
+    @patch("servicenow_mcp.cli._start_parent_watchdog")
+    @patch("uvicorn.Server")
+    @patch("uvicorn.Config")
+    def test_arun_http_server_builds_uvicorn_server(
+        self, mock_config_cls, mock_server_cls, mock_watchdog
+    ):
+        mock_uvicorn_server = MagicMock()
+        mock_uvicorn_server.serve = AsyncMock()
+        mock_server_cls.return_value = mock_uvicorn_server
+        mock_config = MagicMock()
+        mock_config_cls.return_value = mock_config
+
+        args = MagicMock()
+        args.http_path = "mcp"
+        args.http_allowed_hosts = None
+        args.http_host = "127.0.0.1"
+        args.http_port = 8123
+        args.http_disable_dns_rebinding_protection = False
+        args.http_json_response = False
+        args.debug = False
+
+        asyncio.run(arun_http_server(MagicMock(), args))
+
+        mock_config_cls.assert_called_once()
+        assert mock_config_cls.call_args.kwargs["host"] == "127.0.0.1"
+        assert mock_config_cls.call_args.kwargs["port"] == 8123
+        mock_server_cls.assert_called_once_with(mock_config)
+        mock_uvicorn_server.serve.assert_awaited_once()
+        mock_watchdog.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

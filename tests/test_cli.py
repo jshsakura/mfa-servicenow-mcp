@@ -1,5 +1,6 @@
 """Tests for cli.py — argument parsing, config creation, main entry."""
 
+import json
 import os
 from unittest.mock import MagicMock, patch
 
@@ -7,8 +8,10 @@ import pytest
 
 from servicenow_mcp.cli import (
     _check_for_updates,
+    _default_http_allowed_hosts,
     _pick_first_resolved,
     _resolve_env_reference,
+    _split_csv,
     _warn_if_chromium_missing,
     create_config,
     main,
@@ -62,6 +65,26 @@ class TestPickFirstResolved:
 
 
 # ---------------------------------------------------------------------------
+# HTTP transport helpers
+# ---------------------------------------------------------------------------
+
+
+class TestHttpTransportHelpers:
+    def test_split_csv_trims_empty_items(self):
+        assert _split_csv("localhost, 127.0.0.1:8000, ,example.com") == [
+            "localhost",
+            "127.0.0.1:8000",
+            "example.com",
+        ]
+
+    def test_default_http_allowed_hosts_include_loopback_with_port(self):
+        hosts = _default_http_allowed_hosts("127.0.0.1", 8123)
+        assert "127.0.0.1:8123" in hosts
+        assert "localhost:8123" in hosts
+        assert "[::1]:8123" in hosts
+
+
+# ---------------------------------------------------------------------------
 # parse_args
 # ---------------------------------------------------------------------------
 
@@ -83,6 +106,42 @@ class TestParseArgs:
         assert args.debug is True
         assert args.timeout == 60
 
+    @patch(
+        "sys.argv",
+        [
+            "cli",
+            "--transport",
+            "http",
+            "--http-host",
+            "0.0.0.0",
+            "--http-port",
+            "8123",
+            "--http-path",
+            "/servicenow-mcp",
+        ],
+    )
+    @patch.dict("os.environ", {"SERVICENOW_INSTANCE_URL": "https://env.service-now.com"})
+    def test_http_transport_args(self):
+        args = parse_args()
+        assert args.transport == "http"
+        assert args.http_host == "0.0.0.0"
+        assert args.http_port == 8123
+        assert args.http_path == "/servicenow-mcp"
+
+    @patch("sys.argv", ["cli"])
+    @patch.dict(
+        "os.environ",
+        {
+            "SERVICENOW_INSTANCE_URL": "https://env.service-now.com",
+            "SERVICENOW_MCP_TRANSPORT": "http",
+            "SERVICENOW_MCP_HTTP_JSON_RESPONSE": "true",
+        },
+    )
+    def test_http_transport_env_defaults(self):
+        args = parse_args()
+        assert args.transport == "http"
+        assert args.http_json_response is True
+
 
 # ---------------------------------------------------------------------------
 # create_config
@@ -102,6 +161,65 @@ class TestCreateConfig:
         config = create_config(args)
         assert config.instance_url == "https://test.service-now.com"
         assert config.auth.type.value == "basic"
+
+    @patch.dict(
+        os.environ,
+        {
+            "SERVICENOW_ACTIVE_INSTANCE": "test",
+            "SERVICENOW_INSTANCE_CONFIG": json.dumps(
+                {
+                    "dev": {"url": "https://dev.service-now.com"},
+                    "test": {"url": "https://test.service-now.com"},
+                }
+            ),
+        },
+        clear=False,
+    )
+    def test_instance_config_active_alias_overrides_url(self):
+        args = MagicMock()
+        args.instance_url = "https://legacy.service-now.com"
+        args.auth_type = "basic"
+        args.username = "admin"
+        args.password = "password"
+        args.debug = False
+        args.timeout = 30
+        args.script_execution_api_resource_path = None
+
+        config = create_config(args)
+
+        assert config.instance_url == "https://test.service-now.com"
+
+    @patch.dict(
+        os.environ,
+        {
+            "SERVICENOW_ACTIVE_INSTANCE": "dev",
+            "SERVICENOW_INSTANCE_CONFIG": json.dumps(
+                {
+                    "dev": {
+                        "url": "https://dev.service-now.com",
+                        "auth_type": "basic",
+                        "username": "alias-admin",
+                        "password": "alias-password",
+                    }
+                }
+            ),
+        },
+        clear=True,
+    )
+    def test_instance_config_credentials_can_supply_basic_auth(self):
+        args = MagicMock()
+        args.instance_url = None
+        args.auth_type = "basic"
+        args.username = None
+        args.password = None
+        args.debug = False
+        args.timeout = 30
+        args.script_execution_api_resource_path = None
+
+        config = create_config(args)
+
+        assert config.instance_url == "https://dev.service-now.com"
+        assert config.auth.basic.username == "alias-admin"
 
     def test_missing_instance_url_raises(self):
         args = MagicMock()
@@ -369,6 +487,7 @@ class TestMain:
         mock_args = MagicMock()
         mock_args.debug = False
         mock_args.tool_package = None
+        mock_args.transport = "stdio"
         mock_parse.return_value = mock_args
         mock_create_config.return_value = MagicMock()
         mock_mcp_instance = MagicMock()
@@ -403,6 +522,7 @@ class TestMain:
         mock_args = MagicMock()
         mock_args.debug = True
         mock_args.tool_package = "full"
+        mock_args.transport = "stdio"
         mock_parse.return_value = mock_args
         mock_create_config.return_value = MagicMock()
         mock_mcp_instance = MagicMock()
@@ -410,3 +530,28 @@ class TestMain:
         mock_mcp_instance.start.return_value = MagicMock()
         with patch.dict("os.environ", {}), patch("anyio.run"):
             main()
+
+    @patch("dotenv.load_dotenv")
+    @patch("servicenow_mcp.cli._warn_if_chromium_missing")
+    @patch("servicenow_mcp.cli._check_for_updates")
+    @patch("servicenow_mcp.cli.parse_args")
+    @patch("servicenow_mcp.cli.create_config")
+    @patch("servicenow_mcp.cli.ServiceNowMCP")
+    def test_main_http_transport_dispatches_http_runner(
+        self, mock_mcp, mock_create_config, mock_parse, mock_check, mock_ensure, mock_dotenv
+    ):
+        mock_args = MagicMock()
+        mock_args.debug = False
+        mock_args.tool_package = None
+        mock_args.transport = "http"
+        mock_parse.return_value = mock_args
+        mock_create_config.return_value = MagicMock()
+        mock_mcp_instance = MagicMock()
+        mock_mcp.return_value = mock_mcp_instance
+        mock_server = MagicMock()
+        mock_mcp_instance.start.return_value = mock_server
+        with patch("anyio.run") as mock_anyio_run:
+            main()
+        from servicenow_mcp.cli import arun_http_server
+
+        mock_anyio_run.assert_called_once_with(arun_http_server, mock_server, mock_args)

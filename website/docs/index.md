@@ -161,6 +161,7 @@ servicenow-mcp \
       <div class="install-tabs" id="mcp-tabs">
         <button class="install-tab active" data-target="mcp-claude-desktop">Claude Desktop</button>
         <button class="install-tab" data-target="mcp-claude-code">Claude Code</button>
+        <button class="install-tab" data-target="mcp-zed">Zed</button>
         <button class="install-tab" data-target="mcp-codex">Codex</button>
         <button class="install-tab" data-target="mcp-opencode">OpenCode</button>
         <button class="install-tab" data-target="mcp-gemini">Gemini</button>
@@ -221,6 +222,24 @@ SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
 MCP_TOOL_PACKAGE = "standard"</code></pre>
+          </div>
+        </div>
+        <div class="install-panel" id="mcp-zed">
+          <div class="install-code-block">
+            <pre class="install-code"><code>{
+  "servicenow": {
+    "command": "uvx",
+    "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+    "env": {
+      "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+      "SERVICENOW_AUTH_TYPE": "browser",
+      "SERVICENOW_BROWSER_HEADLESS": "false",
+      "SERVICENOW_USERNAME": "your.username",
+      "SERVICENOW_PASSWORD": "your-password",
+      "MCP_TOOL_PACKAGE": "standard"
+    }
+  }
+}</code></pre>
           </div>
         </div>
         <div class="install-panel" id="mcp-opencode">
@@ -337,7 +356,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
     <div class="skill-categories reveal-stagger">
       <div class="step-card" style="--i:1">
         <h3>🔍 analyze/</h3>
-        <p>6 skills — widget analysis, portal diagnosis, dependency mapping, code detection</p>
+        <p>5 skills — widget analysis, portal diagnosis, local source audit, provider audit, ESC page audit</p>
       </div>
       <div class="step-card" style="--i:2">
         <h3>🔧 fix/</h3>
@@ -345,15 +364,15 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
       </div>
       <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
-        <p>8 skills — page layout, script includes, source export, app source download, changeset workflow, local sync, workflow management, skill management</p>
+        <p>5 skills — app source download, changeset workflow, local sync, workflow management, skill management</p>
       </div>
       <div class="step-card" style="--i:4">
         <h3>🚀 deploy/</h3>
-        <p>2 skills — change request lifecycle, incident triage</p>
+        <p>1 skill — change request lifecycle</p>
       </div>
       <div class="step-card" style="--i:5">
         <h3>🧭 explore/</h3>
-        <p>5 skills — health check, schema discovery, route tracing, flow trigger tracing, ESC catalog flow</p>
+        <p>2 skills — flow trigger tracing, ESC catalog flow</p>
       </div>
     </div>
   </div>
@@ -377,8 +396,8 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">77</span>
-    <span class="hero-stat-label">MCP Tools</span>
+    <span class="hero-stat-value">73</span>
+    <span class="hero-stat-label">Registered Tools</span>
   </div>
   <div class="hero-stat">
     <span class="hero-stat-value">MFA</span>
@@ -418,7 +437,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Connect</h3>
-        <p>Point Claude, Cursor, or any MCP client. 77 registered tools ready instantly through active package profiles.</p>
+        <p>Point Claude, Cursor, Zed, or any MCP client. 73 registered tools plus runtime helpers load through active package profiles.</p>
       </div>
     </div>
   </div>
@@ -440,16 +459,16 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         <p>Browser-based auth means credentials never leave your machine. Supports MFA, SSO, SAML, and any login flow your org uses.</p>
       </div>
       <div class="step-card" style="--i:2">
-        <h3>⚡ Optimized Performance</h3>
-        <p>Batch queries, connection pooling, response caching, and token-efficient JSON keep latency and API costs to a minimum.</p>
+        <h3>⚡ Token-Efficient Performance</h3>
+        <p>Lazy tool discovery, package-scoped schemas, compact JSON, response caching, and batched reads keep startup and LLM context cost under control.</p>
       </div>
       <div class="step-card" style="--i:3">
-        <h3>🧩 Modular Skill Packages</h3>
-        <p>Incidents, Changes, Catalog, Portals, Workflows, and Scripts — load only what you need or run the full suite.</p>
+        <h3>🧩 Safe Instance Control</h3>
+        <p>Single-instance remains the default. Optional active-instance mode adds read-only dev/test comparison without per-tool production switching.</p>
       </div>
       <div class="step-card" style="--i:4">
-        <h3>🤖 Multi-LLM Compatible</h3>
-        <p>Works with Claude, ChatGPT, Gemini, Cursor, and any client that speaks the Model Context Protocol.</p>
+        <h3>🤖 Broad Client Support</h3>
+        <p>Works with Claude, Codex, Cursor, Zed, Gemini, OpenCode, Windsurf, VS Code Copilot, and MCP clients over stdio or Streamable HTTP.</p>
       </div>
     </div>
 
