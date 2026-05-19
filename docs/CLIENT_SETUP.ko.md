@@ -2,17 +2,15 @@
 
 각 MCP 클라이언트별 상세 설정 가이드입니다. 모든 클라이언트는 동일한 MCP 서버를 사용하며, 설정 형식만 다릅니다.
 
-> **먼저 권장하는 방법:** `servicenow-mcp setup <client> --instance-url ...`를 실행하거나 [`llm-setup.ko.md`](llm-setup.ko.md)의 AI 자동 설치 흐름을 사용하세요. 아래 설정 예시는 MCP 설정을 직접 점검하거나 수동 복구해야 할 때 참고하는 용도입니다.
+> **먼저 권장하는 방법:** 아래 `uvx` setup 명령을 사용하세요. 회사 보안툴이 `uvx`를 막는 환경이면 릴리즈 zip/exe 섹션을 사용하세요.
 
 ---
 
 ## 시작하기 전에
 
-**두 가지를 미리 설치**해야 합니다. 둘 중 하나라도 빠지면 첫 브라우저 인증 호출이 도중에 다운로드 시도하다가 멈춥니다.
+기본 설치는 `uvx`입니다. macOS, Linux, Windows에서 같은 흐름으로 설치와 MCP 설정을 맞춥니다.
 
-### 1. `uv` 설치
-
-`uv`가 Python · 패키지 · 실행을 한 번에 처리합니다. MCP 서버는 `uvx`로 실행되며 `uv`가 필요합니다.
+### 1. uv 설치
 
 **macOS / Linux:**
 
@@ -20,69 +18,51 @@
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-**Windows:**
+**Windows PowerShell:**
 
 ```powershell
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-설치 후 터미널을 재시작하세요. Python 설치, pip, venv 전부 필요 없습니다.
-
-### 2. Chromium 미리 설치 (필수)
-
-MFA/SSO 로그인 창은 Playwright가 띄우는 Chromium입니다 — 필수 종속성입니다. Playwright와 MCP 서버 실행 경로가 엇갈리지 않도록 Chromium 설치도 `uvx`로 실행하세요:
+### 2. Playwright Chromium 설치
 
 ```bash
 uvx --with playwright playwright install chromium
 ```
 
-브라우저 바이너리는 `~/.cache/ms-playwright/` (macOS/Linux) 또는 `%USERPROFILE%\AppData\Local\ms-playwright\` (Windows)에 캐시되며 MCP 버전과 무관하게 공유됩니다. Playwright 자체가 업그레이드될 때만 같은 `uvx --with playwright playwright install chromium` 명령을 다시 실행하세요.
+Playwright는 표준 브라우저 캐시를 사용합니다. `uvx`가 로컬 Playwright Python 패키지를 자동으로 우선 사용하지는 않지만, 같은 Chromium revision이 표준 캐시에 있으면 다시 다운로드하지 않습니다.
 
-#### 회사망 fallback: 로컬 소스 폴더
-
-`uvx` 패키지 실행은 막히지만 GitHub 소스 접근은 가능한 환경이면, 저장소를 한 번 clone하고 MCP 클라이언트가 로컬 실행 파일을 직접 보게 설정하세요:
+### 3. setup 실행
 
 ```bash
-# macOS/Linux
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.venv/bin/python -m playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser"
 ```
 
 ```powershell
-# Windows PowerShell
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.\.venv\Scripts\python.exe -m playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+  --instance-url "https://your-instance.service-now.com" `
+  --auth-type "browser"
 ```
 
-그 다음 MCP 설정에는 로컬 실행 파일 경로를 넣습니다:
+### 릴리즈 zip/exe
 
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false"
-      }
-    }
-  }
-}
+`uvx`나 Python 패키지 다운로드가 막히면 GitHub Releases에서 플랫폼별 zip을 받고 포함된 설치 스크립트를 실행하세요.
+
+Windows:
+
+```powershell
+.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
 ```
 
-Windows command 경로:
+macOS / Linux:
 
-```json
-"command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe"
+```bash
+SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" CLIENT=opencode ./install.sh
 ```
 
-이 방식은 MCP runtime에서 `uv`를 쓰지 않습니다. `uv`는 최초 로컬 환경 생성과 Chromium 캐시에만 한 번 사용됩니다.
+브라우저 다운로드까지 막히는 환경이면 같은 릴리즈의 `ms-playwright-chromium-<platform>-<version>.zip`을 받아 표준 Playwright 캐시에 풀고 MCP 클라이언트를 시작하세요.
 
 > Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](WINDOWS_INSTALL.ko.md) 참조.
 

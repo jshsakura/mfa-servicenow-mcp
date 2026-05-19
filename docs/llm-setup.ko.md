@@ -97,34 +97,19 @@ uvx --with playwright playwright install chromium
 
 처음엔 ~150 MB 다운로드입니다. 느린 회선에선 몇 분 걸릴 수 있는데 정상입니다. 중간에 중단하지 마세요. 사용자에게 진행 메시지("ServiceNow MFA 로그인용 Chromium을 다운로드 중입니다 — 느린 네트워크에선 몇 분 걸릴 수 있습니다…")를 보여서 기다리는 이유를 알게 해주세요.
 
-`uvx` 패키지 실행은 막히지만 GitHub 소스 접근은 가능한 환경이면 로컬 소스 폴더 fallback으로 전환하세요. `uv`는 환경 생성에 한 번만 쓰고, MCP runtime은 `.venv` 실행 파일을 직접 보게 해야 합니다:
+`uvx` 패키지 실행이 막히면 릴리즈 zip/exe 경로로 전환하세요:
 
-```bash
-# macOS/Linux
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.venv/bin/python -m playwright install chromium
-```
+- GitHub Releases에서 `servicenow-mcp-<platform>-<version>.zip`을 받습니다.
+- 포함된 `install.ps1`(Windows) 또는 `install.sh`(macOS/Linux)를 실행합니다.
+- 브라우저 다운로드도 막히면 같은 릴리즈의 `ms-playwright-chromium-<platform>-<version>.zip`을 받아 표준 Playwright 캐시에 풉니다.
 
-```powershell
-# Windows PowerShell
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.\.venv\Scripts\python.exe -m playwright install chromium
-```
-
-생성할 MCP 설정에는 다음 command 경로를 사용하세요:
-
-- macOS/Linux: `/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp`
-- Windows: `C:\absolute\path\mfa-servicenow-mcp\.venv\Scripts\servicenow-mcp.exe`
+이 경로에서는 소스 폴더나 venv 안내를 섞지 마세요. 릴리즈 installer가 빌드된 실행 파일 경로를 MCP config에 씁니다.
 
 **2.3 — 검증 및 실패 시 중단**
 
 2.1의 확인 명령을 다시 실행하세요. 그래도 바이너리가 없으면 **설치를 중단**하고 사용자에게 명령 출력 그대로 보고하세요. 흔한 원인:
 
-- 회사 정책이 패키지 또는 브라우저 다운로드를 차단; GitHub 소스 접근이 가능하면 로컬 소스 폴더 fallback 사용
+- 회사 정책이 패키지 또는 브라우저 다운로드를 차단; 릴리즈 zip/exe 경로 사용
 - 백신이 Chromium 아카이브를 격리
 - 디스크 공간 부족
 

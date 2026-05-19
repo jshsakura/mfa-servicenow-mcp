@@ -120,74 +120,62 @@ Restart the MCP client so it loads the new config. The first browser-authenticat
 
 ---
 
-## Prerequisites
+## Install
 
-### 1. Install `uv`
+### Default: uvx
 
-[uv](https://astral.sh/uv) handles Python, packages, and execution in one tool — no separate Python install, no `pip`, no `venv`.
-
-- **macOS / Linux:**
-  ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
-- **Windows:**
-  ```powershell
-  powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-  ```
-
-Restart your terminal after installation.
-
-### 2. Pre-install Chromium (strongly recommended)
-
-The MFA/SSO login flow needs a Playwright Chromium build. The MCP server itself never auto-downloads it (a slow download inside the MCP handshake used to time the server out — see [pinning](#pinning-a-specific-version) for the full story). Install it once up front:
-
-```bash
-uvx --with playwright playwright install chromium
-```
-
-If you use `servicenow-mcp setup <client>` (next section), this command runs automatically — skip ahead.
-
-Corporate network fallback: run from a local source folder
+Use this unless your company security tools block `uvx` or package downloads.
 
 ```bash
 # macOS/Linux
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.venv/bin/python -m playwright install chromium
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uvx --with playwright playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser"
 ```
 
 ```powershell
 # Windows PowerShell
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.\.venv\Scripts\python.exe -m playwright install chromium
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uvx --with playwright playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+  --instance-url "https://your-instance.service-now.com" `
+  --auth-type "browser"
 ```
 
-Then point your MCP client at the local executable, not `uvx`:
+`uvx` does not use a locally installed Playwright Python package, but it does use the standard Playwright browser cache when the matching Chromium revision is already installed. If Chromium is missing, run the Playwright install command above.
 
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false"
-      }
-    }
-  }
-}
+### Release zip/exe
+
+Use this when `uvx` is blocked. Download the platform zip from GitHub Releases:
+
+- Windows: `servicenow-mcp-windows-x64-<version>.zip`
+- macOS: `servicenow-mcp-macos-<arch>-<version>.zip`
+- Linux: `servicenow-mcp-linux-x64-<version>.zip`
+
+Then run the included installer:
+
+```powershell
+# Windows
+.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
 ```
 
-Windows command path:
-
-```json
-"command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe"
+```bash
+# macOS / Linux
+SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" CLIENT=opencode ./install.sh
 ```
+
+The release installer writes MCP config with the built executable as `command`. Playwright Chromium still uses the standard browser cache.
+
+If Chromium is not installed and downloads are allowed, install Python from <https://www.python.org/downloads/>, install the Playwright version listed in `PLAYWRIGHT_VERSION.txt`, then run:
+
+```powershell
+py -m pip install "playwright==<version-from-PLAYWRIGHT_VERSION.txt>"
+py -m playwright install chromium
+```
+
+If browser download is also blocked, download the matching `ms-playwright-chromium-<platform>-<version>.zip` from the same release and extract it to the standard Playwright cache before starting your MCP client. See the Playwright browser docs: <https://playwright.dev/python/docs/browsers>.
 
 > Windows users: see the [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
 
