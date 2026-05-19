@@ -1097,14 +1097,12 @@ class AuthManager:
         provided via ``uvx --with playwright …``.  If it is missing we
         surface a clear error telling the user to add ``--with playwright``.
 
-        The Chromium *browser binary* is a separate download.  If it is
-        missing or version-mismatched we run ``playwright install chromium``
-        automatically.
+        The Chromium *browser binary* is a separate download. We do NOT
+        auto-install it — a ~150 MB blocking subprocess inside the first
+        browser tool call has caused MCP host timeouts (e.g. Codex
+        "connection closed: initialize response"). Instead we raise a
+        precise error with the one-liner the user should run.
         """
-        import shutil
-        import subprocess
-        import sys
-
         # 1. Ensure the Python package is importable.
         try:
             from playwright.sync_api import sync_playwright  # noqa: F401
@@ -1117,9 +1115,8 @@ class AuthManager:
             ) from None
 
         # 2. Ensure the Chromium browser binary is present.
-        # Quick probe: try launching Chromium headless.  If the binary is
-        # missing or version-mismatched Playwright raises a clear error.
-        need_install = False
+        # Probe by launching headless Chromium briefly; raises if the binary
+        # is missing or its version doesn't match the installed Playwright.
         try:
             from playwright.sync_api import sync_playwright
 
@@ -1129,21 +1126,19 @@ class AuthManager:
         except Exception as exc:
             exc_msg = str(exc).lower()
             if "executable doesn't exist" in exc_msg or "browser" in exc_msg:
-                need_install = True
-            else:
-                logger.debug("Playwright probe raised non-binary error: %s", exc)
-
-        if need_install:
-            logger.info("Chromium browser binary missing — installing via playwright install …")
-            # Prefer the playwright CLI on PATH (works inside uvx venvs),
-            # fall back to ``python -m playwright``.
-            pw_cli = shutil.which("playwright")
-            if pw_cli:
-                cmd = [pw_cli, "install", "chromium"]
-            else:
-                cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
-            subprocess.check_call(cmd, timeout=300)
-            logger.info("Chromium browser binary installed successfully.")
+                raise RuntimeError(
+                    "Playwright Chromium binary missing or version-mismatched.\n"
+                    "Install it once (this is fast on a good link, slow on a bad one,\n"
+                    "which is why we don't auto-install inside the MCP handshake):\n"
+                    "  uvx --with playwright playwright install chromium\n"
+                    "\n"
+                    "Then retry the tool call. To avoid surprise upgrades when a new\n"
+                    "Playwright release ships a different Chromium build, pin the\n"
+                    "Playwright version in your MCP client config:\n"
+                    '  args = ["--with", "playwright==<version>", "--from", "mfa-servicenow-mcp==<version>", "servicenow-mcp"]'
+                ) from None
+            # Some other Playwright error — re-raise so callers see the real cause.
+            raise
 
     def _get_cache_dir(self) -> str:
         """Resolve the root cache directory for session JSON and Playwright profile.
