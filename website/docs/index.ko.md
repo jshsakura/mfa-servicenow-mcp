@@ -67,7 +67,7 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.7;">
-      Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI 등과 호환됩니다.<br>
+      Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI, Zed 등과 호환됩니다.<br>
       AI가 클라이언트와 OS를 감지한 뒤, 대화형으로 설정을 진행해 줍니다.<br>
       설정이 완료되면 <strong>AI 클라이언트를 재시작</strong>하여 MCP 서버를 로드하세요.
     </p>
@@ -162,6 +162,7 @@ servicenow-mcp \
       <div class="install-tabs" id="mcp-tabs">
         <button class="install-tab active" data-target="mcp-claude-desktop">Claude Desktop</button>
         <button class="install-tab" data-target="mcp-claude-code">Claude Code</button>
+        <button class="install-tab" data-target="mcp-zed">Zed</button>
         <button class="install-tab" data-target="mcp-codex">Codex</button>
         <button class="install-tab" data-target="mcp-opencode">OpenCode</button>
         <button class="install-tab" data-target="mcp-gemini">Gemini</button>
@@ -222,6 +223,24 @@ SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
 MCP_TOOL_PACKAGE = "standard"</code></pre>
+          </div>
+        </div>
+        <div class="install-panel" id="mcp-zed">
+          <div class="install-code-block">
+            <pre class="install-code"><code>{
+  "servicenow": {
+    "command": "uvx",
+    "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+    "env": {
+      "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+      "SERVICENOW_AUTH_TYPE": "browser",
+      "SERVICENOW_BROWSER_HEADLESS": "false",
+      "SERVICENOW_USERNAME": "your.username",
+      "SERVICENOW_PASSWORD": "your-password",
+      "MCP_TOOL_PACKAGE": "standard"
+    }
+  }
+}</code></pre>
           </div>
         </div>
         <div class="install-panel" id="mcp-opencode">
@@ -338,7 +357,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
     <div class="skill-categories reveal-stagger">
       <div class="step-card" style="--i:1">
         <h3>🔍 analyze/</h3>
-        <p>6개 스킬 — 위젯 분석, 포털 진단, 의존성 매핑, 코드 감지</p>
+        <p>5개 스킬 — 위젯 분석, 포털 진단, 로컬 소스 감사, provider 감사, ESC 페이지 감사</p>
       </div>
       <div class="step-card" style="--i:2">
         <h3>🔧 fix/</h3>
@@ -346,15 +365,15 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
       </div>
       <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
-        <p>8개 스킬 — 페이지 레이아웃, 스크립트 인클루드, 소스 내보내기, 앱 소스 다운로드, 변경 집합(Changeset) 워크플로우, 로컬 동기화, 워크플로우 관리, 스킬 관리</p>
+        <p>5개 스킬 — 앱 소스 다운로드, 변경 집합(Changeset) 워크플로우, 로컬 동기화, 워크플로우 관리, 스킬 관리</p>
       </div>
       <div class="step-card" style="--i:4">
         <h3>🚀 deploy/</h3>
-        <p>2개 스킬 — 변경 요청(CR) 수명주기, 인시던트 분류</p>
+        <p>1개 스킬 — 변경 요청(CR) 수명주기</p>
       </div>
       <div class="step-card" style="--i:5">
         <h3>🧭 explore/</h3>
-        <p>5개 스킬 — 상태 점검(Health check), 스키마 탐색, 라우트 추적, 플로우 트리거 추적, ESC 카탈로그 흐름</p>
+        <p>2개 스킬 — 플로우 트리거 추적, ESC 카탈로그 흐름</p>
       </div>
     </div>
   </div>
@@ -378,8 +397,8 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">77</span>
-    <span class="hero-stat-label">MCP 도구(Tools)</span>
+    <span class="hero-stat-value">73</span>
+    <span class="hero-stat-label">등록 도구</span>
   </div>
   <div class="hero-stat">
     <span class="hero-stat-value">MFA</span>
@@ -419,7 +438,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>연결</h3>
-        <p>Claude, Cursor 또는 모든 MCP 클라이언트에 연결하세요. 77개의 등록된 도구가 활성 패키지 프로필을 통해 즉시 준비됩니다.</p>
+        <p>Claude, Cursor, Zed 또는 모든 MCP 클라이언트에 연결하세요. 등록 도구 73개와 런타임 helper가 활성 패키지 프로필을 통해 준비됩니다.</p>
       </div>
     </div>
   </div>
@@ -442,16 +461,16 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         <p>브라우저 기반 인증은 자격 증명이 절대 로컬 장치를 벗어나지 않음을 의미합니다. MFA, SSO, SAML 및 조직에서 사용하는 모든 로그인 흐름을 지원합니다.</p>
       </div>
       <div class="step-card" style="--i:2">
-        <h3>⚡ 최적화된 성능</h3>
-        <p>배치 쿼리, 연결 풀링, 응답 캐싱 및 토큰 효율적인 JSON은 지연 시간과 API 비용을 최소화합니다.</p>
+        <h3>⚡ 토큰 효율 성능</h3>
+        <p>레이지 도구 디스커버리, 패키지별 스키마, 컴팩트 JSON, 응답 캐싱, 배치 조회로 startup과 LLM 컨텍스트 비용을 낮춥니다.</p>
       </div>
       <div class="step-card" style="--i:3">
-        <h3>🧩 모듈식 스킬 패키지</h3>
-        <p>인시던트, 변경 관리, 카탈로그, 포털, 워크플로우 및 스크립트 등 — 필요한 기능만 로드하거나 전체 제품군을 실행할 수 있습니다.</p>
+        <h3>🧩 안전한 인스턴스 제어</h3>
+        <p>단일 인스턴스가 기본입니다. 선택형 active-instance 모드는 운영 전환 파라미터 없이 dev/test를 read-only로 비교합니다.</p>
       </div>
       <div class="step-card" style="--i:4">
-        <h3>🤖 다중 LLM 호환</h3>
-        <p>Claude, ChatGPT, Gemini, Cursor 및 모델 컨텍스트 프로토콜(MCP)을 사용하는 모든 클라이언트에서 작동합니다.</p>
+        <h3>🤖 폭넓은 클라이언트 지원</h3>
+        <p>Claude, Codex, Cursor, Zed, Gemini, OpenCode, Windsurf, VS Code Copilot과 stdio/Streamable HTTP MCP 클라이언트에서 동작합니다.</p>
       </div>
     </div>
 

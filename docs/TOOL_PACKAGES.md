@@ -11,12 +11,12 @@ Start with the narrowest package that covers your work. Each step up adds write 
 
 | Package | Tools | When to use |
 | :--- | :---: | :--- |
-| `core` | 15 | Minimal read-only: health, schema, discovery, key artifact lookups only |
-| `standard` | 45 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 46 | Service desk agents who need to update/close incidents and changes |
-| `portal_developer` | 55 | Portal developers who deploy widgets, changesets, and script includes |
-| `platform_developer` | 55 | Platform engineers who manage workflows, Flow Designer, and scripts |
-| `full` | 66 | ⚠️ See warning below |
+| `core` | 12 | Minimal read-only: health, schema, discovery, key artifact lookups only |
+| `standard` | 31 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 33 | Service desk agents who need to update/close incidents and changes |
+| `portal_developer` | 43 | Portal developers who deploy widgets, changesets, and script includes |
+| `platform_developer` | 47 | Platform engineers who manage workflows, Flow Designer, and scripts |
+| `full` | 62 | ⚠️ See warning below |
 | `none` | 0 | Intentionally disable all tools (testing, locked-down environments) |
 
 All packages except `core` and `none` inherit `standard` read-only tools via `_extends`. See `config/tool_packages.yaml` for the full inheritance tree.
@@ -80,4 +80,4 @@ No silent failures — the LLM knows exactly which package to request.
 
 ## Full tool list
 
-For the complete list of all 77 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).
+For the complete list of all 73 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).

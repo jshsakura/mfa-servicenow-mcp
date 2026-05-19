@@ -217,7 +217,9 @@ def _ttl_for_table(table: str) -> float:
 
 
 # Cache key is a tuple — cheaper to hash than an equivalent f-string.
-_CacheKey = tuple  # (table, query, fields, limit, offset, display_value, no_count, orderby)
+_CacheKey = (
+    tuple  # (instance_url, table, query, fields, limit, offset, display_value, no_count, orderby)
+)
 # Entry: (timestamp, ttl_seconds, value) — per-entry TTL lets metadata stick
 # around longer than transactional reads in the same cache.
 _query_cache: "OrderedDict[_CacheKey, tuple[float, float, Any]]" = OrderedDict()
@@ -225,6 +227,7 @@ _cache_lock = threading.Lock()
 
 
 def _cache_key(
+    instance_url: str,
     table: str,
     query: str,
     fields: str,
@@ -235,7 +238,7 @@ def _cache_key(
     no_count: bool,
     orderby: Optional[str],
 ) -> _CacheKey:
-    return (table, query, fields, limit, offset, display_value, no_count, orderby)
+    return (instance_url, table, query, fields, limit, offset, display_value, no_count, orderby)
 
 
 def _cache_get(key: _CacheKey) -> Optional[Any]:
@@ -276,7 +279,11 @@ def invalidate_query_cache(*, table: Optional[str] = None) -> int:
             _query_cache.clear()
             return removed
 
-        keys_to_delete = [key for key in _query_cache if key[0] == table]
+        keys_to_delete = [
+            key
+            for key in _query_cache
+            if isinstance(key, tuple) and len(key) > 1 and (key[1] == table or key[0] == table)
+        ]
         for key in keys_to_delete:
             del _query_cache[key]
         return len(keys_to_delete)
@@ -315,6 +322,7 @@ def sn_query_page(
     for identical queries within the same session.
     """
     ck = _cache_key(
+        config.instance_url,
         table,
         query,
         fields,
@@ -1020,6 +1028,7 @@ def sn_schema(
     safe_limit = min(params.limit, 1000)
     # Schema is stable per session — share the unified cache w/ metadata TTL.
     ck = _cache_key(
+        config.instance_url,
         "sys_dictionary",
         f"name={params.table}",
         "schema_shaped",
@@ -1092,6 +1101,7 @@ def sn_discover(
     safe_limit = min(params.limit, 200)
     # sys_db_object catalog rarely changes — cache w/ metadata TTL.
     ck = _cache_key(
+        config.instance_url,
         "sys_db_object",
         query,
         "discover_shaped",

@@ -11,12 +11,12 @@
 
 | 패키지명 | 도구 수 | 사용 시기 |
 | :--- | :---: | :--- |
-| `core` | 15 | 최소 읽기 전용: 헬스체크, 스키마, 탐색, 핵심 조회만 |
-| `standard` | 45 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
-| `service_desk` | 46 | 인시던트/변경 업데이트·종료가 필요한 서비스 데스크 담당자 |
-| `portal_developer` | 55 | 위젯, 체인지셋, Script Include를 배포하는 포털 개발자 |
-| `platform_developer` | 55 | 워크플로우, Flow Designer, 스크립트를 관리하는 플랫폼 엔지니어 |
-| `full` | 66 | ⚠️ 아래 경고 참고 |
+| `core` | 12 | 최소 읽기 전용: 헬스체크, 스키마, 탐색, 핵심 조회만 |
+| `standard` | 31 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
+| `service_desk` | 33 | 인시던트/변경 업데이트·종료가 필요한 서비스 데스크 담당자 |
+| `portal_developer` | 43 | 위젯, 체인지셋, Script Include를 배포하는 포털 개발자 |
+| `platform_developer` | 47 | 워크플로우, Flow Designer, 스크립트를 관리하는 플랫폼 엔지니어 |
+| `full` | 62 | ⚠️ 아래 경고 참고 |
 | `none` | 0 | 모든 도구를 의도적으로 비활성화 (테스트, 잠금 환경) |
 
 `core`와 `none`을 제외한 모든 패키지는 `_extends`를 통해 `standard` 읽기 전용 도구를 상속합니다. 전체 상속 구조는 `config/tool_packages.yaml`을 참고하세요.
@@ -79,4 +79,4 @@ Enable package 'portal_developer' or higher to use this tool.
 
 ## 전체 도구 목록
 
-카테고리와 패키지별 전체 77개 도구 목록은 [도구 목록](TOOL_INVENTORY.ko.md)에서 확인하세요.
+카테고리와 패키지별 전체 73개 도구 목록은 [도구 목록](TOOL_INVENTORY.ko.md)에서 확인하세요.
