@@ -72,6 +72,14 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       After setup, <strong>restart your AI client</strong> to load the MCP server.
     </p>
 
+    <p class="section-desc" style="margin-top:16px; font-size:0.9rem;">
+      Behind Zscaler or a strict corporate proxy? Set your organization-provided
+      <code>HTTPS_PROXY</code>, <code>UV_NATIVE_TLS=true</code>,
+      <code>UV_DEFAULT_INDEX</code> for a private PyPI mirror, or
+      <code>PLAYWRIGHT_DOWNLOAD_HOST</code> for a Playwright browser archive mirror before
+      running the same <code>uvx --with playwright playwright install chromium</code> command.
+    </p>
+
     <div style="margin-top:56px;" class="reveal">
       <span class="section-label">Manual — One command installer</span>
       <h2 class="section-title">Run setup for your client</h2>

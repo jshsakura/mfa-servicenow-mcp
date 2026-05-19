@@ -97,6 +97,30 @@ uvx --with playwright playwright install chromium
 
 This downloads ~150 MB the first time. On a slow link it can take several minutes — that is normal. Do not abort early. Show the user a progress message ("Downloading Chromium for ServiceNow MFA login — this can take a few minutes on slow networks…") so they understand the wait.
 
+If the user is behind Zscaler or another strict corporate proxy, try the same command with organization-provided proxy, index, and artifact mirror settings:
+
+```bash
+# macOS/Linux
+export HTTPS_PROXY="http://proxy.company.example:8080"
+export HTTP_PROXY="$HTTPS_PROXY"
+export UV_NATIVE_TLS=true
+export UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # if PyPI is mirrored
+export PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # if browser archives are mirrored
+uvx --with playwright playwright install chromium
+```
+
+```powershell
+# Windows PowerShell
+$env:HTTPS_PROXY="http://proxy.company.example:8080"
+$env:HTTP_PROXY=$env:HTTPS_PROXY
+$env:UV_NATIVE_TLS="true"
+$env:UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # if PyPI is mirrored
+$env:PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # if browser archives are mirrored
+uvx --with playwright playwright install chromium
+```
+
+Use only values supplied by the user's IT/security team. `UV_DEFAULT_INDEX` is for Python package downloads; `PLAYWRIGHT_DOWNLOAD_HOST` is for Playwright browser archives.
+
 **2.3 — Verify and stop on failure**
 
 Re-run the check from 2.1. If the binary is still missing, **STOP the setup** and report the failure to the user with the exact command output. Common causes:
