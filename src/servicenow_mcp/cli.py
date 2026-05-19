@@ -539,8 +539,14 @@ def _check_for_updates() -> None:
         pass
 
 
-def _ensure_playwright_browser(args) -> None:
-    """Auto-install Playwright Chromium if browser auth is selected and binary is missing."""
+def _warn_if_chromium_missing(args) -> None:
+    """Detect a missing Playwright Chromium binary and surface a clear warning.
+
+    Does NOT install — a ~150 MB download inside MCP startup would stall the
+    handshake long enough for hosts (e.g. Codex) to time out and report
+    "connection closed: initialize response". The user installs Chromium
+    explicitly via `servicenow-mcp setup` or the documented one-liner.
+    """
     auth_type = _pick_first_resolved(args.auth_type, os.getenv("SERVICENOW_AUTH_TYPE"))
     if auth_type != "browser":
         return
@@ -549,21 +555,14 @@ def _ensure_playwright_browser(args) -> None:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
-            # Try to get chromium executable path — raises if not installed
+            # Raises if the binary is missing or the version mismatches.
             p.chromium.executable_path  # noqa: B018
     except Exception:
-        logger.info("Chromium not found. Installing automatically...")
-        try:
-            import subprocess
-
-            subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                check=True,
-                timeout=120,
-            )
-            logger.info("Chromium installed successfully.")
-        except Exception as exc:
-            logger.warning(f"Auto-install failed: {exc}. Run manually: playwright install chromium")
+        logger.warning(
+            "Playwright Chromium not available for browser auth. "
+            "Install it before the first tool call:\n"
+            "  uvx --with playwright playwright install chromium"
+        )
 
 
 def main():
@@ -609,8 +608,8 @@ def main():
         # Check for newer version (non-blocking, silent on failure)
         _check_for_updates()
 
-        # Auto-install Playwright Chromium if browser auth is selected
-        _ensure_playwright_browser(args)
+        # Warn if Chromium is missing — do NOT auto-install (would stall handshake)
+        _warn_if_chromium_missing(args)
 
         # Create server configuration
         config = create_config(args)
