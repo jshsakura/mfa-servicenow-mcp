@@ -97,6 +97,30 @@ uvx --with playwright playwright install chromium
 
 처음엔 ~150 MB 다운로드입니다. 느린 회선에선 몇 분 걸릴 수 있는데 정상입니다. 중간에 중단하지 마세요. 사용자에게 진행 메시지("ServiceNow MFA 로그인용 Chromium을 다운로드 중입니다 — 느린 네트워크에선 몇 분 걸릴 수 있습니다…")를 보여서 기다리는 이유를 알게 해주세요.
 
+사용자가 Zscaler 또는 엄격한 회사 프록시 뒤에 있다면, 사내에서 제공한 프록시/인덱스/아티팩트 미러 값을 먼저 지정한 뒤 같은 명령을 다시 실행하세요:
+
+```bash
+# macOS/Linux
+export HTTPS_PROXY="http://proxy.company.example:8080"
+export HTTP_PROXY="$HTTPS_PROXY"
+export UV_NATIVE_TLS=true
+export UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # PyPI를 사내 미러로 받는 경우
+export PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # 브라우저 아카이브를 사내 미러로 받는 경우
+uvx --with playwright playwright install chromium
+```
+
+```powershell
+# Windows PowerShell
+$env:HTTPS_PROXY="http://proxy.company.example:8080"
+$env:HTTP_PROXY=$env:HTTPS_PROXY
+$env:UV_NATIVE_TLS="true"
+$env:UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # PyPI를 사내 미러로 받는 경우
+$env:PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # 브라우저 아카이브를 사내 미러로 받는 경우
+uvx --with playwright playwright install chromium
+```
+
+프록시, 사내 PyPI 인덱스, 브라우저 아카이브 미러 값은 반드시 사용자의 IT/보안팀이 제공한 값만 사용하세요. `UV_DEFAULT_INDEX`는 Python 패키지 다운로드용이고, `PLAYWRIGHT_DOWNLOAD_HOST`는 Playwright 브라우저 아카이브 다운로드용입니다.
+
 **2.3 — 검증 및 실패 시 중단**
 
 2.1의 확인 명령을 다시 실행하세요. 그래도 바이너리가 없으면 **설치를 중단**하고 사용자에게 명령 출력 그대로 보고하세요. 흔한 원인:
