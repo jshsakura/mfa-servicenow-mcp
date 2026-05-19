@@ -196,17 +196,14 @@ chmod +x install.sh
 ./install.sh
 ```
 
-설치 스크립트가 하는 일:
+설치 스크립트가 하는 일 — **시스템의 기존 Playwright 캐시나 다른 환경은 일절 건드리지 않습니다**:
 
 1. **실행 파일 복사** — 압축 해제 폴더 안의 바이너리를 영구 설치 위치로 복사.
    - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir`로 변경)
    - macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir`로 변경)
-2. **Chromium 캐시는 없을 때만 설치.** Playwright 표준 캐시에 `chromium-*` 디렉토리가 이미 있으면 번들 zip은 건너뜁니다 — 사용자가 이미 갖고 있는 Chromium 리비전을 덮어쓰지 않습니다. 캐시에 없는데 zip이 `install.sh` / `install.ps1` 옆에 있을 때만 아래 경로로 추출:
-   - Windows: `%LOCALAPPDATA%\ms-playwright`
-   - macOS: `~/Library/Caches/ms-playwright`
-   - Linux: `~/.cache/ms-playwright`
+2. **Chromium은 실행 파일 옆 `<install_dir>/ms-playwright/`에 풉니다.** MCP 서버는 아래 5단계 설정의 `PLAYWRIGHT_BROWSERS_PATH` env로 이 경로만 보도록 명시되므로, 시스템 표준 캐시(`~/.cache/ms-playwright`, `%LOCALAPPDATA%\ms-playwright` 등) 와 PC에 이미 깔린 다른 Playwright 환경은 그대로 보존됩니다. `<install_dir>/ms-playwright/`에 이미 `chromium-*` 디렉토리가 있으면 번들 zip은 건너뜁니다.
 
-종료 시 설치된 실행 파일 경로를 출력합니다 — 5단계에서 그 경로를 그대로 사용합니다.
+종료 시 설치된 실행 파일 경로와 `PLAYWRIGHT_BROWSERS_PATH` 값을 출력합니다 — 5단계에서 그대로 복사해 쓰세요.
 
 #### 4단계 — 동작 확인
 
@@ -222,7 +219,7 @@ chmod +x install.sh
 
 #### 5단계 — MCP 클라이언트에 직접 연결 (복붙)
 
-설치 스크립트는 의도적으로 클라이언트 설정 파일을 **건드리지 않습니다**. 아래 스니펫 중 본인 클라이언트에 맞는 것을 그대로 설정 파일에 붙여넣으세요. `command`만 본인 OS의 실행 파일 경로로 바꾸면 됩니다. **env는 uvx 방식과 동일** — instance URL과 자격 증명만 본인 값으로 채우면 끝.
+설치 스크립트는 의도적으로 클라이언트 설정 파일을 **건드리지 않습니다**. 아래 스니펫 중 본인 클라이언트에 맞는 것을 그대로 설정 파일에 붙여넣으세요. uvx 방식과 비교해 다른 점은 두 가지뿐 — `command`(로컬 실행 파일 경로)와 `PLAYWRIGHT_BROWSERS_PATH`(실행 파일 옆 Chromium 경로). 이 env 덕분에 시스템 표준 Playwright 캐시를 건드리지 않습니다.
 
 **Claude Code** — `.mcp.json` (프로젝트 루트) / `~/.claude.json` (전역):
 
@@ -238,6 +235,7 @@ chmod +x install.sh
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
+        "PLAYWRIGHT_BROWSERS_PATH": "/home/you/.local/bin/ms-playwright",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -245,7 +243,7 @@ chmod +x install.sh
 }
 ```
 
-Windows라면 `"command"`를 `"C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"`로.
+Windows라면 `"command"`를 `"C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"`로, `"PLAYWRIGHT_BROWSERS_PATH"`를 `"C:/Users/you/AppData/Local/servicenow-mcp/ms-playwright"`로 바꾸세요.
 
 **Codex** — `.codex/config.toml` (프로젝트 루트) / `~/.codex/config.toml` (전역):
 
@@ -263,6 +261,7 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your.username"
 SERVICENOW_PASSWORD = "your-password"
+PLAYWRIGHT_BROWSERS_PATH = "/home/you/.local/bin/ms-playwright"
 MCP_TOOL_PACKAGE = "standard"
 ```
 
@@ -282,6 +281,7 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
+        "PLAYWRIGHT_BROWSERS_PATH": "/home/you/.local/bin/ms-playwright",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -289,18 +289,18 @@ MCP_TOOL_PACKAGE = "standard"
 }
 ```
 
-> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택 — MFA 로그인 폼을 미리 채워 줍니다. 빈 값으로 두면 매번 직접 입력하면 됩니다. 다른 클라이언트(Cursor, VS Code Copilot, Gemini, Zed 등) 설정은 [클라이언트 설정 가이드](docs/CLIENT_SETUP.ko.md) 참조.
+> 설치 스크립트가 종료 시 출력하는 `command` 경로와 `PLAYWRIGHT_BROWSERS_PATH` 값을 그대로 복사해 쓰면 됩니다. `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택(MFA 폼 미리 채우기). 다른 클라이언트(Cursor, VS Code Copilot, Gemini, Zed 등) 설정은 [클라이언트 설정 가이드](docs/CLIENT_SETUP.ko.md) 참조.
 
 #### Chromium 대체 (선택)
 
-Chromium zip을 받지 않았는데 사내 망에서 Playwright 자동 다운로드도 막힌다면, Python이 사용 가능한 PC에서 동일 버전 Playwright로 캐시를 미리 만든 뒤 표준 캐시 경로(3단계 참고)에 복사하세요.
+Chromium zip을 받지 못했고 사내 망에서 Playwright 자동 다운로드도 막힌다면, Python이 가능한 PC에서 install 디렉토리를 그대로 만들어 두세요. 시스템 표준 캐시를 쓰지 않도록 `PLAYWRIGHT_BROWSERS_PATH`를 명시:
 
 ```bash
 pip install playwright
-python -m playwright install chromium
+PLAYWRIGHT_BROWSERS_PATH="$HOME/.local/bin/ms-playwright" python -m playwright install chromium
 ```
 
-자세한 캐시 위치는 [Playwright 브라우저 문서](https://playwright.dev/python/docs/browsers) 참조.
+MCP 설정의 `PLAYWRIGHT_BROWSERS_PATH`를 그 경로로 맞춰 주면 끝.
 
 > Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
@@ -639,81 +639,7 @@ MCP_TOOL_PACKAGE = "standard"
 
 ##### 릴리즈 zip/exe 로컬 설치 방식
 
-설치 스크립트를 사용하면 이 설정은 자동으로 작성됩니다. 수동으로 고쳐야 한다면 `command`만 로컬 실행 파일 경로로 바꾸고 `args`는 비워두세요.
-
-일반 설치 경로:
-
-- Windows: `C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe`
-- macOS/Linux: `/Users/you/.local/bin/servicenow-mcp` 또는 `/home/you/.local/bin/servicenow-mcp`
-
-**Claude Code** (`.mcp.json` 저장소 루트):
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-macOS/Linux에서는 `command`를 예를 들어 `/home/you/.local/bin/servicenow-mcp`로 바꾸면 됩니다.
-
-**Codex** (`.codex/config.toml` 저장소 루트):
-
-```toml
-[mcp_servers.servicenow]
-command = "/home/you/.local/bin/servicenow-mcp"
-args = []
-startup_timeout_sec = 30
-tool_timeout_sec = 120
-enabled = true
-
-[mcp_servers.servicenow.env]
-SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
-SERVICENOW_AUTH_TYPE = "browser"
-SERVICENOW_BROWSER_HEADLESS = "false"
-SERVICENOW_USERNAME = "your.username"
-SERVICENOW_PASSWORD = "your-password"
-MCP_TOOL_PACKAGE = "standard"
-```
-
-Windows Codex에서는 `command = "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"`처럼 forward slash 경로를 쓰면 이스케이프가 덜 헷갈립니다.
-
-**OpenCode** (`opencode.json` 저장소 루트):
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": ["/home/you/.local/bin/servicenow-mcp"],
-      "enabled": true,
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-Windows OpenCode에서는 `command`를 `["C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe"]`로 바꾸세요.
+위 [로컬 설치 섹션의 5단계](#5단계--mcp-클라이언트에-직접-연결-복붙)에 클라이언트별 복붙 스니펫이 있습니다. 핵심 두 가지: `command`를 로컬 실행 파일 경로로, env에 `PLAYWRIGHT_BROWSERS_PATH`를 추가해 실행 파일 옆 Chromium 폴더를 가리키게 — 이래야 시스템 표준 Playwright 캐시를 건드리지 않습니다. 설치 스크립트가 종료 시 두 값 모두 출력하므로 그대로 복사하세요.
 
 #### 업그레이드
 
