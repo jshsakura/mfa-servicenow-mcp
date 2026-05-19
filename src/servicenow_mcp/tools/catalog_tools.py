@@ -5,7 +5,7 @@ This module provides tools for querying and viewing the service catalog in Servi
 """
 
 import logging
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, ClassVar, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -332,10 +332,10 @@ class ManageCatalogParams(BaseModel):
     ] = Field(...)
 
     # read params (list_items/get_item/list_categories/list_item_variables)
-    limit: int = Field(default=10, description="Max records (list modes)")
-    offset: int = Field(default=0, description="Pagination offset (list modes)")
-    query: Optional[str] = Field(default=None, description="Search query (list modes)")
-    count_only: bool = Field(default=False, description="Return count only (list modes)")
+    limit: int = Field(default=10, description="Max records")
+    offset: int = Field(default=0, description="Pagination offset")
+    query: Optional[str] = Field(default=None, description="Search query")
+    count_only: bool = Field(default=False, description="Return count only")
 
     # category create + update
     category_id: Optional[str] = Field(default=None)
@@ -377,6 +377,77 @@ class ManageCatalogParams(BaseModel):
     max: Optional[int] = Field(default=None)
 
     dry_run: bool = Field(default=False)
+
+    _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
+        "list_items": frozenset({"limit", "offset", "query", "count_only", "active", "category"}),
+        "get_item": frozenset({"item_id"}),
+        "list_categories": frozenset({"limit", "offset", "query", "count_only", "active"}),
+        "list_item_variables": frozenset({"catalog_item_id"}),
+        "create_category": frozenset(
+            {"title", "description", "parent", "icon", "active", "order", "dry_run"}
+        ),
+        "update_category": frozenset(
+            {
+                "category_id",
+                "title",
+                "description",
+                "parent",
+                "icon",
+                "active",
+                "order",
+                "dry_run",
+            }
+        ),
+        "update_item": frozenset(
+            {
+                "item_id",
+                "name",
+                "short_description",
+                "category",
+                "description",
+                "price",
+                "active",
+                "dry_run",
+            }
+        ),
+        "move_items": frozenset({"item_ids", "target_category_id", "dry_run"}),
+        "create_variable": frozenset(
+            {
+                "catalog_item_id",
+                "variable_name",
+                "variable_type",
+                "label",
+                "mandatory",
+                "help_text",
+                "default_value",
+                "reference_table",
+                "reference_qualifier",
+                "max_length",
+                "min",
+                "max",
+                "order",
+                "dry_run",
+            }
+        ),
+        "update_variable": frozenset(
+            {
+                "variable_id",
+                "variable_name",
+                "variable_type",
+                "label",
+                "mandatory",
+                "help_text",
+                "default_value",
+                "reference_table",
+                "reference_qualifier",
+                "max_length",
+                "min",
+                "max",
+                "order",
+                "dry_run",
+            }
+        ),
+    }
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageCatalogParams":
