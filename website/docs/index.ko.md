@@ -73,11 +73,10 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem;">
-      회사망 fallback: GitHub 소스를 로컬로 clone하고
-      <code>uv sync --extra browser</code>를 한 번 실행한 뒤, 로컬
-      <code>.venv</code>로 Chromium을 설치하세요. 그 다음 MCP 설정의 command는
-      <code>/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp</code>
-      또는 Windows <code>.venv\Scripts\servicenow-mcp.exe</code> 경로를 보게 합니다.
+      회사 보안툴이 <code>uvx</code>를 막으면 플랫폼별 릴리즈 zip을 사용하세요.
+      포함된 installer가 빌드된 실행 파일 경로를 MCP config에 씁니다.
+      브라우저 다운로드도 막히면 같은 릴리즈의
+      <code>ms-playwright-chromium</code> zip을 사용하면 됩니다.
     </p>
 
     <div style="margin-top:56px;" class="reveal">

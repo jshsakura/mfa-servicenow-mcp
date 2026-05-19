@@ -118,74 +118,62 @@ MCP 클라이언트를 재시작하면 새 설정이 로드됩니다. 첫 브라
 
 ---
 
-## 필수 준비 사항
+## 설치
 
-### 1. `uv` 설치
+### 기본: uvx
 
-[uv](https://astral.sh/uv)가 Python · 패키지 · 실행을 한 번에 처리합니다. Python 별도 설치, `pip`, `venv` 모두 필요 없음.
-
-- **macOS / Linux:**
-  ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
-- **Windows:**
-  ```powershell
-  powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-  ```
-
-설치 후 터미널을 재시작하세요.
-
-### 2. Chromium 미리 설치 (강력 권장)
-
-MFA/SSO 로그인은 Playwright Chromium 빌드가 필요합니다. MCP 서버는 더 이상 startup이나 첫 도구 호출에서 Chromium을 자동 다운로드하지 않습니다 (느린 회선에서 handshake timeout 발생 — [버전 고정](#특정-버전-고정) 참조). 한 번만 미리 받아두세요:
-
-```bash
-uvx --with playwright playwright install chromium
-```
-
-`servicenow-mcp setup <client>`를 사용하면 이 명령이 자동 실행됩니다 — 다음 섹션으로 건너뛰세요.
-
-회사망 fallback: 로컬 소스 폴더에서 실행
+회사 보안툴이 `uvx`나 패키지 다운로드를 막지 않는 환경이면 이 경로를 사용하세요.
 
 ```bash
 # macOS/Linux
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.venv/bin/python -m playwright install chromium
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uvx --with playwright playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser"
 ```
 
 ```powershell
 # Windows PowerShell
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv sync --extra browser
-.\.venv\Scripts\python.exe -m playwright install chromium
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uvx --with playwright playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+  --instance-url "https://your-instance.service-now.com" `
+  --auth-type "browser"
 ```
 
-그 다음 MCP 클라이언트가 `uvx`가 아니라 로컬 실행 파일을 직접 보게 설정하세요:
+`uvx`는 로컬에 설치된 Playwright Python 패키지를 자동으로 우선 사용하지 않습니다. 다만 같은 Chromium revision이 표준 Playwright 브라우저 캐시에 있으면 다시 다운로드하지 않습니다. Chromium이 없으면 위 Playwright 설치 명령을 먼저 실행하세요.
 
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false"
-      }
-    }
-  }
-}
+### 릴리즈 zip/exe
+
+`uvx`가 막히는 회사망에서는 GitHub Releases에서 플랫폼별 zip을 받으세요.
+
+- Windows: `servicenow-mcp-windows-x64-<version>.zip`
+- macOS: `servicenow-mcp-macos-<arch>-<version>.zip`
+- Linux: `servicenow-mcp-linux-x64-<version>.zip`
+
+압축을 풀고 포함된 설치 스크립트를 실행합니다.
+
+```powershell
+# Windows
+.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
 ```
 
-Windows command 경로:
-
-```json
-"command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe"
+```bash
+# macOS / Linux
+SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" CLIENT=opencode ./install.sh
 ```
+
+릴리즈 설치 스크립트는 빌드된 실행 파일을 MCP `command`로 설정합니다. Playwright Chromium은 기본 브라우저 캐시를 사용합니다.
+
+Chromium이 없고 다운로드가 허용되는 환경이면 <https://www.python.org/downloads/> 에서 Python을 설치하고, `PLAYWRIGHT_VERSION.txt`에 적힌 Playwright 버전을 설치한 뒤 실행하세요:
+
+```powershell
+py -m pip install "playwright==<PLAYWRIGHT_VERSION.txt의 버전>"
+py -m playwright install chromium
+```
+
+브라우저 다운로드도 막히는 환경이면 같은 릴리즈의 `ms-playwright-chromium-<platform>-<version>.zip`을 받아 표준 Playwright 캐시에 풀면 됩니다. Playwright 브라우저 문서: <https://playwright.dev/python/docs/browsers>
 
 > Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 

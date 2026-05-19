@@ -73,11 +73,10 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem;">
-      Corporate network fallback: clone the GitHub source locally, run
-      <code>uv sync --extra browser</code> once, install Chromium through the local
-      <code>.venv</code>, then point your MCP config at
-      <code>/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp</code>
-      or the Windows <code>.venv\Scripts\servicenow-mcp.exe</code> path.
+      If <code>uvx</code> is blocked by corporate security tooling, use the
+      release zip for your platform. The included installer writes the built
+      executable path into MCP config. If browser downloads are blocked too,
+      use the matching <code>ms-playwright-chromium</code> zip from the same release.
     </p>
 
     <div style="margin-top:56px;" class="reveal">
