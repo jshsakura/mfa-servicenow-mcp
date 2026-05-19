@@ -72,6 +72,14 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       설정이 완료되면 <strong>AI 클라이언트를 재시작</strong>하여 MCP 서버를 로드하세요.
     </p>
 
+    <p class="section-desc" style="margin-top:16px; font-size:0.9rem;">
+      Zscaler나 엄격한 회사 프록시 뒤에 있다면 같은
+      <code>uvx --with playwright playwright install chromium</code> 명령을 실행하기 전에
+      사내에서 제공한 <code>HTTPS_PROXY</code>, <code>UV_NATIVE_TLS=true</code>,
+      사내 PyPI 미러용 <code>UV_DEFAULT_INDEX</code>, Playwright 브라우저 아카이브 미러용
+      <code>PLAYWRIGHT_DOWNLOAD_HOST</code>를 먼저 지정하세요.
+    </p>
+
     <div style="margin-top:56px;" class="reveal">
       <span class="section-label">수동 설치 — 한 번에</span>
       <h2 class="section-title">클라이언트용 setup 실행</h2>
