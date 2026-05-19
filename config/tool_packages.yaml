@@ -15,21 +15,19 @@
 none: []
 
 # --- Core: minimal read-only essentials ---
+# Must stay a strict subset of standard. Tools removed from standard
+# (manage_catalog, get_portal) are removed here too.
 core:
   - sn_health
   - sn_query
   - sn_aggregate
   - sn_schema
   - sn_discover
-  - sn_nl
   - sn_resolve_url
-  - manage_catalog:
-      actions: [list_items, get_item, list_categories, list_item_variables]
   - manage_workflow:
-      actions: [list, get, list_versions, get_activities]
+      actions: [list, get_activities]
   - manage_flow_designer:
       actions: [list]
-  - get_portal
   - get_page
   - get_logs
   - search_server_code
@@ -51,17 +49,13 @@ standard:
   - sn_discover
   - sn_nl
   - sn_resolve_url
-  # Catalog (Read)
-  - manage_catalog:
-      actions: [list_items, get_item, list_categories, list_item_variables]
-  # Workflow (Read)
+  # Workflow (Read) — narrow to actually-used actions
   - manage_workflow:
-      actions: [list, get, list_versions, get_activities]
+      actions: [list, get_activities]
   # Flow Designer (Read) — unified tool, write actions blocked here
   - manage_flow_designer:
-      actions: [list, get_detail, get_executions, compare]
+      actions: [list, get_detail, get_executions]
   # Portal (Read)
-  - get_portal
   - get_page
   - get_widget_bundle
   - get_portal_component_code
@@ -80,8 +74,6 @@ standard:
       actions: [list, get]
   # Developer Productivity (Read)
   - get_developer_changes
-  - audit_pending_changes
-  - get_repo_change_report
   # Logs
   - get_logs
   # Search & Analysis
@@ -89,13 +81,6 @@ standard:
   - get_metadata_source
   - extract_table_dependencies
   - download_app_sources
-  - download_script_includes
-  - download_server_scripts
-  - download_ui_components
-  - download_api_sources
-  - download_security_sources
-  - download_admin_scripts
-  - download_table_schema
   - audit_local_sources
   # Local Sync (Read)
   - diff_local_component
@@ -148,6 +133,14 @@ platform_developer:
     - submit_change_for_approval
     # Local Sync writes
     - update_remote_from_local
+    # Domain-targeted source dumps (rare, kept for explicit upgrade)
+    - download_script_includes
+    - download_server_scripts
+    - download_ui_components
+    - download_api_sources
+    - download_security_sources
+    - download_admin_scripts
+    - download_table_schema
 
 # --- Service Desk: standard + incident writes ---
 service_desk:
@@ -155,6 +148,9 @@ service_desk:
   _tools:
     # Bundled (Phase 2 — manage_incident covers create/update/comment/resolve)
     - manage_incident
+    # Catalog browsing is part of service desk surface
+    - manage_catalog:
+        actions: [list_items, get_item, list_categories, list_item_variables]
 
 # --- Full: all tools ---
 full:
@@ -192,3 +188,16 @@ full:
     # UI Policy writes
     # Local Sync writes
     - update_remote_from_local
+    # Portal entry (rare; get_page covers most cases)
+    - get_portal
+    # Domain-targeted source dumps
+    - download_script_includes
+    - download_server_scripts
+    - download_ui_components
+    - download_api_sources
+    - download_security_sources
+    - download_admin_scripts
+    - download_table_schema
+    # Audit / change reports (rare)
+    - audit_pending_changes
+    - get_repo_change_report

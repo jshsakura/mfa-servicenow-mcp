@@ -95,9 +95,13 @@ def test_get_portal_component_code_pagination(mock_sn_query, mock_config, mock_a
         "results": [{"script": large_script, "sys_id": "sys-1", "name": "Test"}],
     }
 
-    # First page
+    # First page — fetch_complete=False to exercise the chunk path
     params = GetPortalComponentParams(
-        table="sp_widget", sys_id="sys-1", fields=["script"], script_max_length=5000
+        table="sp_widget",
+        sys_id="sys-1",
+        fields=["script"],
+        script_max_length=5000,
+        fetch_complete=False,
     )
     result = get_portal_component_code(mock_config, mock_auth_manager, params)
 
@@ -116,6 +120,7 @@ def test_get_portal_component_code_pagination(mock_sn_query, mock_config, mock_a
         fields=["script"],
         script_offset=result["_script_next_offset"],
         script_max_length=5000,
+        fetch_complete=False,
     )
     result2 = get_portal_component_code(mock_config, mock_auth_manager, params2)
     assert result2["_script_offset"] == result["_script_next_offset"]
@@ -162,7 +167,11 @@ def test_get_portal_component_code_minified_fallback(mock_sn_query, mock_config,
     }
 
     params = GetPortalComponentParams(
-        table="sp_widget", sys_id="sys-1", fields=["script"], script_max_length=5000
+        table="sp_widget",
+        sys_id="sys-1",
+        fields=["script"],
+        script_max_length=5000,
+        fetch_complete=False,
     )
     result = get_portal_component_code(mock_config, mock_auth_manager, params)
 

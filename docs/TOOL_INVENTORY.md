@@ -14,11 +14,11 @@ It is documented below, but package counts in this file reflect the YAML-defined
 | Package | Tools | Description |
 |---------|------:|-------------|
 | `none` | 0 | Disabled profile for intentionally turning tools off. |
-| `core` | 15 | Minimal read-only essentials for quick health/schema/table work. |
-| `standard` | 42 | Default read-only package across incidents, changes, portal, logs, and source analysis. |
-| `service_desk` | 43 | standard plus incident and change write workflows for operational support. |
-| `portal_developer` | 53 | standard plus portal, changeset, script include, and local-sync delivery workflows. |
-| `platform_developer` | 51 | standard plus workflow, Flow Designer, UI policy, incident/change, and script writes. |
+| `core` | 12 | Minimal read-only essentials for quick health/schema/table work. |
+| `standard` | 31 | Default read-only package across incidents, changes, portal, logs, and source analysis. |
+| `service_desk` | 33 | standard plus incident and change write workflows for operational support. |
+| `portal_developer` | 43 | standard plus portal, changeset, script include, and local-sync delivery workflows. |
+| `platform_developer` | 47 | standard plus workflow, Flow Designer, UI policy, incident/change, and script writes. |
 | `full` | 62 | Broadest packaged surface: all manage_* workflows plus advanced operations. |
 
 ## Runtime-Injected Helpers
@@ -39,13 +39,13 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `audit_pending_changes` | R | Audit pending update set changes — inventory by type, risk patterns, clones, and cross-refs. | standard, portal_developer, platform_developer, service_desk, full |
+| `audit_pending_changes` | R | Audit pending update set changes — inventory by type, risk patterns, clones, and cross-refs. | full |
 
 ### Catalog Tools (1)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_catalog` | R/W | Catalog category/item/variable CRUD (tables: sc_category, sc_cat_item, item_option_new). | core, standard, portal_developer, platform_developer, service_desk, full |
+| `manage_catalog` | R/W | Catalog category/item/variable CRUD (tables: sc_category, sc_cat_item, item_option_new). | portal_developer, service_desk, full |
 
 ### Change Tools (4)
 
@@ -125,7 +125,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | `create_portal_component_snapshot` | W | Save the current editable state of a portal component to a local snapshot file for rollback or review | portal_developer, full |
 | `detect_angular_implicit_globals` | R | Detect undeclared variable assignments in Angular provider scripts that cause runtime 'not defined' errors. | standard, portal_developer, platform_developer, service_desk, full |
 | `download_portal_sources` | R | Targeted widget/provider export to disk. Use widget_ids for one widget; download_app_sources for full app. | standard, portal_developer, platform_developer, service_desk, full |
-| `get_portal_component_code` | R | Fetch widget/provider/SI fields. Set fetch_complete=True for full body (default chunks at 8KB). | standard, portal_developer, platform_developer, service_desk, full |
+| `get_portal_component_code` | R | Fetch widget/provider/SI fields. Returns full body by default. Never chunk for analysis. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_widget_bundle` | R | Fetch full widget bundle (HTML, scripts, providers) in one call. Use as analysis starting point. | standard, portal_developer, platform_developer, service_desk, full |
 | `preview_portal_component_update` | R | Preview bounded before/after snippets and diff for a proposed portal component edit | portal_developer, full |
 | `resolve_page_dependencies` | R | Resolve all widgets on a page with dependency chains. Deduplicates shared providers/SIs. | standard, portal_developer, platform_developer, service_desk, full |
@@ -140,7 +140,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
 | `get_page` | R | Get or list portal pages by URL path, title, or sys_id. Returns layout tree with widget placements. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `get_portal` | R | Get or list Service Portals by name, URL suffix, or sys_id. Returns config, homepage, theme, and pages. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `get_portal` | R | Get or list Service Portals by name, URL suffix, or sys_id. Returns config, homepage, theme, and pages. | full |
 | `get_widget_instance` | R | Get widget instance placement on a page. Returns column, order, and config. Filter by page or widget. | standard, portal_developer, platform_developer, service_desk, full |
 
 ### Project Tools (1)
@@ -153,7 +153,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `get_repo_change_report` | R | Combined git report: working tree status + recent commits + per-file last modifier in one call. | standard, portal_developer, platform_developer, service_desk, full |
+| `get_repo_change_report` | R | Combined git report: working tree status + recent commits + per-file last modifier in one call. | full |
 | `get_repo_file_last_modifier` | R | Lookup per-file last modifier and commit metadata with optional uncommitted status | — |
 | `get_repo_recent_commits` | R | List recent commits with author and optional changed file lists | — |
 | `get_repo_working_tree_status` | R | Inspect working tree status including staged, unstaged, and untracked files | — |
@@ -177,7 +177,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | `sn_aggregate` | R | Run COUNT/SUM/AVG/MIN/MAX on any table with optional group_by. Returns stats without fetching records. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_discover` | R | Find tables by name or label keyword. Returns table name, label, scope, and parent class. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_health` | R | Check ServiceNow API connectivity, auth status, and return MCP server version. Triggers browser login on first use in... | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_nl` | R | Convert natural language to sn_query/sn_schema/sn_aggregate calls. Parses intent and dispatches. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `sn_nl` | R | Convert natural language to sn_query/sn_schema/sn_aggregate calls. Parses intent and dispatches. | standard, portal_developer, platform_developer, service_desk, full |
 | `sn_query` | R | Generic table query; last resort only. Domain tools exist: flows->list_flow_designers, BR->search_server_code, WF->ma... | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_resolve_url` | R | Parse a ServiceNow URL → table, sys_id, scope, suggested next tool. Read-only. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_schema` | R | Fetch field names, types, labels, and constraints from sys_dictionary for a given table. | core, standard, portal_developer, platform_developer, service_desk, full |
@@ -187,14 +187,14 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `download_admin_scripts` | R | Download Fix Scripts/Scheduled Jobs/Script Actions/Email Notifications (subset of download_app_sources). | standard, portal_developer, platform_developer, service_desk, full |
-| `download_api_sources` | R | Download Scripted REST APIs/Processors for a scope (subset of download_app_sources). | standard, portal_developer, platform_developer, service_desk, full |
+| `download_admin_scripts` | R | Download Fix Scripts/Scheduled Jobs/Script Actions/Email Notifications (subset of download_app_sources). | platform_developer, full |
+| `download_api_sources` | R | Download Scripted REST APIs/Processors for a scope (subset of download_app_sources). | platform_developer, full |
 | `download_app_sources` | R | Full app dump (all source groups + cross-scope deps). Use as Step 1 before audit/diff. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_script_includes` | R | Download Script Includes for a scope (subset of download_app_sources). | standard, portal_developer, platform_developer, service_desk, full |
-| `download_security_sources` | R | Download ACLs for a scope (subset of download_app_sources). Script-only by default. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_server_scripts` | R | Download BR/Client Scripts/Catalog Client Scripts for a scope (subset of download_app_sources). | standard, portal_developer, platform_developer, service_desk, full |
-| `download_table_schema` | R | Download sys_dictionary field defs. Specify tables or auto-detect from local sources. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_ui_components` | R | Download UI Actions/Scripts/Pages/Macros for a scope (subset of download_app_sources). | standard, portal_developer, platform_developer, service_desk, full |
+| `download_script_includes` | R | Download Script Includes for a scope (subset of download_app_sources). | platform_developer, full |
+| `download_security_sources` | R | Download ACLs for a scope (subset of download_app_sources). Script-only by default. | platform_developer, full |
+| `download_server_scripts` | R | Download BR/Client Scripts/Catalog Client Scripts for a scope (subset of download_app_sources). | platform_developer, full |
+| `download_table_schema` | R | Download sys_dictionary field defs. Specify tables or auto-detect from local sources. | platform_developer, full |
+| `download_ui_components` | R | Download UI Actions/Scripts/Pages/Macros for a scope (subset of download_app_sources). | platform_developer, full |
 | `extract_table_dependencies` | R | Build a GlideRecord table dependency graph from server scripts. Scans SI, BR, and widget code. | standard, portal_developer, platform_developer, service_desk, full |
 | `extract_widget_table_dependencies` | R | Build a table dependency graph for a single widget, optionally expanding linked script includes. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_metadata_source` | R | Get a single source record (SI, BR, widget, etc.) by name or sys_id. Returns metadata + truncated script body. | standard, portal_developer, platform_developer, service_desk, full |
