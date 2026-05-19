@@ -45,23 +45,29 @@ mkdir -p "$install_dir"
 cp "$source_bin" "$target_bin"
 chmod +x "$target_bin"
 
-browser_zip="$(find "$bundle_dir" -maxdepth 1 -type f -name 'ms-playwright*.zip' | head -n 1)"
-if [[ -n "$browser_zip" && -f "$browser_zip" ]]; then
-  case "$(uname -s)" in
-    Darwin) browser_cache="$HOME/Library/Caches/ms-playwright" ;;
-    *) browser_cache="$HOME/.cache/ms-playwright" ;;
-  esac
-  mkdir -p "$browser_cache"
-  python3 - <<PY
+case "$(uname -s)" in
+  Darwin) browser_cache="$HOME/Library/Caches/ms-playwright" ;;
+  *) browser_cache="$HOME/.cache/ms-playwright" ;;
+esac
+
+existing_chromium="$(find "$browser_cache" -maxdepth 1 -type d -name 'chromium-*' 2>/dev/null | head -n 1)"
+if [[ -n "$existing_chromium" ]]; then
+  echo "Chromium already installed at $existing_chromium — skipping bundled Chromium zip."
+else
+  browser_zip="$(find "$bundle_dir" -maxdepth 1 -type f -name 'ms-playwright*.zip' | head -n 1)"
+  if [[ -n "$browser_zip" && -f "$browser_zip" ]]; then
+    mkdir -p "$browser_cache"
+    python3 - <<PY
 import zipfile
 from pathlib import Path
 zipfile.ZipFile("$browser_zip").extractall(Path("$browser_cache"))
 PY
-  echo "Installed bundled Playwright Chromium cache to $browser_cache"
-else
-  echo "No ms-playwright browser zip found next to install.sh."
-  echo "Place the matching ms-playwright zip next to install.sh and rerun if browser auth needs Chromium offline,"
-  echo "or run 'playwright install chromium' on a host with internet access."
+    echo "Installed bundled Playwright Chromium cache to $browser_cache"
+  else
+    echo "Chromium not found at $browser_cache and no ms-playwright zip next to install.sh."
+    echo "Place the matching ms-playwright zip next to install.sh and rerun if browser auth needs Chromium offline,"
+    echo "or run 'playwright install chromium' on a host with internet access."
+  fi
 fi
 
 echo
