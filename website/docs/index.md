@@ -83,8 +83,6 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       <div class="install-tabs">
         <button class="install-tab active" data-target="install-mac">macOS / Linux</button>
         <button class="install-tab" data-target="install-win">Windows</button>
-        <button class="install-tab" data-target="install-pip">pip</button>
-        <button class="install-tab" data-target="install-dev">Dev</button>
       </div>
       <div class="install-panels">
         <div class="install-panel active" id="install-mac">
@@ -94,8 +92,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 <span class="c"># 2. Pre-install Chromium for MFA/SSO login (REQUIRED — skip and the first</span>
 <span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
-uv tool install playwright
-playwright install chromium
+uvx --with playwright playwright install chromium
 
 <span class="c"># 3. Configure your client and install optional skills</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
@@ -110,41 +107,12 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 <span class="c"># 2. Pre-install Chromium for MFA/SSO login (REQUIRED — skip and the first</span>
 <span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
-uv tool install playwright
-playwright install chromium
+uvx --with playwright playwright install chromium
 
 <span class="c"># 3. Configure your client and install optional skills</span>
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser"</code></pre>
-          </div>
-        </div>
-        <div class="install-panel" id="install-pip">
-          <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># Install with pip + browser auth support</span>
-pip install "mfa-servicenow-mcp[browser]"
-playwright install chromium
-
-<span class="c"># Run with MFA browser login</span>
-servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"</code></pre>
-          </div>
-        </div>
-        <div class="install-panel" id="install-dev">
-          <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># Clone and install in development mode</span>
-git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
-cd mfa-servicenow-mcp
-uv pip install -e ".[browser]"
-playwright install chromium
-
-<span class="c"># Run with MFA browser login</span>
-servicenow-mcp \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser" \
-  --browser-headless "false"</code></pre>
           </div>
         </div>
       </div>
