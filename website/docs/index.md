@@ -138,23 +138,18 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
       <div class="install-panels">
         <div class="install-panel active" id="local-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. Extract the zip — folder layout looks like this:</span>
-<span class="c">#    servicenow-mcp-linux-x64-1.13.5/</span>
-<span class="c">#    ├── servicenow-mcp            ← prebuilt executable</span>
-<span class="c">#    ├── install.sh                ← installer script</span>
-<span class="c">#    ├── PLAYWRIGHT_VERSION.txt</span>
-<span class="c">#    ├── README.md</span>
-<span class="c">#    └── LICENSE</span>
+            <pre class="install-code"><code><span class="c"># 1. Extract — two files matter: the executable + installer.</span>
+<span class="c">#    servicenow-mcp-linux-x64-&lt;ver&gt;/</span>
+<span class="c">#    ├── servicenow-mcp     ← prebuilt executable</span>
+<span class="c">#    └── install.sh         ← installer script</span>
 <span class="c">#</span>
 <span class="c"># 2. (Optional) Drop the Chromium zip into the SAME folder, as-is:</span>
-<span class="c">#    ms-playwright-chromium-linux-x64-1.13.5.zip</span>
-<span class="c">#    The installer auto-extracts it to Playwright's standard cache.</span>
+<span class="c">#    ms-playwright-chromium-linux-x64-&lt;ver&gt;.zip</span>
 
-<span class="c"># 3. Run the installer (CLIENT = your MCP client):</span>
-cd ~/Downloads/servicenow-mcp-linux-x64-1.13.5
+<span class="c"># 3. Run the installer (same flags on macOS / Linux):</span>
+cd ~/Downloads/servicenow-mcp-linux-x64-*
 chmod +x install.sh
-SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
-  CLIENT=opencode ./install.sh
+./install.sh --client opencode --instance-url "https://your-instance.service-now.com"
 
 <span class="c"># 4. Verify, then restart your MCP client:</span>
 ~/.local/bin/servicenow-mcp --version</code></pre>
@@ -162,20 +157,16 @@ SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
         </div>
         <div class="install-panel" id="local-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. Extract the zip — folder layout looks like this:</span>
-<span class="c">#    servicenow-mcp-windows-x64-1.13.5\</span>
-<span class="c">#    |-- servicenow-mcp.exe        &lt;- prebuilt executable</span>
-<span class="c">#    |-- install.ps1               &lt;- installer script</span>
-<span class="c">#    |-- PLAYWRIGHT_VERSION.txt</span>
-<span class="c">#    |-- README.md</span>
-<span class="c">#    `-- LICENSE</span>
+            <pre class="install-code"><code><span class="c"># 1. Extract — two files matter: the executable + installer.</span>
+<span class="c">#    servicenow-mcp-windows-x64-&lt;ver&gt;\</span>
+<span class="c">#    |-- servicenow-mcp.exe   &lt;- prebuilt executable</span>
+<span class="c">#    `-- install.ps1          &lt;- installer script</span>
 <span class="c">#</span>
 <span class="c"># 2. (Optional) Drop the Chromium zip into the SAME folder, as-is:</span>
-<span class="c">#    ms-playwright-chromium-windows-x64-1.13.5.zip</span>
-<span class="c">#    The installer auto-extracts it to %LOCALAPPDATA%\ms-playwright.</span>
+<span class="c">#    ms-playwright-chromium-windows-x64-&lt;ver&gt;.zip</span>
 
-<span class="c"># 3. Run the installer (-Client = your MCP client):</span>
-cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
+<span class="c"># 3. Run the installer (same flags as Unix, PowerShell prefix):</span>
+cd $HOME\Downloads\servicenow-mcp-windows-x64-*
 .\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
 
 <span class="c"># 4. Verify, then restart your MCP client:</span>
