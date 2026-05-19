@@ -5,7 +5,7 @@ This module provides tools for managing script includes in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, Literal, Optional
+from typing import Any, ClassVar, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -225,19 +225,15 @@ class ManageScriptIncludeParams(BaseModel):
     action: Literal["list", "get", "create", "update", "delete", "execute"] = Field(...)
 
     # Identifier (get/update/delete: script_include_id; create/execute: name)
-    script_include_id: Optional[str] = Field(
-        default=None, description="sys_id or name (get/update/delete)"
-    )
+    script_include_id: Optional[str] = Field(default=None, description="sys_id or name")
 
     # list/get params
-    limit: int = Field(default=10, description="Max records (list mode)")
-    offset: int = Field(default=0, description="Pagination offset (list mode)")
-    query: Optional[str] = Field(default=None, description="Name search (list mode)")
-    client_callable: Optional[bool] = Field(
-        default=None, description="Filter by client_callable (list/create/update)"
-    )
-    count_only: bool = Field(default=False, description="Return count only (list mode)")
-    name: Optional[str] = Field(default=None, description="SI name (create/execute)")
+    limit: int = Field(default=10, description="Max records")
+    offset: int = Field(default=0, description="Pagination offset")
+    query: Optional[str] = Field(default=None, description="Name search")
+    client_callable: Optional[bool] = Field(default=None, description="Filter by client_callable")
+    count_only: bool = Field(default=False, description="Return count only")
+    name: Optional[str] = Field(default=None, description="SI name")
 
     # Create + update
     script: Optional[str] = Field(default=None)
@@ -255,6 +251,37 @@ class ManageScriptIncludeParams(BaseModel):
     )
 
     dry_run: bool = Field(default=False)
+
+    _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
+        "list": frozenset({"limit", "offset", "query", "count_only", "client_callable", "active"}),
+        "get": frozenset({"script_include_id"}),
+        "create": frozenset(
+            {
+                "name",
+                "script",
+                "description",
+                "api_name",
+                "client_callable",
+                "active",
+                "access",
+                "dry_run",
+            }
+        ),
+        "update": frozenset(
+            {
+                "script_include_id",
+                "script",
+                "description",
+                "api_name",
+                "client_callable",
+                "active",
+                "access",
+                "dry_run",
+            }
+        ),
+        "delete": frozenset({"script_include_id", "dry_run"}),
+        "execute": frozenset({"name", "method", "exec_params"}),
+    }
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageScriptIncludeParams":
