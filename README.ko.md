@@ -133,13 +133,14 @@ AI가 자동으로:
 MFA/SSO 로그인은 Playwright Chromium 빌드가 필요합니다. 미리 안 깔아 두면 **첫 브라우저 인증 툴 호출 때** Chromium(~150 MB)을 그 자리에서 받아와야 하는데, 네트워크가 느리면 MCP 시작이 호스트 timeout을 넘겨 로그인 창이 안 뜨는 것처럼 보입니다. 한 번만 미리 깔아두면 첫 호출이 즉시 시작됩니다:
 
 ```bash
-uv tool install playwright
-playwright install chromium
+uvx --with playwright playwright install chromium
 ```
 
-`uv tool install`로 깔면 `playwright` 바이너리가 PATH에 바로 등록되어, 그 후의 `playwright install …` 호출은 임시 venv 만드는 과정 없이 로컬에서 즉시 동작합니다. (한 줄 대안: `uvx --with playwright playwright install chromium`)
+끝. MCP 서버 실행에도 같은 `uvx`를 쓰니 별도 도구 설치는 필요 없습니다.
 
-Playwright 자체를 업그레이드할 때만 `playwright install chromium`을 다시 실행하면 됩니다. 브라우저 바이너리는 로컬에 캐시되어 MCP 버전과 무관하게 공유됩니다.
+Playwright 자체를 업그레이드할 때 같은 명령을 다시 실행하면 됩니다. 브라우저 바이너리는 로컬에 캐시되어 MCP 버전과 무관하게 공유됩니다.
+
+> **자주 쓰는 사용자:** `playwright` CLI를 일상적으로 사용한다면 `uv tool install playwright`로 PATH에 영구 설치한 뒤 `playwright install chromium`을 바로 호출할 수 있습니다. 대부분 사용자에게는 불필요합니다.
 
 > Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
@@ -354,12 +355,22 @@ uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 
 ### 특정 버전 고정
 
-```bash
-# 예시: 1.8.17 버전으로 고정
-uvx --from "mfa-servicenow-mcp==1.8.17" servicenow-mcp --version
+**안정 환경에서 권장.** uvx는 MCP 서버를 받을 때 Playwright도 최신으로 받습니다. Playwright 새 버전이 나오면 다른 Chromium 빌드를 요구하게 되어, **첫 도구 호출**에서 ~150 MB 브라우저 바이너리를 받아오느라 MCP 호스트의 handshake timeout을 넘기는 경우가 있습니다:
+
+```text
+MCP startup failed: handshaking with MCP server failed: connection closed: initialize response
 ```
 
-MCP 클라이언트 설정에서 버전을 고정하려면 명령어에 `--from` 제약 조건을 추가하세요:
+`playwright`와 `mfa-servicenow-mcp` 둘 다 고정하면 결정적으로 동작합니다. 한 번 `uvx --with playwright playwright install chromium`을 받으면, 핀을 직접 올리기 전까지는 추가 다운로드가 없습니다.
+
+```bash
+# 일회 실행
+uvx --with "playwright==1.60.0" --from "mfa-servicenow-mcp==1.13.0" servicenow-mcp --version
+```
+
+#### MCP 클라이언트 설정 예시 (프로젝트별)
+
+**Claude Code** (`.mcp.json` 저장소 루트):
 
 ```json
 {
@@ -367,16 +378,81 @@ MCP 클라이언트 설정에서 버전을 고정하려면 명령어에 `--from`
     "servicenow": {
       "command": "uvx",
       "args": [
-        "--from",
-        "mfa-servicenow-mcp==1.8.17",
-        "servicenow-mcp",
-        "--instance-url", "https://your-instance.service-now.com",
-        "--auth-type", "browser"
-      ]
+        "--with", "playwright==1.60.0",
+        "--from", "mfa-servicenow-mcp==1.13.0",
+        "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
     }
   }
 }
 ```
+
+**Codex** (`.codex/config.toml` 저장소 루트 — 프로젝트별. `~/.codex/config.toml`은 전역):
+
+```toml
+[mcp_servers.servicenow]
+command = "uvx"
+args = [
+  "--with", "playwright==1.60.0",
+  "--from", "mfa-servicenow-mcp==1.13.0",
+  "servicenow-mcp",
+]
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
+
+[mcp_servers.servicenow.env]
+SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
+SERVICENOW_AUTH_TYPE = "browser"
+SERVICENOW_BROWSER_HEADLESS = "false"
+MCP_TOOL_PACKAGE = "standard"
+```
+
+**OpenCode** (`opencode.json` 저장소 루트):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "--with", "playwright==1.60.0",
+        "--from", "mfa-servicenow-mcp==1.13.0",
+        "servicenow-mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+#### 업그레이드
+
+`mfa-servicenow-mcp`를 올릴 때 `playwright`도 같이 올릴지 결정하세요:
+
+```bash
+# 1. 새 Playwright에 맞춰 Chromium 다시 받기 (playwright 핀을 올렸을 때만)
+uvx --with "playwright==<새 버전>" playwright install chromium
+
+# 2. 클라이언트 설정에서 두 핀 모두 새 버전으로 갱신
+# 3. MCP 클라이언트 재시작
+```
+
+> **왜 MCP 서버가 더 이상 Chromium을 자동 설치하지 않는가:** 예전에는 첫 도구 호출 시점에 `playwright install chromium`을 호출했습니다. 느린 회선에서는 그 subprocess가 호스트의 handshake 데드라인을 넘겨 "connection closed"로 실패했습니다. v1.13.1부터 MCP 서버는 Chromium이 없으면 **경고만** 출력하고, `servicenow-mcp setup <client>` 명령이 setup 단계(handshake timer 영향 없음)에서 설치를 처리합니다.
 
 ---
 
