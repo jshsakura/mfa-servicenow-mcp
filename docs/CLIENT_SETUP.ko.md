@@ -48,59 +48,48 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 
 ### 로컬 설치 (릴리즈 zip/exe)
 
-`uvx`나 PyPI 접속이 막히는 사내망에서 사용하는 경로입니다. 릴리즈 zip에는 **PyInstaller로 빌드된 단일 실행 파일**과 설치 스크립트가 같이 들어 있어, 대상 PC에 Python을 별도로 깔 필요가 없습니다.
+`uvx`나 PyPI 접속이 막히는 사내망에서 사용하는 경로입니다. 릴리즈 zip은 **PyInstaller로 빌드된 단일 실행 파일** — 설치 스크립트 없음, Python 불필요, 시스템 캐시 오염 없음. 실행 파일이 자기 옆 `ms-playwright/` 폴더를 자동으로 인식합니다.
 
 **1. [GitHub Releases](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest)에서 다운로드:**
 
-| 플랫폼 | 필수 zip | Chromium도 막혀 있다면 추가로 받기 |
-|--------|---------|-------------------------------------|
+| 플랫폼 | 필수 | Chromium도 막혀 있다면 추가로 받기 |
+|--------|------|-------------------------------------|
 | Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64-<version>.zip` |
 | macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>-<version>.zip` |
 | Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64-<version>.zip` |
 
-**2. 압축 해제 — 핵심 파일은 두 개 (실행 파일 + 설치 스크립트):**
+**2. 아래 구조로 배치** — 본인이 관리하는 안정적인 경로면 어디든 OK. Chromium zip을 풀 때 **타겟 폴더 이름을 `ms-playwright`** 로 지정해 실행 파일과 같은 부모 디렉토리에 두세요:
 
 ```
-servicenow-mcp-linux-x64-<ver>/
-├── servicenow-mcp     ← PyInstaller로 빌드된 실행 파일
-└── install.sh         ← 설치 스크립트
+~/apps/servicenow-mcp/             (본인이 정하는 경로)
+├── servicenow-mcp                 ← 플랫폼 zip에서 (Windows는 .exe)
+└── ms-playwright/                 ← Chromium zip 압축 해제 위치
+    └── chromium-1185/
+        └── …
 ```
 
-Windows는 `servicenow-mcp.exe` + `install.ps1`. Chromium zip을 같이 받았다면 **압축을 풀지 말고 그대로 같은 폴더에 복사**하세요 — 설치 스크립트가 자동으로 찾아 처리합니다.
+시작 시 실행 파일이 자기 옆 `ms-playwright/chromium-*` 디렉토리를 확인하고, 있으면 `PLAYWRIGHT_BROWSERS_PATH`를 그 경로로 지정합니다 — **현재 프로세스에만** 적용. 시스템 Playwright 캐시는 **건드리지 않고**, MCP 클라이언트 설정 파일도 **건드리지 않고**, 디스크에 아무것도 **쓰지 않습니다**.
 
-**3. 설치 스크립트 실행** — 플래그 필요 없음. 설치 스크립트는 실행 파일 복사와 (있을 경우) Chromium 캐시 추출만 합니다. 기존 `.mcp.json` / `config.toml` / `opencode.json`을 절대 건드리지 않아 머지 사고로 기존 설정이 망가질 일이 없습니다.
-
-```powershell
-# Windows
-cd $HOME\Downloads\servicenow-mcp-windows-x64-*
-.\install.ps1
-```
+**3. 동작 확인 후 MCP 클라이언트 연결:**
 
 ```bash
 # macOS / Linux
-cd ~/Downloads/servicenow-mcp-linux-x64-*
-chmod +x install.sh
-./install.sh
-```
-
-설치 스크립트가 하는 일 — 파일 복사만 하고 **시스템 Playwright 캐시나 클라이언트 설정 파일은 절대 건드리지 않습니다**:
-
-1. 실행 파일을 영구 위치로 복사 — Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir`로 변경), macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir`로 변경).
-2. 번들 Chromium zip을 실행 파일 옆 `<install_dir>/ms-playwright/`에 추출. 아래 MCP 설정에서 `PLAYWRIGHT_BROWSERS_PATH`를 이 경로로 지정하므로, 시스템 표준 Playwright 캐시(`~/.cache/ms-playwright` 등) 와 PC에 이미 깔린 다른 Playwright 환경은 일절 영향받지 않습니다. `<install_dir>/ms-playwright/`에 이미 `chromium-*` 디렉토리가 있으면 zip은 건너뜁니다.
-
-종료 시 실행 파일 경로와 `PLAYWRIGHT_BROWSERS_PATH` 값 모두 출력합니다. 아래 [설정 가이드](#설정-가이드)의 MCP 스니펫을 본인 클라이언트 설정 파일에 직접 붙여넣고, `command`와 `PLAYWRIGHT_BROWSERS_PATH`를 그 값으로 지정하세요.
-
-**4. 동작 확인 후 MCP 클라이언트 재시작:**
-
-```bash
-# macOS / Linux
-~/.local/bin/servicenow-mcp --version
+~/apps/servicenow-mcp/servicenow-mcp --version
 
 # Windows PowerShell
-& "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version
+& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
 ```
 
-Chromium zip을 받지 않았는데 사내 망에서 Playwright 자동 다운로드도 막힌다면 Python이 가능한 PC에서 캐시를 미리 만든 뒤 복사하세요 — `pip install playwright && python -m playwright install chromium`.
+아래 [설정 가이드](#설정-가이드)의 MCP 스니펫을 본인 클라이언트 설정 파일에 붙여넣고, `command`를 실행 파일 절대 경로로 지정하세요. `env` 블록은 uvx 설정과 동일 — `command`만 다릅니다. Chromium을 실행 파일 옆이 *아닌* 다른 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"`를 추가하세요.
+
+Chromium zip을 받지 못했고 사내 망에서 Playwright 자동 다운로드도 막힌다면 Python이 가능한 PC에서 같은 구조로 디렉토리를 만들어 두세요:
+
+```bash
+pip install playwright
+PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m playwright install chromium
+```
+
+자동 인식이 그대로 동작합니다.
 
 > Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](WINDOWS_INSTALL.ko.md) 참조.
 

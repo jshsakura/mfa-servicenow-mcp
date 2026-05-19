@@ -138,55 +138,50 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
       <div class="install-panels">
         <div class="install-panel active" id="local-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. Extract — two files matter: the executable + installer.</span>
-<span class="c">#    servicenow-mcp-linux-x64-&lt;ver&gt;/</span>
-<span class="c">#    ├── servicenow-mcp     ← prebuilt executable</span>
-<span class="c">#    └── install.sh         ← installer script</span>
+            <pre class="install-code"><code><span class="c"># 1. Pick a stable folder you control and lay it out like this:</span>
 <span class="c">#</span>
-<span class="c"># 2. (Optional) Drop the Chromium zip into the SAME folder, as-is:</span>
-<span class="c">#    ms-playwright-chromium-linux-x64-&lt;ver&gt;.zip</span>
-
-<span class="c"># 3. Run the installer — no flags. It only copies the binary and</span>
-<span class="c">#    (if present) extracts the Chromium cache. It never edits your</span>
-<span class="c">#    MCP client config — you'll paste that by hand below.</span>
-cd ~/Downloads/servicenow-mcp-linux-x64-*
-chmod +x install.sh
-./install.sh
+<span class="c">#    ~/apps/servicenow-mcp/             (any directory you choose)</span>
+<span class="c">#    ├── servicenow-mcp                 ← the executable (from the zip)</span>
+<span class="c">#    └── ms-playwright/                 ← Chromium zip extracted HERE</span>
+<span class="c">#        └── chromium-1185/             (one or more)</span>
+<span class="c">#</span>
+<span class="c"># 2. At startup the executable auto-detects the sibling ms-playwright/</span>
+<span class="c">#    directory and points Playwright at it. The system standard cache</span>
+<span class="c">#    (~/.cache/ms-playwright) and your MCP client config stay untouched.</span>
+<span class="c"># 3. Verify the binary runs:</span>
+~/apps/servicenow-mcp/servicenow-mcp --version
 
 <span class="c"># 4. Paste the MCP config snippet from "Manual fallback" below into</span>
 <span class="c">#    your client config and set 'command' to:</span>
-<span class="c">#       ~/.local/bin/servicenow-mcp</span>
-<span class="c"># 5. Verify, then restart your MCP client:</span>
-~/.local/bin/servicenow-mcp --version</code></pre>
+<span class="c">#       ~/apps/servicenow-mcp/servicenow-mcp</span>
+<span class="c"># Then restart your MCP client.</span></code></pre>
           </div>
         </div>
         <div class="install-panel" id="local-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. Extract — two files matter: the executable + installer.</span>
-<span class="c">#    servicenow-mcp-windows-x64-&lt;ver&gt;\</span>
-<span class="c">#    |-- servicenow-mcp.exe   &lt;- prebuilt executable</span>
-<span class="c">#    `-- install.ps1          &lt;- installer script</span>
+            <pre class="install-code"><code><span class="c"># 1. Pick a stable folder you control and lay it out like this:</span>
 <span class="c">#</span>
-<span class="c"># 2. (Optional) Drop the Chromium zip into the SAME folder, as-is:</span>
-<span class="c">#    ms-playwright-chromium-windows-x64-&lt;ver&gt;.zip</span>
-
-<span class="c"># 3. Run the installer — no flags. It only copies the binary and</span>
-<span class="c">#    (if present) extracts the Chromium cache. It never edits your</span>
-<span class="c">#    MCP client config — you'll paste that by hand below.</span>
-cd $HOME\Downloads\servicenow-mcp-windows-x64-*
-.\install.ps1
+<span class="c">#    C:\Users\you\apps\servicenow-mcp\</span>
+<span class="c">#    ├── servicenow-mcp.exe              ← the executable (from the zip)</span>
+<span class="c">#    └── ms-playwright\                  ← Chromium zip extracted HERE</span>
+<span class="c">#        └── chromium-1185\              (one or more)</span>
+<span class="c">#</span>
+<span class="c"># 2. At startup the executable auto-detects the sibling ms-playwright\</span>
+<span class="c">#    directory and points Playwright at it. The system standard cache</span>
+<span class="c">#    (%LOCALAPPDATA%\ms-playwright) and your MCP client config stay untouched.</span>
+<span class="c"># 3. Verify the binary runs:</span>
+& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
 
 <span class="c"># 4. Paste the MCP config snippet from "Manual fallback" below into</span>
 <span class="c">#    your client config and set 'command' to:</span>
-<span class="c">#       %LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</span>
-<span class="c"># 5. Verify, then restart your MCP client:</span>
-& "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version</code></pre>
+<span class="c">#       C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe</span>
+<span class="c"># Then restart your MCP client.</span></code></pre>
           </div>
         </div>
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.8;">
-      Where files land — executable: <code>~/.local/bin/servicenow-mcp</code> (macOS/Linux) or <code>%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</code> (Windows). Chromium sits right next to the executable at <code>&lt;install_dir&gt;/ms-playwright/</code> — the bundled MCP server is pointed at it via <code>PLAYWRIGHT_BROWSERS_PATH</code>, so the system standard Playwright cache (<code>~/.cache/ms-playwright</code>, <code>%LOCALAPPDATA%\ms-playwright</code>) and any other Playwright environment on the machine stay completely untouched. The installer never touches your MCP client config either — paste the snippet from the <a href="#mcp-tabs">Manual fallback</a> section below into your client config by hand and set <code>command</code> + <code>PLAYWRIGHT_BROWSERS_PATH</code> to the paths the installer prints.
+      No installer script. You unzip the executable into any stable folder you control, extract the Chromium zip into a sibling folder named <code>ms-playwright</code>, and the executable auto-detects that layout at startup — pointing Playwright at it via <code>PLAYWRIGHT_BROWSERS_PATH</code> for the current process only. The system standard Playwright cache (<code>~/.cache/ms-playwright</code>, <code>%LOCALAPPDATA%\ms-playwright</code>) stays untouched, and your MCP client config is yours to edit — paste the snippet from the <a href="#mcp-tabs">Manual fallback</a> section below and set <code>command</code> to the absolute path of the executable.
     </p>
 
     <div style="margin-top:56px;" class="reveal">

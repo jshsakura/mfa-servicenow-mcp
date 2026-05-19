@@ -91,15 +91,6 @@ def _build_executable(bundle_dir: Path, exe_name: str) -> None:
     shutil.copy2(pyinstaller_output, bundle_dir / exe_name)
 
 
-def _copy_install_script(bundle_dir: Path, platform_tag: str) -> None:
-    if platform_tag.startswith("windows"):
-        shutil.copy2(ROOT / "scripts" / "install_windows_release.ps1", bundle_dir / "install.ps1")
-    else:
-        target = bundle_dir / "install.sh"
-        shutil.copy2(ROOT / "scripts" / "install_unix_release.sh", target)
-        target.chmod(0o755)
-
-
 def _build_browser_zip(output_dir: Path, platform_tag: str, version: str) -> Path:
     cache_dir = output_dir / f"ms-playwright-{platform_tag}-{version}"
     if cache_dir.exists():
@@ -134,7 +125,6 @@ def main() -> int:
     bundle_dir.mkdir(parents=True)
 
     _build_executable(bundle_dir, exe_name)
-    _copy_install_script(bundle_dir, platform_tag)
     shutil.copy2(ROOT / "LICENSE", bundle_dir / "LICENSE")
 
     bundle_zip = output_dir / f"{bundle_name}.zip"
