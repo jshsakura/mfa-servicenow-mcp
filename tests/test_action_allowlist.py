@@ -157,7 +157,7 @@ class TestServerPackageLoading:
     def test_standard_package_restricts_manage_workflow_to_reads(self):
         s = _server_with_package("standard")
         assert s._active_action_allowlists["manage_workflow"] == frozenset(
-            {"list", "get", "list_versions", "get_activities"}
+            {"list", "get_activities"}
         )
 
     def test_standard_package_restricts_manage_script_include_to_reads(self):
@@ -171,10 +171,10 @@ class TestServerPackageLoading:
         s = _server_with_package("platform_developer")
         assert s._active_action_allowlists.get("manage_workflow") is None
 
-    def test_platform_developer_keeps_catalog_restriction(self):
-        # platform_developer doesn't re-list manage_catalog → standard's
-        # restriction carries through.
-        s = _server_with_package("platform_developer")
+    def test_service_desk_restricts_catalog_to_reads(self):
+        # manage_catalog is not in standard anymore; service_desk adds it back
+        # with a read-only allowlist for catalog browsing.
+        s = _server_with_package("service_desk")
         assert s._active_action_allowlists.get("manage_catalog") == frozenset(
             {"list_items", "get_item", "list_categories", "list_item_variables"}
         )
@@ -187,7 +187,7 @@ class TestServerPackageLoading:
     def test_tool_counts_unchanged_by_allowlist(self):
         # Allowlists narrow visible actions but don't add or remove tools.
         # These counts must match the headline numbers in TOOL_INVENTORY.md.
-        expected = {"core": 15, "standard": 42, "service_desk": 43, "full": 62}
+        expected = {"core": 12, "standard": 31, "service_desk": 33, "full": 62}
         for pkg, count in expected.items():
             s = _server_with_package(pkg)
             assert (
@@ -203,8 +203,8 @@ class TestSchemaEmittedToLlm:
         tools = asyncio.run(s._list_tools_impl())
         workflow = next(t for t in tools if t.name == "manage_workflow")
         action_enum = workflow.inputSchema["properties"]["action"]["enum"]
-        # Only the read actions should reach the LLM.
-        assert set(action_enum) == {"list", "get", "list_versions", "get_activities"}
+        # Only the actually-used read actions reach the LLM.
+        assert set(action_enum) == {"list", "get_activities"}
 
     def test_full_emits_full_action_enum(self):
         s = _server_with_package("full")
