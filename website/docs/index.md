@@ -73,11 +73,11 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem;">
-      Behind Zscaler or a strict corporate proxy? Set your organization-provided
-      <code>HTTPS_PROXY</code>, <code>UV_NATIVE_TLS=true</code>,
-      <code>UV_DEFAULT_INDEX</code> for a private PyPI mirror, or
-      <code>PLAYWRIGHT_DOWNLOAD_HOST</code> for a Playwright browser archive mirror before
-      running the same <code>uvx --with playwright playwright install chromium</code> command.
+      Corporate network fallback: clone the GitHub source locally, run
+      <code>uv sync --extra browser</code> once, install Chromium through the local
+      <code>.venv</code>, then point your MCP config at
+      <code>/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp</code>
+      or the Windows <code>.venv\Scripts\servicenow-mcp.exe</code> path.
     </p>
 
     <div style="margin-top:56px;" class="reveal">

@@ -145,29 +145,47 @@ uvx --with playwright playwright install chromium
 
 `servicenow-mcp setup <client>`를 사용하면 이 명령이 자동 실행됩니다 — 다음 섹션으로 건너뛰세요.
 
-회사 프록시 / Zscaler 우회:
+회사망 fallback: 로컬 소스 폴더에서 실행
 
 ```bash
 # macOS/Linux
-export HTTPS_PROXY="http://proxy.company.example:8080"
-export HTTP_PROXY="$HTTPS_PROXY"
-export UV_NATIVE_TLS=true
-export UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # PyPI를 사내 미러로 받는 경우
-export PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # 브라우저 아카이브를 사내 미러로 받는 경우
-uvx --with playwright playwright install chromium
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+uv sync --extra browser
+.venv/bin/python -m playwright install chromium
 ```
 
 ```powershell
 # Windows PowerShell
-$env:HTTPS_PROXY="http://proxy.company.example:8080"
-$env:HTTP_PROXY=$env:HTTPS_PROXY
-$env:UV_NATIVE_TLS="true"
-$env:UV_DEFAULT_INDEX="https://pypi.company.example/simple"          # PyPI를 사내 미러로 받는 경우
-$env:PLAYWRIGHT_DOWNLOAD_HOST="https://artifacts.company.example/playwright"  # 브라우저 아카이브를 사내 미러로 받는 경우
-uvx --with playwright playwright install chromium
+git clone https://github.com/jshsakura/mfa-servicenow-mcp.git
+cd mfa-servicenow-mcp
+uv sync --extra browser
+.\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-프록시, 사내 PyPI 인덱스, 브라우저 아카이브 미러 값은 반드시 사내 IT/보안팀이 제공한 값만 사용하세요. `UV_DEFAULT_INDEX`는 Python 패키지 다운로드용이고, `PLAYWRIGHT_DOWNLOAD_HOST`는 Chromium 아카이브 다운로드용입니다.
+그 다음 MCP 클라이언트가 `uvx`가 아니라 로컬 실행 파일을 직접 보게 설정하세요:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "/absolute/path/mfa-servicenow-mcp/.venv/bin/servicenow-mcp",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false"
+      }
+    }
+  }
+}
+```
+
+Windows command 경로:
+
+```json
+"command": "C:\\absolute\\path\\mfa-servicenow-mcp\\.venv\\Scripts\\servicenow-mcp.exe"
+```
 
 > Windows 사용자: PATH/백신 관련 주의사항은 [Windows 설치 가이드](./docs/WINDOWS_INSTALL.ko.md)를 참조하세요.
 
