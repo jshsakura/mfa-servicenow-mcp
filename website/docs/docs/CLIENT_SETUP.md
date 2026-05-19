@@ -83,12 +83,12 @@ chmod +x install.sh
 ./install.sh
 ```
 
-What the installer does:
+What the installer does — strictly file-copy, **never touches the system Playwright cache or any client config**:
 
 1. Copies the executable to a permanent location — Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (`-InstallDir` to override), macOS/Linux: `~/.local/bin/servicenow-mcp` (`--install-dir` to override).
-2. Extracts the bundled Chromium zip only if Playwright's standard cache doesn't already contain a `chromium-*` directory — that way an existing Playwright install on the machine stays intact. Cache paths: Windows `%LOCALAPPDATA%\ms-playwright`, macOS `~/Library/Caches/ms-playwright`, Linux `~/.cache/ms-playwright`.
+2. Extracts the bundled Chromium zip into `<install_dir>/ms-playwright/`, sitting right next to the executable. The MCP config below sets `PLAYWRIGHT_BROWSERS_PATH` to that directory, so the system standard Playwright cache (`~/.cache/ms-playwright`, etc.) and any other Playwright environment on the machine stay untouched. If `<install_dir>/ms-playwright/` already has a `chromium-*` directory, the bundled zip is skipped.
 
-When it finishes it prints the installed executable path. Paste the MCP config snippet from the [Configuration Guide](#configuration-guide) below into your client's config file, setting `command` to that path.
+When it finishes it prints both the executable path **and** the `PLAYWRIGHT_BROWSERS_PATH` value. Paste the MCP config snippet from the [Configuration Guide](#configuration-guide) below into your client's config file, setting `command` and `PLAYWRIGHT_BROWSERS_PATH` to those printed values.
 
 **4. Verify, then restart your MCP client:**
 

@@ -186,7 +186,7 @@ cd $HOME\Downloads\servicenow-mcp-windows-x64-*
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.8;">
-      Where files land — executable: <code>~/.local/bin/servicenow-mcp</code> (macOS/Linux) or <code>%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</code> (Windows). Chromium cache: <code>~/.cache/ms-playwright</code> (Linux), <code>~/Library/Caches/ms-playwright</code> (macOS), <code>%LOCALAPPDATA%\ms-playwright</code> (Windows). The installer never touches your MCP client config — paste the snippet from the <a href="#mcp-tabs">Manual fallback</a> section below into your client config by hand and set <code>command</code> to the executable path.
+      Where files land — executable: <code>~/.local/bin/servicenow-mcp</code> (macOS/Linux) or <code>%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</code> (Windows). Chromium sits right next to the executable at <code>&lt;install_dir&gt;/ms-playwright/</code> — the bundled MCP server is pointed at it via <code>PLAYWRIGHT_BROWSERS_PATH</code>, so the system standard Playwright cache (<code>~/.cache/ms-playwright</code>, <code>%LOCALAPPDATA%\ms-playwright</code>) and any other Playwright environment on the machine stay completely untouched. The installer never touches your MCP client config either — paste the snippet from the <a href="#mcp-tabs">Manual fallback</a> section below into your client config by hand and set <code>command</code> + <code>PLAYWRIGHT_BROWSERS_PATH</code> to the paths the installer prints.
     </p>
 
     <div style="margin-top:56px;" class="reveal">
