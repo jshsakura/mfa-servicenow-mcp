@@ -187,7 +187,7 @@ cd $HOME\Downloads\servicenow-mcp-windows-x64-*
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.8;">
-      파일이 설치되는 위치 — 실행 파일: <code>~/.local/bin/servicenow-mcp</code> (macOS/Linux) 또는 <code>%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</code> (Windows). Chromium 캐시: <code>~/.cache/ms-playwright</code> (Linux), <code>~/Library/Caches/ms-playwright</code> (macOS), <code>%LOCALAPPDATA%\ms-playwright</code> (Windows). 설치 스크립트는 MCP 클라이언트 설정 파일을 절대 건드리지 않습니다 — 아래 <a href="#mcp-tabs">수동 복구용</a> 섹션의 스니펫을 본인 설정 파일에 직접 붙여넣고 <code>command</code>를 위 경로로 지정하세요.
+      파일이 설치되는 위치 — 실행 파일: <code>~/.local/bin/servicenow-mcp</code> (macOS/Linux) 또는 <code>%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</code> (Windows). Chromium은 실행 파일 옆 <code>&lt;install_dir&gt;/ms-playwright/</code>에 들어갑니다. 번들된 MCP 서버는 <code>PLAYWRIGHT_BROWSERS_PATH</code>로 이 경로만 보도록 지정되므로, 시스템 표준 Playwright 캐시(<code>~/.cache/ms-playwright</code>, <code>%LOCALAPPDATA%\ms-playwright</code>) 와 PC에 이미 깔린 다른 Playwright 환경은 그대로 보존됩니다. 설치 스크립트는 MCP 클라이언트 설정 파일도 절대 건드리지 않습니다 — 아래 <a href="#mcp-tabs">수동 복구용</a> 섹션의 스니펫을 본인 설정 파일에 직접 붙여넣고 <code>command</code>와 <code>PLAYWRIGHT_BROWSERS_PATH</code>를 설치 스크립트가 출력한 경로로 지정하세요.
     </p>
 
     <div style="margin-top:56px;" class="reveal">

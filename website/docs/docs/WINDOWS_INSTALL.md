@@ -35,7 +35,7 @@ Extract the zip, then run:
 .\install.ps1
 ```
 
-No flags required. The installer copies `servicenow-mcp.exe` to `%LOCALAPPDATA%\servicenow-mcp` and, if a `ms-playwright-chromium-*.zip` is in the same folder, extracts it into `%LOCALAPPDATA%\ms-playwright`. **It never touches your MCP client config** — that's intentional, so an existing `.mcp.json` / `~/.codex/config.toml` / `opencode.json` cannot be broken by a merge bug.
+No flags required. The installer copies `servicenow-mcp.exe` to `%LOCALAPPDATA%\servicenow-mcp` and, if a `ms-playwright-chromium-*.zip` is in the same folder, extracts it into `%LOCALAPPDATA%\servicenow-mcp\ms-playwright` — **right next to the executable, never into the system standard Playwright cache** at `%LOCALAPPDATA%\ms-playwright`. It also **does not touch any MCP client config** — that's intentional, so an existing `.mcp.json` / `~/.codex/config.toml` / `opencode.json` cannot be broken by a merge bug.
 
 When the installer finishes, paste this snippet into your client config file by hand (Claude Code / Claude Desktop example):
 
@@ -51,6 +51,7 @@ When the installer finishes, paste this snippet into your client config file by 
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your.username",
         "SERVICENOW_PASSWORD": "your-password",
+        "PLAYWRIGHT_BROWSERS_PATH": "C:/Users/you/AppData/Local/servicenow-mcp/ms-playwright",
         "MCP_TOOL_PACKAGE": "standard"
       }
     }
@@ -58,14 +59,15 @@ When the installer finishes, paste this snippet into your client config file by 
 }
 ```
 
-`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional — they pre-fill the MFA login form. Snippets for Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Gemini / Zed live in the [Client Setup Guide](CLIENT_SETUP.md).
+`PLAYWRIGHT_BROWSERS_PATH` is what tells the bundled MCP server to use the Chromium directory next to the executable instead of the system standard cache — that's why we can install offline without polluting the user's existing Playwright environment. `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional MFA login pre-fill. Snippets for Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Gemini / Zed live in the [Client Setup Guide](CLIENT_SETUP.md).
 
-This keeps `uvx` out of runtime. Playwright Chromium still uses the standard browser cache at `%LOCALAPPDATA%\ms-playwright`.
+This keeps `uvx` out of runtime entirely.
 
 If Chromium isn't installed and downloads are allowed, install Python from <https://www.python.org/downloads/>, then run:
 
 ```powershell
 py -m pip install playwright
+$env:PLAYWRIGHT_BROWSERS_PATH = "$env:LOCALAPPDATA\servicenow-mcp\ms-playwright"
 py -m playwright install chromium
 ```
 

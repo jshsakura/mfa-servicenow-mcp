@@ -45,36 +45,35 @@ mkdir -p "$install_dir"
 cp "$source_bin" "$target_bin"
 chmod +x "$target_bin"
 
-case "$(uname -s)" in
-  Darwin) browser_cache="$HOME/Library/Caches/ms-playwright" ;;
-  *) browser_cache="$HOME/.cache/ms-playwright" ;;
-esac
+browser_dir="$install_dir/ms-playwright"
 
-existing_chromium="$(find "$browser_cache" -maxdepth 1 -type d -name 'chromium-*' 2>/dev/null | head -n 1)"
+existing_chromium="$(find "$browser_dir" -maxdepth 1 -type d -name 'chromium-*' 2>/dev/null | head -n 1)"
 if [[ -n "$existing_chromium" ]]; then
-  echo "Chromium already installed at $existing_chromium — skipping bundled Chromium zip."
+  echo "Chromium already installed at $existing_chromium — skipping bundled zip."
 else
   browser_zip="$(find "$bundle_dir" -maxdepth 1 -type f -name 'ms-playwright*.zip' | head -n 1)"
   if [[ -n "$browser_zip" && -f "$browser_zip" ]]; then
-    mkdir -p "$browser_cache"
+    mkdir -p "$browser_dir"
     python3 - <<PY
 import zipfile
 from pathlib import Path
-zipfile.ZipFile("$browser_zip").extractall(Path("$browser_cache"))
+zipfile.ZipFile("$browser_zip").extractall(Path("$browser_dir"))
 PY
-    echo "Installed bundled Playwright Chromium cache to $browser_cache"
+    echo "Extracted bundled Chromium to $browser_dir"
   else
-    echo "Chromium not found at $browser_cache and no ms-playwright zip next to install.sh."
-    echo "Place the matching ms-playwright zip next to install.sh and rerun if browser auth needs Chromium offline,"
-    echo "or run 'playwright install chromium' on a host with internet access."
+    echo "No ms-playwright zip found next to install.sh and $browser_dir is empty."
+    echo "Place the matching ms-playwright zip next to install.sh and rerun, or run"
+    echo "'PLAYWRIGHT_BROWSERS_PATH=\"$browser_dir\" playwright install chromium' on a host with internet."
   fi
 fi
 
 echo
 echo "Installed ServiceNow MCP:"
-echo "  Server:  $target_bin"
+echo "  Server:                   $target_bin"
+echo "  PLAYWRIGHT_BROWSERS_PATH: $browser_dir"
 echo
 echo "Next: paste the MCP config snippet from the README 'Local install' section"
 echo "      into your client's config file (e.g. .mcp.json / ~/.codex/config.toml / opencode.json)."
-echo "      Set 'command' to: $target_bin"
+echo "      Set 'command' to:                     $target_bin"
+echo "      Set env 'PLAYWRIGHT_BROWSERS_PATH' to: $browser_dir"
 echo "      Then restart your MCP client."
