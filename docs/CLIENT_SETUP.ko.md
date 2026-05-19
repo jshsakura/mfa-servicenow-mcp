@@ -64,6 +64,65 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 > **프로젝트 로컬 설정을 권장합니다**: 프로젝트 단위로 설정하면 각 프로젝트가 서로 다른 ServiceNow 인스턴스에 연결할 수 있습니다.
 
+> **단일 인스턴스 설계**: MCP 서버 프로세스 하나는 ServiceNow 인스턴스 하나에만 연결됩니다. dev/test/prod 사이를 오갈 때 운영에 잘못 쓰는 사고를 막기 위해 요청별 멀티 인스턴스 라우팅은 의도적으로 지원하지 않습니다.
+
+---
+
+## Streamable HTTP
+
+기본 transport는 `stdio`입니다. 원격 MCP 클라이언트나 로컬 HTTP 브리지가 필요하면 Streamable HTTP로 실행할 수 있습니다.
+
+```bash
+servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
+```
+
+MCP 엔드포인트는 `http://127.0.0.1:8000/mcp`이고, `/health`는 가벼운 상태 응답을 반환합니다. 신뢰된 네트워크 제어 뒤에 둔 경우가 아니라면 기본 loopback 호스트를 유지하세요.
+
+---
+
+## 멀티 인스턴스 비교 모드
+
+단일 인스턴스 설정이 기본입니다. 모든 도구에 `instance` 파라미터를 붙이지 않고 dev/test 데이터를 비교하려면 JSON으로 named instance를 설정합니다.
+
+```bash
+SERVICENOW_ACTIVE_INSTANCE=dev
+SERVICENOW_INSTANCE_CONFIG='{
+  "dev": {
+    "url": "https://dev.service-now.com",
+    "role": "development",
+    "tool_package": "platform_developer",
+    "allow_writes": true
+  },
+  "test": {
+    "url": "https://test.service-now.com",
+    "role": "test",
+    "tool_package": "standard",
+    "allow_writes": false
+  }
+}'
+```
+
+규칙:
+
+- `SERVICENOW_INSTANCE_CONFIG`가 없으면 기존 동작과 동일합니다.
+- 일반 도구는 항상 active instance만 사용합니다.
+- 멀티 인스턴스 모드에서만 `list_instances`와 read-only `compare_instances`가 노출됩니다.
+- alias별 인증 필드는 선택입니다. 없으면 기존 전역 인증 환경변수에서 fallback됩니다.
+- active alias에 `tool_package`가 있으면 해당 서버 프로세스에서는 `MCP_TOOL_PACKAGE`보다 우선합니다.
+
+비교 예시:
+
+```json
+{
+  "source": "dev",
+  "target": "test",
+  "table": "sys_script_include",
+  "key_field": "api_name",
+  "fields": "api_name,name,active,script",
+  "query": "sys_scope.scope=x_company_app"
+}
+```
+
 ---
 
 ## Claude Desktop

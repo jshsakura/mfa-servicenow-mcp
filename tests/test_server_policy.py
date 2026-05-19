@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import mcp.types as types
 import pytest
@@ -242,3 +243,130 @@ def test_list_tools_caches_generated_schemas(monkeypatch: pytest.MonkeyPatch, tm
     assert any(isinstance(tool, types.Tool) and tool.name == "counted_tool" for tool in first)
     assert any(isinstance(tool, types.Tool) and tool.name == "counted_tool" for tool in second)
     assert schema_calls["count"] == 1
+
+
+def _build_multi_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNowMCP:
+    config_path = tmp_path / "tool_packages.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "none: []",
+                "standard:",
+                "  - sn_query",
+                "platform_developer:",
+                "  - sn_query",
+                "  - update_foo",
+            ]
+        )
+    )
+    monkeypatch.setenv("TOOL_PACKAGE_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("SERVICENOW_ACTIVE_INSTANCE", "dev")
+    monkeypatch.setenv(
+        "SERVICENOW_INSTANCE_CONFIG",
+        json.dumps(
+            {
+                "dev": {
+                    "url": "https://dev.service-now.com",
+                    "role": "development",
+                    "tool_package": "platform_developer",
+                    "allow_writes": True,
+                },
+                "test": {
+                    "url": "https://test.service-now.com",
+                    "role": "test",
+                    "tool_package": "standard",
+                    "allow_writes": False,
+                },
+            }
+        ),
+    )
+    monkeypatch.setattr(server_module, "TOOL_PACKAGE_CONFIG_PATH", str(config_path))
+    return ServiceNowMCP(
+        {
+            "instance_url": "https://dev.service-now.com",
+            "auth": {
+                "type": "basic",
+                "basic": {"username": "admin", "password": "password"},
+            },
+        }
+    )
+
+
+def test_multi_instance_helpers_are_listed(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+
+    tools = asyncio.run(server._list_tools_impl())
+    names = {tool.name for tool in tools}
+
+    assert "list_instances" in names
+    assert "compare_instances" in names
+    assert server.current_package_name == "platform_developer"
+
+
+def test_list_instances_reports_active_and_hosts(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+
+    response = asyncio.run(server._call_tool_impl("list_instances", {}))
+    payload = json.loads(response[0].text)
+
+    assert payload["active_instance"] == "dev"
+    assert payload["ordinary_tools_route_to"] == "dev"
+    assert {item["alias"] for item in payload["instances"]} == {"dev", "test"}
+    assert any(item["host"] == "test.service-now.com" for item in payload["instances"])
+
+
+def test_active_instance_allow_writes_blocks_mutating_tool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    server.active_instance_meta["allow_writes"] = False
+    server.tool_definitions["update_foo"] = (
+        lambda _config, _auth_manager, _params: {"ok": True},
+        EmptyParams,
+        dict,
+        "test write",
+        "raw_dict",
+    )
+    if "update_foo" not in server.enabled_tool_names:
+        server.enabled_tool_names.append("update_foo")
+
+    with pytest.raises(ValueError, match="does not allow write operations"):
+        asyncio.run(server._call_tool_impl("update_foo", {"confirm": "approve"}))
+
+
+def test_compare_instances_reports_changed_and_missing(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+
+    def fake_query_page(config, _auth_manager, **_kwargs):
+        if "dev" in config.instance_url:
+            return (
+                [
+                    {"api_name": "x_app.A", "script": "return 1;  \n"},
+                    {"api_name": "x_app.OnlyDev", "script": "dev"},
+                ],
+                2,
+            )
+        return (
+            [
+                {"api_name": "x_app.A", "script": "return 2;"},
+                {"api_name": "x_app.OnlyTest", "script": "test"},
+            ],
+            2,
+        )
+
+    monkeypatch.setattr("servicenow_mcp.tools.sn_api.sn_query_page", fake_query_page)
+
+    result = server._compare_instances_impl(
+        {
+            "source": "dev",
+            "target": "test",
+            "table": "sys_script_include",
+            "key_field": "api_name",
+            "fields": "api_name,script",
+        }
+    )
+
+    assert result["changed_count"] == 1
+    assert result["only_in_source"] == ["x_app.OnlyDev"]
+    assert result["only_in_target"] == ["x_app.OnlyTest"]
+    assert result["changed"][0]["key"] == "x_app.A"

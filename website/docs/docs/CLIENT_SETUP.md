@@ -64,6 +64,65 @@ If the server starts and a browser window opens for login, you're ready to confi
 
 > **Project-local recommended**: Use project-scoped config so each project can connect to a different ServiceNow instance.
 
+> **Single-instance by design**: one MCP server process routes to one ServiceNow instance only. This intentionally avoids per-request multi-instance routing, which can cause accidental writes to production when switching between dev/test/prod.
+
+---
+
+## Streamable HTTP
+
+The default transport is `stdio`. For remote MCP clients or a local HTTP bridge, start the server with Streamable HTTP:
+
+```bash
+servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
+```
+
+The MCP endpoint is `http://127.0.0.1:8000/mcp`; `/health` returns a lightweight status response. Keep the default loopback host unless the server is behind trusted network controls.
+
+---
+
+## Multi-Instance Compare Mode
+
+Single-instance setup remains the default. To compare dev/test data without adding an `instance` parameter to every tool, configure named instances with JSON:
+
+```bash
+SERVICENOW_ACTIVE_INSTANCE=dev
+SERVICENOW_INSTANCE_CONFIG='{
+  "dev": {
+    "url": "https://dev.service-now.com",
+    "role": "development",
+    "tool_package": "platform_developer",
+    "allow_writes": true
+  },
+  "test": {
+    "url": "https://test.service-now.com",
+    "role": "test",
+    "tool_package": "standard",
+    "allow_writes": false
+  }
+}'
+```
+
+Rules:
+
+- If `SERVICENOW_INSTANCE_CONFIG` is absent, behavior is unchanged.
+- Ordinary tools always use the active instance.
+- `list_instances` and read-only `compare_instances` are exposed only in multi-instance mode.
+- Alias auth fields are optional; missing values fall back to the existing global auth env vars.
+- If an active alias sets `tool_package`, it overrides `MCP_TOOL_PACKAGE` for that server process.
+
+Example comparison:
+
+```json
+{
+  "source": "dev",
+  "target": "test",
+  "table": "sys_script_include",
+  "key_field": "api_name",
+  "fields": "api_name,name,active,script",
+  "query": "sys_scope.scope=x_company_app"
+}
+```
+
 ---
 
 ## Claude Desktop

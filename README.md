@@ -43,7 +43,7 @@ Pick one path. Both end at the same configured MCP server; you don't need both.
 
 > **One line. Any AI coding assistant. Everything configured automatically.**
 
-Paste this into Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, or Gemini CLI:
+Paste this into Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI, or Zed:
 
 ```
 Install and configure mfa-servicenow-mcp by following the instructions here:
@@ -76,8 +76,10 @@ Restart the MCP client so it loads the new config. The first browser-authenticat
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **77 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
-- **24 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
+- **73 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **16 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
+- **Active-instance multi-instance mode** — compare dev/test data read-only while ordinary tools stay pinned to one active instance
+- **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
 - **Dry-run preview** on every write tool (`dry_run=True`) — returns field-level diff, dependency counts, and precision notes before any side effect. Uses read-only APIs, works under all auth modes.
@@ -263,12 +265,14 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 | Package | Tools | Description |
 | :--- | :---: | :--- |
 | `none` | 0 | Disabled profile for intentionally turning tools off |
-| `core` | 15 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 45 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 46 | standard + incident and change operational writes |
-| `portal_developer` | 55 | standard + portal, changeset, script include, and local-sync delivery workflows |
-| `platform_developer` | 55 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 66 | ⚠️ **Advanced only** — all write tools across all domains. See warning above. |
+| `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
+| `standard` | 31 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 33 | standard + incident and change operational writes |
+| `portal_developer` | 43 | standard + portal, changeset, script include, and local-sync delivery workflows |
+| `platform_developer` | 47 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 62 | ⚠️ **Advanced only** — all write tools across all domains. See warning above. |
+
+Each server process is intentionally bound to one ServiceNow instance. For safety, there is no per-request multi-instance routing; use a separate project/client config when you need a different instance.
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
@@ -285,8 +289,47 @@ For the full reference (all packages, inheritance details, config syntax): [Tool
 | `--instance-url` | `SERVICENOW_INSTANCE_URL` | *required* | ServiceNow instance URL |
 | `--auth-type` | `SERVICENOW_AUTH_TYPE` | `basic` | Auth mode: `basic`, `oauth`, `api_key`, `browser` |
 | `--tool-package` | `MCP_TOOL_PACKAGE` | `standard` | Tool package to load |
+| `--transport` | `SERVICENOW_MCP_TRANSPORT` | `stdio` | MCP transport: `stdio` or `http` |
+| `--http-host` | `SERVICENOW_MCP_HTTP_HOST` | `127.0.0.1` | Host for `--transport http` |
+| `--http-port` | `SERVICENOW_MCP_HTTP_PORT` | `8000` | Port for `--transport http` |
+| `--http-path` | `SERVICENOW_MCP_HTTP_PATH` | `/mcp` | Streamable HTTP endpoint path |
+| `--http-allowed-hosts` | `SERVICENOW_MCP_HTTP_ALLOWED_HOSTS` | loopback hosts | Comma-separated Host allowlist for DNS rebinding protection |
+| `--http-disable-dns-rebinding-protection` | `SERVICENOW_MCP_HTTP_DISABLE_DNS_REBINDING_PROTECTION` | `false` | Disable DNS rebinding protection behind trusted network controls |
+| `--http-json-response` | `SERVICENOW_MCP_HTTP_JSON_RESPONSE` | `false` | Return JSON responses instead of SSE streams |
 | `--timeout` | `SERVICENOW_TIMEOUT` | `30` | HTTP request timeout (seconds) |
 | `--debug` | `SERVICENOW_DEBUG` | `false` | Enable debug logging |
+
+HTTP transport example:
+
+```bash
+servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
+```
+
+The MCP endpoint is `http://127.0.0.1:8000/mcp`; `/health` returns a lightweight health response.
+
+### Optional Multi-Instance Compare Mode
+
+Existing single-instance environment variables remain fully supported. Multi-instance mode is opt-in via one JSON env var:
+
+```bash
+export SERVICENOW_ACTIVE_INSTANCE=dev
+export SERVICENOW_INSTANCE_CONFIG='{
+  "dev": {
+    "url": "https://dev.service-now.com",
+    "role": "development",
+    "tool_package": "platform_developer",
+    "allow_writes": true
+  },
+  "test": {
+    "url": "https://test.service-now.com",
+    "role": "test",
+    "tool_package": "standard",
+    "allow_writes": false
+  }
+}'
+```
+
+Ordinary tools always route to `SERVICENOW_ACTIVE_INSTANCE`; there is no per-call instance selector on write-capable tools. Use `list_instances` to inspect configured aliases and `compare_instances` for read-only dev/test data comparisons. Missing auth details fall back to the existing `SERVICENOW_AUTH_TYPE`, browser/basic/OAuth/API key env vars, and `MCP_TOOL_PACKAGE` unless the active alias sets `tool_package`.
 
 ### Basic Auth
 

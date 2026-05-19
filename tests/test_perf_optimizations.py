@@ -579,6 +579,7 @@ class TestTupleCacheKeys:
         from servicenow_mcp.tools.sn_api import _cache_key
 
         key = _cache_key(
+            "https://dev.service-now.com",
             "incident",
             "active=true",
             "sys_id,name",
@@ -589,20 +590,38 @@ class TestTupleCacheKeys:
             orderby="number",
         )
         assert isinstance(key, tuple)
-        assert key[0] == "incident"
-        assert key[1] == "active=true"
+        assert key[0] == "https://dev.service-now.com"
+        assert key[1] == "incident"
+        assert key[2] == "active=true"
 
     def test_tuple_cache_key_distinct_for_different_params(self):
         """Different parameters must produce different keys."""
         from servicenow_mcp.tools.sn_api import _cache_key
 
         key1 = _cache_key(
-            "incident", "a=1", "sys_id", 10, 0, display_value=True, no_count=False, orderby=None
+            "https://dev.service-now.com",
+            "incident",
+            "a=1",
+            "sys_id",
+            10,
+            0,
+            display_value=True,
+            no_count=False,
+            orderby=None,
         )
         key2 = _cache_key(
-            "incident", "a=1", "sys_id", 10, 0, display_value=False, no_count=False, orderby=None
+            "https://dev.service-now.com",
+            "incident",
+            "a=1",
+            "sys_id",
+            10,
+            0,
+            display_value=False,
+            no_count=False,
+            orderby=None,
         )
         key3 = _cache_key(
+            "https://dev.service-now.com",
             "incident",
             "a=1",
             "sys_id",
@@ -614,9 +633,20 @@ class TestTupleCacheKeys:
         )
         assert key1 != key2
         assert key1 != key3
+        assert key1 != _cache_key(
+            "https://test.service-now.com",
+            "incident",
+            "a=1",
+            "sys_id",
+            10,
+            0,
+            display_value=True,
+            no_count=False,
+            orderby=None,
+        )
 
     def test_invalidate_by_table_works_with_tuple_keys(self):
-        """invalidate_query_cache(table=...) must match tuple keys by first element."""
+        """invalidate_query_cache(table=...) must match tuple keys by table element."""
         from servicenow_mcp.tools.sn_api import (
             _cache_get,
             _cache_key,
@@ -626,10 +656,26 @@ class TestTupleCacheKeys:
 
         invalidate_query_cache()
         k_inc = _cache_key(
-            "incident", "", "sys_id", 10, 0, display_value=False, no_count=False, orderby=None
+            "https://dev.service-now.com",
+            "incident",
+            "",
+            "sys_id",
+            10,
+            0,
+            display_value=False,
+            no_count=False,
+            orderby=None,
         )
         k_task = _cache_key(
-            "task", "", "sys_id", 10, 0, display_value=False, no_count=False, orderby=None
+            "https://dev.service-now.com",
+            "task",
+            "",
+            "sys_id",
+            10,
+            0,
+            display_value=False,
+            no_count=False,
+            orderby=None,
         )
         _cache_put(k_inc, "incident_data")
         _cache_put(k_task, "task_data")
