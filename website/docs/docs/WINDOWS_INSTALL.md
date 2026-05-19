@@ -32,47 +32,40 @@ install.ps1
 Extract the zip, then run:
 
 ```powershell
-.\install.ps1 `
-  -Client opencode `
-  -InstanceUrl "https://your-instance.service-now.com"
+.\install.ps1
 ```
 
-The installer copies files to `%LOCALAPPDATA%\servicenow-mcp` and runs:
+No flags required. The installer copies `servicenow-mcp.exe` to `%LOCALAPPDATA%\servicenow-mcp` and, if a `ms-playwright-chromium-*.zip` is in the same folder, extracts it into `%LOCALAPPDATA%\ms-playwright`. **It never touches your MCP client config** — that's intentional, so an existing `.mcp.json` / `~/.codex/config.toml` / `opencode.json` cannot be broken by a merge bug.
 
-```powershell
-$Exe = "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe"
-& $Exe setup opencode `
-  --server-command "$Exe" `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type browser `
-  --skip-chromium `
-  --skip-skills
-```
-
-That writes MCP config like:
+When the installer finishes, paste this snippet into your client config file by hand (Claude Code / Claude Desktop example):
 
 ```json
 {
   "mcpServers": {
     "servicenow": {
-      "command": "C:\\Users\\you\\AppData\\Local\\servicenow-mcp\\servicenow-mcp.exe",
+      "command": "C:/Users/you/AppData/Local/servicenow-mcp/servicenow-mcp.exe",
       "args": [],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false"
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_PASSWORD": "your-password",
+        "MCP_TOOL_PACKAGE": "standard"
       }
     }
   }
 }
 ```
 
+`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional — they pre-fill the MFA login form. Snippets for Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Gemini / Zed live in the [Client Setup Guide](CLIENT_SETUP.md).
+
 This keeps `uvx` out of runtime. Playwright Chromium still uses the standard browser cache at `%LOCALAPPDATA%\ms-playwright`.
 
-If Chromium is not installed and downloads are allowed, install Python from <https://www.python.org/downloads/>, install the Playwright version listed in `PLAYWRIGHT_VERSION.txt`, then run:
+If Chromium isn't installed and downloads are allowed, install Python from <https://www.python.org/downloads/>, then run:
 
 ```powershell
-py -m pip install "playwright==<version-from-PLAYWRIGHT_VERSION.txt>"
+py -m pip install playwright
 py -m playwright install chromium
 ```
 

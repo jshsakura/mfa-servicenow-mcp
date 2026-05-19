@@ -146,12 +146,17 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 <span class="c"># 2. (Optional) Drop the Chromium zip into the SAME folder, as-is:</span>
 <span class="c">#    ms-playwright-chromium-linux-x64-&lt;ver&gt;.zip</span>
 
-<span class="c"># 3. Run the installer (same flags on macOS / Linux):</span>
+<span class="c"># 3. Run the installer — no flags. It only copies the binary and</span>
+<span class="c">#    (if present) extracts the Chromium cache. It never edits your</span>
+<span class="c">#    MCP client config — you'll paste that by hand below.</span>
 cd ~/Downloads/servicenow-mcp-linux-x64-*
 chmod +x install.sh
-./install.sh --client opencode --instance-url "https://your-instance.service-now.com"
+./install.sh
 
-<span class="c"># 4. Verify, then restart your MCP client:</span>
+<span class="c"># 4. Paste the MCP config snippet from "Manual fallback" below into</span>
+<span class="c">#    your client config and set 'command' to:</span>
+<span class="c">#       ~/.local/bin/servicenow-mcp</span>
+<span class="c"># 5. Verify, then restart your MCP client:</span>
 ~/.local/bin/servicenow-mcp --version</code></pre>
           </div>
         </div>
@@ -165,18 +170,23 @@ chmod +x install.sh
 <span class="c"># 2. (Optional) Drop the Chromium zip into the SAME folder, as-is:</span>
 <span class="c">#    ms-playwright-chromium-windows-x64-&lt;ver&gt;.zip</span>
 
-<span class="c"># 3. Run the installer (same flags as Unix, PowerShell prefix):</span>
+<span class="c"># 3. Run the installer — no flags. It only copies the binary and</span>
+<span class="c">#    (if present) extracts the Chromium cache. It never edits your</span>
+<span class="c">#    MCP client config — you'll paste that by hand below.</span>
 cd $HOME\Downloads\servicenow-mcp-windows-x64-*
-.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
+.\install.ps1
 
-<span class="c"># 4. Verify, then restart your MCP client:</span>
+<span class="c"># 4. Paste the MCP config snippet from "Manual fallback" below into</span>
+<span class="c">#    your client config and set 'command' to:</span>
+<span class="c">#       %LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</span>
+<span class="c"># 5. Verify, then restart your MCP client:</span>
 & "$env:LOCALAPPDATA\servicenow-mcp\servicenow-mcp.exe" --version</code></pre>
           </div>
         </div>
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.8;">
-      Where files land — executable: <code>~/.local/bin/servicenow-mcp</code> (macOS/Linux) or <code>%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</code> (Windows). Chromium cache: <code>~/.cache/ms-playwright</code> (Linux), <code>~/Library/Caches/ms-playwright</code> (macOS), <code>%LOCALAPPDATA%\ms-playwright</code> (Windows). MCP config is written automatically to your chosen client's config file. Supported <code>CLIENT</code> values: <code>claude-code</code>, <code>claude-desktop</code>, <code>cursor</code>, <code>vscode-copilot</code>, <code>opencode</code>, <code>codex</code>, <code>windsurf</code>, <code>gemini</code>, <code>zed</code>, <code>antigravity</code>.
+      Where files land — executable: <code>~/.local/bin/servicenow-mcp</code> (macOS/Linux) or <code>%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe</code> (Windows). Chromium cache: <code>~/.cache/ms-playwright</code> (Linux), <code>~/Library/Caches/ms-playwright</code> (macOS), <code>%LOCALAPPDATA%\ms-playwright</code> (Windows). The installer never touches your MCP client config — paste the snippet from the <a href="#mcp-tabs">Manual fallback</a> section below into your client config by hand and set <code>command</code> to the executable path.
     </p>
 
     <div style="margin-top:56px;" class="reveal">

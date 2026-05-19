@@ -181,19 +181,19 @@ servicenow-mcp-linux-x64-1.13.5/
 
 #### 3단계 — 설치 스크립트 실행
 
-압축 푼 폴더로 이동해서 본인 OS에 맞는 명령을 실행하세요. **세 OS 모두 인자 형태가 동일** — 스크립트 이름과 플래그 접두문자(`-` vs `--`)만 다릅니다. 지원 `--client` 값: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
+압축 푼 폴더로 이동해 본인 OS 스크립트를 실행하세요. **플래그 필요 없음** — 설치 스크립트는 실행 파일 복사와 (있을 경우) Chromium 캐시 추출 두 가지만 합니다. 기존 `.mcp.json` / `config.toml` / `opencode.json` 등 사용자의 MCP 설정 파일은 **건드리지 않습니다** (잘못된 머지로 기존 설정 망가지는 사고 방지). 클라이언트 연결은 5단계에서 직접 복붙으로 합니다.
 
 ```powershell
 # Windows
-cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
-.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
+cd $HOME\Downloads\servicenow-mcp-windows-x64-*
+.\install.ps1
 ```
 
 ```bash
 # macOS / Linux
 cd ~/Downloads/servicenow-mcp-linux-x64-*
 chmod +x install.sh
-./install.sh --client opencode --instance-url "https://your-instance.service-now.com"
+./install.sh
 ```
 
 설치 스크립트가 하는 일:
@@ -205,9 +205,8 @@ chmod +x install.sh
    - Windows: `%LOCALAPPDATA%\ms-playwright`
    - macOS: `~/Library/Caches/ms-playwright`
    - Linux: `~/.cache/ms-playwright`
-3. **MCP 클라이언트 설정 자동 작성** — 선택한 클라이언트의 설정 파일(예: `~/.codex/config.toml`, `.mcp.json`, `opencode.json` 등)에 `servicenow` 항목을 추가하고 `command`를 위 1단계 경로로 지정.
 
-설치가 끝나면 **MCP 클라이언트를 재시작**하세요.
+종료 시 설치된 실행 파일 경로를 출력합니다 — 5단계에서 그 경로를 그대로 사용합니다.
 
 #### 4단계 — 동작 확인
 
@@ -221,9 +220,9 @@ chmod +x install.sh
 
 버전이 찍히면 바이너리는 정상. 이후 MCP 클라이언트에서 도구를 호출하면 브라우저 로그인이 한 번 뜨고 세션이 캐시됩니다.
 
-#### 5단계 — MCP 설정 (복붙용)
+#### 5단계 — MCP 클라이언트에 직접 연결 (복붙)
 
-설치 스크립트가 이미 클라이언트 설정에 항목을 추가했지만, 수동으로 점검·교체해야 한다면 아래를 그대로 복사하세요. `command`만 본인 OS의 실행 파일 경로로 바꾸면 됩니다. **env는 uvx 방식과 동일** — instance URL과 자격 증명만 본인 값으로 채우면 끝.
+설치 스크립트는 의도적으로 클라이언트 설정 파일을 **건드리지 않습니다**. 아래 스니펫 중 본인 클라이언트에 맞는 것을 그대로 설정 파일에 붙여넣으세요. `command`만 본인 OS의 실행 파일 경로로 바꾸면 됩니다. **env는 uvx 방식과 동일** — instance URL과 자격 증명만 본인 값으로 채우면 끝.
 
 **Claude Code** — `.mcp.json` (프로젝트 루트) / `~/.claude.json` (전역):
 

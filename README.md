@@ -183,22 +183,22 @@ servicenow-mcp-linux-x64-1.13.5/
 
 #### Step 3 — Run the installer
 
-`cd` into the extracted folder and run the script for your OS. The argument shape is the same across all platforms — only the script name and the flag-prefix character differ. Supported `--client` values: `claude-code`, `claude-desktop`, `cursor`, `vscode-copilot`, `opencode`, `codex`, `windsurf`, `gemini`, `zed`, `antigravity`.
+`cd` into the extracted folder and run the script for your OS. **No flags required** — by design the installer only copies the executable and (if present) extracts the Chromium cache; it never edits your MCP client config. That keeps an existing `.mcp.json` / `config.toml` / `opencode.json` safe from a merge bug. You wire up the client by hand in step 5.
 
 ```powershell
 # Windows
-cd $HOME\Downloads\servicenow-mcp-windows-x64-1.13.5
-.\install.ps1 -Client opencode -InstanceUrl "https://your-instance.service-now.com"
+cd $HOME\Downloads\servicenow-mcp-windows-x64-*
+.\install.ps1
 ```
 
 ```bash
 # macOS / Linux
 cd ~/Downloads/servicenow-mcp-linux-x64-*
 chmod +x install.sh
-./install.sh --client opencode --instance-url "https://your-instance.service-now.com"
+./install.sh
 ```
 
-The installer does three things:
+The installer does two things:
 
 1. **Copies the executable** to a permanent location.
    - Windows: `%LOCALAPPDATA%\servicenow-mcp\servicenow-mcp.exe` (override with `-InstallDir`)
@@ -207,9 +207,8 @@ The installer does three things:
    - Windows: `%LOCALAPPDATA%\ms-playwright`
    - macOS: `~/Library/Caches/ms-playwright`
    - Linux: `~/.cache/ms-playwright`
-3. **Writes MCP client config** — adds a `servicenow` entry to the chosen client's config file (e.g. `~/.codex/config.toml`, `.mcp.json`, `opencode.json`) with `command` pointing at the path from step 1.
 
-**Restart your MCP client** when the installer finishes.
+When it finishes it prints the installed executable path — keep that handy for step 5.
 
 #### Step 4 — Verify
 
@@ -223,9 +222,9 @@ The installer does three things:
 
 If the version prints, the binary is good. The first MCP tool call after that triggers a one-time browser login; the session is cached for reuse.
 
-#### Step 5 — MCP config (copy-paste)
+#### Step 5 — Wire it up in your MCP client (copy-paste)
 
-The installer already writes a `servicenow` entry into your client's config. If you ever need to inspect or fix it by hand, copy one of these — only `command` differs from the uvx setup, the `env` block is identical.
+The installer deliberately does **not** touch your client config — paste one of the snippets below into the file your client reads. Only `command` differs from the uvx setup; the `env` block is identical.
 
 **Claude Code** — `.mcp.json` (project root) / `~/.claude.json` (global):
 
