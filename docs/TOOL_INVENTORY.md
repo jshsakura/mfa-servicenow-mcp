@@ -176,7 +176,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 |------|-----|-------------|----------|
 | `sn_aggregate` | R | Run COUNT/SUM/AVG/MIN/MAX on any table with optional group_by. Returns stats without fetching records. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_discover` | R | Find tables by name or label keyword. Returns table name, label, scope, and parent class. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_health` | R | Check ServiceNow API connectivity, auth status, and return MCP server version. Triggers browser login on first use in... | core, standard, portal_developer, platform_developer, service_desk, full |
+| `sn_health` | R | Check ServiceNow API connectivity, auth status, Chromium install state (browser auth), and MCP server version. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_nl` | R | Convert natural language to sn_query/sn_schema/sn_aggregate calls. Parses intent and dispatches. | standard, portal_developer, platform_developer, service_desk, full |
 | `sn_query` | R | Generic table query; last resort only. Domain tools exist: flows->list_flow_designers, BR->search_server_code, WF->ma... | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_resolve_url` | R | Parse a ServiceNow URL → table, sys_id, scope, suggested next tool. Read-only. | core, standard, portal_developer, platform_developer, service_desk, full |
