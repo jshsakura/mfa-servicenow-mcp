@@ -100,7 +100,7 @@ class ManageFlowDesignerParams(BaseModel):
         "edit_status",
     ] = Field(
         ...,
-        description="Read: list/get_detail/get_executions/compare/edit_status. Write: update/checkout/set_*/save/discard.",
+        description="Writes (checkout/set_*/save/update/discard) need browser auth; rest are reads.",
     )
 
     # ---- Common ----
@@ -406,9 +406,8 @@ _DISPATCH = {
     name="manage_flow_designer",
     params=ManageFlowDesignerParams,
     description=(
-        "PRIMARY Flow Designer tool (sys_hub_flow). Read + edit. "
-        "Edit flow: checkout → set_* → save (publish=true). Browser auth for writes. "
-        "Never use sn_query for flows."
+        "Flow Designer (sys_hub_flow) read+edit. "
+        "Edit: checkout→set_*→save+publish. Browser auth to write."
     ),
     serialization="json",
     return_type=dict,

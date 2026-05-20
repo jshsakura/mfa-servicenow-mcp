@@ -500,7 +500,7 @@ def get_uncommitted_changes(
 class GetProviderDependencyMapParams(BaseModel):
     widget_ids: Optional[List[str]] = Field(
         default=None,
-        description="Widget sys_id, id, or name values to map. Strongly recommended for targeted queries.",
+        description="Widget sys_id/id/name to map. Strongly recommended for targeted queries.",
     )
     scope: Optional[str] = Field(
         default=None,

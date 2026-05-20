@@ -83,11 +83,7 @@ class DiffLocalComponentParams(BaseModel):
 
     path: str = Field(
         default=...,
-        description=(
-            "Path to a local file, widget directory, or download root directory. "
-            "File/widget dir: returns detailed unified diff. "
-            "Download root (contains _settings.json or scope dirs): returns change summary for all components."
-        ),
+        description="Local file, widget dir, or download root (file→diff, root→summary).",
     )
     context_lines: int = Field(
         default=3,
