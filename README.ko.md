@@ -200,7 +200,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_USERNAME": "your-username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
@@ -225,7 +225,7 @@ enabled = true
 SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
 SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
-SERVICENOW_USERNAME = "your.username"
+SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
 MCP_TOOL_PACKAGE = "standard"
 ```
@@ -244,7 +244,7 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_USERNAME": "your-username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
@@ -520,7 +520,7 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 
 ```bash
 # 일회 실행
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.11" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.12" servicenow-mcp --version
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
@@ -543,14 +543,14 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.11" servicenow-
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.11",
+        "--from", "mfa-servicenow-mcp==1.13.12",
         "servicenow-mcp"
       ],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_USERNAME": "your-username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
@@ -566,7 +566,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.11" servicenow-
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.11",
+  "--from", "mfa-servicenow-mcp==1.13.12",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -577,7 +577,7 @@ enabled = true
 SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
 SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
-SERVICENOW_USERNAME = "your.username"
+SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
 MCP_TOOL_PACKAGE = "standard"
 ```
@@ -593,7 +593,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.11",
+        "--from", "mfa-servicenow-mcp==1.13.12",
         "servicenow-mcp"
       ],
       "enabled": true,
@@ -601,7 +601,7 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_USERNAME": "your-username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
