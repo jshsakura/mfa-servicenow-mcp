@@ -160,17 +160,17 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 
 #### 2. 아래 폴더 구조로 풀기
 
-본인이 관리하는 안정적인 경로면 어디든 OK (`~/apps/servicenow-mcp/`, `D:\Tools\servicenow-mcp\` 등). Chromium zip을 풀 때 **타겟 폴더 이름을 `ms-playwright`** 로 지정해 실행 파일과 같은 부모 디렉토리에 두는 것이 핵심:
+본인이 관리하는 안정적인 경로면 어디든 OK (`~/apps/servicenow-mcp/`, `D:\Tools\servicenow-mcp\` 등). **zip은 미리 다 풀어두세요** — `.zip` 파일을 실행 파일 옆에 남겨두지 말고. Chromium zip을 푼 폴더 이름은 `ms-play`로 시작하고 안에 `chromium-*` 서브디렉토리만 있으면 OK — unzip 기본 동작이 만드는 이름 그대로 둬도 됩니다:
 
 ```
-~/apps/servicenow-mcp/             (본인이 정하는 경로)
-├── servicenow-mcp                 ← 플랫폼 zip에서 (Windows는 .exe)
-└── ms-playwright/                 ← Chromium zip을 여기에 풀기
-    └── chromium-1185/             (하나만 있으면 Playwright가 잡습니다)
+~/apps/servicenow-mcp/                                  (본인이 정하는 경로)
+├── servicenow-mcp                                      ← 플랫폼 zip에서 (Windows는 .exe)
+└── ms-playwright-chromium-linux-x64-1.13.7/            ← 기본 추출 이름 그대로 OK
+    └── chromium-1185/                                  (하나만 있으면 됩니다)
         └── …
 ```
 
-실행 파일이 시작될 때 자기 옆 `ms-playwright/` 폴더를 확인하고, `chromium-*` 디렉토리가 있으면 `PLAYWRIGHT_BROWSERS_PATH`를 그 경로로 설정합니다 — **현재 프로세스에만** 영향. 디스크에 아무것도 쓰지 않고, MCP 클라이언트 설정 파일도 절대 건드리지 않고, 시스템 표준 Playwright 캐시(`~/.cache/ms-playwright`, `%LOCALAPPDATA%\ms-playwright`) 도 건드리지 않습니다. Chromium 번들을 안 받았으면 Playwright 자체 탐색에 맡기거나 `playwright install chromium`을 별도로 돌리세요.
+정리해 두고 싶으면 폴더 이름을 `ms-playwright/`로 바꿔도 됩니다. 둘 다 동작 — 실행 파일이 시작 시 자기 옆 `ms-play*` 디렉토리를 글롭으로 찾고, 안에 `chromium-*` 서브디렉토리가 있으면 그 경로로 `PLAYWRIGHT_BROWSERS_PATH`를 **현재 프로세스에만** 설정합니다. 디스크에 아무것도 쓰지 않고, MCP 클라이언트 설정 파일도 절대 건드리지 않고, 시스템 표준 Playwright 캐시(`~/.cache/ms-playwright`, `%LOCALAPPDATA%\ms-playwright`) 도 건드리지 않습니다. Chromium 번들을 안 받았으면 Playwright 자체 탐색에 맡기거나 `playwright install chromium`을 별도로 돌리세요.
 
 #### 3. 동작 확인
 
@@ -511,7 +511,7 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 
 ```bash
 # 일회 실행
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.6" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.7" servicenow-mcp --version
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
@@ -534,7 +534,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.6" servicenow-m
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.6",
+        "--from", "mfa-servicenow-mcp==1.13.7",
         "servicenow-mcp"
       ],
       "env": {
@@ -557,7 +557,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.6" servicenow-m
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.6",
+  "--from", "mfa-servicenow-mcp==1.13.7",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -584,7 +584,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.6",
+        "--from", "mfa-servicenow-mcp==1.13.7",
         "servicenow-mcp"
       ],
       "enabled": true,
