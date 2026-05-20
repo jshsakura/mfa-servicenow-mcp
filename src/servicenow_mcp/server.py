@@ -95,6 +95,10 @@ INSTANCE_HELPER_TOOLS = {"list_instances", "compare_instances"}
 CONFIRM_FIELD = "confirm"
 CONFIRM_VALUE = "approve"
 
+# Reserved arg: route a single read-only call to a named non-active instance.
+# Stripped before the tool's Pydantic model sees it (like CONFIRM_FIELD).
+INSTANCE_FIELD = "instance"
+
 _TOOL_SCHEMA_CACHE: Dict[tuple[type[Any], str], Dict[str, Any]] = {}
 
 
@@ -844,6 +848,24 @@ class ServiceNowMCP:
         schema_with_confirm["required"] = required
         return schema_with_confirm
 
+    def _inject_instance_schema(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Advertise the optional read-only `instance` arg on read tools.
+
+        Only called in multi-instance mode for non-write tools. Lets the LLM
+        target a named non-active instance for a single read without switching
+        the server's active instance. The enum is the configured alias list.
+        """
+        aliases = sorted(self.instance_contexts)
+        schema_with_instance = {**schema}
+        properties = {**schema.get("properties", {})}
+        properties[INSTANCE_FIELD] = {
+            "type": "string",
+            "enum": aliases,
+            "description": "Read-only: target a named instance (default: active).",
+        }
+        schema_with_instance["properties"] = properties
+        return schema_with_instance
+
     def _augment_tool_description(self, tool_name: str, description: str) -> str:
         """Append confirmation notice and skill guide hint (if any) to description."""
         if self._tool_requires_confirmation(tool_name):
@@ -976,6 +998,11 @@ class ServiceNowMCP:
                         schema = _narrow_action_schema(schema, allowed, fields_by_action)
                     if self._tool_requires_confirmation(tool_name):
                         schema = self._inject_confirmation_schema(schema)
+                    elif self.instance_contexts:
+                        # Multi-instance: let read tools target a named instance.
+                        # Write tools (confirmation-requiring) are excluded — they
+                        # only ever run against the active instance.
+                        schema = self._inject_instance_schema(schema)
                     tool_list.append(
                         types.Tool(
                             name=tool_name,
@@ -1066,6 +1093,32 @@ class ServiceNowMCP:
         if name not in self.tool_definitions:
             raise ValueError(f"Unknown tool: {name}")
 
+        # Reserved `instance` arg: route this one read-only call to a named
+        # non-active instance (e.g. peek at test while active is dev). Write
+        # tools are never redirected — switching write targets needs a server
+        # restart with SERVICENOW_ACTIVE_INSTANCE. Resolve + strip here so the
+        # tool's Pydantic model never sees `instance`.
+        call_config = self.config
+        call_auth_manager = self.auth_manager
+        target_alias = arguments.pop(INSTANCE_FIELD, None)
+        if target_alias is not None:
+            target_alias = str(target_alias).strip()
+            ctx = self.instance_contexts.get(target_alias)
+            if not ctx:
+                available = sorted(self.instance_contexts) or ["(none configured)"]
+                raise ValueError(
+                    f"instance '{target_alias}' is not configured. "
+                    f"Set it in SERVICENOW_INSTANCE_CONFIG. Available: {available}."
+                )
+            if not self._is_read_only_call(name, arguments):
+                raise ValueError(
+                    f"instance routing is read-only — '{name}' is a write operation and "
+                    f"cannot be redirected to '{target_alias}'. To write there, restart the "
+                    f"server with SERVICENOW_ACTIVE_INSTANCE={target_alias}."
+                )
+            call_config = ctx["config"]
+            call_auth_manager = ctx["auth_manager"]
+
         # Per-package action allowlist: defense-in-depth against an LLM
         # invoking an action the schema didn't advertise. Runs before the
         # confirm gate so out-of-allowlist calls fail cleanly even if
@@ -1141,7 +1194,7 @@ class ServiceNowMCP:
         # requires execution on the thread that created its event loop. Running in
         # a separate thread causes crashes during MFA/SSO login flows.
         try:
-            result = impl_func(self.config, self.auth_manager, params)
+            result = impl_func(call_config, call_auth_manager, params)
             logger.debug(f"Raw result type from tool '{name}': {type(result)}")
         except Exception as e:
             logger.error(f"Error executing tool '{name}': {e}", exc_info=True)
@@ -1212,6 +1265,10 @@ class ServiceNowMCP:
             "instances": instances,
             "ordinary_tools_route_to": self.active_instance_meta.get("alias"),
             "compare_instances": "read_only",
+            "read_other_instance": (
+                "Pass instance=<alias> to any read tool (e.g. sn_query, sn_health) to run "
+                "that single read against a non-active instance. Writes stay on the active instance."
+            ),
         }
 
     @staticmethod

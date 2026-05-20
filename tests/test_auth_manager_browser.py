@@ -640,7 +640,9 @@ class TestCrossProcessSessionSync:
             session_token="SIBLING_ROTATED_g_ck",
         )
 
-        headers = manager.get_headers()
+        # Hermetic: the fast-path probe must not hit the network.
+        with patch.object(manager, "_is_browser_session_valid", return_value=True):
+            headers = manager.get_headers()
 
         assert headers.get("Cookie") == "OLD=COOKIE"
         assert headers.get("X-UserToken") == "SIBLING_ROTATED_g_ck"
@@ -1430,6 +1432,7 @@ class TestBrowserLoginRacePrevention:
                 side_effect=_restore_that_simulates_other_process_login,
             ),
             patch.object(manager, "_login_with_browser") as mock_login,
+            patch.object(manager, "_is_browser_session_valid", return_value=True),
         ):
             headers = manager.get_headers()
 
@@ -1455,6 +1458,7 @@ class TestBrowserLoginRacePrevention:
         with (
             patch.object(manager, "_try_restore_browser_session") as mock_restore,
             patch.object(manager, "_login_with_browser") as mock_login,
+            patch.object(manager, "_is_browser_session_valid", return_value=True),
         ):
             headers = manager.get_headers()
 
