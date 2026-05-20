@@ -378,17 +378,24 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 `MCP_TOOL_PACKAGE` controls which tools the server exposes. **Default: `standard`** — no config needed for most users.
 
 > [!WARNING]
-> **`full` is an advanced package for experienced users only.** It exposes all write tools across every domain simultaneously. An AI agent with `full` access can create, update, and delete records without domain constraints. Use the narrowest package that covers your actual work.
+> **Any package above `standard` grants write access and is an advanced option.** `service_desk`, `portal_developer`, `platform_developer`, and `full` all let an AI agent create, update, and delete records — `full` does so across every domain at once. Most users should stay on the read-only default `standard` and only opt up to the narrowest write package their task actually requires.
+
+Read-only (safe defaults):
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
 | `none` | 0 | Disabled profile for intentionally turning tools off |
 | `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
 | `standard` | 30 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 32 | standard + incident and change operational writes |
-| `portal_developer` | 42 | standard + portal, changeset, script include, and local-sync delivery workflows |
-| `platform_developer` | 46 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 61 | ⚠️ **Advanced only** — all write tools across all domains. See warning above. |
+
+⚠️ Write-capable (advanced — grants create/update/delete):
+
+| Package | Tools | Description |
+| :--- | :---: | :--- |
+| `service_desk` | 32 | ⚠️ standard + incident and change operational writes |
+| `portal_developer` | 42 | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `platform_developer` | 46 | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 61 | ⚠️ **Most advanced** — all write tools across all domains at once |
 
 Each server process is intentionally bound to one active ServiceNow instance for ordinary tools. For safety, there is no per-request write routing across instances.
 
@@ -518,7 +525,7 @@ Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is determinist
 
 ```bash
 # One-off run
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.10" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.11" servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
@@ -541,7 +548,7 @@ Choose one execution style:
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.10",
+        "--from", "mfa-servicenow-mcp==1.13.11",
         "servicenow-mcp"
       ],
       "env": {
@@ -564,7 +571,7 @@ Choose one execution style:
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.10",
+  "--from", "mfa-servicenow-mcp==1.13.11",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -591,7 +598,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.10",
+        "--from", "mfa-servicenow-mcp==1.13.11",
         "servicenow-mcp"
       ],
       "enabled": true,
