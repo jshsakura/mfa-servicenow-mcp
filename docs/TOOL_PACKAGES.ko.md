@@ -43,13 +43,13 @@
 환경변수로 설정 (권장):
 
 ```bash
-MCP_TOOL_PACKAGE=portal_developer
+MCP_TOOL_PACKAGE=standard
 ```
 
 CLI 플래그로 설정:
 
 ```bash
-servicenow-mcp --tool-package portal_developer --instance-url ...
+servicenow-mcp --tool-package standard --instance-url ...
 ```
 
 MCP 클라이언트 설정 파일:
@@ -57,7 +57,7 @@ MCP 클라이언트 설정 파일:
 ```json
 {
   "env": {
-    "MCP_TOOL_PACKAGE": "portal_developer"
+    "MCP_TOOL_PACKAGE": "standard"
   }
 }
 ```
