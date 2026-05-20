@@ -3120,6 +3120,11 @@ def download_app_sources(
         "source_types": all_type_results,
         "total_records": sum(r.get("count", 0) for r in all_type_results.values()),
         "total_files": all_files,
+        "next_step": (
+            f"Run audit_local_sources(source_root='{scope_root}') to build the "
+            "relationship graphs (_graph.json, _page_graph.json, _cross_references.json) "
+            "and answer dependency questions offline without further API calls."
+        ),
     }
     if widget_summary and widget_summary.get("success"):
         summary["widget_summary"] = widget_summary.get("summary")

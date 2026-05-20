@@ -195,6 +195,26 @@ class TestServerPackageLoading:
             ), f"{pkg}: {len(s.enabled_tool_names)} != {count}"
 
 
+class TestOfflineAnalysisInstruction:
+    """The local-graph reuse hint is surfaced via MCP instructions, gated to
+    packages that expose audit_local_sources."""
+
+    def test_standard_advertises_offline_reuse(self):
+        s = _server_with_package("standard")
+        s.start()
+        instructions = getattr(s.mcp_server, "instructions", "") or ""
+        assert "_graph.json" in instructions
+        assert "_page_graph.json" in instructions
+        assert "read the files directly" in instructions
+
+    def test_core_has_no_offline_hint(self):
+        # core has no audit_local_sources → no offline reuse hint.
+        s = _server_with_package("core")
+        s.start()
+        instructions = getattr(s.mcp_server, "instructions", "") or ""
+        assert "_graph.json" not in instructions
+
+
 class TestSchemaEmittedToLlm:
     def test_standard_emits_narrowed_action_enum_for_manage_workflow(self):
         s = _server_with_package("standard")

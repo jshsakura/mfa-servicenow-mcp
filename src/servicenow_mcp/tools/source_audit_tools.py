@@ -1356,6 +1356,26 @@ def audit_local_sources(
             domain_stats.get("path", ""),
             str(report_path),
         ],
+        # Tell the LLM these relationships are now on disk so it answers from the
+        # files instead of re-querying the instance with the live resolver tools.
+        "offline_analysis": {
+            "note": (
+                "Relationship data is on disk. For these questions read the file "
+                "directly — do NOT call the live resolver tools again:"
+            ),
+            "widget_to_provider": {
+                "file": str(scope_root / "_graph.json"),
+                "answers": "which Angular providers a widget uses (replaces get_provider_dependency_map)",
+            },
+            "page_to_widget": {
+                "file": str(scope_root / "_page_graph.json"),
+                "answers": "which widgets a page hosts (replaces resolve_page_dependencies)",
+            },
+            "call_graph": {
+                "file": str(scope_root / "_cross_references.json"),
+                "answers": "SI/table call chains, widget→SI refs (replaces resolve_widget_chain / extract_widget_table_dependencies)",
+            },
+        },
         "safety_notice": (
             "Pure local analysis — zero API calls. "
             "HTML report and JSON data files written to disk. "

@@ -965,3 +965,16 @@ class TestPageGraph:
         cross = json.loads((root / "_cross_references.json").read_text())
         assert "Home Widget" in cross["outgoing"]["landing"]["widgets"]
         assert any(r["name"] == "landing" for r in cross["incoming"]["Home Widget"])
+
+    def test_offline_analysis_hint_points_at_graph_files(self, config, auth, tmp_path):
+        root = tmp_path / "x_app"
+        self._tree(root)
+
+        result = audit_local_sources(config, auth, AuditAppSourcesParams(source_root=str(root)))
+
+        offline = result["offline_analysis"]
+        assert offline["widget_to_provider"]["file"].endswith("_graph.json")
+        assert offline["page_to_widget"]["file"].endswith("_page_graph.json")
+        assert offline["call_graph"]["file"].endswith("_cross_references.json")
+        # Steers away from re-querying live
+        assert "do NOT" in offline["note"] or "do not" in offline["note"].lower()
