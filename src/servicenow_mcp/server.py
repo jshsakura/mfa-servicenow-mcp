@@ -832,7 +832,7 @@ class ServiceNowMCP:
 
     @staticmethod
     def _tool_requires_confirmation(tool_name: str) -> bool:
-        return ServiceNowMCP._is_blocked_mutating_tool(tool_name) or tool_name == "sn_nl"
+        return ServiceNowMCP._is_blocked_mutating_tool(tool_name)
 
     @staticmethod
     def _inject_confirmation_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -1105,9 +1105,7 @@ class ServiceNowMCP:
         arguments = strip_guard_fields(arguments)
 
         # Safety check for mutating actions: require confirmation
-        requires_confirmation = self._is_blocked_mutating_tool(name) or (
-            name == "sn_nl" and bool(arguments.get("execute", False))
-        )
+        requires_confirmation = self._is_blocked_mutating_tool(name)
         # manage_X tools: bypass confirm for declared read-only sub-actions.
         # This keeps the prefix-based gate simple while still letting the
         # bundle host list/get without per-call confirm friction.
@@ -1193,8 +1191,6 @@ class ServiceNowMCP:
         return [types.TextContent(type="text", text=serialized_string)]
 
     def _is_read_only_call(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
-        if tool_name == "sn_nl":
-            return not bool(arguments.get("execute", False))
         if tool_name in MANAGE_READ_ACTIONS:
             return arguments.get("action") in MANAGE_READ_ACTIONS[tool_name]
         return not self._is_blocked_mutating_tool(tool_name)

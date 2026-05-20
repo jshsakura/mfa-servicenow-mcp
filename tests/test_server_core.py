@@ -256,7 +256,7 @@ class TestServiceNowMCPStatic:
 
     def test_tool_requires_confirmation(self):
         assert ServiceNowMCP._tool_requires_confirmation("update_record") is True
-        assert ServiceNowMCP._tool_requires_confirmation("sn_nl") is True
+        assert ServiceNowMCP._tool_requires_confirmation("sn_batch") is True
         assert ServiceNowMCP._tool_requires_confirmation("sn_query") is False
 
     def test_inject_confirmation_schema(self):
@@ -822,29 +822,6 @@ class TestCallToolImpl:
             result = await server._call_tool_impl("my_tool", {"x": 1})
             assert len(result) == 1
             assert "success" in result[0].text
-
-        asyncio.run(_check())
-
-    def test_call_sn_nl_with_execute_requires_confirmation(self):
-        import asyncio
-
-        from pydantic import BaseModel
-
-        class FakeNLParams(BaseModel):
-            text: str = "test"
-            execute: bool = False
-
-        def fake_impl(config, auth, params):
-            return {"ok": True}
-
-        server = self._make_server(
-            tool_defs={"sn_nl": (fake_impl, FakeNLParams, dict, "desc", "raw_dict")},
-            enabled=["sn_nl"],
-        )
-
-        async def _check():
-            with pytest.raises(ValueError, match="modify or delete"):
-                await server._call_tool_impl("sn_nl", {"text": "test", "execute": True})
 
         asyncio.run(_check())
 

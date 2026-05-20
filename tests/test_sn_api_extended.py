@@ -10,7 +10,6 @@ from servicenow_mcp.tools.sn_api import (
     DiscoverParams,
     GenericQueryParams,
     HealthCheckParams,
-    NaturalLanguageParams,
     SchemaParams,
     _safe_json,
     apply_payload_safety,
@@ -19,7 +18,6 @@ from servicenow_mcp.tools.sn_api import (
     sn_count,
     sn_discover,
     sn_health,
-    sn_nl,
     sn_query,
     sn_query_all,
     sn_query_page,
@@ -645,105 +643,6 @@ class TestSnHealth:
             setup(auth)
             result = sn_health(config, auth, HealthCheckParams())
             assert result["version"] == __version__
-
-
-# ---------------------------------------------------------------------------
-# sn_nl (natural language)
-# ---------------------------------------------------------------------------
-
-
-class TestSnNl:
-    def test_count_intent(self):
-        config = _make_config()
-        auth = MagicMock()
-        resp = _mock_response({"result": {"stats": {"count": "10"}}})
-        auth.make_request.return_value = resp
-        params = NaturalLanguageParams(text="how many incidents are there?")
-        result = sn_nl(config, auth, params)
-        assert result["success"] is True
-
-    def test_schema_intent(self):
-        config = _make_config()
-        auth = MagicMock()
-        resp = _mock_response(
-            {
-                "result": [
-                    {
-                        "element": "number",
-                        "column_label": "Number",
-                        "internal_type": "string",
-                        "max_length": "40",
-                        "mandatory": "true",
-                        "reference": "",
-                    }
-                ]
-            }
-        )
-        auth.make_request.return_value = resp
-        params = NaturalLanguageParams(text="describe the fields of incident")
-        result = sn_nl(config, auth, params)
-        assert result["success"] is True
-
-    def test_delete_blocked(self):
-        config = _make_config()
-        auth = MagicMock()
-        params = NaturalLanguageParams(text="delete all incidents")
-        result = sn_nl(config, auth, params)
-        assert result["success"] is False
-        assert "blocked" in result["message"].lower()
-
-    def test_create_without_execute(self):
-        config = _make_config()
-        auth = MagicMock()
-        params = NaturalLanguageParams(text="create a new incident", execute=False)
-        result = sn_nl(config, auth, params)
-        assert result["executed"] is False
-
-    def test_query_with_priority(self):
-        config = _make_config()
-        auth = MagicMock()
-        resp = _mock_response({"result": []}, headers={"X-Total-Count": "0"})
-        auth.make_request.return_value = resp
-        params = NaturalLanguageParams(text="show me p1 incidents")
-        result = sn_nl(config, auth, params)
-        assert result["success"] is True
-
-    def test_query_with_closed(self):
-        config = _make_config()
-        auth = MagicMock()
-        resp = _mock_response({"result": []}, headers={"X-Total-Count": "0"})
-        auth.make_request.return_value = resp
-        params = NaturalLanguageParams(text="show closed problems")
-        result = sn_nl(config, auth, params)
-        assert result["success"] is True
-
-    def test_reference_number(self):
-        config = _make_config()
-        auth = MagicMock()
-        resp = _mock_response({"result": []}, headers={"X-Total-Count": "0"})
-        auth.make_request.return_value = resp
-        params = NaturalLanguageParams(text="find inc0012345")
-        result = sn_nl(config, auth, params)
-        assert result["success"] is True
-
-    def test_table_aliases(self):
-        config = _make_config()
-        auth = MagicMock()
-        resp = _mock_response({"result": {"stats": {"count": "1"}}})
-        auth.make_request.return_value = resp
-        # "changes" should map to "change_request"
-        params = NaturalLanguageParams(text="count changes")
-        result = sn_nl(config, auth, params)
-        assert result["table"] == "change_request"
-
-    def test_unknown_table_defaults_to_incident(self):
-        config = _make_config()
-        auth = MagicMock()
-        resp = _mock_response({"result": {"stats": {"count": "0"}}})
-        auth.make_request.return_value = resp
-        params = NaturalLanguageParams(text="count foobar")
-        result = sn_nl(config, auth, params)
-        assert result["table"] == "incident"
 
 
 # ---------------------------------------------------------------------------
