@@ -618,6 +618,125 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
     assert (scope_root / "sys_script_include" / "_map.json").exists()
 
 
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_page")
+def test_download_portal_sources_persists_widget_provider_graph(
+    mock_sn_query_page, mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
+):
+    import json
+
+    mock_sn_query_all.side_effect = [
+        [
+            {
+                "sys_id": "wid-1",
+                "name": "Quotation Widget",
+                "id": "quotation_widget",
+                "sys_scope": "x_myapp",
+                "template": "<div>ok</div>",
+                "script": "",
+                "client_script": "",
+                "link": "",
+                "css": "",
+                "option_schema": "",
+                "demo_data": "",
+            }
+        ],
+        [{"sp_widget": {"value": "wid-1"}, "sp_angular_provider": {"value": "prov-1"}}],
+        [{"sys_id": "prov-1", "name": "quotationService"}],
+        [],
+    ]
+    mock_sn_query_page.return_value = ([{"script": "factory('quotationService');"}], None)
+
+    result = download_portal_sources(
+        mock_config,
+        mock_auth_manager,
+        DownloadPortalSourcesParams(
+            output_dir=str(tmp_path / "x_myapp"),
+            scope="x_myapp",
+            include_linked_script_includes=False,
+            include_linked_angular_providers=True,
+        ),
+    )
+
+    assert result["success"] is True
+    graph_path = tmp_path / "x_myapp" / "_graph.json"
+    assert graph_path.exists()
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    # Authoritative M2M edge, keyed by widget name -> provider names
+    assert graph == {"Quotation Widget": ["quotationService"]}
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+def test_download_portal_sources_incremental_filters_by_sys_updated_on(
+    mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
+):
+    import json
+
+    scope_root = tmp_path / "x_myapp"
+    sync_meta = scope_root / "sp_widget" / "_sync_meta.json"
+    sync_meta.parent.mkdir(parents=True, exist_ok=True)
+    sync_meta.write_text(
+        json.dumps({"old_widget": {"sys_id": "wid-0", "sys_updated_on": "2026-05-01 00:00:00"}}),
+        encoding="utf-8",
+    )
+
+    # widget query (incremental), then M2M, then provider-delta query
+    mock_sn_query_all.side_effect = [[], [], []]
+
+    result = download_portal_sources(
+        mock_config,
+        mock_auth_manager,
+        DownloadPortalSourcesParams(
+            output_dir=str(scope_root),
+            scope="x_myapp",
+            include_linked_script_includes=False,
+            include_linked_angular_providers=True,
+            incremental=True,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["incremental"] is True
+    widget_query = mock_sn_query_all.call_args_list[0].kwargs["query"]
+    assert "sys_updated_on>=2026-05-01 00:00:00" in widget_query
+    assert "sys_scope.scope=x_myapp" in widget_query
+    assert any("incremental" in w for w in result["warnings"])
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+def test_download_portal_sources_reconcile_warns_about_deletions(
+    mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
+):
+    import json
+
+    scope_root = tmp_path / "x_myapp"
+    widget_map = scope_root / "sp_widget" / "_map.json"
+    widget_map.parent.mkdir(parents=True, exist_ok=True)
+    widget_map.write_text(
+        json.dumps({"ghost_widget": "wid-gone", "live_widget": "wid-live"}),
+        encoding="utf-8",
+    )
+
+    # widget query (full, returns none), then reconcile sys_id list (only wid-live remains)
+    mock_sn_query_all.side_effect = [[], [{"sys_id": "wid-live"}]]
+
+    result = download_portal_sources(
+        mock_config,
+        mock_auth_manager,
+        DownloadPortalSourcesParams(
+            output_dir=str(scope_root),
+            scope="x_myapp",
+            include_linked_script_includes=False,
+            include_linked_angular_providers=True,
+            reconcile_deletions=True,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["deleted_widget_candidates"] == ["wid-gone"]
+    assert any("reconcile" in w and "wid-gone" in w for w in result["warnings"])
+
+
 @patch("servicenow_mcp.tools.portal_tools._sn_query_all")
 def test_download_portal_sources_batches_targeted_widget_fetches(
     mock_sn_query_all, mock_config, mock_auth_manager, tmp_path

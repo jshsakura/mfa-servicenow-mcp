@@ -872,3 +872,42 @@ class TestAuditLocalSources:
         assert result["summary"]["execution_order_tables"] >= 1
         exec_order = json.loads((root / "_execution_order.json").read_text())
         assert "x_app_request" in exec_order
+
+
+class TestGraphEdgeMerge:
+    """_graph.json (authoritative M2M edges) merges into cross-references."""
+
+    def _tree_with_graph(self, root: Path, graph: dict):
+        # Widget whose script does NOT textually mention the provider, so only
+        # the authoritative _graph.json can link them.
+        _write(
+            root / "sp_widget" / "quote_widget" / "_widget.json",
+            {"sys_id": "wid-1", "name": "Quote Widget", "tableName": "sp_widget"},
+        )
+        _write(root / "sp_widget" / "quote_widget" / "script.js", "data.x = 1;")
+        _write(
+            root / "sp_angular_provider" / "quotationService.script.js",
+            "factory('quotationService', function(){});",
+        )
+        _write(root / "sp_angular_provider" / "_map.json", {"quotationService": "prov-1"})
+        _write(root / "_graph.json", graph)
+
+    def test_authoritative_edge_added_to_cross_refs(self, tmp_path):
+        root = tmp_path / "x_app"
+        self._tree_with_graph(root, {"Quote Widget": ["quotationService"]})
+
+        index = _scan_source_index(root)
+        cross = _build_cross_references(root, index)
+
+        assert "quotationService" in cross["outgoing"]["Quote Widget"]["providers"]
+        assert any(s["name"] == "Quote Widget" for s in cross["incoming"]["quotationService"])
+
+    def test_missing_graph_is_noop(self, tmp_path):
+        root = tmp_path / "x_app"
+        self._tree_with_graph(root, {})
+        (root / "_graph.json").unlink()
+
+        index = _scan_source_index(root)
+        cross = _build_cross_references(root, index)
+
+        assert cross["outgoing"]["Quote Widget"].get("providers", []) == []

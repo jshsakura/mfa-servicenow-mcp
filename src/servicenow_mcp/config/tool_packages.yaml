@@ -62,7 +62,6 @@ standard:
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
-  - detect_angular_implicit_globals
   - get_provider_dependency_map
   - analyze_widget_performance
   - extract_widget_table_dependencies
@@ -174,6 +173,8 @@ full:
     - reject_change
     # Flow Designer — full action surface
     - manage_flow_designer
+    # Portal debugging (specialized read — moved out of standard)
+    - detect_angular_implicit_globals
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update
