@@ -314,11 +314,11 @@ TTL을 변경하려면 `--browser-session-ttl` 옵션을 사용하세요 (단위
 | 패키지 | 도구 수 | 설명 |
 |--------|:------:|------|
 | `core` | 12 | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
-| `standard` | 30 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 전반의 읽기 전용 패키지 |
-| `service_desk` | 32 | standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 42 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
-| `platform_developer` | 46 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 61 | 가장 넓은 패키지 표면: 번들 `manage_*` 워크플로우 + 고급 운영 도구 |
+| `standard` | 29 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 전반의 읽기 전용 패키지 |
+| `service_desk` | 31 | standard + 인시던트/변경 운영 쓰기 |
+| `portal_developer` | 39 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
+| `platform_developer` | 45 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `full` | 59 | 가장 넓은 패키지 표면: 번들 `manage_*` 워크플로우 + 고급 운영 도구 |
 
 수정 권한이 필요하면 `MCP_TOOL_PACKAGE` 값만 바꾸면 됩니다:
 
