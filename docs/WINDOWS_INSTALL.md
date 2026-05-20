@@ -314,24 +314,24 @@ Set `MCP_TOOL_PACKAGE` to choose a tool set. Default: `standard` (read-only).
 | Package | Tools | Description |
 |---------|:-----:|-------------|
 | `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key lookups |
-| `standard` | 31 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 33 | standard + incident and change operational writes |
-| `portal_developer` | 43 | standard + portal, changeset, script include, and local-sync delivery workflows |
-| `platform_developer` | 47 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 62 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
+| `standard` | 30 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 32 | standard + incident and change operational writes |
+| `portal_developer` | 42 | standard + portal, changeset, script include, and local-sync delivery workflows |
+| `platform_developer` | 46 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 61 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
 
 To change, update the `MCP_TOOL_PACKAGE` value:
 
 JSON clients (Claude Desktop, AntiGravity):
 ```json
 "env": {
-  "MCP_TOOL_PACKAGE": "portal_developer"
+  "MCP_TOOL_PACKAGE": "standard"
 }
 ```
 
 TOML clients (Codex) — add inside the `args` array:
 ```toml
-"--tool-package", "portal_developer",
+"--tool-package", "standard",
 ```
 
 ---
