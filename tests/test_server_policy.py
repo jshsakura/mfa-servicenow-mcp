@@ -22,7 +22,6 @@ def _build_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNowMCP:
                 "approval_query_only:",
                 "  - approve_change",
                 "  - manage_incident",
-                "  - sn_nl",
             ]
         )
     )
@@ -70,16 +69,6 @@ def test_list_tools_injects_confirm_field_for_mutating_tools(
     assert confirm_schema["description"] == "Pass 'approve' for writes."
     assert "confirm" in manage_incident_schema["required"]
     assert "confirm='approve'" in (tools["manage_incident"].description or "")
-
-
-def test_list_tools_injects_confirm_field_for_sn_nl(monkeypatch: pytest.MonkeyPatch, tmp_path):
-    server = _build_server(monkeypatch, tmp_path)
-
-    tools = {tool.name: tool for tool in asyncio.run(server._list_tools_impl())}
-
-    sn_nl_schema = tools["sn_nl"].inputSchema
-    assert sn_nl_schema["properties"]["confirm"]["enum"] == ["approve"]
-    assert "confirm='approve'" in (tools["sn_nl"].description or "")
 
 
 def test_call_tool_blocks_mutating_tool_without_confirmation(
@@ -140,67 +129,6 @@ def test_call_tool_allows_mutating_tool_with_confirmation(
             },
         )
     )
-
-    assert called["value"] is True
-
-
-def test_call_tool_blocks_sn_nl_execute_true_without_confirmation(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-):
-    server = _build_server(monkeypatch, tmp_path)
-
-    with pytest.raises(ValueError, match="confirm='approve'"):
-        asyncio.run(server._call_tool_impl("sn_nl", {"text": "create incident", "execute": True}))
-
-
-def test_call_tool_allows_sn_nl_execute_true_with_confirmation(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-):
-    server = _build_server(monkeypatch, tmp_path)
-
-    called = {"value": False}
-
-    def should_run(_config, _auth_manager, _params):
-        called["value"] = True
-        return {"ok": True}
-
-    # Add dummy sn_nl implementation for testing
-    server.tool_definitions["sn_nl"] = (
-        should_run,
-        EmptyParams,
-        dict,
-        "sn_nl_with_exec",
-        "raw_dict",
-    )
-
-    asyncio.run(
-        server._call_tool_impl(
-            "sn_nl", {"text": "create incident", "execute": True, "confirm": "approve"}
-        )
-    )
-    assert called["value"] is True
-
-
-def test_call_tool_allows_sn_nl_execute_false_without_confirmation(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-):
-    server = _build_server(monkeypatch, tmp_path)
-
-    called = {"value": False}
-
-    def should_run(_config, _auth_manager, _params):
-        called["value"] = True
-        return {"ok": True}
-
-    server.tool_definitions["sn_nl"] = (
-        should_run,
-        EmptyParams,
-        dict,
-        "sn_nl_read_only",
-        "raw_dict",
-    )
-
-    asyncio.run(server._call_tool_impl("sn_nl", {"text": "list incidents", "execute": False}))
 
     assert called["value"] is True
 

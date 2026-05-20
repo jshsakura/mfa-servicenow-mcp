@@ -76,7 +76,7 @@ Restart the MCP client so it loads the new config. The first browser-authenticat
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **73 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **72 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **16 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
@@ -384,11 +384,11 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 | :--- | :---: | :--- |
 | `none` | 0 | Disabled profile for intentionally turning tools off |
 | `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 31 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 33 | standard + incident and change operational writes |
-| `portal_developer` | 43 | standard + portal, changeset, script include, and local-sync delivery workflows |
-| `platform_developer` | 47 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 62 | ⚠️ **Advanced only** — all write tools across all domains. See warning above. |
+| `standard` | 30 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 32 | standard + incident and change operational writes |
+| `portal_developer` | 42 | standard + portal, changeset, script include, and local-sync delivery workflows |
+| `platform_developer` | 46 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 61 | ⚠️ **Advanced only** — all write tools across all domains. See warning above. |
 
 Each server process is intentionally bound to one active ServiceNow instance for ordinary tools. For safety, there is no per-request write routing across instances.
 
@@ -516,7 +516,7 @@ Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is determinist
 
 ```bash
 # One-off run
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.7" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.8" servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
@@ -539,7 +539,7 @@ Choose one execution style:
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.7",
+        "--from", "mfa-servicenow-mcp==1.13.8",
         "servicenow-mcp"
       ],
       "env": {
@@ -562,7 +562,7 @@ Choose one execution style:
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.7",
+  "--from", "mfa-servicenow-mcp==1.13.8",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -589,7 +589,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.7",
+        "--from", "mfa-servicenow-mcp==1.13.8",
         "servicenow-mcp"
       ],
       "enabled": true,
