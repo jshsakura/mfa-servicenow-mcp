@@ -373,17 +373,24 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 `MCP_TOOL_PACKAGE`로 서버가 노출할 도구 세트를 선택합니다. **기본값: `standard`** — 대부분의 사용자는 별도 설정이 필요 없습니다.
 
 > [!WARNING]
-> **`full`은 숙련된 사용자 전용 고급 패키지입니다.** 모든 도메인의 쓰기 도구를 동시에 노출하며, AI 에이전트가 도메인 제약 없이 레코드를 생성·수정·삭제할 수 있습니다. 실제 작업에 필요한 가장 좁은 패키지를 선택하세요.
+> **`standard` 위의 패키지는 전부 쓰기 권한을 부여하는 고급 옵션입니다.** `service_desk`, `portal_developer`, `platform_developer`, `full` 모두 AI 에이전트가 레코드를 생성·수정·삭제할 수 있게 하며, `full`은 모든 도메인에서 동시에 가능합니다. 대부분의 사용자는 읽기 전용 기본값 `standard`에 머물고, 작업에 꼭 필요한 가장 좁은 쓰기 패키지로만 올리세요.
+
+읽기 전용 (안전한 기본값):
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
 | `none` | 0 | 도구를 의도적으로 비활성화하는 프로필 |
 | `core` | 12 | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
 | `standard` | 30 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
-| `service_desk` | 32 | standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 42 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
-| `platform_developer` | 46 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 61 | ⚠️ **고급 전용** — 모든 도메인의 쓰기 도구 전체. 위 경고 참고. |
+
+⚠️ 쓰기 가능 (고급 — 생성/수정/삭제 권한 부여):
+
+| 패키지명 | 도구 수 | 설명 |
+| :--- | :---: | :--- |
+| `service_desk` | 32 | ⚠️ standard + 인시던트/변경 운영 쓰기 |
+| `portal_developer` | 42 | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
+| `platform_developer` | 46 | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `full` | 61 | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
 
 일반 도구는 서버 프로세스 하나당 하나의 active ServiceNow 인스턴스에만 연결됩니다. 안전을 위해 요청별 쓰기 라우팅으로 인스턴스를 오가는 방식은 지원하지 않습니다.
 
@@ -513,7 +520,7 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 
 ```bash
 # 일회 실행
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.10" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.11" servicenow-mcp --version
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
@@ -536,7 +543,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.10" servicenow-
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.10",
+        "--from", "mfa-servicenow-mcp==1.13.11",
         "servicenow-mcp"
       ],
       "env": {
@@ -559,7 +566,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.10" servicenow-
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.10",
+  "--from", "mfa-servicenow-mcp==1.13.11",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -586,7 +593,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.10",
+        "--from", "mfa-servicenow-mcp==1.13.11",
         "servicenow-mcp"
       ],
       "enabled": true,
