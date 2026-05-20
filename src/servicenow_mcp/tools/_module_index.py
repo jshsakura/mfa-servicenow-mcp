@@ -12,7 +12,6 @@ TOOL_MODULE_INDEX = {
     "audit_pending_changes": "audit_tools",
     "create_category": "knowledge_base",
     "create_knowledge_base": "knowledge_base",
-    "create_portal_component_snapshot": "portal_tools",
     "detect_angular_implicit_globals": "portal_tools",
     "diff_local_component": "sync_tools",
     "download_admin_scripts": "source_tools",
@@ -75,6 +74,5 @@ TOOL_MODULE_INDEX = {
     "sn_write": "sn_api",
     "submit_change_for_approval": "change_tools",
     "trace_portal_route_targets": "portal_tools",
-    "update_portal_component_from_snapshot": "portal_tools",
     "update_remote_from_local": "sync_tools",
 }

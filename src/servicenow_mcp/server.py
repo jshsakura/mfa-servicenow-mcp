@@ -1447,6 +1447,22 @@ class ServiceNowMCP:
         logger.info(
             "ServiceNowMCP instance configured. Returning low-level server instance for external execution."
         )
+        # Canonical local-sync workflow, stated once via MCP `instructions`
+        # (cheaper than repeating it in every sync tool's description) so the
+        # LLM stops fumbling the edit/diff/push order or touching only one file.
+        # Gated to packages that actually expose the push tool — core/standard
+        # users never see sync tools, so they shouldn't pay for this hint.
+        if "update_remote_from_local" in self.enabled_tool_names:
+            sync_flow = (
+                "Local source edit flow: (1) download the component to disk, "
+                "(2) edit the file(s) — a widget has template.html, css.scss, "
+                "client_script.js, link.js AND script.js; change every file the task "
+                "needs, not just script.js, (3) run diff_local_component to review, "
+                "(4) update_remote_from_local to push. Never push without diffing first."
+            )
+            existing = getattr(self.mcp_server, "instructions", None) or ""
+            self.mcp_server.instructions = f"{existing}\n\n{sync_flow}" if existing else sync_flow
+
         # When browser auth is selected and Chromium is missing, surface a
         # clear notice through MCP `instructions` so the client/LLM sees the
         # exact remediation command on the initialize response — instead of

@@ -16,10 +16,8 @@ def _build_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNowMCP:
                 "  - get_widget_bundle",
                 "  - route_portal_component_edit",
                 "  - analyze_portal_component_update",
-                "  - create_portal_component_snapshot",
                 "  - preview_portal_component_update",
                 "  - manage_portal_component",
-                "  - update_portal_component_from_snapshot",
             ]
         )
     )
@@ -50,10 +48,8 @@ def test_server_loads_portal_tools(monkeypatch: pytest.MonkeyPatch, tmp_path):
     assert "get_widget_bundle" in names
     assert "route_portal_component_edit" in names
     assert "analyze_portal_component_update" in names
-    assert "create_portal_component_snapshot" in names
     assert "preview_portal_component_update" in names
     assert "manage_portal_component" in names
-    assert "update_portal_component_from_snapshot" in names
 
 
 def test_server_blocks_update_without_confirmation(monkeypatch: pytest.MonkeyPatch, tmp_path):
@@ -101,17 +97,3 @@ def test_server_allows_update_with_confirmation(monkeypatch: pytest.MonkeyPatch,
     )
 
     assert result[0].text == '{"message":"Success"}'
-
-
-def test_server_blocks_snapshot_restore_without_confirmation(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-):
-    server = _build_server(monkeypatch, tmp_path)
-
-    with pytest.raises(ValueError, match="confirm='approve'"):
-        asyncio.run(
-            server._call_tool_impl(
-                "update_portal_component_from_snapshot",
-                {"snapshot_path": "/tmp/example-snapshot.json"},
-            )
-        )

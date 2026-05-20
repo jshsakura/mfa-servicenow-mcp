@@ -1,6 +1,5 @@
 """Extra tests for portal_tools.py — covering missed branches and helper functions."""
 
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +12,6 @@ from servicenow_mcp.tools.portal_tools import (
     GetWidgetBundleParams,
     ResolvePageDependenciesParams,
     ResolveWidgetChainParams,
-    RoutePortalComponentEditParams,
     SearchPortalRegexMatchesParams,
     TracePortalRouteTargetsParams,
     UpdatePortalComponentParams,
@@ -44,11 +42,9 @@ from servicenow_mcp.tools.portal_tools import (
     _match_location,
     _normalize_portal_component_table,
     _parse_attributes,
-    _read_portal_component_snapshot,
     _resolve_fixed_output_mode,
     _resolve_match_mode,
     _resolve_output_mode,
-    _resolve_snapshot_fields,
     _route_target_summary,
     _safe_name,
     _shape_route_trace,
@@ -64,7 +60,6 @@ from servicenow_mcp.tools.portal_tools import (
     get_widget_bundle,
     resolve_page_dependencies,
     resolve_widget_chain,
-    route_portal_component_edit,
     search_portal_regex_matches,
     trace_portal_route_targets,
     update_portal_component,
@@ -176,66 +171,6 @@ class TestBuildPortalUpdateRisks:
             [{"field": "script", "changed": True, "delta_length": 3000}],
         )
         assert any("large content change" in r.lower() for r in risks)
-
-
-# ---------------------------------------------------------------------------
-# _resolve_snapshot_fields — lines 562, 566-567
-# ---------------------------------------------------------------------------
-
-
-class TestResolveSnapshotFields:
-    def test_none_fields_returns_all_allowed(self):
-        result = _resolve_snapshot_fields("sp_widget", None)
-        assert len(result) > 0
-
-    def test_invalid_fields_raises(self):
-        with pytest.raises(ValueError, match="Unsupported snapshot fields"):
-            _resolve_snapshot_fields("sp_widget", ["nonexistent_field"])
-
-
-# ---------------------------------------------------------------------------
-# _read_portal_component_snapshot — lines 614, 625, 630, 635
-# ---------------------------------------------------------------------------
-
-
-class TestReadPortalComponentSnapshot:
-    def test_missing_file_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="Snapshot file not found"):
-            _read_portal_component_snapshot(str(tmp_path / "nonexistent.json"))
-
-    def test_invalid_snapshot_format_raises(self, tmp_path):
-        bad = tmp_path / "bad.json"
-        bad.write_text(json.dumps({"component": "not a dict"}))
-        with pytest.raises(ValueError, match="Invalid snapshot format"):
-            _read_portal_component_snapshot(str(bad))
-
-    def test_missing_table_sys_id_raises(self, tmp_path):
-        snap = tmp_path / "snap.json"
-        snap.write_text(
-            json.dumps(
-                {
-                    "component": {"table": "", "sys_id": ""},
-                    "values": {},
-                    "fields": [],
-                }
-            )
-        )
-        with pytest.raises(ValueError, match="Invalid snapshot component metadata"):
-            _read_portal_component_snapshot(str(snap))
-
-    def test_non_string_value_raises(self, tmp_path):
-        snap = tmp_path / "snap.json"
-        snap.write_text(
-            json.dumps(
-                {
-                    "component": {"table": "sp_widget", "sys_id": "abc"},
-                    "values": {"script": 123},
-                    "fields": ["script"],
-                }
-            )
-        )
-        with pytest.raises(ValueError, match="must be a string"):
-            _read_portal_component_snapshot(str(snap))
 
 
 # ---------------------------------------------------------------------------
@@ -785,63 +720,6 @@ class TestGetPortalComponentCode:
         )
         # Non-string value should be skipped in budget tracking
         assert result["script"] == 12345
-
-
-# ---------------------------------------------------------------------------
-# route_portal_component_edit — lines 2066-2067 (invalid table)
-# ---------------------------------------------------------------------------
-
-
-class TestRoutePortalComponentEdit:
-    def test_rollback_with_snapshot_path_in_target(self):
-        result = route_portal_component_edit(
-            MagicMock(),
-            MagicMock(),
-            RoutePortalComponentEditParams(
-                instruction="rollback the changes",
-                table="sp_widget",
-                snapshot_path="/tmp/snap.json",
-            ),
-        )
-        assert result["detected_action"] == "rollback"
-        assert result["target"]["table"] == "sp_widget"
-        assert result["target"]["snapshot_path"] == "/tmp/snap.json"
-
-    def test_snapshot_action_with_suggested_fields(self):
-        result = route_portal_component_edit(
-            MagicMock(),
-            MagicMock(),
-            RoutePortalComponentEditParams(
-                instruction="take a snapshot of the widget template",
-                table="sp_widget",
-                sys_id="abc123",
-            ),
-        )
-        assert result["detected_action"] == "snapshot"
-        assert result["tool_plan"]["tool_name"] == "create_portal_component_snapshot"
-        assert "template" in result["suggested_fields"]
-
-    def test_snapshot_action_without_table(self):
-        result = route_portal_component_edit(
-            MagicMock(),
-            MagicMock(),
-            RoutePortalComponentEditParams(
-                instruction="take a snapshot backup",
-            ),
-        )
-        assert result["detected_action"] == "snapshot"
-        assert result["tool_plan"]["missing_requirements"] == ["table", "sys_id"]
-
-    def test_rollback_missing_snapshot_path(self):
-        result = route_portal_component_edit(
-            MagicMock(),
-            MagicMock(),
-            RoutePortalComponentEditParams(
-                instruction="rollback the changes",
-            ),
-        )
-        assert result["detected_action"] == "rollback"
-        assert "snapshot_path" in result["tool_plan"]["missing_requirements"]
 
 
 # ---------------------------------------------------------------------------

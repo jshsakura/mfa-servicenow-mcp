@@ -99,9 +99,7 @@ portal_developer:
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update
-    - create_portal_component_snapshot
     - preview_portal_component_update
-    - update_portal_component_from_snapshot
     # Portal CRUD (Page/Layout)
     - scaffold_page
     # Flow Designer — full action surface (read+update+edit workflow)
@@ -179,9 +177,7 @@ full:
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update
-    - create_portal_component_snapshot
     - preview_portal_component_update
-    - update_portal_component_from_snapshot
     # Portal CRUD
     - scaffold_page
     # UI Policy writes
