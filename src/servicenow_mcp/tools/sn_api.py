@@ -1195,7 +1195,7 @@ def _sn_write_denied(table: str, action: str) -> Optional[str]:
 @register_tool(
     name="sn_write",
     params=SnWriteParams,
-    description="Generic create/update/delete on any table. Use when no manage_X tool fits. (confirm='approve')",
+    description="LAST RESORT generic CRUD — only for tables with NO dedicated tool. Prefer a manage_*/update_* domain tool first (they validate fields + support dry_run). ACL/user/group/scope tables blocked here. (confirm='approve')",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
