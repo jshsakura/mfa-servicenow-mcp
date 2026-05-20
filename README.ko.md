@@ -389,35 +389,37 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 ### 읽기 전용 데이터 비교 모드
 
-개발/테스트 데이터 차이를 비교해야 할 때만 `SERVICENOW_INSTANCE_CONFIG`로 named instance를 설정할 수 있습니다. `SERVICENOW_ACTIVE_INSTANCE`는 여전히 필요하지만, 이 모드는 read-only 패키지와 쓰기 비활성화 설정으로 사용하는 것을 기준으로 합니다.
+개발/테스트 데이터 차이를 비교해야 할 때 `SERVICENOW_INSTANCE_CONFIG`로 named instance를 설정할 수 있습니다. `SERVICENOW_ACTIVE_INSTANCE`는 여전히 필요합니다.
 
-이 모드는 **오직 데이터 비교용**입니다.
+글로벌 두 개, 인스턴스별 하나로 정리됩니다:
 
-- 일반 도구는 항상 active 인스턴스만 사용합니다.
-- 쓰기 가능한 도구에는 인스턴스 선택 파라미터가 없습니다.
-- `list_instances`는 설정된 alias만 보여줍니다.
-- `compare_instances`는 alias 간 테이블 데이터를 read-only로 비교합니다.
-- alias별 인증 필드는 선택이며, 없으면 기존 전역 인증 환경변수에서 fallback됩니다.
-- 이 모드를 환경 간 쓰기 작업에 사용하지 마세요.
+- **툴 surface는 글로벌** — `MCP_TOOL_PACKAGE` 하나로 결정. 서버 프로세스당 active 인스턴스는 항상 하나라 인스턴스별 tool package는 없습니다.
+- **쓰기 권한은 인스턴스별** — alias마다 `allow_writes`. 호출 시점에 active 인스턴스 기준으로 강제됩니다 — 쓰기 도구가 로드돼 있어도 active 인스턴스가 `allow_writes: false`면 거부. `role: "prod"`면 자동으로 false.
+- **자격증명은 인스턴스별 + 글로벌 fallback** — alias에 `username` / `password` / `api_key`(및 `auth_type`)를 넣으면 오버라이드, 없으면 글로벌 `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` 등을 상속합니다. 모든 인스턴스가 같은 로그인을 쓰면 글로벌에 한 번만 넣고 alias는 자격증명 없이 두면 됩니다.
 
-예시:
+그 외 규칙:
+
+- 일반 도구는 항상 active 인스턴스만 사용하고, 쓰기 도구에는 인스턴스 선택 파라미터가 없습니다.
+- `list_instances`는 설정된 alias와 active를 보여줍니다. `compare_instances`는 alias 간 테이블을 read-only로 비교합니다.
+- active 인스턴스 전환은 MCP 클라이언트 재시작 필요 — 서버 시작 시 한 번 읽고 런타임에 다시 안 읽습니다.
+
+예시 — 글로벌 공용 로그인 + 인스턴스별 쓰기 게이트:
 
 ```bash
+export MCP_TOOL_PACKAGE=standard
+export SERVICENOW_USERNAME=svc_account
+export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
-  "dev": {
-    "url": "https://dev.service-now.com",
-    "role": "development",
-    "tool_package": "standard",
-    "allow_writes": false
-  },
-  "test": {
-    "url": "https://test.service-now.com",
-    "role": "test",
-    "tool_package": "standard",
-    "allow_writes": false
-  }
+  "dev":  { "url": "https://dev.service-now.com",  "role": "development", "allow_writes": true },
+  "test": { "url": "https://test.service-now.com", "role": "test",        "allow_writes": false }
 }'
+```
+
+특정 인스턴스에 별도 로그인을 주려면 해당 alias에 필드를 추가하세요 (`${ENV}` 참조가 해석되므로 비밀번호를 JSON에 평문으로 안 박아도 됩니다):
+
+```json
+"prod": { "url": "https://prod.service-now.com", "role": "prod", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
 dev/test drift 확인에는 `compare_instances`를 사용하세요. 다른 인스턴스에 실제 작업을 해야 한다면 프로젝트/클라이언트 설정을 분리하는 방식을 권장합니다.
@@ -511,7 +513,7 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 
 ```bash
 # 일회 실행
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.9" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.10" servicenow-mcp --version
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
@@ -534,7 +536,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.9" servicenow-m
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.9",
+        "--from", "mfa-servicenow-mcp==1.13.10",
         "servicenow-mcp"
       ],
       "env": {
@@ -557,7 +559,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.9" servicenow-m
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.9",
+  "--from", "mfa-servicenow-mcp==1.13.10",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -584,7 +586,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.9",
+        "--from", "mfa-servicenow-mcp==1.13.10",
         "servicenow-mcp"
       ],
       "enabled": true,
