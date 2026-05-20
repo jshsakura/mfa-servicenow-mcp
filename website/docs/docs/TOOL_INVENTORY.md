@@ -180,7 +180,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | `sn_query` | R | Generic table query; last resort only. Domain tools exist: flows->list_flow_designers, BR->search_server_code, WF->ma... | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_resolve_url` | R | Parse a ServiceNow URL → table, sys_id, scope, suggested next tool. Read-only. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_schema` | R | Fetch field names, types, labels, and constraints from sys_dictionary for a given table. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_write` | W | Generic create/update/delete on any table. Use when no manage_X tool fits. (confirm='approve') | full |
+| `sn_write` | W | LAST RESORT generic CRUD — only for tables with NO dedicated tool. Prefer a manage_*/update_* domain tool first (they... | full |
 
 ### Source Analysis (12)
 
