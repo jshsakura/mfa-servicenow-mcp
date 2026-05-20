@@ -162,17 +162,17 @@ From <https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest>:
 
 #### 2. Build this folder layout
 
-Put both unzipped contents in any directory you control (`~/apps/servicenow-mcp/`, `D:\Tools\servicenow-mcp\`, whatever — it just has to be a stable path). When you extract the Chromium zip, **name the target folder `ms-playwright`** so it ends up as a direct sibling of the executable:
+Pick any directory you control (`~/apps/servicenow-mcp/`, `D:\Tools\servicenow-mcp\`, etc. — just keep it stable). **Extract both zips up front** — don't leave the `.zip` files lying next to the executable. The Chromium zip's extracted directory just has to start with `ms-play` and contain a `chromium-*` subdirectory; whatever name your unzip tool produces is fine:
 
 ```
-~/apps/servicenow-mcp/             (any directory you choose)
-├── servicenow-mcp                 ← from the platform zip (.exe on Windows)
-└── ms-playwright/                 ← Chromium zip extracted here
-    └── chromium-1185/             (one of these is enough — Playwright picks it up)
+~/apps/servicenow-mcp/                                  (any directory you choose)
+├── servicenow-mcp                                      ← from the platform zip (.exe on Windows)
+└── ms-playwright-chromium-linux-x64-1.13.7/            ← default extracted name works
+    └── chromium-1185/                                  (one of these is enough)
         └── …
 ```
 
-The executable looks for `ms-playwright/` right next to itself and, if it finds a `chromium-*` subdirectory, points Playwright at it via `PLAYWRIGHT_BROWSERS_PATH` for the current process only. It does not write anywhere on disk, does not edit your MCP client config, and does not touch the system-wide Playwright cache (`~/.cache/ms-playwright`, `%LOCALAPPDATA%\ms-playwright`, …). If Chromium isn't bundled, Playwright falls back to its own discovery — set `PLAYWRIGHT_BROWSERS_PATH` in your MCP env yourself or run `playwright install chromium` somewhere reachable.
+Or, if you'd rather have a clean name, extract into a folder simply called `ms-playwright/`. Both work — the executable globs for any sibling `ms-play*` directory at startup and, on finding a `chromium-*` subdirectory inside, sets `PLAYWRIGHT_BROWSERS_PATH` to that path **for the current process only**. It does not write anywhere on disk, does not edit your MCP client config, and does not touch the system-wide Playwright cache (`~/.cache/ms-playwright`, `%LOCALAPPDATA%\ms-playwright`, …). If Chromium isn't bundled, Playwright falls back to its own discovery — set `PLAYWRIGHT_BROWSERS_PATH` in your MCP env yourself or run `playwright install chromium` somewhere reachable.
 
 #### 3. Sanity-check the binary
 
@@ -516,7 +516,7 @@ Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is determinist
 
 ```bash
 # One-off run
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.6" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.7" servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
@@ -539,7 +539,7 @@ Choose one execution style:
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.6",
+        "--from", "mfa-servicenow-mcp==1.13.7",
         "servicenow-mcp"
       ],
       "env": {
@@ -562,7 +562,7 @@ Choose one execution style:
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.6",
+  "--from", "mfa-servicenow-mcp==1.13.7",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -589,7 +589,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.6",
+        "--from", "mfa-servicenow-mcp==1.13.7",
         "servicenow-mcp"
       ],
       "enabled": true,

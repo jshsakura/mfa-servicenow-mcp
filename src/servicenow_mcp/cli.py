@@ -17,25 +17,28 @@ from pathlib import Path
 
 
 def _maybe_use_bundled_chromium() -> None:
-    """If a ms-playwright/ directory sits next to the running executable,
-    point Playwright at it via PLAYWRIGHT_BROWSERS_PATH.
+    """If a ms-play*/ directory sits next to the running executable and
+    holds at least one chromium-* subdir, point Playwright at it via
+    PLAYWRIGHT_BROWSERS_PATH for this process.
 
-    This is what makes the release zip "extract and run" — users drop the
-    Chromium zip into the same folder as the binary and the server picks it
-    up without needing any install script or env-var setup. Skipped when:
+    Matches the `ms-play*` glob (not just exact `ms-playwright/`) so users
+    can extract the bundled zip with whatever default name their unzip
+    tool produces (`ms-playwright-chromium-linux-x64-1.13.7/`, …) without
+    having to rename it. Skipped when:
       - PLAYWRIGHT_BROWSERS_PATH is already set (user override wins), or
-      - no sibling ms-playwright/chromium-* exists (uvx/dev mode → Playwright
-        falls back to its standard cache, which is what we want there).
+      - no sibling directory with a chromium-* subdir exists (uvx/dev
+        mode → Playwright falls back to its standard cache, which is
+        what we want there).
     """
     if os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
         return
     exe_dir = Path(sys.executable).resolve().parent
-    candidate = exe_dir / "ms-playwright"
-    if not candidate.is_dir():
-        return
-    if not any(candidate.glob("chromium-*")):
-        return
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(candidate)
+    for candidate in sorted(exe_dir.glob("ms-play*")):
+        if not candidate.is_dir():
+            continue
+        if any(candidate.glob("chromium-*")):
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(candidate)
+            return
 
 
 _maybe_use_bundled_chromium()
