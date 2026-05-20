@@ -152,13 +152,13 @@ Use this path when `uvx` or PyPI is blocked by corporate security. The release z
 
 #### 1. Download
 
-From <https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest>:
+The executable is on the [latest release](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest). The Chromium bundle — only needed when the network also blocks Playwright's own Chromium download — is **not** re-attached to every release (it's ~150 MB and only changes with Playwright); grab it from the long-lived [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) release.
 
-| Platform | Required | Add this too if Chromium download is also blocked |
-|----------|----------|---------------------------------------------------|
-| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64-<version>.zip` |
-| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>-<version>.zip` |
-| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64-<version>.zip` |
+| Platform | Required (latest release) | Add this too if Chromium download is blocked (chromium-bundle release) |
+|----------|---------------------------|------------------------------------------------------------------------|
+| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64.zip` |
+| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>.zip` |
+| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64.zip` |
 
 #### 2. Build this folder layout
 
@@ -529,7 +529,7 @@ Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is determinist
 
 ```bash
 # One-off run
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.17" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.18" servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
@@ -552,7 +552,7 @@ Choose one execution style:
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.17",
+        "--from", "mfa-servicenow-mcp==1.13.18",
         "servicenow-mcp"
       ],
       "env": {
@@ -575,7 +575,7 @@ Choose one execution style:
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.17",
+  "--from", "mfa-servicenow-mcp==1.13.18",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -602,7 +602,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.17",
+        "--from", "mfa-servicenow-mcp==1.13.18",
         "servicenow-mcp"
       ],
       "enabled": true,
