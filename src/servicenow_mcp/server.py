@@ -1463,6 +1463,27 @@ class ServiceNowMCP:
             existing = getattr(self.mcp_server, "instructions", None) or ""
             self.mcp_server.instructions = f"{existing}\n\n{sync_flow}" if existing else sync_flow
 
+        # After a local download+audit, the relationship graphs live on disk.
+        # Tell the LLM so it answers relationship questions by reading those
+        # files instead of re-querying the instance with the live resolvers.
+        # Gated to packages that expose the audit tool. Non-prescriptive: live
+        # resolvers stay valid when no local dump exists (not everyone downloads
+        # first), this just makes the offline option discoverable.
+        if "audit_local_sources" in self.enabled_tool_names:
+            offline_hint = (
+                "Local analysis reuse: once download_app_sources + audit_local_sources "
+                "have run, relationship data is on disk under the scope root — "
+                "_graph.json (widget→Angular provider), _page_graph.json (page→widget), "
+                "_cross_references.json (SI/table call chains). For those questions read "
+                "the files directly instead of re-calling the live resolver tools "
+                "(get_provider_dependency_map, resolve_page_dependencies, resolve_widget_chain). "
+                "audit_local_sources' offline_analysis field names the exact file per question."
+            )
+            existing = getattr(self.mcp_server, "instructions", None) or ""
+            self.mcp_server.instructions = (
+                f"{existing}\n\n{offline_hint}" if existing else offline_hint
+            )
+
         # Flow/Action Designer stores published+draft version copies in the
         # *_base and *_snapshot tables under the SAME name/internal_name as the
         # live record. Without this note the LLM reads two same-named rows from
