@@ -76,10 +76,12 @@ Restart the MCP client so it loads the new config. The first browser-authenticat
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **72 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **70 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **16 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
+- **Authoritative relationship graphs on disk** — `_graph.json` (widget→Angular Provider, from the live M2M) and `_page_graph.json` (page→widget, from `sp_instance`) let the LLM answer dependency questions offline instead of re-querying the instance
+- **Incremental sync** (`incremental=True`) — re-download only records changed since last sync (`sys_updated_on` watermark), like `git pull`; `reconcile_deletions=True` flags records deleted on the instance
 - **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
 - **Dry-run preview** on every write tool (`dry_run=True`) — returns field-level diff, dependency counts, and precision notes before any side effect. Uses read-only APIs, works under all auth modes.
 - Safe write confirmation with `confirm='approve'`
@@ -389,16 +391,16 @@ Read-only (safe defaults):
 | :--- | :---: | :--- |
 | `none` | 0 | Disabled profile for intentionally turning tools off |
 | `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 30 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `standard` | 29 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
 
 ⚠️ Write-capable (advanced — grants create/update/delete):
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `service_desk` | 32 | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 42 | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
-| `platform_developer` | 46 | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 61 | ⚠️ **Most advanced** — all write tools across all domains at once |
+| `service_desk` | 31 | ⚠️ standard + incident and change operational writes |
+| `portal_developer` | 39 | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `platform_developer` | 45 | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 59 | ⚠️ **Most advanced** — all write tools across all domains at once |
 
 Each server process is intentionally bound to one active ServiceNow instance for ordinary tools. For safety, there is no per-request write routing across instances.
 
