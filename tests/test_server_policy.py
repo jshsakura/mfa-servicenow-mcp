@@ -188,6 +188,8 @@ def _build_multi_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNow
         )
     )
     monkeypatch.setenv("TOOL_PACKAGE_CONFIG_PATH", str(config_path))
+    # Tool surface is global now — set it once via MCP_TOOL_PACKAGE.
+    monkeypatch.setenv("MCP_TOOL_PACKAGE", "platform_developer")
     monkeypatch.setenv("SERVICENOW_ACTIVE_INSTANCE", "dev")
     monkeypatch.setenv(
         "SERVICENOW_INSTANCE_CONFIG",
@@ -196,13 +198,11 @@ def _build_multi_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNow
                 "dev": {
                     "url": "https://dev.service-now.com",
                     "role": "development",
-                    "tool_package": "platform_developer",
                     "allow_writes": True,
                 },
                 "test": {
                     "url": "https://test.service-now.com",
                     "role": "test",
-                    "tool_package": "standard",
                     "allow_writes": False,
                 },
             }

@@ -634,14 +634,12 @@ class ServiceNowMCP:
             return {
                 "alias": definition.alias,
                 "role": definition.role,
-                "tool_package": definition.tool_package,
                 "allow_writes": definition.allow_writes,
                 "url": definition.url,
             }
         return {
             "alias": "default",
             "role": "default",
-            "tool_package": None,
             "allow_writes": True,
             "url": self.config.instance_url,
         }
@@ -740,19 +738,13 @@ class ServiceNowMCP:
         Unknown package names emit a warning and are skipped — the merge continues so
         one typo does not wipe out the session.
         """
-        instance_package = self.active_instance_meta.get("tool_package")
-        env_package = (
-            str(instance_package).strip() if instance_package else os.getenv("MCP_TOOL_PACKAGE")
-        )
-
-        if instance_package:
-            raw = str(instance_package).strip()
-            logger.info(
-                "Active instance '%s' selected tool package: '%s'",
-                self.active_instance_meta.get("alias"),
-                raw,
-            )
-        elif env_package:
+        # Tool surface is global: one MCP_TOOL_PACKAGE per server process.
+        # Per-instance tool packages were removed — only one instance is ever
+        # active at a time, so an alias-scoped package was effectively global
+        # anyway (and implied a per-instance profile that never coexisted).
+        # Per-instance differentiation is allow_writes, enforced at call time.
+        env_package = os.getenv("MCP_TOOL_PACKAGE")
+        if env_package:
             raw = env_package.strip()
             logger.info(f"MCP_TOOL_PACKAGE found: '{raw}'")
         else:
@@ -1209,7 +1201,6 @@ class ServiceNowMCP:
                     "alias": alias,
                     "active": alias == self.active_instance_alias,
                     "role": definition.role,
-                    "tool_package": definition.tool_package or "default",
                     "allow_writes": definition.allow_writes,
                     "host": safe_instance_url(definition.url),
                 }
@@ -1217,6 +1208,7 @@ class ServiceNowMCP:
         return {
             "success": True,
             "active_instance": self.active_instance_meta.get("alias"),
+            "tool_package": self.current_package_name,
             "instances": instances,
             "ordinary_tools_route_to": self.active_instance_meta.get("alias"),
             "compare_instances": "read_only",
