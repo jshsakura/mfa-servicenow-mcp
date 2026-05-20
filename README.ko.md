@@ -409,9 +409,10 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 그 외 규칙:
 
-- 일반 도구는 항상 active 인스턴스만 사용하고, 쓰기 도구에는 인스턴스 선택 파라미터가 없습니다.
+- 쓰기 도구는 항상 active 인스턴스만 사용하고 인스턴스 선택 파라미터가 없습니다.
+- **읽기 도구는 `instance` 인자를 받습니다** — 비-active 인스턴스를 한 번만 조회할 때 사용. 예: `dev`가 active인 채로 `sn_query(instance="test", table="incident", ...)`, `sn_health(instance="test")`. 패키지 안의 모든 읽기 도구에 노출됩니다(설정된 alias enum). 쓰기 도구엔 없음. **재시작 없이 다른 인스턴스 데이터를 들여다보는 방법이 이겁니다.**
 - `list_instances`는 설정된 alias와 active를 보여줍니다. `compare_instances`는 alias 간 테이블을 read-only로 비교합니다.
-- active 인스턴스 전환은 MCP 클라이언트 재시작 필요 — 서버 시작 시 한 번 읽고 런타임에 다시 안 읽습니다.
+- *active*(쓰기) 인스턴스 전환은 MCP 클라이언트 재시작 필요 — 서버 시작 시 한 번 읽고 런타임에 다시 안 읽습니다.
 
 예시 — 글로벌 공용 로그인 + 인스턴스별 쓰기 게이트:
 
@@ -523,7 +524,7 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 
 ```bash
 # 일회 실행
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.13" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.14" servicenow-mcp --version
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
@@ -546,7 +547,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.13" servicenow-
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.13",
+        "--from", "mfa-servicenow-mcp==1.13.14",
         "servicenow-mcp"
       ],
       "env": {
@@ -569,7 +570,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.13" servicenow-
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.13",
+  "--from", "mfa-servicenow-mcp==1.13.14",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -596,7 +597,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.13",
+        "--from", "mfa-servicenow-mcp==1.13.14",
         "servicenow-mcp"
       ],
       "enabled": true,
