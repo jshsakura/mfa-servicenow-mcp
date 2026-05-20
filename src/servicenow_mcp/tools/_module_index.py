@@ -69,7 +69,6 @@ TOOL_MODULE_INDEX = {
     "sn_aggregate": "sn_api",
     "sn_discover": "sn_api",
     "sn_health": "sn_api",
-    "sn_nl": "sn_api",
     "sn_query": "sn_api",
     "sn_resolve_url": "sn_api",
     "sn_schema": "sn_api",

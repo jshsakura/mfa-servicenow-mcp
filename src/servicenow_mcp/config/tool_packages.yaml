@@ -47,7 +47,6 @@ standard:
   - sn_aggregate
   - sn_schema
   - sn_discover
-  - sn_nl
   - sn_resolve_url
   # Workflow (Read) — narrow to actually-used actions
   - manage_workflow:
