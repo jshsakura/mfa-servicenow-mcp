@@ -22,17 +22,17 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 
 ## Step 2: Release zip/exe install
 
-Use this when `uvx` is blocked. Download `servicenow-mcp-windows-x64-<version>.zip` from GitHub Releases. It contains a single PyInstaller-built `servicenow-mcp.exe` plus `LICENSE`. No installer script is needed — the executable handles Chromium discovery itself. Pick a stable folder you control (e.g. `C:\Users\you\apps\servicenow-mcp\`), extract `servicenow-mcp.exe` into it, and — if you have the Chromium zip — **extract that into a subfolder named `ms-playwright`** so it sits as a direct sibling of the executable:
+Use this when `uvx` is blocked. Download `servicenow-mcp-windows-x64-<version>.zip` from GitHub Releases. It contains a single PyInstaller-built `servicenow-mcp.exe` plus `LICENSE`. No installer script is needed — the executable handles Chromium discovery itself. Pick a stable folder you control (e.g. `C:\Users\you\apps\servicenow-mcp\`), extract `servicenow-mcp.exe` into it, and — if you have the Chromium zip — **extract it up front** into the same folder. Don't leave the `.zip` lying around. The extracted folder name can stay as Windows produced it or be renamed to `ms-playwright\`; the executable globs for any sibling `ms-play*` directory at startup:
 
 ```
 C:\Users\you\apps\servicenow-mcp\
 ├── servicenow-mcp.exe
-└── ms-playwright\
+└── ms-playwright-chromium-windows-x64-<ver>\   (default extracted name works)
     └── chromium-1185\
         └── …
 ```
 
-At startup the executable looks for a sibling `ms-playwright\chromium-*` directory and points Playwright at it via `PLAYWRIGHT_BROWSERS_PATH` for the current process only. It does not touch the system standard Playwright cache (`%LOCALAPPDATA%\ms-playwright`), does not modify any MCP client config, and does not write anywhere on disk.
+At startup the executable looks for any sibling `ms-play*\chromium-*` directory and points Playwright at it via `PLAYWRIGHT_BROWSERS_PATH` for the current process only. It does not touch the system standard Playwright cache (`%LOCALAPPDATA%\ms-playwright`), does not modify any MCP client config, and does not write anywhere on disk.
 
 Then paste this into your client config file (Claude Code / Claude Desktop example):
 

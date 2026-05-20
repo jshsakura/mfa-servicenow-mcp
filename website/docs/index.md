@@ -138,16 +138,19 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
       <div class="install-panels">
         <div class="install-panel active" id="local-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. Pick a stable folder you control and lay it out like this:</span>
+            <pre class="install-code"><code><span class="c"># 1. Pick a stable folder you control. Extract both zips UP FRONT —</span>
+<span class="c">#    don't leave .zip files alongside the executable. The Chromium</span>
+<span class="c">#    folder name just has to start with ms-play and hold chromium-*:</span>
 <span class="c">#</span>
-<span class="c">#    ~/apps/servicenow-mcp/             (any directory you choose)</span>
-<span class="c">#    ├── servicenow-mcp                 ← the executable (from the zip)</span>
-<span class="c">#    └── ms-playwright/                 ← Chromium zip extracted HERE</span>
-<span class="c">#        └── chromium-1185/             (one or more)</span>
+<span class="c">#    ~/apps/servicenow-mcp/                              (any directory)</span>
+<span class="c">#    ├── servicenow-mcp                                  ← executable</span>
+<span class="c">#    └── ms-playwright-chromium-linux-x64-&lt;ver&gt;/         ← default name works</span>
+<span class="c">#        └── chromium-1185/</span>
 <span class="c">#</span>
-<span class="c"># 2. At startup the executable auto-detects the sibling ms-playwright/</span>
-<span class="c">#    directory and points Playwright at it. The system standard cache</span>
-<span class="c">#    (~/.cache/ms-playwright) and your MCP client config stay untouched.</span>
+<span class="c"># 2. At startup the executable globs for a sibling ms-play* directory</span>
+<span class="c">#    with a chromium-* inside and points Playwright at it. The system</span>
+<span class="c">#    standard cache (~/.cache/ms-playwright) and your MCP client config</span>
+<span class="c">#    stay untouched.</span>
 <span class="c"># 3. Verify the binary runs:</span>
 ~/apps/servicenow-mcp/servicenow-mcp --version
 
@@ -159,16 +162,19 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
         </div>
         <div class="install-panel" id="local-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. Pick a stable folder you control and lay it out like this:</span>
+            <pre class="install-code"><code><span class="c"># 1. Pick a stable folder you control. Extract both zips UP FRONT —</span>
+<span class="c">#    don't leave .zip files alongside the executable. The Chromium</span>
+<span class="c">#    folder name just has to start with ms-play and hold chromium-*:</span>
 <span class="c">#</span>
 <span class="c">#    C:\Users\you\apps\servicenow-mcp\</span>
-<span class="c">#    ├── servicenow-mcp.exe              ← the executable (from the zip)</span>
-<span class="c">#    └── ms-playwright\                  ← Chromium zip extracted HERE</span>
-<span class="c">#        └── chromium-1185\              (one or more)</span>
+<span class="c">#    ├── servicenow-mcp.exe                              ← executable</span>
+<span class="c">#    └── ms-playwright-chromium-windows-x64-&lt;ver&gt;\       ← default name works</span>
+<span class="c">#        └── chromium-1185\</span>
 <span class="c">#</span>
-<span class="c"># 2. At startup the executable auto-detects the sibling ms-playwright\</span>
-<span class="c">#    directory and points Playwright at it. The system standard cache</span>
-<span class="c">#    (%LOCALAPPDATA%\ms-playwright) and your MCP client config stay untouched.</span>
+<span class="c"># 2. At startup the executable globs for a sibling ms-play* directory</span>
+<span class="c">#    with a chromium-* inside and points Playwright at it. The system</span>
+<span class="c">#    standard cache (%LOCALAPPDATA%\ms-playwright) and your MCP client</span>
+<span class="c">#    config stay untouched.</span>
 <span class="c"># 3. Verify the binary runs:</span>
 & "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
 
