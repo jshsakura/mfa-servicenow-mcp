@@ -551,8 +551,8 @@ def create_config(args) -> ServerConfig:
             #   user can read their own sys_user record, so 200 unambiguously
             #   means valid session, 401 means expired. WRONG.
             #
-            #   Many ServiceNow instances (a hardened customer instance was the first
-            #   confirmed case) deny regular users read on the sys_user
+            #   Many ServiceNow instances (a hardened customer instance was
+            #   the first confirmed case) deny regular users read on the sys_user
             #   table entirely, OR the row-level "Read for self" ACL doesn't
             #   apply to list/query API calls. Result: probe always returns
             #   401, polling loop never confirms login, browser window stays

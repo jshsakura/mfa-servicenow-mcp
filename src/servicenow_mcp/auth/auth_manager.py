@@ -70,7 +70,7 @@ _CIRCUIT_ESCAPE_PROBE_INTERVAL_SECONDS = 10.0
 # SERVICENOW_TLS_IMPERSONATE environment variable, with tri-state semantics:
 #
 #   unset  → use ``chrome120`` profile (the default, after field evidence
-#            on customer-instance showed JA3-gated rejection of stock Python
+#            on a JA3-gated customer instance showed rejection of stock Python
 #            ``requests``; turning this on by default catches the next
 #            user hitting the symptom without forcing them to find an
 #            env-var flag).
@@ -1375,7 +1375,7 @@ class AuthManager:
         Two failure modes observed in the field cause infinite-login state:
 
         1. **Cross-instance residue.** When the user switches instances
-           (e.g. testinstance → devinstance), the previous instance's `.lock` and
+           (e.g. a dev → test instance), the previous instance's `.lock` and
            `session_*.json` files persist forever because each manager only
            owns its own paths. A `.lock` whose holding process is long dead
            or a session whose TTL expired weeks ago accumulates indefinitely.
