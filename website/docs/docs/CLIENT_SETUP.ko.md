@@ -282,12 +282,11 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
-# 다른 MCP 호스트(Claude, Cursor 등)와 로그인 상태를 공유하려면
-# 모든 호스트의 설정에 **같은 절대 경로**를 지정하세요. macOS Codex.app은
-# 샌드박스라 `~`이 리매핑되므로, 이 값을 안 맞추면 호스트마다 별도 세션
-# 캐시를 쓰게 되고 매번 MFA 로그인 창이 새로 뜹니다. `/Users/me`는 본인 $HOME으로 바꾸세요.
-SERVICENOW_BROWSER_USER_DATA_DIR = "/Users/me/.servicenow_mcp/shared/profile_acme"
 MCP_TOOL_PACKAGE = "standard"
+# 로그인은 호스트 간 자동 공유됩니다 (~/.mfa_servicenow_mcp 아래 인스턴스+유저 단위로 분리).
+# SERVICENOW_BROWSER_USER_DATA_DIR는 샌드박스 호스트가 HOME을 리매핑한 경우에만 설정 —
+# README "로그인 공유" 항목 참고. 인스턴스를 여러 개 돌릴 땐 설정하지 마세요;
+# 모든 인스턴스가 Chromium 프로필 하나에 묶입니다.
 ```
 
 ---
