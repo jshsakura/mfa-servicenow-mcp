@@ -894,7 +894,7 @@ def _sn_health_impl(
 @register_tool(
     name="sn_query",
     params=GenericQueryParams,
-    description="Generic table query; last resort only. Domain tools exist: flows->list_flow_designers, BR->search_server_code, WF->manage_workflow.",
+    description="Generic table query — last resort. Prefer domain tools: search_server_code, manage_workflow, manage_flow_designer.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
