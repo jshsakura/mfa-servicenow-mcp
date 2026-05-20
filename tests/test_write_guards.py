@@ -53,8 +53,6 @@ def _utc_iso_minus_min(minutes: int) -> str:
         ("sn_aggregate", {}, True),
         ("sn_schema", {}, True),
         ("sn_health", {}, True),
-        ("sn_nl", {}, True),
-        ("sn_nl", {"execute": True}, False),
         ("sn_write", {"table": "incident", "action": "create"}, False),
         ("manage_workflow", {"action": "list"}, True),
         ("manage_workflow", {"action": "create"}, False),

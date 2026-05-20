@@ -145,8 +145,6 @@ def _is_read_only(tool_name: str, arguments: Dict[str, Any]) -> bool:
     """True if this call doesn't mutate ServiceNow data."""
     if tool_name in {"sn_write", "sn_batch"}:
         return False
-    if tool_name == "sn_nl":
-        return not bool(arguments.get("execute", False))
     if tool_name.startswith("manage_"):
         read_actions = _MANAGE_READ_ACTIONS.get(tool_name)
         if read_actions is not None:
