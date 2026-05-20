@@ -67,7 +67,7 @@ $env:PLAYWRIGHT_BROWSERS_PATH = "$HOME\apps\servicenow-mcp\ms-playwright"
 py -m playwright install chromium
 ```
 
-If the Playwright browser download is blocked too, download `ms-playwright-chromium-windows-x64-<version>.zip` from the same release and extract its contents to:
+If the Playwright browser download is blocked too, download `ms-playwright-chromium-windows-x64.zip` from the chromium-bundle release (https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) and extract its contents to:
 
 ```text
 %LOCALAPPDATA%\ms-playwright
@@ -353,7 +353,7 @@ If there's a conflict with system Python, uninstall and reinstall `uv`.
 ```powershell
 uvx --with playwright playwright install chromium
 ```
-→ If browser download is blocked, use the matching `ms-playwright-chromium-windows-x64-<version>.zip` release asset and extract it to `%LOCALAPPDATA%\ms-playwright`.
+→ If browser download is blocked, use `ms-playwright-chromium-windows-x64.zip` from the chromium-bundle release and extract it to `%LOCALAPPDATA%\ms-playwright`.
 
 ### "MCP server won't connect"
 → Check config file syntax:

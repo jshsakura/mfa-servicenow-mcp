@@ -317,7 +317,11 @@ jobs:
           python-version: "3.11"
 
       - name: Build desktop zips
-        run: python scripts/build_desktop_release.py --browser-zip
+        # Executable only — the ~150MB Chromium cache is NOT re-attached every
+        # release (its revision tracks Playwright, not the app version). It lives
+        # on the long-lived `chromium-bundle` release; rebuild via the
+        # browser-bundle workflow only when the Playwright pin changes.
+        run: python scripts/build_desktop_release.py
 
       - name: Upload desktop assets to release
         shell: bash
