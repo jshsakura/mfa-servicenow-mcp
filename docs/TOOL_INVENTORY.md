@@ -218,7 +218,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
 | `diff_local_component` | R | Diff local download vs remote. Run before re-downloading to skip if fresh. | standard, portal_developer, platform_developer, service_desk, full |
-| `update_remote_from_local` | W | Push local file changes to ServiceNow. Auto-snapshots remote first. Path: sp_widget/<name>/<file> (folder) | sp_angul... | portal_developer, platform_developer, full |
+| `update_remote_from_local` | W | Push local file changes to ServiceNow. Path: sp_widget/<name>/<file> (folder) | sp_angular_provider|sys_script_includ... | portal_developer, platform_developer, full |
 
 ### UI Policy (1)
 
