@@ -1463,6 +1463,24 @@ class ServiceNowMCP:
             existing = getattr(self.mcp_server, "instructions", None) or ""
             self.mcp_server.instructions = f"{existing}\n\n{sync_flow}" if existing else sync_flow
 
+        # Flow/Action Designer stores published+draft version copies in the
+        # *_base and *_snapshot tables under the SAME name/internal_name as the
+        # live record. Without this note the LLM reads two same-named rows from
+        # sys_hub_action_type_base (or *_snapshot) and wrongly reports a
+        # "duplicate". Gated to flow packages so others don't pay for it.
+        if "manage_flow_designer" in self.enabled_tool_names:
+            snapshot_note = (
+                "Flow/Action Designer versioning: the *_base and *_snapshot tables "
+                "(e.g. sys_hub_action_type_base, sys_hub_flow_snapshot) hold published/draft "
+                "version copies sharing the SAME name/internal_name as the live record — "
+                "multiple same-named rows there are versions, NOT duplicates. Query the "
+                "*_definition table (e.g. sys_hub_action_type_definition) for the one live record."
+            )
+            existing = getattr(self.mcp_server, "instructions", None) or ""
+            self.mcp_server.instructions = (
+                f"{existing}\n\n{snapshot_note}" if existing else snapshot_note
+            )
+
         # When browser auth is selected and Chromium is missing, surface a
         # clear notice through MCP `instructions` so the client/LLM sees the
         # exact remediation command on the initialize response — instead of
