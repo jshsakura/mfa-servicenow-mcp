@@ -1,0 +1,51 @@
+name: Browser bundle (Chromium cache)
+
+# Manually-triggered. Builds the Playwright Chromium cache zip for each OS and
+# uploads it to the long-lived `chromium-bundle` release with stable,
+# version-less filenames (ms-playwright-chromium-<platform>.zip). The README
+# links to that release, so offline/locked-down installs always fetch the same
+# URL. Re-run this ONLY when the Playwright pin changes — not on app releases.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Chromium zip (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Chromium cache zip (version-less name)
+        run: python scripts/build_desktop_release.py --browser-only
+
+      - name: Ensure chromium-bundle release exists
+        shell: bash
+        run: |
+          if ! gh release view chromium-bundle >/dev/null 2>&1; then
+            gh release create chromium-bundle \
+              --title "Playwright Chromium bundle" \
+              --notes "Offline Chromium cache for locked-down installs. Filenames are version-less and updated in place when the Playwright pin changes. See README 'Release zip/exe (local install)'." \
+              --latest=false
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Chromium zip to chromium-bundle release
+        shell: bash
+        run: gh release upload chromium-bundle dist/desktop/ms-playwright-chromium-*.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

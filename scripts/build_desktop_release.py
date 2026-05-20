@@ -91,8 +91,12 @@ def _build_executable(bundle_dir: Path, exe_name: str) -> None:
     shutil.copy2(pyinstaller_output, bundle_dir / exe_name)
 
 
-def _build_browser_zip(output_dir: Path, platform_tag: str, version: str) -> Path:
-    cache_dir = output_dir / f"ms-playwright-{platform_tag}-{version}"
+def _build_browser_zip(output_dir: Path, platform_tag: str, version: str | None) -> Path:
+    # version=None → stable, version-less name for the long-lived
+    # `chromium-bundle` release (Chromium revision tracks Playwright, not the
+    # app version, so it doesn't need re-attaching on every app release).
+    suffix = f"-{version}" if version else ""
+    cache_dir = output_dir / f"ms-playwright-{platform_tag}{suffix}"
     if cache_dir.exists():
         shutil.rmtree(cache_dir)
     cache_dir.mkdir(parents=True)
@@ -100,7 +104,7 @@ def _build_browser_zip(output_dir: Path, platform_tag: str, version: str) -> Pat
     env["PLAYWRIGHT_BROWSERS_PATH"] = str(cache_dir)
     _run([sys.executable, "-m", "pip", "install", "-e", ".[browser]"])
     _run([sys.executable, "-m", "playwright", "install", "chromium"], env=env)
-    zip_path = output_dir / f"ms-playwright-chromium-{platform_tag}-{version}.zip"
+    zip_path = output_dir / f"ms-playwright-chromium-{platform_tag}{suffix}.zip"
     _zip_dir(cache_dir, zip_path)
     return zip_path
 
@@ -113,11 +117,27 @@ def main() -> int:
         action="store_true",
         help="Also build a Playwright Chromium cache zip for blocked networks.",
     )
+    parser.add_argument(
+        "--browser-only",
+        action="store_true",
+        help=(
+            "Build ONLY the Chromium cache zip with a stable (version-less) name "
+            "for the long-lived chromium-bundle release. Skips the executable."
+        ),
+    )
     args = parser.parse_args()
 
     version = _version()
     platform_tag, exe_name = _platform_tag()
     output_dir = (ROOT / args.output_dir).resolve()
+
+    # Browser-only: produce just the version-less Chromium zip and stop.
+    if args.browser_only:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        browser_zip = _build_browser_zip(output_dir, platform_tag, version=None)
+        print(f"Created {browser_zip}")
+        return 0
+
     bundle_name = f"servicenow-mcp-{platform_tag}-{version}"
     bundle_dir = output_dir / bundle_name
     if bundle_dir.exists():
