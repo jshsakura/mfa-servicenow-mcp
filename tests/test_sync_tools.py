@@ -2,7 +2,6 @@
 
 import json
 import time
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -470,14 +469,12 @@ class TestDiffLocalComponent:
 # ---------------------------------------------------------------------------
 class TestUpdateRemoteFromLocal:
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
-    @patch("servicenow_mcp.tools.sync_tools._write_portal_component_snapshot")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_push_success(
         self,
         mock_fetch,
         mock_update,
-        mock_snapshot,
         mock_write_meta,
         mock_config,
         mock_auth,
@@ -497,7 +494,6 @@ class TestUpdateRemoteFromLocal:
                 "sys_updated_on": "2025-01-10 11:00:00",
             },
         ]
-        mock_snapshot.return_value = Path("/tmp/snapshot.json")
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
 
         path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
@@ -507,9 +503,7 @@ class TestUpdateRemoteFromLocal:
 
         assert result["message"] == "Update successful"
         assert result["local_sync"]["fields_pushed"] == ["script"]
-        # Default no longer snapshots — ServiceNow versions records server-side.
-        assert result["local_sync"]["snapshot"] is None
-        mock_snapshot.assert_not_called()
+        assert "snapshot" not in result["local_sync"]
         mock_update.assert_called_once()
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
@@ -530,14 +524,12 @@ class TestUpdateRemoteFromLocal:
         assert "force" in result["message"].lower()
 
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
-    @patch("servicenow_mcp.tools.sync_tools._write_portal_component_snapshot")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_push_force_overrides_conflict(
         self,
         mock_fetch,
         mock_update,
-        mock_snapshot,
         mock_write_meta,
         mock_config,
         mock_auth,
@@ -552,7 +544,6 @@ class TestUpdateRemoteFromLocal:
             },
             {"sys_id": "wid-1", "sys_updated_on": "2025-01-15 13:00:00"},
         ]
-        mock_snapshot.return_value = Path("/tmp/snapshot.json")
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
 
         path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
@@ -579,52 +570,13 @@ class TestUpdateRemoteFromLocal:
 
         assert "No changes to push" in result["message"]
 
-    @patch("servicenow_mcp.tools.sync_tools._write_portal_component_snapshot")
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
-    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
-    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
-    def test_push_opt_in_snapshot(
-        self,
-        mock_fetch,
-        mock_update,
-        mock_write_meta,
-        mock_snapshot,
-        mock_config,
-        mock_auth,
-        download_root,
-    ):
-        # Opt-in: skip_snapshot=False writes the local snapshot.
-        mock_fetch.side_effect = [
-            {
-                "sys_id": "wid-1",
-                "name": "my-widget",
-                "script": "var x = 0;",
-                "sys_updated_on": "2025-01-10 10:00:00",
-            },
-            {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 11:00:00"},
-        ]
-        mock_snapshot.return_value = Path("/tmp/snapshot.json")
-        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
-
-        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
-        result = update_remote_from_local(
-            mock_config,
-            mock_auth,
-            PushLocalComponentParams(path=str(path), skip_snapshot=False),
-        )
-
-        assert result["local_sync"]["snapshot"] is not None
-        mock_snapshot.assert_called_once()
-
-    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
-    @patch("servicenow_mcp.tools.sync_tools._write_portal_component_snapshot")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_push_widget_directory(
         self,
         mock_fetch,
         mock_update,
-        mock_snapshot,
         mock_write_meta,
         mock_config,
         mock_auth,
@@ -642,7 +594,6 @@ class TestUpdateRemoteFromLocal:
             },
             {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 11:00:00"},
         ]
-        mock_snapshot.return_value = Path("/tmp/snapshot.json")
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
 
         path = download_root / "global" / "sp_widget" / "my-widget"
@@ -1139,44 +1090,7 @@ class TestExtendedSyncCoverage:
         )
         assert "No changes to push" in result["message"]
 
-    # --- Lines 709-710: update_remote_from_local - snapshot failure ---
-    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
-    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
-    @patch(
-        "servicenow_mcp.tools.sync_tools._write_portal_component_snapshot",
-        side_effect=OSError("disk full"),
-    )
-    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
-    def test_push_snapshot_failure(
-        self,
-        mock_fetch,
-        mock_snapshot,
-        mock_update,
-        mock_write_meta,
-        mock_config,
-        mock_auth,
-        download_root,
-    ):
-        mock_fetch.side_effect = [
-            {
-                "sys_id": "wid-1",
-                "name": "my-widget",
-                "script": "var x = 0;",
-                "sys_updated_on": "2025-01-10 10:00:00",
-            },
-            {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 11:00:00"},
-        ]
-        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
-        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
-        result = update_remote_from_local(
-            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
-        )
-        # Should still succeed with snapshot=None
-        assert result["message"] == "Update successful"
-        assert result["local_sync"]["snapshot"] is None
-
     # --- Lines 723-724: update_remote_from_local - push failure ---
-    @patch("servicenow_mcp.tools.sync_tools._write_portal_component_snapshot")
     @patch(
         "servicenow_mcp.tools.sync_tools.update_portal_component",
         side_effect=RuntimeError("network error"),
@@ -1186,7 +1100,6 @@ class TestExtendedSyncCoverage:
         self,
         mock_fetch,
         mock_update,
-        mock_snapshot,
         mock_config,
         mock_auth,
         download_root,
@@ -1197,7 +1110,6 @@ class TestExtendedSyncCoverage:
             "script": "var x = 0;",
             "sys_updated_on": "2025-01-10 10:00:00",
         }
-        mock_snapshot.return_value = Path("/tmp/snapshot.json")
         path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
         result = update_remote_from_local(
             mock_config, mock_auth, PushLocalComponentParams(path=str(path))
@@ -1208,12 +1120,10 @@ class TestExtendedSyncCoverage:
     # --- Lines 743-744: update_remote_from_local - sync meta update failure ---
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta", side_effect=OSError("write err"))
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
-    @patch("servicenow_mcp.tools.sync_tools._write_portal_component_snapshot")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_push_sync_meta_failure(
         self,
         mock_fetch,
-        mock_snapshot,
         mock_update,
         mock_write_meta,
         mock_config,
@@ -1229,7 +1139,6 @@ class TestExtendedSyncCoverage:
             },
             {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 11:00:00"},
         ]
-        mock_snapshot.return_value = Path("/tmp/snapshot.json")
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
         path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
         result = update_remote_from_local(
