@@ -507,8 +507,9 @@ class TestUpdateRemoteFromLocal:
 
         assert result["message"] == "Update successful"
         assert result["local_sync"]["fields_pushed"] == ["script"]
-        assert result["local_sync"]["snapshot"] is not None
-        mock_snapshot.assert_called_once()
+        # Default no longer snapshots — ServiceNow versions records server-side.
+        assert result["local_sync"]["snapshot"] is None
+        mock_snapshot.assert_not_called()
         mock_update.assert_called_once()
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
@@ -578,18 +579,21 @@ class TestUpdateRemoteFromLocal:
 
         assert "No changes to push" in result["message"]
 
+    @patch("servicenow_mcp.tools.sync_tools._write_portal_component_snapshot")
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
-    def test_push_skip_snapshot(
+    def test_push_opt_in_snapshot(
         self,
         mock_fetch,
         mock_update,
         mock_write_meta,
+        mock_snapshot,
         mock_config,
         mock_auth,
         download_root,
     ):
+        # Opt-in: skip_snapshot=False writes the local snapshot.
         mock_fetch.side_effect = [
             {
                 "sys_id": "wid-1",
@@ -599,16 +603,18 @@ class TestUpdateRemoteFromLocal:
             },
             {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 11:00:00"},
         ]
+        mock_snapshot.return_value = Path("/tmp/snapshot.json")
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
 
         path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
         result = update_remote_from_local(
             mock_config,
             mock_auth,
-            PushLocalComponentParams(path=str(path), skip_snapshot=True),
+            PushLocalComponentParams(path=str(path), skip_snapshot=False),
         )
 
-        assert result["local_sync"]["snapshot"] is None
+        assert result["local_sync"]["snapshot"] is not None
+        mock_snapshot.assert_called_once()
 
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools._write_portal_component_snapshot")
