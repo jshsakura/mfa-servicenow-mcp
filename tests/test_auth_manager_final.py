@@ -311,7 +311,10 @@ class TestGetHeadersWaitOtherLoginWithDetails:
                 with patch.object(mgr, "_acquire_login_lock", return_value=False):
                     with patch.object(mgr, "_wait_for_other_login", side_effect=_mock_wait):
                         with patch.object(mgr, "_start_keepalive"):
-                            headers = mgr.get_headers()
+                            # Mock the live validation probe — these are hermetic
+                            # unit tests and must not hit the network.
+                            with patch.object(mgr, "_is_browser_session_valid", return_value=True):
+                                headers = mgr.get_headers()
 
         assert headers["Cookie"] == "waited=1"
         assert headers["User-Agent"] == "WaitUA"
@@ -1801,7 +1804,9 @@ class TestGetHeadersDiskReloadFastPath:
             return True
 
         with patch.object(mgr, "_reload_session_from_disk", side_effect=_mock_reload):
-            headers = mgr.get_headers()
+            # Mock the live validation probe — hermetic test, no network.
+            with patch.object(mgr, "_is_browser_session_valid", return_value=True):
+                headers = mgr.get_headers()
 
         assert headers["Cookie"] == "disk=1"
         assert headers["User-Agent"] == "DiskUA"
@@ -1836,7 +1841,9 @@ class TestGetHeadersPostRestoreDiskCheck:
         with patch.object(mgr, "_reload_session_from_disk", side_effect=_mock_reload):
             with patch.object(mgr, "_try_restore_browser_session", return_value=False):
                 with patch.object(mgr, "_start_keepalive"):
-                    headers = mgr.get_headers()
+                    # Mock the live validation probe — hermetic test, no network.
+                    with patch.object(mgr, "_is_browser_session_valid", return_value=True):
+                        headers = mgr.get_headers()
 
         assert headers["Cookie"] == "postrestore=1"
         assert headers["User-Agent"] == "PostRestoreUA"

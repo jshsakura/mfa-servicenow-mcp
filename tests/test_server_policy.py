@@ -241,6 +241,83 @@ def test_list_instances_reports_active_and_hosts(monkeypatch: pytest.MonkeyPatch
     assert payload["ordinary_tools_route_to"] == "dev"
     assert {item["alias"] for item in payload["instances"]} == {"dev", "test"}
     assert any(item["host"] == "test.service-now.com" for item in payload["instances"])
+    assert "read_other_instance" in payload
+
+
+# ---------------------------------------------------------------------------
+# instance= routing: read-only calls can target a non-active instance
+# ---------------------------------------------------------------------------
+
+
+def _register_recorder(server, tool_name: str):
+    """Register a fake tool that records the config/auth it was dispatched with."""
+    seen = {}
+
+    def _impl(config, auth_manager, _params):
+        seen["instance_url"] = config.instance_url
+        seen["auth_manager"] = auth_manager
+        return {"ok": True}
+
+    server.tool_definitions[tool_name] = (_impl, EmptyParams, dict, "desc", "raw_dict")
+    if tool_name not in server.enabled_tool_names:
+        server.enabled_tool_names.append(tool_name)
+    return seen
+
+
+def test_instance_arg_routes_read_to_named_instance(monkeypatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    seen = _register_recorder(server, "sn_query")
+
+    asyncio.run(server._call_tool_impl("sn_query", {"instance": "test"}))
+
+    assert seen["instance_url"] == "https://test.service-now.com"
+    assert seen["auth_manager"] is server.instance_contexts["test"]["auth_manager"]
+
+
+def test_no_instance_arg_uses_active(monkeypatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    seen = _register_recorder(server, "sn_query")
+
+    asyncio.run(server._call_tool_impl("sn_query", {}))
+
+    assert seen["instance_url"] == "https://dev.service-now.com"
+    assert seen["auth_manager"] is server.auth_manager
+
+
+def test_instance_arg_unknown_alias_rejected(monkeypatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    _register_recorder(server, "sn_query")
+
+    with pytest.raises(ValueError, match="is not configured"):
+        asyncio.run(server._call_tool_impl("sn_query", {"instance": "nope"}))
+
+
+def test_instance_arg_rejected_for_write_tool(monkeypatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    seen = _register_recorder(server, "update_foo")
+
+    with pytest.raises(ValueError, match="read-only"):
+        asyncio.run(
+            server._call_tool_impl("update_foo", {"instance": "test", "confirm": "approve"})
+        )
+    # The tool must never have executed against the target instance.
+    assert seen == {}
+
+
+def test_instance_schema_advertised_on_read_tools_only(monkeypatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    # update_foo is enabled by the package but has no registered definition;
+    # register one so it shows up in list_tools for the write-tool assertion.
+    _register_recorder(server, "update_foo")
+
+    tools = {t.name: t for t in asyncio.run(server._list_tools_impl())}
+
+    read_props = tools["sn_query"].inputSchema["properties"]
+    assert read_props["instance"]["enum"] == ["dev", "test"]
+
+    # Write tool: no instance arg (it only ever runs against the active instance).
+    write_props = tools["update_foo"].inputSchema["properties"]
+    assert "instance" not in write_props
 
 
 def test_active_instance_allow_writes_blocks_mutating_tool(
