@@ -865,6 +865,89 @@ class TestDownloadSourceTypes:
         # Should skip since file exists
         assert result["type_results"]["script_include"]["count"] == 1
 
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_incremental_filters_by_watermark(self, mock_all, tmp_path):
+        config = _build_config()
+        auth_manager = MagicMock()
+        # Prior sync_meta establishes the watermark.
+        meta_dir = tmp_path / "sys_script_include"
+        meta_dir.mkdir(parents=True)
+        (meta_dir / "_sync_meta.json").write_text(
+            json.dumps({"MyHelper": {"sys_id": "si-1", "sys_updated_on": "2026-01-01 00:00:00"}})
+        )
+        mock_all.return_value = []
+
+        _download_source_types(
+            config,
+            auth_manager,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=tmp_path,
+            root=tmp_path,
+            incremental=True,
+        )
+        query = mock_all.call_args.kwargs["query"]
+        assert "sys_updated_on>=2026-01-01 00:00:00" in query
+        assert "sys_scope.scope=x_app" in query
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_incremental_overwrites_instead_of_resume(self, mock_all, tmp_path):
+        config = _build_config()
+        auth_manager = MagicMock()
+        # identifier_field for script_include is api_name → folder name.
+        rec_dir = tmp_path / "sys_script_include" / "MyHelper"
+        rec_dir.mkdir(parents=True)
+        rec_dir.joinpath("script.js").write_text("stale content")
+        # Watermark present so the incremental query path is taken.
+        (tmp_path / "sys_script_include" / "_sync_meta.json").write_text(
+            json.dumps({"MyHelper": {"sys_id": "si-1", "sys_updated_on": "2026-01-01 00:00:00"}})
+        )
+        mock_all.return_value = [
+            {
+                "sys_id": "si-1",
+                "name": "MyHelper",
+                "api_name": "MyHelper",
+                "script": "fresh content",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-02-01 00:00:00",
+            }
+        ]
+
+        _download_source_types(
+            config,
+            auth_manager,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=tmp_path,
+            root=tmp_path,
+            incremental=True,
+        )
+        # Resume disabled under incremental — stale file overwritten.
+        assert rec_dir.joinpath("script.js").read_text() == "fresh content"
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_reconcile_warns_about_deletions(self, mock_all, tmp_path):
+        config = _build_config()
+        auth_manager = MagicMock()
+        meta_dir = tmp_path / "sys_script_include"
+        meta_dir.mkdir(parents=True)
+        (meta_dir / "_map.json").write_text(json.dumps({"Ghost": "si-gone", "Live": "si-live"}))
+
+        # reconcile sys_id list runs first (only live remains); then main fetch returns nothing
+        mock_all.side_effect = [[{"sys_id": "si-live"}], []]
+
+        result = _download_source_types(
+            config,
+            auth_manager,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=tmp_path,
+            root=tmp_path,
+            reconcile_deletions=True,
+        )
+        assert result["deletion_candidates"]["script_include"] == ["si-gone"]
+        assert any("reconcile" in w and "si-gone" in w for w in result["warnings"])
+
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_retry_empty_source(self, mock_all, mock_page, tmp_path):
