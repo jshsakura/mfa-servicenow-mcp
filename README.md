@@ -394,35 +394,37 @@ Each server process is intentionally bound to one active ServiceNow instance for
 
 ### Read-Only Data Comparison Mode
 
-When you need to compare development and test data, you can opt into named instances with `SERVICENOW_INSTANCE_CONFIG`. `SERVICENOW_ACTIVE_INSTANCE` is still required, but the mode should be configured with read-only packages and writes disabled.
+When you need to compare development and test data, you can opt into named instances with `SERVICENOW_INSTANCE_CONFIG`. `SERVICENOW_ACTIVE_INSTANCE` is still required.
 
-This mode is **only for data comparison**:
+Two things are global, one is per-instance:
 
-- Ordinary tools always use the active instance.
-- Write-capable tools do not accept an instance selector.
-- `list_instances` only reports configured aliases.
-- `compare_instances` performs read-only table comparisons across aliases.
-- Alias auth fields are optional and fall back to the existing global auth env vars.
-- Do not use this mode for write work across environments.
+- **Tool surface is global** — set once with `MCP_TOOL_PACKAGE`. Only one instance is ever active per server process, so there is no per-instance tool package.
+- **Write permission is per-instance** — each alias carries `allow_writes`. It is enforced at call time against the active instance: a write tool can be loaded but still refused if the active instance has `allow_writes: false`. `role: "prod"` defaults `allow_writes` to false automatically.
+- **Credentials are per-instance with global fallback** — put `username` / `password` / `api_key` (and `auth_type`) on an alias to override; omit them and the alias inherits the global `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` / etc. So if every instance shares one login, set it once globally and leave the alias entries credential-free.
 
-Example:
+Other rules:
+
+- Ordinary tools always use the active instance; write-capable tools do not accept an instance selector.
+- `list_instances` reports configured aliases plus the active one. `compare_instances` performs read-only table comparisons across aliases.
+- Switching the active instance requires restarting the MCP client — it is read once at server startup, not refreshed live.
+
+Example — shared global login, per-instance write gating:
 
 ```bash
+export MCP_TOOL_PACKAGE=standard
+export SERVICENOW_USERNAME=svc_account
+export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
-  "dev": {
-    "url": "https://dev.service-now.com",
-    "role": "development",
-    "tool_package": "standard",
-    "allow_writes": false
-  },
-  "test": {
-    "url": "https://test.service-now.com",
-    "role": "test",
-    "tool_package": "standard",
-    "allow_writes": false
-  }
+  "dev":  { "url": "https://dev.service-now.com",  "role": "development", "allow_writes": true },
+  "test": { "url": "https://test.service-now.com", "role": "test",        "allow_writes": false }
 }'
+```
+
+To give an instance its own login instead, add the fields to that alias (a `${ENV}` reference is resolved, so you can keep secrets out of the JSON):
+
+```json
+"prod": { "url": "https://prod.service-now.com", "role": "prod", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
 Use `compare_instances` for dev/test drift checks. Use separate project/client configs for actual work against a different instance.
@@ -516,7 +518,7 @@ Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is determinist
 
 ```bash
 # One-off run
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.9" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.10" servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
@@ -539,7 +541,7 @@ Choose one execution style:
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.9",
+        "--from", "mfa-servicenow-mcp==1.13.10",
         "servicenow-mcp"
       ],
       "env": {
@@ -562,7 +564,7 @@ Choose one execution style:
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.9",
+  "--from", "mfa-servicenow-mcp==1.13.10",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -589,7 +591,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.9",
+        "--from", "mfa-servicenow-mcp==1.13.10",
         "servicenow-mcp"
       ],
       "enabled": true,
