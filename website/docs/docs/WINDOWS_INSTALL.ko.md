@@ -67,7 +67,7 @@ $env:PLAYWRIGHT_BROWSERS_PATH = "$HOME\apps\servicenow-mcp\ms-playwright"
 py -m playwright install chromium
 ```
 
-브라우저 다운로드까지 막히면 같은 릴리즈의 `ms-playwright-chromium-windows-x64-<version>.zip`을 받아 아래 위치에 풀면 됩니다.
+브라우저 다운로드까지 막히면 chromium-bundle 릴리즈(https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle)의 `ms-playwright-chromium-windows-x64.zip`을 받아 아래 위치에 풀면 됩니다.
 
 ```text
 %LOCALAPPDATA%\ms-playwright
@@ -353,7 +353,7 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 ```powershell
 uvx --with playwright playwright install chromium
 ```
-→ 브라우저 다운로드가 차단되면 같은 릴리즈의 `ms-playwright-chromium-windows-x64-<version>.zip`을 받아 `%LOCALAPPDATA%\ms-playwright`에 풀어 주세요.
+→ 브라우저 다운로드가 차단되면 chromium-bundle 릴리즈(https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle)의 `ms-playwright-chromium-windows-x64.zip`을 받아 `%LOCALAPPDATA%\ms-playwright`에 풀어 주세요.
 
 ### "MCP 서버가 연결되지 않습니다"
 → 설정 파일의 문법 오류를 확인하세요:

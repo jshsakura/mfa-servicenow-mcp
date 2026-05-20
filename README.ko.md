@@ -150,13 +150,13 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 
 #### 1. 다운로드
 
-<https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest> 에서:
+실행 파일은 [최신 릴리즈](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest)에 있습니다. Chromium 번들(네트워크가 Playwright의 Chromium 자동 다운로드까지 막을 때만 필요)은 ~150MB라 매 릴리즈에 다시 붙이지 않고 — Playwright 버전 바뀔 때만 갱신되는 고정 [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) 릴리즈에서 받으세요.
 
-| 플랫폼 | 필수 | Chromium도 막혀 있다면 추가로 |
-|--------|------|-------------------------------|
-| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64-<version>.zip` |
-| macOS (Intel/Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>-<version>.zip` |
-| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64-<version>.zip` |
+| 플랫폼 | 필수 (최신 릴리즈) | Chromium도 막히면 추가로 (chromium-bundle 릴리즈) |
+|--------|---------------------|---------------------------------------------------|
+| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64.zip` |
+| macOS (Intel/Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>.zip` |
+| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64.zip` |
 
 #### 2. 아래 폴더 구조로 풀기
 
@@ -524,7 +524,7 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 
 ```bash
 # 일회 실행
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.17" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.18" servicenow-mcp --version
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
@@ -547,7 +547,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.17" servicenow-
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.17",
+        "--from", "mfa-servicenow-mcp==1.13.18",
         "servicenow-mcp"
       ],
       "env": {
@@ -570,7 +570,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.17" servicenow-
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.17",
+  "--from", "mfa-servicenow-mcp==1.13.18",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -597,7 +597,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.17",
+        "--from", "mfa-servicenow-mcp==1.13.18",
         "servicenow-mcp"
       ],
       "enabled": true,
