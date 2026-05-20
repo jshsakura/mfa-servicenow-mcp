@@ -9,33 +9,39 @@
 
 Start with the narrowest package that covers your work. Each step up adds write access to more domains:
 
+Read-only — safe for any environment, no write tools:
+
 | Package | Tools | When to use |
 | :--- | :---: | :--- |
 | `core` | 12 | Minimal read-only: health, schema, discovery, key artifact lookups only |
 | `standard` | 30 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 32 | Service desk agents who need to update/close incidents and changes |
-| `portal_developer` | 42 | Portal developers who deploy widgets, changesets, and script includes |
-| `platform_developer` | 46 | Platform engineers who manage workflows, Flow Designer, and scripts |
-| `full` | 61 | ⚠️ See warning below |
 | `none` | 0 | Intentionally disable all tools (testing, locked-down environments) |
+
+⚠️ Write-capable — **advanced options** that grant create/update/delete:
+
+| Package | Tools | When to use |
+| :--- | :---: | :--- |
+| `service_desk` | 32 | ⚠️ Service desk agents who need to update/close incidents and changes |
+| `portal_developer` | 42 | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
+| `platform_developer` | 46 | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
+| `full` | 61 | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
 
 All packages except `core` and `none` inherit `standard` read-only tools via `_extends`. See `config/tool_packages.yaml` for the full inheritance tree.
 
 ---
 
-!!! danger "⚠️  `full` is for experienced users only"
-    The `full` package exposes **all write tools across every domain simultaneously** — incidents, changes,
-    portal, Flow Designer, workflows, scripts, and more.
+!!! danger "⚠️  Any package above `standard` is an advanced, write-capable option"
+    `service_desk`, `portal_developer`, `platform_developer`, and `full` all activate write tools — an AI
+    agent running under them can create, update, and delete ServiceNow records. `full` does so across **every
+    domain simultaneously** (incidents, changes, portal, Flow Designer, workflows, scripts, and more), so one
+    misunderstood prompt or hallucination can trigger destructive changes across multiple areas at once.
 
-    An AI agent running under `full` can create, update, and delete records without any domain-level guard rails.
-    One misunderstood prompt or hallucination can trigger destructive changes across multiple areas at once.
-
-    **Do not use `full` unless:**
-    - You fully understand every write tool it activates (see [Tool Inventory](TOOL_INVENTORY.md))
-    - You are working in a **non-production** or **sandboxed** instance
+    **Do not opt up from `standard` unless:**
+    - You understand every write tool the package activates (see [Tool Inventory](TOOL_INVENTORY.md))
+    - You are working in a **non-production** or **sandboxed** instance, or have `allow_writes` gating in place
     - You are an experienced ServiceNow developer who knows how to recover from unintended changes
 
-    If you're unsure, pick the domain-specific package instead (`portal_developer`, `platform_developer`, etc.).
+    If you're unsure, stay on the read-only default `standard` and pick the narrowest write package only when a task truly needs it.
 
 ---
 
