@@ -17,7 +17,6 @@ class InstanceDefinition:
     alias: str
     url: str
     role: str = "default"
-    tool_package: str | None = None
     allow_writes: bool = True
     raw: dict[str, Any] | None = None
 
@@ -60,12 +59,10 @@ def build_instance_definition(alias: str, entry: dict[str, Any]) -> InstanceDefi
         entry.get("allow_writes"),
         default=role_default_allow_writes(role),
     )
-    tool_package = entry.get("tool_package")
     return InstanceDefinition(
         alias=alias,
         url=url,
         role=role,
-        tool_package=str(tool_package).strip() if tool_package else None,
         allow_writes=allow_writes,
         raw=dict(entry),
     )
