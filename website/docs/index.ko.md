@@ -139,14 +139,16 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
       <div class="install-panels">
         <div class="install-panel active" id="local-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. 본인이 정한 안정 폴더에 아래 구조로 배치:</span>
+            <pre class="install-code"><code><span class="c"># 1. 본인이 정한 안정 폴더에 zip을 미리 다 풀어두세요 — .zip 파일을</span>
+<span class="c">#    실행 파일 옆에 남기지 말고. Chromium 폴더 이름은 ms-play로</span>
+<span class="c">#    시작하고 안에 chromium-*만 있으면 OK:</span>
 <span class="c">#</span>
-<span class="c">#    ~/apps/servicenow-mcp/             (본인이 정하는 경로)</span>
-<span class="c">#    ├── servicenow-mcp                 ← zip의 실행 파일</span>
-<span class="c">#    └── ms-playwright/                 ← Chromium zip을 여기 풀기</span>
-<span class="c">#        └── chromium-1185/             (하나 이상)</span>
+<span class="c">#    ~/apps/servicenow-mcp/                              (본인이 정하는 경로)</span>
+<span class="c">#    ├── servicenow-mcp                                  ← 실행 파일</span>
+<span class="c">#    └── ms-playwright-chromium-linux-x64-&lt;ver&gt;/         ← 기본 이름 OK</span>
+<span class="c">#        └── chromium-1185/</span>
 <span class="c">#</span>
-<span class="c"># 2. 시작 시 실행 파일이 옆 ms-playwright/ 폴더를 자동 인식해</span>
+<span class="c"># 2. 시작 시 실행 파일이 옆 ms-play* 디렉토리를 글롭으로 찾아</span>
 <span class="c">#    Playwright를 그쪽으로 보냅니다. 시스템 표준 캐시</span>
 <span class="c">#    (~/.cache/ms-playwright) 와 MCP 클라이언트 설정은 그대로.</span>
 <span class="c"># 3. 바이너리 동작 확인:</span>
@@ -160,14 +162,16 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
         </div>
         <div class="install-panel" id="local-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. 본인이 정한 안정 폴더에 아래 구조로 배치:</span>
+            <pre class="install-code"><code><span class="c"># 1. 본인이 정한 안정 폴더에 zip을 미리 다 풀어두세요 — .zip 파일을</span>
+<span class="c">#    실행 파일 옆에 남기지 말고. Chromium 폴더 이름은 ms-play로</span>
+<span class="c">#    시작하고 안에 chromium-*만 있으면 OK:</span>
 <span class="c">#</span>
 <span class="c">#    C:\Users\you\apps\servicenow-mcp\</span>
-<span class="c">#    ├── servicenow-mcp.exe              ← zip의 실행 파일</span>
-<span class="c">#    └── ms-playwright\                  ← Chromium zip을 여기 풀기</span>
-<span class="c">#        └── chromium-1185\              (하나 이상)</span>
+<span class="c">#    ├── servicenow-mcp.exe                              ← 실행 파일</span>
+<span class="c">#    └── ms-playwright-chromium-windows-x64-&lt;ver&gt;\       ← 기본 이름 OK</span>
+<span class="c">#        └── chromium-1185\</span>
 <span class="c">#</span>
-<span class="c"># 2. 시작 시 실행 파일이 옆 ms-playwright\ 폴더를 자동 인식해</span>
+<span class="c"># 2. 시작 시 실행 파일이 옆 ms-play* 디렉토리를 글롭으로 찾아</span>
 <span class="c">#    Playwright를 그쪽으로 보냅니다. 시스템 표준 캐시</span>
 <span class="c">#    (%LOCALAPPDATA%\ms-playwright) 와 MCP 클라이언트 설정은 그대로.</span>
 <span class="c"># 3. 바이너리 동작 확인:</span>

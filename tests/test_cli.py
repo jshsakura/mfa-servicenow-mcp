@@ -430,18 +430,26 @@ class TestCheckForUpdates:
 
 
 class TestMaybeUseBundledChromium:
-    """Auto-detects ms-playwright/ next to the exe so the release zip works
-    without an installer step. Must not override an explicit user setting,
-    and must skip cleanly when there's no bundled directory (uvx/dev mode)."""
+    """Auto-detects any ms-play* directory next to the exe so the release
+    zip works whether the user renames it to ms-playwright/ or leaves the
+    default unzip name (ms-playwright-chromium-linux-x64-1.13.7/). Must
+    not override an explicit user setting, and must skip cleanly when
+    there's no bundled directory (uvx/dev mode)."""
 
-    def _make_layout(self, tmp_path, *, with_chromium: bool) -> str:
+    def _make_exe(self, tmp_path) -> str:
         exe = tmp_path / "servicenow-mcp"
         exe.write_text("")
-        ms = tmp_path / "ms-playwright"
+        return str(exe)
+
+    def _make_layout(
+        self, tmp_path, *, dir_name: str = "ms-playwright", with_chromium: bool = True
+    ) -> str:
+        exe = self._make_exe(tmp_path)
+        ms = tmp_path / dir_name
         ms.mkdir()
         if with_chromium:
             (ms / "chromium-1234").mkdir()
-        return str(exe)
+        return exe
 
     def test_sets_env_when_sibling_dir_has_chromium(self, tmp_path):
         exe = self._make_layout(tmp_path, with_chromium=True)
@@ -451,6 +459,23 @@ class TestMaybeUseBundledChromium:
                 _maybe_use_bundled_chromium()
             assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == str(tmp_path / "ms-playwright")
 
+    def test_matches_default_unzip_directory_name(self, tmp_path):
+        # `unzip ms-playwright-chromium-linux-x64-1.13.7.zip` with default
+        # GUI extractors creates a directory named after the zip. The
+        # auto-detect must still find it without forcing users to rename.
+        exe = self._make_layout(
+            tmp_path,
+            dir_name="ms-playwright-chromium-linux-x64-1.13.7",
+            with_chromium=True,
+        )
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
+            with patch("servicenow_mcp.cli.sys.executable", exe):
+                _maybe_use_bundled_chromium()
+            assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == str(
+                tmp_path / "ms-playwright-chromium-linux-x64-1.13.7"
+            )
+
     def test_skips_when_user_already_set(self, tmp_path):
         exe = self._make_layout(tmp_path, with_chromium=True)
         with patch.dict(os.environ, {"PLAYWRIGHT_BROWSERS_PATH": "/user/override"}, clear=False):
@@ -459,18 +484,17 @@ class TestMaybeUseBundledChromium:
             assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == "/user/override"
 
     def test_skips_when_no_sibling_directory(self, tmp_path):
-        exe = tmp_path / "servicenow-mcp"
-        exe.write_text("")
+        exe = self._make_exe(tmp_path)
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
-            with patch("servicenow_mcp.cli.sys.executable", str(exe)):
+            with patch("servicenow_mcp.cli.sys.executable", exe):
                 _maybe_use_bundled_chromium()
             assert "PLAYWRIGHT_BROWSERS_PATH" not in os.environ
 
     def test_skips_when_sibling_dir_empty(self, tmp_path):
-        # Empty ms-playwright/ shouldn't trick the probe into using it —
-        # Playwright would then fail to find chromium and the user gets a
-        # confusing error instead of falling through to the system cache.
+        # Empty ms-play* shouldn't trick the probe — Playwright would
+        # then fail to find chromium and the user gets a confusing error
+        # instead of falling through to the standard cache.
         exe = self._make_layout(tmp_path, with_chromium=False)
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)

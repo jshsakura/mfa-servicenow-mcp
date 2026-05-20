@@ -58,17 +58,17 @@ Use this when `uvx` or PyPI is blocked. The release zip is a single PyInstaller-
 | macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>-<version>.zip` |
 | Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64-<version>.zip` |
 
-**2. Lay it out** in any stable directory you control. When extracting the Chromium zip, name the target folder `ms-playwright` so it sits as a direct sibling of the executable:
+**2. Lay it out** in any stable directory you control. **Extract both zips up front** — don't leave the `.zip` files alongside the executable. The Chromium zip's extracted folder just has to start with `ms-play` and contain a `chromium-*` subdirectory:
 
 ```
-~/apps/servicenow-mcp/             (any directory you choose)
-├── servicenow-mcp                 ← from the platform zip (.exe on Windows)
-└── ms-playwright/                 ← Chromium zip extracted here
+~/apps/servicenow-mcp/                                  (any directory you choose)
+├── servicenow-mcp                                      ← from the platform zip (.exe on Windows)
+└── ms-playwright-chromium-linux-x64-<ver>/             ← default extracted name works
     └── chromium-1185/
         └── …
 ```
 
-At startup the executable looks for a sibling `ms-playwright/chromium-*` directory and, if found, points Playwright at it via `PLAYWRIGHT_BROWSERS_PATH` for the current process only. It does **not** touch the system Playwright cache, **not** modify any MCP client config, **not** write anywhere on disk.
+(Rename to `ms-playwright/` if you want a tidier name — both work.) At startup the executable globs for any sibling `ms-play*` directory and, on finding a `chromium-*` subdirectory inside, points Playwright at it via `PLAYWRIGHT_BROWSERS_PATH` for the current process only. It does **not** touch the system Playwright cache, **not** modify any MCP client config, **not** write anywhere on disk.
 
 **3. Verify, then wire your MCP client:**
 

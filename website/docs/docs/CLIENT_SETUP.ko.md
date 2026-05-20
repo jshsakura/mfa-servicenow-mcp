@@ -58,17 +58,17 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 | macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>-<version>.zip` |
 | Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64-<version>.zip` |
 
-**2. 아래 구조로 배치** — 본인이 관리하는 안정적인 경로면 어디든 OK. Chromium zip을 풀 때 **타겟 폴더 이름을 `ms-playwright`** 로 지정해 실행 파일과 같은 부모 디렉토리에 두세요:
+**2. 아래 구조로 배치** — 본인이 관리하는 안정적인 경로면 어디든 OK. **zip은 미리 다 풀어두세요** — `.zip` 파일을 실행 파일 옆에 남기지 말고. Chromium zip을 푼 폴더 이름은 `ms-play`로 시작하고 안에 `chromium-*` 서브디렉토리만 있으면 됩니다:
 
 ```
-~/apps/servicenow-mcp/             (본인이 정하는 경로)
-├── servicenow-mcp                 ← 플랫폼 zip에서 (Windows는 .exe)
-└── ms-playwright/                 ← Chromium zip 압축 해제 위치
+~/apps/servicenow-mcp/                                  (본인이 정하는 경로)
+├── servicenow-mcp                                      ← 플랫폼 zip에서 (Windows는 .exe)
+└── ms-playwright-chromium-linux-x64-<ver>/             ← 기본 추출 이름 그대로 OK
     └── chromium-1185/
         └── …
 ```
 
-시작 시 실행 파일이 자기 옆 `ms-playwright/chromium-*` 디렉토리를 확인하고, 있으면 `PLAYWRIGHT_BROWSERS_PATH`를 그 경로로 지정합니다 — **현재 프로세스에만** 적용. 시스템 Playwright 캐시는 **건드리지 않고**, MCP 클라이언트 설정 파일도 **건드리지 않고**, 디스크에 아무것도 **쓰지 않습니다**.
+(정리해 두고 싶으면 `ms-playwright/`로 이름 변경해도 됩니다 — 둘 다 동작.) 시작 시 실행 파일이 자기 옆 `ms-play*` 디렉토리를 글롭으로 찾고, 안에 `chromium-*` 서브디렉토리가 있으면 그 경로로 `PLAYWRIGHT_BROWSERS_PATH`를 **현재 프로세스에만** 설정합니다. 시스템 Playwright 캐시는 **건드리지 않고**, MCP 클라이언트 설정 파일도 **건드리지 않고**, 디스크에 아무것도 **쓰지 않습니다**.
 
 **3. 동작 확인 후 MCP 클라이언트 연결:**
 

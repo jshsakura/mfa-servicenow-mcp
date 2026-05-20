@@ -22,17 +22,17 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
 
 ## 2단계: 릴리즈 zip/exe 설치
 
-`uvx`가 막히면 GitHub Releases에서 `servicenow-mcp-windows-x64-<version>.zip`을 받으세요. 안에는 PyInstaller로 빌드된 `servicenow-mcp.exe` 와 `LICENSE` 만 들어 있고, 설치 스크립트는 없습니다 — Chromium 탐색은 실행 파일이 직접 처리합니다. 본인이 관리하는 안정적인 폴더를 정해서 (`C:\Users\you\apps\servicenow-mcp\` 등) `servicenow-mcp.exe`를 그 안에 풀고, Chromium zip을 가지고 있으면 **`ms-playwright` 라는 서브폴더로 풀어 실행 파일과 같은 부모 디렉토리에 두세요**:
+`uvx`가 막히면 GitHub Releases에서 `servicenow-mcp-windows-x64-<version>.zip`을 받으세요. 안에는 PyInstaller로 빌드된 `servicenow-mcp.exe` 와 `LICENSE` 만 들어 있고, 설치 스크립트는 없습니다 — Chromium 탐색은 실행 파일이 직접 처리합니다. 본인이 관리하는 안정적인 폴더를 정해서 (`C:\Users\you\apps\servicenow-mcp\` 등) `servicenow-mcp.exe`를 그 안에 풀고, Chromium zip이 있으면 **같은 폴더에 미리 풀어두세요** — `.zip` 파일은 옆에 남기지 말고. 추출된 폴더 이름은 Windows 기본 출력(`ms-playwright-chromium-windows-x64-<ver>\`) 그대로 둬도 되고 `ms-playwright\`로 바꿔도 됩니다. 실행 파일은 시작 시 `ms-play*` 디렉토리를 글롭으로 찾습니다:
 
 ```
 C:\Users\you\apps\servicenow-mcp\
 ├── servicenow-mcp.exe
-└── ms-playwright\
+└── ms-playwright-chromium-windows-x64-<ver>\   (기본 추출 이름 OK)
     └── chromium-1185\
         └── …
 ```
 
-시작 시 실행 파일이 자기 옆 `ms-playwright\chromium-*` 디렉토리를 확인하고, 있으면 `PLAYWRIGHT_BROWSERS_PATH`를 그 경로로 지정합니다 — 현재 프로세스에만 적용. 시스템 표준 Playwright 캐시(`%LOCALAPPDATA%\ms-playwright`)는 건드리지 않고, MCP 클라이언트 설정 파일도 건드리지 않고, 디스크에 아무것도 쓰지 않습니다.
+시작 시 실행 파일이 자기 옆 `ms-play*\chromium-*` 디렉토리를 찾고, 있으면 `PLAYWRIGHT_BROWSERS_PATH`를 그 경로로 지정합니다 — 현재 프로세스에만 적용. 시스템 표준 Playwright 캐시(`%LOCALAPPDATA%\ms-playwright`)는 건드리지 않고, MCP 클라이언트 설정 파일도 건드리지 않고, 디스크에 아무것도 쓰지 않습니다.
 
 이후 본인 클라이언트 설정 파일에 아래 스니펫을 붙여넣으세요 (Claude Code / Claude Desktop 예):
 
