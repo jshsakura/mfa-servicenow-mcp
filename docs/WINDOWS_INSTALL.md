@@ -46,7 +46,7 @@ Then paste this into your client config file (Claude Code / Claude Desktop examp
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_USERNAME": "your-username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }

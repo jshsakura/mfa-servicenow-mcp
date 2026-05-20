@@ -148,7 +148,7 @@ Ask the user these questions one by one. Provide defaults in brackets.
    > 2. service_desk — Standard + assignment, SLA, escalation
    > 3. portal_developer — Standard + portal widgets, pages, themes
    > 4. platform_developer — Standard + scripts, flows, update sets
-   > 5. full — Broadest packaged surface with bundled workflows (62 tools)
+   > 5. full — Broadest packaged surface with bundled workflows (61 tools)
 
    Store as `$TOOL_PACKAGE`. Default: `standard`
 
@@ -197,7 +197,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup codex \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type basic \
-  --username "your.username" \
+  --username "your-username" \
   --password "your-password"
 ```
 
