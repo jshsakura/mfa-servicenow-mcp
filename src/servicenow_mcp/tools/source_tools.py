@@ -25,7 +25,7 @@ from servicenow_mcp.tools.sn_api import (
     sn_query_page,
 )
 from servicenow_mcp.utils.config import ServerConfig
-from servicenow_mcp.utils.download_map import merge_map_file
+from servicenow_mcp.utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file
 from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
@@ -2075,6 +2075,8 @@ def _download_source_types(
     extra_query: Optional[Dict[str, str]] = None,
     query_override: Optional[Dict[str, str]] = None,
     skip_empty_source_retry: Optional[Set[str]] = None,
+    incremental: bool = False,
+    reconcile_deletions: bool = False,
 ) -> Dict[str, Any]:
     """Core download loop shared by all individual download tools.
 
@@ -2083,8 +2085,14 @@ def _download_source_types(
         query_override: Per-source_type full query replacement (replaces sys_scope filter).
         skip_empty_source_retry: Source types whose blank source fields are valid and
             should not trigger per-record retry.
+        incremental: Only fetch records changed since last sync (sys_updated_on watermark
+            read from each family's _sync_meta.json). Disables the resume-skip so changed
+            records overwrite stale local files.
+        reconcile_deletions: Warn (no auto-delete) about records present locally but gone
+            remotely, via a sys_id-only list query per family.
 
-    Returns dict with keys: type_results, manifest_entries, warnings, total_files.
+    Returns dict with keys: type_results, manifest_entries, warnings, total_files,
+    deletion_candidates.
     """
     max_per_type = _clamp_download_per_type(max_per_type)
     page_size = max(10, min(page_size, 100))
@@ -2094,6 +2102,7 @@ def _download_source_types(
     type_results: Dict[str, Dict[str, Any]] = {}
     manifest_entries: List[Dict[str, Any]] = []
     warnings: List[str] = []
+    deletion_candidates: Dict[str, List[str]] = {}
     total_files = 0
 
     for source_type in source_types:
@@ -2103,6 +2112,7 @@ def _download_source_types(
 
         source_cfg = SOURCE_CONFIG[source_type]
         table = source_cfg["table"]
+        type_dir = scope_root / table
 
         all_fields = list(source_cfg["summary_fields"]) + list(source_cfg["source_fields"])
         restrict_source_page_size = (
@@ -2117,11 +2127,54 @@ def _download_source_types(
         if source_type in extra_query:
             base_filters.append(extra_query[source_type])
 
+        # Incremental: only fetch records changed since the last sync. Watermark
+        # uses server-side sys_updated_on (no client clock skew). Empty watermark
+        # (first run / no _sync_meta) falls back to a full download.
+        watermark = max_sync_updated_on(type_dir / "_sync_meta.json") if incremental else ""
+        if watermark:
+            base_filters.append(f"sys_updated_on>={watermark}")
+
         if query_override and source_type in query_override:
             parts = [query_override[source_type]] + base_filters
         else:
             parts = [f"sys_scope.scope={scope}"] + base_filters
         query = "^".join(parts)
+
+        # Deletion reconcile (warn-only): records present locally but gone remotely.
+        if reconcile_deletions:
+            local_ids = map_sys_ids(type_dir / "_map.json")
+            if local_ids:
+                recon_query = (
+                    query_override[source_type]
+                    if (query_override and source_type in query_override)
+                    else f"sys_scope.scope={scope}"
+                )
+                try:
+                    remote_ids = {
+                        str(r.get("sys_id") or "")
+                        for r in sn_query_all(
+                            config,
+                            auth_manager,
+                            table=table,
+                            query=recon_query,
+                            fields="sys_id",
+                            page_size=page_size,
+                            max_records=max_per_type,
+                            display_value=False,
+                            fail_silently=True,
+                        )
+                        if r.get("sys_id")
+                    }
+                    gone = sorted(local_ids - remote_ids)
+                    if gone:
+                        deletion_candidates[source_type] = gone
+                        warnings.append(
+                            f"{source_type}: reconcile — {len(gone)} local record(s) no longer "
+                            "exist remotely (deletion candidates, not removed): "
+                            + ", ".join(gone[:20])
+                        )
+                except Exception as exc:  # reconcile is best-effort, never fatal
+                    warnings.append(f"{source_type}: reconcile check failed — {exc}")
 
         _last_exc: Optional[Exception] = None
         records: List[Dict[str, Any]] = []
@@ -2190,8 +2243,10 @@ def _download_source_types(
 
             record_dir = type_dir / safe_name
 
-            # Resume: skip if source files already exist from a previous run
-            if source_cfg["source_fields"]:
+            # Resume: skip if source files already exist from a previous run.
+            # Disabled under incremental — a returned record changed, so its
+            # stale local file must be overwritten, not preserved.
+            if source_cfg["source_fields"] and not incremental:
                 existing_source = any(
                     (record_dir / f"{sf}{_FIELD_EXTENSIONS.get(sf, '.txt')}").exists()
                     for sf in source_cfg["source_fields"]
@@ -2293,6 +2348,7 @@ def _download_source_types(
         "manifest_entries": manifest_entries,
         "warnings": warnings,
         "total_files": total_files,
+        "deletion_candidates": deletion_candidates,
     }
 
 
@@ -2808,6 +2864,14 @@ class DownloadAppSourcesParams(BaseModel):
         default=None,
         description="Final scope root path. Default: ./temp/{instance}/{scope}.",
     )
+    incremental: bool = Field(
+        default=False,
+        description="Only re-download records changed since last sync (sys_updated_on). Needs prior download.",
+    )
+    reconcile_deletions: bool = Field(
+        default=False,
+        description="Warn about local records deleted on the instance. No auto-delete.",
+    )
 
 
 @register_tool(
@@ -2828,6 +2892,7 @@ def download_app_sources(
     all_type_results: Dict[str, Dict[str, Any]] = {}
     all_manifest_entries: List[Dict[str, Any]] = []
     all_warnings: List[str] = []
+    all_deletion_candidates: Dict[str, List[str]] = {}
     all_files = 0
 
     # --- Portal sources (widgets, providers, CSS via portal_tools) ---
@@ -2844,6 +2909,8 @@ def download_app_sources(
                 output_dir=str(scope_root),
                 include_linked_angular_providers=True,
                 include_linked_script_includes=True,
+                incremental=params.incremental,
+                reconcile_deletions=params.reconcile_deletions,
             )
             # Explicit retry: transient API errors surface as success=False.
             # Retry up to _RETRY_MAX_ATTEMPTS times before falling back.
@@ -2886,6 +2953,9 @@ def download_app_sources(
                 # are not lost when the orchestrator wraps the result.
                 for w in widget_summary.get("warnings") or []:
                     all_warnings.append(f"widget sources: {w}")
+                portal_gone = widget_summary.get("deleted_widget_candidates") or []
+                if portal_gone:
+                    all_deletion_candidates["widget"] = list(portal_gone)
                 if widget_count == 0:
                     all_warnings.append(
                         "widget sources: 0 widgets returned for scope "
@@ -2923,10 +2993,13 @@ def download_app_sources(
                     max_per_type=params.max_records_per_type,
                     page_size=params.page_size,
                     only_active=params.only_active,
+                    incremental=params.incremental,
+                    reconcile_deletions=params.reconcile_deletions,
                 )
                 all_type_results.update(dl["type_results"])
                 all_manifest_entries.extend(dl["manifest_entries"])
                 all_warnings.extend(dl["warnings"])
+                all_deletion_candidates.update(dl.get("deletion_candidates", {}))
                 all_files += dl["total_files"]
             except Exception as exc:
                 all_warnings.append(f"widget sources fallback failed: {exc}")
@@ -2961,10 +3034,13 @@ def download_app_sources(
             only_active=params.only_active,
             extra_query=extra_query,
             skip_empty_source_retry=set() if params.acl_script_only else {"acl"},
+            incremental=params.incremental,
+            reconcile_deletions=params.reconcile_deletions,
         )
         all_type_results.update(dl["type_results"])
         all_manifest_entries.extend(dl["manifest_entries"])
         all_warnings.extend(dl["warnings"])
+        all_deletion_candidates.update(dl.get("deletion_candidates", {}))
         all_files += dl["total_files"]
 
     # --- Global sp_instance: widget placements live in global scope, not app scope ---
@@ -2983,10 +3059,13 @@ def download_app_sources(
         query_override={
             "sp_instance": f"sp_widget.sys_scope.scope={_escape_query_value(params.scope)}"
         },
+        incremental=params.incremental,
+        reconcile_deletions=params.reconcile_deletions,
     )
     gi = dl_global["type_results"].get("sp_instance", {"count": 0})
     all_type_results["sp_instance_global"] = gi
     all_warnings.extend(dl_global["warnings"])
+    all_deletion_candidates.update(dl_global.get("deletion_candidates", {}))
     all_files += dl_global["total_files"]
 
     # --- Table schema ---
@@ -3037,6 +3116,7 @@ def download_app_sources(
         "scope": params.scope,
         "output_root": str(scope_root),
         "duration_ms": elapsed_ms,
+        "incremental": params.incremental,
         "source_types": all_type_results,
         "total_records": sum(r.get("count", 0) for r in all_type_results.values()),
         "total_files": all_files,
@@ -3047,6 +3127,13 @@ def download_app_sources(
         summary["schema_summary"] = schema_summary
     if dep_summary:
         summary["dep_summary"] = dep_summary
+    if all_deletion_candidates:
+        summary["deletion_candidates"] = all_deletion_candidates
+    if params.incremental:
+        all_warnings.append(
+            "incremental: only records with a newer sys_updated_on were fetched per family; "
+            "unchanged local files preserved. Run a full download periodically."
+        )
     if all_warnings:
         summary["warnings"] = all_warnings
     summary["safety_notice"] = (

@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
 from ..utils.config import ServerConfig
-from ..utils.download_map import merge_map_file
+from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file
 from ..utils.registry import register_tool
 from .sn_api import (
     GenericQueryParams,
@@ -1413,42 +1413,6 @@ def _write_json_file(path: Path, payload: Any) -> None:
     path.write_text(json_fast.dumps(payload), encoding="utf-8")
 
 
-def _max_sync_updated_on(sync_meta_path: Path) -> str:
-    """Return the newest sys_updated_on recorded in a _sync_meta.json file.
-
-    Used as the incremental-download watermark. Server-side timestamps avoid
-    client clock skew. Returns "" when the file is missing/empty so callers
-    fall back to a full download.
-    """
-    if not sync_meta_path.exists():
-        return ""
-    try:
-        data = json_fast.loads(sync_meta_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return ""
-    if not isinstance(data, dict):
-        return ""
-    stamps = [
-        str(entry.get("sys_updated_on") or "") for entry in data.values() if isinstance(entry, dict)
-    ]
-    stamps = [s for s in stamps if s]
-    return max(stamps) if stamps else ""
-
-
-def _local_widget_sys_ids(scope_root: Path) -> Set[str]:
-    """sys_ids of widgets recorded locally (from sp_widget/_map.json values)."""
-    map_path = scope_root / "sp_widget" / "_map.json"
-    if not map_path.exists():
-        return set()
-    try:
-        data = json_fast.loads(map_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return set()
-    if not isinstance(data, dict):
-        return set()
-    return {str(v) for v in data.values() if v}
-
-
 def _as_display_text(value: Any) -> str:
     if isinstance(value, dict):
         for key in ("display_value", "displayValue", "value"):
@@ -2756,7 +2720,7 @@ def download_portal_sources(
     # Incremental (full-scope only): pull just records changed since last sync.
     incremental_active = params.incremental and not targeted_widget_export
     if incremental_active:
-        widget_watermark = _max_sync_updated_on(scope_root / "sp_widget" / "_sync_meta.json")
+        widget_watermark = max_sync_updated_on(scope_root / "sp_widget" / "_sync_meta.json")
         if widget_watermark:
             clause = f"sys_updated_on>={_escape_query(widget_watermark)}"
             widget_base_query = f"{widget_base_query}^{clause}" if widget_base_query else clause
@@ -2939,7 +2903,7 @@ def download_portal_sources(
         # Incremental: catch providers whose script changed without a widget edit
         # (M2M-by-widget can't see those). Independent watermark query on providers.
         if incremental_active:
-            provider_watermark = _max_sync_updated_on(
+            provider_watermark = max_sync_updated_on(
                 scope_root / "sp_angular_provider" / "_sync_meta.json"
             )
             if provider_watermark:
@@ -3101,7 +3065,7 @@ def download_portal_sources(
     # Deletion reconcile (warn-only): widgets present locally but gone remotely.
     deleted_widget_candidates: List[str] = []
     if params.reconcile_deletions and not targeted_widget_export:
-        local_ids = _local_widget_sys_ids(scope_root)
+        local_ids = map_sys_ids(scope_root / "sp_widget" / "_map.json")
         if local_ids:
             remote_ids = {
                 str(r.get("sys_id") or "")

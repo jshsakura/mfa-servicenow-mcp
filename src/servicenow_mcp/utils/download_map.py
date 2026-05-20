@@ -18,9 +18,31 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Set
 
 logger = logging.getLogger(__name__)
+
+
+def max_sync_updated_on(sync_meta_path: Path) -> str:
+    """Return the newest sys_updated_on recorded in a _sync_meta.json file.
+
+    Used as the incremental-download watermark. Server-side timestamps avoid
+    client clock skew. Returns "" when the file is missing/empty so callers
+    fall back to a full download.
+    """
+    existing = _read_existing_map(sync_meta_path)
+    stamps = [
+        str(entry.get("sys_updated_on") or "")
+        for entry in existing.values()
+        if isinstance(entry, dict) and entry.get("sys_updated_on")
+    ]
+    return max(stamps) if stamps else ""
+
+
+def map_sys_ids(map_path: Path) -> Set[str]:
+    """sys_ids recorded locally in a _map.json file (its values)."""
+    existing = _read_existing_map(map_path)
+    return {str(v) for v in existing.values() if v}
 
 
 def _read_existing_map(path: Path) -> Dict[str, Any]:
