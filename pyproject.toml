@@ -32,7 +32,7 @@ dependencies = [
     # manager switch to a real-browser TLS handshake at runtime when
     # SERVICENOW_TLS_IMPERSONATE=<profile> is set. Without it, ServiceNow
     # instances fronted by Cloudflare/Akamai or running JA3-based bot
-    # detection (the customer-instance pattern in field logs) reject stock
+    # detection (observed on a hardened customer instance) reject stock
     # Python requests no matter how valid the captured session is. Wheels
     # ship for macOS / Linux / Windows × Python 3.11+, ~20MB on first
     # install — small enough not to gate the feature behind extras when
