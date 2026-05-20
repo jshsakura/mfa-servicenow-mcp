@@ -858,11 +858,9 @@ class ServiceNowMCP:
         aliases = sorted(self.instance_contexts)
         schema_with_instance = {**schema}
         properties = {**schema.get("properties", {})}
-        properties[INSTANCE_FIELD] = {
-            "type": "string",
-            "enum": aliases,
-            "description": "Read-only: target a named instance (default: active).",
-        }
+        # No description — the field name + alias enum are self-explanatory,
+        # and list_instances carries the usage hint. Saves ~15 tok/read-tool.
+        properties[INSTANCE_FIELD] = {"type": "string", "enum": aliases}
         schema_with_instance["properties"] = properties
         return schema_with_instance
 
