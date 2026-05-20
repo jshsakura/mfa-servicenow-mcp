@@ -75,10 +75,12 @@ MCP 클라이언트를 재시작하면 새 설정이 로드됩니다. 첫 브라
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **등록 도구 72개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
+- **등록 도구 70개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
 - **16개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **Streamable HTTP transport** — 기본 stdio는 그대로 두고, HTTP 지원 클라이언트/브리지에는 `/mcp` 엔드포인트 제공
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
+- **권위 관계 그래프를 디스크에** — `_graph.json`(위젯→Angular Provider, 라이브 M2M 기반)과 `_page_graph.json`(페이지→위젯, `sp_instance` 기반)으로 LLM이 인스턴스에 다시 묻지 않고 의존성 질문을 오프라인으로 답합니다
+- **증분 동기화** (`incremental=True`) — 지난 동기화 이후 바뀐 레코드만 다시 받음(`sys_updated_on` 워터마크, `git pull` 방식); `reconcile_deletions=True`로 인스턴스에서 삭제된 레코드 경고
 - **크로스-스코프 의존성 자동 해석** — `download_app_sources`가 앱 코드에서 참조하는 글로벌 스코프의 Script Include, Widget, Angular Provider, UI Macro까지 함께 받아 로컬 번들을 분석에 자족적으로 만듭니다
 - **Dry-run 프리뷰** — 모든 쓰기 도구에서 `dry_run=True` 지원. 실행 전 필드 단위 diff, 의존성 카운트, 정확도 노트를 반환합니다. 읽기 전용 API만 사용하므로 모든 인증 모드에서 동작.
 - `confirm='approve'` 기반 안전한 수정 승인 정책
@@ -384,16 +386,16 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 | :--- | :---: | :--- |
 | `none` | 0 | 도구를 의도적으로 비활성화하는 프로필 |
 | `core` | 12 | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
-| `standard` | 30 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
+| `standard` | 29 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
 
 ⚠️ 쓰기 가능 (고급 — 생성/수정/삭제 권한 부여):
 
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
-| `service_desk` | 32 | ⚠️ standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 42 | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
-| `platform_developer` | 46 | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 61 | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
+| `service_desk` | 31 | ⚠️ standard + 인시던트/변경 운영 쓰기 |
+| `portal_developer` | 39 | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
+| `platform_developer` | 45 | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `full` | 59 | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
 
 일반 도구는 서버 프로세스 하나당 하나의 active ServiceNow 인스턴스에만 연결됩니다. 안전을 위해 요청별 쓰기 라우팅으로 인스턴스를 오가는 방식은 지원하지 않습니다.
 
