@@ -12,11 +12,11 @@ Start with the narrowest package that covers your work. Each step up adds write 
 | Package | Tools | When to use |
 | :--- | :---: | :--- |
 | `core` | 12 | Minimal read-only: health, schema, discovery, key artifact lookups only |
-| `standard` | 31 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 33 | Service desk agents who need to update/close incidents and changes |
-| `portal_developer` | 43 | Portal developers who deploy widgets, changesets, and script includes |
-| `platform_developer` | 47 | Platform engineers who manage workflows, Flow Designer, and scripts |
-| `full` | 62 | ⚠️ See warning below |
+| `standard` | 30 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 32 | Service desk agents who need to update/close incidents and changes |
+| `portal_developer` | 42 | Portal developers who deploy widgets, changesets, and script includes |
+| `platform_developer` | 46 | Platform engineers who manage workflows, Flow Designer, and scripts |
+| `full` | 61 | ⚠️ See warning below |
 | `none` | 0 | Intentionally disable all tools (testing, locked-down environments) |
 
 All packages except `core` and `none` inherit `standard` read-only tools via `_extends`. See `config/tool_packages.yaml` for the full inheritance tree.
@@ -44,13 +44,13 @@ All packages except `core` and `none` inherit `standard` read-only tools via `_e
 Via environment variable (recommended):
 
 ```bash
-MCP_TOOL_PACKAGE=portal_developer
+MCP_TOOL_PACKAGE=standard
 ```
 
 Via CLI flag:
 
 ```bash
-servicenow-mcp --tool-package portal_developer --instance-url ...
+servicenow-mcp --tool-package standard --instance-url ...
 ```
 
 In your MCP client config:
@@ -58,7 +58,7 @@ In your MCP client config:
 ```json
 {
   "env": {
-    "MCP_TOOL_PACKAGE": "portal_developer"
+    "MCP_TOOL_PACKAGE": "standard"
   }
 }
 ```
