@@ -202,7 +202,7 @@ Paste the snippet for your client into the file it reads. The `env` block is ide
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_USERNAME": "your-username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
@@ -227,7 +227,7 @@ enabled = true
 SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
 SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
-SERVICENOW_USERNAME = "your.username"
+SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
 MCP_TOOL_PACKAGE = "standard"
 ```
@@ -246,7 +246,7 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_USERNAME": "your-username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
@@ -525,7 +525,7 @@ Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is determinist
 
 ```bash
 # One-off run
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.11" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.12" servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
@@ -548,14 +548,14 @@ Choose one execution style:
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.11",
+        "--from", "mfa-servicenow-mcp==1.13.12",
         "servicenow-mcp"
       ],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_USERNAME": "your-username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
@@ -571,7 +571,7 @@ Choose one execution style:
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.11",
+  "--from", "mfa-servicenow-mcp==1.13.12",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -582,7 +582,7 @@ enabled = true
 SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
 SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
-SERVICENOW_USERNAME = "your.username"
+SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
 MCP_TOOL_PACKAGE = "standard"
 ```
@@ -598,7 +598,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.11",
+        "--from", "mfa-servicenow-mcp==1.13.12",
         "servicenow-mcp"
       ],
       "enabled": true,
@@ -606,7 +606,7 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your.username",
+        "SERVICENOW_USERNAME": "your-username",
         "SERVICENOW_PASSWORD": "your-password",
         "MCP_TOOL_PACKAGE": "standard"
       }
