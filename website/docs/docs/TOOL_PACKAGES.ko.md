@@ -12,11 +12,11 @@
 | 패키지명 | 도구 수 | 사용 시기 |
 | :--- | :---: | :--- |
 | `core` | 12 | 최소 읽기 전용: 헬스체크, 스키마, 탐색, 핵심 조회만 |
-| `standard` | 31 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
-| `service_desk` | 33 | 인시던트/변경 업데이트·종료가 필요한 서비스 데스크 담당자 |
-| `portal_developer` | 43 | 위젯, 체인지셋, Script Include를 배포하는 포털 개발자 |
-| `platform_developer` | 47 | 워크플로우, Flow Designer, 스크립트를 관리하는 플랫폼 엔지니어 |
-| `full` | 62 | ⚠️ 아래 경고 참고 |
+| `standard` | 30 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
+| `service_desk` | 32 | 인시던트/변경 업데이트·종료가 필요한 서비스 데스크 담당자 |
+| `portal_developer` | 42 | 위젯, 체인지셋, Script Include를 배포하는 포털 개발자 |
+| `platform_developer` | 46 | 워크플로우, Flow Designer, 스크립트를 관리하는 플랫폼 엔지니어 |
+| `full` | 61 | ⚠️ 아래 경고 참고 |
 | `none` | 0 | 모든 도구를 의도적으로 비활성화 (테스트, 잠금 환경) |
 
 `core`와 `none`을 제외한 모든 패키지는 `_extends`를 통해 `standard` 읽기 전용 도구를 상속합니다. 전체 상속 구조는 `config/tool_packages.yaml`을 참고하세요.
@@ -43,13 +43,13 @@
 환경변수로 설정 (권장):
 
 ```bash
-MCP_TOOL_PACKAGE=portal_developer
+MCP_TOOL_PACKAGE=standard
 ```
 
 CLI 플래그로 설정:
 
 ```bash
-servicenow-mcp --tool-package portal_developer --instance-url ...
+servicenow-mcp --tool-package standard --instance-url ...
 ```
 
 MCP 클라이언트 설정 파일:
@@ -57,7 +57,7 @@ MCP 클라이언트 설정 파일:
 ```json
 {
   "env": {
-    "MCP_TOOL_PACKAGE": "portal_developer"
+    "MCP_TOOL_PACKAGE": "standard"
   }
 }
 ```

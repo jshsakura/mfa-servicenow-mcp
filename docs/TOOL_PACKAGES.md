@@ -44,13 +44,13 @@ All packages except `core` and `none` inherit `standard` read-only tools via `_e
 Via environment variable (recommended):
 
 ```bash
-MCP_TOOL_PACKAGE=portal_developer
+MCP_TOOL_PACKAGE=standard
 ```
 
 Via CLI flag:
 
 ```bash
-servicenow-mcp --tool-package portal_developer --instance-url ...
+servicenow-mcp --tool-package standard --instance-url ...
 ```
 
 In your MCP client config:
@@ -58,7 +58,7 @@ In your MCP client config:
 ```json
 {
   "env": {
-    "MCP_TOOL_PACKAGE": "portal_developer"
+    "MCP_TOOL_PACKAGE": "standard"
   }
 }
 ```
