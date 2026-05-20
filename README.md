@@ -313,24 +313,27 @@ The [Setup](#setup) command uses browser auth by default. Optional flags:
 | `--browser-headless` | `SERVICENOW_BROWSER_HEADLESS` | `false` | Run browser without GUI |
 | `--browser-timeout` | `SERVICENOW_BROWSER_TIMEOUT` | `120` | Login timeout in seconds |
 | `--browser-session-ttl` | `SERVICENOW_BROWSER_SESSION_TTL` | `30` | Session TTL in minutes |
-| `--browser-user-data-dir` | `SERVICENOW_BROWSER_USER_DATA_DIR` | — | Persistent browser profile path. Session JSON is stored next to it, so multiple MCP hosts can share login state. |
+| `--browser-user-data-dir` | `SERVICENOW_BROWSER_USER_DATA_DIR` | — | Override the Chromium profile path. Rarely needed — see the sandbox note below before setting it. |
 | `--browser-probe-path` | `SERVICENOW_BROWSER_PROBE_PATH` | user-specific `sys_user` lookup when a username is known, otherwise `/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id` | Session validation endpoint (avoids 401 on non-admin sessions) |
 | `--browser-login-url` | `SERVICENOW_BROWSER_LOGIN_URL` | — | Custom login page URL |
 
-#### Sharing login across multiple MCP hosts (Codex + Claude, etc.)
+#### Login sharing across hosts and instances — how it actually works
 
-When a single user runs the MCP server from more than one host (e.g. Claude Code **and** Codex side by side), each host normally resolves `~/.servicenow_mcp` to a different path — sandboxed apps may remap `HOME`, so they end up writing **different** session caches and each one prompts a fresh MFA login.
+The server caches two things under `~/.mfa_servicenow_mcp/`: the Playwright profile (Chromium SSO cookies) and a session JSON (parsed cookies reused on the next start). Both are **scoped per instance + username** — files are named `profile_<host>_<user>` and `session_<host>_<user>.json`.
 
-**Why a shared path is needed:** the server stores two artifacts — the Playwright profile (Chromium SSO cookies) and a session JSON (parsed cookies the MCP reuses on the next start). Without a shared root, host A's login is invisible to host B.
+That scoping does two things for you automatically, with **no configuration**:
 
-**Fix:** set `SERVICENOW_BROWSER_USER_DATA_DIR` to the **same absolute path** in every host's MCP config. The session JSON is now derived from the parent of that directory, so they share both the Chromium profile *and* the JSON cache.
+- **Multiple hosts share one login.** Claude Code and Codex on the same machine both resolve `~/.mfa_servicenow_mcp/`, so whichever logs in first writes the session and the other reuses it — no second MFA prompt.
+- **Different instances / different credentials stay isolated.** Each instance+user gets its own profile and session file, so dev and test (or two accounts) never collide. For multiple instances, configure them in `SERVICENOW_INSTANCE_CONFIG` (JSON) — each alias gets its own scoped cache; you do **not** manage this with a profile path.
+
+**Do not set `SERVICENOW_BROWSER_USER_DATA_DIR` to "share" logins.** It overrides the profile path verbatim — the per-instance scoping is bypassed, so every instance you run is forced into one Chromium profile and their cookies collide. The only legitimate use is a narrow one: a **sandboxed** host (e.g. Claude Desktop on macOS) that remaps `HOME` to a container path, so its `~/.mfa_servicenow_mcp/` no longer matches the terminal's. In that single-instance case, point the sandboxed host at the real home path:
 
 ```bash
-# Pick any stable absolute path — example uses an instance-scoped folder
-export SERVICENOW_BROWSER_USER_DATA_DIR="$HOME/.servicenow_mcp/shared/profile_acme"
+# Only when a sandbox remapped HOME, and only for a single-instance host
+export SERVICENOW_BROWSER_USER_DATA_DIR="/Users/you/.mfa_servicenow_mcp/profile_acme"
 ```
 
-Configure the same value in Codex's `~/.codex/config.toml`, Claude Desktop's `claude_desktop_config.json`, and any other client. Whichever host logs in first writes the session; the others pick it up on their next tool call without opening a browser.
+If you run more than one instance, leave this unset and let the per-instance scoping do its job.
 
 ### Basic Auth
 
@@ -525,7 +528,7 @@ Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is determinist
 
 ```bash
 # One-off run
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.12" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.13" servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
@@ -548,7 +551,7 @@ Choose one execution style:
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.12",
+        "--from", "mfa-servicenow-mcp==1.13.13",
         "servicenow-mcp"
       ],
       "env": {
@@ -571,7 +574,7 @@ Choose one execution style:
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.12",
+  "--from", "mfa-servicenow-mcp==1.13.13",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -598,7 +601,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.12",
+        "--from", "mfa-servicenow-mcp==1.13.13",
         "servicenow-mcp"
       ],
       "enabled": true,

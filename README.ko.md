@@ -308,24 +308,27 @@ ServiceNow 환경에 맞는 인증 방식을 선택하세요.
 | `--browser-headless` | `SERVICENOW_BROWSER_HEADLESS` | `false` | GUI 없이 브라우저 실행 |
 | `--browser-timeout` | `SERVICENOW_BROWSER_TIMEOUT` | `120` | 로그인 타임아웃 (초) |
 | `--browser-session-ttl` | `SERVICENOW_BROWSER_SESSION_TTL` | `30` | 세션 TTL (분) |
-| `--browser-user-data-dir` | `SERVICENOW_BROWSER_USER_DATA_DIR` | — | 영구 브라우저 프로파일 경로. 세션 JSON 캐시도 같은 부모 디렉터리에 저장되어, 여러 MCP 호스트가 로그인 상태를 공유할 수 있습니다. |
+| `--browser-user-data-dir` | `SERVICENOW_BROWSER_USER_DATA_DIR` | — | Chromium 프로필 경로 오버라이드. 거의 쓸 일 없음 — 설정 전 아래 샌드박스 주의사항 참고. |
 | `--browser-probe-path` | `SERVICENOW_BROWSER_PROBE_PATH` | 사용자명을 알 수 있는 경우 사용자별 `sys_user` 조회, 그 외에는 `/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id` | 세션 검증 엔드포인트 (비관리자 세션 401 회피) |
 | `--browser-login-url` | `SERVICENOW_BROWSER_LOGIN_URL` | — | 커스텀 로그인 페이지 URL |
 
-#### 여러 MCP 호스트 간 로그인 공유 (Codex + Claude 등)
+#### 호스트·인스턴스 간 로그인 공유 — 실제 동작
 
-한 사용자가 여러 호스트(예: Claude Code와 Codex)에서 MCP 서버를 띄우면, 각 호스트가 `~/.servicenow_mcp`를 서로 다른 경로로 인식할 수 있습니다 — 샌드박스 앱은 `HOME`이 리매핑되어 **서로 다른** 세션 캐시를 사용하게 되고, 결국 호스트마다 MFA 로그인 창이 다시 뜹니다.
+서버는 `~/.mfa_servicenow_mcp/` 아래에 두 가지를 캐시합니다 — Playwright 프로필(Chromium SSO 쿠키)과 세션 JSON(다음 시작 시 재사용하는 파싱된 쿠키). 둘 다 **인스턴스 + 사용자명 단위로 분리**됩니다 — 파일명이 `profile_<host>_<user>`, `session_<host>_<user>.json`.
 
-**왜 공유 경로가 필요한가:** 서버가 저장하는 항목은 두 가지입니다 — Playwright 프로필(Chromium의 SSO 쿠키)과 세션 JSON(MCP가 다음 시작 시 재사용하는 파싱된 쿠키). 공유 루트가 없으면 호스트 A의 로그인은 호스트 B에게 보이지 않습니다.
+이 분리 덕분에 **별도 설정 없이** 두 가지가 자동으로 됩니다:
 
-**해결:** 모든 호스트의 MCP 설정에 `SERVICENOW_BROWSER_USER_DATA_DIR`를 **동일한 절대 경로**로 지정하세요. 세션 JSON 경로는 이 디렉터리의 부모를 기준으로 계산되므로, Chromium 프로필과 JSON 캐시 둘 다 공유됩니다.
+- **여러 호스트가 로그인 하나를 공유.** 같은 머신의 Claude Code와 Codex는 둘 다 `~/.mfa_servicenow_mcp/`를 가리키므로, 먼저 로그인한 쪽이 세션을 쓰면 다른 쪽이 그대로 재사용 — MFA 두 번 안 뜸.
+- **인스턴스/자격증명이 다르면 자동 격리.** 인스턴스+유저마다 프로필·세션 파일이 따로라 dev와 test(또는 계정 두 개)가 절대 충돌 안 함. 인스턴스가 여러 개면 `SERVICENOW_INSTANCE_CONFIG`(JSON)로 설정하세요 — alias마다 캐시가 분리됩니다. 프로필 경로로 관리하는 게 **아닙니다**.
+
+**로그인 "공유"하려고 `SERVICENOW_BROWSER_USER_DATA_DIR`를 설정하지 마세요.** 이 값은 프로필 경로를 그대로 덮어써서 인스턴스별 분리를 무력화합니다 — 실행하는 모든 인스턴스가 Chromium 프로필 하나에 강제로 묶여 쿠키가 충돌합니다. 유일하게 정당한 용도는 좁은 케이스 하나뿐 — **샌드박스** 호스트(예: macOS의 Claude Desktop)가 `HOME`을 컨테이너 경로로 리매핑해서 그쪽 `~/.mfa_servicenow_mcp/`가 터미널과 안 맞을 때. 이 단일 인스턴스 케이스에서만 샌드박스 호스트를 실제 home 경로로 지정합니다:
 
 ```bash
-# 안정적인 절대 경로면 무엇이든 OK — 예시는 인스턴스별 폴더
-export SERVICENOW_BROWSER_USER_DATA_DIR="$HOME/.servicenow_mcp/shared/profile_acme"
+# 샌드박스가 HOME을 리매핑한 경우 + 호스트당 단일 인스턴스일 때만
+export SERVICENOW_BROWSER_USER_DATA_DIR="/Users/you/.mfa_servicenow_mcp/profile_acme"
 ```
 
-Codex의 `~/.codex/config.toml`, Claude Desktop의 `claude_desktop_config.json` 등 모든 클라이언트에 같은 값을 설정하세요. 먼저 로그인한 호스트가 세션을 저장하면, 다른 호스트는 다음 도구 호출 시 브라우저를 열지 않고 그대로 사용합니다.
+인스턴스를 둘 이상 돌리면 이 값은 비워두고 인스턴스별 자동 분리에 맡기세요.
 
 ### Basic 인증
 
@@ -520,7 +523,7 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 
 ```bash
 # 일회 실행
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.12" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.13" servicenow-mcp --version
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
@@ -543,7 +546,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.12" servicenow-
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.12",
+        "--from", "mfa-servicenow-mcp==1.13.13",
         "servicenow-mcp"
       ],
       "env": {
@@ -566,7 +569,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.12" servicenow-
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.12",
+  "--from", "mfa-servicenow-mcp==1.13.13",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -593,7 +596,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.12",
+        "--from", "mfa-servicenow-mcp==1.13.13",
         "servicenow-mcp"
       ],
       "enabled": true,
