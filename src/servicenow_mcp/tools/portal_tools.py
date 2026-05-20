@@ -187,6 +187,14 @@ class DownloadPortalSourcesParams(BaseModel):
         description="Maximum widgets to export (default 25, clamped to 500). Values >25 are allowed, not blocked.",
     )
     page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
+    incremental: bool = Field(
+        default=False,
+        description="Only re-download records changed since last sync (sys_updated_on). Full-scope only.",
+    )
+    reconcile_deletions: bool = Field(
+        default=False,
+        description="List remote sys_ids and warn about local records deleted on the instance. No auto-delete.",
+    )
 
 
 def _strip_metadata(record: Dict[str, Any], keep_fields: List[str]) -> Dict[str, Any]:
@@ -1405,6 +1413,42 @@ def _write_json_file(path: Path, payload: Any) -> None:
     path.write_text(json_fast.dumps(payload), encoding="utf-8")
 
 
+def _max_sync_updated_on(sync_meta_path: Path) -> str:
+    """Return the newest sys_updated_on recorded in a _sync_meta.json file.
+
+    Used as the incremental-download watermark. Server-side timestamps avoid
+    client clock skew. Returns "" when the file is missing/empty so callers
+    fall back to a full download.
+    """
+    if not sync_meta_path.exists():
+        return ""
+    try:
+        data = json_fast.loads(sync_meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    stamps = [
+        str(entry.get("sys_updated_on") or "") for entry in data.values() if isinstance(entry, dict)
+    ]
+    stamps = [s for s in stamps if s]
+    return max(stamps) if stamps else ""
+
+
+def _local_widget_sys_ids(scope_root: Path) -> Set[str]:
+    """sys_ids of widgets recorded locally (from sp_widget/_map.json values)."""
+    map_path = scope_root / "sp_widget" / "_map.json"
+    if not map_path.exists():
+        return set()
+    try:
+        data = json_fast.loads(map_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    if not isinstance(data, dict):
+        return set()
+    return {str(v) for v in data.values() if v}
+
+
 def _as_display_text(value: Any) -> str:
     if isinstance(value, dict):
         for key in ("display_value", "displayValue", "value"):
@@ -2105,14 +2149,6 @@ def search_portal_regex_matches(
     }
 
 
-def search_widget_author_patterns(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: SearchPortalRegexMatchesParams,
-) -> Dict[str, Any]:
-    return search_portal_regex_matches(config, auth_manager, params)
-
-
 @register_tool(
     "trace_portal_route_targets",
     params=TracePortalRouteTargetsParams,
@@ -2717,6 +2753,13 @@ def download_portal_sources(
     widget_base_query = ""
     if params.scope:
         widget_base_query = f"sys_scope.scope={_escape_query(params.scope)}"
+    # Incremental (full-scope only): pull just records changed since last sync.
+    incremental_active = params.incremental and not targeted_widget_export
+    if incremental_active:
+        widget_watermark = _max_sync_updated_on(scope_root / "sp_widget" / "_sync_meta.json")
+        if widget_watermark:
+            clause = f"sys_updated_on>={_escape_query(widget_watermark)}"
+            widget_base_query = f"{widget_base_query}^{clause}" if widget_base_query else clause
     widget_fields = _download_widget_fields(
         include_widget_template=params.include_widget_template,
         include_widget_server_script=params.include_widget_server_script,
@@ -2865,9 +2908,12 @@ def download_portal_sources(
     )
 
     provider_map: Dict[str, str] = {}
+    provider_name_by_sys_id: Dict[str, str] = {}
     _provider_sync_meta: Dict[str, Dict[str, str]] = {}
     exported_providers: List[Dict[str, str]] = []
-    if include_linked_angular_providers and widgets:
+    # widget sys_id -> [provider sys_id] from the authoritative M2M (not code text)
+    widget_provider_edges_by_sys_id: Dict[str, List[str]] = {}
+    if include_linked_angular_providers and (widgets or incremental_active):
         widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
         m2m_ids: List[str] = []
         for sys_id_chunk in _chunked(widget_sys_ids, 100):
@@ -2882,8 +2928,36 @@ def download_portal_sources(
             )
             for row in m2m_rows:
                 provider_id = _as_ref_sys_id(row.get("sp_angular_provider"))
+                widget_ref_id = _as_ref_sys_id(row.get("sp_widget"))
                 if provider_id and provider_id not in m2m_ids:
                     m2m_ids.append(provider_id)
+                if widget_ref_id and provider_id:
+                    edge = widget_provider_edges_by_sys_id.setdefault(widget_ref_id, [])
+                    if provider_id not in edge:
+                        edge.append(provider_id)
+
+        # Incremental: catch providers whose script changed without a widget edit
+        # (M2M-by-widget can't see those). Independent watermark query on providers.
+        if incremental_active:
+            provider_watermark = _max_sync_updated_on(
+                scope_root / "sp_angular_provider" / "_sync_meta.json"
+            )
+            if provider_watermark:
+                provider_delta_query = f"sys_updated_on>={_escape_query(provider_watermark)}"
+                if params.scope:
+                    provider_delta_query += f"^sys_scope.scope={_escape_query(params.scope)}"
+                for row in _sn_query_all(
+                    config,
+                    auth_manager,
+                    table=ANGULAR_PROVIDER_TABLE,
+                    query=provider_delta_query,
+                    fields="sys_id",
+                    page_size=params.page_size,
+                    max_records=1000,
+                ):
+                    pid = str(row.get("sys_id") or "")
+                    if pid and pid not in m2m_ids:
+                        m2m_ids.append(pid)
 
         if m2m_ids:
             # Fetch provider metadata first (no script — lightweight)
@@ -2931,6 +3005,8 @@ def download_portal_sources(
                         "sys_updated_on": str(provider.get("sys_updated_on") or ""),
                         "downloaded_at": _now_iso,
                     }
+                if sys_id:
+                    provider_name_by_sys_id[sys_id] = name or sys_id
                 exported_providers.append({"name": name, "sys_id": sys_id})
 
     merge_map_file(
@@ -2945,6 +3021,35 @@ def download_portal_sources(
         writer=_write_json_file,
         label="sp_angular_provider_sync_meta",
     )
+
+    # Persist authoritative widget->provider edges (name-keyed) so audit/offline
+    # tools read the real M2M graph instead of re-deriving it from code text.
+    widget_name_by_sys_id = {
+        str(w.get("sys_id") or ""): str(w.get("name") or w.get("id") or w.get("sys_id") or "")
+        for w in widgets
+        if w.get("sys_id")
+    }
+    widget_to_providers: Dict[str, List[str]] = {}
+    for widget_sid, provider_sids in widget_provider_edges_by_sys_id.items():
+        widget_label = widget_name_by_sys_id.get(widget_sid)
+        if not widget_label:
+            continue
+        provider_names = sorted(
+            {
+                provider_name_by_sys_id[pid]
+                for pid in provider_sids
+                if pid in provider_name_by_sys_id
+            }
+        )
+        if provider_names:
+            widget_to_providers[widget_label] = provider_names
+    if widget_to_providers:
+        merge_map_file(
+            scope_root / "_graph.json",
+            widget_to_providers,
+            writer=_write_json_file,
+            label="widget_provider_graph",
+        )
 
     si_map: Dict[str, str] = {}
     _si_sync_meta: Dict[str, Dict[str, str]] = {}
@@ -2993,9 +3098,46 @@ def download_portal_sources(
     )
     _write_json_file(root / "scopes.json", scope_sys_ids)
 
+    # Deletion reconcile (warn-only): widgets present locally but gone remotely.
+    deleted_widget_candidates: List[str] = []
+    if params.reconcile_deletions and not targeted_widget_export:
+        local_ids = _local_widget_sys_ids(scope_root)
+        if local_ids:
+            remote_ids = {
+                str(r.get("sys_id") or "")
+                for r in _sn_query_all(
+                    config,
+                    auth_manager,
+                    table=WIDGET_TABLE,
+                    query=(
+                        f"sys_scope.scope={_escape_query(params.scope)}" if params.scope else ""
+                    ),
+                    fields="sys_id",
+                    page_size=params.page_size,
+                    max_records=max_widgets,
+                )
+                if r.get("sys_id")
+            }
+            deleted_widget_candidates = sorted(local_ids - remote_ids)
+            if deleted_widget_candidates:
+                warnings.append(
+                    "reconcile: "
+                    f"{len(deleted_widget_candidates)} local widget(s) no longer exist remotely "
+                    "(deletion candidates — not removed automatically): "
+                    + ", ".join(deleted_widget_candidates[:20])
+                )
+
+    if incremental_active:
+        warnings.append(
+            "incremental: only records with a newer sys_updated_on were fetched; "
+            "unchanged local files were preserved. Run a full download periodically."
+        )
+
     return {
         "success": True,
         "output_root": str(scope_root),
+        "incremental": incremental_active,
+        "deleted_widget_candidates": deleted_widget_candidates,
         "summary": {
             "widgets": len(exported_widgets),
             "angular_providers": len(exported_providers),

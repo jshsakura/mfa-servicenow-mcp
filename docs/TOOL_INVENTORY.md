@@ -15,10 +15,10 @@ It is documented below, but package counts in this file reflect the YAML-defined
 |---------|------:|-------------|
 | `none` | 0 | Disabled profile for intentionally turning tools off. |
 | `core` | 12 | Minimal read-only essentials for quick health/schema/table work. |
-| `standard` | 30 | Default read-only package across incidents, changes, portal, logs, and source analysis. |
-| `service_desk` | 32 | standard plus incident and change write workflows for operational support. |
-| `portal_developer` | 40 | standard plus portal, changeset, script include, and local-sync delivery workflows. |
-| `platform_developer` | 46 | standard plus workflow, Flow Designer, UI policy, incident/change, and script writes. |
+| `standard` | 29 | Default read-only package across incidents, changes, portal, logs, and source analysis. |
+| `service_desk` | 31 | standard plus incident and change write workflows for operational support. |
+| `portal_developer` | 39 | standard plus portal, changeset, script include, and local-sync delivery workflows. |
+| `platform_developer` | 45 | standard plus workflow, Flow Designer, UI policy, incident/change, and script writes. |
 | `full` | 59 | Broadest packaged surface: all manage_* workflows plus advanced operations. |
 
 ## Runtime-Injected Helpers
@@ -124,7 +124,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
 | `analyze_portal_component_update` | R | Analyze a proposed portal component edit and return bounded risk and field-change summaries | portal_developer, full |
-| `detect_angular_implicit_globals` | R | Detect undeclared variable assignments in Angular provider scripts that cause runtime 'not defined' errors. | standard, portal_developer, platform_developer, service_desk, full |
+| `detect_angular_implicit_globals` | R | Detect undeclared variable assignments in Angular provider scripts that cause runtime 'not defined' errors. | full |
 | `download_portal_sources` | R | Targeted widget/provider export to disk. Use widget_ids for one widget; download_app_sources for full app. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_portal_component_code` | R | Fetch widget/provider/SI fields. Returns full body by default. Never chunk for analysis. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_widget_bundle` | R | Fetch full widget bundle (HTML, scripts, providers) in one call. Use as analysis starting point. | standard, portal_developer, platform_developer, service_desk, full |

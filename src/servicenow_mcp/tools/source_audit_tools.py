@@ -341,6 +341,26 @@ def _build_cross_references(
         for table in all_refs["tables"]:
             incoming[f"table:{table}"].append(source_info)
 
+    # Authoritative widget->provider edges from download (_graph.json, name-keyed).
+    # The text-match heuristic above misses DI-injected providers and false-
+    # positives on substrings; the M2M graph is ground truth, so merge it in.
+    graph = _read_json(scope_root / "_graph.json")
+    if isinstance(graph, dict):
+        for widget_name, provider_names in graph.items():
+            if not isinstance(provider_names, list):
+                continue
+            clean_providers = [str(p) for p in provider_names if p]
+            if not clean_providers:
+                continue
+            entry_out = outgoing.setdefault(widget_name, {})
+            entry_out["providers"] = sorted(
+                set(entry_out.get("providers", [])) | set(clean_providers)
+            )
+            source_info = {"name": widget_name, "type": "widget"}
+            for provider_name in clean_providers:
+                if not any(s.get("name") == widget_name for s in incoming[provider_name]):
+                    incoming[provider_name].append(source_info)
+
     return {
         "outgoing": outgoing,
         "incoming": dict(incoming),
