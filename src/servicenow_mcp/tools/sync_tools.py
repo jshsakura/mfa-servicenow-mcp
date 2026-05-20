@@ -112,8 +112,8 @@ class PushLocalComponentParams(BaseModel):
         description="Force push even if remote is newer than local download. Default false.",
     )
     skip_snapshot: bool = Field(
-        default=False,
-        description="Skip pre-push snapshot creation. Default false (snapshot is always created).",
+        default=True,
+        description="Skip the local pre-push snapshot. Default true — ServiceNow versions records server-side.",
     )
 
 
@@ -638,7 +638,7 @@ def diff_local_component(
     "update_remote_from_local",
     params=PushLocalComponentParams,
     description=(
-        "Push local file changes to ServiceNow. Auto-snapshots remote first. "
+        "Push local file changes to ServiceNow. "
         "Path: sp_widget/<name>/<file> (folder) | sp_angular_provider|sys_script_include|"
         "sp_css|sp_ng_template/<name>.<suffix> (single file)."
     ),
