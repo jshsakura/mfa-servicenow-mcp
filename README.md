@@ -414,9 +414,10 @@ Two things are global, one is per-instance:
 
 Other rules:
 
-- Ordinary tools always use the active instance; write-capable tools do not accept an instance selector.
+- Write-capable tools always use the active instance and do not accept an instance selector.
+- **Read tools accept an `instance` argument** to run a single read against a non-active instance — e.g. `sn_query(instance="test", table="incident", ...)` or `sn_health(instance="test")` while `dev` stays active. Every read tool in your package exposes it (enum of configured aliases); write tools don't. This is how you peek at another instance's data without restarting.
 - `list_instances` reports configured aliases plus the active one. `compare_instances` performs read-only table comparisons across aliases.
-- Switching the active instance requires restarting the MCP client — it is read once at server startup, not refreshed live.
+- Switching the *active* (write) instance requires restarting the MCP client — it is read once at server startup, not refreshed live.
 
 Example — shared global login, per-instance write gating:
 
@@ -528,7 +529,7 @@ Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is determinist
 
 ```bash
 # One-off run
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.13" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.14" servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
@@ -551,7 +552,7 @@ Choose one execution style:
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.13",
+        "--from", "mfa-servicenow-mcp==1.13.14",
         "servicenow-mcp"
       ],
       "env": {
@@ -574,7 +575,7 @@ Choose one execution style:
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.13",
+  "--from", "mfa-servicenow-mcp==1.13.14",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -601,7 +602,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.13",
+        "--from", "mfa-servicenow-mcp==1.13.14",
         "servicenow-mcp"
       ],
       "enabled": true,
