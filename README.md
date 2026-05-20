@@ -748,6 +748,7 @@ download_app_sources(scope="x_company_app", incremental=True)    # later: change
 | `_audit_report.html` | Self-contained dark-theme HTML report — open in browser |
 | `_cross_references.json` | Who calls who — Script Include chains, GlideRecord table refs |
 | `_graph.json` | Authoritative widget→Angular Provider edges from the live M2M (not text-guessed) |
+| `_page_graph.json` | Page→widget placements derived locally from `sp_instance` (no API call) |
 | `_orphans.json` | Dead code candidates — unreferenced SIs, unused widgets |
 | `_execution_order.json` | Per-table BR/CS/ACL execution sequence with order numbers |
 | `_domain_knowledge.md` | Auto-generated app profile — table maps, hub scripts, warnings |

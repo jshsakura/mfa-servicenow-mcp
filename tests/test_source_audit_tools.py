@@ -19,6 +19,7 @@ from servicenow_mcp.tools.source_audit_tools import (
     AuditAppSourcesParams,
     _build_cross_references,
     _build_execution_order,
+    _build_page_graph,
     _detect_orphans,
     _extract_references_from_script,
     _generate_html_report,
@@ -911,3 +912,56 @@ class TestGraphEdgeMerge:
         cross = _build_cross_references(root, index)
 
         assert cross["outgoing"]["Quote Widget"].get("providers", []) == []
+
+
+class TestPageGraph:
+    """widget<->page edges derived locally from sp_instance _metadata.json."""
+
+    def _tree(self, root: Path, *, sp_page_field: bool = True):
+        _write(
+            root / "sp_widget" / "home_widget" / "_widget.json",
+            {"sys_id": "wid-1", "name": "Home Widget", "tableName": "sp_widget"},
+        )
+        _write(root / "sp_widget" / "home_widget" / "script.js", "x;")
+        _write(
+            root / "sp_page" / "landing" / "_metadata.json",
+            {"source_type": "sp_page", "table": "sp_page", "sys_id": "pg-1", "name": "landing"},
+        )
+        inst = {
+            "source_type": "sp_instance",
+            "table": "sp_instance",
+            "sys_id": "inst-1",
+            "sp_widget": "wid-1",
+        }
+        if sp_page_field:
+            inst["sp_page"] = "pg-1"
+        _write(root / "sp_instance" / "inst-1" / "_metadata.json", inst)
+
+    def test_builds_page_to_widget_edge(self, tmp_path):
+        root = tmp_path / "x_app"
+        self._tree(root)
+        index = _scan_source_index(root)
+
+        graph = _build_page_graph(root, index)
+        # Resolved to human-readable page id and widget name
+        assert graph == {"landing": ["Home Widget"]}
+
+    def test_missing_sp_page_is_skipped(self, tmp_path):
+        root = tmp_path / "x_app"
+        self._tree(root, sp_page_field=False)
+        index = _scan_source_index(root)
+
+        assert _build_page_graph(root, index) == {}
+
+    def test_audit_writes_page_graph_and_links_cross_refs(self, config, auth, tmp_path):
+        root = tmp_path / "x_app"
+        self._tree(root)
+
+        result = audit_local_sources(config, auth, AuditAppSourcesParams(source_root=str(root)))
+
+        assert result["summary"]["page_count"] == 1
+        page_graph = json.loads((root / "_page_graph.json").read_text())
+        assert page_graph == {"landing": ["Home Widget"]}
+        cross = json.loads((root / "_cross_references.json").read_text())
+        assert "Home Widget" in cross["outgoing"]["landing"]["widgets"]
+        assert any(r["name"] == "landing" for r in cross["incoming"]["Home Widget"])
