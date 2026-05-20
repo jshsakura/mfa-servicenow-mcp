@@ -715,16 +715,44 @@ what scope they live in. Pulled deps are saved into the same tree with
 `"is_dependency": true` in their `_metadata.json`, so the audit in Step 2 sees the
 complete call graph. Set `auto_resolve_deps=False` if you only want in-scope records.
 
+> **Tip — pull a whole scope, including `global`:** pass `scope="global"` to dump every
+> global-scope record, or keep your app scope and let `auto_resolve_deps` reach into
+> `global` for the records you actually reference. Either way the local bundle is
+> self-contained, so analysis runs entirely offline against disk.
+
+### Incremental Sync
+
+Re-downloading a large app on every run is slow and risks timeouts. Pass `incremental=True`
+to fetch **only what changed since the last download** — like `git pull` instead of a fresh
+`clone`. Works on both `download_app_sources` and `download_portal_sources`.
+
+```
+download_app_sources(scope="x_company_app")                      # 1st run: full download
+download_app_sources(scope="x_company_app", incremental=True)    # later: changed records only
+```
+
+- **How it works:** the first download records each record's `sys_updated_on` into
+  `_sync_meta.json`. On an incremental run, every source family queries
+  `sys_updated_on >= <latest seen>` (server-side timestamps, no clock skew), re-downloads
+  just those records, and leaves unchanged local files untouched.
+- **Deletions:** timestamp deltas can't see deleted records. Add `reconcile_deletions=True`
+  to list records present locally but gone on the instance — reported as warnings under
+  `deletion_candidates`, **never deleted automatically**.
+- **First run / no prior data:** falls back to a full download automatically.
+- Run a full (non-incremental) download periodically to stay fully in sync.
+
 ### What Gets Generated
 
 | File | Purpose |
 |------|---------|
 | `_audit_report.html` | Self-contained dark-theme HTML report — open in browser |
 | `_cross_references.json` | Who calls who — Script Include chains, GlideRecord table refs |
+| `_graph.json` | Authoritative widget→Angular Provider edges from the live M2M (not text-guessed) |
 | `_orphans.json` | Dead code candidates — unreferenced SIs, unused widgets |
 | `_execution_order.json` | Per-table BR/CS/ACL execution sequence with order numbers |
 | `_domain_knowledge.md` | Auto-generated app profile — table maps, hub scripts, warnings |
 | `_schema/*.json` | Field definitions for every referenced table |
+| `_sync_meta.json` | Per-family `sys_updated_on` watermark powering incremental sync |
 
 ### Individual Download Tools
 
