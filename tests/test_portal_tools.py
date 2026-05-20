@@ -6,7 +6,6 @@ import pytest
 
 from servicenow_mcp.tools.portal_tools import (
     AnalyzePortalComponentUpdateParams,
-    CreatePortalComponentSnapshotParams,
     DetectAngularImplicitGlobalsParams,
     DownloadPortalSourcesParams,
     GetPortalComponentParams,
@@ -15,10 +14,8 @@ from servicenow_mcp.tools.portal_tools import (
     RoutePortalComponentEditParams,
     SearchPortalRegexMatchesParams,
     TracePortalRouteTargetsParams,
-    UpdatePortalComponentFromSnapshotParams,
     UpdatePortalComponentParams,
     analyze_portal_component_update,
-    create_portal_component_snapshot,
     detect_angular_implicit_globals,
     download_portal_sources,
     get_portal_component_code,
@@ -28,7 +25,6 @@ from servicenow_mcp.tools.portal_tools import (
     search_portal_regex_matches,
     trace_portal_route_targets,
     update_portal_component,
-    update_portal_component_from_snapshot,
 )
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -346,11 +342,7 @@ def test_update_portal_component_matches_fixture_contract(
         ),
     )
 
-    snapshot = result.pop("snapshot")
     assert result == expected
-    assert snapshot["fields"] == ["client_script", "template"]
-    assert "portal_component_snapshots" in snapshot["path"]
-    assert Path(snapshot["path"]).exists()
     mock_auth_manager.make_request.assert_called_once()
 
 
@@ -405,161 +397,8 @@ def test_update_portal_component_mismatch_matches_fixture_contract(
         ),
     )
 
-    snapshot = result.pop("snapshot")
     assert result == expected
-    assert snapshot["fields"] == ["client_script", "template"]
-    assert "portal_component_snapshots" in snapshot["path"]
-    assert Path(snapshot["path"]).exists()
     mock_auth_manager.make_request.assert_called_once()
-
-
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_create_portal_component_snapshot_writes_file(
-    mock_sn_query, mock_config, mock_auth_manager, tmp_path
-):
-    before_record = _load_portal_edit_fixture("widget_before.json")
-    mock_sn_query.return_value = {"success": True, "results": [before_record]}
-
-    result = create_portal_component_snapshot(
-        mock_config,
-        mock_auth_manager,
-        CreatePortalComponentSnapshotParams(
-            table="sp_widget",
-            sys_id=before_record["sys_id"],
-            fields=["client_script", "template"],
-            output_dir=str(tmp_path),
-        ),
-    )
-
-    snapshot_path = Path(result["snapshot"]["path"])
-    assert result["success"] is True
-    assert snapshot_path.exists()
-
-    payload = json.loads(snapshot_path.read_text())
-    assert payload["instance_url"] == mock_config.instance_url
-    assert payload["component"] == {
-        "table": "sp_widget",
-        "sys_id": before_record["sys_id"],
-        "name": before_record["name"],
-    }
-    assert payload["fields"] == ["client_script", "template"]
-    assert payload["values"] == {
-        "client_script": before_record["client_script"],
-        "template": before_record["template"],
-    }
-
-
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_update_portal_component_includes_preupdate_snapshot(
-    mock_sn_query, mock_config, mock_auth_manager
-):
-    before_record = _load_portal_edit_fixture("widget_before.json")
-    after_record = _load_portal_edit_fixture("widget_after.json")
-    update_data = _load_portal_edit_fixture("widget_update_data.json")
-
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_auth_manager.make_request.return_value = mock_response
-    mock_sn_query.side_effect = [
-        {"success": True, "results": [before_record]},
-        {"success": True, "results": [after_record]},
-    ]
-
-    result = update_portal_component(
-        mock_config,
-        mock_auth_manager,
-        UpdatePortalComponentParams(
-            table="sp_widget",
-            sys_id=before_record["sys_id"],
-            update_data=update_data,
-        ),
-    )
-
-    snapshot_path = Path(result["snapshot"]["path"])
-    assert snapshot_path.exists()
-    snapshot_payload = json.loads(snapshot_path.read_text())
-    assert snapshot_payload["component"]["sys_id"] == before_record["sys_id"]
-    assert snapshot_payload["values"] == {
-        "client_script": before_record["client_script"],
-        "template": before_record["template"],
-    }
-
-
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_update_portal_component_from_snapshot_restores_values(
-    mock_sn_query, mock_config, mock_auth_manager, tmp_path
-):
-    before_record = _load_portal_edit_fixture("widget_before.json")
-    after_record = _load_portal_edit_fixture("widget_after.json")
-    snapshot_path = tmp_path / "widget_snapshot.json"
-    snapshot_path.write_text(
-        json.dumps(
-            {
-                "snapshot_version": 1,
-                "created_at": "2026-04-09T00:00:00Z",
-                "instance_url": mock_config.instance_url,
-                "component": {
-                    "table": "sp_widget",
-                    "sys_id": before_record["sys_id"],
-                    "name": before_record["name"],
-                },
-                "fields": ["client_script", "template"],
-                "values": {
-                    "client_script": before_record["client_script"],
-                    "template": before_record["template"],
-                },
-            }
-        )
-    )
-
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_auth_manager.make_request.return_value = mock_response
-    mock_sn_query.side_effect = [
-        {"success": True, "results": [after_record]},
-        {"success": True, "results": [before_record]},
-    ]
-
-    result = update_portal_component_from_snapshot(
-        mock_config,
-        mock_auth_manager,
-        UpdatePortalComponentFromSnapshotParams(snapshot_path=str(snapshot_path)),
-    )
-
-    assert result["message"] == "Update successful"
-    assert result["rollback"]["restored_from_snapshot"] == str(snapshot_path.resolve())
-    assert result["validation"]["verified_fields"] == ["client_script", "template"]
-    mock_auth_manager.make_request.assert_called_once()
-
-
-def test_update_portal_component_from_snapshot_rejects_instance_mismatch(
-    mock_config, mock_auth_manager, tmp_path
-):
-    before_record = _load_portal_edit_fixture("widget_before.json")
-    snapshot_path = tmp_path / "widget_snapshot.json"
-    snapshot_path.write_text(
-        json.dumps(
-            {
-                "snapshot_version": 1,
-                "created_at": "2026-04-09T00:00:00Z",
-                "instance_url": "https://other.service-now.com",
-                "component": {
-                    "table": "sp_widget",
-                    "sys_id": before_record["sys_id"],
-                    "name": before_record["name"],
-                },
-                "fields": ["client_script"],
-                "values": {"client_script": before_record["client_script"]},
-            }
-        )
-    )
-
-    with pytest.raises(ValueError, match="Snapshot instance_url does not match"):
-        update_portal_component_from_snapshot(
-            mock_config,
-            mock_auth_manager,
-            UpdatePortalComponentFromSnapshotParams(snapshot_path=str(snapshot_path)),
-        )
 
 
 def test_route_portal_component_edit_routes_preview_request():
@@ -601,36 +440,6 @@ def test_route_portal_component_edit_routes_preview_request():
             "table": "sp_widget",
             "sys_id": "widget-benefits-1",
             "update_data": {"client_script": "function next() { return true; }"},
-        },
-    }
-
-
-def test_route_portal_component_edit_routes_rollback_request():
-    result = route_portal_component_edit(
-        MagicMock(),
-        MagicMock(),
-        RoutePortalComponentEditParams(
-            instruction="rollback this widget using the saved snapshot",
-            snapshot_path="/tmp/widget_snapshot.json",
-        ),
-    )
-
-    assert result["detected_action"] == "rollback"
-    assert (
-        result["three_stage_flow"][2]["tool"]["tool_name"]
-        == "update_portal_component_from_snapshot"
-    )
-    assert result["tool_plan"] == {
-        "tool_name": "update_portal_component_from_snapshot",
-        "arguments": {"snapshot_path": "/tmp/widget_snapshot.json"},
-        "confirmation_required": True,
-        "missing_requirements": [],
-    }
-    assert result["recommended_next_call"] == {
-        "tool_name": "update_portal_component_from_snapshot",
-        "arguments": {
-            "snapshot_path": "/tmp/widget_snapshot.json",
-            "confirm": "approve",
         },
     }
 
