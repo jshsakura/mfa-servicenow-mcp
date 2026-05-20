@@ -88,7 +88,7 @@ class GetPortalComponentParams(BaseModel):
     )
     fetch_complete: bool = Field(
         default=True,
-        description="Default True: full body in one call. Set False only for rare >12KB single-field reads.",
+        description="Default True: full body in one call. False only for >12KB single-field reads.",
     )
     script_offset: int = Field(
         default=0,
@@ -189,11 +189,11 @@ class DownloadPortalSourcesParams(BaseModel):
     page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
     incremental: bool = Field(
         default=False,
-        description="Only re-download records changed since last sync (sys_updated_on). Full-scope only.",
+        description="Re-download only records changed since last sync. Full-scope only.",
     )
     reconcile_deletions: bool = Field(
         default=False,
-        description="List remote sys_ids and warn about local records deleted on the instance. No auto-delete.",
+        description="Warn about local records deleted on the instance. No auto-delete.",
     )
 
 

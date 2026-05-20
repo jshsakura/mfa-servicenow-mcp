@@ -200,7 +200,7 @@ class GetPageParams(BaseModel):
 
     page_id: Optional[str] = Field(
         default=None,
-        description="sys_id or URL path (id). If provided, returns single page detail with layout. Otherwise lists pages.",
+        description="sys_id or URL path (id). Set → page detail+layout; omit → list pages.",
     )
     include_layout: bool = Field(
         default=True,
@@ -423,7 +423,7 @@ class GetWidgetInstanceParams(BaseModel):
 
     instance_id: Optional[str] = Field(
         default=None,
-        description="sys_id of the widget instance. If provided, returns detail. Otherwise lists instances.",
+        description="sys_id of the widget instance. Set → detail; omit → list instances.",
     )
     page_id: Optional[str] = Field(default=None, description="Filter by page sys_id (list mode)")
     widget_id: Optional[str] = Field(

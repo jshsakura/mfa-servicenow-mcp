@@ -1212,10 +1212,7 @@ def _generate_domain_knowledge(
 class AuditAppSourcesParams(BaseModel):
     source_root: str = Field(
         ...,
-        description=(
-            "Path to the downloaded source directory (e.g. temp/<instance>/<scope>). "
-            "This is the output_root returned by download_app_sources."
-        ),
+        description="Source dir from download_app_sources (e.g. temp/<instance>/<scope>).",
     )
     output_file: Optional[str] = Field(
         default=None,

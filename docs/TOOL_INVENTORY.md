@@ -74,7 +74,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_flow_designer` | R/W | PRIMARY Flow Designer tool (sys_hub_flow). Read + edit. Edit flow: checkout → set_* → save (publish=true). Browser au... | core, standard, portal_developer, platform_developer, service_desk, full |
+| `manage_flow_designer` | R/W | Flow Designer (sys_hub_flow) read+edit. Edit: checkout→set_*→save+publish. Browser auth to write. | core, standard, portal_developer, platform_developer, service_desk, full |
 
 ### Incident Management (1)
 
@@ -177,7 +177,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | `sn_aggregate` | R | Run COUNT/SUM/AVG/MIN/MAX on any table with optional group_by. Returns stats without fetching records. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_discover` | R | Find tables by name or label keyword. Returns table name, label, scope, and parent class. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_health` | R | Check ServiceNow API connectivity, auth status, Chromium install state (browser auth), and MCP server version. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_query` | R | Generic table query; last resort only. Domain tools exist: flows->list_flow_designers, BR->search_server_code, WF->ma... | core, standard, portal_developer, platform_developer, service_desk, full |
+| `sn_query` | R | Generic table query — last resort. Prefer domain tools: search_server_code, manage_workflow, manage_flow_designer. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_resolve_url` | R | Parse a ServiceNow URL → table, sys_id, scope, suggested next tool. Read-only. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_schema` | R | Fetch field names, types, labels, and constraints from sys_dictionary for a given table. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_write` | W | LAST RESORT generic CRUD — only for tables with NO dedicated tool. Prefer a manage_*/update_* domain tool first (they... | full |
@@ -235,4 +235,4 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_workflow` | R/W | LEGACY workflows (wf_workflow/wf_activity). For modern Flow Designer use list_flow_designers. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `manage_workflow` | R/W | LEGACY workflows (wf_workflow/wf_activity). For modern Flow Designer use manage_flow_designer. | core, standard, portal_developer, platform_developer, service_desk, full |

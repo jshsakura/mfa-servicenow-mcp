@@ -2858,7 +2858,7 @@ class DownloadAppSourcesParams(BaseModel):
     acl_script_only: bool = Field(default=True, description="Only download ACLs with scripts.")
     auto_resolve_deps: bool = Field(
         default=True,
-        description="After download, scan sources and fetch missing cross-scope SI/widget/provider/ui_macro deps.",
+        description="After download, fetch missing cross-scope SI/widget/provider/ui_macro deps.",
     )
     output_dir: Optional[str] = Field(
         default=None,
@@ -2866,7 +2866,7 @@ class DownloadAppSourcesParams(BaseModel):
     )
     incremental: bool = Field(
         default=False,
-        description="Only re-download records changed since last sync (sys_updated_on). Needs prior download.",
+        description="Re-download only records changed since last sync (sys_updated_on).",
     )
     reconcile_deletions: bool = Field(
         default=False,
