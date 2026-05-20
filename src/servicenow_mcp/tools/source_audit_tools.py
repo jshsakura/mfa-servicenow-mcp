@@ -421,6 +421,61 @@ def _collect_instance_widget_refs(
     return widget_refs
 
 
+def _build_page_graph(
+    scope_root: Path,
+    source_index: List[Dict[str, Any]],
+    global_root: Optional[Path] = None,
+) -> Dict[str, List[str]]:
+    """Build page -> [widget names] from already-downloaded sp_instance records.
+
+    sp_instance _metadata.json carries both sp_page and sp_widget sys_ids (a
+    one-hop placement edge), so the widget->page graph is derived purely from
+    local files — no API calls. sys_ids are resolved to human-readable page id
+    and widget name via the source_index. Placements live in global scope, so
+    global_root/sp_instance is scanned too.
+    """
+    widget_name_by_id: Dict[str, str] = {}
+    page_name_by_id: Dict[str, str] = {}
+    for entry in source_index:
+        sys_id = entry.get("sys_id")
+        if not sys_id:
+            continue
+        if entry["source_type"] == "widget":
+            widget_name_by_id[sys_id] = entry["name"]
+        elif entry.get("table") == "sp_page":
+            page_name_by_id[sys_id] = entry["name"]
+
+    page_to_widgets: Dict[str, Set[str]] = {}
+
+    def _add_from_meta(meta_file: Path) -> None:
+        meta = _read_json(meta_file)
+        if not (meta and isinstance(meta, dict)):
+            return
+        page_id = str(meta.get("sp_page") or "")
+        widget_id = str(meta.get("sp_widget") or "")
+        if not page_id or not widget_id:
+            return
+        page_label = page_name_by_id.get(page_id, page_id)
+        widget_label = widget_name_by_id.get(widget_id, widget_id)
+        page_to_widgets.setdefault(page_label, set()).add(widget_label)
+
+    for entry in source_index:
+        if entry.get("table") != "sp_instance":
+            continue
+        record_path = scope_root / entry["path"]
+        meta_file = record_path / "_metadata.json" if record_path.is_dir() else None
+        if meta_file and meta_file.exists():
+            _add_from_meta(meta_file)
+
+    if global_root:
+        global_instance_dir = global_root / "sp_instance"
+        if global_instance_dir.is_dir():
+            for meta_file in sorted(global_instance_dir.rglob("_metadata.json")):
+                _add_from_meta(meta_file)
+
+    return {page: sorted(widgets) for page, widgets in page_to_widgets.items()}
+
+
 def _detect_orphans(
     source_index: List[Dict[str, Any]],
     cross_refs: Dict[str, Any],
@@ -1203,6 +1258,16 @@ def audit_local_sources(
     _global_candidate = scope_root.parent / "global"
     global_root: Optional[Path] = _global_candidate if _global_candidate.is_dir() else None
 
+    # 2b. Build page->widget placement graph from sp_instance (local, no API) and
+    # fold it into cross-refs so a page counts as a referencer of its widgets.
+    page_graph = _build_page_graph(scope_root, source_index, global_root)
+    for page_label, widget_labels in page_graph.items():
+        cross_refs["outgoing"].setdefault(page_label, {})["widgets"] = widget_labels
+        for widget_label in widget_labels:
+            referencers = cross_refs["incoming"].setdefault(widget_label, [])
+            if not any(r.get("name") == page_label for r in referencers):
+                referencers.append({"name": page_label, "type": "page"})
+
     # 3. Detect orphans
     orphans = _detect_orphans(source_index, cross_refs, scope_root, global_root)
 
@@ -1237,6 +1302,8 @@ def audit_local_sources(
     )
     _dl_write(scope_root / "_orphans.json", orphans)
     _dl_write(scope_root / "_execution_order.json", execution_order)
+    if page_graph:
+        _dl_write(scope_root / "_page_graph.json", page_graph)
     if schema_issues:
         _dl_write(scope_root / "_schema_issues.json", schema_issues)
 
@@ -1276,6 +1343,7 @@ def audit_local_sources(
             "external_references": _extract_external_refs(cross_refs),
             "schema_issue_count": len(schema_issues),
             "execution_order_tables": len(execution_order),
+            "page_count": len(page_graph),
             "domain_knowledge": domain_stats.get("size_chars", 0),
         },
         "domain_knowledge": domain_stats,
@@ -1284,6 +1352,7 @@ def audit_local_sources(
             str(scope_root / "_cross_references.json"),
             str(scope_root / "_orphans.json"),
             str(scope_root / "_execution_order.json"),
+            *([str(scope_root / "_page_graph.json")] if page_graph else []),
             domain_stats.get("path", ""),
             str(report_path),
         ],
