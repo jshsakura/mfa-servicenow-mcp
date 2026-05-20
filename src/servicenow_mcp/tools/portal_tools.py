@@ -126,32 +126,6 @@ class PreviewPortalComponentUpdateParams(UpdatePortalComponentParams):
     """Parameters for previewing a proposed portal component update."""
 
 
-class CreatePortalComponentSnapshotParams(BaseModel):
-    """Parameters for exporting the current editable state of a portal component."""
-
-    table: str = Field(
-        default=...,
-        description="The table name (sp_widget, sp_angular_provider, sys_script_include)",
-    )
-    sys_id: str = Field(..., description="The sys_id of the component")
-    fields: List[str] | None = Field(
-        default=None,
-        description="Optional editable fields to snapshot. Defaults to all allowed editable fields for the table.",
-    )
-    output_dir: str | None = Field(
-        default=None,
-        description="Optional snapshot directory. Defaults to ./.mfa_servicenow_mcp/portal_component_snapshots/<instance>/",
-    )
-
-
-class UpdatePortalComponentFromSnapshotParams(BaseModel):
-    """Parameters for restoring a portal component from a saved local snapshot."""
-
-    snapshot_path: str = Field(
-        default=..., description="Path to a saved portal component snapshot JSON file"
-    )
-
-
 class RoutePortalComponentEditParams(BaseModel):
     """Parameters for shallow natural-language routing into the portal edit pipeline."""
 
@@ -164,9 +138,6 @@ class RoutePortalComponentEditParams(BaseModel):
     update_data: Dict[str, str] | None = Field(
         default=None,
         description="Optional explicit field updates for analyze/preview/apply routing",
-    )
-    snapshot_path: str | None = Field(
-        default=None, description="Optional snapshot path for rollback/restore routing"
     )
 
 
@@ -387,17 +358,11 @@ def _classify_portal_update_risk(risks: List[str], changed_field_count: int) -> 
     return "high"
 
 
-_RE_ROLLBACK = re.compile(r"\b(rollback|roll back|restore|revert|undo)\b", re.IGNORECASE)
-_RE_SNAPSHOT = re.compile(r"\b(snapshot|backup|save current|save state)\b", re.IGNORECASE)
 _RE_PREVIEW = re.compile(r"\b(preview|diff|show changes|what would change)\b", re.IGNORECASE)
 _RE_APPLY = re.compile(r"\b(apply|update|modify|change|patch|fix|edit)\b", re.IGNORECASE)
 
 
 def _detect_portal_edit_action(instruction: str) -> str:
-    if _RE_ROLLBACK.search(instruction):
-        return "rollback"
-    if _RE_SNAPSHOT.search(instruction):
-        return "snapshot"
     if _RE_PREVIEW.search(instruction):
         return "preview"
     if _RE_APPLY.search(instruction):
@@ -430,40 +395,6 @@ def _build_portal_edit_router_plan(
         if normalized_table and params.update_data
         else None
     )
-
-    if action == "rollback":
-        missing = [name for name, value in [("snapshot_path", params.snapshot_path)] if not value]
-        return {
-            "tool_name": "update_portal_component_from_snapshot",
-            "arguments": ({"snapshot_path": params.snapshot_path} if params.snapshot_path else {}),
-            "confirmation_required": True,
-            "missing_requirements": missing,
-        }
-
-    if action == "snapshot":
-        missing = [
-            name
-            for name, value in [("table", normalized_table), ("sys_id", params.sys_id)]
-            if not value
-        ]
-        suggested_fields = (
-            _detect_portal_edit_fields(params.instruction)
-            if normalized_table == WIDGET_TABLE
-            else []
-        )
-        snapshot_arguments: Dict[str, Any] = {}
-        if normalized_table:
-            snapshot_arguments["table"] = normalized_table
-        if params.sys_id:
-            snapshot_arguments["sys_id"] = params.sys_id
-        if suggested_fields:
-            snapshot_arguments["fields"] = suggested_fields
-        return {
-            "tool_name": "create_portal_component_snapshot",
-            "arguments": snapshot_arguments,
-            "confirmation_required": False,
-            "missing_requirements": missing,
-        }
 
     tool_name = {
         "preview": "preview_portal_component_update",
@@ -545,8 +476,6 @@ def _build_portal_edit_three_stage_flow(
     stage_three_status = "ready" if not final_plan.get("missing_requirements") else "blocked"
     if action == "apply":
         stage_three_goal = "깊은 적용 전에 bounded analyze/preview로 바뀔 내용을 검토"
-    elif action == "rollback":
-        stage_three_goal = "검토가 끝난 snapshot 기준으로 안전하게 롤백"
     else:
         stage_three_goal = "필요할 때만 깊은 분석/미리보기/적용 단계로 진입"
 
@@ -579,93 +508,6 @@ def _build_portal_edit_three_stage_flow(
             "tool": _build_portal_edit_next_call_example(final_plan),
         },
     ]
-
-
-def _resolve_snapshot_root(config: ServerConfig, output_dir: str | None) -> Path:
-    if output_dir:
-        return Path(output_dir).expanduser().resolve()
-    return (Path.cwd() / SNAPSHOT_ROOT_DIRNAME / _get_instance_name(config)).expanduser().resolve()
-
-
-def _resolve_snapshot_fields(table: str, requested_fields: List[str] | None) -> List[str]:
-    normalized_table = _normalize_portal_component_table(table)
-    allowed_fields = PORTAL_COMPONENT_EDITABLE_FIELDS[normalized_table]
-    if requested_fields is None:
-        return sorted(allowed_fields)
-
-    invalid_fields = sorted(field for field in requested_fields if field not in allowed_fields)
-    if invalid_fields:
-        allowed = ", ".join(sorted(allowed_fields))
-        raise ValueError(
-            f"Unsupported snapshot fields for {normalized_table}: {', '.join(invalid_fields)}. Allowed fields: {allowed}"
-        )
-    return _dedupe_fields(requested_fields)
-
-
-def _build_snapshot_payload(
-    config: ServerConfig,
-    table: str,
-    sys_id: str,
-    record: Dict[str, Any],
-    fields: List[str],
-) -> Dict[str, Any]:
-    return {
-        "snapshot_version": 1,
-        "created_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-        "instance_url": config.instance_url,
-        "component": {
-            "table": table,
-            "sys_id": sys_id,
-            "name": str(record.get("name") or sys_id),
-        },
-        "fields": fields,
-        "values": {field_name: str(record.get(field_name) or "") for field_name in fields},
-    }
-
-
-def _write_portal_component_snapshot(
-    config: ServerConfig,
-    table: str,
-    sys_id: str,
-    record: Dict[str, Any],
-    fields: List[str],
-    output_dir: str | None = None,
-) -> Path:
-    root = _resolve_snapshot_root(config, output_dir)
-    root.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    safe_name = _safe_name(str(record.get("name") or sys_id))
-    file_path = root / f"{_safe_name(table)}__{safe_name}__{_safe_name(sys_id)}__{timestamp}.json"
-    _write_json_file(file_path, _build_snapshot_payload(config, table, sys_id, record, fields))
-    return file_path
-
-
-def _read_portal_component_snapshot(snapshot_path: str) -> Dict[str, Any]:
-    path = Path(snapshot_path).expanduser().resolve()
-    if not path.exists():
-        raise ValueError(f"Snapshot file not found: {path}")
-
-    payload = json_fast.loads(path.read_text(encoding="utf-8"))
-    component = payload.get("component") or {}
-    values = payload.get("values") or {}
-    fields = payload.get("fields") or []
-    if (
-        not isinstance(component, dict)
-        or not isinstance(values, dict)
-        or not isinstance(fields, list)
-    ):
-        raise ValueError(f"Invalid snapshot format: {path}")
-
-    table = str(component.get("table") or "")
-    sys_id = str(component.get("sys_id") or "")
-    if not table or not sys_id:
-        raise ValueError(f"Invalid snapshot component metadata: {path}")
-
-    _resolve_snapshot_fields(table, [str(field) for field in fields])
-    for field_name, value in values.items():
-        if not isinstance(value, str):
-            raise ValueError(f"Snapshot value for '{field_name}' must be a string: {path}")
-    return payload
 
 
 SCRIPT_INCLUDE_REF_RE = re.compile(
@@ -717,7 +559,6 @@ DEFAULT_ANGULAR_IMPLICIT_SNIPPET_LENGTH = 180
 MAX_COMPONENT_SCRIPT_CHARS = 12000
 MAX_PREVIEW_TEXT_LENGTH = 600
 MAX_PREVIEW_DIFF_LINES = 80
-SNAPSHOT_ROOT_DIRNAME = ".mfa_servicenow_mcp/portal_component_snapshots"
 
 PORTAL_COMPONENT_EDITABLE_FIELDS: Dict[str, Set[str]] = {
     "sp_widget": {"template", "script", "client_script", "link", "css"},
@@ -1925,51 +1766,6 @@ def preview_portal_component_update(
 
 
 @register_tool(
-    "create_portal_component_snapshot",
-    params=CreatePortalComponentSnapshotParams,
-    description="Save the current editable state of a portal component to a local snapshot file for rollback or review",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def create_portal_component_snapshot(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: CreatePortalComponentSnapshotParams,
-) -> Dict[str, Any]:
-    normalized_table = _normalize_portal_component_table(params.table)
-    snapshot_fields = _resolve_snapshot_fields(normalized_table, params.fields)
-    current_record = _fetch_portal_component_record(
-        config,
-        auth_manager,
-        normalized_table,
-        params.sys_id,
-        snapshot_fields,
-    )
-    snapshot_path = _write_portal_component_snapshot(
-        config,
-        normalized_table,
-        params.sys_id,
-        current_record,
-        snapshot_fields,
-        params.output_dir,
-    )
-
-    return {
-        "success": True,
-        "component": {
-            "table": normalized_table,
-            "sys_id": params.sys_id,
-            "name": str(current_record.get("name") or params.sys_id),
-        },
-        "snapshot": {
-            "path": str(snapshot_path),
-            "fields": snapshot_fields,
-        },
-        "safety_notice": "Snapshot saved locally. No remote changes were applied.",
-    }
-
-
-@register_tool(
     "route_portal_component_edit",
     params=RoutePortalComponentEditParams,
     description="Route a portal edit instruction to the right analyze/preview/apply tool.",
@@ -2002,8 +1798,6 @@ def route_portal_component_edit(
             target["table"] = params.table
     if params.sys_id:
         target["sys_id"] = params.sys_id
-    if params.snapshot_path:
-        target["snapshot_path"] = params.snapshot_path
 
     return {
         "success": True,
@@ -2017,7 +1811,7 @@ def route_portal_component_edit(
         "recommended_next_call": _build_portal_edit_next_call_example(plan),
         "safety_notice": (
             "Routing only. This tool does not fetch, diff, or mutate remote data. "
-            "Apply and rollback still require explicit confirmation and complete arguments."
+            "Apply still requires explicit confirmation and complete arguments."
         ),
     }
 
@@ -2815,14 +2609,6 @@ def update_portal_component(
                 f"Large payloads may be rejected by proxy/WAF."
             )
 
-    snapshot_path = _write_portal_component_snapshot(
-        config,
-        normalized_table,
-        params.sys_id,
-        current_record,
-        list(effective_update_data.keys()),
-    )
-
     instance_url = config.instance_url
     url = f"{instance_url}/api/now/table/{normalized_table}/{params.sys_id}"
 
@@ -2860,10 +2646,6 @@ def update_portal_component(
         "message": "Update successful",
         "sys_id": params.sys_id,
         "fields": list(effective_update_data.keys()),
-        "snapshot": {
-            "path": str(snapshot_path),
-            "fields": list(effective_update_data.keys()),
-        },
         "validation": {
             "verified_fields": verified_fields,
             "mismatched_fields": mismatched_fields,
@@ -2873,43 +2655,6 @@ def update_portal_component(
     if size_warnings:
         result_dict["size_warnings"] = size_warnings
     return result_dict
-
-
-@register_tool(
-    "update_portal_component_from_snapshot",
-    params=UpdatePortalComponentFromSnapshotParams,
-    description="Restore a portal component's editable fields from a previously saved local snapshot",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def update_portal_component_from_snapshot(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: UpdatePortalComponentFromSnapshotParams,
-) -> Dict[str, Any]:
-    snapshot = _read_portal_component_snapshot(params.snapshot_path)
-    snapshot_instance_url = str(snapshot.get("instance_url") or "")
-    if snapshot_instance_url and snapshot_instance_url != config.instance_url:
-        raise ValueError(
-            "Snapshot instance_url does not match the current configured instance. "
-            f"Snapshot: {snapshot_instance_url}, current: {config.instance_url}"
-        )
-
-    component = snapshot["component"]
-    values = {str(key): str(value) for key, value in snapshot["values"].items()}
-    update_result = update_portal_component(
-        config,
-        auth_manager,
-        UpdatePortalComponentParams(
-            table=str(component["table"]),
-            sys_id=str(component["sys_id"]),
-            update_data=values,
-        ),
-    )
-    update_result["rollback"] = {
-        "restored_from_snapshot": str(Path(params.snapshot_path).expanduser().resolve()),
-    }
-    return update_result
 
 
 @register_tool(

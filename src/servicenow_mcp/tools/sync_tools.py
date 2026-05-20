@@ -1,7 +1,7 @@
 """
 Local source synchronization tools for ServiceNow MCP.
 Diff and push locally edited portal sources back to ServiceNow
-with conflict detection and automatic snapshot-based rollback.
+with conflict detection.
 """
 
 import difflib
@@ -20,7 +20,6 @@ from .portal_tools import (
     UpdatePortalComponentParams,
     _fetch_portal_component_record,
     _safe_name,
-    _write_portal_component_snapshot,
     update_portal_component,
 )
 from .sn_api import GenericQueryParams, sn_query
@@ -110,10 +109,6 @@ class PushLocalComponentParams(BaseModel):
     force: bool = Field(
         default=False,
         description="Force push even if remote is newer than local download. Default false.",
-    )
-    skip_snapshot: bool = Field(
-        default=True,
-        description="Skip the local pre-push snapshot. Default true — ServiceNow versions records server-side.",
     )
 
 
@@ -535,7 +530,7 @@ def _scan_download_root(
 @register_tool(
     "diff_local_component",
     params=DiffLocalComponentParams,
-    description="Diff local download vs remote. Run before re-downloading to skip if fresh.",
+    description="Diff local edits vs remote. Run before update_remote_from_local (review) or re-download (freshness).",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -638,7 +633,7 @@ def diff_local_component(
     "update_remote_from_local",
     params=PushLocalComponentParams,
     description=(
-        "Push local file changes to ServiceNow. "
+        "Push local edits to ServiceNow — run diff_local_component first to review. "
         "Path: sp_widget/<name>/<file> (folder) | sp_angular_provider|sys_script_include|"
         "sp_css|sp_ng_template/<name>.<suffix> (single file)."
     ),
@@ -715,21 +710,7 @@ def update_remote_from_local(
             },
         }
 
-    # 4. Auto-snapshot remote state before push
-    snapshot_path = None
-    if not params.skip_snapshot:
-        try:
-            snapshot_path = _write_portal_component_snapshot(
-                config,
-                resolved.table,
-                resolved.sys_id,
-                remote_record,
-                list(update_data.keys()),
-            )
-        except Exception as e:
-            logger.warning("Failed to create pre-push snapshot: %s", e)
-
-    # 5. Delegate to existing update_portal_component
+    # 4. Delegate to existing update_portal_component
     try:
         result = update_portal_component(
             config,
@@ -743,10 +724,9 @@ def update_remote_from_local(
     except Exception as e:
         return {
             "error": f"Push failed: {e}",
-            "snapshot": str(snapshot_path) if snapshot_path else None,
         }
 
-    # 6. Update _sync_meta.json with new remote timestamp
+    # 5. Update _sync_meta.json with new remote timestamp
     try:
         updated_record = _fetch_portal_component_record(
             config, auth_manager, resolved.table, resolved.sys_id, ["sys_updated_on"]
@@ -763,11 +743,10 @@ def update_remote_from_local(
     except Exception as e:
         logger.warning("Failed to update _sync_meta.json after push: %s", e)
 
-    # 7. Enrich result
+    # 6. Enrich result
     result["local_sync"] = {
         "pushed_from": str(path),
         "fields_pushed": list(update_data.keys()),
-        "snapshot": str(snapshot_path) if snapshot_path else None,
         "sync_meta_updated": True,
     }
     return result

@@ -130,21 +130,6 @@ class TestJsonFastMigration:
             assert result["success"] is True
             assert result["result"] == "<xml><answer>hello</answer></xml>"
 
-    def test_portal_snapshot_read_uses_json_fast(self, tmp_path):
-        """_read_portal_component_snapshot must parse via json_fast, not stdlib."""
-        from servicenow_mcp.tools.portal_tools import _read_portal_component_snapshot
-
-        snapshot = {
-            "component": {"table": "sp_widget", "sys_id": "w1"},
-            "values": {"script": "console.log('test');"},
-            "fields": ["script"],
-        }
-        snap_file = tmp_path / "test_snapshot.json"
-        snap_file.write_text(json.dumps(snapshot), encoding="utf-8")
-
-        result = _read_portal_component_snapshot(str(snap_file))
-        assert result["component"]["sys_id"] == "w1"
-
     def test_portal_json_write_uses_json_fast(self, tmp_path):
         """_write_json_file must use json_fast.dumps (compact output)."""
         from servicenow_mcp.tools.portal_tools import _write_json_file
@@ -698,30 +683,10 @@ class TestPrecompiledPortalRegex:
         """Module-level regex patterns must be compiled re.Pattern objects."""
         import re as _re
 
-        from servicenow_mcp.tools.portal_tools import (
-            _RE_APPLY,
-            _RE_PREVIEW,
-            _RE_ROLLBACK,
-            _RE_SNAPSHOT,
-        )
+        from servicenow_mcp.tools.portal_tools import _RE_APPLY, _RE_PREVIEW
 
-        assert isinstance(_RE_ROLLBACK, _re.Pattern)
-        assert isinstance(_RE_SNAPSHOT, _re.Pattern)
         assert isinstance(_RE_PREVIEW, _re.Pattern)
         assert isinstance(_RE_APPLY, _re.Pattern)
-
-    def test_detect_action_rollback(self):
-        from servicenow_mcp.tools.portal_tools import _detect_portal_edit_action
-
-        assert _detect_portal_edit_action("rollback the widget") == "rollback"
-        assert _detect_portal_edit_action("Revert changes") == "rollback"
-        assert _detect_portal_edit_action("undo last edit") == "rollback"
-
-    def test_detect_action_snapshot(self):
-        from servicenow_mcp.tools.portal_tools import _detect_portal_edit_action
-
-        assert _detect_portal_edit_action("take a snapshot") == "snapshot"
-        assert _detect_portal_edit_action("Backup the widget") == "snapshot"
 
     def test_detect_action_preview(self):
         from servicenow_mcp.tools.portal_tools import _detect_portal_edit_action
@@ -744,8 +709,8 @@ class TestPrecompiledPortalRegex:
         """Patterns must match regardless of case."""
         from servicenow_mcp.tools.portal_tools import _detect_portal_edit_action
 
-        assert _detect_portal_edit_action("ROLLBACK NOW") == "rollback"
         assert _detect_portal_edit_action("Preview Changes") == "preview"
+        assert _detect_portal_edit_action("APPLY THE FIX") == "apply"
 
 
 # ============================================================================
