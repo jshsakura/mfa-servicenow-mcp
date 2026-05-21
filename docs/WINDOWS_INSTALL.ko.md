@@ -11,12 +11,26 @@
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 uvx --with playwright playwright install chromium
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser"
 ```
 
-`uvx`는 로컬 Playwright Python 패키지를 자동으로 우선 사용하지 않습니다. 다만 같은 Chromium revision이 표준 Playwright 브라우저 캐시에 있으면 다시 다운로드하지 않습니다. Chromium이 없으면 위 Playwright 설치 명령을 먼저 실행하세요.
+`uv`와 Chromium을 설치합니다. 그다음 MCP 클라이언트 설정파일에 서버를 추가하세요 (별도 installer 명령 불필요):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
+```
+
+`uvx`는 같은 Chromium revision이 표준 Playwright 캐시에 있으면 재다운로드하지 않습니다. 없으면 위 설치 명령을 먼저 실행하세요.
 
 ---
 
