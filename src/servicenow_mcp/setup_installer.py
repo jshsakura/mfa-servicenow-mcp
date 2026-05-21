@@ -291,12 +291,33 @@ def build_env(args: argparse.Namespace) -> dict[str, str]:
     return env
 
 
+def _pinned_specs() -> tuple[str, str]:
+    """Pin the exact versions present at install time so the generated config is
+    deterministic — uvx won't re-resolve "latest" (and re-download) on every run.
+
+    mfa-servicenow-mcp pins to the running version; playwright pins to the
+    installed version when detectable, else stays unpinned.
+    """
+    from .version import get_version
+
+    mcp_spec = f"mfa-servicenow-mcp=={get_version()}"
+    playwright_spec = "playwright"
+    try:
+        from importlib.metadata import version as _pkg_version
+
+        playwright_spec = f"playwright=={_pkg_version('playwright')}"
+    except Exception:
+        pass
+    return playwright_spec, mcp_spec
+
+
 def build_client_config(
     client: str, args: argparse.Namespace
 ) -> tuple[str, str, list[str], dict[str, str], bool]:
     """Return format-specific server config pieces."""
     env = build_env(args)
-    base_args = ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"]
+    playwright_spec, mcp_spec = _pinned_specs()
+    base_args = ["--with", playwright_spec, "--from", mcp_spec, "servicenow-mcp"]
     server_command = getattr(args, "server_command", None) or "uvx"
     command_args = [] if getattr(args, "server_command", None) else base_args
 
