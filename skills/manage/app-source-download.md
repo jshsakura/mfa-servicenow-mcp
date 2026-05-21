@@ -66,6 +66,22 @@ same tree with `is_dependency: true` in `_metadata.json`. Covered types:
 
 Set `auto_resolve_deps=false` to skip this pass if you only want in-scope records.
 
+#### Re-syncing an already-downloaded scope (incremental)
+
+If the scope was downloaded before (a `_manifest.json` / `_sync_meta.json` exists),
+do NOT re-download everything. Pass `incremental=true` so only records changed since
+the last sync (`sys_updated_on` watermark) are fetched — like `git pull`. Much faster
+and avoids timeouts on large apps. Add `reconcile_deletions=true` to also get a warning
+list (`deletion_candidates`) of records deleted on the instance (never auto-deleted).
+
+```
+CALL download_app_sources(scope=INPUT_SCOPE, incremental=true)            # changed only
+CALL download_app_sources(scope=INPUT_SCOPE, incremental=true, reconcile_deletions=true)
+```
+
+Both `download_app_sources` and `download_portal_sources` support these flags. Run a full
+(non-incremental) download periodically to stay fully in sync.
+
 ### Individual Group Download
 
 IF "SI" or "스크립트 인클루드":
