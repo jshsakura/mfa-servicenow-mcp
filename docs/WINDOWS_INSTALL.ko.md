@@ -10,10 +10,11 @@
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
 uvx --with playwright playwright install chromium
 ```
 
-`uv`와 Chromium을 설치합니다. 그다음 MCP 클라이언트 설정파일에 서버를 추가하세요 (별도 installer 명령 불필요):
+`uv` 설치 + 서버 fetch·검증 + Chromium 다운로드를 합니다. 그다음 MCP 클라이언트 설정파일에 서버를 추가하세요 (별도 installer 명령 불필요):
 
 ```json
 {

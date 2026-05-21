@@ -24,13 +24,14 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-### 2. Playwright Chromium 설치
+### 2. 서버 fetch + Chromium 설치
 
 ```bash
-uvx --with playwright playwright install chromium
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version  # 서버 fetch + 검증
+uvx --with playwright playwright install chromium                                   # MFA/SSO 로그인용 Chromium
 ```
 
-Playwright는 표준 브라우저 캐시를 사용합니다. `uvx`가 로컬 Playwright Python 패키지를 자동으로 우선 사용하지는 않지만, 같은 Chromium revision이 표준 캐시에 있으면 다시 다운로드하지 않습니다.
+첫 명령은 클라이언트가 쓰는 것과 같은 `--with playwright` env에 서버를 미리 받아 검증하므로 첫 시작이 즉시 뜹니다. 둘째 명령은 Chromium을 받습니다(같은 revision이 표준 캐시에 있으면 재다운로드 안 함).
 
 ### 3. MCP 클라이언트 설정에 서버 추가
 

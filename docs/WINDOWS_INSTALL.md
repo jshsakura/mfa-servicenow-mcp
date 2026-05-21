@@ -10,10 +10,11 @@ Open PowerShell without admin privileges:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
 uvx --with playwright playwright install chromium
 ```
 
-That installs `uv` and Chromium. Then add the server to your MCP client config file (no installer command):
+That installs `uv`, fetches+verifies the server, and downloads Chromium. Then add the server to your MCP client config file (no installer command):
 
 ```json
 {

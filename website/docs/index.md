@@ -95,8 +95,9 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
             <pre class="install-code"><code><span class="c"># 1. Install uv (if not already installed)</span>
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-<span class="c"># 2. Pre-install Chromium for MFA/SSO login (REQUIRED — skip and the first</span>
-<span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
+<span class="c"># 2. Fetch the server + Chromium up front (so the first browser-auth call</span>
+<span class="c">#    doesn't download ~150 MB and time out)</span>
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
 uvx --with playwright playwright install chromium
 
 <span class="c"># 3. Add the server to your MCP client config — copy a snippet below</span></code></pre>
@@ -107,8 +108,9 @@ uvx --with playwright playwright install chromium
             <pre class="install-code"><code><span class="c"># 1. Install uv (if not already installed)</span>
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-<span class="c"># 2. Pre-install Chromium for MFA/SSO login (REQUIRED — skip and the first</span>
-<span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
+<span class="c"># 2. Fetch the server + Chromium up front (so the first browser-auth call</span>
+<span class="c">#    doesn't download ~150 MB and time out)</span>
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
 uvx --with playwright playwright install chromium
 
 <span class="c"># 3. Add the server to your MCP client config — copy a snippet below</span></code></pre>

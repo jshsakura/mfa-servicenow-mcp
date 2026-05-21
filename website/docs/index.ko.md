@@ -96,8 +96,9 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
             <pre class="install-code"><code><span class="c"># 1. uv 설치 (이미 있으면 생략)</span>
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-<span class="c"># 2. MFA/SSO 로그인용 Chromium 미리 설치 (필수 — 안 깔면 첫 호출에서</span>
-<span class="c">#    ~150 MB 받아오다가 timeout 날 수 있습니다)</span>
+<span class="c"># 2. 서버 + Chromium 미리 받기 (첫 브라우저 호출에서 ~150 MB</span>
+<span class="c">#    받다가 timeout 나는 걸 예방)</span>
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
 uvx --with playwright playwright install chromium
 
 <span class="c"># 3. MCP 클라이언트 설정파일에 서버 추가 — 아래 예시 복사</span></code></pre>
@@ -108,8 +109,9 @@ uvx --with playwright playwright install chromium
             <pre class="install-code"><code><span class="c"># 1. uv 설치 (이미 있으면 생략)</span>
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-<span class="c"># 2. MFA/SSO 로그인용 Chromium 미리 설치 (필수 — 안 깔면 첫 호출에서</span>
-<span class="c">#    ~150 MB 받아오다가 timeout 날 수 있습니다)</span>
+<span class="c"># 2. 서버 + Chromium 미리 받기 (첫 브라우저 호출에서 ~150 MB</span>
+<span class="c">#    받다가 timeout 나는 걸 예방)</span>
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
 uvx --with playwright playwright install chromium
 
 <span class="c"># 3. MCP 클라이언트 설정파일에 서버 추가 — 아래 예시 복사</span></code></pre>
