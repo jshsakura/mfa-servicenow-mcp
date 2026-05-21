@@ -32,19 +32,26 @@ uvx --with playwright playwright install chromium
 
 Playwright uses its standard browser cache. `uvx` does not use a locally installed Playwright Python package, but it can reuse a matching Chromium already present in that cache.
 
-### 3. Run setup
+### 3. Add the server to your MCP client config
 
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
+Add an entry to your client's config file (no installer command needed):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
 ```
 
-```powershell
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser"
-```
+Per-client file paths and formats (Codex TOML, etc.) are below; restart the client afterward.
 
 ### Local install (release zip/exe)
 

@@ -11,12 +11,26 @@ Open PowerShell without admin privileges:
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 uvx --with playwright playwright install chromium
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser"
 ```
 
-`uvx` does not use a locally installed Playwright Python package. It can reuse a matching Chromium already present in the standard Playwright browser cache. If Chromium is missing, run the Playwright install command above.
+That installs `uv` and Chromium. Then add the server to your MCP client config file (no installer command):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
+```
+
+`uvx` reuses a matching Chromium already in the standard Playwright cache; if Chromium is missing, run the install command above first.
 
 ---
 
