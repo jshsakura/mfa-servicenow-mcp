@@ -558,7 +558,7 @@ def diff_local_component(
     remote_fields = list(resolved.fields.keys()) + ["sys_updated_on"]
     try:
         remote_record = _fetch_portal_component_record(
-            config, auth_manager, resolved.table, resolved.sys_id, remote_fields
+            config, auth_manager, resolved.table, resolved.sys_id, remote_fields, full=True
         )
     except ValueError as e:
         return {"error": str(e)}

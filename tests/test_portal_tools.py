@@ -285,24 +285,36 @@ def test_preview_portal_component_update_matches_fixture_contract(
     assert result == expected
 
 
+def _make_request_patch_then_validate(after_record):
+    """make_request side_effect: PATCH -> 200; validation GET -> {"result": after_record}.
+
+    The post-write validation reads the remote record with full=True, which goes
+    through a raw direct GET (auth_manager.make_request("GET", ...)) instead of
+    sn_query, so long fields compare untruncated.
+    """
+
+    def _side(method, url, **kwargs):
+        resp = MagicMock()
+        resp.status_code = 200
+        if method == "GET":
+            resp.json.return_value = {"result": after_record}
+        return resp
+
+    return _side
+
+
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
 @patch("servicenow_mcp.tools.portal_tools.invalidate_query_cache")
 def test_update_portal_component_success(
     mock_invalidate_query_cache, mock_sn_query, mock_config, mock_auth_manager
 ):
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_auth_manager.make_request.return_value = mock_response
-    mock_sn_query.side_effect = [
-        {
-            "success": True,
-            "results": [{"sys_id": "sys-1", "name": "Test", "client_script": "before"}],
-        },
-        {
-            "success": True,
-            "results": [{"sys_id": "sys-1", "name": "Test", "client_script": "function() {}"}],
-        },
-    ]
+    mock_auth_manager.make_request.side_effect = _make_request_patch_then_validate(
+        {"sys_id": "sys-1", "name": "Test", "client_script": "function() {}"}
+    )
+    mock_sn_query.return_value = {
+        "success": True,
+        "results": [{"sys_id": "sys-1", "name": "Test", "client_script": "before"}],
+    }
 
     params = UpdatePortalComponentParams(
         table="sp_widget", sys_id="sys-1", update_data={"client_script": "function() {}"}
@@ -310,9 +322,49 @@ def test_update_portal_component_success(
     result = update_portal_component(mock_config, mock_auth_manager, params)
 
     assert result["message"] == "Update successful"
-    mock_auth_manager.make_request.assert_called_once()
+    # PATCH (write) + GET (full=True validation read)
+    assert mock_auth_manager.make_request.call_count == 2
     mock_invalidate_query_cache.assert_called_once_with(table="sp_widget")
     assert result["validation"]["verified_fields"] == ["client_script"]
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+@patch("servicenow_mcp.tools.portal_tools.invalidate_query_cache")
+def test_update_portal_component_long_field_verified_not_false_mismatch(
+    mock_invalidate_query_cache, mock_sn_query, mock_config, mock_auth_manager
+):
+    """A long script that the budget-truncating sn_query would clip must still
+    verify, because the validation read uses full=True (raw direct GET)."""
+    long_script = "function run() {\n" + ("  var x = 1;\n" * 5000) + "}\n"
+
+    def _side(method, url, **kwargs):
+        resp = MagicMock()
+        resp.status_code = 200
+        if method == "GET":
+            # Raw GET returns the full untruncated field.
+            resp.json.return_value = {
+                "result": {"sys_id": "sys-1", "name": "Big", "script": long_script}
+            }
+        return resp
+
+    mock_auth_manager.make_request.side_effect = _side
+    # sn_query (if ever used for validation) would truncate — make it return a
+    # clipped value to prove the verdict does NOT come from this path.
+    mock_sn_query.return_value = {
+        "success": True,
+        "results": [{"sys_id": "sys-1", "name": "Big", "script": long_script[:500]}],
+    }
+
+    result = update_portal_component(
+        mock_config,
+        mock_auth_manager,
+        UpdatePortalComponentParams(
+            table="sp_widget", sys_id="sys-1", update_data={"script": long_script}
+        ),
+    )
+
+    assert result["validation"]["verified_fields"] == ["script"]
+    assert result["validation"]["mismatched_fields"] == []
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
@@ -324,13 +376,8 @@ def test_update_portal_component_matches_fixture_contract(
     update_data = _load_portal_edit_fixture("widget_update_data.json")
     expected = _load_portal_edit_fixture("expected_apply.json")
 
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_auth_manager.make_request.return_value = mock_response
-    mock_sn_query.side_effect = [
-        {"success": True, "results": [before_record]},
-        {"success": True, "results": [after_record]},
-    ]
+    mock_auth_manager.make_request.side_effect = _make_request_patch_then_validate(after_record)
+    mock_sn_query.return_value = {"success": True, "results": [before_record]}
 
     result = update_portal_component(
         mock_config,
@@ -343,7 +390,7 @@ def test_update_portal_component_matches_fixture_contract(
     )
 
     assert result == expected
-    mock_auth_manager.make_request.assert_called_once()
+    assert mock_auth_manager.make_request.call_count == 2
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
@@ -379,13 +426,8 @@ def test_update_portal_component_mismatch_matches_fixture_contract(
     update_data = _load_portal_edit_fixture("widget_update_data.json")
     expected = _load_portal_edit_fixture("expected_mismatch_apply.json")
 
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_auth_manager.make_request.return_value = mock_response
-    mock_sn_query.side_effect = [
-        {"success": True, "results": [before_record]},
-        {"success": True, "results": [after_record]},
-    ]
+    mock_auth_manager.make_request.side_effect = _make_request_patch_then_validate(after_record)
+    mock_sn_query.return_value = {"success": True, "results": [before_record]}
 
     result = update_portal_component(
         mock_config,
@@ -398,7 +440,7 @@ def test_update_portal_component_mismatch_matches_fixture_contract(
     )
 
     assert result == expected
-    mock_auth_manager.make_request.assert_called_once()
+    assert mock_auth_manager.make_request.call_count == 2
 
 
 def test_route_portal_component_edit_routes_preview_request():
@@ -1443,26 +1485,20 @@ def test_update_portal_component_conflict_force_overrides(
     mock_invalidate_query_cache, mock_sn_query, mock_config, mock_auth_manager
 ):
     """force=True writes through even when remote is newer."""
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_auth_manager.make_request.return_value = mock_response
-    mock_sn_query.side_effect = [
-        {
-            "success": True,
-            "results": [
-                {
-                    "sys_id": "sys-1",
-                    "name": "My Widget",
-                    "client_script": "old code",
-                    "sys_updated_on": "2026-04-29 10:00:00",
-                }
-            ],
-        },
-        {
-            "success": True,
-            "results": [{"sys_id": "sys-1", "name": "My Widget", "client_script": "new code"}],
-        },
-    ]
+    mock_auth_manager.make_request.side_effect = _make_request_patch_then_validate(
+        {"sys_id": "sys-1", "name": "My Widget", "client_script": "new code"}
+    )
+    mock_sn_query.return_value = {
+        "success": True,
+        "results": [
+            {
+                "sys_id": "sys-1",
+                "name": "My Widget",
+                "client_script": "old code",
+                "sys_updated_on": "2026-04-29 10:00:00",
+            }
+        ],
+    }
     result = update_portal_component(
         mock_config,
         mock_auth_manager,
@@ -1475,4 +1511,5 @@ def test_update_portal_component_conflict_force_overrides(
         ),
     )
     assert result.get("error") != "CONFLICT"
-    mock_auth_manager.make_request.assert_called_once()
+    # PATCH (write) + GET (full=True validation read)
+    assert mock_auth_manager.make_request.call_count == 2
