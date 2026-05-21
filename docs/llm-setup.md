@@ -92,7 +92,7 @@ If a path is printed, Chromium is already installed — skip to Step 3.
 If 2.1 found nothing, install Chromium through `uvx` so Playwright setup uses the same execution style as the MCP server:
 
 ```bash
-uvx --with playwright playwright install chromium
+uvx --with "playwright==1.58.0" playwright install chromium
 ```
 
 This downloads ~150 MB the first time. On a slow link it can take several minutes — that is normal. Do not abort early. Show the user a progress message ("Downloading Chromium for ServiceNow MFA login — this can take a few minutes on slow networks…") so they understand the wait.
@@ -170,7 +170,7 @@ Build a single installer command and run it from the current project root. The i
 Base command:
 
 ```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup "$CLIENT" \
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup "$CLIENT" \
   --instance-url "$INSTANCE_URL" \
   --auth-type "$AUTH_TYPE" \
   --tool-package "$TOOL_PACKAGE" \
@@ -189,12 +189,12 @@ Add flags only when needed:
 Examples:
 
 ```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com"
 ```
 
 ```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup codex \
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup codex \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type basic \
   --username "your-username" \
@@ -202,7 +202,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup codex \
 ```
 
 ```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup claude-code \
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup claude-code \
   --instance-url "https://your-instance.service-now.com" \
   --scope global \
   --skip-skills

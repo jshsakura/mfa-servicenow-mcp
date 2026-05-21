@@ -10,8 +10,8 @@ Open PowerShell without admin privileges:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-uvx --with playwright playwright install chromium
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+uvx --with "playwright==1.58.0" playwright install chromium
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser"
 ```
@@ -126,7 +126,7 @@ Config file location: `%APPDATA%\Claude\claude_desktop_config.json`
 Register via CLI — no config file needed:
 
 ```powershell
-claude mcp add servicenow -- uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type browser --browser-headless false
+claude mcp add servicenow -- uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type browser --browser-headless false
 ```
 
 Verify:
@@ -282,7 +282,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 Test: call the `sn_health` tool from your client.
 
-> If the browser doesn't open, check that Chromium was installed. You can force-install it with: `uvx --with playwright playwright install chromium`
+> If the browser doesn't open, check that Chromium was installed. You can force-install it with: `uvx --with "playwright==1.58.0" playwright install chromium`
 
 ---
 
@@ -351,7 +351,7 @@ If there's a conflict with system Python, uninstall and reinstall `uv`.
 ### "Browser won't open"
 → Chromium must be installed before MCP startup:
 ```powershell
-uvx --with playwright playwright install chromium
+uvx --with "playwright==1.58.0" playwright install chromium
 ```
 → If browser download is blocked, use `ms-playwright-chromium-windows-x64.zip` from the chromium-bundle release and extract it to `%LOCALAPPDATA%\ms-playwright`.
 
