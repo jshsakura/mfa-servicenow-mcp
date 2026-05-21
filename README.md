@@ -519,19 +519,18 @@ uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 
 After refreshing, **restart your MCP client** (Claude Code, Cursor, etc.) to load the new version.
 
-### Pinning a specific version
+### First browser call downloads Chromium
 
-**Recommended for stable setups.** uvx happily downloads the latest Playwright when it pulls the MCP server, and a new Playwright release ships a new Chromium build. When that happens the *first* tool call has to fetch ~150 MB of browser binaries — which on a slow link can blow past the MCP host's handshake timeout and surface as:
+uvx resolves the latest `mfa-servicenow-mcp` and Playwright, and a new Playwright release ships a new Chromium build. The *first* browser tool call then has to fetch ~150 MB of browser binaries — which on a slow link can blow past the MCP host's handshake timeout and surface as:
 
 ```text
 MCP startup failed: handshaking with MCP server failed: connection closed: initialize response
 ```
 
-Pinning is **optional** — use it only if you want a fully deterministic install with no re-resolution. `playwright` is the pin worth keeping: it locks the Chromium revision so the installed browser always matches. Leave `mfa-servicenow-mcp` unpinned to get the latest — pinning it can downgrade a machine already running a newer version, or leave two versions fighting over the shared session. Example:
+Avoid it by installing Chromium **before** the first call (the setup commands above already do this):
 
 ```bash
-# One-off run (playwright pinned for a stable Chromium; mfa-servicenow-mcp left at latest)
-uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp --version
+uvx --with playwright playwright install chromium
 ```
 
 #### MCP client configs (project-local examples)
@@ -627,14 +626,12 @@ See [Step 5 of the local install section](#step-5--wire-it-up-in-your-mcp-client
 
 #### Upgrading
 
-When you bump `mfa-servicenow-mcp`, decide whether to bump `playwright` at the same time:
+uvx auto-resolves the latest `mfa-servicenow-mcp` and `playwright` — there are no versions to bump in your config. To refresh:
 
 ```bash
-# 1. Refresh Chromium for the new Playwright (if you bumped playwright)
-uvx --with "playwright==<new>" playwright install chromium
-
-# 2. Update both pins in your client config to the new versions
-# 3. Restart your MCP client
+# Re-install Chromium in case a newer Playwright shipped a new build, then
+# restart your MCP client
+uvx --with playwright playwright install chromium
 ```
 
 > **Why we no longer auto-install Chromium inside the MCP server:** that download used to run during the first tool call. On a slow link the subprocess outlived the host's handshake deadline and the client reported "connection closed". v1.13.1 changed this — the MCP server now only *warns* if Chromium is missing, and the `servicenow-mcp setup <client>` command handles the install at setup time (out-of-band, no handshake timer).
