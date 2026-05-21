@@ -524,9 +524,11 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 
 `playwright`와 `mfa-servicenow-mcp` 둘 다 고정하면 결정적으로 동작합니다. 한 번 `uvx --with playwright playwright install chromium`을 받으면, 핀을 직접 올리기 전까지는 추가 다운로드가 없습니다.
 
+> `servicenow-mcp setup <client>`가 이걸 자동으로 해줍니다 — 설치한 `mfa-servicenow-mcp`/`playwright` 정확한 버전으로 고정된 config를 작성하므로 uvx가 시작 시 "latest"를 재해석하지 않습니다. 아래 핀은 config를 직접 손으로 쓸 때만 필요합니다.
+
 ```bash
 # 일회 실행
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.25" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.27" servicenow-mcp --version
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
@@ -549,7 +551,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.25" servicenow-
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.25",
+        "--from", "mfa-servicenow-mcp==1.13.27",
         "servicenow-mcp"
       ],
       "env": {
@@ -572,7 +574,7 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.25" servicenow-
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.25",
+  "--from", "mfa-servicenow-mcp==1.13.27",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -599,7 +601,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.25",
+        "--from", "mfa-servicenow-mcp==1.13.27",
         "servicenow-mcp"
       ],
       "enabled": true,

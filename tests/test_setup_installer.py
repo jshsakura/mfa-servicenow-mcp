@@ -10,6 +10,7 @@ import pytest
 
 from servicenow_mcp.setup_installer import (
     _install_chromium_if_needed,
+    build_client_config,
     format_summary,
     install_client,
     main,
@@ -46,6 +47,31 @@ def _args(**overrides):
     }
     data.update(overrides)
     return argparse.Namespace(**data)
+
+
+class TestVersionPinning:
+    def test_uvx_config_pins_mcp_version(self):
+        from servicenow_mcp.version import get_version
+
+        _, command, args, _, _ = build_client_config("claude-code", _args(clients=["claude-code"]))
+        assert command == "uvx"
+        assert f"mfa-servicenow-mcp=={get_version()}" in args
+        # --from points at the pinned spec, not the bare package name
+        assert "mfa-servicenow-mcp" not in args  # bare (unpinned) form must be gone
+
+    def test_uvx_config_pins_playwright(self):
+        _, _, args, _, _ = build_client_config("claude-code", _args(clients=["claude-code"]))
+        # playwright is pinned (==) when detectable in the running env
+        with_idx = args.index("--with")
+        assert args[with_idx + 1].startswith("playwright==")
+
+    def test_local_server_command_has_no_uvx_args(self):
+        # When a server_command path is given, no uvx pinning args are written.
+        _, command, args, _, _ = build_client_config(
+            "claude-code", _args(clients=["claude-code"], server_command="/opt/servicenow-mcp")
+        )
+        assert command == "/opt/servicenow-mcp"
+        assert args == []
 
 
 class TestValidateSetupArgs:
