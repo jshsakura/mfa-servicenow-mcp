@@ -44,16 +44,18 @@ Two steps: **install**, then **add the server to your MCP client config**. No in
 ```bash
 # macOS/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uvx --with playwright playwright install chromium
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version  # fetch + verify the server
+uvx --with playwright playwright install chromium                                   # Chromium for MFA/SSO login
 ```
 
 ```powershell
 # Windows PowerShell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-uvx --with playwright playwright install chromium
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version  # fetch + verify the server
+uvx --with playwright playwright install chromium                                   # Chromium for MFA/SSO login
 ```
 
-This installs `uv` and downloads Chromium once. (`uvx` fetches the latest `mfa-servicenow-mcp` automatically when the client starts the server — nothing else to install.)
+This installs `uv`, fetches+verifies the server, and downloads Chromium — once. The `--with playwright` on the fetch matches the runtime config below, so uvx caches the exact env and the first client start is instant.
 
 ### 2. Configure your MCP client
 
