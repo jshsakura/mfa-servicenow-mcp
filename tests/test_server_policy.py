@@ -292,16 +292,29 @@ def test_instance_arg_unknown_alias_rejected(monkeypatch, tmp_path):
         asyncio.run(server._call_tool_impl("sn_query", {"instance": "nope"}))
 
 
-def test_instance_arg_rejected_for_write_tool(monkeypatch, tmp_path):
+def test_cross_instance_write_rejected(monkeypatch, tmp_path):
+    # Active is "dev"; writing with instance="test" would mis-target → blocked.
     server = _build_multi_server(monkeypatch, tmp_path)
     seen = _register_recorder(server, "update_foo")
 
-    with pytest.raises(ValueError, match="read-only"):
+    with pytest.raises(ValueError, match="can't be redirected"):
         asyncio.run(
             server._call_tool_impl("update_foo", {"instance": "test", "confirm": "approve"})
         )
     # The tool must never have executed against the target instance.
     assert seen == {}
+
+
+def test_write_naming_active_instance_is_accepted(monkeypatch, tmp_path):
+    # instance="dev" equals the active instance, so the write is NOT a redirect —
+    # accept it (no-op) and run against the active config instead of erroring.
+    server = _build_multi_server(monkeypatch, tmp_path)
+    seen = _register_recorder(server, "update_foo")
+
+    asyncio.run(server._call_tool_impl("update_foo", {"instance": "dev", "confirm": "approve"}))
+
+    assert seen["instance_url"] == "https://dev.service-now.com"
+    assert seen["auth_manager"] is server.auth_manager
 
 
 def test_instance_schema_advertised_on_read_tools_only(monkeypatch, tmp_path):

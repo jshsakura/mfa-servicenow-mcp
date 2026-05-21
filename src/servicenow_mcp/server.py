@@ -1108,14 +1108,21 @@ class ServiceNowMCP:
                     f"instance '{target_alias}' is not configured. "
                     f"Set it in SERVICENOW_INSTANCE_CONFIG. Available: {available}."
                 )
-            if not self._is_read_only_call(name, arguments):
+            if self._is_read_only_call(name, arguments):
+                # Read-only: route this single call to the named instance.
+                call_config = ctx["config"]
+                call_auth_manager = ctx["auth_manager"]
+            elif target_alias != self.active_instance_alias:
+                # Cross-instance write: blocked. Writes are pinned to the active
+                # instance; redirecting them needs a server restart.
                 raise ValueError(
-                    f"instance routing is read-only — '{name}' is a write operation and "
-                    f"cannot be redirected to '{target_alias}'. To write there, restart the "
-                    f"server with SERVICENOW_ACTIVE_INSTANCE={target_alias}."
+                    f"'{name}' is a write operation; writes go to the active instance "
+                    f"'{self.active_instance_alias}' and can't be redirected to "
+                    f"'{target_alias}'. To write to '{target_alias}', restart the server "
+                    f"with SERVICENOW_ACTIVE_INSTANCE={target_alias}."
                 )
-            call_config = ctx["config"]
-            call_auth_manager = ctx["auth_manager"]
+            # else: write naming the already-active instance — accept it as-is
+            # (no redirect needed; falls through to the active config).
 
         # Per-package action allowlist: defense-in-depth against an LLM
         # invoking an action the schema didn't advertise. Runs before the
