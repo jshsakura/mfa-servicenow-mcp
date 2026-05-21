@@ -514,19 +514,18 @@ uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 
 갱신 후 **MCP 클라이언트를 재시작**해야 새 버전이 적용됩니다 (Claude Code, Cursor 등).
 
-### 특정 버전 고정
+### 첫 브라우저 호출 시 Chromium 다운로드
 
-**안정 환경에서 권장.** uvx는 MCP 서버를 받을 때 Playwright도 최신으로 받습니다. Playwright 새 버전이 나오면 다른 Chromium 빌드를 요구하게 되어, **첫 도구 호출**에서 ~150 MB 브라우저 바이너리를 받아오느라 MCP 호스트의 handshake timeout을 넘기는 경우가 있습니다:
+uvx는 `mfa-servicenow-mcp`와 Playwright를 최신으로 받습니다. Playwright 새 버전이 나오면 다른 Chromium 빌드를 요구하게 되어, **첫 도구 호출**에서 ~150 MB 브라우저 바이너리를 받아오느라 MCP 호스트의 handshake timeout을 넘기는 경우가 있습니다:
 
 ```text
 MCP startup failed: handshaking with MCP server failed: connection closed: initialize response
 ```
 
-핀은 **선택**입니다 — 재해석 없는 완전 결정적 설치를 원할 때만 쓰세요. 고정할 가치가 있는 건 `playwright`입니다: Chromium revision을 잠가서 설치된 브라우저가 항상 일치합니다. `mfa-servicenow-mcp`는 **고정하지 말고 latest로 두세요** — 고정하면 이미 더 높은 버전을 쓰던 PC가 다운그레이드되거나, 두 버전이 공유 세션을 두고 충돌할 수 있습니다. 예시:
+이를 피하려면 첫 호출 **전에** Chromium을 미리 설치하세요 (위 setup 명령이 이미 해줍니다):
 
 ```bash
-# 일회 실행 (playwright만 고정해 Chromium 안정화, mfa-servicenow-mcp는 latest)
-uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp --version
+uvx --with playwright playwright install chromium
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
@@ -622,14 +621,11 @@ MCP_TOOL_PACKAGE = "standard"
 
 #### 업그레이드
 
-`mfa-servicenow-mcp`를 올릴 때 `playwright`도 같이 올릴지 결정하세요:
+uvx가 `mfa-servicenow-mcp`와 `playwright`를 자동으로 최신 해석합니다 — 설정에서 올릴 버전이 없습니다. 갱신하려면:
 
 ```bash
-# 1. 새 Playwright에 맞춰 Chromium 다시 받기 (playwright 핀을 올렸을 때만)
-uvx --with "playwright==<새 버전>" playwright install chromium
-
-# 2. 클라이언트 설정에서 두 핀 모두 새 버전으로 갱신
-# 3. MCP 클라이언트 재시작
+# 새 Playwright가 새 빌드를 냈을 수 있으니 Chromium 재설치 후 MCP 클라이언트 재시작
+uvx --with playwright playwright install chromium
 ```
 
 > **왜 MCP 서버가 더 이상 Chromium을 자동 설치하지 않는가:** 예전에는 첫 도구 호출 시점에 `playwright install chromium`을 호출했습니다. 느린 회선에서는 그 subprocess가 호스트의 handshake 데드라인을 넘겨 "connection closed"로 실패했습니다. v1.13.1부터 MCP 서버는 Chromium이 없으면 **경고만** 출력하고, `servicenow-mcp setup <client>` 명령이 setup 단계(handshake timer 영향 없음)에서 설치를 처리합니다.
