@@ -78,11 +78,11 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <div style="margin-top:56px;" class="reveal">
-      <span class="section-label">수동 설치 — 한 번에</span>
-      <h2 class="section-title">클라이언트용 setup 실행</h2>
+      <span class="section-label">수동 설치 — 설치 + 설정</span>
+      <h2 class="section-title">설치 후 클라이언트 설정에 추가</h2>
       <p class="section-desc">
-        터미널에서 직접 설치하고 싶다면 아래 installer를 사용하세요.<br>
-        클라이언트에 맞는 MCP 설정을 써 주고, 기존 설정은 보존하며, 지원되는 경우 스킬도 함께 설치합니다.
+        터미널에서 직접 하려면: uv + Chromium 설치 후, MCP 클라이언트 설정파일에 서버를 추가하세요(아래 예시).<br>
+        별도 installer 명령도, 클라이언트별 플래그도 없습니다.
       </p>
     </div>
     <div class="install-block reveal">
@@ -100,10 +100,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 <span class="c">#    ~150 MB 받아오다가 timeout 날 수 있습니다)</span>
 uvx --with playwright playwright install chromium
 
-<span class="c"># 3. 클라이언트 설정 + 선택 스킬 설치</span>
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"</code></pre>
+<span class="c"># 3. MCP 클라이언트 설정파일에 서버 추가 — 아래 예시 복사</span></code></pre>
           </div>
         </div>
         <div class="install-panel" id="install-win">
@@ -115,10 +112,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 <span class="c">#    ~150 MB 받아오다가 timeout 날 수 있습니다)</span>
 uvx --with playwright playwright install chromium
 
-<span class="c"># 3. 클라이언트 설정 + 선택 스킬 설치</span>
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser"</code></pre>
+<span class="c"># 3. MCP 클라이언트 설정파일에 서버 추가 — 아래 예시 복사</span></code></pre>
           </div>
         </div>
       </div>
@@ -128,7 +122,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
       <span class="section-label">로컬 설치 — 오프라인 친화</span>
       <h2 class="section-title">릴리즈 zip으로 설치하기</h2>
       <p class="section-desc">
-        <code>uvx</code>나 PyPI 접속이 막히는 사내망에서 사용하세요. 릴리즈 zip에는 PyInstaller로 빌드된 단일 실행 파일과 설치 스크립트가 같이 들어 있어, 대상 PC에 Python을 깔 필요가 없습니다. <a href="https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>에서 플랫폼 zip(필요 시 같은 릴리즈의 <code>ms-playwright-chromium</code> zip도)을 받은 뒤 설치 스크립트를 실행하면 됩니다.
+        <code>uvx</code>나 PyPI 접속이 막히는 사내망에서 사용하세요. 릴리즈 zip에는 PyInstaller로 빌드된 단일 실행 파일만 들어 있어 Python·설치 스크립트가 필요 없습니다. <a href="https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>에서 플랫폼 zip(필요 시 같은 릴리즈의 <code>ms-playwright-chromium</code> zip도)을 받아 풀고, MCP 클라이언트의 <code>command</code>를 실행 파일로 지정하면 됩니다.
       </p>
     </div>
     <div class="install-block reveal">
