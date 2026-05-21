@@ -78,10 +78,10 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
     </p>
 
     <div style="margin-top:56px;" class="reveal">
-      <span class="section-label">Manual — One command installer</span>
-      <h2 class="section-title">Run setup for your client</h2>
+      <span class="section-label">Manual — install + configure</span>
+      <h2 class="section-title">Install, then add to your client config</h2>
       <p class="section-desc">
-        Prefer to do it yourself in the terminal? Use the installer below. It writes the right MCP config for your client, preserves existing settings, and installs skills when supported.
+        Prefer the terminal? Install uv + Chromium, then add the server to your MCP client config file (snippets below). No installer command, no per-client flags.
       </p>
     </div>
     <div class="install-block reveal">
@@ -99,10 +99,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 <span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
 uvx --with playwright playwright install chromium
 
-<span class="c"># 3. Configure your client and install optional skills</span>
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"</code></pre>
+<span class="c"># 3. Add the server to your MCP client config — copy a snippet below</span></code></pre>
           </div>
         </div>
         <div class="install-panel" id="install-win">
@@ -114,10 +111,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 <span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
 uvx --with playwright playwright install chromium
 
-<span class="c"># 3. Configure your client and install optional skills</span>
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser"</code></pre>
+<span class="c"># 3. Add the server to your MCP client config — copy a snippet below</span></code></pre>
           </div>
         </div>
       </div>
@@ -127,7 +121,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
       <span class="section-label">Local install — offline-friendly</span>
       <h2 class="section-title">Install from the release zip</h2>
       <p class="section-desc">
-        Use this when <code>uvx</code> or PyPI is blocked. The release zip ships a PyInstaller-built single-file executable plus an installer script — no Python required on the target machine. Grab the platform zip (and optionally the matching <code>ms-playwright-chromium</code> zip if Chromium download is blocked too) from <a href="https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>, then run the installer.
+        Use this when <code>uvx</code> or PyPI is blocked. The release zip ships a PyInstaller-built single-file executable — no Python required, no installer script. Grab the platform zip (and optionally the matching <code>ms-playwright-chromium</code> zip if Chromium download is blocked too) from <a href="https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>, extract it, and point your MCP client's <code>command</code> at the executable.
       </p>
     </div>
     <div class="install-block reveal">
