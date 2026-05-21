@@ -37,38 +37,50 @@ MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so 
 
 ## Setup
 
-Pick one path. Both end at the same configured MCP server; you don't need both.
+Two steps: **install**, then **add the server to your MCP client config**. No installer command, no per-client flags.
 
-### Path A — Let an AI do it
-
-> **One line. Any AI coding assistant. Everything configured automatically.**
-
-Paste this into Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI, or Zed:
-
-```
-Install and configure mfa-servicenow-mcp by following the instructions here:
-curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md
-```
-
-The AI installs `uv` + Chromium, asks for your instance URL / auth type / tool package, writes the right MCP config for your client, and installs the workflow skills.
-
-### Path B — One-line command (manual)
-
-If you'd rather run the installer yourself:
+### 1. Install
 
 ```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uvx --with playwright playwright install chromium
 ```
 
-Replace `opencode` with your client (`claude-code`, `codex`, `cursor`, `gemini`, etc.). The installer merges the entry into your existing config, installs Chromium (`--skip-chromium` to opt out), and pulls the skills when supported. Add `--scope global` for a global install (default is project-local).
+```powershell
+# Windows PowerShell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uvx --with playwright playwright install chromium
+```
 
-### After either path
+This installs `uv` and downloads Chromium once. (`uvx` fetches the latest `mfa-servicenow-mcp` automatically when the client starts the server — nothing else to install.)
 
-Restart the MCP client so it loads the new config. The first browser-authenticated tool call opens a window for Okta/Entra ID/SAML/MFA login. Sessions persist — no re-login every time.
+### 2. Configure your MCP client
 
-> Need to write the client config by hand? See [MCP Client Configuration](#mcp-client-configuration). Need to launch the server directly? See [CLI Reference](#cli-reference).
+Add the server to your client's config file. Minimal example (`.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
+```
+
+Per-client paths and full env options (auth types, tool package) are in [MCP Client Configuration](#mcp-client-configuration).
+
+Then restart the client. The first browser tool call opens a window for Okta/Entra ID/SAML/MFA login. Sessions persist — no re-login every time.
+
+> Prefer an AI to do it? Paste into Claude Code / Cursor / Codex / etc.:
+> `Install and configure mfa-servicenow-mcp following https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md`
+> Corporate network blocking uvx/PyPI? Use the [release zip/exe](#install-offline--corporate).
 
 ---
 
@@ -122,31 +134,9 @@ Restart the MCP client so it loads the new config. The first browser-authenticat
 
 ---
 
-## Install
+## Install (offline / corporate)
 
-### Default: uvx
-
-Use this unless your company security tools block `uvx` or package downloads.
-
-```bash
-# macOS/Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uvx --with playwright playwright install chromium
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
-```
-
-```powershell
-# Windows PowerShell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-uvx --with playwright playwright install chromium
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser"
-```
-
-`uvx` does not use a locally installed Playwright Python package, but it does use the standard Playwright browser cache when the matching Chromium revision is already installed. If Chromium is missing, run the Playwright install command above.
+For most users the [Setup](#setup) above (uvx) is all you need. Use the release zip **only** when `uvx` or PyPI is blocked by corporate security.
 
 ### Release zip/exe (local install)
 
@@ -634,7 +624,7 @@ uvx auto-resolves the latest `mfa-servicenow-mcp` and `playwright` — there are
 uvx --with playwright playwright install chromium
 ```
 
-> **Why we no longer auto-install Chromium inside the MCP server:** that download used to run during the first tool call. On a slow link the subprocess outlived the host's handshake deadline and the client reported "connection closed". v1.13.1 changed this — the MCP server now only *warns* if Chromium is missing, and the `servicenow-mcp setup <client>` command handles the install at setup time (out-of-band, no handshake timer).
+> **Why we no longer auto-install Chromium inside the MCP server:** that download used to run during the first tool call. On a slow link the subprocess outlived the host's handshake deadline and the client reported "connection closed". v1.13.1 changed this — the MCP server now only *warns* if Chromium is missing. Install it ahead of time with `uvx --with playwright playwright install chromium` (out-of-band, no handshake timer).
 
 ---
 
