@@ -16,7 +16,7 @@
 | `core` | 12 | 최소 읽기 전용 핵심 도구 |
 | `standard` | 29 | 읽기 전용 safe mode **(기본값)** |
 | `service_desk` | 31 | standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 39 | standard + 포털/체인지셋/Script Include/로컬 동기화 개발 |
+| `portal_developer` | 40 | standard + 포털/체인지셋/Script Include/로컬 동기화 개발 |
 | `platform_developer` | 45 | standard + 워크플로우/플로우/스크립트/ITSM 쓰기 |
 | `full` | 59 | 가장 넓은 패키지 표면 (번들 `manage_*` + 고급 운영 도구) |
 
