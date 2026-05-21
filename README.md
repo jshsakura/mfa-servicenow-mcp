@@ -57,7 +57,7 @@ The AI installs `uv` + Chromium, asks for your instance URL / auth type / tool p
 If you'd rather run the installer yourself:
 
 ```bash
-uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"
 ```
@@ -131,8 +131,8 @@ Use this unless your company security tools block `uvx` or package downloads.
 ```bash
 # macOS/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uvx --with "playwright==1.58.0" playwright install chromium
-uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+uvx --with playwright playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"
 ```
@@ -140,8 +140,8 @@ uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup o
 ```powershell
 # Windows PowerShell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-uvx --with "playwright==1.58.0" playwright install chromium
-uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+uvx --with playwright playwright install chromium
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser"
 ```
@@ -527,7 +527,7 @@ After refreshing, **restart your MCP client** (Claude Code, Cursor, etc.) to loa
 MCP startup failed: handshaking with MCP server failed: connection closed: initialize response
 ```
 
-Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is deterministic. Then `uvx --with "playwright==1.58.0" playwright install chromium` is a one-time op until you bump the pin yourself.
+Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is deterministic. Then `uvx --with playwright playwright install chromium` is a one-time op until you bump the pin yourself.
 
 > `servicenow-mcp setup <client>` already does this for you — it writes a config pinned to the exact `mfa-servicenow-mcp` and `playwright` versions it installed, so uvx never re-resolves "latest" on startup. The pins below are only needed when writing config by hand.
 
@@ -890,7 +890,7 @@ cd mfa-servicenow-mcp
 
 uv venv
 uv pip install -e ".[browser,dev]"
-uvx --with "playwright==1.58.0" playwright install chromium
+uvx --with playwright playwright install chromium
 ```
 
 ### Running Tests
