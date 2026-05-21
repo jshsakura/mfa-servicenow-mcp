@@ -49,41 +49,13 @@ def _args(**overrides):
     return argparse.Namespace(**data)
 
 
-class TestVersionPinning:
-    def test_uvx_config_pins_mcp_version(self):
-        from servicenow_mcp.version import get_version
-
+class TestGeneratedConfigIsUnpinned:
+    def test_uvx_config_stays_latest_and_unpinned(self):
+        # The installer writes an unpinned config so the server resolves latest;
+        # pinning it caused downgrades / two-version conflicts in the field.
         _, command, args, _, _ = build_client_config("claude-code", _args(clients=["claude-code"]))
         assert command == "uvx"
-        assert f"mfa-servicenow-mcp=={get_version()}" in args
-        # --from points at the pinned spec, not the bare package name
-        assert "mfa-servicenow-mcp" not in args  # bare (unpinned) form must be gone
-
-    def test_uvx_config_pins_playwright_when_installed(self):
-        _, _, args, _, _ = build_client_config("claude-code", _args(clients=["claude-code"]))
-        with_idx = args.index("--with")
-        spec = args[with_idx + 1]
-        # Pinned (==) when playwright is detectable in the env; bare fallback
-        # otherwise (e.g. CI test env where playwright is only a runtime --with dep).
-        try:
-            from importlib.metadata import version as _v
-
-            _v("playwright")
-            installed = True
-        except Exception:
-            installed = False
-        if installed:
-            assert spec.startswith("playwright==")
-        else:
-            assert spec == "playwright"
-
-    def test_local_server_command_has_no_uvx_args(self):
-        # When a server_command path is given, no uvx pinning args are written.
-        _, command, args, _, _ = build_client_config(
-            "claude-code", _args(clients=["claude-code"], server_command="/opt/servicenow-mcp")
-        )
-        assert command == "/opt/servicenow-mcp"
-        assert args == []
+        assert args == ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"]
 
 
 class TestValidateSetupArgs:
