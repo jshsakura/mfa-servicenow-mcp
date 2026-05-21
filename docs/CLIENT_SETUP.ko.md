@@ -27,7 +27,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ### 2. Playwright Chromium 설치
 
 ```bash
-uvx --with "playwright==1.58.0" playwright install chromium
+uvx --with playwright playwright install chromium
 ```
 
 Playwright는 표준 브라우저 캐시를 사용합니다. `uvx`가 로컬 Playwright Python 패키지를 자동으로 우선 사용하지는 않지만, 같은 Chromium revision이 표준 캐시에 있으면 다시 다운로드하지 않습니다.
@@ -35,13 +35,13 @@ Playwright는 표준 브라우저 캐시를 사용합니다. `uvx`가 로컬 Pla
 ### 3. setup 실행
 
 ```bash
-uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"
 ```
 
 ```powershell
-uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser"
 ```
@@ -100,7 +100,7 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 클라이언트 설정 전에 서버가 정상 작동하는지 먼저 확인하세요:
 
 ```bash
-uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp \
+uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"
