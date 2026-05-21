@@ -59,11 +59,23 @@ class TestVersionPinning:
         # --from points at the pinned spec, not the bare package name
         assert "mfa-servicenow-mcp" not in args  # bare (unpinned) form must be gone
 
-    def test_uvx_config_pins_playwright(self):
+    def test_uvx_config_pins_playwright_when_installed(self):
         _, _, args, _, _ = build_client_config("claude-code", _args(clients=["claude-code"]))
-        # playwright is pinned (==) when detectable in the running env
         with_idx = args.index("--with")
-        assert args[with_idx + 1].startswith("playwright==")
+        spec = args[with_idx + 1]
+        # Pinned (==) when playwright is detectable in the env; bare fallback
+        # otherwise (e.g. CI test env where playwright is only a runtime --with dep).
+        try:
+            from importlib.metadata import version as _v
+
+            _v("playwright")
+            installed = True
+        except Exception:
+            installed = False
+        if installed:
+            assert spec.startswith("playwright==")
+        else:
+            assert spec == "playwright"
 
     def test_local_server_command_has_no_uvx_args(self):
         # When a server_command path is given, no uvx pinning args are written.
