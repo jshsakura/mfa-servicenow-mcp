@@ -531,7 +531,7 @@ Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is determinist
 
 ```bash
 # One-off run
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.19" servicenow-mcp --version
+uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.25" servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
@@ -554,7 +554,7 @@ Choose one execution style:
       "command": "uvx",
       "args": [
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.19",
+        "--from", "mfa-servicenow-mcp==1.13.25",
         "servicenow-mcp"
       ],
       "env": {
@@ -577,7 +577,7 @@ Choose one execution style:
 command = "uvx"
 args = [
   "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.19",
+  "--from", "mfa-servicenow-mcp==1.13.25",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -604,7 +604,7 @@ MCP_TOOL_PACKAGE = "standard"
       "command": [
         "uvx",
         "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.19",
+        "--from", "mfa-servicenow-mcp==1.13.25",
         "servicenow-mcp"
       ],
       "enabled": true,
