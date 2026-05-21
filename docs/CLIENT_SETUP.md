@@ -27,7 +27,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ### 2. Install Playwright Chromium
 
 ```bash
-uvx --with playwright playwright install chromium
+uvx --with "playwright==1.58.0" playwright install chromium
 ```
 
 Playwright uses its standard browser cache. `uvx` does not use a locally installed Playwright Python package, but it can reuse a matching Chromium already present in that cache.
@@ -35,13 +35,13 @@ Playwright uses its standard browser cache. `uvx` does not use a locally install
 ### 3. Run setup
 
 ```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"
 ```
 
 ```powershell
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser"
 ```
@@ -98,7 +98,7 @@ The auto-detect picks it up with no extra config.
 Verify the server starts before configuring your client:
 
 ```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"

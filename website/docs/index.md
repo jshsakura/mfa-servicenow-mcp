@@ -97,10 +97,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 <span class="c"># 2. Pre-install Chromium for MFA/SSO login (REQUIRED — skip and the first</span>
 <span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
-uvx --with playwright playwright install chromium
+uvx --with "playwright==1.58.0" playwright install chromium
 
 <span class="c"># 3. Configure your client and install optional skills</span>
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser"</code></pre>
           </div>
@@ -112,10 +112,10 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 <span class="c"># 2. Pre-install Chromium for MFA/SSO login (REQUIRED — skip and the first</span>
 <span class="c">#    browser-auth call has to download ~150 MB and may time out)</span>
-uvx --with playwright playwright install chromium
+uvx --with "playwright==1.58.0" playwright install chromium
 
 <span class="c"># 3. Configure your client and install optional skills</span>
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser"</code></pre>
           </div>
@@ -542,7 +542,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
   });
 
   var lines = [
-    { type:"prompt", prompt:"$ ", text:"uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp", speed:22 },
+    { type:"prompt", prompt:"$ ", text:"uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp", speed:22 },
     { type:"pause", ms:500 },
     { type:"success", text:"\u2713 Authenticated with ServiceNow (MFA verified)", speed:10 },
     { type:"pause", ms:700 },

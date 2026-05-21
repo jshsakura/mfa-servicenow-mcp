@@ -10,8 +10,8 @@
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-uvx --with playwright playwright install chromium
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
+uvx --with "playwright==1.58.0" playwright install chromium
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp setup opencode `
   --instance-url "https://your-instance.service-now.com" `
   --auth-type "browser"
 ```
@@ -126,7 +126,7 @@ py scripts\build_desktop_release.py --browser-zip
 별도 설정 파일 없이 `claude mcp add` 명령어로 등록합니다:
 
 ```powershell
-claude mcp add servicenow -- uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type browser --browser-headless false
+claude mcp add servicenow -- uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp --instance-url "https://your-instance.service-now.com" --auth-type browser --browser-headless false
 ```
 
 등록 확인:
@@ -282,7 +282,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 확인 방법: 클라이언트에서 `sn_health` 도구를 호출해 보세요.
 
-> 브라우저가 안 뜨면 Chromium이 설치되어 있는지 확인하세요. 수동 설치: `uvx --with playwright playwright install chromium`
+> 브라우저가 안 뜨면 Chromium이 설치되어 있는지 확인하세요. 수동 설치: `uvx --with "playwright==1.58.0" playwright install chromium`
 
 ---
 
@@ -351,7 +351,7 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 ### "브라우저가 열리지 않습니다"
 → Chromium은 MCP 시작 전에 설치되어 있어야 합니다:
 ```powershell
-uvx --with playwright playwright install chromium
+uvx --with "playwright==1.58.0" playwright install chromium
 ```
 → 브라우저 다운로드가 차단되면 chromium-bundle 릴리즈(https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle)의 `ms-playwright-chromium-windows-x64.zip`을 받아 `%LOCALAPPDATA%\ms-playwright`에 풀어 주세요.
 
