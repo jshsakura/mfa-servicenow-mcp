@@ -24,13 +24,14 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-### 2. Install Playwright Chromium
+### 2. Fetch the server + install Chromium
 
 ```bash
-uvx --with playwright playwright install chromium
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version  # fetch + verify the server
+uvx --with playwright playwright install chromium                                   # Chromium for MFA/SSO login
 ```
 
-Playwright uses its standard browser cache. `uvx` does not use a locally installed Playwright Python package, but it can reuse a matching Chromium already present in that cache.
+The first command pre-fetches and verifies the server in the exact `--with playwright` env the client uses, so the first start is instant. The second downloads Chromium; `uvx` reuses a matching Chromium already in the standard cache.
 
 ### 3. Add the server to your MCP client config
 
