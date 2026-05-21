@@ -393,7 +393,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 | 패키지명 | 도구 수 | 설명 |
 | :--- | :---: | :--- |
 | `service_desk` | 31 | ⚠️ standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 39 | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
+| `portal_developer` | 40 | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
 | `platform_developer` | 45 | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
 | `full` | 59 | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
 

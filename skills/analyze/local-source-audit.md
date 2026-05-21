@@ -58,7 +58,9 @@ Sources must be downloaded first via:
 <source_root>/
   _audit_report.html       ← Self-contained HTML report
   _source_index.json       ← Flat index of all sources
-  _cross_references.json   ← Outgoing + incoming reference graph
+  _cross_references.json   ← Outgoing + incoming reference graph (incl. authoritative edges)
+  _graph.json              ← Widget→Angular Provider edges (authoritative, from the live M2M)
+  _page_graph.json         ← Page→widget placements (from sp_instance)
   _orphans.json            ← Dead code candidates
   _execution_order.json    ← Per-table BR/CS/ACL execution map
   _schema_issues.json      ← Table validation problems (if any)
@@ -71,6 +73,15 @@ Sources must be downloaded first via:
 3. For specific investigation, use _cross_references.json to trace dependencies
 4. When reviewing a specific source, read the actual .js file from the source directory
 5. Cross-check field usage against _schema/ directory
+
+**Answer relationship questions from the files — do NOT re-query the instance** with the
+live resolver tools once these files exist:
+- "which providers does widget X use?" → `_graph.json` (replaces get_provider_dependency_map)
+- "which widgets are on page Y?" → `_page_graph.json` (replaces resolve_page_dependencies)
+- "what calls Script Include Z / which tables?" → `_cross_references.json`
+  (replaces resolve_widget_chain / extract_widget_table_dependencies)
+
+The audit result's `offline_analysis` field names the exact file per question.
 
 ## ON ERROR
 

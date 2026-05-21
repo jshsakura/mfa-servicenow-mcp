@@ -22,7 +22,7 @@
 | 패키지명 | 도구 수 | 사용 시기 |
 | :--- | :---: | :--- |
 | `service_desk` | 31 | ⚠️ 인시던트/변경 업데이트·종료가 필요한 서비스 데스크 담당자 |
-| `portal_developer` | 39 | ⚠️ 위젯, 체인지셋, Script Include를 배포하는 포털 개발자 |
+| `portal_developer` | 40 | ⚠️ 위젯, 체인지셋, Script Include를 배포하는 포털 개발자 |
 | `platform_developer` | 45 | ⚠️ 워크플로우, Flow Designer, 스크립트를 관리하는 플랫폼 엔지니어 |
 | `full` | 59 | ⚠️ 가장 고급 — 모든 도메인의 쓰기 도구 전체를 동시에 (아래 경고 참고) |
 

@@ -398,7 +398,7 @@ Read-only (safe defaults):
 | Package | Tools | Description |
 | :--- | :---: | :--- |
 | `service_desk` | 31 | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 39 | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `portal_developer` | 40 | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
 | `platform_developer` | 45 | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
 | `full` | 59 | ⚠️ **Most advanced** — all write tools across all domains at once |
 

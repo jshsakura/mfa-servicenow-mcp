@@ -22,7 +22,7 @@ Read-only — safe for any environment, no write tools:
 | Package | Tools | When to use |
 | :--- | :---: | :--- |
 | `service_desk` | 31 | ⚠️ Service desk agents who need to update/close incidents and changes |
-| `portal_developer` | 39 | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
+| `portal_developer` | 40 | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
 | `platform_developer` | 45 | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
 | `full` | 59 | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
 

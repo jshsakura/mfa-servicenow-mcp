@@ -69,9 +69,11 @@ FOR EACH approved component:
 ```
 
 Show for each push:
-- Snapshot path (for rollback)
 - Verification result (fields verified vs mismatched)
 - Updated `_sync_meta.json` status
+
+> Recovery: ServiceNow versions every record server-side (Versions tab / update sets),
+> so no local snapshot is taken — roll back through the platform's version history if needed.
 
 After all pushes, suggest: `git add . && git commit` to create a local checkpoint.
 

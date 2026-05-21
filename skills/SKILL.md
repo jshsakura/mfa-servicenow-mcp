@@ -13,10 +13,10 @@ Execution blueprints for AI agents working with ServiceNow portals. Not document
 
 | | Tools Only | Skills + Tools |
 |---|---|---|
-| Safety | LLM decides (운빨) | Gates enforced (snapshot→preview→apply) |
+| Safety | LLM decides (운빨) | Gates enforced (diff→preview→confirm→apply) |
 | Tokens | Source dumps in context | Delegate to sub-agent, summary only |
 | Accuracy | LLM guesses tool order | Verified pipeline |
-| Rollback | Might forget | Snapshot mandatory |
+| Recovery | Might forget | diff_local_component before push + server-side version history |
 
 ## Skill Metadata
 
