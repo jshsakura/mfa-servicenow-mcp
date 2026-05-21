@@ -522,13 +522,11 @@ uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
 MCP startup failed: handshaking with MCP server failed: connection closed: initialize response
 ```
 
-`playwright`와 `mfa-servicenow-mcp` 둘 다 고정하면 결정적으로 동작합니다. 한 번 `uvx --with playwright playwright install chromium`을 받으면, 핀을 직접 올리기 전까지는 추가 다운로드가 없습니다.
-
-> `servicenow-mcp setup <client>`가 이걸 자동으로 해줍니다 — 설치한 `mfa-servicenow-mcp`/`playwright` 정확한 버전으로 고정된 config를 작성하므로 uvx가 시작 시 "latest"를 재해석하지 않습니다. 아래 핀은 config를 직접 손으로 쓸 때만 필요합니다.
+핀은 **선택**입니다 — 재해석 없는 완전 결정적 설치를 원할 때만 쓰세요. 고정할 가치가 있는 건 `playwright`입니다: Chromium revision을 잠가서 설치된 브라우저가 항상 일치합니다. `mfa-servicenow-mcp`는 **고정하지 말고 latest로 두세요** — 고정하면 이미 더 높은 버전을 쓰던 PC가 다운그레이드되거나, 두 버전이 공유 세션을 두고 충돌할 수 있습니다. 예시:
 
 ```bash
-# 일회 실행
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.27" servicenow-mcp --version
+# 일회 실행 (playwright만 고정해 Chromium 안정화, mfa-servicenow-mcp는 latest)
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp --version
 ```
 
 #### MCP 클라이언트 설정 예시 (프로젝트별)
@@ -550,8 +548,8 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.27" servicenow-
     "servicenow": {
       "command": "uvx",
       "args": [
-        "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.27",
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
         "servicenow-mcp"
       ],
       "env": {
@@ -573,8 +571,8 @@ uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.27" servicenow-
 [mcp_servers.servicenow]
 command = "uvx"
 args = [
-  "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.27",
+  "--with", "playwright",
+  "--from", "mfa-servicenow-mcp",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -600,8 +598,8 @@ MCP_TOOL_PACKAGE = "standard"
       "type": "local",
       "command": [
         "uvx",
-        "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.27",
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
         "servicenow-mcp"
       ],
       "enabled": true,

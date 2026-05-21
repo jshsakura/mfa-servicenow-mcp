@@ -527,13 +527,11 @@ After refreshing, **restart your MCP client** (Claude Code, Cursor, etc.) to loa
 MCP startup failed: handshaking with MCP server failed: connection closed: initialize response
 ```
 
-Pin **both** `playwright` and `mfa-servicenow-mcp` so the install is deterministic. Then `uvx --with playwright playwright install chromium` is a one-time op until you bump the pin yourself.
-
-> `servicenow-mcp setup <client>` already does this for you — it writes a config pinned to the exact `mfa-servicenow-mcp` and `playwright` versions it installed, so uvx never re-resolves "latest" on startup. The pins below are only needed when writing config by hand.
+Pinning is **optional** — use it only if you want a fully deterministic install with no re-resolution. `playwright` is the pin worth keeping: it locks the Chromium revision so the installed browser always matches. Leave `mfa-servicenow-mcp` unpinned to get the latest — pinning it can downgrade a machine already running a newer version, or leave two versions fighting over the shared session. Example:
 
 ```bash
-# One-off run
-uvx --with "playwright==1.58.0" --from "mfa-servicenow-mcp==1.13.27" servicenow-mcp --version
+# One-off run (playwright pinned for a stable Chromium; mfa-servicenow-mcp left at latest)
+uvx --with "playwright==1.58.0" --from mfa-servicenow-mcp servicenow-mcp --version
 ```
 
 #### MCP client configs (project-local examples)
@@ -555,8 +553,8 @@ Choose one execution style:
     "servicenow": {
       "command": "uvx",
       "args": [
-        "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.27",
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
         "servicenow-mcp"
       ],
       "env": {
@@ -578,8 +576,8 @@ Choose one execution style:
 [mcp_servers.servicenow]
 command = "uvx"
 args = [
-  "--with", "playwright==1.58.0",
-  "--from", "mfa-servicenow-mcp==1.13.27",
+  "--with", "playwright",
+  "--from", "mfa-servicenow-mcp",
   "servicenow-mcp",
 ]
 startup_timeout_sec = 30
@@ -605,8 +603,8 @@ MCP_TOOL_PACKAGE = "standard"
       "type": "local",
       "command": [
         "uvx",
-        "--with", "playwright==1.58.0",
-        "--from", "mfa-servicenow-mcp==1.13.27",
+        "--with", "playwright",
+        "--from", "mfa-servicenow-mcp",
         "servicenow-mcp"
       ],
       "enabled": true,
