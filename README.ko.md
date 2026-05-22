@@ -58,7 +58,9 @@ uvx --with playwright playwright install chromium                               
 
 ### 2. MCP 클라이언트 설정
 
-클라이언트 설정파일에 서버를 추가하세요. 최소 예시 (`.mcp.json`):
+클라이언트 설정파일에 서버를 추가하세요 — 본인 클라이언트를 골라 복붙하면 됩니다. 필수 env는 2개뿐이고, `MCP_TOOL_PACKAGE`는 생략하면 `standard`가 기본이라 다른 패키지가 필요할 때만 적으면 됩니다.
+
+**Claude Code** — `.mcp.json` (프로젝트 루트) / `~/.claude.json` (전역):
 
 ```json
 {
@@ -75,7 +77,38 @@ uvx --with playwright playwright install chromium                               
 }
 ```
 
-클라이언트별 경로와 전체 env 옵션(인증 방식, 도구 패키지)은 [MCP 클라이언트 설정](#mcp-클라이언트-설정) 참고.
+**Codex** — `.codex/config.toml` (프로젝트) / `~/.codex/config.toml` (전역):
+
+```toml
+[mcp_servers.servicenow]
+command = "uvx"
+args = ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"]
+
+[mcp_servers.servicenow.env]
+SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
+SERVICENOW_AUTH_TYPE = "browser"
+```
+
+**OpenCode** — `opencode.json` (프로젝트 루트):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": ["uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
+```
+
+다른 클라이언트(Cursor, VS Code, Gemini, Zed 등)와 전체 env 옵션(인증 방식, 도구 패키지)은 [MCP 클라이언트 설정](#mcp-클라이언트-설정) 참고.
 
 그다음 클라이언트를 재시작하세요. 첫 브라우저 도구 호출 시 Okta/Entra ID/SAML/MFA 로그인 창이 뜹니다. 세션은 유지되어 매번 재로그인할 필요 없습니다.
 
@@ -195,8 +228,7 @@ uvx --with playwright playwright install chromium                               
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -221,7 +253,6 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
-MCP_TOOL_PACKAGE = "standard"
 ```
 
 **OpenCode** — `opencode.json` (프로젝트 루트):
@@ -239,8 +270,7 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -548,8 +578,7 @@ uvx --with playwright playwright install chromium
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -576,7 +605,6 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
-MCP_TOOL_PACKAGE = "standard"
 ```
 
 **OpenCode** (`opencode.json` 저장소 루트):
@@ -599,8 +627,7 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
