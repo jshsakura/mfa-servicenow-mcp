@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 WIDGET_TABLE = "sp_widget"
 ANGULAR_PROVIDER_TABLE = "sp_angular_provider"
 WIDGET_DEPENDENCY_TABLE = "m2m_sp_widget_dependency"
+DEPENDENCY_TABLE = "sp_dependency"
 ANGULAR_PROVIDER_M2M_TABLE = "m2m_sp_widget_angular_provider"
 
 # ---------------------------------------------------------------------------
@@ -71,6 +72,9 @@ class GetWidgetBundleParams(BaseModel):
     widget_id: str = Field(..., description="The sys_id or name of the widget")
     include_providers: bool = Field(
         default=True, description="Whether to include list of associated Angular Providers"
+    )
+    include_dependencies: bool = Field(
+        default=True, description="Whether to include linked CSS/JS Dependencies"
     )
 
 
@@ -1547,7 +1551,7 @@ def _json_or_raw_string(value: Any) -> Any:
 @register_tool(
     "get_widget_bundle",
     params=GetWidgetBundleParams,
-    description="Fetch full widget bundle (HTML, scripts, providers) in one call. Use as analysis starting point.",
+    description="Fetch full widget bundle (HTML, scripts, providers, CSS/JS dependencies) in one call. Analysis starting point.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1613,6 +1617,49 @@ def get_widget_bundle(
             ]
         else:
             bundle["angular_providers"] = []
+
+    # 3. Fetch CSS/JS Dependencies (m2m_sp_widget_dependency -> sp_dependency).
+    #    Surfacing these here is what stops sessions from re-discovering the
+    #    overloaded "dependency" tables by hand. The Angular module name lives
+    #    on sp_dependency.module — that is what gets injected into the widget.
+    if params.include_dependencies:
+        dep_m2m_params = GenericQueryParams(
+            table=WIDGET_DEPENDENCY_TABLE,
+            query=f"sp_widget={widget['sys_id']}",
+            fields="sp_dependency",
+            limit=100,
+            offset=0,
+            display_value=False,
+        )
+        dep_m2m_response = sn_query(config, auth_manager, dep_m2m_params)
+
+        dependency_ids: List[str] = []
+        for dep_row in dep_m2m_response.get("results", []):
+            dep_id = _as_ref_sys_id(dep_row.get("sp_dependency"))
+            if dep_id:
+                dependency_ids.append(dep_id)
+
+        if dependency_ids:
+            dep_query_params = GenericQueryParams(
+                table=DEPENDENCY_TABLE,
+                query=f"sys_idIN{','.join(dependency_ids)}",
+                fields="name,sys_id,module,page_load",
+                limit=100,
+                offset=0,
+                display_value=False,
+            )
+            dep_response = sn_query(config, auth_manager, dep_query_params)
+            bundle["dependencies"] = [
+                {
+                    "name": d["name"],
+                    "sys_id": d["sys_id"],
+                    "module": d.get("module", ""),
+                    "page_load": d.get("page_load", ""),
+                }
+                for d in dep_response.get("results", [])
+            ]
+        else:
+            bundle["dependencies"] = []
 
     return bundle
 
