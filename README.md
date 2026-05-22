@@ -59,7 +59,9 @@ This installs `uv`, fetches+verifies the server, and downloads Chromium — once
 
 ### 2. Configure your MCP client
 
-Add the server to your client's config file. Minimal example (`.mcp.json`):
+Add the server to your client's config file — pick yours below. Only two env vars are required; `MCP_TOOL_PACKAGE` defaults to `standard`, so leave it out unless you need a different package.
+
+**Claude Code** — `.mcp.json` (project root) / `~/.claude.json` (global):
 
 ```json
 {
@@ -76,7 +78,38 @@ Add the server to your client's config file. Minimal example (`.mcp.json`):
 }
 ```
 
-Per-client paths and full env options (auth types, tool package) are in [MCP Client Configuration](#mcp-client-configuration).
+**Codex** — `.codex/config.toml` (project) / `~/.codex/config.toml` (global):
+
+```toml
+[mcp_servers.servicenow]
+command = "uvx"
+args = ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"]
+
+[mcp_servers.servicenow.env]
+SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
+SERVICENOW_AUTH_TYPE = "browser"
+```
+
+**OpenCode** — `opencode.json` (project root):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow": {
+      "type": "local",
+      "command": ["uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
+```
+
+Other clients (Cursor, VS Code, Gemini, Zed, …) and full env options (auth types, tool packages) are in [MCP Client Configuration](#mcp-client-configuration).
 
 Then restart the client. The first browser tool call opens a window for Okta/Entra ID/SAML/MFA login. Sessions persist — no re-login every time.
 
@@ -197,8 +230,7 @@ Paste the snippet for your client into the file it reads. The `env` block is ide
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -223,7 +255,6 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
-MCP_TOOL_PACKAGE = "standard"
 ```
 
 **OpenCode** — `opencode.json` (project root):
@@ -241,8 +272,7 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -553,8 +583,7 @@ Choose one execution style:
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -581,7 +610,6 @@ SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"
-MCP_TOOL_PACKAGE = "standard"
 ```
 
 **OpenCode** (`opencode.json` in repo root):
@@ -604,8 +632,7 @@ MCP_TOOL_PACKAGE = "standard"
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
