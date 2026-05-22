@@ -215,8 +215,7 @@ uvx --with playwright playwright install chromium
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -235,8 +234,7 @@ uvx --with playwright playwright install chromium
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -255,8 +253,7 @@ SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
 SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
-SERVICENOW_PASSWORD = "your-password"
-MCP_TOOL_PACKAGE = "standard"</code></pre>
+SERVICENOW_PASSWORD = "your-password"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="mcp-zed">
@@ -270,8 +267,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
       "SERVICENOW_AUTH_TYPE": "browser",
       "SERVICENOW_BROWSER_HEADLESS": "false",
       "SERVICENOW_USERNAME": "your-username",
-      "SERVICENOW_PASSWORD": "your-password",
-      "MCP_TOOL_PACKAGE": "standard"
+      "SERVICENOW_PASSWORD": "your-password"
     }
   }
 }</code></pre>
@@ -294,8 +290,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -314,8 +309,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -338,8 +332,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -348,6 +341,13 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         </div>
       </div>
     </div>
+
+    <p class="section-desc reveal" style="max-width:760px;margin-top:20px;">
+      읽기 전용 <code>standard</code> 패키지가 기본 로드됩니다 — <code>MCP_TOOL_PACKAGE</code>를 적을 필요 없습니다.
+      쓰기 권한이 필요하면 어드밴스 패키지(<code>service_desk</code>, <code>portal_developer</code>,
+      <code>platform_developer</code>, <code>full</code>)로 지정하세요 — 자세한 내용은
+      <a href="docs/TOOL_PACKAGES/">툴 패키지 (어드밴스) 가이드</a> 참고.
+    </p>
 
     <div style="margin-top:56px;" class="reveal">
       <span class="section-label">수동 설치 — 3단계</span>
