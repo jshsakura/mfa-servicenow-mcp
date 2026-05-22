@@ -216,8 +216,7 @@ uvx --with playwright playwright install chromium
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -236,8 +235,7 @@ uvx --with playwright playwright install chromium
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -256,8 +254,7 @@ SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
 SERVICENOW_AUTH_TYPE = "browser"
 SERVICENOW_BROWSER_HEADLESS = "false"
 SERVICENOW_USERNAME = "your-username"
-SERVICENOW_PASSWORD = "your-password"
-MCP_TOOL_PACKAGE = "standard"</code></pre>
+SERVICENOW_PASSWORD = "your-password"</code></pre>
           </div>
         </div>
         <div class="install-panel" id="mcp-zed">
@@ -271,8 +268,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
       "SERVICENOW_AUTH_TYPE": "browser",
       "SERVICENOW_BROWSER_HEADLESS": "false",
       "SERVICENOW_USERNAME": "your-username",
-      "SERVICENOW_PASSWORD": "your-password",
-      "MCP_TOOL_PACKAGE": "standard"
+      "SERVICENOW_PASSWORD": "your-password"
     }
   }
 }</code></pre>
@@ -295,8 +291,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -315,8 +310,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -339,8 +333,7 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
         "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
+        "SERVICENOW_PASSWORD": "your-password"
       }
     }
   }
@@ -349,6 +342,13 @@ MCP_TOOL_PACKAGE = "standard"</code></pre>
         </div>
       </div>
     </div>
+
+    <p class="section-desc reveal" style="max-width:760px;margin-top:20px;">
+      The read-only <code>standard</code> package loads by default — no <code>MCP_TOOL_PACKAGE</code> needed.
+      For write access, set it to an advanced package (<code>service_desk</code>, <code>portal_developer</code>,
+      <code>platform_developer</code>, or <code>full</code>) — see the
+      <a href="docs/TOOL_PACKAGES/">Tool Packages (Advanced) guide</a>.
+    </p>
 
     <div style="margin-top:56px;" class="reveal">
       <span class="section-label">Manual — Step 3</span>
