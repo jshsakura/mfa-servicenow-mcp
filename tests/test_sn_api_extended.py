@@ -562,6 +562,32 @@ class TestSnDiscover:
         result = sn_discover(config, auth, params)
         assert result["success"] is False
 
+    def test_concept_alias_surfaces_real_tables(self):
+        config = _make_config()
+        auth = MagicMock()
+        resp = _mock_response({"result": []})
+        auth.make_request.return_value = resp
+        # UI phrase that does not substring-match any table name.
+        params = DiscoverParams(keyword="page dependency")
+        result = sn_discover(config, auth, params)
+
+        assert result["success"] is True
+        assert result["matched_concept_tables"] == [
+            "m2m_sp_widget_dependency",
+            "sp_dependency",
+        ]
+        sent_query = auth.make_request.call_args.kwargs["params"]["sysparm_query"]
+        assert "ORnameINm2m_sp_widget_dependency,sp_dependency" in sent_query
+
+    def test_no_alias_for_plain_keyword(self):
+        config = _make_config()
+        auth = MagicMock()
+        resp = _mock_response({"result": [{"name": "incident"}]})
+        auth.make_request.return_value = resp
+        params = DiscoverParams(keyword="incident_unique_kw")
+        result = sn_discover(config, auth, params)
+        assert "matched_concept_tables" not in result
+
 
 # ---------------------------------------------------------------------------
 # sn_health

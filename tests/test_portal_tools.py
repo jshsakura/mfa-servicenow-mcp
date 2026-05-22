@@ -70,6 +70,18 @@ def test_get_widget_bundle_success(mock_sn_query, mock_config, mock_auth_manager
             "success": True,
             "results": [{"name": "Test Provider", "sys_id": "prov-123", "type": "factory"}],
         },  # Provider
+        {"success": True, "results": [{"sp_dependency": {"value": "dep-123"}}]},  # Dep M2M
+        {
+            "success": True,
+            "results": [
+                {
+                    "name": "realGrid",
+                    "sys_id": "dep-123",
+                    "module": "sn.realGrid",
+                    "page_load": "false",
+                }
+            ],
+        },  # Dependency
     ]
 
     params = GetWidgetBundleParams(widget_id="test_id")
@@ -80,6 +92,32 @@ def test_get_widget_bundle_success(mock_sn_query, mock_config, mock_auth_manager
     assert "angular_providers" in result
     assert len(result["angular_providers"]) == 1
     assert result["angular_providers"][0]["name"] == "Test Provider"
+    assert "dependencies" in result
+    assert len(result["dependencies"]) == 1
+    assert result["dependencies"][0]["name"] == "realGrid"
+    assert result["dependencies"][0]["module"] == "sn.realGrid"
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query")
+def test_get_widget_bundle_skips_dependencies_when_disabled(
+    mock_sn_query, mock_config, mock_auth_manager
+):
+    mock_sn_query.side_effect = [
+        {
+            "success": True,
+            "results": [{"name": "W", "sys_id": "wid-1", "id": "w", "template": ""}],
+        },  # Widget
+        {"success": True, "results": []},  # provider M2M
+    ]
+
+    params = GetWidgetBundleParams(
+        widget_id="w", include_providers=True, include_dependencies=False
+    )
+    result = get_widget_bundle(mock_config, mock_auth_manager, params)
+
+    assert "dependencies" not in result
+    # Only widget + provider-M2M queries — no dependency lookups.
+    assert mock_sn_query.call_count == 2
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
@@ -139,7 +177,8 @@ def test_get_widget_bundle_matches_widget_name(mock_sn_query, mock_config, mock_
                 }
             ],
         },
-        {"success": True, "results": []},
+        {"success": True, "results": []},  # provider M2M (empty)
+        {"success": True, "results": []},  # dependency M2M (empty)
     ]
 
     result = get_widget_bundle(
@@ -149,6 +188,7 @@ def test_get_widget_bundle_matches_widget_name(mock_sn_query, mock_config, mock_
     )
 
     assert result["widget"]["name"] == "Budget Widget"
+    assert result["dependencies"] == []
     first_params = mock_sn_query.call_args_list[0].args[2]
     assert "ORname=Budget Widget" in first_params.query
 
