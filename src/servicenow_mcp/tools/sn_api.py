@@ -1079,6 +1079,36 @@ def sn_schema(
         }
 
 
+# Concept→table aliases. sn_discover does a LIKE on name/label, so UI-level
+# phrases ("page dependency", "angular provider") that don't substring-match a
+# table name return 0 rows and send the LLM fishing. Each alias surfaces the
+# real table(s) for an overloaded portal concept. Keep small — add only terms
+# that have actually caused round-trip waste.
+_CONCEPT_TABLE_ALIASES: Dict[str, List[str]] = {
+    "widget dependency": ["m2m_sp_widget_dependency", "sp_dependency"],
+    "page dependency": ["m2m_sp_widget_dependency", "sp_dependency"],
+    "portal dependency": ["m2m_sp_widget_dependency", "sp_dependency"],
+    "dependency bundle": ["sp_dependency"],
+    "angular provider": ["sp_angular_provider", "m2m_sp_widget_angular_provider"],
+}
+
+
+def _resolve_concept_tables(keyword: str) -> List[str]:
+    """Map an overloaded UI concept to its real table(s). Bidirectional
+    substring match so 'dependency' surfaces all dependency tables and
+    'page dependency' resolves exactly. Order-preserving, de-duplicated."""
+    kw = keyword.strip().lower()
+    if not kw:
+        return []
+    tables: List[str] = []
+    for phrase, targets in _CONCEPT_TABLE_ALIASES.items():
+        if phrase in kw or kw in phrase:
+            for t in targets:
+                if t not in tables:
+                    tables.append(t)
+    return tables
+
+
 @register_tool(
     name="sn_discover",
     params=DiscoverParams,
@@ -1092,6 +1122,9 @@ def sn_discover(
     url = f"{config.instance_url}/api/now/table/sys_db_object"
     escaped = params.keyword.replace("^", "")
     query = f"nameLIKE{escaped}^ORlabelLIKE{escaped}"
+    alias_tables = _resolve_concept_tables(escaped)
+    if alias_tables:
+        query += "^ORnameIN" + ",".join(alias_tables)
     safe_limit = min(params.limit, 200)
     # sys_db_object catalog rarely changes — cache w/ metadata TTL.
     ck = _cache_key(
@@ -1131,6 +1164,8 @@ def sn_discover(
             "count": len(rows),
             "tables": rows,
         }
+        if alias_tables:
+            result["matched_concept_tables"] = alias_tables
         _cache_put(ck, result, ttl=_METADATA_CACHE_TTL_SECONDS)
         return result
     except Exception as exc:

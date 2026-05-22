@@ -127,7 +127,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | `detect_angular_implicit_globals` | R | Detect undeclared variable assignments in Angular provider scripts that cause runtime 'not defined' errors. | portal_developer, full |
 | `download_portal_sources` | R | Targeted widget/provider export to disk. Use widget_ids for one widget; download_app_sources for full app. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_portal_component_code` | R | Fetch widget/provider/SI fields. Returns full body by default. Never chunk for analysis. | standard, portal_developer, platform_developer, service_desk, full |
-| `get_widget_bundle` | R | Fetch full widget bundle (HTML, scripts, providers) in one call. Use as analysis starting point. | standard, portal_developer, platform_developer, service_desk, full |
+| `get_widget_bundle` | R | Fetch full widget bundle (HTML, scripts, providers, CSS/JS dependencies) in one call. Analysis starting point. | standard, portal_developer, platform_developer, service_desk, full |
 | `preview_portal_component_update` | R | Preview bounded before/after snippets and diff for a proposed portal component edit | portal_developer, full |
 | `resolve_page_dependencies` | R | Resolve all widgets on a page with dependency chains. Deduplicates shared providers/SIs. | standard, portal_developer, platform_developer, service_desk, full |
 | `resolve_widget_chain` | R | Resolve widget dependency chain with source code. Returns widget + providers + script includes. | standard, portal_developer, platform_developer, service_desk, full |
