@@ -181,6 +181,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
+          # build-push-action v6+ turns provenance attestations on by default;
+          # pushing those manifests to ghcr with GITHUB_TOKEN fails auth
+          # ("denied: denied"). We don't need attestations — keep the v5 behavior.
+          provenance: false
 
   # ============================================
   # Security Scan
