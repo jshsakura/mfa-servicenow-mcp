@@ -794,11 +794,12 @@ class AuthManager:
         self.config = config
         self.instance_url = instance_url
         self.logger = logger
-        # Duck-typed: _build_http_session() returns a curl_cffi Session by
-        # default (or stock requests.Session on opt-out). Not annotated
-        # requests.Session — curl_cffi's Session is not a subclass. See its
-        # docstring for the methods we rely on being API-compatible.
-        self._http_session = _build_http_session()
+        # Annotated requests.Session for static analysis: it lets mypy resolve
+        # the .request()/.headers/.cookies call sites across this file to the
+        # structural interface we use. At runtime this is usually a curl_cffi
+        # Session (default; not a requests.Session subclass) which is API-
+        # compatible for those methods — see _build_http_session's docstring.
+        self._http_session: requests.Session = _build_http_session()
         self.token: Optional[str] = None
         self.token_type: Optional[str] = None
         self.token_expires_at: Optional[float] = None
