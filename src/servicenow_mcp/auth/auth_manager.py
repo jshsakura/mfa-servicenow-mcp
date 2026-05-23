@@ -794,7 +794,11 @@ class AuthManager:
         self.config = config
         self.instance_url = instance_url
         self.logger = logger
-        self._http_session: requests.Session = _build_http_session()
+        # Duck-typed: _build_http_session() returns a curl_cffi Session by
+        # default (or stock requests.Session on opt-out). Not annotated
+        # requests.Session — curl_cffi's Session is not a subclass. See its
+        # docstring for the methods we rely on being API-compatible.
+        self._http_session = _build_http_session()
         self.token: Optional[str] = None
         self.token_type: Optional[str] = None
         self.token_expires_at: Optional[float] = None
