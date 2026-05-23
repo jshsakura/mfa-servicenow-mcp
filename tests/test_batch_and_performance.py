@@ -374,3 +374,152 @@ class TestDynamicPaging:
         assert len(rows) == 100
         # No limit should exceed 100
         assert all(lim <= 100 for lim in limits_seen), f"Limits exceeded 100: {limits_seen}"
+
+
+# ============================================================================
+# 5. Parallel pagination failure handling
+# ============================================================================
+
+
+class TestParallelPageFailureHandling:
+    """sn_query_all's parallel path must not silently truncate results when a
+    middle page is dropped, and must surface errors when fail_silently=False.
+
+    Setup note: page_size=50 + max_records=300 forces server_remaining=250
+    (>100), so dynamic_size stays at the page size and the fetch fans out to
+    parallel offsets [50, 100, 150, 200, 250] — the regime where a mid-range
+    page failure can strand the pages that follow it.
+    """
+
+    TOTAL = 300
+    PAGE = 50
+    FAIL_OFFSET = 150  # a true middle page (not first, not last)
+
+    def _first_page(self):
+        return ([{"sys_id": f"r{i}"} for i in range(self.PAGE)], self.TOTAL)
+
+    def test_transient_mid_page_failure_recovered_by_retry(self, mock_config, mock_auth):
+        """A page that comes back empty in the parallel fan-out is retried once
+        sequentially; if the retry succeeds, no rows are lost."""
+        from servicenow_mcp.tools.sn_api import sn_query_all
+
+        calls = {}
+
+        def _mock_page(
+            config, auth, *, table, query, fields, limit, offset, fail_silently=True, **kw
+        ):
+            calls[offset] = calls.get(offset, 0) + 1
+            if offset == 0:
+                return self._first_page()
+            # First (parallel) hit on the failing offset drops the page; the
+            # sequential retry on the same offset then succeeds.
+            if offset == self.FAIL_OFFSET and calls[offset] == 1:
+                return ([], None)
+            return ([{"sys_id": f"r{offset + i}"} for i in range(limit)], None)
+
+        with patch("servicenow_mcp.tools.sn_api.sn_query_page", side_effect=_mock_page):
+            rows = sn_query_all(
+                mock_config,
+                mock_auth,
+                table="sp_widget",
+                query="",
+                fields="sys_id",
+                page_size=self.PAGE,
+                max_records=self.TOTAL,
+            )
+
+        assert len(rows) == self.TOTAL  # nothing truncated by the transient miss
+        assert calls[self.FAIL_OFFSET] == 2  # one parallel attempt + one retry
+
+    def test_page_error_propagates_when_not_fail_silently(self, mock_config, mock_auth):
+        """With fail_silently=False, an error on any parallel page must reach the
+        caller instead of being swallowed into an empty (end-of-data) page."""
+        from servicenow_mcp.tools.sn_api import sn_query_all
+
+        def _mock_page(
+            config, auth, *, table, query, fields, limit, offset, fail_silently=True, **kw
+        ):
+            if offset == 0:
+                return self._first_page()
+            if offset == self.FAIL_OFFSET:
+                # Mirror real sn_query_page: raise when the caller wants errors.
+                if not fail_silently:
+                    raise RuntimeError("boom at 150")
+                return ([], None)
+            return ([{"sys_id": f"r{offset + i}"} for i in range(limit)], None)
+
+        with patch("servicenow_mcp.tools.sn_api.sn_query_page", side_effect=_mock_page):
+            with pytest.raises(RuntimeError, match="boom at 150"):
+                sn_query_all(
+                    mock_config,
+                    mock_auth,
+                    table="sp_widget",
+                    query="",
+                    fields="sys_id",
+                    page_size=self.PAGE,
+                    max_records=self.TOTAL,
+                    fail_silently=False,
+                )
+
+    def test_permanent_mid_page_failure_truncates_at_gap_and_warns(
+        self, mock_config, mock_auth, caplog
+    ):
+        """If a middle page is still empty after retry (fail_silently=True), the
+        merge stops at the gap — it must never splice in the later pages as if
+        the data were contiguous — and it logs a truncation warning."""
+        from servicenow_mcp.tools.sn_api import sn_query_all
+
+        def _mock_page(
+            config, auth, *, table, query, fields, limit, offset, fail_silently=True, **kw
+        ):
+            if offset == 0:
+                return self._first_page()
+            if offset == self.FAIL_OFFSET:
+                return ([], None)  # empty on both the parallel hit and the retry
+            return ([{"sys_id": f"r{offset + i}"} for i in range(limit)], None)
+
+        with patch("servicenow_mcp.tools.sn_api.sn_query_page", side_effect=_mock_page):
+            with caplog.at_level("WARNING"):
+                rows = sn_query_all(
+                    mock_config,
+                    mock_auth,
+                    table="sp_widget",
+                    query="",
+                    fields="sys_id",
+                    page_size=self.PAGE,
+                    max_records=self.TOTAL,
+                )
+
+        # Contiguous prefix only: offsets 0, 50, 100 = 150 rows. The 200/250
+        # pages must NOT be appended over the gap at 150.
+        assert len(rows) == 150
+        assert any("truncated" in r.getMessage() for r in caplog.records)
+
+    def test_clean_parallel_fetch_does_no_extra_retry(self, mock_config, mock_auth):
+        """Regression: when every page succeeds, the retry path is never taken —
+        each offset is fetched exactly once."""
+        from servicenow_mcp.tools.sn_api import sn_query_all
+
+        calls = {}
+
+        def _mock_page(
+            config, auth, *, table, query, fields, limit, offset, fail_silently=True, **kw
+        ):
+            calls[offset] = calls.get(offset, 0) + 1
+            if offset == 0:
+                return self._first_page()
+            return ([{"sys_id": f"r{offset + i}"} for i in range(limit)], None)
+
+        with patch("servicenow_mcp.tools.sn_api.sn_query_page", side_effect=_mock_page):
+            rows = sn_query_all(
+                mock_config,
+                mock_auth,
+                table="sp_widget",
+                query="",
+                fields="sys_id",
+                page_size=self.PAGE,
+                max_records=self.TOTAL,
+            )
+
+        assert len(rows) == self.TOTAL
+        assert all(count == 1 for count in calls.values()), f"unexpected retries: {calls}"
