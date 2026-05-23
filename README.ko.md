@@ -693,13 +693,14 @@ uvx --with playwright playwright install chromium
 
 ### 캐싱
 
-- **OrderedDict LRU 캐시**: `OrderedDict.popitem()`을 사용한 O(1) 제거 방식의 쿼리 결과 캐싱. 최대 256 엔트리, 30초 TTL, 스레드 안전.
+- **OrderedDict LRU 캐시**: `OrderedDict.popitem()`을 사용한 O(1) 제거 방식의 쿼리 결과 캐싱. 최대 256 엔트리, 30초 TTL (schema·scope·choice 등 안정적 메타데이터 테이블은 600초), 스레드 안전.
 - **도구 스키마 캐시**: Pydantic `model_json_schema()` 출력을 모델 타입별로 캐싱하여 반복 스키마 생성 방지.
 - **레이지 도구 디스커버리**: 활성 `MCP_TOOL_PACKAGE`에 필요한 도구 모듈만 시작 시 임포트. 미사용 모듈은 완전히 건너뜀.
 
 ### 네트워크
 
-- **HTTP 세션 풀링**: 20개 커넥션 풀의 영속 `requests.Session`, TCP keep-alive, TLS 세션 재개, gzip/deflate 압축.
+- **기본값 브라우저급 TLS**: HTTP 계층이 `curl_cffi`의 Chrome 임퍼서네이트 프로파일(기본 `chrome120`)로 동작해 TLS 핸드셰이크가 실제 브라우저와 동일 — Cloudflare/Akamai나 JA3 봇 탐지 뒤의 인스턴스가 stock Python `requests`를 거부해도 추가 설정 없이 동작. `SERVICENOW_TLS_IMPERSONATE=off`로 비활성화.
+- **HTTP 세션 풀링**: TCP keep-alive와 gzip/deflate 압축의 영속 세션(대용량 JSON 응답 60-80% 절감). stock `requests` 옵트아웃 경로는 20개 커넥션 `HTTPAdapter`를 마운트.
 - **병렬 페이지네이션**: `sn_query_all`이 첫 페이지를 순차적으로 가져와 전체 개수를 확인한 후, 나머지 페이지를 `ThreadPoolExecutor` (최대 4 워커)로 동시 조회.
 - **동적 페이지 크기**: 남은 레코드가 단일 페이지(<=100)에 들어맞으면 페이지 크기를 확대하여 추가 라운드트립 방지.
 - **배치 API**: `sn_batch`가 여러 REST 하위 요청을 단일 `/api/now/batch` POST로 결합. 150건 제한 시 자동 청크 분할.

@@ -699,13 +699,14 @@ The server includes several layers of performance optimization to minimize laten
 
 ### Caching
 
-- **OrderedDict LRU cache**: Query results are cached with O(1) eviction using `OrderedDict.popitem()`. 256 max entries, 30-second TTL, thread-safe.
+- **OrderedDict LRU cache**: Query results are cached with O(1) eviction using `OrderedDict.popitem()`. 256 max entries, 30-second TTL (600s for stable metadata: schema/scope/choice tables), thread-safe.
 - **Tool schema cache**: Pydantic `model_json_schema()` output is cached per model type, avoiding repeated schema generation.
 - **Lazy tool discovery**: Only tool modules required by the active `MCP_TOOL_PACKAGE` are imported at startup. Unused modules are skipped entirely.
 
 ### Network
 
-- **HTTP session pooling**: Persistent `requests.Session` with 20-connection pool, TCP keep-alive, TLS session resumption, and gzip/deflate compression.
+- **Browser-grade TLS by default**: The HTTP layer routes through `curl_cffi` with a Chrome impersonation profile (`chrome120` by default), so the TLS handshake is byte-for-byte like a real browser — instances behind Cloudflare/Akamai or JA3 bot-detection that reject stock Python `requests` work with no extra config. Opt out with `SERVICENOW_TLS_IMPERSONATE=off`.
+- **HTTP session pooling**: Persistent session with TCP keep-alive and gzip/deflate compression (60-80% payload reduction on large JSON). The stock-`requests` opt-out path mounts a 20-connection `HTTPAdapter`.
 - **Parallel pagination**: `sn_query_all` fetches the first page sequentially for total count, then retrieves remaining pages concurrently via `ThreadPoolExecutor` (up to 4 workers).
 - **Dynamic page sizing**: When remaining records fit in a single page (<=100), the page size is enlarged to avoid extra round-trips.
 - **Batch API**: `sn_batch` combines multiple REST sub-requests into a single `/api/now/batch` POST, with automatic chunking at the 150-request limit.
