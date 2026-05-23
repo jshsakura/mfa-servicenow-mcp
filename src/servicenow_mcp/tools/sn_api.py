@@ -151,15 +151,22 @@ def apply_payload_safety(
 
 _MAX_PARALLEL_PAGES = 4  # Concurrent page fetches (keep conservative for SN rate limits)
 _page_executor: Optional[ThreadPoolExecutor] = None
+_page_executor_lock = threading.Lock()
 
 
 def _get_page_executor() -> ThreadPoolExecutor:
-    """Lazily create the page executor to avoid idle thread overhead at import."""
+    """Lazily create the page executor to avoid idle thread overhead at import.
+
+    Double-checked locking keeps two concurrent first-callers from each
+    building an executor and leaking one (with its idle worker threads).
+    """
     global _page_executor
     if _page_executor is None:
-        _page_executor = ThreadPoolExecutor(
-            max_workers=_MAX_PARALLEL_PAGES, thread_name_prefix="sn-page"
-        )
+        with _page_executor_lock:
+            if _page_executor is None:
+                _page_executor = ThreadPoolExecutor(
+                    max_workers=_MAX_PARALLEL_PAGES, thread_name_prefix="sn-page"
+                )
     return _page_executor
 
 
@@ -467,23 +474,56 @@ def sn_query_all(
             )
             return page_rows
 
-        # Parallel fetch of remaining pages (reuse lazily-created executor)
+        # Parallel fetch of remaining pages (reuse lazily-created executor).
+        # When fail_silently=False, sn_query_page raises on error; capture those
+        # so they can be re-raised after the loop instead of being swallowed into
+        # an empty page — an empty page is otherwise indistinguishable from
+        # end-of-data and would silently truncate the result.
         page_results: Dict[int, List[Dict[str, Any]]] = {}
+        page_errors: Dict[int, BaseException] = {}
         executor = _get_page_executor()
         future_map = {executor.submit(_fetch_page, off): off for off in offsets}
         for future in as_completed(future_map):
             page_offset = future_map[future]
             try:
                 page_results[page_offset] = future.result()
-            except Exception:
-                logger.warning("Parallel page fetch failed at offset %s", page_offset)
-                page_results[page_offset] = []
+            except Exception as exc:  # only reachable when fail_silently=False
+                page_errors[page_offset] = exc
 
-        # Merge in offset order
+        if page_errors:
+            # Surface the earliest-offset failure deterministically.
+            raise page_errors[min(page_errors)]
+
+        # Merge in offset order. Every computed offset is < total_count, so an
+        # empty page is unexpected — a silenced transient miss (fail_silently=True)
+        # or a table that shrank mid-fetch — rather than genuine end-of-data.
+        # Retry such a page once sequentially before stopping, so a single
+        # dropped page never silently truncates the pages that follow it.
         for off in sorted(page_results.keys()):
             chunk = page_results[off]
             if not chunk:
-                break  # Stop on empty page (end of data)
+                retry_rows, _ = sn_query_page(
+                    config,
+                    auth_manager,
+                    table=table,
+                    query=query,
+                    fields=fields,
+                    limit=min(dynamic_size, cap - off),
+                    offset=off,
+                    no_count=True,
+                    display_value=display_value,
+                    fail_silently=True,
+                )
+                if not retry_rows:
+                    logger.warning(
+                        "sn_query_all: page at offset %s still empty after retry; "
+                        "stopping merge — result truncated at %s rows (table=%s)",
+                        off,
+                        len(rows),
+                        table,
+                    )
+                    break
+                chunk = retry_rows
             rows.extend(chunk)
             if len(rows) >= cap:
                 break
