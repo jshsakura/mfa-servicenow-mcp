@@ -370,7 +370,18 @@ def sn_query_page(
             params=params,
             timeout=config.request_timeout,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as http_err:
+            # Enrich with ServiceNow's error body (raise_for_status drops it),
+            # keeping an HTTPError with .response set so _is_retryable still
+            # classifies it.
+            detail = _extract_sn_error(response)
+            if detail:
+                raise requests.exceptions.HTTPError(
+                    f"{http_err} — {detail}", response=response
+                ) from http_err
+            raise
         total = response.headers.get("X-Total-Count")
         data = json_fast.loads(response.content) if response.content else response.json()
         rows = data.get("result", [])
@@ -781,6 +792,17 @@ def _generate_query_hint(query: str, error_msg: str) -> Optional[str]:
     if "LIKE" in query and len(query) > 500:
         hints.append("Very long LIKE query — consider breaking into multiple smaller queries.")
     error_lower = error_msg.lower()
+    if "invalid field" in error_lower or "is not a valid field" in error_lower:
+        hints.append(
+            "ServiceNow rejected a field name — run sn_schema(table=...) to list valid "
+            "fields, or drop the fields argument to return all columns."
+        )
+    if (
+        "no such table" in error_lower
+        or "invalid table" in error_lower
+        or "does not exist" in error_lower
+    ):
+        hints.append("The table may not exist — verify the name with sn_discover or sn_schema.")
     if "timeout" in error_lower or "timed out" in error_lower:
         hints.append(
             "Request timed out. Try reducing limit, adding more specific filters, "
@@ -807,6 +829,48 @@ def _safe_json(response: requests.Response) -> Dict[str, Any]:
         return response.json()
     except Exception:
         return {"raw": response.text}
+
+
+def _extract_sn_error(response: requests.Response) -> Optional[str]:
+    """Pull ServiceNow's error message/detail out of an API error body.
+
+    ServiceNow returns ``{"error": {"message": ..., "detail": ...}}`` on 4xx —
+    e.g. "Invalid field: category_xyz for table incident". ``raise_for_status``
+    discards that, so we extract it to surface in the raised exception instead
+    of an opaque "400 Client Error".
+    """
+    try:
+        body = _safe_json(response)
+    except Exception:
+        return None
+    err = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(err, dict):
+        return None
+    message = (err.get("message") or "").strip()
+    detail = (err.get("detail") or "").strip()
+    if message and detail and detail != message:
+        return f"{message}: {detail}"
+    return message or detail or None
+
+
+def _table_exists(config: ServerConfig, auth_manager: AuthManager, table: str) -> bool:
+    """Cheaply check whether a table is registered in sys_db_object.
+
+    Lets sn_schema tell "table does not exist" apart from "valid table whose
+    fields are all inherited from a parent" — both otherwise return 0 rows.
+    """
+    try:
+        url = f"{config.instance_url}/api/now/table/sys_db_object"
+        resp = auth_manager.make_request(
+            "GET",
+            url,
+            params={"sysparm_query": f"name={table}", "sysparm_fields": "name", "sysparm_limit": 1},
+            timeout=config.timeout,
+        )
+        # An error body carries no "result" key, so this is False on 4xx/5xx too.
+        return bool(_safe_json(resp).get("result"))
+    except Exception:
+        return False
 
 
 def _is_login_redirect_response(response: requests.Response) -> bool:
@@ -983,6 +1047,14 @@ def sn_query(
         if notices:
             response_data["safety_notice"] = " | ".join(notices)
 
+        if not safe_result:
+            response_data["hint"] = (
+                "0 rows returned. Verify the table name (sn_schema / sn_discover), check "
+                "encoded-query syntax (e.g. active=true^priority=1), or the records may "
+                "genuinely not exist. A persistent empty result on a valid query can also "
+                "mean ACLs hide the rows from this account."
+            )
+
         return response_data
     except Exception as exc:
         response: Dict[str, Any] = {
@@ -1103,12 +1175,28 @@ def sn_schema(
             for f in fields
             if f.get("element")
         ]
-        result = {
+        if not shaped and not _table_exists(config, auth_manager, params.table):
+            # 0 fields can mean "no such table" OR "valid table, fields inherited".
+            # Disambiguate so the LLM doesn't retry a typo'd name.
+            return {
+                "success": False,
+                "table": params.table,
+                "message": (
+                    f"Table '{params.table}' not found in sys_db_object. "
+                    "Check the name with sn_discover."
+                ),
+            }
+        result: Dict[str, Any] = {
             "success": True,
             "table": params.table,
             "count": len(shaped),
             "fields": shaped,
         }
+        if not shaped:
+            result["note"] = (
+                "No fields are defined directly on this table — it likely extends a base "
+                "table and inherits its fields. Query the parent table or use display_value."
+            )
         _cache_put(ck, result, ttl=_METADATA_CACHE_TTL_SECONDS)
         return result
     except Exception as exc:
