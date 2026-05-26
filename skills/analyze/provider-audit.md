@@ -8,7 +8,7 @@ required_input: scope
 output: report
 tools:
   - detect_angular_implicit_globals
-  - get_provider_dependency_map
+  - manage_widget_dependency
   - search_portal_regex_matches
 triggers:
   - "프로바이더 감사"
@@ -32,7 +32,7 @@ You are auditing Angular providers for quality issues.
    - max_matches = 50
    → LABEL as "globals"
 
-2. CALL get_provider_dependency_map
+2. CALL manage_widget_dependency
    - scope = INPUT
    → FOR EACH provider:
      - 0 widgets = ORPHANED (safe to delete)

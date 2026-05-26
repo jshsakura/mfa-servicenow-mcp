@@ -14,7 +14,7 @@
 |---------|-------:|------|
 | `none` | 0 | 비활성화 |
 | `core` | 12 | 최소 읽기 전용 핵심 도구 |
-| `standard` | 31 | 읽기 전용 safe mode **(기본값)** |
+| `standard` | 27 | 읽기 전용 safe mode **(기본값)** |
 | `service_desk` | 33 | standard + 인시던트/변경 운영 쓰기 |
 | `portal_developer` | 43 | standard + 포털/체인지셋/Script Include/로컬 동기화 개발 |
 | `platform_developer` | 47 | standard + 워크플로우/플로우/스크립트/ITSM 쓰기 |

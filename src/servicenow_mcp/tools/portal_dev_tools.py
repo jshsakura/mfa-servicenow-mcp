@@ -532,13 +532,9 @@ def _extract_si_refs(script: Optional[str]) -> List[str]:
     return found
 
 
-@register_tool(
-    name="get_provider_dependency_map",
-    params=GetProviderDependencyMapParams,
-    description="Build widget-to-provider-to-script-include dependency graph. Returns metadata only, no script bodies.",
-    serialization="raw_dict",
-    return_type=dict,
-)
+# NOTE: de-registered as a standalone tool — now an internal resolver invoked
+# by manage_widget_dependency (action=list, target=provider). Kept importable
+# so its tested behavior is preserved. See widget_dependency_tools.py.
 def get_provider_dependency_map(
     config: ServerConfig,
     auth_manager: AuthManager,

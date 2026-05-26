@@ -3220,13 +3220,9 @@ def _truncate_source(text: str, max_len: int) -> str:
     return text[:max_len] + f"\n... [TRUNCATED at {max_len} chars, total {len(text)}]"
 
 
-@register_tool(
-    "resolve_widget_chain",
-    params=ResolveWidgetChainParams,
-    description="Resolve widget dependency chain with source code. Returns widget + providers + script includes.",
-    serialization="raw_dict",
-    return_type=dict,
-)
+# NOTE: de-registered as a standalone tool — now an internal resolver invoked
+# by manage_widget_dependency (get/list with include_source). Kept importable
+# so its tested behavior is preserved. See widget_dependency_tools.py.
 def resolve_widget_chain(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -3457,13 +3453,9 @@ class ResolvePageDependenciesParams(BaseModel):
     )
 
 
-@register_tool(
-    "resolve_page_dependencies",
-    params=ResolvePageDependenciesParams,
-    description="Resolve all widgets on a page with dependency chains. Deduplicates shared providers/SIs.",
-    serialization="raw_dict",
-    return_type=dict,
-)
+# NOTE: de-registered as a standalone tool — now an internal resolver invoked
+# by manage_widget_dependency (action=list, target=page). Kept importable so
+# its tested behavior is preserved. See widget_dependency_tools.py.
 def resolve_page_dependencies(
     config: ServerConfig,
     auth_manager: AuthManager,

@@ -8,7 +8,7 @@ required_input: widget_id + symptom description
 output: diagnosis
 tools:
   - get_widget_bundle
-  - resolve_widget_chain
+  - manage_widget_dependency
   - download_portal_sources
   - get_portal_component_code
   - get_logs

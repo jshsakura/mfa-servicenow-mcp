@@ -4,7 +4,7 @@
 
 - 전체 등록 도구: **70**
 - 기본 패키지 `standard`: **29**개 읽기 전용 도구
-- 가장 넓은 개발 패키지 `full`: **59**개 패키지 정의 도구
+- 가장 넓은 개발 패키지 `full`: **57**개 패키지 정의 도구
 - 현재 어떤 패키지에도 묶이지 않은 등록 도구: **11**개
 - 정확한 행 단위 전체 인벤토리: [영문 기준 문서](./TOOL_INVENTORY.md)
 
@@ -14,11 +14,11 @@
 |---------|-------:|------|
 | `none` | 0 | 비활성화 |
 | `core` | 12 | 최소 읽기 전용 핵심 도구 |
-| `standard` | 29 | 읽기 전용 safe mode **(기본값)** |
-| `service_desk` | 31 | standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 40 | standard + 포털/체인지셋/Script Include/로컬 동기화 개발 |
-| `platform_developer` | 45 | standard + 워크플로우/플로우/스크립트/ITSM 쓰기 |
-| `full` | 59 | 가장 넓은 패키지 표면 (번들 `manage_*` + 고급 운영 도구) |
+| `standard` | 27 | 읽기 전용 safe mode **(기본값)** |
+| `service_desk` | 29 | standard + 인시던트/변경 운영 쓰기 |
+| `portal_developer` | 38 | standard + 포털/체인지셋/Script Include/로컬 동기화 개발 |
+| `platform_developer` | 43 | standard + 워크플로우/플로우/스크립트/ITSM 쓰기 |
+| `full` | 57 | 가장 넓은 패키지 표면 (번들 `manage_*` + 고급 운영 도구) |
 
 ## 런타임 주입 헬퍼
 

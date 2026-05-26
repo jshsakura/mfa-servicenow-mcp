@@ -76,10 +76,10 @@ Sources must be downloaded first via:
 
 **Answer relationship questions from the files — do NOT re-query the instance** with the
 live resolver tools once these files exist:
-- "which providers does widget X use?" → `_graph.json` (replaces get_provider_dependency_map)
-- "which widgets are on page Y?" → `_page_graph.json` (replaces resolve_page_dependencies)
+- "which providers does widget X use?" → `_graph.json` (replaces manage_widget_dependency)
+- "which widgets are on page Y?" → `_page_graph.json` (replaces manage_widget_dependency)
 - "what calls Script Include Z / which tables?" → `_cross_references.json`
-  (replaces resolve_widget_chain / extract_widget_table_dependencies)
+  (replaces manage_widget_dependency / extract_widget_table_dependencies)
 
 The audit result's `offline_analysis` field names the exact file per question.
 

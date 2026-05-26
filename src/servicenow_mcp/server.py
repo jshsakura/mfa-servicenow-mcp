@@ -79,6 +79,7 @@ MANAGE_READ_ACTIONS: Dict[str, set[str]] = {
     "manage_group": {"list"},
     "manage_workflow": {"list", "get", "list_versions", "get_activities"},
     "manage_script_include": {"list", "get"},
+    "manage_widget_dependency": {"list", "get"},
     "manage_catalog": {"list_items", "get_item", "list_categories", "list_item_variables"},
     "manage_kb_article": {"list_kbs", "list_articles", "get_article", "list_categories"},
     "manage_flow_designer": {"list", "get_detail", "get_executions", "compare", "edit_status"},
@@ -1482,8 +1483,8 @@ class ServiceNowMCP:
                 "have run, relationship data is on disk under the scope root — "
                 "_graph.json (widget→Angular provider), _page_graph.json (page→widget), "
                 "_cross_references.json (SI/table call chains). For those questions read "
-                "the files directly instead of re-calling the live resolver tools "
-                "(get_provider_dependency_map, resolve_page_dependencies, resolve_widget_chain). "
+                "the files directly instead of re-calling the live resolver "
+                "(manage_widget_dependency action=list). "
                 "audit_local_sources' offline_analysis field names the exact file per question."
             )
             existing = getattr(self.mcp_server, "instructions", None) or ""
