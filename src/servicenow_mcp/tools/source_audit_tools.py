@@ -1362,15 +1362,15 @@ def audit_local_sources(
             ),
             "widget_to_provider": {
                 "file": str(scope_root / "_graph.json"),
-                "answers": "which Angular providers a widget uses (replaces get_provider_dependency_map)",
+                "answers": "which Angular providers a widget uses (replaces manage_widget_dependency action=list)",
             },
             "page_to_widget": {
                 "file": str(scope_root / "_page_graph.json"),
-                "answers": "which widgets a page hosts (replaces resolve_page_dependencies)",
+                "answers": "which widgets a page hosts (replaces manage_widget_dependency target=page)",
             },
             "call_graph": {
                 "file": str(scope_root / "_cross_references.json"),
-                "answers": "SI/table call chains, widget→SI refs (replaces resolve_widget_chain / extract_widget_table_dependencies)",
+                "answers": "SI/table call chains, widget→SI refs (replaces manage_widget_dependency / extract_widget_table_dependencies)",
             },
         },
         "safety_notice": (

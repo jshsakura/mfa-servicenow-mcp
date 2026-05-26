@@ -31,10 +31,7 @@ PACKAGE_DESCRIPTIONS = {
     "full": "Broadest packaged surface: all manage_* workflows plus advanced operations.",
 }
 
-READ_ONLY_OVERRIDES = {
-    "resolve_page_dependencies",
-    "resolve_widget_chain",
-}
+READ_ONLY_OVERRIDES: set[str] = set()
 
 WRITE_ONLY_OVERRIDES = {
     "scaffold_page",

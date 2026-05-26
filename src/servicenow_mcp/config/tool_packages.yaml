@@ -62,11 +62,13 @@ standard:
   - download_portal_sources
   - search_portal_regex_matches
   - trace_portal_route_targets
-  - get_provider_dependency_map
   - analyze_widget_performance
   - extract_widget_table_dependencies
-  - resolve_widget_chain
-  - resolve_page_dependencies
+  # Widget dependency/provider graph (read) — write actions exposed in
+  # portal_developer/full. Absorbed get_provider_dependency_map +
+  # resolve_widget_chain + resolve_page_dependencies (now internal resolvers).
+  - manage_widget_dependency:
+      actions: [list, get]
   # Script Include (Read)
   - manage_script_include:
       actions: [list, get]
@@ -92,6 +94,7 @@ portal_developer:
     - manage_script_include
     - manage_portal_layout
     - manage_portal_component
+    - manage_widget_dependency
     - manage_workflow
     - manage_catalog
     - manage_ui_policy
@@ -168,6 +171,7 @@ full:
     - manage_catalog
     - manage_portal_layout
     - manage_portal_component
+    - manage_widget_dependency
     - manage_ui_policy
     # Change Management orchestrators (manage_change covers create/update/add_task)
     - submit_change_for_approval
