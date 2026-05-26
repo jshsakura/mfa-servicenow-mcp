@@ -8,7 +8,7 @@ required_input: widget_id (sys_id, id, or name)
 output: summary
 tools:
   - get_widget_bundle
-  - resolve_widget_chain
+  - manage_widget_dependency
   - download_portal_sources
   - trace_portal_route_targets
   - analyze_widget_performance
@@ -31,7 +31,7 @@ You are analyzing a Service Portal widget. Choose the right depth based on the u
 
 | Signal | Mode | Approach |
 |--------|------|----------|
-| "뭐하는 위젯이야", simple question | **Quick** | In-memory, resolve_widget_chain depth=2 |
+| "뭐하는 위젯이야", simple question | **Quick** | In-memory, manage_widget_dependency depth=2 |
 | "로직 분석", "왜 안돼", cross-component debug | **Deep** | Download to local, Read files, full trace |
 | Multiple widgets, page-level analysis | **Deep** | Download scope, Read locally |
 
@@ -43,7 +43,7 @@ Choose one of the two pipelines below based on the request scope and debugging d
 
 Use when: single widget, overview needed, no cross-component debugging.
 
-1. CALL resolve_widget_chain
+1. CALL manage_widget_dependency
    - widget_id = INPUT
    - depth = 2 (widget + providers)
    - include_fields = ["script", "client_script", "template"]
@@ -98,7 +98,7 @@ If files already exist in ./temp/:
 
 - "Widget not found" → CALL sn_query(table="sp_widget", query="nameLIKE{INPUT}", fields="sys_id,name,id", limit=5) → ASK user to pick
 - Empty providers → normal for simple widgets, skip provider section
-- Download fails → fall back to Quick mode with resolve_widget_chain
+- Download fails → fall back to Quick mode with manage_widget_dependency
 
 ## DELEGATE hint
 

@@ -11,10 +11,9 @@ tools:
   - get_page
   - search_portal_regex_matches
   - detect_angular_implicit_globals
-  - get_provider_dependency_map
+  - manage_widget_dependency
   - analyze_widget_performance
   - download_portal_sources
-  - resolve_widget_chain
 triggers:
   - "포탈 진단"
   - "포탈 건강 확인"
@@ -47,7 +46,7 @@ You are running a comprehensive portal health check. DELEGATE to sub-agent recom
    - max_providers = 50
    → LABEL result as "implicit_globals"
 
-4. CALL get_provider_dependency_map
+4. CALL manage_widget_dependency
    - scope = INPUT
    → LABEL result as "provider_map"
    → COUNT providers with 0 widgets as "orphaned"

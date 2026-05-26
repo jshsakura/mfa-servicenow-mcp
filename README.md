@@ -413,16 +413,16 @@ Read-only (safe defaults):
 | :--- | :---: | :--- |
 | `none` | 0 | Disabled profile for intentionally turning tools off |
 | `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 29 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `standard` | 27 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
 
 ⚠️ Write-capable (advanced — grants create/update/delete):
 
 | Package | Tools | Description |
 | :--- | :---: | :--- |
-| `service_desk` | 31 | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 40 | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
-| `platform_developer` | 45 | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 59 | ⚠️ **Most advanced** — all write tools across all domains at once |
+| `service_desk` | 29 | ⚠️ standard + incident and change operational writes |
+| `portal_developer` | 38 | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `platform_developer` | 43 | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 57 | ⚠️ **Most advanced** — all write tools across all domains at once |
 
 Each server process is intentionally bound to one active ServiceNow instance for ordinary tools. For safety, there is no per-request write routing across instances.
 
