@@ -96,6 +96,7 @@ _MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_group": frozenset({"list"}),
     "manage_workflow": frozenset({"list", "get", "list_versions", "get_activities"}),
     "manage_script_include": frozenset({"list", "get"}),
+    "manage_widget_dependency": frozenset({"list", "get"}),
     "manage_catalog": frozenset(
         {"list_items", "get_item", "list_categories", "list_item_variables"}
     ),
