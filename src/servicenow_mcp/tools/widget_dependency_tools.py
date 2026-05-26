@@ -9,6 +9,7 @@ provider script bodies stay with manage_portal_component, which is local-first
 (download -> edit -> diff -> push); this tool is direct remote structure CRUD.
 """
 
+import logging
 from typing import Any, ClassVar, Dict, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -16,6 +17,8 @@ from pydantic import BaseModel, Field, model_validator
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
+
+logger = logging.getLogger(__name__)
 
 # Record tables (the dependency/provider definitions).
 RECORD_TABLE = {"provider": "sp_angular_provider", "dependency": "sp_dependency"}
@@ -133,9 +136,15 @@ class ManageWidgetDependencyParams(BaseModel):
 
 
 def _ref_value(value: Any) -> str:
-    """Flatten a reference field that may be a {'value': ...} dict."""
+    """Flatten a reference field that may be a {'value': ..., 'display_value': ...} dict.
+
+    Prefers the 'value' (sys_id) key when present — even if empty — so a blank
+    reference never silently leaks the display name into a sys_id query.
+    """
     if isinstance(value, dict):
-        return str(value.get("value") or value.get("display_value") or "")
+        if "value" in value:
+            return str(value.get("value") or "")
+        return str(value.get("display_value") or "")
     return str(value or "")
 
 
@@ -143,10 +152,19 @@ def _escape(value: str) -> str:
     return str(value).replace("^", "^^").replace("=", r"\=").replace("@", r"\@")
 
 
+def _widget_refs(params: ManageWidgetDependencyParams) -> List[str]:
+    """All widget references from widget_ids and a single widget_id (get)."""
+    refs = list(params.widget_ids or [])
+    if params.widget_id and params.widget_id not in refs:
+        refs.append(params.widget_id)
+    return refs
+
+
 def _widget_filter_query(params: ManageWidgetDependencyParams) -> Optional[str]:
     parts: List[str] = []
-    if params.widget_ids:
-        ids = ",".join(params.widget_ids)
+    refs = _widget_refs(params)
+    if refs:
+        ids = ",".join(refs)
         parts.append(f"sys_idIN{ids}^ORidIN{ids}^ORnameIN{ids}")
     if params.scope:
         parts.append(f"sys_scope.scope={_escape(params.scope)}")
@@ -229,12 +247,41 @@ def _resolve_widget_sys_id(
 
 
 def _build_record_fields(params: ManageWidgetDependencyParams) -> Dict[str, Any]:
-    out: Dict[str, Any] = dict(params.fields or {})
+    """Merge convenience params (name/module) with the raw `fields` escape hatch.
+
+    `fields` is applied LAST so the caller can override anything explicitly.
+    `module` is a sp_dependency-only column; ignored for providers (a provider
+    has no module — pass it via `fields` if a future column ever needs it).
+    """
+    out: Dict[str, Any] = {}
     if params.name:
         out["name"] = params.name
     if params.module and params.target == "dependency":
         out["module"] = params.module
+    if params.fields:
+        out.update(params.fields)
     return out
+
+
+def _get_record(
+    config: ServerConfig, auth_manager: AuthManager, table: str, record_id: str
+) -> Dict[str, Any]:
+    """Fetch a single provider/dependency record by sys_id (action=get)."""
+    from .portal_dev_tools import _compact_record, _sn_get
+
+    fields = "sys_id,name,sys_scope,sys_updated_on,sys_updated_by"
+    if table == "sp_dependency":
+        fields += ",module"
+    rows, _ = _sn_get(config, auth_manager, table, f"sys_id={record_id}", fields, limit=1)
+    if not rows:
+        return {
+            "success": False,
+            "table": table,
+            "error": f"{table} record '{record_id}' not found.",
+            "hint": "Use action=list to find valid sys_ids.",
+        }
+    # _compact_record strips empty fields + flattens display_value (token saving).
+    return {"success": True, "table": table, "record": _compact_record(rows[0])}
 
 
 def _list_dependencies(
@@ -268,6 +315,7 @@ def _list_dependencies(
     widget_ids = [_ref_value(w.get("sys_id")) for w in widgets if w.get("sys_id")]
     name_by_id = {_ref_value(w.get("sys_id")): w.get("name", "") for w in widgets}
 
+    warnings: List[str] = []
     widget_dep_map: Dict[str, List[str]] = {}
     all_dep_ids: List[str] = []
     for chunk in _chunk(widget_ids, M2M_IN_CHUNK):
@@ -281,7 +329,9 @@ def _list_dependencies(
                 limit=500,
             )
             api_calls += 1
-        except Exception:
+        except Exception as exc:
+            logger.warning("m2m_sp_widget_dependency chunk fetch failed: %s", exc)
+            warnings.append(f"dependency link lookup failed for {len(chunk)} widget(s): {exc}")
             continue
         for row in rows:
             w_id = _ref_value(row.get("sp_widget"))
@@ -303,7 +353,9 @@ def _list_dependencies(
                 limit=len(chunk),
             )
             api_calls += 1
-        except Exception:
+        except Exception as exc:
+            logger.warning("sp_dependency detail fetch failed: %s", exc)
+            warnings.append(f"dependency detail lookup failed for {len(chunk)} record(s): {exc}")
             continue
         for d in rows:
             deps_by_id[_ref_value(d.get("sys_id"))] = {
@@ -322,7 +374,7 @@ def _list_dependencies(
         for w_id in widget_ids
         if w_id in widget_dep_map
     ]
-    return {
+    result: Dict[str, Any] = {
         "success": True,
         "summary": {
             "widgets": len(widgets),
@@ -331,6 +383,9 @@ def _list_dependencies(
         },
         "dependency_map": dependency_map,
     }
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def _read(
@@ -349,21 +404,27 @@ def _read(
             ),
         )
 
-    # Source chain for a single widget (get with widget_id, or include_source).
-    if params.include_source or (params.action == "get" and params.widget_id):
-        from .portal_tools import ResolveWidgetChainParams, resolve_widget_chain
+    # Single record detail by sys_id (action=get, record_id only).
+    if params.record_id and not params.widget_id:
+        return _get_record(config, auth_manager, RECORD_TABLE[params.target], params.record_id)
 
+    # Explicit source bodies for a single widget (the only trigger for the
+    # heavy source chain — plain list/get stay metadata-only for token economy).
+    if params.include_source:
         wid = params.widget_id or (params.widget_ids[0] if params.widget_ids else None)
         if not wid:
             return {
                 "success": False,
-                "error": "widget_id (or one widget_ids) is required for a source/get chain.",
-                "hint": "Set widget_id=<sys_id|id|name>, or use action=list for the metadata graph.",
+                "error": "widget_id (or one widget_ids) is required with include_source.",
+                "hint": "Set widget_id=<sys_id|id|name>, or drop include_source for the metadata graph.",
             }
+        from .portal_tools import ResolveWidgetChainParams, resolve_widget_chain
+
         return resolve_widget_chain(
             config, auth_manager, ResolveWidgetChainParams(widget_id=wid, depth=params.depth)
         )
 
+    # Metadata graph (no script bodies). widget_id (get) folds into the filter.
     if params.target == "provider":
         from .portal_dev_tools import GetProviderDependencyMapParams, get_provider_dependency_map
 
@@ -371,7 +432,7 @@ def _read(
             config,
             auth_manager,
             GetProviderDependencyMapParams(
-                widget_ids=params.widget_ids,
+                widget_ids=_widget_refs(params) or None,
                 scope=params.scope,
                 developer=params.developer,
                 include_script_include_refs=params.include_si_refs,
@@ -379,7 +440,7 @@ def _read(
             ),
         )
 
-    # target == "dependency"
+    # target == "dependency" — _widget_filter_query already folds in widget_id.
     return _list_dependencies(config, auth_manager, params)
 
 
@@ -400,7 +461,7 @@ def _link(
     query = f"sp_widget={w_sys}^{ref_field}={params.record_id}"
     existing, _ = _sn_get(config, auth_manager, m2m, query, "sys_id", limit=1)
     if existing:
-        return {
+        out = {
             "success": True,
             "table": m2m,
             "action": "link",
@@ -408,6 +469,9 @@ def _link(
             "sys_id": _ref_value(existing[0].get("sys_id")),
             "message": "Link already exists — no change.",
         }
+        if params.dry_run:
+            out["dry_run"] = True
+        return out
     return _table_write(
         config,
         auth_manager,
@@ -450,13 +514,22 @@ def _unlink(
             "action": "unlink",
             "message": f"Would delete {len(rows)} link row(s).",
         }
-    deleted = []
+    deleted: List[str] = []
+    failed: List[str] = []
     for row in rows:
         sid = _ref_value(row.get("sys_id"))
         res = _table_write(config, auth_manager, m2m, "delete", sys_id=sid)
-        if res.get("success"):
-            deleted.append(sid)
-    return {"success": True, "table": m2m, "action": "unlink", "deleted": deleted}
+        (deleted if res.get("success") else failed).append(sid)
+    result: Dict[str, Any] = {
+        "success": not failed,
+        "table": m2m,
+        "action": "unlink",
+        "deleted": deleted,
+    }
+    if failed:
+        result["failed"] = failed
+        result["error"] = f"{len(failed)} of {len(rows)} link row(s) failed to delete."
+    return result
 
 
 @register_tool(
