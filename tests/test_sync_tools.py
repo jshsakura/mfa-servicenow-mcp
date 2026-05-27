@@ -504,7 +504,38 @@ class TestUpdateRemoteFromLocal:
         assert result["message"] == "Update successful"
         assert result["local_sync"]["fields_pushed"] == ["script"]
         assert "snapshot" not in result["local_sync"]
+        assert result["success"] is True
         mock_update.assert_called_once()
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_403_acl_does_not_poison_sync_meta(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
+    ):
+        # ServiceNow rejects (e.g. update set held by another user). The wrapper
+        # must NOT mark sync_meta as updated, and must return actionable guidance.
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 0;",  # differs from local -> there is something to push
+            "sys_updated_on": "2025-01-10 10:00:00",
+        }
+        mock_update.return_value = {
+            "error": 'Update failed: {"error":{"detail":"ACL Exception Update Failed '
+            'due to security constraints"}}',
+            "status": 403,
+        }
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert result["success"] is False
+        assert result["status"] == 403
+        assert result["sync_meta_updated"] is False
+        assert "update set" in result["hint"].lower()
+        mock_write_meta.assert_not_called()  # local sync state NOT poisoned
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_push_conflict_rejected(self, mock_fetch, mock_config, mock_auth, download_root):
