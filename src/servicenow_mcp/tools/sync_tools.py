@@ -719,7 +719,45 @@ def update_remote_from_local(
         )
     except Exception as e:
         return {
+            "success": False,
             "error": f"Push failed: {e}",
+        }
+
+    # 4b. ServiceNow-side rejection: update_portal_component returns an error
+    # dict on HTTP >= 400 (it does NOT raise). Treat that as a failure — do NOT
+    # update _sync_meta (a poisoned meta makes the next diff falsely report "no
+    # drift", hiding that the remote never changed), and return actionable
+    # guidance instead of a bare ACL string the caller has to guess at.
+    status = result.get("status")
+    if result.get("error") or (isinstance(status, int) and status >= 400):
+        detail = str(result.get("error", "")).lower()
+        if status == 403 or "acl" in detail or "security constraint" in detail:
+            hint = (
+                "HTTP 403 ACL Exception — the write reached ServiceNow but was rejected. "
+                "Likely causes, in order: (1) the target update set is locked, closed, or "
+                "held by another user — check the active update set and its owner; "
+                "(2) the account lacks sp_admin / write ACL on this table — verify roles via "
+                "sn_health; (3) scoped-app protection or wrong scope context. Local files and "
+                "_sync_meta are UNCHANGED — free/switch the update set (or use a privileged "
+                "session), then retry."
+            )
+        else:
+            hint = (
+                "Remote rejected the write. Local files and _sync_meta are UNCHANGED; "
+                "resolve the error and retry."
+            )
+        return {
+            "success": False,
+            "error": result.get("error", "Push rejected by ServiceNow."),
+            "status": status,
+            "component": {
+                "table": resolved.table,
+                "sys_id": resolved.sys_id,
+                "name": resolved.name,
+            },
+            "fields_attempted": list(update_data.keys()),
+            "sync_meta_updated": False,
+            "hint": hint,
         }
 
     # 5. Update _sync_meta.json with new remote timestamp
@@ -739,7 +777,8 @@ def update_remote_from_local(
     except Exception as e:
         logger.warning("Failed to update _sync_meta.json after push: %s", e)
 
-    # 6. Enrich result
+    # 6. Enrich result (reached only on a confirmed successful push)
+    result["success"] = True
     result["local_sync"] = {
         "pushed_from": str(path),
         "fields_pushed": list(update_data.keys()),
