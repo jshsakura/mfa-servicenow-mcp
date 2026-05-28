@@ -365,23 +365,73 @@ def _validate_instance_url(resolved: _ResolvedComponent, config: ServerConfig) -
         )
 
 
+def _display_str(value: Any) -> str:
+    """Readable string from a field that may be a {'value','display_value'} dict
+    (display_value preferred) or a plain string."""
+    if isinstance(value, dict):
+        return str(value.get("display_value") or value.get("value") or "")
+    return str(value or "")
+
+
+def _active_update_sets(
+    config: ServerConfig, auth_manager: AuthManager, scope_value: str
+) -> List[Dict[str, str]]:
+    """Best-effort: in-progress update sets in a scope, with their owners.
+
+    Surfaces who may be holding the update set when a push is rejected. Returns
+    [] on any error (read ACL, bad scope, etc.) so it never masks the original
+    failure. scope_value is the component's sys_scope sys_id.
+    """
+    if not scope_value:
+        return []
+    try:
+        resp = sn_query(
+            config,
+            auth_manager,
+            GenericQueryParams(
+                table="sys_update_set",
+                query=f"state=in progress^application={scope_value}",
+                fields="name,sys_created_by,sys_updated_by,sys_updated_on",
+                limit=10,
+                offset=0,
+                display_value=True,
+            ),
+        )
+    except Exception as exc:
+        logger.warning("Could not fetch active update sets: %s", exc)
+        return []
+    return [
+        {
+            "name": _display_str(row.get("name")),
+            "created_by": _display_str(row.get("sys_created_by")),
+            "updated_by": _display_str(row.get("sys_updated_by")),
+            "updated_on": _display_str(row.get("sys_updated_on")),
+        }
+        for row in (resp.get("results") or [])
+    ]
+
+
 def _batch_fetch_updated_on(
     config: ServerConfig,
     auth_manager: AuthManager,
     table: str,
     sys_ids: List[str],
-) -> Dict[str, str]:
-    """Batch-fetch sys_updated_on for multiple sys_ids in one API call."""
+) -> Dict[str, Dict[str, str]]:
+    """Batch-fetch sys_updated_on + sys_updated_by for many sys_ids.
+
+    Returns {sys_id: {"on": <timestamp>, "by": <user_name>}}. The "by" surfaces
+    who last changed the remote — directly useful when a diff reports drift.
+    """
     if not sys_ids:
         return {}
-    result: Dict[str, str] = {}
+    result: Dict[str, Dict[str, str]] = {}
     for i in range(0, len(sys_ids), 100):
         chunk = sys_ids[i : i + 100]
         query = f"sys_idIN{','.join(chunk)}"
         params = GenericQueryParams(
             table=table,
             query=query,
-            fields="sys_id,sys_updated_on",
+            fields="sys_id,sys_updated_on,sys_updated_by",
             limit=len(chunk),
             offset=0,
             display_value=False,
@@ -390,7 +440,10 @@ def _batch_fetch_updated_on(
         for row in response.get("results") or []:
             sid = str(row.get("sys_id") or "")
             if sid:
-                result[sid] = str(row.get("sys_updated_on") or "")
+                result[sid] = {
+                    "on": str(row.get("sys_updated_on") or ""),
+                    "by": _display_str(row.get("sys_updated_by")),
+                }
     return result
 
 
@@ -435,15 +488,15 @@ def _scan_download_root(
                 continue
 
             all_sys_ids = list(map_data.values())
-            remote_timestamps = _batch_fetch_updated_on(
-                config, auth_manager, table_name, all_sys_ids
-            )
+            remote_meta = _batch_fetch_updated_on(config, auth_manager, table_name, all_sys_ids)
 
             for name, sys_id in map_data.items():
                 meta = sync_meta.get(name, {})
                 local_updated_on = meta.get("sys_updated_on", "")
                 downloaded_at = meta.get("downloaded_at", "")
-                remote_updated_on = remote_timestamps.get(sys_id, "")
+                rmeta = remote_meta.get(sys_id, {})
+                remote_updated_on = rmeta.get("on", "")
+                remote_updated_by = rmeta.get("by", "")
                 has_sync_meta = bool(local_updated_on)
 
                 if table_name in FOLDER_TABLES:
@@ -494,17 +547,19 @@ def _scan_download_root(
                 else:
                     status = "unchanged"
 
-                components.append(
-                    {
-                        "name": name,
-                        "table": table_name,
-                        "sys_id": sys_id,
-                        "status": status,
-                        "local_files": sorted(local_files),
-                        "remote_updated_on": remote_updated_on,
-                        "local_updated_on": local_updated_on,
-                    }
-                )
+                component = {
+                    "name": name,
+                    "table": table_name,
+                    "sys_id": sys_id,
+                    "status": status,
+                    "local_files": sorted(local_files),
+                    "remote_updated_on": remote_updated_on,
+                    "local_updated_on": local_updated_on,
+                }
+                # Surface who last changed the remote only on drift (token economy).
+                if remote_updated_by and status in ("conflict", "remote_newer"):
+                    component["remote_updated_by"] = remote_updated_by
+                components.append(component)
 
     status_counts: Dict[str, int] = {}
     for c in components:
@@ -555,7 +610,7 @@ def diff_local_component(
     except ValueError as e:
         return {"error": str(e)}
 
-    remote_fields = list(resolved.fields.keys()) + ["sys_updated_on"]
+    remote_fields = list(resolved.fields.keys()) + ["sys_updated_on", "sys_updated_by"]
     try:
         remote_record = _fetch_portal_component_record(
             config, auth_manager, resolved.table, resolved.sys_id, remote_fields, full=True
@@ -568,12 +623,15 @@ def diff_local_component(
     meta = sync_meta.get(resolved.name, {})
     local_updated_on = meta.get("sys_updated_on", "")
     remote_updated_on = str(remote_record.get("sys_updated_on") or "")
+    # sys_updated_by is a string (user_name) field — readable as-is.
+    remote_updated_by = _display_str(remote_record.get("sys_updated_by"))
     conflict_warning = None
     if local_updated_on and remote_updated_on and remote_updated_on > local_updated_on:
+        by = f" by {remote_updated_by}" if remote_updated_by else ""
         conflict_warning = (
-            f"Remote was updated at {remote_updated_on}, "
+            f"Remote was updated at {remote_updated_on}{by}, "
             f"after your download (remote was {local_updated_on} at download time). "
-            f"Someone else may have modified this component."
+            f"Someone else may have modified this component or holds the update set."
         )
 
     diffs: List[Dict[str, Any]] = []
@@ -610,7 +668,7 @@ def diff_local_component(
             }
         )
 
-    return {
+    result: Dict[str, Any] = {
         "mode": "diff",
         "component": {
             "table": resolved.table,
@@ -620,6 +678,9 @@ def diff_local_component(
         "conflict_warning": conflict_warning,
         "diffs": diffs,
     }
+    if conflict_warning and remote_updated_by:
+        result["remote_updated_by"] = remote_updated_by
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -731,22 +792,38 @@ def update_remote_from_local(
     status = result.get("status")
     if result.get("error") or (isinstance(status, int) and status >= 400):
         detail = str(result.get("error", "")).lower()
-        if status == 403 or "acl" in detail or "security constraint" in detail:
+        is_acl = status == 403 or "acl" in detail or "security constraint" in detail
+
+        # For ACL/403, internally resolve who holds the scope's in-progress update
+        # set(s) so the caller sees the likely culprit without a manual lookup.
+        active_sets: List[Dict[str, str]] = []
+        if is_acl:
+            scope_value = ""
+            try:
+                rec = _fetch_portal_component_record(
+                    config, auth_manager, resolved.table, resolved.sys_id, ["sys_scope"]
+                )
+                sc = rec.get("sys_scope")
+                scope_value = str(sc.get("value") or "") if isinstance(sc, dict) else str(sc or "")
+            except Exception as exc:
+                logger.warning("Could not resolve component scope for 403 diagnosis: %s", exc)
+            active_sets = _active_update_sets(config, auth_manager, scope_value)
+
+        if is_acl:
             hint = (
                 "HTTP 403 ACL Exception — the write reached ServiceNow but was rejected. "
                 "Likely causes, in order: (1) the target update set is locked, closed, or "
-                "held by another user — check the active update set and its owner; "
-                "(2) the account lacks sp_admin / write ACL on this table — verify roles via "
-                "sn_health; (3) scoped-app protection or wrong scope context. Local files and "
-                "_sync_meta are UNCHANGED — free/switch the update set (or use a privileged "
-                "session), then retry."
+                "held by another user (see active_update_sets below for owners); (2) the "
+                "account lacks sp_admin / write ACL on this table — verify roles via sn_health; "
+                "(3) scoped-app protection or wrong scope. Local files and _sync_meta are "
+                "UNCHANGED — free/switch the update set (or use a privileged session), then retry."
             )
         else:
             hint = (
                 "Remote rejected the write. Local files and _sync_meta are UNCHANGED; "
                 "resolve the error and retry."
             )
-        return {
+        response: Dict[str, Any] = {
             "success": False,
             "error": result.get("error", "Push rejected by ServiceNow."),
             "status": status,
@@ -759,6 +836,9 @@ def update_remote_from_local(
             "sync_meta_updated": False,
             "hint": hint,
         }
+        if active_sets:
+            response["active_update_sets"] = active_sets
+        return response
 
     # 5. Update _sync_meta.json with new remote timestamp
     try:

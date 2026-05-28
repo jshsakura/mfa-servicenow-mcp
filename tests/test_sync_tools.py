@@ -373,6 +373,7 @@ class TestDiffLocalComponent:
             "name": "my-widget",
             "script": "var x = 99;",
             "sys_updated_on": "2025-01-15 12:00:00",  # newer than download
+            "sys_updated_by": "carol",
         }
 
         path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
@@ -382,13 +383,16 @@ class TestDiffLocalComponent:
 
         assert result["conflict_warning"] is not None
         assert "2025-01-15" in result["conflict_warning"]
+        # Surfaces who last changed the remote — the actionable signal.
+        assert "carol" in result["conflict_warning"]
+        assert result["remote_updated_by"] == "carol"
 
     @patch("servicenow_mcp.tools.sync_tools._batch_fetch_updated_on")
     def test_diff_directory_mode_scan(self, mock_batch, mock_config, mock_auth, download_root):
         mock_batch.return_value = {
-            "wid-1": "2025-01-10 10:00:00",
-            "prov-1": "2025-01-10 10:00:00",
-            "si-1": "2025-01-10 10:00:00",
+            "wid-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
+            "prov-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
+            "si-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
         }
 
         result = diff_local_component(
@@ -404,29 +408,31 @@ class TestDiffLocalComponent:
         self, mock_batch, mock_config, mock_auth, download_root
     ):
         mock_batch.return_value = {
-            "wid-1": "2025-01-20 12:00:00",  # newer than download
-            "prov-1": "2025-01-10 10:00:00",
-            "si-1": "2025-01-10 10:00:00",
+            "wid-1": {"on": "2025-01-20 12:00:00", "by": "bob"},  # newer than download
+            "prov-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
+            "si-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
         }
 
         result = diff_local_component(
             mock_config, mock_auth, DiffLocalComponentParams(path=str(download_root))
         )
 
-        statuses = {c["name"]: c["status"] for c in result["components"]}
+        comps = {c["name"]: c for c in result["components"]}
         # File mtime is newer than downloaded_at (2025-01-10), so if remote is also
         # newer, status is "conflict" (both sides changed). If only remote changed
         # and local files are untouched, it would be "remote_newer".
-        assert statuses["my-widget"] in ("remote_newer", "conflict")
+        assert comps["my-widget"]["status"] in ("remote_newer", "conflict")
+        # The drifted component surfaces who last changed the remote.
+        assert comps["my-widget"]["remote_updated_by"] == "bob"
 
     @patch("servicenow_mcp.tools.sync_tools._batch_fetch_updated_on")
     def test_diff_directory_mode_detects_local_modified(
         self, mock_batch, mock_config, mock_auth, download_root
     ):
         mock_batch.return_value = {
-            "wid-1": "2025-01-10 10:00:00",
-            "prov-1": "2025-01-10 10:00:00",
-            "si-1": "2025-01-10 10:00:00",
+            "wid-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
+            "prov-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
+            "si-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
         }
         # Touch a file to make it newer than downloaded_at
         script = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
@@ -536,6 +542,59 @@ class TestUpdateRemoteFromLocal:
         assert result["sync_meta_updated"] is False
         assert "update set" in result["hint"].lower()
         mock_write_meta.assert_not_called()  # local sync state NOT poisoned
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_403_surfaces_active_update_set_owner(
+        self,
+        mock_fetch,
+        mock_update,
+        mock_write_meta,
+        mock_sn_query,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        # On 403, the tool internally resolves who holds the scope's in-progress
+        # update set so the caller sees the likely culprit without a manual lookup.
+        mock_fetch.side_effect = [
+            # conflict-comparison fetch (before push)
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 0;",
+                "sys_updated_on": "2025-01-10 10:00:00",
+            },
+            # scope fetch on the 403 path
+            {"sys_scope": {"value": "scope-1", "display_value": "x_app_bpm"}},
+        ]
+        mock_update.return_value = {
+            "error": "Update failed: ACL Exception Update Failed due to security constraints",
+            "status": 403,
+        }
+        mock_sn_query.return_value = {
+            "results": [
+                {
+                    "name": "KH refactor",
+                    "sys_created_by": "jane.doe",
+                    "sys_updated_by": "jane.doe",
+                    "sys_updated_on": "2026-05-27 09:00:00",
+                }
+            ]
+        }
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert result["success"] is False
+        assert result["active_update_sets"][0]["name"] == "KH refactor"
+        assert result["active_update_sets"][0]["updated_by"] == "jane.doe"
+        # in-progress update sets queried for the component's scope
+        assert "scope-1" in mock_sn_query.call_args.args[2].query
+        mock_write_meta.assert_not_called()
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_push_conflict_rejected(self, mock_fetch, mock_config, mock_auth, download_root):
@@ -873,12 +932,23 @@ class TestExtendedSyncCoverage:
     def test_batch_fetch_updated_on(self, mock_sn_query, mock_config, mock_auth):
         mock_sn_query.return_value = {
             "results": [
-                {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 10:00:00"},
-                {"sys_id": "wid-2", "sys_updated_on": "2025-01-11 11:00:00"},
+                {
+                    "sys_id": "wid-1",
+                    "sys_updated_on": "2025-01-10 10:00:00",
+                    "sys_updated_by": "alice",
+                },
+                {
+                    "sys_id": "wid-2",
+                    "sys_updated_on": "2025-01-11 11:00:00",
+                    "sys_updated_by": "bob",
+                },
             ]
         }
         result = _batch_fetch_updated_on(mock_config, mock_auth, "sp_widget", ["wid-1", "wid-2"])
-        assert result == {"wid-1": "2025-01-10 10:00:00", "wid-2": "2025-01-11 11:00:00"}
+        assert result == {
+            "wid-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
+            "wid-2": {"on": "2025-01-11 11:00:00", "by": "bob"},
+        }
         mock_sn_query.assert_called_once()
 
     @patch("servicenow_mcp.tools.sync_tools.sn_query")
@@ -940,7 +1010,7 @@ class TestExtendedSyncCoverage:
         table_dir.mkdir()
         (table_dir / "_map.json").write_text(json.dumps({"MyUtil": "si-1"}), encoding="utf-8")
         # No actual script file exists, so local_files will be empty
-        mock_batch.return_value = {"si-1": "2025-01-10 10:00:00"}
+        mock_batch.return_value = {"si-1": {"on": "2025-01-10 10:00:00", "by": "alice"}}
         result = _scan_download_root(mock_config, mock_auth, root)
         assert result["mode"] == "scan"
         assert result["summary"]["total"] == 0
@@ -962,7 +1032,7 @@ class TestExtendedSyncCoverage:
         (si_dir / "MyUtil.script.js").write_text("code", encoding="utf-8")
         (si_dir / "_map.json").write_text(json.dumps({"MyUtil": "si-1"}), encoding="utf-8")
         # No _sync_meta.json -> has_sync_meta=False -> status='unknown'
-        mock_batch.return_value = {"si-1": "2025-01-10 10:00:00"}
+        mock_batch.return_value = {"si-1": {"on": "2025-01-10 10:00:00", "by": "alice"}}
         result = _scan_download_root(mock_config, mock_auth, root)
         assert result["mode"] == "scan"
         statuses = {c["name"]: c["status"] for c in result["components"]}
@@ -1002,7 +1072,7 @@ class TestExtendedSyncCoverage:
             ),
             encoding="utf-8",
         )
-        mock_batch.return_value = {"si-1": "2025-01-10 10:00:00"}
+        mock_batch.return_value = {"si-1": {"on": "2025-01-10 10:00:00", "by": "alice"}}
         result = _scan_download_root(mock_config, mock_auth, root)
         statuses = {c["name"]: c["status"] for c in result["components"]}
         assert statuses.get("MyUtil") == "unchanged"
