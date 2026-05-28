@@ -1,6 +1,6 @@
 # MFA ServiceNow MCP
 
-🌐 [English](./README.md) | 🇰🇷 [한국어](./README.ko.md) | 🚀 [**GitHub Pages**](https://jshsakura.github.io/mfa-servicenow-mcp/)
+🌐 [English](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md) | 🇰🇷 [한국어](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md) | 🚀 [**GitHub Pages**](https://jshsakura.github.io/mfa-servicenow-mcp/)
 
 MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so Okta, Entra ID, SAML, and any MFA/SSO login just works. Also supports API Key for headless/Docker environments.
 
@@ -134,7 +134,7 @@ Then restart the client. The first browser tool call opens a window for Okta/Ent
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
-- Tool packages for core, standard, service desk, portal developers, and platform developers — `full` available for advanced users (see [warning](docs/TOOL_PACKAGES.md))
+- Tool packages for core, standard, service desk, portal developers, and platform developers — `full` available for advanced users (see [warning](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/TOOL_PACKAGES.md))
 - Developer productivity tools: activity tracking, uncommitted changes, dependency mapping, daily summary
 - Full coverage of core ServiceNow artifact tables (see [Supported Tables](#supported-servicenow-tables))
 - CI/CD with auto-tagging, PyPI publishing, and Docker multi-platform builds
@@ -215,9 +215,7 @@ If the version prints, you're done with the binary half — every remaining step
 
 #### 4. Wire it up in your MCP client (copy-paste)
 
-Paste the snippet for your client into the file it reads. The `env` block is identical to the uvx setup; only `command` changes to the absolute path of your executable.
-
-**Claude Code** — `.mcp.json` (project root) / `~/.claude.json` (global):
+Reuse the same client config as the `uvx` path in [Setup](#setup) — only `command` changes to the absolute path of your executable, the `env` block stays identical. Claude Code example:
 
 ```json
 {
@@ -239,47 +237,7 @@ Paste the snippet for your client into the file it reads. The `env` block is ide
 
 On Windows replace `"command"` with `"C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe"`.
 
-**Codex** — `.codex/config.toml` (project) / `~/.codex/config.toml` (global):
-
-```toml
-[mcp_servers.servicenow]
-command = "/home/you/apps/servicenow-mcp/servicenow-mcp"
-args = []
-startup_timeout_sec = 30
-tool_timeout_sec = 120
-enabled = true
-
-[mcp_servers.servicenow.env]
-SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
-SERVICENOW_AUTH_TYPE = "browser"
-SERVICENOW_BROWSER_HEADLESS = "false"
-SERVICENOW_USERNAME = "your-username"
-SERVICENOW_PASSWORD = "your-password"
-```
-
-**OpenCode** — `opencode.json` (project root):
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": ["/home/you/apps/servicenow-mcp/servicenow-mcp"],
-      "enabled": true,
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
-}
-```
-
-> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional (MFA login pre-fill). If you put Chromium *somewhere else* than next to the executable, add `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` to the env block — the auto-detect only kicks in for the sibling-directory layout above. Configs for other clients (Cursor, VS Code Copilot, Gemini, Zed, …) live in the [Client Setup Guide](docs/CLIENT_SETUP.md).
+> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional (MFA login pre-fill). If Chromium lives somewhere other than next to the executable, add `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` to the env block. Codex (TOML), OpenCode, Cursor, VS Code Copilot, Gemini, Zed snippets: [Client Setup Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md).
 
 #### Chromium fallback (optional)
 
@@ -292,7 +250,7 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 
 The result is the same `ms-playwright/chromium-*/…` layout the bundled zip produces, so the auto-detect picks it up with no extra config.
 
-> Windows users: see the [Windows Installation Guide](./docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
+> Windows users: see the [Windows Installation Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
 
 ---
 
@@ -316,7 +274,7 @@ Each project can connect to a different ServiceNow instance. Set the config in y
 | AntiGravity | *Global only* | `~/.gemini/antigravity/mcp_config.json` | JSON |
 | Docker | *Env vars only* | *Env vars only* | Env vars |
 
-Copy-paste configs for each client: **[Client Setup Guide](docs/CLIENT_SETUP.md)**
+Copy-paste configs for each client: **[Client Setup Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md)**
 
 > `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional — they prefill the MFA login form. On Windows, set these as system environment variables.
 
@@ -466,7 +424,7 @@ Use `compare_instances` for dev/test drift checks. Use separate project/client c
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
-For the full reference (all packages, inheritance details, config syntax): [Tool Packages Advanced Guide](docs/TOOL_PACKAGES.md).
+For the full reference (all packages, inheritance details, config syntax): [Tool Packages Advanced Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/TOOL_PACKAGES.md).
 
 ---
 
@@ -554,94 +512,6 @@ Avoid it by installing Chromium **before** the first call (the setup commands ab
 ```bash
 uvx --with playwright playwright install chromium
 ```
-
-#### MCP client configs (project-local examples)
-
-Put project-local config in the repository root. This lets each dev/test/prod project point at its own ServiceNow instance and tool profile.
-
-Choose one execution style:
-
-- `uvx`: default recommended path. Runs from PyPI and uses the `uvx` cache.
-- Local release zip/exe: use when endpoint security blocks `uvx` or package execution. Extract `servicenow-mcp-<platform>-<version>.zip`, run the included installer, then point MCP `command` at the installed executable.
-
-##### `uvx`
-
-**Claude Code** (`.mcp.json` in repo root):
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
-}
-```
-
-**Codex** (`.codex/config.toml` in repo root — project-local; `~/.codex/config.toml` is the global form):
-
-```toml
-[mcp_servers.servicenow]
-command = "uvx"
-args = [
-  "--with", "playwright",
-  "--from", "mfa-servicenow-mcp",
-  "servicenow-mcp",
-]
-startup_timeout_sec = 30
-tool_timeout_sec = 120
-enabled = true
-
-[mcp_servers.servicenow.env]
-SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
-SERVICENOW_AUTH_TYPE = "browser"
-SERVICENOW_BROWSER_HEADLESS = "false"
-SERVICENOW_USERNAME = "your-username"
-SERVICENOW_PASSWORD = "your-password"
-```
-
-**OpenCode** (`opencode.json` in repo root):
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": [
-        "uvx",
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
-      "enabled": true,
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
-}
-```
-
-##### Local release zip/exe
-
-See [Step 5 of the local install section](#step-5--wire-it-up-in-your-mcp-client-copy-paste) above for per-client copy-paste snippets. Two key differences from the uvx config: `command` points at the local executable, and the env block includes `PLAYWRIGHT_BROWSERS_PATH` pointing at the Chromium directory next to the executable — that's how the server stays out of the system standard Playwright cache. The installer prints both values when it finishes, so copy those directly.
 
 #### Upgrading
 
@@ -858,7 +728,7 @@ delegatable: true|false           # → can run in sub-agent to save context
 triggers: ["위젯 분석", "analyze widget"]  # → LLM trigger matching
 ```
 
-For the full skill reference, see [skills/SKILL.md](skills/SKILL.md).
+For the full skill reference, see [skills/SKILL.md](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/skills/SKILL.md).
 
 ### MCP Resources (Built-in Skill Guides)
 
@@ -893,7 +763,7 @@ docker run -it --rm \
   ghcr.io/jshsakura/mfa-servicenow-mcp:latest
 ```
 
-See [Client Setup Guide](docs/CLIENT_SETUP.md#docker-api-key-only) for local build options.
+See [Client Setup Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md#docker-api-key-only) for local build options.
 
 ## Developer Setup
 
@@ -929,26 +799,26 @@ uv run mypy src/
 uv build
 ```
 
-> Windows: see [Windows Installation Guide](./docs/WINDOWS_INSTALL.md)
+> Windows: see [Windows Installation Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/WINDOWS_INSTALL.md)
 
 ---
 
 ## Documentation
 
-- [LLM Setup Guide](docs/llm-setup.md) — AI-guided one-line installation flow
-- [Client Setup Guide](docs/CLIENT_SETUP.md) — Installer-first setup plus fallback client configs
-- [Tool Inventory](docs/TOOL_INVENTORY.md) — Complete tool list by category and package
-- [Windows Installation Guide](docs/WINDOWS_INSTALL.md)
-- [Catalog Guide](docs/catalog.md) — Service catalog CRUD and optimization
-- [Change Management](docs/change_management.md) — Change request lifecycle and approval
-- [Workflow Management](docs/workflow_management.md) — Workflow (wf_workflow engine) and Flow Designer tools
-- [Korean README](./README.ko.md)
+- [LLM Setup Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/llm-setup.md) — AI-guided one-line installation flow
+- [Client Setup Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md) — Installer-first setup plus fallback client configs
+- [Tool Inventory](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/TOOL_INVENTORY.md) — Complete tool list by category and package
+- [Windows Installation Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/WINDOWS_INSTALL.md)
+- [Catalog Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.md) — Service catalog CRUD and optimization
+- [Change Management](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/change_management.md) — Change request lifecycle and approval
+- [Workflow Management](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/workflow_management.md) — Workflow (wf_workflow engine) and Flow Designer tools
+- [Korean README](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md)
 
 ---
 
 ## Related Projects and Acknowledgements
 
-- This repository includes tools consolidated and refactored from earlier internal / legacy ServiceNow MCP implementations. The current surface is organized around bundled `manage_*` tools (see [tool_utils.py](./src/servicenow_mcp/utils/tool_utils.py)).
+- This repository includes tools consolidated and refactored from earlier internal / legacy ServiceNow MCP implementations. The current surface is organized around bundled `manage_*` tools (see [tool_utils.py](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/src/servicenow_mcp/utils/tool_utils.py)).
 - Some developer productivity workflows, especially server-side source lookup, were designed with ideas inspired by [SN Utils](https://github.com/arnoudkooi/SN-Utils). This project does not bundle or redistribute SN Utils code.
 - This project is focused on MCP server use cases rather than browser-extension UX. If you want in-browser productivity features inside ServiceNow, SN Utils remains a strong companion tool.
 
