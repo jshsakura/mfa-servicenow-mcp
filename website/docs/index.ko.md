@@ -192,18 +192,18 @@ uvx --with playwright playwright install chromium
         installer가 권장 경로입니다. 아래 원시 설정 예시는 설정 파일을 직접 점검하거나 복구해야 할 때만 사용하세요.
       </p>
     </div>
+    <p class="section-desc" style="margin-top:8px;font-size:0.9rem;opacity:0.8;">
+      구조는 4가지뿐 — <code>env</code> 블록은 어느 클라이언트에서나 동일합니다. 외부 래퍼만 다릅니다.
+    </p>
     <div class="install-block reveal">
       <div class="install-tabs" id="mcp-tabs">
-        <button class="install-tab active" data-target="mcp-claude-desktop">Claude Desktop</button>
-        <button class="install-tab" data-target="mcp-claude-code">Claude Code</button>
+        <button class="install-tab active" data-target="mcp-standard">Claude Desktop / Claude Code / Gemini / AntiGravity / Cursor</button>
         <button class="install-tab" data-target="mcp-zed">Zed</button>
-        <button class="install-tab" data-target="mcp-codex">Codex</button>
+        <button class="install-tab" data-target="mcp-codex">Codex (TOML)</button>
         <button class="install-tab" data-target="mcp-opencode">OpenCode</button>
-        <button class="install-tab" data-target="mcp-gemini">Gemini</button>
-        <button class="install-tab" data-target="mcp-antigravity">AntiGravity</button>
       </div>
       <div class="install-panels" id="mcp-panels">
-        <div class="install-panel active" id="mcp-claude-desktop">
+        <div class="install-panel active" id="mcp-standard">
           <div class="install-code-block">
             <pre class="install-code"><code>{
   "mcpServers": {
@@ -222,20 +222,18 @@ uvx --with playwright playwright install chromium
 }</code></pre>
           </div>
         </div>
-        <div class="install-panel" id="mcp-claude-code">
+        <div class="install-panel" id="mcp-zed">
           <div class="install-code-block">
             <pre class="install-code"><code>{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
+  "servicenow": {
+    "command": "uvx",
+    "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+    "env": {
+      "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+      "SERVICENOW_AUTH_TYPE": "browser",
+      "SERVICENOW_BROWSER_HEADLESS": "false",
+      "SERVICENOW_USERNAME": "your-username",
+      "SERVICENOW_PASSWORD": "your-password"
     }
   }
 }</code></pre>
@@ -256,23 +254,6 @@ SERVICENOW_USERNAME = "your-username"
 SERVICENOW_PASSWORD = "your-password"</code></pre>
           </div>
         </div>
-        <div class="install-panel" id="mcp-zed">
-          <div class="install-code-block">
-            <pre class="install-code"><code>{
-  "servicenow": {
-    "command": "uvx",
-    "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
-    "env": {
-      "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-      "SERVICENOW_AUTH_TYPE": "browser",
-      "SERVICENOW_BROWSER_HEADLESS": "false",
-      "SERVICENOW_USERNAME": "your-username",
-      "SERVICENOW_PASSWORD": "your-password"
-    }
-  }
-}</code></pre>
-          </div>
-        </div>
         <div class="install-panel" id="mcp-opencode">
           <div class="install-code-block">
             <pre class="install-code"><code>{
@@ -286,48 +267,6 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       ],
       "enabled": true,
       "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
-}</code></pre>
-          </div>
-        </div>
-        <div class="install-panel" id="mcp-gemini">
-          <div class="install-code-block">
-            <pre class="install-code"><code>{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
-}</code></pre>
-          </div>
-        </div>
-        <div class="install-panel" id="mcp-antigravity">
-          <div class="install-code-block">
-            <pre class="install-code"><code>{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": [
-        "--with", "playwright",
-        "--from", "mfa-servicenow-mcp",
-        "servicenow-mcp"
-      ],
-      "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",
