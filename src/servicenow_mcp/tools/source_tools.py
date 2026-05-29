@@ -184,7 +184,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_updated_on",
             "sys_updated_by",
         ],
-        "source_fields": ["script"],
+        "source_fields": ["script", "condition"],
         "search_fields": ["name", "collection", "script"],
         "lookup_fields": ["sys_id", "name"],
     },
@@ -1589,6 +1589,7 @@ def extract_widget_table_dependencies(
 # File extension mapping based on source field content
 _FIELD_EXTENSIONS: Dict[str, str] = {
     "script": ".js",
+    "condition": ".js",
     "client_script": ".client.js",
     "operation_script": ".js",
     "processing_script": ".server.js",
