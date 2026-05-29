@@ -111,6 +111,18 @@ class TestValidatePortalComponentUpdateData:
         with pytest.raises(ValueError, match="must be a string"):
             _validate_portal_component_update_data("sp_widget", {"script": 123})
 
+    def test_business_rule_script_and_condition_allowed(self):
+        # sys_script is sync-pushable; the write delegate must accept both its
+        # editable fields so condition round-trips, not just script.
+        result = _validate_portal_component_update_data(
+            "sys_script", {"script": "(function(){})();", "condition": "current.active"}
+        )
+        assert result == {"script": "(function(){})();", "condition": "current.active"}
+
+    def test_business_rule_rejects_non_editable_field(self):
+        with pytest.raises(ValueError, match="Unsupported update fields"):
+            _validate_portal_component_update_data("sys_script", {"when": "before"})
+
 
 # ---------------------------------------------------------------------------
 # _summarize_text_preview — lines 275-276

@@ -121,6 +121,27 @@ def download_root(tmp_path):
         encoding="utf-8",
     )
 
+    # Business Rule (folder table: script + condition)
+    br_dir = scope / "sys_script" / "MyRule"
+    br_dir.mkdir(parents=True)
+    (br_dir / "script.js").write_text("(function(){ gs.info('x'); })();", encoding="utf-8")
+    (br_dir / "condition.js").write_text("current.state.changesTo('3')", encoding="utf-8")
+    (scope / "sys_script" / "_map.json").write_text(
+        json.dumps({"MyRule": "br-1"}), encoding="utf-8"
+    )
+    (scope / "sys_script" / "_sync_meta.json").write_text(
+        json.dumps(
+            {
+                "MyRule": {
+                    "sys_id": "br-1",
+                    "sys_updated_on": "2025-01-10 10:00:00",
+                    "downloaded_at": "2025-01-10T10:05:00+00:00",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
     return root
 
 
@@ -256,6 +277,23 @@ class TestResolveLocalPath:
         assert resolved.table == "sys_script_include"
         assert resolved.sys_id == "si-1"
         assert "script" in resolved.fields
+
+    def test_resolve_business_rule_file(self, download_root):
+        # A BR is a folder table — condition.js maps to the condition field so the
+        # behaviour (not just the script body) round-trips through sync push.
+        path = download_root / "global" / "sys_script" / "MyRule" / "condition.js"
+        resolved = _resolve_local_path(path)
+        assert resolved.table == "sys_script"
+        assert resolved.sys_id == "br-1"
+        assert resolved.name == "MyRule"
+        assert resolved.fields == {"condition": path}
+
+    def test_resolve_business_rule_directory(self, download_root):
+        path = download_root / "global" / "sys_script" / "MyRule"
+        resolved = _resolve_local_path(path)
+        assert resolved.table == "sys_script"
+        assert resolved.sys_id == "br-1"
+        assert set(resolved.fields) == {"script", "condition"}
 
     def test_resolve_unknown_file_raises(self, tmp_path):
         (tmp_path / "random.txt").write_text("hello")
@@ -512,6 +550,36 @@ class TestUpdateRemoteFromLocal:
         assert "snapshot" not in result["local_sync"]
         assert result["success"] is True
         mock_update.assert_called_once()
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_business_rule_condition(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
+    ):
+        # Editing only condition.js pushes the BR condition field — the gap that
+        # forced manual reapply because sys_script wasn't a sync-supported table.
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "br-1",
+                "name": "MyRule",
+                "condition": "current.state.changesTo('4')",  # differs from local
+                "sys_updated_on": "2025-01-10 10:00:00",
+            },
+            {"sys_id": "br-1", "sys_updated_on": "2025-01-10 11:00:00"},
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "br-1"}
+
+        path = download_root / "global" / "sys_script" / "MyRule" / "condition.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert result["success"] is True
+        assert result["local_sync"]["fields_pushed"] == ["condition"]
+        pushed_params = mock_update.call_args.args[2]
+        assert pushed_params.table == "sys_script"
+        assert "condition" in pushed_params.update_data
 
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
