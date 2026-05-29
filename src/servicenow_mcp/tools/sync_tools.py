@@ -41,6 +41,9 @@ TABLE_FILE_FIELD_MAP: Dict[str, Dict[str, str]] = {
     "sp_widget": WIDGET_FILE_FIELD_MAP,
     "sp_angular_provider": {".script.js": "script"},
     "sys_script_include": {".script.js": "script"},
+    # Business Rules are folder-based: behaviour lives across script + condition,
+    # so a single-file model can't round-trip the condition the way SIs can.
+    "sys_script": {"script.js": "script", "condition.js": "condition"},
     "sp_header_footer": {
         "template.html": "template",
         "css.scss": "css",
@@ -54,7 +57,7 @@ TABLE_FILE_FIELD_MAP: Dict[str, Dict[str, str]] = {
     },
 }
 
-FOLDER_TABLES: Set[str] = {"sp_widget", "sp_header_footer", "sys_ui_page"}
+FOLDER_TABLES: Set[str] = {"sp_widget", "sp_header_footer", "sys_ui_page", "sys_script"}
 SINGLE_FILE_TABLES: Set[str] = {
     "sp_angular_provider",
     "sys_script_include",
@@ -66,6 +69,7 @@ SUPPORTED_TABLES: Set[str] = {
     "sp_widget",
     "sp_angular_provider",
     "sys_script_include",
+    "sys_script",
     "sp_header_footer",
     "sp_css",
     "sp_ng_template",
@@ -97,7 +101,7 @@ class PushLocalComponentParams(BaseModel):
     path: str = Field(
         default=...,
         description=(
-            "Local path. sp_widget = <table>/<name>/<file> (folder). "
+            "Local path. sp_widget|sys_script = <table>/<name>/<file> (folder). "
             "sp_angular_provider|sys_script_include|sp_css|sp_ng_template = "
             "<table>/<name>.<suffix> (single file, NO subfolder)."
         ),
@@ -691,8 +695,8 @@ def diff_local_component(
     params=PushLocalComponentParams,
     description=(
         "Push local edits to ServiceNow — run diff_local_component first to review. "
-        "Path: sp_widget/<name>/<file> (folder) | sp_angular_provider|sys_script_include|"
-        "sp_css|sp_ng_template/<name>.<suffix> (single file)."
+        "Path: sp_widget|sys_script/<name>/<file> (folder) | sp_angular_provider|"
+        "sys_script_include|sp_css|sp_ng_template/<name>.<suffix> (single file)."
     ),
     serialization="raw_dict",
     return_type=dict,
