@@ -18,6 +18,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services import portal_component as _comp_svc
 from servicenow_mcp.services import portal_layout as _layout_svc
 from servicenow_mcp.tools.portal_tools import UpdatePortalComponentParams, update_portal_component
+from servicenow_mcp.tools.session_context_tools import ensure_current_app
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -624,6 +625,32 @@ def manage_portal_component(
     params: ManagePortalComponentParams,
 ) -> Dict[str, Any]:
     a = params.action
+
+    # Auto-align the session's current application to the target scope before a
+    # create, so the new record lands in the intended scope (ServiceNow assigns
+    # scope from the current app, not the insert body). Browser auth only; a hard
+    # switch failure aborts the create rather than writing to the wrong scope.
+    switch_info: Optional[Dict[str, Any]] = None
+    if a.startswith("create_") and params.scope:
+        ctx = ensure_current_app(config, auth_manager, params.scope)
+        switch_info = ctx
+        if not ctx.get("switched") and not ctx.get("already_current") and ctx.get("error"):
+            return {
+                "success": False,
+                "error": "scope_switch_failed",
+                "message": (
+                    "Could not switch the current application to the target scope; "
+                    "aborting to avoid creating in the wrong scope. "
+                    f"{ctx.get('message', '')}"
+                ),
+                "scope_switch": ctx,
+            }
+
+    def _attach(result: Dict[str, Any]) -> Dict[str, Any]:
+        if switch_info and isinstance(result, dict):
+            result.setdefault("scope_switch", switch_info)
+        return result
+
     if a == "create_widget":
         kw: Dict[str, Any] = {"name": params.name, "scope": params.scope}
         if params.widget_id is not None:
@@ -641,7 +668,7 @@ def manage_portal_component(
             v = getattr(params, f)
             if v is not None:
                 kw[f] = v
-        return _comp_svc.create_widget(config, auth_manager, **kw)
+        return _attach(_comp_svc.create_widget(config, auth_manager, **kw))
     if a == "create_provider":
         kw = {
             "name": params.name,
@@ -652,33 +679,33 @@ def manage_portal_component(
             kw["provider_type"] = params.provider_type
         if params.description is not None:
             kw["description"] = params.description
-        return _comp_svc.create_angular_provider(config, auth_manager, **kw)
+        return _attach(_comp_svc.create_angular_provider(config, auth_manager, **kw))
     if a == "create_header_footer":
         kw = {"name": params.name, "scope": params.scope}
         for f in ("template", "css"):
             v = getattr(params, f)
             if v is not None:
                 kw[f] = v
-        return _comp_svc.create_header_footer(config, auth_manager, **kw)
+        return _attach(_comp_svc.create_header_footer(config, auth_manager, **kw))
     if a == "create_theme":
         kw = {"name": params.name, "scope": params.scope}
         if params.css is not None:
             kw["css"] = params.css
-        return _comp_svc.create_css_theme(config, auth_manager, **kw)
+        return _attach(_comp_svc.create_css_theme(config, auth_manager, **kw))
     if a == "create_ng_template":
         kw = {
             "template_id": params.template_id,
             "template": params.template,
             "scope": params.scope,
         }
-        return _comp_svc.create_ng_template(config, auth_manager, **kw)
+        return _attach(_comp_svc.create_ng_template(config, auth_manager, **kw))
     if a == "create_ui_page":
         kw = {"name": params.name, "scope": params.scope}
         for f in ("html", "client_script", "processing_script", "description", "category"):
             v = getattr(params, f)
             if v is not None:
                 kw[f] = v
-        return _comp_svc.create_ui_page(config, auth_manager, **kw)
+        return _attach(_comp_svc.create_ui_page(config, auth_manager, **kw))
     # update_code
     # ManagePortalCrudParams validator guarantees both are present for update_code.
     assert params.table is not None
