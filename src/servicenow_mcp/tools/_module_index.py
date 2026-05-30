@@ -52,6 +52,7 @@ TOOL_MODULE_INDEX = {
     "manage_project": "project_tools",
     "manage_script_include": "script_include_tools",
     "manage_scrum_task": "scrum_task_tools",
+    "manage_session_context": "session_context_tools",
     "manage_story": "story_tools",
     "manage_ui_policy": "ui_policy_tools",
     "manage_user": "user_tools",

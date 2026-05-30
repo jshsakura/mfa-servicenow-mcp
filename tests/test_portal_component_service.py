@@ -246,16 +246,38 @@ class TestCreateNgTemplate:
 
     @patch("servicenow_mcp.services.portal_component.sn_query_page", return_value=([], 0))
     @patch("servicenow_mcp.services.portal_component.invalidate_query_cache")
-    def test_scope_in_body(self, mock_cache, mock_query, mock_config, mock_auth):
+    def test_scope_stripped_from_body(self, mock_cache, mock_query, mock_config, mock_auth):
+        # An explicit sys_scope in the POST body triggers ServiceNow's 403
+        # cross-scope guard, so it must NOT be sent — the record inherits the
+        # session's current application instead.
         mock_auth.make_request.return_value = _mock_response(
-            {"result": {"sys_id": "ng2", "id": "tpl2.html"}}
+            {"result": {"sys_id": "ng2", "id": "tpl2.html", "sys_scope": SCOPE}}
         )
         result = create_ng_template(
             mock_config, mock_auth, template_id="tpl2.html", template="<p/>", scope=SCOPE
         )
         assert result["success"] is True
         body = mock_auth.make_request.call_args[1]["json"]
-        assert body["sys_scope"] == SCOPE
+        assert "sys_scope" not in body
+        # The scope the record actually landed in is surfaced back to the caller.
+        assert result["created_scope"] == SCOPE
+        assert "scope_warning" not in result
+
+    @patch("servicenow_mcp.services.portal_component.sn_query_page", return_value=([], 0))
+    @patch("servicenow_mcp.services.portal_component.invalidate_query_cache")
+    def test_scope_mismatch_surfaces_warning(self, mock_cache, mock_query, mock_config, mock_auth):
+        # Requested HBPM but the session's current app is BPM → record lands in
+        # BPM. The mismatch must be reported, not silently accepted.
+        mock_auth.make_request.return_value = _mock_response(
+            {"result": {"sys_id": "ng3", "id": "tpl3.html", "sys_scope": "bpm_scope"}}
+        )
+        result = create_ng_template(
+            mock_config, mock_auth, template_id="tpl3.html", template="<p/>", scope=SCOPE
+        )
+        assert result["success"] is True
+        assert result["created_scope"] == "bpm_scope"
+        assert "scope_warning" in result
+        assert "manage_session_context" in result["scope_warning"]
 
     @patch(
         "servicenow_mcp.services.portal_component.sn_query_page",

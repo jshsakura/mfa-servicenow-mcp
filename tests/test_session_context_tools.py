@@ -1,0 +1,152 @@
+"""Tests for manage_session_context — current app / update set switching."""
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from servicenow_mcp.tools.session_context_tools import (
+    ManageSessionContextParams,
+    ensure_current_app,
+    manage_session_context,
+)
+from servicenow_mcp.utils.config import ServerConfig
+
+
+def _browser_config():
+    return ServerConfig(
+        instance_url="https://test.service-now.com",
+        auth={
+            "type": "browser",
+            "browser": {"username": "jeongsh", "instance_url": "https://test.service-now.com"},
+        },
+    )
+
+
+def _basic_config():
+    return ServerConfig(
+        instance_url="https://test.service-now.com",
+        auth={"type": "basic", "basic": {"username": "admin", "password": "pw"}},
+    )
+
+
+def _resp(payload, status=200):
+    r = MagicMock()
+    r.status_code = status
+    r.json.return_value = payload
+    r.text = ""
+    r.raise_for_status = MagicMock()
+    return r
+
+
+# --- validation -----------------------------------------------------------
+def test_set_app_requires_app_id():
+    with pytest.raises(ValueError, match="app_id is required"):
+        ManageSessionContextParams(action="set_app")
+
+
+def test_set_update_set_requires_id():
+    with pytest.raises(ValueError, match="update_set_id is required"):
+        ManageSessionContextParams(action="set_update_set")
+
+
+def test_unknown_action_rejected():
+    with pytest.raises(ValueError, match="action must be one of"):
+        ManageSessionContextParams(action="bogus")
+
+
+# --- auth gating ----------------------------------------------------------
+def test_non_browser_auth_blocked():
+    auth = MagicMock()
+    result = manage_session_context(_basic_config(), auth, ManageSessionContextParams(action="get"))
+    assert result["success"] is False
+    assert result["error"] == "browser_auth_required"
+    auth.make_request.assert_not_called()
+
+
+# --- get ------------------------------------------------------------------
+def test_get_returns_current_app_and_update_set():
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({"result": {"current": {"sysId": "app-1", "name": "HBPM"}}}),
+        _resp({"result": {"current": {"sysId": "us-1", "name": "HBPM Pilot"}}}),
+    ]
+    result = manage_session_context(
+        _browser_config(), auth, ManageSessionContextParams(action="get")
+    )
+    assert result["success"] is True
+    assert result["application"] == {"sys_id": "app-1", "name": "HBPM"}
+    assert result["update_set"] == {"sys_id": "us-1", "name": "HBPM Pilot"}
+
+
+# --- set_app: verified by read-back --------------------------------------
+def test_set_app_success_when_readback_matches():
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),  # PUT
+        _resp({"result": {"current": {"sysId": "app-1", "name": "HBPM"}}}),  # GET verify
+    ]
+    result = manage_session_context(
+        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="app-1")
+    )
+    assert result["success"] is True
+    assert result["current"]["sys_id"] == "app-1"
+
+
+def test_set_app_reports_failure_when_not_applied():
+    # PUT "succeeds" but the read-back shows a different app → must NOT claim success.
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),  # PUT
+        _resp({"result": {"current": {"sysId": "bpm-old", "name": "BPM"}}}),  # GET verify
+    ]
+    result = manage_session_context(
+        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="app-1")
+    )
+    assert result["success"] is False
+    assert result["error"] == "not_applied"
+    assert result["current"]["sys_id"] == "bpm-old"
+
+
+def test_set_update_set_success():
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),
+        _resp({"result": {"current": {"sysId": "us-9", "name": "Pilot"}}}),
+    ]
+    result = manage_session_context(
+        _browser_config(),
+        auth,
+        ManageSessionContextParams(action="set_update_set", update_set_id="us-9"),
+    )
+    assert result["success"] is True
+
+
+# --- ensure_current_app (used by create paths) ---------------------------
+def test_ensure_current_app_skips_for_basic_auth():
+    auth = MagicMock()
+    out = ensure_current_app(_basic_config(), auth, "app-1")
+    assert out["switched"] is False
+    assert out["skipped"] == "not_browser_auth"
+    auth.make_request.assert_not_called()
+
+
+def test_ensure_current_app_noop_when_already_current():
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({"result": {"current": {"sysId": "app-1", "name": "HBPM"}}}),  # GET only
+    ]
+    out = ensure_current_app(_browser_config(), auth, "app-1")
+    assert out["switched"] is False
+    assert out["already_current"] is True
+    assert auth.make_request.call_count == 1  # no PUT
+
+
+def test_ensure_current_app_switches_when_different():
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({"result": {"current": {"sysId": "bpm-old", "name": "BPM"}}}),  # GET current
+        _resp({}),  # PUT
+        _resp({"result": {"current": {"sysId": "app-1", "name": "HBPM"}}}),  # GET verify
+    ]
+    out = ensure_current_app(_browser_config(), auth, "app-1")
+    assert out["switched"] is True

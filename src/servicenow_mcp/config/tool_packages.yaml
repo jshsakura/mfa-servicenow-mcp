@@ -91,6 +91,7 @@ portal_developer:
   _tools:
     # Bundled CRUD
     - manage_changeset
+    - manage_session_context
     - manage_script_include
     - manage_portal_layout
     - manage_portal_component
@@ -126,6 +127,7 @@ platform_developer:
     - manage_workflow
     - manage_script_include
     - manage_changeset
+    - manage_session_context
     - manage_ui_policy
     - manage_portal_layout
     - manage_portal_component
@@ -169,6 +171,7 @@ full:
     - manage_user
     - manage_group
     - manage_catalog
+    - manage_session_context
     - manage_portal_layout
     - manage_portal_component
     - manage_widget_dependency
