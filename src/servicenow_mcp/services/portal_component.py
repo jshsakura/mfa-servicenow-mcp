@@ -42,6 +42,23 @@ def _check_duplicate(
         return None
 
 
+def _scope_id(value: Any) -> str:
+    """Normalize a sys_scope reference (dict {value,link} or raw string) to a sys_id."""
+    if isinstance(value, dict):
+        return str(value.get("value") or "")
+    return str(value or "")
+
+
+def _scope_info(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Extra keys to merge into a create response: where the record actually landed."""
+    info: Dict[str, Any] = {}
+    if result.get("created_scope"):
+        info["created_scope"] = result["created_scope"]
+    if result.get("scope_warning"):
+        info["scope_warning"] = result["scope_warning"]
+    return info
+
+
 def _create_record(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -49,6 +66,13 @@ def _create_record(
     body: Dict[str, Any],
     timeout: int = 30,
 ) -> Dict[str, Any]:
+    # ServiceNow rejects an explicit sys_scope in the insert body as a privileged
+    # cross-scope write (HTTP 403) even when it matches the caller's current app.
+    # A new record's scope is assigned from the session's current application
+    # instead — callers align that via manage_session_context before creating.
+    # So strip sys_scope here, then report where the record actually landed so a
+    # context mismatch is visible rather than silently writing to the wrong scope.
+    requested_scope = _scope_id(body.pop("sys_scope", None))
     url = f"{config.instance_url}/api/now/table/{table}"
     headers = auth_manager.get_headers()
     try:
@@ -64,7 +88,21 @@ def _create_record(
         if "result" not in data:
             return {"success": False, "message": f"No result in response for {table}"}
         invalidate_query_cache(table=table)
-        return {"success": True, "result": data["result"]}
+        record = data["result"]
+        created_scope = _scope_id(record.get("sys_scope"))
+        out: Dict[str, Any] = {"success": True, "result": record}
+        if created_scope:
+            out["created_scope"] = created_scope
+        if requested_scope and created_scope and requested_scope != created_scope:
+            out["scope_warning"] = (
+                f"Requested scope '{requested_scope}' but the record landed in "
+                f"'{created_scope}' (your current application). Set the target app "
+                "first via manage_session_context (action=set_app), then retry."
+            )
+            logger.warning(
+                "Created %s in scope %s, requested %s", table, created_scope, requested_scope
+            )
+        return out
     except Exception as e:
         logger.error("Error creating record in %s: %s", table, e)
         return {"success": False, "message": f"Error creating record in {table}: {e}"}
@@ -137,6 +175,7 @@ def create_widget(
     return {
         "success": True,
         "message": f"Created widget: {record.get('name')}",
+        **_scope_info(result),
         "sys_id": record.get("sys_id"),
         "id": record.get("id"),
         "name": record.get("name"),
@@ -178,6 +217,7 @@ def create_angular_provider(
     return {
         "success": True,
         "message": f"Created angular provider: {record.get('name')}",
+        **_scope_info(result),
         "sys_id": record.get("sys_id"),
         "name": record.get("name"),
         "type": record.get("type"),
@@ -215,6 +255,7 @@ def create_header_footer(
     return {
         "success": True,
         "message": f"Created header/footer: {record.get('name')}",
+        **_scope_info(result),
         "sys_id": record.get("sys_id"),
         "name": record.get("name"),
     }
@@ -248,6 +289,7 @@ def create_css_theme(
     return {
         "success": True,
         "message": f"Created CSS theme: {record.get('name')}",
+        **_scope_info(result),
         "sys_id": record.get("sys_id"),
         "name": record.get("name"),
     }
@@ -283,6 +325,7 @@ def create_ng_template(
     return {
         "success": True,
         "message": f"Created ng-template: {record.get('id')}",
+        **_scope_info(result),
         "sys_id": record.get("sys_id"),
         "id": record.get("id"),
     }
@@ -328,6 +371,7 @@ def create_ui_page(
     return {
         "success": True,
         "message": f"Created UI page: {record.get('name')}",
+        **_scope_info(result),
         "sys_id": record.get("sys_id"),
         "name": record.get("name"),
     }
