@@ -18,7 +18,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services import portal_component as _comp_svc
 from servicenow_mcp.services import portal_layout as _layout_svc
 from servicenow_mcp.tools.portal_tools import UpdatePortalComponentParams, update_portal_component
-from servicenow_mcp.tools.session_context_tools import ensure_current_app
+from servicenow_mcp.tools.session_context_tools import ensure_current_app, ensure_current_update_set
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -537,6 +537,10 @@ class ManagePortalComponentParams(BaseModel):
     name: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
     scope: Optional[str] = Field(default=None, description="sys_scope sys_id")
+    update_set: Optional[str] = Field(
+        default=None,
+        description="Update set sys_id or name to capture the create into (browser auth)",
+    )
 
     # widget
     widget_id: Optional[str] = Field(
@@ -646,9 +650,31 @@ def manage_portal_component(
                 "scope_switch": ctx,
             }
 
+    # Auto-align the current update set so the create is captured into the
+    # intended set. Same fail-hard rule: a requested-but-unswitchable set aborts
+    # rather than silently capturing into whatever set happens to be current.
+    update_set_info: Optional[Dict[str, Any]] = None
+    if a.startswith("create_") and params.update_set:
+        us = ensure_current_update_set(config, auth_manager, params.update_set)
+        update_set_info = us
+        if not us.get("switched") and not us.get("already_current") and us.get("error"):
+            return {
+                "success": False,
+                "error": "update_set_switch_failed",
+                "message": (
+                    "Could not switch to the requested update set; aborting to "
+                    "avoid capturing into the wrong set. "
+                    f"{us.get('message', '')}"
+                ),
+                "update_set_switch": us,
+            }
+
     def _attach(result: Dict[str, Any]) -> Dict[str, Any]:
-        if switch_info and isinstance(result, dict):
-            result.setdefault("scope_switch", switch_info)
+        if isinstance(result, dict):
+            if switch_info:
+                result.setdefault("scope_switch", switch_info)
+            if update_set_info:
+                result.setdefault("update_set_switch", update_set_info)
         return result
 
     if a == "create_widget":
