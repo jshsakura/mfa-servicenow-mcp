@@ -152,6 +152,49 @@ def _find_settings_json(start: Path) -> Dict[str, Any]:
     return {}
 
 
+def _find_manifest_json(start: Path) -> Dict[str, Any]:
+    """Walk up from *start* looking for _manifest.json. Return parsed content."""
+    current = start if start.is_dir() else start.parent
+    for _ in range(10):
+        candidate = current / "_manifest.json"
+        if candidate.exists():
+            try:
+                return json_fast.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return {}
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return {}
+
+
+def _resolve_origin_url(scope_root: Path) -> str:
+    """Best-effort origin instance URL for a downloaded source tree.
+
+    Portal downloads record it in _settings.json ('url'); app-source downloads
+    record it in _manifest.json ('instance'). Prefer settings, fall back to the
+    manifest so app-only downloads are still provenance-checked against the push
+    target. Empty when neither file records an origin (push proceeds with a
+    warning rather than a hard block)."""
+    settings = _find_settings_json(scope_root)
+    url = str(settings.get("url") or "").strip()
+    if url:
+        return url
+    manifest = _find_manifest_json(scope_root)
+    return str(manifest.get("instance") or "").strip()
+
+
+# Surfaced (not raised) when a local source has no recorded origin instance.
+# Provenance-less trees can't be cross-checked, so the push is allowed but the
+# response flags that the target couldn't be verified.
+_ORIGIN_UNVERIFIED_MSG = (
+    "Origin instance not recorded for this local source (no _settings.json or "
+    "_manifest.json found). Could not confirm it was downloaded from the instance "
+    "being written to. Re-download to record provenance if unsure."
+)
+
+
 def _read_sync_meta(table_dir: Path) -> Dict[str, Dict[str, str]]:
     """Read _sync_meta.json from a table directory. Returns empty dict if missing."""
     path = table_dir / "_sync_meta.json"
@@ -241,14 +284,13 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         if not fields:
             raise ValueError(f"No editable source files found in {path}")
         scope_root = table_dir.parent
-        settings = _find_settings_json(scope_root)
         return _ResolvedComponent(
             table=table_name,
             sys_id=sys_id,
             name=folder_name,
             fields=fields,
             scope_root=scope_root,
-            instance_url=settings.get("url", ""),
+            instance_url=_resolve_origin_url(scope_root),
         )
 
     # Case 2: File
@@ -277,14 +319,13 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         if not sys_id:
             raise ValueError(f"Component '{folder_name}' not found in {table_dir / '_map.json'}")
         scope_root = table_dir.parent
-        settings = _find_settings_json(scope_root)
         return _ResolvedComponent(
             table=table_name,
             sys_id=sys_id,
             name=folder_name,
             fields={field_name: path},
             scope_root=scope_root,
-            instance_url=settings.get("url", ""),
+            instance_url=_resolve_origin_url(scope_root),
         )
 
     # Case 2b: Single file in a single-file table directory
@@ -316,14 +357,13 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             raise ValueError(f"Component '{component_name}' not found in {table_dir / '_map.json'}")
         original_name = _reverse_lookup_name(map_data, component_name)
         scope_root = table_dir.parent
-        settings = _find_settings_json(scope_root)
         return _ResolvedComponent(
             table=table_name,
             sys_id=sys_id,
             name=original_name or component_name,
             fields={matched_field: path},
             scope_root=scope_root,
-            instance_url=settings.get("url", ""),
+            instance_url=_resolve_origin_url(scope_root),
         )
 
     raise ValueError(
@@ -472,11 +512,11 @@ def _scan_download_root(
     root: Path,
 ) -> Dict[str, Any]:
     """Scan a download root directory and return change summary for all components."""
-    settings = _find_settings_json(root)
-    if settings.get("url") and settings["url"].rstrip("/") != config.instance_url.rstrip("/"):
+    origin_url = _resolve_origin_url(root)
+    if origin_url and origin_url.rstrip("/") != config.instance_url.rstrip("/"):
         return {
             "error": (
-                f"Instance mismatch: directory is from '{settings['url']}' "
+                f"Instance mismatch: directory is from '{origin_url}' "
                 f"but current connection is '{config.instance_url}'"
             )
         }
@@ -684,6 +724,8 @@ def diff_local_component(
     }
     if conflict_warning and remote_updated_by:
         result["remote_updated_by"] = remote_updated_by
+    if not resolved.instance_url:
+        result["origin_unverified"] = _ORIGIN_UNVERIFIED_MSG
     return result
 
 
@@ -868,4 +910,6 @@ def update_remote_from_local(
         "fields_pushed": list(update_data.keys()),
         "sync_meta_updated": True,
     }
+    if not resolved.instance_url:
+        result["origin_unverified"] = _ORIGIN_UNVERIFIED_MSG
     return result

@@ -25,7 +25,12 @@ from servicenow_mcp.tools.sn_api import (
     sn_query_page,
 )
 from servicenow_mcp.utils.config import ServerConfig
-from servicenow_mcp.utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file
+from servicenow_mcp.utils.download_map import (
+    map_sys_ids,
+    max_sync_updated_on,
+    merge_map_file,
+    read_download_map,
+)
 from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
@@ -2222,6 +2227,11 @@ def _download_source_types(
         type_dir = scope_root / table
         name_map: Dict[str, str] = {}
         sync_meta: Dict[str, Dict[str, str]] = {}
+        # Prior on-disk watermarks. Used by the resume-skip branch to preserve a
+        # record's existing sys_updated_on (never bump a skipped record to the
+        # current remote value) and to flag local copies that went stale.
+        prior_meta = read_download_map(type_dir / "_sync_meta.json")
+        stale_skipped: List[Dict[str, str]] = []
         now_iso = datetime.now(timezone.utc).isoformat()
         type_file_count = 0
         retry_records: List[tuple] = []
@@ -2254,12 +2264,23 @@ def _download_source_types(
                 )
                 if existing_source:
                     name_map[safe_name] = sys_id
-                    sync_meta[safe_name] = {
-                        "sys_id": sys_id,
-                        "name": name,
-                        "sys_updated_on": str(record.get("sys_updated_on") or ""),
-                        "downloaded_at": now_iso,
-                    }
+                    # Resume-skip: the local file is kept untouched, so its sync
+                    # watermark must NOT be bumped to the current remote value —
+                    # that would mask that the local copy is stale and let a later
+                    # push silently revert someone else's remote change. Leave the
+                    # key out of sync_meta so merge_map_file preserves the prior
+                    # entry (the timestamp matching the actual local content).
+                    remote_updated = str(record.get("sys_updated_on") or "")
+                    prior_updated = str(prior_meta.get(safe_name, {}).get("sys_updated_on") or "")
+                    if prior_updated and remote_updated and remote_updated > prior_updated:
+                        stale_skipped.append(
+                            {
+                                "name": name,
+                                "sys_id": sys_id,
+                                "local_sys_updated_on": prior_updated,
+                                "remote_sys_updated_on": remote_updated,
+                            }
+                        )
                     type_file_count += sum(
                         1
                         for sf in source_cfg["source_fields"]
@@ -2337,6 +2358,16 @@ def _download_source_types(
             writer=_dl_write_json,
             label=f"source_{source_type}_sync_meta",
         )
+        if stale_skipped:
+            names = ", ".join(s["name"] for s in stale_skipped[:10])
+            more = "" if len(stale_skipped) <= 10 else f" (+{len(stale_skipped) - 10} more)"
+            warnings.append(
+                f"{source_type}: {len(stale_skipped)} local file(s) are STALE — the remote "
+                f"changed since download but resume kept the local copy. The sync watermark was "
+                f"preserved so a push will flag the conflict. Re-download with incremental=true to "
+                f"pull the remote change: {names}{more}"
+            )
+
         type_results[source_type] = {
             "count": len(records),
             "files": type_file_count,

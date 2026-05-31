@@ -10,15 +10,18 @@ from servicenow_mcp.tools.sync_tools import (
     DiffLocalComponentParams,
     PushLocalComponentParams,
     _batch_fetch_updated_on,
+    _find_manifest_json,
     _find_settings_json,
     _find_table_dirs,
     _is_download_root,
     _read_map_json,
     _read_sync_meta,
     _resolve_local_path,
+    _resolve_origin_url,
     _reverse_lookup_map,
     _reverse_lookup_name,
     _scan_download_root,
+    _validate_instance_url,
     _write_sync_meta,
     diff_local_component,
     update_remote_from_local,
@@ -1315,3 +1318,93 @@ class TestExtendedSyncCoverage:
         )
         # Should still succeed despite sync meta update failure
         assert result["message"] == "Update successful"
+
+
+# ---------------------------------------------------------------------------
+# Origin provenance: app-source downloads (manifest-only) must be cross-instance
+# checked too. The hard block is sound here — origin URL is recorded at download,
+# so comparing it to the push target is provenance, not a sys_id heuristic.
+# ---------------------------------------------------------------------------
+
+
+class TestOriginProvenance:
+    def _cfg(self, url):
+        return ServerConfig(
+            instance_url=url,
+            auth={"type": "basic", "basic": {"username": "admin", "password": "password"}},
+        )
+
+    def test_resolve_origin_prefers_settings(self, tmp_path):
+        (tmp_path / "_settings.json").write_text(
+            json.dumps({"url": "https://portal.service-now.com"}), encoding="utf-8"
+        )
+        (tmp_path / "_manifest.json").write_text(
+            json.dumps({"instance": "https://app.service-now.com"}), encoding="utf-8"
+        )
+        assert _resolve_origin_url(tmp_path) == "https://portal.service-now.com"
+
+    def test_resolve_origin_falls_back_to_manifest(self, tmp_path):
+        # download_app_sources writes only _manifest.json (no _settings.json).
+        (tmp_path / "_manifest.json").write_text(
+            json.dumps({"instance": "https://app.service-now.com"}), encoding="utf-8"
+        )
+        assert _find_settings_json(tmp_path) == {}
+        assert _resolve_origin_url(tmp_path) == "https://app.service-now.com"
+
+    def test_resolve_origin_empty_without_provenance(self, tmp_path):
+        assert _resolve_origin_url(tmp_path) == ""
+
+    def test_find_manifest_walks_up(self, tmp_path):
+        (tmp_path / "_manifest.json").write_text(
+            json.dumps({"instance": "https://app.service-now.com"}), encoding="utf-8"
+        )
+        nested = tmp_path / "global" / "sys_script_include"
+        nested.mkdir(parents=True)
+        assert _find_manifest_json(nested).get("instance") == "https://app.service-now.com"
+
+    def test_manifest_only_blocks_cross_instance_push(self, tmp_path):
+        """The previously-silent gap: app-source tree (manifest, no settings)
+        downloaded from prod, then resolved while connected to dev → must block."""
+        root = tmp_path / "out"
+        root.mkdir()
+        (root / "_manifest.json").write_text(
+            json.dumps({"instance": "https://prod.service-now.com"}), encoding="utf-8"
+        )
+        si = root / "global" / "sys_script_include"
+        si.mkdir(parents=True)
+        (si / "MyUtil.script.js").write_text("var x = 1;", encoding="utf-8")
+        (si / "_map.json").write_text(json.dumps({"MyUtil": "si-1"}), encoding="utf-8")
+
+        resolved = _resolve_local_path(si / "MyUtil.script.js")
+        assert resolved.instance_url == "https://prod.service-now.com"
+
+        with pytest.raises(ValueError, match="Instance mismatch"):
+            _validate_instance_url(resolved, self._cfg("https://dev.service-now.com"))
+
+    def test_manifest_only_same_instance_passes(self, tmp_path):
+        root = tmp_path / "out"
+        root.mkdir()
+        (root / "_manifest.json").write_text(
+            json.dumps({"instance": "https://dev.service-now.com"}), encoding="utf-8"
+        )
+        si = root / "global" / "sys_script_include"
+        si.mkdir(parents=True)
+        (si / "MyUtil.script.js").write_text("var x = 1;", encoding="utf-8")
+        (si / "_map.json").write_text(json.dumps({"MyUtil": "si-1"}), encoding="utf-8")
+
+        resolved = _resolve_local_path(si / "MyUtil.script.js")
+        # Same instance → validation passes (no raise).
+        _validate_instance_url(resolved, self._cfg("https://dev.service-now.com"))
+
+    def test_no_provenance_resolves_empty_origin(self, tmp_path):
+        """No _settings.json and no _manifest.json → origin unknown ("") so the
+        push fails open with a warning rather than a hard block."""
+        si = tmp_path / "global" / "sys_script_include"
+        si.mkdir(parents=True)
+        (si / "MyUtil.script.js").write_text("var x = 1;", encoding="utf-8")
+        (si / "_map.json").write_text(json.dumps({"MyUtil": "si-1"}), encoding="utf-8")
+
+        resolved = _resolve_local_path(si / "MyUtil.script.js")
+        assert resolved.instance_url == ""
+        # Unknown origin never blocks.
+        _validate_instance_url(resolved, self._cfg("https://dev.service-now.com"))
