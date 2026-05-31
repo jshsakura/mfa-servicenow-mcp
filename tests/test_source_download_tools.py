@@ -1286,3 +1286,64 @@ class TestEdgeCases:
         call_kwargs = mock_query_all.call_args[1]
         # script_include has source_fields → clamped to min(100, 10) = 10
         assert call_kwargs["page_size"] == 10
+
+
+# ---------------------------------------------------------------------------
+# Resume-skip must not poison the sync watermark (local-first safety).
+# When a re-download skips an existing local file, the recorded watermark must
+# stay at the local content's capture time — never bump to the current remote
+# value, which would hide that someone else changed the record and let a later
+# push silently revert it.
+# ---------------------------------------------------------------------------
+
+
+class TestResumeSkipWatermark:
+    def _download(self, config, auth, records, scope_root, tmp_path, mqa, mqp):
+        mqa.return_value = _strip_source(records)
+        mqp.side_effect = _page_side_effect_for(records)
+        return _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
+        )
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_skip_preserves_watermark_and_flags_stale(self, mqp, mqa, config, auth, tmp_path):
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+        si_dir = scope_root / "sys_script_include"
+
+        # First download at T0.
+        self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
+        meta0 = json.loads((si_dir / "_sync_meta.json").read_text())
+        assert meta0["x_app.CommitHelper"]["sys_updated_on"] == "2026-04-01 12:00:00"
+
+        # Someone edits CommitHelper remotely at T1 (> T0) and changes its body.
+        recs2 = _si_records()
+        recs2[0]["sys_updated_on"] = "2026-05-01 09:00:00"
+        recs2[0]["script"] = "var CommitHelper = 'REMOTE_CHANGED';"
+        result = self._download(config, auth, recs2, scope_root, tmp_path, mqa, mqp)
+
+        # Watermark for the skipped record stays at T0 — NOT bumped to T1.
+        meta1 = json.loads((si_dir / "_sync_meta.json").read_text())
+        assert meta1["x_app.CommitHelper"]["sys_updated_on"] == "2026-04-01 12:00:00"
+        # Resume kept the local copy (did not pull the remote change).
+        local_script = (si_dir / "x_app.CommitHelper" / "script.js").read_text()
+        assert "REMOTE_CHANGED" not in local_script
+        # The drift is surfaced so the user knows to refresh.
+        assert any("STALE" in w and "CommitHelper" in w for w in result["warnings"])
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_unchanged_skip_emits_no_stale_warning(self, mqp, mqa, config, auth, tmp_path):
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
+        # Re-download with identical timestamps → resume-skip, but nothing stale.
+        result = self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
+        assert not any("STALE" in w for w in result["warnings"])

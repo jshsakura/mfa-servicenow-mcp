@@ -45,6 +45,14 @@ def map_sys_ids(map_path: Path) -> Set[str]:
     return {str(v) for v in existing.values() if v}
 
 
+def read_download_map(path: Path) -> Dict[str, Any]:
+    """Parsed contents of a _map.json / _sync_meta.json file (empty if missing).
+
+    Public reader so download tools can inspect the prior on-disk state — e.g.
+    to preserve an existing sync watermark instead of overwriting it."""
+    return _read_existing_map(path)
+
+
 def _read_existing_map(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {}
