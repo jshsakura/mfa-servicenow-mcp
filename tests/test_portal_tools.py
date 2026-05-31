@@ -653,6 +653,7 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
                 "name": "quotationService",
             }
         ],
+        [],  # m2m_sp_widget_dependency: no CSS/JS dependency edges
         [
             {
                 "sys_id": "si-1",
@@ -746,6 +747,55 @@ def test_download_portal_sources_persists_widget_provider_graph(
     graph = json.loads(graph_path.read_text(encoding="utf-8"))
     # Authoritative M2M edge, keyed by widget name -> provider names
     assert graph == {"Quotation Widget": ["quotationService"]}
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_page")
+def test_download_portal_sources_persists_widget_dependency_graph(
+    mock_sn_query_page, mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
+):
+    import json
+
+    mock_sn_query_all.side_effect = [
+        [
+            {
+                "sys_id": "wid-1",
+                "name": "Quotation Widget",
+                "id": "quotation_widget",
+                "sys_scope": "x_myapp",
+                "template": "<div>ok</div>",
+                "script": "",
+                "client_script": "",
+                "link": "",
+                "css": "",
+                "option_schema": "",
+                "demo_data": "",
+            }
+        ],
+        [],  # provider m2m: none
+        [{"sp_widget": {"value": "wid-1"}, "sp_dependency": {"value": "dep-1"}}],
+        [{"sys_id": "dep-1", "name": "myStyles"}],
+    ]
+    mock_sn_query_page.return_value = ([], None)
+
+    result = download_portal_sources(
+        mock_config,
+        mock_auth_manager,
+        DownloadPortalSourcesParams(
+            output_dir=str(tmp_path / "x_myapp"),
+            scope="x_myapp",
+            include_linked_script_includes=False,
+            include_linked_angular_providers=True,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["summary"]["dependency_edges"] == 1
+    dep_graph_path = tmp_path / "x_myapp" / "_dependency_graph.json"
+    assert dep_graph_path.exists()
+    dep_graph = json.loads(dep_graph_path.read_text(encoding="utf-8"))
+    # Authoritative widget -> CSS/JS dependency edge, name-keyed.
+    assert dep_graph == {"Quotation Widget": ["myStyles"]}
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query_all")
@@ -870,7 +920,8 @@ def test_download_portal_sources_batches_targeted_widget_fetches(
     assert result["summary"]["widgets"] == 2
     assert result["summary"]["angular_providers"] == 0
     assert result["summary"]["script_includes"] == 0
-    assert mock_sn_query_all.call_count == 2
+    # widget fetch + provider m2m + dependency m2m (both empty here)
+    assert mock_sn_query_all.call_count == 3
 
     first_call = mock_sn_query_all.call_args_list[0]
     first_query = first_call.kwargs["query"]
@@ -925,6 +976,7 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
                 "sys_scope": "x_myapp",
             }
         ],
+        [],  # m2m_sp_widget_dependency: no CSS/JS dependency edges
     ]
     mock_sn_query_page.return_value = (
         [{"script": "angular.module('x').factory('quotationService', function(){});"}],
@@ -953,7 +1005,8 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
     assert result["summary"]["widgets"] == 1
     assert result["summary"]["angular_providers"] == 1
     assert result["summary"]["script_includes"] == 1
-    assert mock_sn_query_all.call_count == 3
+    # widget fetch + provider m2m + provider rows + dependency m2m
+    assert mock_sn_query_all.call_count == 4
 
     scope_root = tmp_path / "x_myapp"
     assert (scope_root / "sp_angular_provider" / "quotationService.script.js").exists()
