@@ -3098,6 +3098,68 @@ def download_portal_sources(
             label="widget_provider_graph",
         )
 
+    # Authoritative widget -> CSS/JS dependency edges (m2m_sp_widget_dependency ->
+    # sp_dependency), captured at download so offline analysis reads the real
+    # relationship graph instead of guessing from code. Fully fail-safe: chunked,
+    # capped, and wrapped — a denied/empty dependency table never breaks the
+    # download (this metadata is additive, not load-bearing).
+    dependency_edge_count = 0
+    if widgets:
+        try:
+            dep_widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
+            widget_dep_edges: Dict[str, List[str]] = {}
+            dep_ids: List[str] = []
+            for sys_id_chunk in _chunked(dep_widget_sys_ids, 100):
+                for row in _sn_query_all(
+                    config,
+                    auth_manager,
+                    table=WIDGET_DEPENDENCY_TABLE,
+                    query=f"sp_widgetIN{','.join(_escape_query(v) for v in sys_id_chunk)}",
+                    fields="sp_widget,sp_dependency",
+                    page_size=params.page_size,
+                    max_records=500,
+                ):
+                    dep_id = _as_ref_sys_id(row.get("sp_dependency"))
+                    widget_ref_id = _as_ref_sys_id(row.get("sp_widget"))
+                    if dep_id and dep_id not in dep_ids:
+                        dep_ids.append(dep_id)
+                    if widget_ref_id and dep_id:
+                        edge = widget_dep_edges.setdefault(widget_ref_id, [])
+                        if dep_id not in edge:
+                            edge.append(dep_id)
+            dep_name_by_sys_id: Dict[str, str] = {}
+            for id_chunk in _chunked(dep_ids, 100):
+                for row in _sn_query_all(
+                    config,
+                    auth_manager,
+                    table=DEPENDENCY_TABLE,
+                    query=f"sys_idIN{','.join(id_chunk)}",
+                    fields="sys_id,name",
+                    page_size=100,
+                    max_records=1000,
+                ):
+                    sid = str(row.get("sys_id") or "")
+                    if sid:
+                        dep_name_by_sys_id[sid] = str(row.get("name") or sid)
+            widget_to_deps: Dict[str, List[str]] = {}
+            for widget_sid, dep_sids in widget_dep_edges.items():
+                widget_label = widget_name_by_sys_id.get(widget_sid)
+                if not widget_label:
+                    continue
+                dep_names = sorted({dep_name_by_sys_id.get(d, d) for d in dep_sids})
+                if dep_names:
+                    widget_to_deps[widget_label] = dep_names
+            if widget_to_deps:
+                merge_map_file(
+                    scope_root / "_dependency_graph.json",
+                    widget_to_deps,
+                    writer=_write_json_file,
+                    label="widget_dependency_graph",
+                )
+                dependency_edge_count = sum(len(v) for v in widget_to_deps.values())
+        except Exception as _dep_exc:
+            warnings.append(f"dependency graph: capture failed (non-fatal): {_dep_exc}")
+
     si_map: Dict[str, str] = {}
     _si_sync_meta: Dict[str, Dict[str, str]] = {}
     exported_script_includes: List[Dict[str, str]] = []
@@ -3189,6 +3251,7 @@ def download_portal_sources(
             "widgets": len(exported_widgets),
             "angular_providers": len(exported_providers),
             "script_includes": len(exported_script_includes),
+            "dependency_edges": dependency_edge_count,
         },
         "warnings": warnings,
         "widget_map_path": str(scope_root / "sp_widget" / "_map.json"),

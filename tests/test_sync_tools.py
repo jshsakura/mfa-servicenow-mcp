@@ -820,6 +820,8 @@ class TestDownloadSyncMeta:
                     "sys_updated_on": "2025-06-01 08:00:00",
                 }
             ],
+            # m2m_sp_widget_dependency: no CSS/JS dependency edges
+            [],
             # Script includes
             [
                 {
