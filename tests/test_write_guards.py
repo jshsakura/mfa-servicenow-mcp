@@ -17,7 +17,7 @@ import pytest
 
 from servicenow_mcp.policies import (
     PolicyViolation,
-    run_concurrent_edit_guards,
+    run_post_confirm_guards,
     run_write_guards,
     strip_guard_fields,
 )
@@ -206,7 +206,7 @@ def test_g3_blocks_when_other_user_edited_recently() -> None:
         },
     ):
         with pytest.raises(PolicyViolation, match=r"(?s)\[G3\].*alice"):
-            run_concurrent_edit_guards(
+            run_post_confirm_guards(
                 _SERVER,
                 "sn_write",
                 {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
@@ -222,7 +222,7 @@ def test_g3_allows_when_my_own_recent_edit() -> None:
             "sys_updated_on": _utc_iso_minus_min(3),
         },
     ):
-        run_concurrent_edit_guards(
+        run_post_confirm_guards(
             _SERVER,
             "sn_write",
             {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
@@ -238,7 +238,7 @@ def test_g3_allows_when_other_user_edit_is_old() -> None:
             "sys_updated_on": _utc_iso_minus_min(60),  # 1 hour ago
         },
     ):
-        run_concurrent_edit_guards(
+        run_post_confirm_guards(
             _SERVER,
             "sn_write",
             {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
@@ -248,7 +248,7 @@ def test_g3_allows_when_other_user_edit_is_old() -> None:
 def test_g3_only_applies_to_update_and_delete() -> None:
     """Create has no target record to check — skip."""
     with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:
-        run_concurrent_edit_guards(
+        run_post_confirm_guards(
             _SERVER,
             "sn_write",
             {"table": "incident", "action": "create", "fields": {}},
@@ -260,7 +260,7 @@ def test_g3_only_applies_to_sn_write() -> None:
     """G3 is sn_write-specific. A manage_* CREATE has no existing record, so no
     guard (G3 or G8-registry) does an audit fetch."""
     with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:
-        run_concurrent_edit_guards(_SERVER, "manage_changeset", {"action": "create", "name": "x"})
+        run_post_confirm_guards(_SERVER, "manage_changeset", {"action": "create", "name": "x"})
         mocked_fetch.assert_not_called()
 
 
@@ -270,7 +270,7 @@ def test_g3_fails_open_on_missing_audit_data() -> None:
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
         return_value=None,
     ):
-        run_concurrent_edit_guards(
+        run_post_confirm_guards(
             _SERVER,
             "sn_write",
             {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
@@ -288,7 +288,7 @@ def test_g3_custom_window_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
         },
     ):
         with pytest.raises(PolicyViolation, match=r"\[G3\]"):
-            run_concurrent_edit_guards(
+            run_post_confirm_guards(
                 _SERVER,
                 "sn_write",
                 {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
@@ -344,7 +344,7 @@ def test_g8_blocks_portal_update_when_other_user_edited_recently() -> None:
         },
     ):
         with pytest.raises(PolicyViolation, match=r"(?s)\[G8\].*alice"):
-            run_concurrent_edit_guards(_SERVER, "update_portal_component", _portal_update_args())
+            run_post_confirm_guards(_SERVER, "update_portal_component", _portal_update_args())
 
 
 def test_g8_allows_my_own_recent_edit() -> None:
@@ -355,7 +355,7 @@ def test_g8_allows_my_own_recent_edit() -> None:
             "sys_updated_on": _utc_iso_minus_min(2),
         },
     ):
-        run_concurrent_edit_guards(_SERVER, "update_portal_component", _portal_update_args())
+        run_post_confirm_guards(_SERVER, "update_portal_component", _portal_update_args())
 
 
 def test_g8_allows_old_other_user_edit() -> None:
@@ -366,14 +366,14 @@ def test_g8_allows_old_other_user_edit() -> None:
             "sys_updated_on": _utc_iso_minus_min(90),
         },
     ):
-        run_concurrent_edit_guards(_SERVER, "update_portal_component", _portal_update_args())
+        run_post_confirm_guards(_SERVER, "update_portal_component", _portal_update_args())
 
 
 def test_g8_skips_when_no_explicit_table_and_sys_id() -> None:
     """Generic G8 (non-registry tool): without table+sys_id it can't identify the
     record, so it must NOT fetch/guess — fail-open."""
     with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:
-        run_concurrent_edit_guards(_SERVER, "update_portal_component", {"update_data": {}})
+        run_post_confirm_guards(_SERVER, "update_portal_component", {"update_data": {}})
         mocked_fetch.assert_not_called()
 
 
@@ -383,7 +383,7 @@ def test_g8_does_not_double_fetch_for_sn_write() -> None:
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
         return_value=None,
     ) as mocked_fetch:
-        run_concurrent_edit_guards(
+        run_post_confirm_guards(
             _SERVER,
             "sn_write",
             {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
@@ -396,7 +396,7 @@ def test_g8_fails_open_on_missing_audit() -> None:
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
         return_value=None,
     ):
-        run_concurrent_edit_guards(_SERVER, "update_portal_component", _portal_update_args())
+        run_post_confirm_guards(_SERVER, "update_portal_component", _portal_update_args())
 
 
 def test_concurrent_guard_off_switch_disables_g3_and_g8() -> None:
@@ -405,8 +405,8 @@ def test_concurrent_guard_off_switch_disables_g3_and_g8() -> None:
 
     with _patch.dict(os.environ, {"SERVICENOW_CONCURRENT_EDIT_GUARD": "off"}):
         with _patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:
-            run_concurrent_edit_guards(_SERVER, "update_portal_component", _portal_update_args())
-            run_concurrent_edit_guards(
+            run_post_confirm_guards(_SERVER, "update_portal_component", _portal_update_args())
+            run_post_confirm_guards(
                 _SERVER,
                 "sn_write",
                 {"table": "incident", "action": "update", "sys_id": "x", "fields": {}},
@@ -429,7 +429,7 @@ def test_g8_registry_blocks_manage_incident_update_other_user() -> None:
         },
     ):
         with pytest.raises(PolicyViolation, match=r"(?s)\[G8\].*alice"):
-            run_concurrent_edit_guards(
+            run_post_confirm_guards(
                 _SERVER,
                 "manage_incident",
                 {"action": "update", "incident_id": "INC0001", "short_description": "x"},
@@ -444,7 +444,7 @@ def test_g8_registry_allows_my_own_edit() -> None:
             "sys_updated_on": _utc_iso_minus_min(2),
         },
     ):
-        run_concurrent_edit_guards(
+        run_post_confirm_guards(
             _SERVER,
             "manage_workflow",
             {"action": "update", "workflow_id": "wf-1", "name": "x"},
@@ -454,15 +454,13 @@ def test_g8_registry_allows_my_own_edit() -> None:
 def test_g8_registry_skips_create_action() -> None:
     """Create makes a new record — nothing to clash with; no audit fetch."""
     with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:
-        run_concurrent_edit_guards(
-            _SERVER, "manage_user", {"action": "create", "user_name": "newbie"}
-        )
+        run_post_confirm_guards(_SERVER, "manage_user", {"action": "create", "user_name": "newbie"})
         mocked_fetch.assert_not_called()
 
 
 def test_g8_registry_skips_when_id_arg_missing() -> None:
     with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:
-        run_concurrent_edit_guards(_SERVER, "manage_changeset", {"action": "update"})
+        run_post_confirm_guards(_SERVER, "manage_changeset", {"action": "update"})
         mocked_fetch.assert_not_called()
 
 
@@ -476,8 +474,89 @@ def test_g8_registry_or_query_matches_sys_id_or_number() -> None:
         return None  # fail-open; we only inspect the query
 
     with patch("servicenow_mcp.policies.write_guards._fetch_record_audit", _fake_fetch):
-        run_concurrent_edit_guards(
+        run_post_confirm_guards(
             _SERVER, "manage_incident", {"action": "resolve", "incident_id": "INC0009"}
         )
     assert captured["table"] == "incident"
     assert captured["query"] == "sys_id=INC0009^ORnumber=INC0009"
+
+
+# ---------------------------------------------------------------------------
+# G9 — duplicate-name create block (only for tables where a duplicate name is a
+# real clash). Post-confirm, fail-open, overridable with allow_duplicate='true'.
+# ---------------------------------------------------------------------------
+
+
+def test_g9_blocks_create_when_name_exists() -> None:
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_existing_by_name",
+        return_value={"sys_id": "us-1", "name": "Sprint 5"},
+    ):
+        with pytest.raises(PolicyViolation, match=r"(?s)\[G9\].*already exists"):
+            run_post_confirm_guards(
+                _SERVER, "manage_changeset", {"action": "create", "name": "Sprint 5"}
+            )
+
+
+def test_g9_allows_create_when_name_is_unique() -> None:
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_existing_by_name",
+        return_value=None,
+    ):
+        run_post_confirm_guards(
+            _SERVER, "manage_workflow", {"action": "create", "name": "Fresh WF"}
+        )
+
+
+def test_g9_override_with_allow_duplicate() -> None:
+    """Explicit allow_duplicate='true' creates anyway — no existence check at all."""
+    with patch("servicenow_mcp.policies.write_guards._fetch_existing_by_name") as mocked:
+        run_post_confirm_guards(
+            _SERVER,
+            "manage_group",
+            {"action": "create", "name": "Admins", "allow_duplicate": "true"},
+        )
+        mocked.assert_not_called()
+
+
+def test_g9_fails_open_when_existence_check_unavailable() -> None:
+    """Permission-flexible: if the existence read can't run, never block."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_existing_by_name",
+        return_value=None,  # _fetch returns None on ACL/transient failure
+    ):
+        run_post_confirm_guards(_SERVER, "manage_user", {"action": "create", "user_name": "jdoe"})
+
+
+def test_g9_skips_non_create_actions() -> None:
+    with patch("servicenow_mcp.policies.write_guards._fetch_existing_by_name") as mocked:
+        run_post_confirm_guards(
+            _SERVER, "manage_changeset", {"action": "update", "changeset_id": "abc"}
+        )
+        mocked.assert_not_called()
+
+
+def test_g9_skips_unregistered_tool() -> None:
+    """rm_story/rm_epic style creates (duplicate short_description is normal) are
+    NOT registered → never blocked."""
+    with patch("servicenow_mcp.policies.write_guards._fetch_existing_by_name") as mocked:
+        run_post_confirm_guards(
+            _SERVER, "manage_story", {"action": "create", "short_description": "Dup title"}
+        )
+        mocked.assert_not_called()
+
+
+def test_g9_skips_when_name_missing() -> None:
+    with patch("servicenow_mcp.policies.write_guards._fetch_existing_by_name") as mocked:
+        run_post_confirm_guards(_SERVER, "manage_changeset", {"action": "create"})
+        mocked.assert_not_called()
+
+
+def test_strip_post_confirm_fields_removes_allow_duplicate() -> None:
+    from servicenow_mcp.policies.write_guards import strip_post_confirm_fields
+
+    cleaned = strip_post_confirm_fields(
+        {"action": "create", "name": "x", "allow_duplicate": "true"}
+    )
+    assert "allow_duplicate" not in cleaned
+    assert cleaned == {"action": "create", "name": "x"}
