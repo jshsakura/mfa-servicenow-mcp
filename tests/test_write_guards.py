@@ -316,3 +316,93 @@ def test_strip_guard_fields_removes_confirm_publish() -> None:
     cleaned = strip_guard_fields({"action": "save", "confirm_publish": "approve", "flow_id": "abc"})
     assert "confirm_publish" not in cleaned
     assert cleaned == {"action": "save", "flow_id": "abc"}
+
+
+# ---------------------------------------------------------------------------
+# G8 — generalized concurrent-edit: same protection for any write tool that
+# names its target via table + sys_id (portal CRUD, etc.). Never overwrite
+# someone else's concurrent edit blindly.
+# ---------------------------------------------------------------------------
+
+
+def _portal_update_args() -> Dict[str, Any]:
+    return {"table": "sp_widget", "sys_id": "wid-1", "update_data": {"css": ".a{}"}}
+
+
+def test_g8_blocks_portal_update_when_other_user_edited_recently() -> None:
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value={
+            "sys_updated_by": "alice@example.com",
+            "sys_updated_on": _utc_iso_minus_min(3),
+        },
+    ):
+        with pytest.raises(PolicyViolation, match=r"(?s)\[G8\].*alice"):
+            run_write_guards(_SERVER, "update_portal_component", _portal_update_args())
+
+
+def test_g8_allows_my_own_recent_edit() -> None:
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value={
+            "sys_updated_by": _MockAuth.username,
+            "sys_updated_on": _utc_iso_minus_min(2),
+        },
+    ):
+        run_write_guards(_SERVER, "update_portal_component", _portal_update_args())
+
+
+def test_g8_allows_old_other_user_edit() -> None:
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value={
+            "sys_updated_by": "alice@example.com",
+            "sys_updated_on": _utc_iso_minus_min(90),
+        },
+    ):
+        run_write_guards(_SERVER, "update_portal_component", _portal_update_args())
+
+
+def test_g8_skips_when_no_explicit_table_and_sys_id() -> None:
+    """Conservative: without table+sys_id, G8 can't identify the record, so it
+    must NOT fetch/guess — fail-open (covered later by a number-based registry)."""
+    with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:
+        run_write_guards(_SERVER, "manage_change", {"action": "update", "number": "CHG001"})
+        mocked_fetch.assert_not_called()
+
+
+def test_g8_does_not_double_fetch_for_sn_write() -> None:
+    """sn_write is handled by G3; G8 must skip it (no duplicate audit fetch)."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=None,
+    ) as mocked_fetch:
+        run_write_guards(
+            _SERVER,
+            "sn_write",
+            {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+        )
+        assert mocked_fetch.call_count == 1  # G3 only, not G3 + G8
+
+
+def test_g8_fails_open_on_missing_audit() -> None:
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=None,
+    ):
+        run_write_guards(_SERVER, "update_portal_component", _portal_update_args())
+
+
+def test_concurrent_guard_off_switch_disables_g3_and_g8() -> None:
+    import os
+    from unittest.mock import patch as _patch
+
+    with _patch.dict(os.environ, {"SERVICENOW_CONCURRENT_EDIT_GUARD": "off"}):
+        with _patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:
+            run_write_guards(_SERVER, "update_portal_component", _portal_update_args())
+            run_write_guards(
+                _SERVER,
+                "sn_write",
+                {"table": "incident", "action": "update", "sys_id": "x", "fields": {}},
+            )
+            mocked_fetch.assert_not_called()
