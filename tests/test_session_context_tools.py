@@ -8,6 +8,8 @@ from servicenow_mcp.tools.session_context_tools import (
     ManageSessionContextParams,
     ensure_current_app,
     ensure_current_update_set,
+    get_current_update_set,
+    is_default_update_set,
     manage_session_context,
 )
 from servicenow_mcp.utils.config import ServerConfig
@@ -233,6 +235,35 @@ def test_ensure_current_update_set_by_name_switches(mock_query):
     ]
     out = ensure_current_update_set(_browser_config(), auth, "HBPM Pilot")
     assert out["switched"] is True
+
+
+# --- get_current_update_set / is_default_update_set (silent-move guard) ---
+def test_get_current_update_set_none_for_basic_auth():
+    auth = MagicMock()
+    assert get_current_update_set(_basic_config(), auth) is None
+    auth.make_request.assert_not_called()
+
+
+def test_get_current_update_set_reads_browser_session():
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-1", "name": "Pilot"}}}
+    )
+    out = get_current_update_set(_browser_config(), auth)
+    assert out == {"sys_id": "us-1", "name": "Pilot"}
+
+
+def test_get_current_update_set_swallows_errors():
+    auth = MagicMock()
+    auth.make_request.side_effect = Exception("boom")
+    assert get_current_update_set(_browser_config(), auth) is None
+
+
+def test_is_default_update_set_matches_by_name():
+    assert is_default_update_set({"sys_id": "x", "name": "Default"}) is True
+    assert is_default_update_set({"sys_id": "x", "name": "default"}) is True
+    assert is_default_update_set({"sys_id": "x", "name": "HBPM Pilot"}) is False
+    assert is_default_update_set(None) is False
 
 
 # --- ensure_current_app (used by create paths) ---------------------------
