@@ -196,6 +196,54 @@ class TestSingleCreationSite:
 
 
 # ---------------------------------------------------------------------------
+# I9 — the generic sn_write primitive cannot touch the update-set tables
+# ---------------------------------------------------------------------------
+class TestSnWriteDeniesUpdateSetTables:
+    """sn_write is the one tool that could write ANY table by name. It must
+    refuse the update-set tables outright so an LLM can't sidestep
+    manage_changeset / manage_session_context with a raw write."""
+
+    def test_update_set_tables_are_in_the_denylist(self):
+        from servicenow_mcp.tools.sn_api import SN_WRITE_DENY_TABLES
+
+        assert "sys_update_set" in SN_WRITE_DENY_TABLES
+        assert "sys_update_xml" in SN_WRITE_DENY_TABLES
+
+    @pytest.mark.parametrize("table", ["sys_update_set", "sys_update_xml"])
+    @pytest.mark.parametrize("action", ["create", "update", "delete"])
+    def test_every_action_on_update_set_tables_is_denied(self, table, action):
+        from servicenow_mcp.tools.sn_api import _sn_write_denied
+
+        reason = _sn_write_denied(table, action)
+        assert reason is not None
+        # Steer the caller to the right tool, not a dead end.
+        assert "manage_changeset" in reason
+
+    def test_sn_write_blocks_before_any_network(self):
+        from servicenow_mcp.tools.sn_api import SnWriteParams, sn_write
+
+        cfg = ServerConfig(
+            instance_url="https://t.service-now.com",
+            auth={"type": "basic", "basic": {"username": "a", "password": "p"}},
+        )
+        auth = MagicMock()
+        auth.make_request.side_effect = AssertionError("network reached on denied sn_write")
+        result = sn_write(
+            cfg,
+            auth,
+            SnWriteParams(
+                action="update",
+                table="sys_update_set",
+                sys_id="abc",
+                fields={"name": "hijacked"},
+            ),
+        )
+        assert result["success"] is False
+        assert "blocked from sn_write" in result["error"]
+        auth.make_request.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # I6 — portal create leaves the session update set alone unless asked
 # ---------------------------------------------------------------------------
 class TestPortalCreateDoesNotTouchUpdateSet:
