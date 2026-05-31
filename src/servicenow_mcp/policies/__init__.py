@@ -8,14 +8,14 @@ LLM-readable message.
 
 from .write_guards import (
     PolicyViolation,
-    run_concurrent_edit_guards,
+    run_post_confirm_guards,
     run_write_guards,
     strip_guard_fields,
 )
 
 __all__ = [
     "PolicyViolation",
-    "run_concurrent_edit_guards",
+    "run_post_confirm_guards",
     "run_write_guards",
     "strip_guard_fields",
 ]

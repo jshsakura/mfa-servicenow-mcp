@@ -29,6 +29,13 @@ This layer adds only what the above can't catch:
        publish/commit/push tools require a separate confirm_publish='approve'
        beyond the regular confirm. Prevents accidental rollouts.
 
+  G9 — Duplicate-name create block
+       Creating a record whose name already exists, for tables where a duplicate
+       name is a real clash (sys_update_set, wf_workflow, sys_user_group,
+       sys_user). Override with allow_duplicate='true'. Runs post-confirm; a
+       failed/denied existence read fails open (never blocks a create on a
+       missing read).
+
 Removed (delegated to ServiceNow / session):
   G1, G2, G5 — Update set membership/size policing. Each user's session
                writes only to their own current update set. Self-management.
@@ -83,6 +90,31 @@ _CONCURRENT_EDIT_REGISTRY: Dict[str, _EditTarget] = {
     "manage_group": _EditTarget("sys_user_group", "group_id", frozenset({"update"})),
     "manage_flow_designer": _EditTarget("sys_hub_flow", "flow_id", frozenset({"update"})),
 }
+
+
+@dataclass(frozen=True)
+class _CreateDupTarget:
+    """How to detect a same-name record before a create (G9)."""
+
+    table: str
+    name_arg: str  # argument key holding the new record's name
+    name_column: str  # ServiceNow column to match on
+
+
+# G9 — block CREATE of a record whose name already exists, ONLY for tables where
+# a duplicate name is a genuine problem (functional ambiguity / silent
+# duplicate). Deliberately excludes things like rm_story/rm_epic where two items
+# legitimately share a short_description — blocking those would be false
+# positives. Override per call with allow_duplicate='true'.
+_CREATE_DUP_REGISTRY: Dict[str, _CreateDupTarget] = {
+    "manage_changeset": _CreateDupTarget("sys_update_set", "name", "name"),
+    "manage_workflow": _CreateDupTarget("wf_workflow", "name", "name"),
+    "manage_group": _CreateDupTarget("sys_user_group", "name", "name"),
+    "manage_user": _CreateDupTarget("sys_user", "user_name", "user_name"),
+}
+
+ALLOW_DUPLICATE_FIELD = "allow_duplicate"
+_ALLOW_DUPLICATE_TRUE = {"true", "yes", "approve", "1"}
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +492,65 @@ def _g8_registry_concurrent_edit(ctx: WriteGuardContext) -> None:
     _check_concurrent_edit(ctx, target.table, query, f"{target.table}/{value}", guard="G8")
 
 
+def _fetch_existing_by_name(
+    ctx: WriteGuardContext, table: str, column: str, name: str
+) -> Optional[Dict[str, str]]:
+    """LIVE remote check for an existing record with this name. Returns the first
+    match (sys_id + name) or None. None ALSO on any failure — including a read
+    denied by ACL — so the guard is permission-flexible: it never blocks a create
+    just because it couldn't look first."""
+    try:
+        from servicenow_mcp.tools.sn_api import sn_query_page
+
+        # name values shouldn't contain encoded-query operators; strip to be safe.
+        safe = name.replace("^", "").replace("=", "")
+        records, _ = sn_query_page(
+            ctx.server.config,
+            ctx.server.auth_manager,
+            table=table,
+            query=f"{column}={safe}",
+            fields=f"sys_id,{column}",
+            limit=1,
+            offset=0,
+            display_value=False,
+            fail_silently=True,
+        )
+        if records:
+            return records[0]
+    except Exception:
+        logger.debug("Duplicate-name check failed for %s.%s=%s", table, column, name, exc_info=True)
+    return None
+
+
+def _g9_duplicate_create(ctx: WriteGuardContext) -> None:
+    """G9 — block creating a record whose name already exists, for the registered
+    tables where a duplicate name is a real problem (sys_update_set, wf_workflow,
+    sys_user_group, sys_user). Override with allow_duplicate='true'. Fail-open if
+    the existence check can't run (no read access, transient error)."""
+    target = _CREATE_DUP_REGISTRY.get(ctx.tool_name)
+    if target is None:
+        return
+    if str(ctx.arguments.get("action") or "").lower() != "create":
+        return
+    name = str(ctx.arguments.get(target.name_arg) or "").strip()
+    if not name:
+        return
+    if str(ctx.arguments.get(ALLOW_DUPLICATE_FIELD) or "").lower().strip() in _ALLOW_DUPLICATE_TRUE:
+        return  # explicit, deliberate duplicate
+
+    existing = _fetch_existing_by_name(ctx, target.table, target.name_column, name)
+    if existing is None:
+        return  # none found, or check couldn't run — fail-open
+
+    raise PolicyViolation(
+        "G9",
+        f"A {target.table} with {target.name_column}='{name}' already exists "
+        f"(sys_id={existing.get('sys_id')}). Creating another would make a silent "
+        f"duplicate. If that is intended, add {ALLOW_DUPLICATE_FIELD}='true'; "
+        f"otherwise update the existing record instead.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -472,7 +563,7 @@ def run_write_guards(server: Any, tool_name: str, arguments: Dict[str, Any]) -> 
 
     Concurrent-edit detection (G3/G8) is intentionally NOT here: it makes a live
     audit fetch, so it must run only AFTER the confirm gate passes — see
-    run_concurrent_edit_guards. This keeps the invariant "an unconfirmed mutation
+    run_post_confirm_guards. This keeps the invariant "an unconfirmed mutation
     touches the network zero times".
     """
     if not _guards_enabled():
@@ -486,12 +577,15 @@ def run_write_guards(server: Any, tool_name: str, arguments: Dict[str, Any]) -> 
     _g7_publish_extra_confirm(ctx)
 
 
-def run_concurrent_edit_guards(server: Any, tool_name: str, arguments: Dict[str, Any]) -> None:
-    """Concurrent-edit guards (G3 + G8). Each makes ONE live audit fetch of the
-    target's current sys_updated_by/on, so this runs AFTER the confirm gate — an
-    unconfirmed write is rejected first and never reaches the network. Only
-    update/delete of an existing record is checked; creates pass through (nothing
-    to clash with). Raises PolicyViolation on a confirmed concurrent clash."""
+def run_post_confirm_guards(server: Any, tool_name: str, arguments: Dict[str, Any]) -> None:
+    """Post-confirm network guards. Each makes ONE live remote read, so they run
+    AFTER the confirm gate — an unconfirmed write is rejected first and never
+    reaches the network. Covers:
+      • G3/G8 — concurrent edit: block overwriting a DIFFERENT user's recent edit
+        on an update/delete (creates pass through).
+      • G9 — duplicate create: block creating a same-name record where that is a
+        real clash (override with allow_duplicate='true').
+    Raises PolicyViolation on a confirmed violation."""
     if not _guards_enabled():
         return
     if _is_read_only(tool_name, arguments):
@@ -501,8 +595,16 @@ def run_concurrent_edit_guards(server: Any, tool_name: str, arguments: Dict[str,
     _g3_concurrent_edit(ctx)
     _g8_generic_concurrent_edit(ctx)
     _g8_registry_concurrent_edit(ctx)
+    _g9_duplicate_create(ctx)
 
 
 def strip_guard_fields(arguments: Dict[str, Any]) -> Dict[str, Any]:
-    """Remove guard-specific fields before passing to tool impl."""
+    """Remove pre-confirm guard fields before the confirm gate. (allow_duplicate
+    is consumed by the POST-confirm G9 guard, so it is stripped later, alongside
+    the confirm field.)"""
     return {k: v for k, v in arguments.items() if k != CONFIRM_PUBLISH_FIELD}
+
+
+def strip_post_confirm_fields(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove post-confirm guard fields (allow_duplicate) before the tool runs."""
+    return {k: v for k, v in arguments.items() if k != ALLOW_DUPLICATE_FIELD}

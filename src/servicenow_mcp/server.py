@@ -1151,10 +1151,11 @@ class ServiceNowMCP:
         # extra confirmation. Read-only calls skip this. Runs before confirm
         # so unsafe writes fail with a specific, actionable message.
         from servicenow_mcp.policies import (
-            run_concurrent_edit_guards,
+            run_post_confirm_guards,
             run_write_guards,
             strip_guard_fields,
         )
+        from servicenow_mcp.policies.write_guards import strip_post_confirm_fields
 
         run_write_guards(self, name, arguments)
         arguments = strip_guard_fields(arguments)
@@ -1179,11 +1180,12 @@ class ServiceNowMCP:
                 )
             logger.info("Executing confirmed action: tool=%s", name)
 
-        # Concurrent-edit guards (G3/G8) run HERE — after the confirm gate — so an
-        # unconfirmed mutation is rejected above without any network call. These
-        # make one live audit fetch of the target's current state to block a
-        # blind overwrite of someone else's concurrent edit.
-        run_concurrent_edit_guards(self, name, arguments)
+        # Post-confirm network guards (concurrent-edit G3/G8, duplicate-create
+        # G9) run HERE — after the confirm gate — so an unconfirmed mutation is
+        # rejected above without any network call. They make one live remote read
+        # to block a blind overwrite of a concurrent edit or a silent duplicate.
+        run_post_confirm_guards(self, name, arguments)
+        arguments = strip_post_confirm_fields(arguments)
 
         # Strip the confirmation field before passing to the tool
         arguments = {k: v for k, v in arguments.items() if k != CONFIRM_FIELD}
