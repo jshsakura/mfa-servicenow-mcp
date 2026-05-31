@@ -6,6 +6,16 @@ confirm gate in `_call_tool_impl`. Each guard is independent and raises
 LLM-readable message.
 """
 
-from .write_guards import PolicyViolation, run_write_guards, strip_guard_fields
+from .write_guards import (
+    PolicyViolation,
+    run_concurrent_edit_guards,
+    run_write_guards,
+    strip_guard_fields,
+)
 
-__all__ = ["PolicyViolation", "run_write_guards", "strip_guard_fields"]
+__all__ = [
+    "PolicyViolation",
+    "run_concurrent_edit_guards",
+    "run_write_guards",
+    "strip_guard_fields",
+]
