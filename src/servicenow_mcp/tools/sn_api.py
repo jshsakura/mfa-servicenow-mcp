@@ -1311,6 +1311,10 @@ def sn_discover(
 # Tables an LLM should never write to via the generic primitive. ACL/scope/
 # user/role tables and the sys_remote_update_set staging area can corrupt the
 # instance if mishandled. Deletes against any sys_* table are also blocked.
+# Update-set tables are denied here too: sys_update_set (the set itself) goes
+# through manage_changeset, and sys_update_xml is the captured-change ledger —
+# editing it directly forges/corrupts an update set's contents. Switching the
+# current set is manage_session_context's job, never a raw write.
 # Denylist is intentionally code-baked (not config) — a junior must use the
 # matching specialized tool (e.g. update_user) to touch these.
 SN_WRITE_DENY_TABLES = frozenset(
@@ -1326,6 +1330,7 @@ SN_WRITE_DENY_TABLES = frozenset(
         "sys_db_object",
         "sys_remote_update_set",
         "sys_update_set",
+        "sys_update_xml",
     }
 )
 
@@ -1342,6 +1347,12 @@ class SnWriteParams(BaseModel):
 
 def _sn_write_denied(table: str, action: str) -> Optional[str]:
     """Return a denial reason if this table+action is blocked, else None."""
+    if table in ("sys_update_set", "sys_update_xml"):
+        return (
+            f"Table '{table}' is blocked from sn_write. Use manage_changeset to "
+            "create/update/commit/publish an update set, and manage_session_context "
+            "to switch the current set — never raw-write the update-set tables."
+        )
     if table in SN_WRITE_DENY_TABLES:
         return (
             f"Table '{table}' is blocked from sn_write. Use a domain-specific "
