@@ -219,6 +219,69 @@ def _set_and_verify(
     }
 
 
+def get_current_update_set(
+    config: ServerConfig, auth_manager: AuthManager
+) -> Optional[Dict[str, str]]:
+    """Read the session's current update set, or None if unavailable.
+
+    Browser auth only; never raises. Used to detect a *silent* update-set change
+    that ServiceNow performs as a side effect of switching the current app — so a
+    create can warn instead of capturing into the wrong (often "Default") set.
+    """
+    if not _is_browser_auth(config):
+        return None
+    try:
+        return _get_current(config, auth_manager, _UPDATESET_ENDPOINT)
+    except Exception as exc:
+        logger.warning("Could not read current update set: %s", exc)
+        return None
+
+
+def is_default_update_set(update_set: Optional[Dict[str, str]]) -> bool:
+    """True if the selection looks like a system 'Default' update set.
+
+    Capturing app changes into Default is almost always an accident, so create
+    paths flag it. Matched by name (case-insensitive) since the sys_id differs
+    per application.
+    """
+    if not update_set:
+        return False
+    return str(update_set.get("name", "")).strip().lower() == "default"
+
+
+def get_last_update_set_for_record(
+    config: ServerConfig, auth_manager: AuthManager, table: str, sys_id: str
+) -> Optional[Dict[str, str]]:
+    """Return the update set a record was most recently captured into, or None.
+
+    Every captured change writes a sys_update_xml row whose ``name`` is
+    ``<table>_<sys_id>``; the newest one's ``update_set`` is where the last edit
+    landed. Used to warn before an edit goes into a *different* set than the one
+    the record was last modified in. Browser-agnostic (Table API read); never
+    raises — returns None when unknown so callers stay non-blocking on failure.
+    """
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_update_xml",
+            query=f"name={table}_{sys_id}^ORDERBYDESCsys_updated_on",
+            fields="sys_id,name,update_set,sys_updated_on",
+            limit=1,
+            offset=0,
+            display_value=True,
+        )
+    except Exception as exc:
+        logger.warning("Could not read last update set for %s/%s: %s", table, sys_id, exc)
+        return None
+    if not rows:
+        return None
+    us = rows[0].get("update_set")
+    if isinstance(us, dict):
+        return {"sys_id": str(us.get("value") or ""), "name": str(us.get("display_value") or "")}
+    return {"sys_id": str(us or ""), "name": ""}
+
+
 def ensure_current_app(
     config: ServerConfig, auth_manager: AuthManager, scope_id: str
 ) -> Dict[str, Any]:
