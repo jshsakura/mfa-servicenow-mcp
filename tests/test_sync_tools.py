@@ -1408,3 +1408,16 @@ class TestOriginProvenance:
         assert resolved.instance_url == ""
         # Unknown origin never blocks.
         _validate_instance_url(resolved, self._cfg("https://dev.service-now.com"))
+
+    def test_directory_scan_blocks_manifest_only_mismatch(self, tmp_path):
+        """diff_local_component directory-mode also honors manifest provenance:
+        a prod-origin app-source dir scanned while connected to dev → error,
+        before any remote fetch."""
+        root = tmp_path / "out"
+        root.mkdir()
+        (root / "_manifest.json").write_text(
+            json.dumps({"instance": "https://prod.service-now.com"}), encoding="utf-8"
+        )
+        result = _scan_download_root(self._cfg("https://dev.service-now.com"), MagicMock(), root)
+        assert "Instance mismatch" in result.get("error", "")
+        assert "prod.service-now.com" in result["error"]
