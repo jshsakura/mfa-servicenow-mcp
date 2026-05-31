@@ -819,8 +819,7 @@ uv build
 ## Related Projects and Acknowledgements
 
 - This repository includes tools consolidated and refactored from earlier internal / legacy ServiceNow MCP implementations. The current surface is organized around bundled `manage_*` tools (see [tool_utils.py](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/src/servicenow_mcp/utils/tool_utils.py)).
-- Some developer productivity workflows, especially server-side source lookup, were designed with ideas inspired by [SN Utils](https://github.com/arnoudkooi/SN-Utils). This project does not bundle or redistribute SN Utils code.
-- This project is focused on MCP server use cases rather than browser-extension UX. If you want in-browser productivity features inside ServiceNow, SN Utils remains a strong companion tool.
+- This project is focused on safe, diff-first MCP server use cases: every write goes through confirm + write-guards (concurrent-edit, duplicate-create, publish, Flow Designer), and source edits are diffed against the live remote before they are pushed.
 
 ---
 

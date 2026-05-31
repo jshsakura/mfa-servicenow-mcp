@@ -811,8 +811,7 @@ uv build
 ## 관련 프로젝트 및 참고
 
 - 이 저장소의 일부 도구는 기존 내부/레거시 ServiceNow MCP 구현들을 정리하고 재구성한 결과물입니다. 현재 표면은 번들된 `manage_*` 도구를 중심으로 정리되어 있습니다 ([tool_utils.py](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/src/servicenow_mcp/utils/tool_utils.py) 참조).
-- 개발자 생산성 기능, 특히 서버 소스 조회 흐름은 [SN Utils](https://github.com/arnoudkooi/SN-Utils)의 아이디어를 참고해 설계했습니다. 다만 이 프로젝트는 SN Utils 코드를 포함하거나 재배포하지 않습니다.
-- 이 프로젝트는 브라우저 확장 UX 자체보다 MCP 서버 사용 시나리오에 초점을 둡니다. ServiceNow 화면 안에서 바로 쓰는 생산성 기능이 필요하면 SN Utils를 함께 사용하는 것도 좋은 선택입니다.
+- 이 프로젝트는 안전하고 diff 우선의 MCP 서버 사용 시나리오에 초점을 둡니다. 모든 쓰기는 confirm + write-guard(동시 수정·중복 생성·publish·Flow Designer)를 거치며, 소스 편집은 푸시 전에 실시간 원격과 diff합니다.
 
 ---
 
