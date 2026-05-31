@@ -12,6 +12,14 @@ This layer adds only what the above can't catch:
        sn_write(update|delete) on a record edited by someone else within
        a configurable window. Blocks with a specific, actionable message.
 
+  G8 — Concurrent-edit warning (generalized)
+       Same protection for any other write tool that names its target via
+       table + sys_id (update_portal_component, manage_portal_component, …) so
+       a blind write can't silently overwrite someone else's concurrent edit.
+       Conservative: fires only when table + sys_id are explicit. Both G3 and
+       G8 share one window and can be disabled together via
+       SERVICENOW_CONCURRENT_EDIT_GUARD=off.
+
   G6 — Flow Designer raw-write block
        sn_write to sys_hub_* tables (or sys_variable_value where
        document=sys_hub_*) corrupts flow snapshots. Force use of
@@ -43,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 ENV_WRITE_GUARDS = "SERVICENOW_WRITE_GUARDS"  # master toggle ("off" disables all)
 ENV_CONCURRENT_WINDOW_MIN = "SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN"
+ENV_CONCURRENT_GUARD = "SERVICENOW_CONCURRENT_EDIT_GUARD"  # disables G3+G8 only
 DEFAULT_CONCURRENT_WINDOW_MIN = 10
 
 # G6 — tables that must only be written via scaffold tools.
@@ -140,6 +149,12 @@ class WriteGuardContext:
 
 def _guards_enabled() -> bool:
     return os.getenv(ENV_WRITE_GUARDS, "on").lower() not in ("off", "false", "0", "no")
+
+
+def _concurrent_guard_enabled() -> bool:
+    """Targeted off-switch for concurrent-edit detection (G3 + G8), leaving the
+    flow-designer (G6) and publish (G7) guards intact."""
+    return os.getenv(ENV_CONCURRENT_GUARD, "on").lower() not in ("off", "false", "0", "no")
 
 
 def _is_read_only(tool_name: str, arguments: Dict[str, Any]) -> bool:
@@ -299,24 +314,11 @@ def _g7_publish_extra_confirm(ctx: WriteGuardContext) -> None:
     )
 
 
-def _g3_concurrent_edit(ctx: WriteGuardContext) -> None:
-    """G3 — block sn_write(update|delete) when target was recently edited
-    by someone else.
-
-    Scope (v1.12.28.1): only sn_write update/delete cases. manage_X and
-    update_remote_from_local have variable arg shapes — covered later.
-    """
-    if ctx.tool_name != "sn_write":
-        return
-    action = (ctx.arguments.get("action") or "").lower()
-    if action not in ("update", "delete"):
-        return
-    table = ctx.arguments.get("table")
-    sys_id = ctx.arguments.get("sys_id")
-    if not (table and sys_id):
-        # Missing required args — let sn_write itself reject; guard skips.
-        return
-
+def _check_concurrent_edit(ctx: WriteGuardContext, table: str, sys_id: str, *, guard: str) -> None:
+    """Shared concurrent-edit core: fetch the record's FRESH audit and block if
+    a DIFFERENT user edited it within the window. Fail-open on any uncertainty
+    (audit fetch failed, no editor, unparseable timestamp) — a guard must never
+    block a legitimate write on missing data, only on a confirmed clash."""
     target = _fetch_record_audit(ctx, table, sys_id)
     if target is None:
         return  # fail-open if audit fetch fails
@@ -324,7 +326,7 @@ def _g3_concurrent_edit(ctx: WriteGuardContext) -> None:
     other = (target.get("sys_updated_by") or "").strip()
     me = (_current_username(ctx.server) or "").strip()
     if not other or other == me:
-        return
+        return  # same user (or unknown) — never block your own work
 
     elapsed = _elapsed_minutes(target.get("sys_updated_on"))
     if elapsed is None:
@@ -339,12 +341,53 @@ def _g3_concurrent_edit(ctx: WriteGuardContext) -> None:
         return
 
     raise PolicyViolation(
-        "G3",
+        guard,
         f"Concurrent edit detected on {table}/{sys_id}.\n"
         f"  Last edited by '{other}' ~{int(elapsed)} min ago "
         f"(window: {window} min, current user: '{me}').\n"
-        f"Wait or coordinate, then re-fetch and retry.",
+        f"Someone else's change would be overwritten. Re-fetch the record, "
+        f"reapply your change, then retry — or wait out the window.",
     )
+
+
+def _g3_concurrent_edit(ctx: WriteGuardContext) -> None:
+    """G3 — block sn_write(update|delete) when the target was recently edited
+    by someone else."""
+    if not _concurrent_guard_enabled():
+        return
+    if ctx.tool_name != "sn_write":
+        return
+    action = (ctx.arguments.get("action") or "").lower()
+    if action not in ("update", "delete"):
+        return
+    table = ctx.arguments.get("table")
+    sys_id = ctx.arguments.get("sys_id")
+    if not (table and sys_id):
+        # Missing required args — let sn_write itself reject; guard skips.
+        return
+    _check_concurrent_edit(ctx, str(table), str(sys_id), guard="G3")
+
+
+def _g8_generic_concurrent_edit(ctx: WriteGuardContext) -> None:
+    """G8 — extend concurrent-edit protection beyond sn_write to ANY write tool
+    that names its target explicitly via `table` + `sys_id` args (e.g.
+    update_portal_component, manage_portal_component update actions).
+
+    Deliberately conservative: fires ONLY when both `table` and `sys_id` are
+    present and non-empty, so the audited record is exactly the one being
+    written — no risk of blocking the wrong record. Tools that identify records
+    another way (e.g. by `number`) are not covered here and pass through
+    untouched (fail-open). sn_write is handled by G3; skip it to avoid a
+    duplicate audit fetch."""
+    if not _concurrent_guard_enabled():
+        return
+    if ctx.tool_name == "sn_write":
+        return
+    table = str(ctx.arguments.get("table") or "").strip()
+    sys_id = str(ctx.arguments.get("sys_id") or "").strip()
+    if not (table and sys_id):
+        return
+    _check_concurrent_edit(ctx, table, sys_id, guard="G8")
 
 
 # ---------------------------------------------------------------------------
@@ -365,11 +408,13 @@ def run_write_guards(server: Any, tool_name: str, arguments: Dict[str, Any]) -> 
 
     ctx = WriteGuardContext(server, tool_name, arguments)
 
-    # Order: cheap local checks first; G3 fetches audit record (one API call).
+    # Order: cheap local checks first; G3/G8 fetch an audit record (one API
+    # call) only when they have a concrete target.
     _g6_flow_designer_raw_write(ctx)
     _g6_variable_value_for_flow(ctx)
     _g7_publish_extra_confirm(ctx)
     _g3_concurrent_edit(ctx)
+    _g8_generic_concurrent_edit(ctx)
 
 
 def strip_guard_fields(arguments: Dict[str, Any]) -> Dict[str, Any]:
