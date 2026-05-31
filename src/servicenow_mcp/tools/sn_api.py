@@ -567,6 +567,81 @@ def sn_query_all(
     return rows[:cap]
 
 
+def resolve_scope_namespace(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    scope: str,
+) -> "tuple[str, Optional[Dict[str, Any]]]":
+    """Resolve a user-supplied scope token to its canonical namespace.
+
+    The token may be the namespace itself (``x_app``), the application display
+    name (``"BPM"``), or a ``sys_scope`` sys_id. Returns
+    ``(namespace, sys_scope_record)``. When nothing matches (or sys_scope read
+    is denied), returns ``(token, None)`` so callers fall back to the raw input
+    and proceed — this is a best-effort canonicalizer, never a hard gate.
+
+    Why: download tools name the local folder and build ``sys_scope.scope=``
+    queries from this value. If the LLM passes the display name, the old code
+    created a label-named sibling folder (``BPM/``) and queried a non-existent
+    scope. Canonicalizing here makes the folder and query deterministic.
+    """
+    token = (scope or "").strip()
+    if not token:
+        return token, None
+    # Scope namespaces / names never contain encoded-query operators; strip any
+    # to avoid breaking the OR query.
+    safe = token.replace("^", "").replace("=", "")
+    rows = sn_query_all(
+        config,
+        auth_manager,
+        table="sys_scope",
+        query=f"scope={safe}^ORname={safe}^ORsys_id={safe}",
+        fields="sys_id,scope,name",
+        page_size=20,
+        max_records=20,
+        display_value=False,
+        fail_silently=True,
+    )
+    if not rows:
+        return token, None
+
+    def _norm(value: Any) -> str:
+        return str(value or "").strip().lower()
+
+    target = _norm(token)
+    # Prefer an exact namespace match, then exact display name, then sys_id.
+    by_scope = [r for r in rows if _norm(r.get("scope")) == target]
+    by_name = [r for r in rows if _norm(r.get("name")) == target]
+    by_sys_id = [r for r in rows if _norm(r.get("sys_id")) == target]
+    best = (by_scope or by_name or by_sys_id or rows)[0]
+    namespace = str(best.get("scope") or token).strip() or token
+    return namespace, best
+
+
+def apply_scope_namespace(config, auth_manager, params):
+    """Rebind ``params.scope`` to its canonical namespace.
+
+    Returns ``(new_params, scope_resolution)``. ``scope_resolution`` is a short
+    human-readable string when the input was a display name/sys_id (or could not
+    be found), else ``None``. Immutable: a model copy is returned, the original
+    params are never mutated. Lets download tools accept the app display name yet
+    always write to / query the namespace folder, deterministically.
+    """
+    namespace, record = resolve_scope_namespace(config, auth_manager, params.scope)
+    scope_resolution: Optional[str] = None
+    if namespace and namespace != params.scope:
+        label = (record or {}).get("name") or ""
+        suffix = f" ({label})" if label else ""
+        scope_resolution = f"Resolved scope '{params.scope}' to namespace '{namespace}'{suffix}."
+    elif record is None and params.scope:
+        scope_resolution = (
+            f"Scope '{params.scope}' was not found in sys_scope; using it as-is. "
+            f"Pass the scope namespace (e.g. x_app) if the download lands in the wrong folder."
+        )
+    new_params = params.model_copy(update={"scope": namespace or params.scope})
+    return new_params, scope_resolution
+
+
 def sn_query_all_with_retry(
     config: ServerConfig,
     auth_manager: AuthManager,

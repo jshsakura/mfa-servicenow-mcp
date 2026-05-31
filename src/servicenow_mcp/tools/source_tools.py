@@ -21,6 +21,7 @@ from servicenow_mcp.tools.sn_api import (
     _RETRY_MAX_ATTEMPTS,
     _is_retryable,
     _retry_delay,
+    apply_scope_namespace,
     sn_query_all,
     sn_query_page,
 )
@@ -2390,6 +2391,7 @@ def _build_download_result(
     dl: Dict[str, Any],
     elapsed_ms: int,
     tool_name: str,
+    scope_resolution: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build a standard return dict from _download_source_types output."""
     result: Dict[str, Any] = {
@@ -2406,6 +2408,10 @@ def _build_download_result(
             "Only this summary is returned to the conversation context."
         ),
     }
+    # The scope the download resolved to drives the folder name; surface it as
+    # its own field (not buried in warnings) so the caller sees where it landed.
+    if scope_resolution:
+        result["scope_resolution"] = scope_resolution
     if dl["warnings"]:
         result["warnings"] = dl["warnings"]
     return result
@@ -2415,7 +2421,9 @@ def _build_download_result(
 
 
 class _ScopeDownloadParams(BaseModel):
-    scope: str = Field(..., description="Application scope namespace.")
+    scope: str = Field(
+        ..., description="Scope namespace (x_app) or app name; auto-resolved to the namespace."
+    )
     max_records_per_type: int = Field(
         default=DEFAULT_DOWNLOAD_PER_TYPE,
         description=f"Max records per type. Clamped to {MAX_DOWNLOAD_PER_TYPE}.",
@@ -2426,7 +2434,7 @@ class _ScopeDownloadParams(BaseModel):
     only_active: bool = Field(default=False, description="Download only active records.")
     output_dir: Optional[str] = Field(
         default=None,
-        description="Final scope root path. Default: ./temp/{instance}/{scope}.",
+        description="Omit — default path is canonical and reused. Set only for one-off export.",
     )
 
 
@@ -2468,6 +2476,7 @@ def download_script_includes(
     auth_manager: AuthManager,
     params: DownloadScriptIncludesParams,
 ) -> Dict[str, Any]:
+    params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
     started = time.perf_counter()
     root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
     dl = _download_source_types(
@@ -2487,6 +2496,7 @@ def download_script_includes(
         dl,
         int((time.perf_counter() - started) * 1000),
         "download_script_includes",
+        scope_resolution=scope_resolution,
     )
 
 
@@ -2509,6 +2519,7 @@ def download_server_scripts(
     auth_manager: AuthManager,
     params: DownloadServerScriptsParams,
 ) -> Dict[str, Any]:
+    params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
     started = time.perf_counter()
     root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
     dl = _download_source_types(
@@ -2528,6 +2539,7 @@ def download_server_scripts(
         dl,
         int((time.perf_counter() - started) * 1000),
         "download_server_scripts",
+        scope_resolution=scope_resolution,
     )
 
 
@@ -2550,6 +2562,7 @@ def download_ui_components(
     auth_manager: AuthManager,
     params: DownloadUIComponentsParams,
 ) -> Dict[str, Any]:
+    params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
     started = time.perf_counter()
     root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
     dl = _download_source_types(
@@ -2569,6 +2582,7 @@ def download_ui_components(
         dl,
         int((time.perf_counter() - started) * 1000),
         "download_ui_components",
+        scope_resolution=scope_resolution,
     )
 
 
@@ -2591,6 +2605,7 @@ def download_api_sources(
     auth_manager: AuthManager,
     params: DownloadAPISourcesParams,
 ) -> Dict[str, Any]:
+    params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
     started = time.perf_counter()
     root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
     dl = _download_source_types(
@@ -2610,6 +2625,7 @@ def download_api_sources(
         dl,
         int((time.perf_counter() - started) * 1000),
         "download_api_sources",
+        scope_resolution=scope_resolution,
     )
 
 
@@ -2632,6 +2648,7 @@ def download_security_sources(
     auth_manager: AuthManager,
     params: DownloadSecuritySourcesParams,
 ) -> Dict[str, Any]:
+    params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
     started = time.perf_counter()
     root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
     extra_q: Dict[str, str] = {}
@@ -2656,6 +2673,7 @@ def download_security_sources(
         dl,
         int((time.perf_counter() - started) * 1000),
         "download_security_sources",
+        scope_resolution=scope_resolution,
     )
 
 
@@ -2678,6 +2696,7 @@ def download_admin_scripts(
     auth_manager: AuthManager,
     params: DownloadAdminScriptsParams,
 ) -> Dict[str, Any]:
+    params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
     started = time.perf_counter()
     root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
     dl = _download_source_types(
@@ -2697,6 +2716,7 @@ def download_admin_scripts(
         dl,
         int((time.perf_counter() - started) * 1000),
         "download_admin_scripts",
+        scope_resolution=scope_resolution,
     )
 
 
@@ -2870,7 +2890,9 @@ def download_table_schema(
 
 
 class DownloadAppSourcesParams(BaseModel):
-    scope: str = Field(..., description="Application scope namespace.")
+    scope: str = Field(
+        ..., description="Scope namespace (x_app) or app name; auto-resolved to the namespace."
+    )
     include_widget_sources: bool = Field(
         default=True,
         description="Download widgets, providers, header/footer, CSS via download_portal_sources.",
@@ -2894,7 +2916,7 @@ class DownloadAppSourcesParams(BaseModel):
     )
     output_dir: Optional[str] = Field(
         default=None,
-        description="Final scope root path. Default: ./temp/{instance}/{scope}.",
+        description="Omit — default path is canonical and reused. Set only for one-off export.",
     )
     incremental: bool = Field(
         default=False,
@@ -2918,6 +2940,7 @@ def download_app_sources(
     auth_manager: AuthManager,
     params: DownloadAppSourcesParams,
 ) -> Dict[str, Any]:
+    params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
     started = time.perf_counter()
     root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
 
@@ -3171,6 +3194,8 @@ def download_app_sources(
             "incremental: only records with a newer sys_updated_on were fetched per family; "
             "unchanged local files preserved. Run a full download periodically."
         )
+    if scope_resolution:
+        summary["scope_resolution"] = scope_resolution
     if all_warnings:
         summary["warnings"] = all_warnings
     summary["safety_notice"] = (

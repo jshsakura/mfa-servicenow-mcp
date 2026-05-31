@@ -705,3 +705,100 @@ class TestSnQueryErrors:
         result = sn_query(config, auth, params)
         assert result["success"] is False
         assert "Query failed" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# Scope namespace canonicalization — accept display name / sys_id, always
+# resolve to the namespace so download folders/queries are deterministic.
+# ---------------------------------------------------------------------------
+
+
+class TestResolveScopeNamespace:
+    def _patch_rows(self, rows):
+        from unittest.mock import patch
+
+        return patch("servicenow_mcp.tools.sn_api.sn_query_all", return_value=rows)
+
+    def test_display_name_resolves_to_namespace(self):
+        from servicenow_mcp.tools.sn_api import resolve_scope_namespace
+
+        rows = [{"sys_id": "s1", "scope": "x_yergb_hbpm", "name": "BPM"}]
+        with self._patch_rows(rows):
+            ns, rec = resolve_scope_namespace(_make_config(), MagicMock(), "BPM")
+        assert ns == "x_yergb_hbpm"
+        assert rec["name"] == "BPM"
+
+    def test_namespace_input_returns_itself(self):
+        from servicenow_mcp.tools.sn_api import resolve_scope_namespace
+
+        rows = [{"sys_id": "s1", "scope": "x_app", "name": "My App"}]
+        with self._patch_rows(rows):
+            ns, _ = resolve_scope_namespace(_make_config(), MagicMock(), "x_app")
+        assert ns == "x_app"
+
+    def test_prefers_exact_scope_over_name_match(self):
+        from servicenow_mcp.tools.sn_api import resolve_scope_namespace
+
+        # Ambiguous: one row matches by name, one by scope. Scope wins.
+        rows = [
+            {"sys_id": "s1", "scope": "x_other", "name": "x_app"},
+            {"sys_id": "s2", "scope": "x_app", "name": "Real App"},
+        ]
+        with self._patch_rows(rows):
+            ns, rec = resolve_scope_namespace(_make_config(), MagicMock(), "x_app")
+        assert ns == "x_app"
+        assert rec["sys_id"] == "s2"
+
+    def test_no_match_falls_back_to_input(self):
+        from servicenow_mcp.tools.sn_api import resolve_scope_namespace
+
+        with self._patch_rows([]):
+            ns, rec = resolve_scope_namespace(_make_config(), MagicMock(), "Unknown")
+        assert ns == "Unknown"
+        assert rec is None
+
+    def test_empty_scope_short_circuits(self):
+        from unittest.mock import patch
+
+        from servicenow_mcp.tools.sn_api import resolve_scope_namespace
+
+        with patch("servicenow_mcp.tools.sn_api.sn_query_all") as q:
+            ns, rec = resolve_scope_namespace(_make_config(), MagicMock(), "")
+        assert ns == ""
+        assert rec is None
+        q.assert_not_called()  # no network for an empty token
+
+
+class TestApplyScopeNamespace:
+    def test_rebinds_scope_and_reports_resolution(self):
+        from unittest.mock import patch
+
+        from pydantic import BaseModel
+
+        from servicenow_mcp.tools.sn_api import apply_scope_namespace
+
+        class P(BaseModel):
+            scope: str
+
+        rows = [{"sys_id": "s1", "scope": "x_yergb_hbpm", "name": "BPM"}]
+        original = P(scope="BPM")
+        with patch("servicenow_mcp.tools.sn_api.sn_query_all", return_value=rows):
+            new, resolution = apply_scope_namespace(_make_config(), MagicMock(), original)
+        assert new.scope == "x_yergb_hbpm"
+        assert original.scope == "BPM"  # immutable: original untouched
+        assert "x_yergb_hbpm" in resolution and "BPM" in resolution
+
+    def test_not_found_keeps_scope_and_warns(self):
+        from unittest.mock import patch
+
+        from pydantic import BaseModel
+
+        from servicenow_mcp.tools.sn_api import apply_scope_namespace
+
+        class P(BaseModel):
+            scope: str
+
+        with patch("servicenow_mcp.tools.sn_api.sn_query_all", return_value=[]):
+            new, resolution = apply_scope_namespace(_make_config(), MagicMock(), P(scope="BPM"))
+        assert new.scope == "BPM"
+        assert "not found" in resolution

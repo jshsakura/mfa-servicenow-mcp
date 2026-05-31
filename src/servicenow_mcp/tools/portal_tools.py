@@ -23,6 +23,7 @@ from ..utils.registry import register_tool
 from .sn_api import (
     GenericQueryParams,
     _get_page_executor,
+    apply_scope_namespace,
     invalidate_query_cache,
     sn_query,
     sn_query_all,
@@ -148,11 +149,11 @@ class RoutePortalComponentEditParams(BaseModel):
 class DownloadPortalSourcesParams(BaseModel):
     output_dir: str | None = Field(
         default=None,
-        description="Final scope root path. Default: ./temp/{instance}/{scope}.",
+        description="Omit — default path is canonical and reused. Set only for one-off export.",
     )
     scope: str | None = Field(
         default=None,
-        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
+        description="Scope namespace (x_app) or app name; auto-resolved to the namespace.",
     )
     widget_ids: List[str] | None = Field(
         default=None,
@@ -2737,6 +2738,9 @@ def download_portal_sources(
     auth_manager: AuthManager,
     params: DownloadPortalSourcesParams,
 ) -> Dict[str, Any]:
+    # Canonicalize the scope to its namespace so the folder/query are
+    # deterministic even when a display name or sys_id is passed.
+    params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
     scope_name = _safe_name(params.scope or "global")
     if params.output_dir:
         # output_dir is the final scope root — no auto-appending of instance/scope
@@ -3165,7 +3169,7 @@ def download_portal_sources(
             "unchanged local files were preserved. Run a full download periodically."
         )
 
-    return {
+    result: Dict[str, Any] = {
         "success": True,
         "output_root": str(scope_root),
         "incremental": incremental_active,
@@ -3181,6 +3185,9 @@ def download_portal_sources(
         "script_include_map_path": str(scope_root / "sys_script_include" / "_map.json"),
         "safety_notice": "Exports structured source files only; no destructive remote operations are performed.",
     }
+    if scope_resolution:
+        result["scope_resolution"] = scope_resolution
+    return result
 
 
 # ---------------------------------------------------------------------------
