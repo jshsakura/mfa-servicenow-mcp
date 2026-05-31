@@ -18,7 +18,13 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services import portal_component as _comp_svc
 from servicenow_mcp.services import portal_layout as _layout_svc
 from servicenow_mcp.tools.portal_tools import UpdatePortalComponentParams, update_portal_component
-from servicenow_mcp.tools.session_context_tools import ensure_current_app, ensure_current_update_set
+from servicenow_mcp.tools.session_context_tools import (
+    ensure_current_app,
+    ensure_current_update_set,
+    get_current_update_set,
+    get_last_update_set_for_record,
+    is_default_update_set,
+)
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -576,6 +582,10 @@ class ManagePortalComponentParams(BaseModel):
         description="sys_updated_on from your last read. Blocks write if remote is newer.",
     )
     force: bool = Field(default=False, description="Override conflict check.")
+    confirm_update_set: Optional[str] = Field(
+        default=None,
+        description="Set 'approve' to proceed when this record was last edited in a different update set.",
+    )
 
     dry_run: bool = Field(default=False)
 
@@ -635,7 +645,16 @@ def manage_portal_component(
     # scope from the current app, not the insert body). Browser auth only; a hard
     # switch failure aborts the create rather than writing to the wrong scope.
     switch_info: Optional[Dict[str, Any]] = None
+    update_set_warning: Optional[str] = None
     if a.startswith("create_") and params.scope:
+        # If the caller didn't pin an update set, snapshot the current one before
+        # the scope switch. ServiceNow may silently move the session to the app's
+        # Default set as a side effect of changing the current app — we never
+        # create or change sets ourselves, but we warn when that side effect
+        # would capture the change somewhere unexpected.
+        before_us = None
+        if not params.update_set:
+            before_us = get_current_update_set(config, auth_manager)
         ctx = ensure_current_app(config, auth_manager, params.scope)
         switch_info = ctx
         if not ctx.get("switched") and not ctx.get("already_current") and ctx.get("error"):
@@ -649,6 +668,21 @@ def manage_portal_component(
                 ),
                 "scope_switch": ctx,
             }
+        if before_us is not None and ctx.get("switched"):
+            after_us = get_current_update_set(config, auth_manager)
+            if after_us and after_us.get("sys_id") != before_us.get("sys_id"):
+                landed = after_us.get("name") or after_us.get("sys_id")
+                if is_default_update_set(after_us):
+                    update_set_warning = (
+                        f"Switching scope moved the session to the '{landed}' update set. "
+                        "This change will be captured there. Pass update_set=<name|sys_id> "
+                        "to capture into a specific set instead."
+                    )
+                else:
+                    update_set_warning = (
+                        f"Switching scope changed the current update set to '{landed}'. "
+                        "Pass update_set if that is not where you want this captured."
+                    )
 
     # Auto-align the current update set so the create is captured into the
     # intended set. Same fail-hard rule: a requested-but-unswitchable set aborts
@@ -675,6 +709,8 @@ def manage_portal_component(
                 result.setdefault("scope_switch", switch_info)
             if update_set_info:
                 result.setdefault("update_set_switch", update_set_info)
+            if update_set_warning:
+                result.setdefault("update_set_warning", update_set_warning)
         return result
 
     if a == "create_widget":
@@ -737,6 +773,37 @@ def manage_portal_component(
     assert params.table is not None
     assert params.sys_id is not None
     assert params.update_data is not None
+
+    # Intent guard: if this record was last captured in a DIFFERENT update set
+    # than the session's current one, editing it now would silently split the
+    # record's history across sets. Block until the caller confirms — never auto
+    # switch, never proceed unconfirmed. Best-effort: if either side is unknown
+    # (basic auth, no prior capture, lookup failure), don't block.
+    if params.confirm_update_set != "approve":
+        last = get_last_update_set_for_record(config, auth_manager, params.table, params.sys_id)
+        current = get_current_update_set(config, auth_manager)
+        if (
+            last
+            and current
+            and last.get("sys_id")
+            and current.get("sys_id")
+            and last.get("sys_id") != current.get("sys_id")
+        ):
+            return {
+                "success": False,
+                "error": "update_set_mismatch",
+                "message": (
+                    f"This record was last edited in update set "
+                    f"'{last.get('name') or last.get('sys_id')}', but your current set is "
+                    f"'{current.get('name') or current.get('sys_id')}'. Proceeding would "
+                    "split its history across sets. To capture into your current set, "
+                    "re-run with confirm_update_set='approve'. To use the original set, "
+                    "switch first via manage_session_context."
+                ),
+                "last_update_set": last,
+                "current_update_set": current,
+            }
+
     return update_portal_component(
         config,
         auth_manager,
