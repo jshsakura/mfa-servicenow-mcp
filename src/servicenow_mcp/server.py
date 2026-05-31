@@ -1234,6 +1234,14 @@ class ServiceNowMCP:
             serialized_string = json_fast.dumps(error_result)
             return [types.TextContent(type="text", text=serialized_string)]
 
+        # Multi-instance visibility: stamp the instance this call actually hit
+        # so a wrong-target action can't pass silently. New dict — never mutate
+        # the tool result. Echo wins on the (practically impossible) key clash so
+        # the stamp always reflects reality.
+        echo = self._instance_echo(name, arguments, target_alias)
+        if echo and isinstance(result, dict):
+            result = {**result, **echo}
+
         # Serialize the result to a string (preferably JSON) using the helper
         serialized_string = serialize_tool_output(result, name)
         logger.debug(f"Serialized value for tool '{name}': {serialized_string[:500]}...")
@@ -1250,6 +1258,46 @@ class ServiceNowMCP:
         if self._is_read_only_call(tool_name, arguments):
             return True
         return bool(self.active_instance_meta.get("allow_writes", True))
+
+    def _instance_echo(
+        self, tool_name: str, arguments: Dict[str, Any], target_alias: Optional[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Stamp which instance a call actually hit (multi-instance mode only).
+
+        Deterministic visibility, not an LLM-supplied arg, so the model can't
+        ignore or spoof it: every write echoes its target instance, and any read
+        routed elsewhere via `instance=` echoes its source. This lets a
+        wrong-instance action surface in the response instead of relying on the
+        LLM to track the active target. Returns None in legacy single-instance
+        mode (no ambiguity, no token cost).
+        """
+        if not self.instance_contexts:
+            return None
+        if self._is_read_only_call(tool_name, arguments):
+            # Only reads explicitly redirected to a non-active peer are ambiguous.
+            if not target_alias or target_alias == self.active_instance_alias:
+                return None
+            ctx = self.instance_contexts.get(target_alias)
+            if not ctx:
+                return None
+            definition = ctx["definition"]
+            return {
+                "instance_source": {
+                    "alias": definition.alias,
+                    "role": definition.role,
+                    "host": safe_instance_url(definition.url),
+                }
+            }
+        # Writes are pinned to the active instance (cross-instance writes are
+        # blocked earlier), so the target is always the active instance.
+        meta = self.active_instance_meta
+        return {
+            "instance_target": {
+                "alias": meta.get("alias"),
+                "role": meta.get("role"),
+                "host": safe_instance_url(str(meta.get("url", ""))),
+            }
+        }
 
     def _list_instances_impl(self) -> Dict[str, Any]:
         instances = []
