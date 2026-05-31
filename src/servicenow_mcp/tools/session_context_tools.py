@@ -14,13 +14,14 @@ surfaces as a clear failure rather than a false positive.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
 from ..auth.auth_manager import AuthManager
 from ..utils.config import AuthType, ServerConfig
 from ..utils.registry import register_tool
+from .sn_api import sn_query_page
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,11 @@ class ManageSessionContextParams(BaseModel):
         default=None, description="sys_scope sys_id (required for set_app)"
     )
     update_set_id: Optional[str] = Field(
-        default=None, description="sys_update_set sys_id (required for set_update_set)"
+        default=None, description="sys_update_set sys_id (set_update_set; or pass update_set_name)"
+    )
+    update_set_name: Optional[str] = Field(
+        default=None,
+        description="Update set name — resolved to sys_id among in-progress sets (set_update_set)",
     )
 
     @model_validator(mode="after")
@@ -58,8 +63,10 @@ class ManageSessionContextParams(BaseModel):
             raise ValueError("action must be one of: get, set_app, set_update_set")
         if self.action == "set_app" and not self.app_id:
             raise ValueError("app_id is required for action='set_app'")
-        if self.action == "set_update_set" and not self.update_set_id:
-            raise ValueError("update_set_id is required for action='set_update_set'")
+        if self.action == "set_update_set" and not (self.update_set_id or self.update_set_name):
+            raise ValueError(
+                "update_set_id or update_set_name is required for action='set_update_set'"
+            )
         return self
 
 
@@ -84,6 +91,57 @@ def _picker_value(payload: Dict[str, Any]) -> Dict[str, str]:
         "sys_id": str(result.get("sysId") or result.get("sys_id") or result.get("value") or ""),
         "name": str(result.get("name") or result.get("displayValue") or ""),
     }
+
+
+def _resolve_update_set_by_name(
+    config: ServerConfig, auth_manager: AuthManager, name: str
+) -> Dict[str, Any]:
+    """Resolve an update set *name* to a sys_id, preferring in-progress sets.
+
+    Only in-progress sets are selectable, so the name is matched against those
+    first; an exact match wins over a substring. Returns {"sys_id", "name"} on a
+    unique hit, or {"error", "message", "candidates"?} when none/ambiguous.
+    """
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_update_set",
+            query=f"state=in progress^nameLIKE{name}^ORDERBYname",
+            fields="sys_id,name,state,application",
+            limit=20,
+            offset=0,
+            display_value=True,
+        )
+    except Exception as exc:
+        logger.warning("Failed to resolve update set name '%s': %s", name, exc)
+        return {"error": "resolve_failed", "message": f"Could not look up update set: {exc}"}
+
+    if not rows:
+        return {
+            "error": "not_found",
+            "message": (
+                f"No in-progress update set matching '{name}'. Only in-progress "
+                "sets can be selected — check the name or create one first."
+            ),
+        }
+
+    exact = [r for r in rows if str(r.get("name", "")).strip().lower() == name.strip().lower()]
+    chosen = exact if exact else rows
+    if len(chosen) > 1:
+        candidates: List[Dict[str, str]] = [
+            {"sys_id": str(r.get("sys_id") or ""), "name": str(r.get("name") or "")} for r in chosen
+        ]
+        return {
+            "error": "ambiguous",
+            "message": (
+                f"'{name}' matches {len(chosen)} in-progress update sets. "
+                "Pass update_set_id to disambiguate."
+            ),
+            "candidates": candidates,
+        }
+    row = chosen[0]
+    return {"sys_id": str(row.get("sys_id") or ""), "name": str(row.get("name") or "")}
 
 
 def _get_current(config: ServerConfig, auth_manager: AuthManager, endpoint: str) -> Dict[str, str]:
@@ -190,6 +248,51 @@ def ensure_current_app(
     return {"switched": bool(res.get("success")), **res}
 
 
+def ensure_current_update_set(
+    config: ServerConfig, auth_manager: AuthManager, update_set: str
+) -> Dict[str, Any]:
+    """Best-effort: make *update_set* the current update set (browser auth only).
+
+    Accepts a sys_id or a name (names resolve among in-progress sets). Mirrors
+    ``ensure_current_app`` — used by create paths so changes land in the intended
+    set. Never raises; reports a failure for the caller to surface.
+    """
+    if not _is_browser_auth(config):
+        return {"switched": False, "skipped": "not_browser_auth"}
+
+    target_id = update_set
+    target_name = ""
+    # A 32-char hex string is a sys_id; anything else is treated as a name.
+    is_sys_id = len(update_set) == 32 and all(c in "0123456789abcdef" for c in update_set.lower())
+    if not is_sys_id:
+        resolved = _resolve_update_set_by_name(config, auth_manager, update_set)
+        if resolved.get("error"):
+            return {"switched": False, "skipped": "resolve_failed", **resolved}
+        target_id = resolved["sys_id"]
+        target_name = resolved.get("name", "")
+
+    try:
+        current = _get_current(config, auth_manager, _UPDATESET_ENDPOINT)
+    except Exception as exc:
+        logger.warning("Could not read current update set before create: %s", exc)
+        return {"switched": False, "skipped": "read_failed", "detail": str(exc)}
+    if current.get("sys_id") == target_id:
+        return {"switched": False, "already_current": True, "name": current.get("name", "")}
+
+    res = _set_and_verify(
+        config,
+        auth_manager,
+        endpoint=_UPDATESET_ENDPOINT,
+        body={"sysId": target_id, "sys_id": target_id},
+        expected_id=target_id,
+        label="update set",
+    )
+    out = {"switched": bool(res.get("success")), **res}
+    if target_name and "name" not in out:
+        out["name"] = target_name
+    return out
+
+
 @register_tool(
     name="manage_session_context",
     params=ManageSessionContextParams,
@@ -225,13 +328,21 @@ def manage_session_context(
             label="application",
         )
 
-    # set_update_set
-    assert params.update_set_id is not None
+    # set_update_set — resolve by name when no explicit sys_id was given.
+    update_set_id = params.update_set_id
+    if not update_set_id:
+        assert params.update_set_name is not None
+        resolved = _resolve_update_set_by_name(config, auth_manager, params.update_set_name)
+        if resolved.get("error"):
+            return {"success": False, **resolved}
+        update_set_id = resolved["sys_id"]
+
+    assert update_set_id  # narrowed: set by param or resolved above
     return _set_and_verify(
         config,
         auth_manager,
         endpoint=_UPDATESET_ENDPOINT,
-        body={"sysId": params.update_set_id, "sys_id": params.update_set_id},
-        expected_id=params.update_set_id,
+        body={"sysId": update_set_id, "sys_id": update_set_id},
+        expected_id=update_set_id,
         label="update set",
     )
