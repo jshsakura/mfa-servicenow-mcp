@@ -1150,7 +1150,11 @@ class ServiceNowMCP:
         # raw Flow Designer table writes, and publish-class actions without
         # extra confirmation. Read-only calls skip this. Runs before confirm
         # so unsafe writes fail with a specific, actionable message.
-        from servicenow_mcp.policies import run_write_guards, strip_guard_fields
+        from servicenow_mcp.policies import (
+            run_concurrent_edit_guards,
+            run_write_guards,
+            strip_guard_fields,
+        )
 
         run_write_guards(self, name, arguments)
         arguments = strip_guard_fields(arguments)
@@ -1174,6 +1178,12 @@ class ServiceNowMCP:
                     "to confirm you want to execute this."
                 )
             logger.info("Executing confirmed action: tool=%s", name)
+
+        # Concurrent-edit guards (G3/G8) run HERE — after the confirm gate — so an
+        # unconfirmed mutation is rejected above without any network call. These
+        # make one live audit fetch of the target's current state to block a
+        # blind overwrite of someone else's concurrent edit.
+        run_concurrent_edit_guards(self, name, arguments)
 
         # Strip the confirmation field before passing to the tool
         arguments = {k: v for k, v in arguments.items() if k != CONFIRM_FIELD}

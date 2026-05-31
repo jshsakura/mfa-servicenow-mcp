@@ -39,10 +39,50 @@ Deferred:
 
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _EditTarget:
+    """How to find the record a manage_* tool writes to, for the audit fetch."""
+
+    table: str
+    id_arg: str  # argument key holding the record identifier
+    update_actions: frozenset  # action values that edit an EXISTING record
+    id_columns: Tuple[str, ...] = ("sys_id",)  # OR-matched columns for the id
+
+
+# Registry of manage_* write tools that identify their target by a tool-specific
+# id arg (not a generic table+sys_id). Only single-record update/delete actions
+# on one known table are listed; ambiguous junction/multi-table actions (link,
+# add_members, update_activity) and creates are deliberately omitted → fail-open.
+_CONCURRENT_EDIT_REGISTRY: Dict[str, _EditTarget] = {
+    "manage_incident": _EditTarget(
+        "incident", "incident_id", frozenset({"update", "comment", "resolve"}), ("sys_id", "number")
+    ),
+    "manage_change": _EditTarget(
+        "change_request", "change_id", frozenset({"update"}), ("sys_id", "number")
+    ),
+    "manage_changeset": _EditTarget("sys_update_set", "changeset_id", frozenset({"update"})),
+    "manage_workflow": _EditTarget(
+        "wf_workflow",
+        "workflow_id",
+        frozenset({"update", "activate", "deactivate", "delete"}),
+    ),
+    "manage_script_include": _EditTarget(
+        "sys_script_include",
+        "script_include_id",
+        frozenset({"update", "delete"}),
+        ("sys_id", "name"),
+    ),
+    "manage_user": _EditTarget("sys_user", "user_id", frozenset({"update"})),
+    "manage_group": _EditTarget("sys_user_group", "group_id", frozenset({"update"})),
+    "manage_flow_designer": _EditTarget("sys_hub_flow", "flow_id", frozenset({"update"})),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -219,10 +259,12 @@ def _current_username(server: Any) -> Optional[str]:
         return None
 
 
-def _fetch_record_audit(
-    ctx: WriteGuardContext, table: str, sys_id: str
-) -> Optional[Dict[str, str]]:
-    """Return dict with sys_updated_by and sys_updated_on for the record."""
+def _fetch_record_audit(ctx: WriteGuardContext, table: str, query: str) -> Optional[Dict[str, str]]:
+    """LIVE fetch of the record's CURRENT sys_updated_by / sys_updated_on from
+    ServiceNow — NOT local cache, NOT the downloaded copy. This is a fresh remote
+    table-API read at write time (encoded `query`, e.g. ``sys_id=...`` or
+    ``sys_id=...^ORnumber=...``), so the concurrent-edit decision is made against
+    the record's real present state. Returns None on any failure (fail-open)."""
     try:
         from servicenow_mcp.tools.sn_api import sn_query_page
 
@@ -230,7 +272,7 @@ def _fetch_record_audit(
             ctx.server.config,
             ctx.server.auth_manager,
             table=table,
-            query=f"sys_id={sys_id}",
+            query=query,
             fields="sys_updated_by,sys_updated_on",
             limit=1,
             offset=0,
@@ -240,7 +282,7 @@ def _fetch_record_audit(
         if records:
             return records[0]
     except Exception:
-        logger.debug("Audit fetch failed for %s/%s", table, sys_id, exc_info=True)
+        logger.debug("Audit fetch failed for %s (%s)", table, query, exc_info=True)
     return None
 
 
@@ -314,12 +356,15 @@ def _g7_publish_extra_confirm(ctx: WriteGuardContext) -> None:
     )
 
 
-def _check_concurrent_edit(ctx: WriteGuardContext, table: str, sys_id: str, *, guard: str) -> None:
-    """Shared concurrent-edit core: fetch the record's FRESH audit and block if
-    a DIFFERENT user edited it within the window. Fail-open on any uncertainty
-    (audit fetch failed, no editor, unparseable timestamp) — a guard must never
-    block a legitimate write on missing data, only on a confirmed clash."""
-    target = _fetch_record_audit(ctx, table, sys_id)
+def _check_concurrent_edit(
+    ctx: WriteGuardContext, table: str, query: str, label: str, *, guard: str
+) -> None:
+    """Shared concurrent-edit core: fetch the record's FRESH remote audit (via
+    `query`) and block if a DIFFERENT user edited it within the window. Fail-open
+    on any uncertainty (audit fetch failed, no editor, unparseable timestamp) —
+    a guard must never block a legitimate write on missing data, only on a
+    confirmed clash. `label` (e.g. "incident/INC001") is for the message only."""
+    target = _fetch_record_audit(ctx, table, query)
     if target is None:
         return  # fail-open if audit fetch fails
 
@@ -342,7 +387,7 @@ def _check_concurrent_edit(ctx: WriteGuardContext, table: str, sys_id: str, *, g
 
     raise PolicyViolation(
         guard,
-        f"Concurrent edit detected on {table}/{sys_id}.\n"
+        f"Concurrent edit detected on {label}.\n"
         f"  Last edited by '{other}' ~{int(elapsed)} min ago "
         f"(window: {window} min, current user: '{me}').\n"
         f"Someone else's change would be overwritten. Re-fetch the record, "
@@ -365,7 +410,7 @@ def _g3_concurrent_edit(ctx: WriteGuardContext) -> None:
     if not (table and sys_id):
         # Missing required args — let sn_write itself reject; guard skips.
         return
-    _check_concurrent_edit(ctx, str(table), str(sys_id), guard="G3")
+    _check_concurrent_edit(ctx, str(table), f"sys_id={sys_id}", f"{table}/{sys_id}", guard="G3")
 
 
 def _g8_generic_concurrent_edit(ctx: WriteGuardContext) -> None:
@@ -376,18 +421,43 @@ def _g8_generic_concurrent_edit(ctx: WriteGuardContext) -> None:
     Deliberately conservative: fires ONLY when both `table` and `sys_id` are
     present and non-empty, so the audited record is exactly the one being
     written — no risk of blocking the wrong record. Tools that identify records
-    another way (e.g. by `number`) are not covered here and pass through
-    untouched (fail-open). sn_write is handled by G3; skip it to avoid a
-    duplicate audit fetch."""
+    another way (e.g. by `number`) are covered by the registry guard instead.
+    sn_write is handled by G3; registry tools by _g8_registry — skip both here
+    to avoid a duplicate audit fetch."""
     if not _concurrent_guard_enabled():
         return
-    if ctx.tool_name == "sn_write":
+    if ctx.tool_name == "sn_write" or ctx.tool_name in _CONCURRENT_EDIT_REGISTRY:
         return
     table = str(ctx.arguments.get("table") or "").strip()
     sys_id = str(ctx.arguments.get("sys_id") or "").strip()
     if not (table and sys_id):
         return
-    _check_concurrent_edit(ctx, table, sys_id, guard="G8")
+    _check_concurrent_edit(ctx, table, f"sys_id={sys_id}", f"{table}/{sys_id}", guard="G8")
+
+
+def _g8_registry_concurrent_edit(ctx: WriteGuardContext) -> None:
+    """G8 (registry) — concurrent-edit protection for the manage_* write tools
+    that identify their target by a tool-specific id arg (incident_id, change_id,
+    workflow_id, …) rather than a generic `table`+`sys_id`.
+
+    Only single-record update/delete actions on a known table are registered;
+    ambiguous junction / multi-table actions (link, add_members, …) and create
+    actions are intentionally left out → they fail-open (pass through). The audit
+    query ORs the id across its possible columns (sys_id / number / name) so it
+    matches the exact record regardless of which identifier form was passed."""
+    if not _concurrent_guard_enabled():
+        return
+    target = _CONCURRENT_EDIT_REGISTRY.get(ctx.tool_name)
+    if target is None:
+        return
+    action = str(ctx.arguments.get("action") or "").lower()
+    if action not in target.update_actions:
+        return
+    value = str(ctx.arguments.get(target.id_arg) or "").strip()
+    if not value:
+        return
+    query = "^OR".join(f"{col}={value}" for col in target.id_columns)
+    _check_concurrent_edit(ctx, target.table, query, f"{target.table}/{value}", guard="G8")
 
 
 # ---------------------------------------------------------------------------
@@ -396,10 +466,14 @@ def _g8_generic_concurrent_edit(ctx: WriteGuardContext) -> None:
 
 
 def run_write_guards(server: Any, tool_name: str, arguments: Dict[str, Any]) -> None:
-    """Run all write guards. Raises PolicyViolation on first failure.
+    """Local pre-confirm guards (G6, G7) — NO network. Raises PolicyViolation on
+    first failure. Called from server._call_tool_impl BEFORE the confirm gate so
+    structural violations fail with a specific message.
 
-    Called from server._call_tool_impl between the action-allowlist check
-    and the confirm gate.
+    Concurrent-edit detection (G3/G8) is intentionally NOT here: it makes a live
+    audit fetch, so it must run only AFTER the confirm gate passes — see
+    run_concurrent_edit_guards. This keeps the invariant "an unconfirmed mutation
+    touches the network zero times".
     """
     if not _guards_enabled():
         return
@@ -407,14 +481,26 @@ def run_write_guards(server: Any, tool_name: str, arguments: Dict[str, Any]) -> 
         return
 
     ctx = WriteGuardContext(server, tool_name, arguments)
-
-    # Order: cheap local checks first; G3/G8 fetch an audit record (one API
-    # call) only when they have a concrete target.
     _g6_flow_designer_raw_write(ctx)
     _g6_variable_value_for_flow(ctx)
     _g7_publish_extra_confirm(ctx)
+
+
+def run_concurrent_edit_guards(server: Any, tool_name: str, arguments: Dict[str, Any]) -> None:
+    """Concurrent-edit guards (G3 + G8). Each makes ONE live audit fetch of the
+    target's current sys_updated_by/on, so this runs AFTER the confirm gate — an
+    unconfirmed write is rejected first and never reaches the network. Only
+    update/delete of an existing record is checked; creates pass through (nothing
+    to clash with). Raises PolicyViolation on a confirmed concurrent clash."""
+    if not _guards_enabled():
+        return
+    if _is_read_only(tool_name, arguments):
+        return
+
+    ctx = WriteGuardContext(server, tool_name, arguments)
     _g3_concurrent_edit(ctx)
     _g8_generic_concurrent_edit(ctx)
+    _g8_registry_concurrent_edit(ctx)
 
 
 def strip_guard_fields(arguments: Dict[str, Any]) -> Dict[str, Any]:
