@@ -2835,6 +2835,17 @@ def download_portal_sources(
             "warnings": warnings,
         }
 
+    # Completeness guard: a full-scope fetch returning exactly max_widgets means
+    # the scope holds at least that many and some were left behind. Surface it —
+    # a silent widget cap yields an incomplete tree that analysis can't trust.
+    widgets_capped = not targeted_widget_export and len(widgets) >= max_widgets
+    if widgets_capped:
+        warnings.append(
+            f"INCOMPLETE — fetched {len(widgets)} widgets, which equals the max_widgets cap "
+            f"({max_widgets}). The scope likely has more that were NOT downloaded. Re-run with a "
+            f"higher max_widgets to capture everything."
+        )
+
     widget_map: Dict[str, str] = {}
     exported_widgets: List[Dict[str, str]] = []
     script_include_candidates: List[str] = []

@@ -2225,6 +2225,18 @@ def _download_source_types(
             type_results[source_type] = {"count": 0}
             continue
 
+        # Completeness guard: sn_query_all returns exactly `max_per_type` rows
+        # only when the scope holds at least that many, so hitting the cap means
+        # records were almost certainly left behind. Surface it loudly — a silent
+        # cap makes an incomplete download look complete. Zero extra API cost.
+        capped = len(records) >= max_per_type
+        if capped:
+            warnings.append(
+                f"{source_type}: INCOMPLETE — fetched {len(records)} records, which equals the "
+                f"max_records_per_type cap ({max_per_type}). The scope likely has more that were "
+                f"NOT downloaded. Re-run with a higher max_records_per_type to capture everything."
+            )
+
         type_dir = scope_root / table
         name_map: Dict[str, str] = {}
         sync_meta: Dict[str, Dict[str, str]] = {}
@@ -2373,6 +2385,9 @@ def _download_source_types(
             "count": len(records),
             "files": type_file_count,
             "path": str(type_dir.relative_to(root)),
+            # Machine-readable completeness flag so any analysis built on this
+            # tree can refuse/flag instead of trusting a truncated source.
+            "capped": capped,
         }
         total_files += type_file_count
 
@@ -2926,6 +2941,10 @@ class DownloadAppSourcesParams(BaseModel):
         default=False,
         description="Warn about local records deleted on the instance. No auto-delete.",
     )
+    build_graph: bool = Field(
+        default=False,
+        description="Also run the offline audit (relationship graphs) after download. No API cost.",
+    )
 
 
 @register_tool(
@@ -3181,6 +3200,16 @@ def download_app_sources(
             "and answer dependency questions offline without further API calls."
         ),
     }
+    # Single trustworthy completeness signal: false when any source family hit
+    # its cap (records left behind). Analysis on an incomplete tree is unreliable,
+    # so callers should treat complete=false as "do not trust derived results".
+    capped_types = [
+        t for t, r in all_type_results.items() if isinstance(r, dict) and r.get("capped")
+    ]
+    summary["complete"] = not capped_types
+    if capped_types:
+        summary["incomplete_types"] = capped_types
+
     if widget_summary and widget_summary.get("success"):
         summary["widget_summary"] = widget_summary.get("summary")
     if schema_summary:
@@ -3196,6 +3225,25 @@ def download_app_sources(
         )
     if scope_resolution:
         summary["scope_resolution"] = scope_resolution
+
+    # Opt-in: build the offline relationship graphs right after download so a
+    # single call yields complete metadata. No API cost. A graph is only as
+    # trustworthy as the download under it — failure here never fails the
+    # download, it just surfaces a warning.
+    if params.build_graph:
+        try:
+            from servicenow_mcp.tools.source_audit_tools import (
+                AuditAppSourcesParams,
+                audit_local_sources,
+            )
+
+            graph = audit_local_sources(
+                config, auth_manager, AuditAppSourcesParams(source_root=str(scope_root))
+            )
+            summary["graph"] = graph.get("summary", graph) if isinstance(graph, dict) else graph
+        except Exception as exc:
+            all_warnings.append(f"build_graph: relationship audit failed: {exc}")
+
     if all_warnings:
         summary["warnings"] = all_warnings
     summary["safety_notice"] = (
