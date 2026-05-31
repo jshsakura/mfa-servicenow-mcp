@@ -827,6 +827,151 @@ class TestCallToolImpl:
 
 
 # ---------------------------------------------------------------------------
+# Multi-instance echo: deterministic stamp of which instance a call hit
+# ---------------------------------------------------------------------------
+
+
+class TestInstanceEcho:
+    """The echo is deterministic visibility (the code stamps which instance a
+    call hit) — not an LLM-supplied arg. Writes echo the target; reads routed
+    elsewhere echo the source. Legacy single-instance mode stays silent."""
+
+    def _make_server(self, tool_defs):
+        with (
+            patch("servicenow_mcp.server.AuthManager"),
+            patch("servicenow_mcp.server.get_tool_definitions") as gtd,
+            patch("servicenow_mcp.server.load_skills", return_value=[]),
+            patch("servicenow_mcp.server.build_tool_to_skills_map", return_value={}),
+        ):
+            gtd.return_value = tool_defs
+            server = ServiceNowMCP(_make_config())
+            server.tool_definitions = tool_defs
+            server.enabled_tool_names = list(tool_defs)
+            server.current_package_name = "standard"
+            return server
+
+    def _go_multi_instance(self, server):
+        """Simulate active=dev (writable) + a read-only prod peer."""
+        from servicenow_mcp.utils.instances import InstanceDefinition
+
+        dev = InstanceDefinition(
+            alias="dev",
+            url="https://dev.service-now.com",
+            role="development",
+            allow_writes=True,
+        )
+        prod = InstanceDefinition(
+            alias="prod",
+            url="https://prod.service-now.com",
+            role="production",
+            allow_writes=False,
+        )
+        server.instance_contexts = {
+            "dev": {
+                "alias": "dev",
+                "definition": dev,
+                "config": server.config,
+                "auth_manager": server.auth_manager,
+            },
+            "prod": {
+                "alias": "prod",
+                "definition": prod,
+                "config": server.config,
+                "auth_manager": server.auth_manager,
+            },
+        }
+        server.active_instance_alias = "dev"
+        server.active_instance_meta = {
+            "alias": "dev",
+            "role": "development",
+            "allow_writes": True,
+            "url": "https://dev.service-now.com",
+        }
+
+    @staticmethod
+    def _defs():
+        from pydantic import BaseModel
+
+        class FakeParams(BaseModel):
+            x: int = 1
+
+        def read_impl(config, auth, params):
+            return {"ok": True}
+
+        def write_impl(config, auth, params):
+            return {"result": "created"}
+
+        return {
+            "my_tool": (read_impl, FakeParams, dict, "desc", "raw_dict"),
+            "create_item": (write_impl, FakeParams, dict, "desc", "raw_dict"),
+        }
+
+    def test_write_echoes_active_target(self):
+        import asyncio
+
+        server = self._make_server(self._defs())
+        self._go_multi_instance(server)
+
+        async def _check():
+            result = await server._call_tool_impl(
+                "create_item", {"x": 1, CONFIRM_FIELD: CONFIRM_VALUE}
+            )
+            payload = json.loads(result[0].text)
+            assert payload["instance_target"]["alias"] == "dev"
+            assert payload["instance_target"]["role"] == "development"
+            assert payload["instance_target"]["host"] == "dev.service-now.com"
+            assert payload["result"] == "created"
+
+        asyncio.run(_check())
+
+    def test_read_with_instance_override_echoes_source(self):
+        import asyncio
+
+        server = self._make_server(self._defs())
+        self._go_multi_instance(server)
+
+        async def _check():
+            result = await server._call_tool_impl("my_tool", {"x": 1, "instance": "prod"})
+            payload = json.loads(result[0].text)
+            assert payload["instance_source"]["alias"] == "prod"
+            assert payload["instance_source"]["role"] == "production"
+            assert payload["instance_source"]["host"] == "prod.service-now.com"
+
+        asyncio.run(_check())
+
+    def test_read_on_active_has_no_echo(self):
+        import asyncio
+
+        server = self._make_server(self._defs())
+        self._go_multi_instance(server)
+
+        async def _check():
+            result = await server._call_tool_impl("my_tool", {"x": 1})
+            payload = json.loads(result[0].text)
+            assert "instance_source" not in payload
+            assert "instance_target" not in payload
+
+        asyncio.run(_check())
+
+    def test_legacy_single_instance_no_echo(self):
+        import asyncio
+
+        server = self._make_server(self._defs())
+        # No multi-instance setup: instance_contexts stays empty.
+        assert server.instance_contexts == {}
+
+        async def _check():
+            result = await server._call_tool_impl(
+                "create_item", {"x": 1, CONFIRM_FIELD: CONFIRM_VALUE}
+            )
+            payload = json.loads(result[0].text)
+            assert "instance_target" not in payload
+            assert payload["result"] == "created"
+
+        asyncio.run(_check())
+
+
+# ---------------------------------------------------------------------------
 # _list_tools_impl with actual tool definitions
 # ---------------------------------------------------------------------------
 
