@@ -1347,3 +1347,54 @@ class TestResumeSkipWatermark:
         # Re-download with identical timestamps → resume-skip, but nothing stale.
         result = self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
         assert not any("STALE" in w for w in result["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Completeness: hitting the per-type cap must be surfaced (never a silent
+# truncation), both as a human warning and a machine-readable `capped` flag.
+# ---------------------------------------------------------------------------
+
+
+class TestDownloadCapWarning:
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_cap_hit_is_flagged(self, mqp, mqa, config, auth, tmp_path):
+        # Two SI records; cap the download at 2 → fetched == cap → capped.
+        recs = _si_records()
+        mqa.return_value = _strip_source(recs)
+        mqp.side_effect = _page_side_effect_for(recs)
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        result = _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
+            max_per_type=2,
+        )
+        assert result["type_results"]["script_include"]["capped"] is True
+        assert any("INCOMPLETE" in w and "script_include" in w for w in result["warnings"])
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_under_cap_is_not_flagged(self, mqp, mqa, config, auth, tmp_path):
+        recs = _si_records()  # 2 records
+        mqa.return_value = _strip_source(recs)
+        mqp.side_effect = _page_side_effect_for(recs)
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        result = _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
+            max_per_type=100,
+        )
+        assert result["type_results"]["script_include"]["capped"] is False
+        assert not any("INCOMPLETE" in w for w in result["warnings"])
