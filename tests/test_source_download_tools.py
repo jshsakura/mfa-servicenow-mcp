@@ -664,8 +664,9 @@ class TestDownloadUIComponents:
 
         page_dir = tmp_path / "sys_ui_page" / "custom_page"
         assert (page_dir / "html.html").exists()
-        assert (page_dir / "client_script.client.js").exists()
-        assert (page_dir / "processing_script.server.js").exists()
+        # Canonical filenames (source_layout) — same as the uploader expects.
+        assert (page_dir / "client_script.js").exists()
+        assert (page_dir / "processing_script.js").exists()
 
 
 class TestDownloadAPISources:
