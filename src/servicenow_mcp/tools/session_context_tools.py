@@ -71,43 +71,96 @@ class ManageSessionContextParams(BaseModel):
         return self
 
 
+# Concoursepicker response shapes vary widely across releases/endpoints: the
+# current selection may be a {current: {...}} object, a bare sys_id string, a
+# top-level {sysId/value}, or an item flagged in a (possibly nested) list. The
+# application picker on dev returned a shape the old parser read as empty —
+# making a *successful* switch look like not_applied. These keys cover the
+# known variants; the resolver tries them most-authoritative-first.
+_ID_KEYS = ("sysId", "sys_id", "value", "id")
+_NAME_KEYS = ("name", "displayValue", "display_value", "label")
+_SELECTED_FLAGS = ("selected", "current", "isCurrent", "is_current")
+
+
+def _selection_from_obj(obj: Any) -> Optional[Dict[str, str]]:
+    """{sys_id, name} from a selection object, or a bare sys_id string."""
+    if isinstance(obj, str):
+        return {"sys_id": obj, "name": ""} if obj.strip() else None
+    if not isinstance(obj, dict):
+        return None
+    sid = next((obj[k] for k in _ID_KEYS if obj.get(k)), None)
+    if not sid:
+        return None
+    name = next((obj[k] for k in _NAME_KEYS if obj.get(k)), "")
+    return {"sys_id": str(sid), "name": str(name)}
+
+
+def _name_for_sys_id(container: Any, sys_id: str) -> str:
+    """Look up a selection's display name in the picker's option list.
+
+    The application picker returns ``current`` as a bare sys_id with the names
+    living in ``result.list``; resolve the name so the success message reads
+    'BPM' rather than a raw sys_id.
+    """
+    items = container.get("list") if isinstance(container, dict) else None
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("sysId") or item.get("sys_id") or "") == sys_id:
+                return str(item.get("name") or item.get("displayValue") or "")
+    return ""
+
+
+def _find_flagged_selection(node: Any) -> Optional[Dict[str, str]]:
+    """Depth-first search for the object flagged as the active selection."""
+    if isinstance(node, dict):
+        if any(node.get(flag) for flag in _SELECTED_FLAGS):
+            sel = _selection_from_obj(node)
+            if sel:
+                return sel
+        for value in node.values():
+            sel = _find_flagged_selection(value)
+            if sel:
+                return sel
+    elif isinstance(node, list):
+        for item in node:
+            sel = _find_flagged_selection(item)
+            if sel:
+                return sel
+    return None
+
+
 def _picker_value(payload: Dict[str, Any]) -> Dict[str, str]:
     """Extract {sys_id, name} of the current selection from a concoursepicker body.
 
-    The picker response shape varies across releases; check the documented keys in
-    order and fall back to empty strings so callers always get a stable shape.
+    Tolerant of every observed shape: an explicit ``current`` (object or bare
+    sys_id), selection fields directly on ``result``, or a flagged item nested
+    anywhere in the structure. Falls back to empty strings so callers always get
+    a stable shape.
     """
-    result = payload.get("result", payload) if isinstance(payload, dict) else {}
-    # Some concoursepicker releases return the picker as a LIST of options with
-    # the active one flagged (selected/current/active), instead of a
-    # {current: {...}} object. The list form previously parsed to empty — which
-    # looks exactly like a failed switch (current is '') even when it worked.
-    if isinstance(result, list):
-        for item in result:
-            if isinstance(item, dict) and (
-                item.get("selected") or item.get("current") or item.get("active")
-            ):
-                return {
-                    "sys_id": str(
-                        item.get("sysId") or item.get("sys_id") or item.get("value") or ""
-                    ),
-                    "name": str(item.get("name") or item.get("displayValue") or ""),
-                }
-        return {"sys_id": "", "name": ""}
-    if not isinstance(result, dict):
-        return {"sys_id": "", "name": ""}
-    current = result.get("current")
-    if isinstance(current, dict):
-        return {
-            "sys_id": str(
-                current.get("sysId") or current.get("sys_id") or current.get("value") or ""
-            ),
-            "name": str(current.get("name") or current.get("displayValue") or ""),
-        }
-    return {
-        "sys_id": str(result.get("sysId") or result.get("sys_id") or result.get("value") or ""),
-        "name": str(result.get("name") or result.get("displayValue") or ""),
-    }
+    result = payload.get("result", payload) if isinstance(payload, dict) else payload
+
+    # 1) Explicit current — most authoritative (dict or bare sys_id string).
+    if isinstance(result, dict) and result.get("current") is not None:
+        sel = _selection_from_obj(result["current"])
+        if sel:
+            if not sel["name"]:
+                sel["name"] = _name_for_sys_id(result, sel["sys_id"])
+            return sel
+
+    # 2) Selection fields directly on the result object.
+    if isinstance(result, dict):
+        sel = _selection_from_obj(result)
+        if sel:
+            return sel
+
+    # 3) A flagged item anywhere (top-level list, or a list nested under result).
+    sel = _find_flagged_selection(result)
+    if sel:
+        return sel
+
+    return {"sys_id": "", "name": ""}
 
 
 def _resolve_update_set_by_name(
@@ -223,7 +276,17 @@ def _get_current_raw(
     except Exception:
         payload = {}
     parsed = _picker_value(payload if isinstance(payload, dict) else {})
-    return parsed, _response_debug(response)
+    dbg = _response_debug(response)
+    # Log the raw shape so a parser/shape issue is diagnosable from the log file
+    # alone (the body is otherwise only in the tool response's diagnostics).
+    logger.debug(
+        "concoursepicker GET %s -> status=%s parsed_sys_id=%r body=%s",
+        endpoint,
+        dbg["status"],
+        parsed.get("sys_id"),
+        dbg["body"],
+    )
+    return parsed, dbg
 
 
 def _get_current(config: ServerConfig, auth_manager: AuthManager, endpoint: str) -> Dict[str, str]:
@@ -243,7 +306,15 @@ def _put_current(
     response = auth_manager.make_request(
         "PUT", url, json=body, timeout=config.timeout, headers=_ui_context_headers(config)
     )
-    return _response_debug(response)
+    dbg = _response_debug(response)
+    logger.debug(
+        "concoursepicker PUT %s body=%r -> status=%s resp_body=%s",
+        endpoint,
+        body,
+        dbg["status"],
+        dbg["body"],
+    )
+    return dbg
 
 
 def _browser_only_error() -> Dict[str, Any]:

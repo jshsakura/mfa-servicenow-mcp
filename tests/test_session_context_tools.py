@@ -395,3 +395,118 @@ def test_set_app_success_with_list_shape_readback():
     )
     assert result["success"] is True
     assert result["current"]["sys_id"] == "bpm-1"
+
+
+def test_picker_value_current_as_bare_sys_id_string():
+    """The dev application-picker case: current is a bare sys_id string, not a
+    {sysId:...} object. Old parser read this as empty → false not_applied."""
+    from servicenow_mcp.tools.session_context_tools import _picker_value
+
+    assert _picker_value({"result": {"current": "fbf3dd8c3bbb321046a3934a85e45ab2"}}) == {
+        "sys_id": "fbf3dd8c3bbb321046a3934a85e45ab2",
+        "name": "",
+    }
+
+
+def test_picker_value_nested_list_under_key():
+    from servicenow_mcp.tools.session_context_tools import _picker_value
+
+    payload = {
+        "result": {
+            "default": {"sysId": "global", "name": "Global"},
+            "list": [
+                {"sysId": "global", "name": "Global", "selected": False},
+                {"sysId": "hbpm-1", "name": "HBPM", "selected": True},
+            ],
+        }
+    }
+    assert _picker_value(payload) == {"sys_id": "hbpm-1", "name": "HBPM"}
+
+
+def test_picker_value_top_level_value_field():
+    from servicenow_mcp.tools.session_context_tools import _picker_value
+
+    assert _picker_value({"result": {"value": "hbpm-1", "displayValue": "HBPM"}}) == {
+        "sys_id": "hbpm-1",
+        "name": "HBPM",
+    }
+
+
+def test_picker_value_empty_current_stays_empty():
+    """An empty current object must still resolve to empty (a real failed switch
+    must not be masked by the more aggressive resolver)."""
+    from servicenow_mcp.tools.session_context_tools import _picker_value
+
+    assert _picker_value({"result": {"current": {"sysId": "", "name": ""}}}) == {
+        "sys_id": "",
+        "name": "",
+    }
+
+
+def test_set_app_success_with_bare_string_current_readback():
+    """End-to-end: switch reports success when the read-back uses the bare-string
+    current shape that previously produced a false not_applied."""
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),  # PUT
+        _resp({"result": {"current": "hbpm-1"}}),  # read-back: bare sys_id string
+    ]
+    result = manage_session_context(
+        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="hbpm-1")
+    )
+    assert result["success"] is True
+    assert result["current"]["sys_id"] == "hbpm-1"
+
+
+def test_picker_value_real_application_shape_bare_current_plus_list():
+    """The ACTUAL dev /concoursepicker/application shape: current is a bare
+    sys_id string, names live in result.list. Must resolve sys_id AND name."""
+    from servicenow_mcp.tools.session_context_tools import _picker_value
+
+    payload = {
+        "result": {
+            "current": "41c8a9e73b1e4a10ec3cbf2a85e45ab7",
+            "list": [
+                {"sysId": "global", "name": "Global", "scopeName": "global"},
+                {
+                    "sysId": "41c8a9e73b1e4a10ec3cbf2a85e45ab7",
+                    "name": "BPM",
+                    "scopeName": "x_yergb_bpm",
+                },
+                {
+                    "sysId": "fbf3dd8c3bbb321046a3934a85e45ab2",
+                    "name": "HBPM",
+                    "scopeName": "x_yergb_hbpm",
+                },
+            ],
+        }
+    }
+    assert _picker_value(payload) == {
+        "sys_id": "41c8a9e73b1e4a10ec3cbf2a85e45ab7",
+        "name": "BPM",
+    }
+
+
+def test_set_app_success_with_real_application_shape():
+    """End-to-end set_app against the real bare-current+list shape."""
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),  # PUT
+        _resp(
+            {
+                "result": {
+                    "current": "fbf3dd8c3bbb321046a3934a85e45ab2",
+                    "list": [
+                        {"sysId": "fbf3dd8c3bbb321046a3934a85e45ab2", "name": "HBPM"},
+                    ],
+                }
+            }
+        ),
+    ]
+    result = manage_session_context(
+        _browser_config(),
+        auth,
+        ManageSessionContextParams(action="set_app", app_id="fbf3dd8c3bbb321046a3934a85e45ab2"),
+    )
+    assert result["success"] is True
+    assert result["current"] == {"sys_id": "fbf3dd8c3bbb321046a3934a85e45ab2", "name": "HBPM"}
