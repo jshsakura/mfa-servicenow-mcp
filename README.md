@@ -57,6 +57,8 @@ uvx --with playwright playwright install chromium                               
 
 This installs `uv`, fetches+verifies the server, and downloads Chromium — once. The `--with playwright` on the fetch matches the runtime config below, so uvx caches the exact env and the first client start is instant.
 
+> **Guided setup.** Running `servicenow-mcp setup` with no flags walks you through numbered menus (pick clients and auth type by number or name — no free-text guessing), in English or Korean (auto-detected from your locale; force with `SERVICENOW_MCP_LANG=ko|en`).
+
 ### 2. Configure your MCP client
 
 Add the server to your client's config file — pick yours below. Only two env vars are required; `MCP_TOOL_PACKAGE` defaults to `standard`, so leave it out unless you need a different package.
@@ -538,6 +540,20 @@ Rules:
 
 This policy applies regardless of the selected tool package.
 
+### Write Guards
+
+Beyond the confirm gate, every write runs through deterministic guards that block unsafe writes *before* they reach ServiceNow. The concurrent-edit and duplicate-create checks run **after** the confirm gate, so an unconfirmed write never touches the network. Each guard fails **open** on a denied/failed pre-read — it never blocks a legitimate write just because it couldn't look first.
+
+| Guard | Protects against | Override / toggle |
+|---|---|---|
+| Concurrent edit (G3/G8) | Blindly overwriting a record a **different user** edited within the last 10 min. Covers `sn_write`, `manage_portal_component`, and the `manage_*` update tools. Decided by a **live remote read** of `sys_updated_by`/`sys_updated_on` — never the local copy. | `SERVICENOW_CONCURRENT_EDIT_GUARD=off`; window via `SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN` (default `10`) |
+| Duplicate create (G9) | Silently creating a second record with a name that already exists, on tables ServiceNow does not make unique (`sys_update_set`, `wf_workflow`, `sys_user_group`, `sys_user`). | pass `allow_duplicate='true'` to create anyway |
+| Flow Designer raw write (G6) | Raw `sn_write` to `sys_hub_*` tables that corrupt flow snapshots — forces `manage_flow_designer`. | — |
+| Publish-class (G7) | Accidental publish/commit/push — needs a second `confirm_publish='approve'`. | — |
+| Cross-instance push | Pushing local source downloaded from instance A into instance B (origin read from `_settings.json` / `_manifest.json`). | re-download from the correct instance |
+
+Disable the whole layer with `SERVICENOW_WRITE_GUARDS=off`. In multi-instance mode, every write response also carries an `instance_target` field (and reads routed elsewhere an `instance_source`) so the instance a call hit is always visible.
+
 ### Portal Investigation Safety
 
 Portal investigation tools are conservative by default:
@@ -630,6 +646,18 @@ download_app_sources(scope="x_company_app", incremental=True)    # later: change
 - **First run / no prior data:** falls back to a full download automatically.
 - Run a full (non-incremental) download periodically to stay fully in sync.
 
+### Download Safety & Completeness
+
+The download is the source of truth for offline analysis, so it is built to be deterministic and to never *look* complete when it isn't:
+
+- **Scope auto-resolution.** Pass the app **namespace** (`x_company_app`), its **display name** ("My App"), or a `sys_scope` sys_id — all resolve to the canonical namespace, so the local folder (`temp/<instance>/<namespace>/`) and every query are identical every run. The resolved value is echoed as `scope_resolution`.
+- **No silent caps.** If a source family hits `max_records_per_type`, it is flagged loudly: a per-family `capped: true` in `source_types`, the family in `incomplete_types`, and a top-level `complete: false`. A truncated download can never masquerade as a full one.
+- **Cross-instance / stale guards.** Pushing back (`update_remote_from_local`) checks the local tree's recorded origin against the connected instance; a resume re-download that keeps a stale local copy preserves the real sync watermark and warns instead of hiding the drift.
+- **Relationship metadata at download time.** Widget→Angular-Provider edges (`_graph.json`) and widget→CSS/JS-dependency edges (`_dependency_graph.json`) are captured from the live M2M tables during the portal download — analysis reads the real graph instead of guessing from code.
+- **Transitive dependency depth.** Cross-scope deps resolve `2` passes deep by default (conservative). Raise with `SERVICENOW_DEP_MAX_DEPTH` (clamped to `1–6`) to chase longer A→B→C→D chains.
+- **One-call graph build.** Pass `build_graph=True` to `download_app_sources` to run the offline relationship audit right after the download — no extra API cost.
+- **Create → local sync nudge.** When you create a widget/page on the instance *and* a local tree exists for that scope, the create response adds a `local_out_of_sync` message with the exact `download_portal_sources(...)` command to pull the new record into local. It never writes local files for you.
+
 ### What Gets Generated
 
 | File | Purpose |
@@ -637,6 +665,7 @@ download_app_sources(scope="x_company_app", incremental=True)    # later: change
 | `_audit_report.html` | Self-contained dark-theme HTML report — open in browser |
 | `_cross_references.json` | Who calls who — Script Include chains, GlideRecord table refs |
 | `_graph.json` | Authoritative widget→Angular Provider edges from the live M2M (not text-guessed) |
+| `_dependency_graph.json` | Authoritative widget→CSS/JS dependency edges from `m2m_sp_widget_dependency` |
 | `_page_graph.json` | Page→widget placements derived locally from `sp_instance` (no API call) |
 | `_orphans.json` | Dead code candidates — unreferenced SIs, unused widgets |
 | `_execution_order.json` | Per-table BR/CS/ACL execution sequence with order numbers |
