@@ -971,6 +971,23 @@ def _chromium_health_fields(config: ServerConfig) -> Dict[str, Any]:
     return {"chromium": "missing", "chromium_install_hint": hint}
 
 
+def _auth_identity_fields(config: ServerConfig, auth_manager: AuthManager) -> Dict[str, Any]:
+    """Stamp every sn_health response with the instance + browser profile it
+    describes. With multiple instances configured (dev + test), an auth verdict
+    that doesn't name its instance/profile is easy to attribute to the wrong one.
+    Read-only; profile included only when it resolves to a real string."""
+    fields: Dict[str, Any] = {"instance_url": config.instance_url}
+    suffix = getattr(auth_manager, "_get_instance_user_suffix", None)
+    if callable(suffix):
+        try:
+            value = suffix()
+        except Exception:
+            value = None
+        if isinstance(value, str) and value:
+            fields["profile"] = value
+    return fields
+
+
 @register_tool(
     name="sn_health",
     params=HealthCheckParams,
@@ -983,6 +1000,7 @@ def sn_health(
 ) -> Dict[str, Any]:
     result = _sn_health_impl(config, auth_manager, params)
     result.update(_chromium_health_fields(config))
+    result.update(_auth_identity_fields(config, auth_manager))
     return result
 
 
