@@ -1154,6 +1154,7 @@ class ServiceNowMCP:
             run_post_confirm_guards,
             run_write_guards,
             strip_guard_fields,
+            update_set_context,
         )
         from servicenow_mcp.policies.write_guards import strip_post_confirm_fields
 
@@ -1253,6 +1254,15 @@ class ServiceNowMCP:
         echo = self._instance_echo(name, arguments, target_alias)
         if echo and isinstance(result, dict):
             result = {**result, **echo}
+
+        # Awareness (non-blocking): stamp which update set + scope this write
+        # landed in, so a write captured into the wrong set — e.g. one another
+        # terminal switched the session to — is fully visible rather than silent.
+        # Writes only; new dict (never mutate the tool result); fail-open.
+        if isinstance(result, dict) and not self._is_read_only_call(name, arguments):
+            us_ctx = update_set_context(self, name, arguments, result)
+            if us_ctx:
+                result = {**result, "update_set_context": us_ctx}
 
         # Serialize the result to a string (preferably JSON) using the helper
         serialized_string = serialize_tool_output(result, name)

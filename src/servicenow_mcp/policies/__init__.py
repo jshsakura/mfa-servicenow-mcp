@@ -11,6 +11,7 @@ from .write_guards import (
     run_post_confirm_guards,
     run_write_guards,
     strip_guard_fields,
+    update_set_context,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "run_post_confirm_guards",
     "run_write_guards",
     "strip_guard_fields",
+    "update_set_context",
 ]

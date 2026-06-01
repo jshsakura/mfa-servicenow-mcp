@@ -552,6 +552,134 @@ def _g9_duplicate_create(ctx: WriteGuardContext) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Update-set awareness (NON-blocking)
+# ---------------------------------------------------------------------------
+# Surface WHERE a write is captured (which update set + scope) so the user is
+# fully aware — especially when another session changed the current update set,
+# or it points at a different app / Default. We never block: the ServiceNow UI
+# lets the user do the same, so we inform rather than prevent. Fail-open: any
+# read failure / basic auth → no field, write proceeds unchanged.
+
+
+def _ref_pair(value: Any) -> Tuple[str, str]:
+    """(sys_id, display) from a Table API reference field (dict or bare string)."""
+    if isinstance(value, dict):
+        return str(value.get("value") or ""), str(value.get("display_value") or "")
+    s = str(value or "")
+    return s, s
+
+
+def _fetch_one(server: Any, table: str, query: str, fields: str) -> Optional[Dict[str, Any]]:
+    try:
+        from servicenow_mcp.tools.sn_api import sn_query_page
+
+        rows, _ = sn_query_page(
+            server.config,
+            server.auth_manager,
+            table=table,
+            query=query,
+            fields=fields,
+            limit=1,
+            offset=0,
+            display_value=True,
+            fail_silently=True,
+        )
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+def _resolve_write_record(
+    tool_name: str, arguments: Dict[str, Any], result: Any
+) -> Optional[Tuple[str, str]]:
+    """Best-effort (table, sys_id) of the record a write targeted, for the scope
+    comparison. None when it can't be determined → base awareness only."""
+    target = _CONCURRENT_EDIT_REGISTRY.get(tool_name)
+    table = target.table if target else ""
+    table = table or str(arguments.get("table") or "").strip()
+    sys_id = ""
+    if isinstance(result, dict):
+        sys_id = str(result.get("sys_id") or "").strip()
+        comp = result.get("component")
+        if isinstance(comp, dict):
+            table = table or str(comp.get("table") or "").strip()
+            sys_id = sys_id or str(comp.get("sys_id") or "").strip()
+    sys_id = sys_id or str(arguments.get("sys_id") or "").strip()
+    return (table, sys_id) if (table and sys_id) else None
+
+
+def update_set_context(
+    server: Any, tool_name: str, arguments: Dict[str, Any], result: Any
+) -> Optional[Dict[str, Any]]:
+    """Awareness stamp merged into a write's result: which update set (+ scope)
+    the change is captured into, and whether that scope matches the record.
+
+    Browser auth only (the current update set is session state). Never raises —
+    returns None to skip on any uncertainty so a write is never affected.
+    """
+    try:
+        from servicenow_mcp.utils.config import AuthType
+
+        if getattr(getattr(server.config, "auth", None), "type", None) != AuthType.BROWSER:
+            return None
+
+        from servicenow_mcp.tools.session_context_tools import (
+            get_current_update_set,
+            is_default_update_set,
+        )
+
+        us = get_current_update_set(server.config, server.auth_manager)
+        if not us or not us.get("sys_id"):
+            return None
+
+        usrec = _fetch_one(
+            server, "sys_update_set", f"sys_id={us['sys_id']}", "sys_id,name,application"
+        )
+        us_scope_id, us_scope_name = _ref_pair(usrec.get("application")) if usrec else ("", "")
+
+        ctx: Dict[str, Any] = {
+            "update_set": us.get("name") or us.get("sys_id"),
+            "update_set_scope": us_scope_name or us_scope_id or "unknown",
+        }
+
+        # Opportunistic scope comparison when the record is resolvable.
+        aligned: Optional[bool] = None
+        record = _resolve_write_record(tool_name, arguments, result)
+        if record:
+            rec = _fetch_one(server, record[0], f"sys_id={record[1]}", "sys_id,sys_scope")
+            if rec is not None:
+                rec_scope_id, rec_scope_name = _ref_pair(rec.get("sys_scope"))
+                if rec_scope_id and us_scope_id:
+                    aligned = rec_scope_id == us_scope_id
+                    ctx["record_scope"] = rec_scope_name or rec_scope_id
+
+        if is_default_update_set(us):
+            ctx["aligned"] = False
+            ctx["note"] = (
+                "⚠ Current update set is 'Default' — changes are usually captured here by "
+                "accident. Verify this is where you want them before relying on it."
+            )
+        elif aligned is False:
+            ctx["aligned"] = False
+            ctx["note"] = (
+                f"⚠ Captured into update set '{ctx['update_set']}' (scope "
+                f"{ctx['update_set_scope']}), but the record is in scope "
+                f"{ctx.get('record_scope')}. Another session may have changed your current "
+                "update set — verify this is the intended target."
+            )
+        else:
+            if aligned is True:
+                ctx["aligned"] = True
+            ctx["note"] = (
+                f"Captured into update set '{ctx['update_set']}' (scope {ctx['update_set_scope']})."
+            )
+        return ctx
+    except Exception:
+        logger.debug("update_set_context computation failed", exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
