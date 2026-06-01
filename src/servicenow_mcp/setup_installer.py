@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import re
 import sys
@@ -77,8 +78,8 @@ def build_setup_parser(action: str = "setup") -> argparse.ArgumentParser:
         parser.add_argument(
             "--auth-type",
             choices=["browser", "basic", "oauth", "api_key"],
-            default="browser",
-            help="Authentication type",
+            default=None,
+            help="Authentication type (interactive menu if omitted; defaults to browser)",
         )
         parser.add_argument("--username", help="ServiceNow username")
         parser.add_argument("--password", help="ServiceNow password")
@@ -138,15 +139,137 @@ def build_setup_parser(action: str = "setup") -> argparse.ArgumentParser:
     return parser
 
 
+# Interactive-prompt strings, English + Korean. Detected once per run; override
+# with SERVICENOW_MCP_LANG=ko|en. Keep keys stable — both languages must define
+# every key (a missing key falls back to English).
+_MESSAGES: dict[str, dict[str, str]] = {
+    "clients_label": {"en": "Client(s) to configure", "ko": "설정할 클라이언트"},
+    "auth_label": {"en": "Authentication type", "ko": "인증 방식"},
+    "instance_url": {"en": "ServiceNow instance URL: ", "ko": "ServiceNow 인스턴스 URL: "},
+    "username": {"en": "Username: ", "ko": "사용자명: "},
+    "password": {"en": "Password: ", "ko": "비밀번호: "},
+    "oauth_client_id": {"en": "OAuth client ID: ", "ko": "OAuth 클라이언트 ID: "},
+    "oauth_client_secret": {"en": "OAuth client secret: ", "ko": "OAuth 클라이언트 시크릿: "},
+    "api_key": {"en": "API key: ", "ko": "API 키: "},
+    "default_tag": {"en": "  (default, press Enter)", "ko": "  (기본값, Enter)"},
+    "select_one": {"en": "Select [{hint}]: ", "ko": "선택 [{hint}]: "},
+    "enter_eq": {"en": ", Enter={default}", "ko": ", Enter={default}"},
+    "select_many": {
+        "en": "Select one or more [e.g. '1 3', or names], min {min}: ",
+        "ko": "하나 이상 선택 [예: '1 3' 또는 이름], 최소 {min}개: ",
+    },
+    "invalid_one": {
+        "en": "  '{raw}' is not valid — enter a number 1-{n} or an exact name.",
+        "ko": "  '{raw}'은(는) 올바르지 않습니다 — 1-{n} 숫자나 정확한 이름을 입력하세요.",
+    },
+    "invalid_many": {
+        "en": "  Not valid: {bad} — use the numbers/names listed.",
+        "ko": "  올바르지 않음: {bad} — 위 목록의 숫자/이름을 사용하세요.",
+    },
+    "pick_min": {"en": "  Pick at least {min}.", "ko": "  최소 {min}개 선택하세요."},
+}
+
+
+def _detect_lang() -> str:
+    """ko if SERVICENOW_MCP_LANG or the OS locale env starts with 'ko', else en."""
+    for var in ("SERVICENOW_MCP_LANG", "LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
+        val = os.getenv(var, "").strip().lower()
+        if val:
+            return "ko" if val.startswith("ko") else "en"
+    return "en"
+
+
+def _t(key: str, lang: str, **fmt: object) -> str:
+    """Localized string for `key`, falling back to English."""
+    entry = _MESSAGES[key]
+    template = entry.get(lang) or entry["en"]
+    return template.format(**fmt) if fmt else template
+
+
+# Hard cap on interactive re-prompts. Guarantees the menu loops can NEVER spin
+# forever — e.g. a stuck/mocked input source returning the same invalid value,
+# or piped EOF. After this many invalid attempts the prompt aborts cleanly.
+_MAX_PROMPT_ATTEMPTS = 5
+
+
+def _read_line(prompt: str) -> str:
+    """input() that turns EOF / Ctrl-C into a clean abort instead of a crash or
+    a spin. A closed/empty stdin must never drive an interactive menu loop."""
+    try:
+        return input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        raise ValueError("Interactive input was cancelled or unavailable.") from None
+
+
+def _select_one(
+    label: str, options: list[str], default: str | None = None, lang: str = "en"
+) -> str:
+    """Numbered single-select menu. Accepts the number OR the exact name; empty
+    input picks `default` when given. Re-prompts on anything else — a typo never
+    silently produces a wrong config — but only up to _MAX_PROMPT_ATTEMPTS times,
+    then aborts (no infinite loop)."""
+    for _ in range(_MAX_PROMPT_ATTEMPTS):
+        print(f"\n{label}:")
+        for idx, opt in enumerate(options, 1):
+            tag = _t("default_tag", lang) if opt == default else ""
+            print(f"  {idx}) {opt}{tag}")
+        hint = f"1-{len(options)}" + (_t("enter_eq", lang, default=default) if default else "")
+        raw = _read_line(_t("select_one", lang, hint=hint))
+        if not raw and default is not None:
+            return default
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return options[int(raw) - 1]
+        if raw in options:
+            return raw
+        print(_t("invalid_one", lang, raw=raw, n=len(options)))
+    raise ValueError(f"No valid selection for '{label}' after {_MAX_PROMPT_ATTEMPTS} attempts.")
+
+
+def _select_many(
+    label: str, options: list[str], *, min_count: int = 1, lang: str = "en"
+) -> list[str]:
+    """Numbered multi-select. Accepts space/comma-separated numbers and/or names
+    (e.g. '1 3' or 'codex opencode'). Re-prompts until at least `min_count` valid,
+    de-duplicated selections — but only up to _MAX_PROMPT_ATTEMPTS times, then
+    aborts (no infinite loop)."""
+    for _ in range(_MAX_PROMPT_ATTEMPTS):
+        print(f"\n{label}:")
+        for idx, opt in enumerate(options, 1):
+            print(f"  {idx}) {opt}")
+        raw = _read_line(_t("select_many", lang, min=min_count))
+        chosen: list[str] = []
+        invalid: list[str] = []
+        for token in re.split(r"[\s,]+", raw):
+            if not token:
+                continue
+            if token.isdigit() and 1 <= int(token) <= len(options):
+                value = options[int(token) - 1]
+            elif token in options:
+                value = token
+            else:
+                invalid.append(token)
+                continue
+            if value not in chosen:
+                chosen.append(value)
+        if invalid:
+            print(_t("invalid_many", lang, bad=", ".join(invalid)))
+            continue
+        if len(chosen) < min_count:
+            print(_t("pick_min", lang, min=min_count))
+            continue
+        return chosen
+    raise ValueError(f"No valid selection for '{label}' after {_MAX_PROMPT_ATTEMPTS} attempts.")
+
+
 def prompt_if_missing(args: argparse.Namespace, action: str = "setup") -> argparse.Namespace:
     """Prompt for missing required values when running interactively."""
+    lang = _detect_lang()
     if args.clients:
         clients = args.clients
     else:
-        raw_clients = input(
-            "Client(s) [claude-code, claude-desktop, cursor, opencode, codex, windsurf, vscode-copilot, gemini, zed, antigravity]: "
-        ).strip()
-        clients = [item.strip() for item in raw_clients.split() if item.strip()]
+        clients = _select_many(
+            _t("clients_label", lang), sorted(CLIENT_SPECS.keys()), min_count=1, lang=lang
+        )
     if not clients:
         raise ValueError("At least one client is required")
     args.clients = clients
@@ -155,27 +278,34 @@ def prompt_if_missing(args: argparse.Namespace, action: str = "setup") -> argpar
         return args
 
     if not args.instance_url:
-        args.instance_url = input("ServiceNow instance URL: ").strip()
+        args.instance_url = input(_t("instance_url", lang)).strip()
     if not args.instance_url:
         raise ValueError("--instance-url is required")
 
+    # auth_type defaults to None (not set on the CLI) → offer a numbered menu so
+    # the choice is explicit, not left to a silent default.
+    if not args.auth_type:
+        args.auth_type = _select_one(
+            _t("auth_label", lang), ["browser", "basic", "oauth", "api_key"], "browser", lang
+        )
+
     if args.auth_type == "basic":
         if not args.username:
-            args.username = input("Username: ").strip()
+            args.username = input(_t("username", lang)).strip()
         if not args.password:
-            args.password = input("Password: ").strip()
+            args.password = input(_t("password", lang)).strip()
     elif args.auth_type == "oauth":
         if not args.client_id:
-            args.client_id = input("OAuth client ID: ").strip()
+            args.client_id = input(_t("oauth_client_id", lang)).strip()
         if not args.client_secret:
-            args.client_secret = input("OAuth client secret: ").strip()
+            args.client_secret = input(_t("oauth_client_secret", lang)).strip()
         if not args.username:
-            args.username = input("Username: ").strip()
+            args.username = input(_t("username", lang)).strip()
         if not args.password:
-            args.password = input("Password: ").strip()
+            args.password = input(_t("password", lang)).strip()
     elif args.auth_type == "api_key":
         if not args.api_key:
-            args.api_key = input("API key: ").strip()
+            args.api_key = input(_t("api_key", lang)).strip()
 
     return args
 
@@ -621,6 +751,12 @@ def main(argv: list[str] | None = None, action: str = "setup") -> int:
         args = prompt_if_missing(args, action)
     elif action != "setup" and sys.stdin.isatty() and not args.clients:
         args = prompt_if_missing(args, action)
+
+    # auth_type defaults to None so the interactive menu can fire; if the menu
+    # path wasn't taken (fully-flagged or non-interactive run), fall back to the
+    # historical default.
+    if action == "setup" and not getattr(args, "auth_type", None):
+        args.auth_type = "browser"
 
     args.clients = resolve_clients(args, action)
     if action == "setup":

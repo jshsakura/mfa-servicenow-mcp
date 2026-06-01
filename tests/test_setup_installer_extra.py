@@ -58,9 +58,11 @@ class TestPromptIfMissing:
         assert result.clients == ["opencode", "cursor"]
 
     def test_prompt_empty_clients_raises(self):
+        # Repeated empty input re-prompts a bounded number of times, then aborts
+        # cleanly (no infinite loop / hang).
         with patch("builtins.input", return_value="  "):
             args = _args(clients=[])
-            with pytest.raises(ValueError, match="At least one client"):
+            with pytest.raises(ValueError, match="valid selection"):
                 prompt_if_missing(args, "setup")
 
     def test_prompt_instance_url_from_input(self):
@@ -522,3 +524,73 @@ class TestRemoveClientEdgeCases:
     def test_config_not_found(self, tmp_path):
         result = remove_client("opencode", _args(clients=["opencode"]), tmp_path)
         assert result["config_status"] == "not found"
+
+
+# ---------------------------------------------------------------------------
+# Interactive menu safety: the numbered menus must NEVER loop forever (the bug
+# that hung the test runner). Bounded retries + EOF/Ctrl-C abort cleanly.
+# ---------------------------------------------------------------------------
+
+
+class TestMenuLoopSafety:
+    def test_select_one_valid_number(self):
+        from servicenow_mcp.setup_installer import _select_one
+
+        with patch("builtins.input", return_value="2"):
+            assert _select_one("Auth", ["browser", "basic", "oauth"]) == "basic"
+
+    def test_select_one_empty_uses_default(self):
+        from servicenow_mcp.setup_installer import _select_one
+
+        with patch("builtins.input", return_value=""):
+            assert _select_one("Auth", ["browser", "basic"], default="browser") == "browser"
+
+    def test_select_many_numbers_and_names(self):
+        from servicenow_mcp.setup_installer import _select_many
+
+        with patch("builtins.input", return_value="1 3"):
+            assert _select_many("C", ["a", "b", "c"]) == ["a", "c"]
+        with patch("builtins.input", return_value="b a"):
+            assert _select_many("C", ["a", "b", "c"]) == ["b", "a"]
+
+    def test_select_one_stuck_invalid_input_aborts(self):
+        """A stuck/mocked input returning the same invalid value must abort after
+        a bounded number of attempts — not spin forever."""
+        from servicenow_mcp.setup_installer import _MAX_PROMPT_ATTEMPTS, _select_one
+
+        with patch("builtins.input", return_value="nonsense") as mocked:
+            with pytest.raises(ValueError, match="valid selection"):
+                _select_one("Auth", ["browser", "basic"])
+            assert mocked.call_count == _MAX_PROMPT_ATTEMPTS
+
+    def test_select_many_stuck_invalid_input_aborts(self):
+        from servicenow_mcp.setup_installer import _MAX_PROMPT_ATTEMPTS, _select_many
+
+        with patch("builtins.input", return_value="zzz") as mocked:
+            with pytest.raises(ValueError, match="valid selection"):
+                _select_many("C", ["a", "b"])
+            assert mocked.call_count == _MAX_PROMPT_ATTEMPTS
+
+    def test_select_one_eof_aborts(self):
+        from servicenow_mcp.setup_installer import _select_one
+
+        with patch("builtins.input", side_effect=EOFError):
+            with pytest.raises(ValueError, match="cancelled or unavailable"):
+                _select_one("Auth", ["browser"])
+
+    def test_select_many_keyboard_interrupt_aborts(self):
+        from servicenow_mcp.setup_installer import _select_many
+
+        with patch("builtins.input", side_effect=KeyboardInterrupt):
+            with pytest.raises(ValueError, match="cancelled or unavailable"):
+                _select_many("C", ["a", "b"])
+
+    def test_detect_lang_env(self):
+        import os
+
+        from servicenow_mcp.setup_installer import _detect_lang
+
+        with patch.dict(os.environ, {"SERVICENOW_MCP_LANG": "ko"}, clear=False):
+            assert _detect_lang() == "ko"
+        with patch.dict(os.environ, {"SERVICENOW_MCP_LANG": "en_US.UTF-8"}, clear=False):
+            assert _detect_lang() == "en"
