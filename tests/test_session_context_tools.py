@@ -295,3 +295,56 @@ def test_ensure_current_app_switches_when_different():
     ]
     out = ensure_current_app(_browser_config(), auth, "app-1")
     assert out["switched"] is True
+
+
+# --- concoursepicker is a UI endpoint: same-origin headers + canonical body ---
+def _resp_text(text, status=403):
+    r = MagicMock()
+    r.status_code = status
+    r.text = text
+    r.json.return_value = {}
+    r.raise_for_status = MagicMock()
+    return r
+
+
+def test_set_app_sends_ui_context_headers_and_value_body():
+    """The picker PUT must look UI-driven (Referer/Origin) and carry the
+    concoursepicker-canonical 'value' key, or ServiceNow 403s an admin's switch."""
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),  # PUT
+        _resp({"result": {"current": {"sysId": "app-1", "name": "HBPM"}}}),  # GET verify
+    ]
+    manage_session_context(
+        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="app-1")
+    )
+    put_call = auth.make_request.call_args_list[0]
+    assert put_call.args[0] == "PUT"
+    headers = put_call.kwargs["headers"]
+    assert headers["Referer"].startswith("https://test.service-now.com")
+    assert headers["Origin"] == "https://test.service-now.com"
+    assert put_call.kwargs["json"]["value"] == "app-1"
+
+
+def test_get_current_sends_ui_context_headers():
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({"result": {"current": {"sysId": "a", "name": "A"}}}),
+        _resp({"result": {"current": {"sysId": "u", "name": "U"}}}),
+    ]
+    manage_session_context(_browser_config(), auth, ManageSessionContextParams(action="get"))
+    get_call = auth.make_request.call_args_list[0]
+    assert get_call.args[0] == "GET"
+    assert get_call.kwargs["headers"]["Origin"] == "https://test.service-now.com"
+
+
+def test_put_403_surfaces_server_reason():
+    """A rejected picker PUT must report the server's reason, not a bare 403."""
+    auth = MagicMock()
+    auth.make_request.side_effect = [_resp_text("Forbidden: XSRF token mismatch", status=403)]
+    result = manage_session_context(
+        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="app-1")
+    )
+    assert result["success"] is False
+    assert "403" in result["message"]
+    assert "XSRF" in result["message"]
