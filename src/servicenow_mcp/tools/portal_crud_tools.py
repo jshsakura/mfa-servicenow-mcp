@@ -10,7 +10,9 @@ Safety features:
 """
 
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -454,7 +456,12 @@ def manage_portal_layout(
             v = getattr(params, f)
             if v is not None:
                 kw[f] = v
-        return _layout_svc.create_page(config, auth_manager, **kw)
+        page_result = _layout_svc.create_page(config, auth_manager, **kw)
+        if isinstance(page_result, dict) and page_result.get("success"):
+            page_hint = _local_sync_hint(config, "create_page", params, page_result)
+            if page_hint:
+                page_result.setdefault("local_out_of_sync", page_hint)
+        return page_result
     if a == "update_page":
         kw = {"sys_id": params.sys_id, "dry_run": params.dry_run}
         for f in _PAGE_UPDATE_FIELDS:
@@ -626,6 +633,58 @@ class ManagePortalComponentParams(BaseModel):
         return self
 
 
+# Create action → the table the new record lands in, for the local-sync nudge.
+_CREATE_ACTION_TABLE = {
+    "create_widget": "sp_widget",
+    "create_angular_provider": "sp_angular_provider",
+    "create_header_footer": "sp_header_footer",
+    "create_css_theme": "sp_css",
+    "create_ng_template": "sp_ng_template",
+    "create_ui_page": "sys_ui_page",
+    "create_page": "sp_page",
+}
+
+
+def _local_sync_hint(
+    config: ServerConfig, action: str, params: Any, result: Dict[str, Any]
+) -> Optional[str]:
+    """Advisory nudge: if a local portal download tree already exists under
+    temp/<host>/, a record just created remotely is NOT in it. Offline only —
+    detects the tree from the filesystem and NEVER writes local files. Returns a
+    message string, or None when there is no local tree (nothing to sync) or on
+    any error (a nudge must never break a successful create)."""
+    table = _CREATE_ACTION_TABLE.get(action)
+    if not table:
+        return None
+    try:
+        host = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+        base = Path.cwd() / "temp" / host
+        if not base.is_dir():
+            return None
+        has_local_tree = any(
+            (d / "_manifest.json").exists() or (d / table / "_map.json").exists()
+            for d in base.iterdir()
+            if d.is_dir()
+        )
+        if not has_local_tree:
+            return None
+        sys_id = str(result.get("sys_id") or "")
+        name = str(result.get("name") or result.get("id") or sys_id)
+        scope = getattr(params, "scope", None) or "<scope>"
+        if table == "sp_widget":
+            ref = str(result.get("id") or sys_id)
+            cmd = f"download_portal_sources(scope='{scope}', widget_ids=['{ref}'])"
+        else:
+            cmd = f"download_portal_sources(scope='{scope}')"
+        return (
+            f"'{name}' (sys_id={sys_id}) was created on the instance, but your local "
+            f"download tree under {base} was NOT updated. Run {cmd} to pull it into local "
+            f"so diff/audit stay accurate. (Not done automatically — your call.)"
+        )
+    except Exception:
+        return None
+
+
 @register_tool(
     name="manage_portal_component",
     params=ManagePortalComponentParams,
@@ -711,6 +770,10 @@ def manage_portal_component(
                 result.setdefault("update_set_switch", update_set_info)
             if update_set_warning:
                 result.setdefault("update_set_warning", update_set_warning)
+            if a.startswith("create_") and result.get("success"):
+                hint = _local_sync_hint(config, a, params, result)
+                if hint:
+                    result.setdefault("local_out_of_sync", hint)
         return result
 
     if a == "create_widget":
