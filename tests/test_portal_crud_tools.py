@@ -379,3 +379,58 @@ class TestScaffoldPage:
         result = scaffold_page(mock_config, mock_auth, params)
         assert result["success"] is False
         assert "already exists" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# Local-sync nudge: after a remote create, if a local download tree exists,
+# advise re-pulling. Offline + advisory only — never writes local files.
+# ---------------------------------------------------------------------------
+
+
+class TestLocalSyncHint:
+    def _params(self, action="create_widget", scope="x_app"):
+        from servicenow_mcp.tools.portal_crud_tools import ManagePortalComponentParams
+
+        kw = {"action": action, "scope": scope}
+        if action == "create_widget":
+            kw["name"] = "My Widget"
+        return ManagePortalComponentParams(**kw)
+
+    def test_no_local_tree_returns_none(self, mock_config, tmp_path):
+        from unittest.mock import patch
+
+        from servicenow_mcp.tools.portal_crud_tools import _local_sync_hint
+
+        with patch("servicenow_mcp.tools.portal_crud_tools.Path.cwd", return_value=tmp_path):
+            hint = _local_sync_hint(
+                mock_config, "create_widget", self._params(), {"sys_id": "w1", "id": "my_widget"}
+            )
+        assert hint is None
+
+    def test_local_tree_present_returns_hint(self, mock_config, tmp_path):
+        from unittest.mock import patch
+
+        from servicenow_mcp.tools.portal_crud_tools import _local_sync_hint
+
+        # instance host 'test' → temp/test/<scope>/sp_widget/_map.json
+        tree = tmp_path / "temp" / "test" / "x_app" / "sp_widget"
+        tree.mkdir(parents=True)
+        (tree / "_map.json").write_text("{}", encoding="utf-8")
+
+        with patch("servicenow_mcp.tools.portal_crud_tools.Path.cwd", return_value=tmp_path):
+            hint = _local_sync_hint(
+                mock_config, "create_widget", self._params(), {"sys_id": "w1", "id": "my_widget"}
+            )
+        assert hint is not None
+        assert "w1" in hint
+        assert "download_portal_sources" in hint
+        assert "widget_ids=['my_widget']" in hint
+
+    def test_unknown_action_returns_none(self, mock_config, tmp_path):
+        from unittest.mock import patch
+
+        from servicenow_mcp.tools.portal_crud_tools import _local_sync_hint
+
+        with patch("servicenow_mcp.tools.portal_crud_tools.Path.cwd", return_value=tmp_path):
+            hint = _local_sync_hint(mock_config, "update_code", self._params(), {"sys_id": "w1"})
+        assert hint is None
