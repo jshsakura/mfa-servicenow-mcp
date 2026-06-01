@@ -345,7 +345,7 @@ class TestResolveLocalPath:
         rec_dir = download_root / "global" / "sp_angular_provider" / "myService"
         rec_dir.mkdir(parents=True)
         (rec_dir / "script.js").write_text("angular.module('x');", encoding="utf-8")
-        (rec_dir / "client_script.client.js").write_text("function(){}", encoding="utf-8")
+        (rec_dir / "client_script.js").write_text("function(){}", encoding="utf-8")
 
         resolved = _resolve_local_path(rec_dir)
         assert resolved.table == "sp_angular_provider"

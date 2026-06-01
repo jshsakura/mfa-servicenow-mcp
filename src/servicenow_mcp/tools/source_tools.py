@@ -40,6 +40,7 @@ from servicenow_mcp.utils.download_map import (
     read_download_map,
 )
 from servicenow_mcp.utils.registry import register_tool
+from servicenow_mcp.utils.source_layout import FIELD_FILENAME, field_extension
 
 logger = logging.getLogger(__name__)
 
@@ -1599,21 +1600,10 @@ def extract_widget_table_dependencies(
 # Source download infrastructure
 # ---------------------------------------------------------------------------
 
-# File extension mapping based on source field content
-_FIELD_EXTENSIONS: Dict[str, str] = {
-    "script": ".js",
-    "condition": ".js",
-    "client_script": ".client.js",
-    "operation_script": ".js",
-    "processing_script": ".server.js",
-    "html": ".html",
-    "template": ".html",
-    "css": ".scss",
-    "xml": ".xml",
-    "message_html": ".html",
-    "message_text": ".txt",
-    "payload": ".xml",
-}
+# File extension per source field — derived from the single source of truth in
+# source_layout so the generic downloader writes the exact filenames the portal
+# downloader and the uploader expect (no per-module drift). See source_layout.
+_FIELD_EXTENSIONS: Dict[str, str] = {field: field_extension(field) for field in FIELD_FILENAME}
 
 # Tables that support the 'active' field
 _ACTIVE_SUPPORTED_TABLES = {
