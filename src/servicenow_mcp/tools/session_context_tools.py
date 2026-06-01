@@ -78,6 +78,22 @@ def _picker_value(payload: Dict[str, Any]) -> Dict[str, str]:
     order and fall back to empty strings so callers always get a stable shape.
     """
     result = payload.get("result", payload) if isinstance(payload, dict) else {}
+    # Some concoursepicker releases return the picker as a LIST of options with
+    # the active one flagged (selected/current/active), instead of a
+    # {current: {...}} object. The list form previously parsed to empty — which
+    # looks exactly like a failed switch (current is '') even when it worked.
+    if isinstance(result, list):
+        for item in result:
+            if isinstance(item, dict) and (
+                item.get("selected") or item.get("current") or item.get("active")
+            ):
+                return {
+                    "sys_id": str(
+                        item.get("sysId") or item.get("sys_id") or item.get("value") or ""
+                    ),
+                    "name": str(item.get("name") or item.get("displayValue") or ""),
+                }
+        return {"sys_id": "", "name": ""}
     if not isinstance(result, dict):
         return {"sys_id": "", "name": ""}
     current = result.get("current")
@@ -166,36 +182,68 @@ def _ui_context_headers(config: ServerConfig) -> Dict[str, str]:
     }
 
 
-def _get_current(config: ServerConfig, auth_manager: AuthManager, endpoint: str) -> Dict[str, str]:
+def _response_debug(response: Any) -> Dict[str, Any]:
+    """Compact, paste-safe snapshot of a raw HTTP response for diagnostics.
+
+    When a switch is accepted (no 403) yet the read-back still shows no current
+    selection, the cause is a request/response *shape* mismatch with this
+    instance's concoursepicker — which only the raw payload reveals. Surfacing
+    it lets us fix the parser/body for that instance instead of guessing.
+    """
+    status = getattr(response, "status_code", 0)
+    body = ""
+    try:
+        body = (response.text or "")[:600]
+    except Exception:
+        body = ""
+    ctype = ""
+    try:
+        ctype = str((getattr(response, "headers", {}) or {}).get("Content-Type", ""))
+    except Exception:
+        ctype = ""
+    return {"status": status, "content_type": ctype, "body": body}
+
+
+def _get_current_raw(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    endpoint: str,
+    *,
+    raise_on_error: bool = False,
+) -> tuple[Dict[str, str], Dict[str, Any]]:
+    """Read the current selection; return (parsed, raw-response-debug)."""
     url = f"{config.instance_url.rstrip('/')}{endpoint}"
     response = auth_manager.make_request(
         "GET", url, timeout=config.timeout, headers=_ui_context_headers(config)
     )
-    response.raise_for_status()
+    if raise_on_error:
+        response.raise_for_status()
     try:
         payload = response.json()
     except Exception:
         payload = {}
-    return _picker_value(payload if isinstance(payload, dict) else {})
+    parsed = _picker_value(payload if isinstance(payload, dict) else {})
+    return parsed, _response_debug(response)
+
+
+def _get_current(config: ServerConfig, auth_manager: AuthManager, endpoint: str) -> Dict[str, str]:
+    parsed, _ = _get_current_raw(config, auth_manager, endpoint, raise_on_error=True)
+    return parsed
 
 
 def _put_current(
     config: ServerConfig, auth_manager: AuthManager, endpoint: str, body: Dict[str, Any]
-) -> None:
+) -> Dict[str, Any]:
+    """PUT a selection; return raw-response-debug (status/content_type/body).
+
+    Does not raise on HTTP error — the caller inspects the status so it can both
+    surface the server's reason and attach the payload for diagnosis.
+    """
     url = f"{config.instance_url.rstrip('/')}{endpoint}"
     response = auth_manager.make_request(
         "PUT", url, json=body, timeout=config.timeout, headers=_ui_context_headers(config)
     )
-    # Surface the server's reason instead of a bare "HTTP Error 403": the body
-    # of a rejected concoursepicker PUT usually names the actual cause.
-    if response.status_code >= 400:
-        detail = ""
-        try:
-            detail = (response.text or "").strip()
-        except Exception:
-            detail = ""
-        snippet = f" — {detail[:200]}" if detail else ""
-        raise RuntimeError(f"HTTP {response.status_code} from {endpoint}{snippet}")
+    return _response_debug(response)
 
 
 def _browser_only_error() -> Dict[str, Any]:
@@ -219,21 +267,36 @@ def _set_and_verify(
     expected_id: str,
     label: str,
 ) -> Dict[str, Any]:
-    """PUT a new selection, then read it back. Success only if read-back matches."""
+    """PUT a new selection, then read it back. Success only if read-back matches.
+
+    On any failure the raw concoursepicker GET/PUT payloads are attached under
+    ``diagnostics`` so a shape mismatch on a specific instance can be fixed from
+    evidence rather than guessed at.
+    """
     try:
-        _put_current(config, auth_manager, endpoint, body)
-    except Exception as exc:  # network / HTTP / endpoint-shape rejection
+        put_dbg = _put_current(config, auth_manager, endpoint, body)
+    except Exception as exc:  # network only — HTTP errors come back as a status
         logger.warning("Failed to set %s: %s", label, exc)
         return {"success": False, "error": "set_failed", "message": f"Set {label} failed: {exc}"}
 
+    if put_dbg["status"] >= 400:
+        detail = f" — {put_dbg['body'][:200]}" if put_dbg.get("body") else ""
+        return {
+            "success": False,
+            "error": "set_failed",
+            "message": f"Set {label} failed: HTTP {put_dbg['status']} from {endpoint}{detail}",
+            "diagnostics": {"put": put_dbg},
+        }
+
     try:
-        current = _get_current(config, auth_manager, endpoint)
+        current, read_dbg = _get_current_raw(config, auth_manager, endpoint)
     except Exception as exc:
         logger.warning("Set %s but read-back failed: %s", label, exc)
         return {
             "success": False,
             "error": "verify_failed",
             "message": f"Set {label} sent but could not confirm: {exc}",
+            "diagnostics": {"put": put_dbg},
         }
 
     if current.get("sys_id") != expected_id:
@@ -241,11 +304,14 @@ def _set_and_verify(
             "success": False,
             "error": "not_applied",
             "message": (
-                f"{label} did not switch — requested '{expected_id}', "
-                f"current is '{current.get('sys_id')}'. Check the sys_id and that "
-                "your account may select it."
+                f"{label} did not switch — requested '{expected_id}', current is "
+                f"'{current.get('sys_id')}'. The PUT was accepted (HTTP {put_dbg['status']}) "
+                "but the read-back shows no/different current — likely a request- or "
+                "response-shape mismatch with this instance's concoursepicker. The raw "
+                "GET/PUT payloads are under 'diagnostics' — share them to pin the exact shape."
             ),
             "current": current,
+            "diagnostics": {"put": put_dbg, "readback": read_dbg},
         }
     return {
         "success": True,
