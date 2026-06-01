@@ -5,6 +5,7 @@ Designed for MCP use: read-only, token-efficient, and strongly scoped.
 
 import json
 import logging
+import os
 import re
 import time
 from collections import Counter, defaultdict
@@ -1762,7 +1763,22 @@ def _collect_downloaded_names(scope_root: Path, table: str, id_field: str) -> Se
 
 _DEP_MAX_WORKERS = 3  # max concurrent API calls during dep resolution
 _DEP_CHUNK_SIZE = 30  # names per API query chunk (smaller = safer under rate limits)
-_DEP_MAX_DEPTH = 2  # transitive resolution passes
+_DEP_MAX_DEPTH_DEFAULT = 2  # transitive resolution passes (conservative default)
+_DEP_MAX_DEPTH_CAP = 6  # hard ceiling — each extra pass fans out more API calls
+
+
+def _dep_max_depth() -> int:
+    """How many transitive dependency-resolution passes to run. Default is a
+    conservative 2 (don't force deep resolution); raise it via
+    SERVICENOW_DEP_MAX_DEPTH to chase longer cross-scope chains. Clamped to
+    [1, _DEP_MAX_DEPTH_CAP] so a typo can't trigger runaway API fan-out."""
+    raw = os.getenv("SERVICENOW_DEP_MAX_DEPTH", "").strip()
+    if not raw:
+        return _DEP_MAX_DEPTH_DEFAULT
+    try:
+        return max(1, min(int(raw), _DEP_MAX_DEPTH_CAP))
+    except ValueError:
+        return _DEP_MAX_DEPTH_DEFAULT
 
 
 def _download_dep_records(
@@ -1862,7 +1878,7 @@ def _auto_resolve_deps(
     """Scan downloaded scope and fetch missing cross-scope SI/widget/provider/ui_macro deps.
 
     Saves deps into scope_root/{table}/ (same structure as main scope, marked
-    with is_dependency=true in _metadata.json). Runs up to _DEP_MAX_DEPTH passes
+    with is_dependency=true in _metadata.json). Runs up to _dep_max_depth() passes
     to catch transitive dependencies. Names already attempted are never re-queried.
     """
     # Track all names ever attempted (avoids re-querying unfound names on next pass)
@@ -1900,7 +1916,7 @@ def _auto_resolve_deps(
                 pass
         return names
 
-    for depth in range(_DEP_MAX_DEPTH):
+    for depth in range(_dep_max_depth()):
         # Scan all files in scope_root (including newly fetched deps from prior passes)
         refs = _scan_scope_dep_refs(scope_root)
 
