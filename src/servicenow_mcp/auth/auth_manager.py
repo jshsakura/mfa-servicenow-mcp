@@ -1219,6 +1219,20 @@ class AuthManager:
         """Return the configured Playwright profile dir, or the per-instance default."""
         return browser_config.user_data_dir or self._get_default_user_data_dir()
 
+    def _instance_profile_label(self) -> str:
+        """Short ``instance=<host> profile=<suffix>`` tag for auth messages.
+
+        Login state is per-instance AND per-profile; with multiple instances
+        configured (e.g. dev + test) an error that omits which one it refers to
+        is easy to misread as "the other instance is fine". Naming both in every
+        auth message removes that ambiguity. Read-only — derives from config,
+        mutates no state, changes no control flow.
+        """
+        host = "default"
+        if self.instance_url:
+            host = urlparse(self.instance_url).hostname or "default"
+        return f"instance={host} profile={self._get_instance_user_suffix()}"
+
     # ------------------------------------------------------------------
     # Cross-process login lock (disk-based)
     # ------------------------------------------------------------------
@@ -1840,9 +1854,10 @@ class AuthManager:
                     if self._browser_login_in_progress:
                         self._browser_login_lock.release()
                         raise ValueError(
-                            "Browser login is currently in progress — the user is completing MFA/SSO authentication. "
-                            "Please wait for the user to finish and then retry this request. "
-                            "Do NOT start a new login attempt."
+                            f"Browser login is currently in progress for "
+                            f"{self._instance_profile_label()} — the user is completing MFA/SSO "
+                            "authentication. Please wait for the user to finish and then retry "
+                            "this request. Do NOT start a new login attempt."
                         )
                     # Cross-process lock: another terminal may already be logging in.
                     if not self._acquire_login_lock():
@@ -1865,7 +1880,8 @@ class AuthManager:
                         # Timed out waiting — fall through to try login ourselves
                         if not self._acquire_login_lock():
                             raise ValueError(
-                                "Browser login is in progress in another terminal. "
+                                "Browser login is in progress in another terminal for "
+                                f"{self._instance_profile_label()}. "
                                 "Please complete MFA/SSO there, or close that browser window first."
                             )
                     if not self._can_attempt_browser_reauth():
@@ -1876,12 +1892,14 @@ class AuthManager:
                             cooldown_remaining_s=cooldown_remaining,
                         )
                         raise ValueError(
-                            f"Browser session expired. Re-login will be attempted automatically "
-                            f"in {cooldown_remaining}s. "
+                            f"Browser session expired — NOT authenticated for "
+                            f"{self._instance_profile_label()}. Re-login is on cooldown, so no "
+                            f"login window will open yet. Retry this tool call in "
+                            f"{cooldown_remaining}s to open a new login window. "
                             f"(Attempt {self._browser_reauth_failure_count} failed — "
                             f"cooldown {self._browser_reauth_cooldown_seconds}s) "
-                            "If the browser login window appeared, please complete MFA/SSO authentication. "
-                            "You can also retry this tool call after the cooldown to trigger a new login."
+                            "If a browser login window already appeared, complete MFA/SSO there. "
+                            "Treat this profile as unauthenticated — do not assume its session is valid."
                         )
                     logger.info(
                         "Triggering browser auth flow (headless-first; falls "
@@ -1949,8 +1967,9 @@ class AuthManager:
                             # Replace the raw Playwright "target closed" exception with a
                             # clear cancellation signal so the LLM stops retrying.
                             raise ValueError(
-                                "LOGIN_CANCELLED_BY_USER: the browser login window was "
-                                f"closed before authentication completed. Wait "
+                                f"LOGIN_CANCELLED_BY_USER ({self._instance_profile_label()}): "
+                                "the browser login window was closed before authentication "
+                                "completed — this profile is NOT authenticated. Wait "
                                 f"{user_close_cooldown}s then explicitly retry to open a "
                                 "new login window. Do NOT auto-retry — the user closed "
                                 "the previous window on purpose."
@@ -2050,8 +2069,9 @@ class AuthManager:
                                 user_close_cooldown,
                             )
                             raise ValueError(
-                                "LOGIN_CANCELLED_BY_USER: the browser login window was "
-                                f"closed before authentication completed. Wait "
+                                f"LOGIN_CANCELLED_BY_USER ({self._instance_profile_label()}): "
+                                "the browser login window was closed before authentication "
+                                "completed — this profile is NOT authenticated. Wait "
                                 f"{user_close_cooldown}s then explicitly retry to open a "
                                 "new login window. Do NOT auto-retry — the user closed "
                                 "the previous window on purpose."
