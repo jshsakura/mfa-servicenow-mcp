@@ -26,6 +26,12 @@ from servicenow_mcp.tools.sn_api import (
     sn_query_all,
     sn_query_page,
 )
+from servicenow_mcp.tools.source_resume import (
+    clear_progress,
+    load_progress,
+    params_fingerprint,
+    save_stage,
+)
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.download_map import (
     map_sys_ids,
@@ -2961,6 +2967,10 @@ class DownloadAppSourcesParams(BaseModel):
         default=False,
         description="Also run the offline audit (relationship graphs) after download. No API cost.",
     )
+    resume: bool = Field(
+        default=True,
+        description="Replay finished stages from a prior timed-out call; skip re-downloading them.",
+    )
 
 
 @register_tool(
@@ -2984,10 +2994,62 @@ def download_app_sources(
     all_warnings: List[str] = []
     all_deletion_candidates: Dict[str, List[str]] = {}
     all_files = 0
+    widget_summary: Optional[Dict[str, Any]] = None
+    schema_summary: Optional[Dict[str, Any]] = None
+    dep_summary: Optional[Dict[str, Any]] = None
+
+    # --- Resumable progress: replay stages a prior (timed-out) call finished ---
+    # Large scopes can exceed the client's 120s call timeout. Each stage records
+    # its result on completion; a re-invocation replays finished stages from disk
+    # (no API) and only runs what is still missing, converging over short calls.
+    fingerprint = params_fingerprint(params)
+    done_stages = (load_progress(scope_root, fingerprint) or {}) if params.resume else {}
+    resumed: List[str] = []
+
+    def _run_stage(key, fn):
+        """Run a stage, or replay it from saved progress.
+
+        Captures the delta a stage adds to the shared accumulators so replay is
+        equivalent to a real run. A stage is recorded ONLY after fn() returns —
+        a mid-stage timeout leaves no record, so the next call re-runs it in full
+        (a partially finished stage is never mistaken for a complete one).
+        """
+        nonlocal all_files
+        if key in done_stages:
+            p = done_stages[key] or {}
+            all_type_results.update(p.get("type_results") or {})
+            all_manifest_entries.extend(p.get("manifest_entries") or [])
+            all_warnings.extend(p.get("warnings") or [])
+            all_deletion_candidates.update(p.get("deletion_candidates") or {})
+            all_files += int(p.get("files") or 0)
+            resumed.append(key)
+            return p.get("extra") or {}
+        tr0 = set(all_type_results)
+        me0 = len(all_manifest_entries)
+        wn0 = len(all_warnings)
+        dc0 = set(all_deletion_candidates)
+        f0 = all_files
+        extra = fn() or {}
+        save_stage(
+            scope_root,
+            fingerprint,
+            key,
+            {
+                "type_results": {k: v for k, v in all_type_results.items() if k not in tr0},
+                "manifest_entries": all_manifest_entries[me0:],
+                "warnings": all_warnings[wn0:],
+                "deletion_candidates": {
+                    k: v for k, v in all_deletion_candidates.items() if k not in dc0
+                },
+                "files": all_files - f0,
+                "extra": extra,
+            },
+        )
+        return extra
 
     # --- Portal sources (widgets, providers, CSS via portal_tools) ---
-    widget_summary: Optional[Dict[str, Any]] = None
-    if params.include_widget_sources:
+    def _stage_portal():
+        nonlocal all_files, widget_summary
         portal_failed = False
         try:
             from servicenow_mcp.tools.portal_tools import DownloadPortalSourcesParams as _DPSParams
@@ -3093,6 +3155,10 @@ def download_app_sources(
                 all_files += dl["total_files"]
             except Exception as exc:
                 all_warnings.append(f"widget sources fallback failed: {exc}")
+        return {"widget_summary": widget_summary}
+
+    if params.include_widget_sources:
+        widget_summary = _run_stage("portal", _stage_portal).get("widget_summary")
 
     # --- Server-side sources (7 groups) ---
     # angular_provider is always fetched here by scope — download_portal_sources
@@ -3111,56 +3177,69 @@ def download_app_sources(
     if params.acl_script_only:
         extra_query["acl"] = "scriptISNOTEMPTY"
 
-    for group in _groups:
-        dl = _download_source_types(
-            config,
-            auth_manager,
-            scope=params.scope,
-            source_types=group,
-            scope_root=scope_root,
-            root=root,
-            max_per_type=params.max_records_per_type,
-            page_size=params.page_size,
-            only_active=params.only_active,
-            extra_query=extra_query,
-            skip_empty_source_retry=set() if params.acl_script_only else {"acl"},
-            incremental=params.incremental,
-            reconcile_deletions=params.reconcile_deletions,
-        )
-        all_type_results.update(dl["type_results"])
-        all_manifest_entries.extend(dl["manifest_entries"])
-        all_warnings.extend(dl["warnings"])
-        all_deletion_candidates.update(dl.get("deletion_candidates", {}))
-        all_files += dl["total_files"]
+    def _make_group_stage(group):
+        def _run():
+            nonlocal all_files
+            dl = _download_source_types(
+                config,
+                auth_manager,
+                scope=params.scope,
+                source_types=group,
+                scope_root=scope_root,
+                root=root,
+                max_per_type=params.max_records_per_type,
+                page_size=params.page_size,
+                only_active=params.only_active,
+                extra_query=extra_query,
+                skip_empty_source_retry=set() if params.acl_script_only else {"acl"},
+                incremental=params.incremental,
+                reconcile_deletions=params.reconcile_deletions,
+            )
+            all_type_results.update(dl["type_results"])
+            all_manifest_entries.extend(dl["manifest_entries"])
+            all_warnings.extend(dl["warnings"])
+            all_deletion_candidates.update(dl.get("deletion_candidates", {}))
+            all_files += dl["total_files"]
+            return {}
+
+        return _run
+
+    for _gi, group in enumerate(_groups):
+        _run_stage(f"group:{_gi}", _make_group_stage(group))
 
     # --- Global sp_instance: widget placements live in global scope, not app scope ---
     # Query: sp_widget.sys_scope.scope=<app_scope> to get all page placements of app widgets.
-    global_root = root / "global"
-    global_root.mkdir(parents=True, exist_ok=True)
-    dl_global = _download_source_types(
-        config,
-        auth_manager,
-        scope="global",
-        source_types=["sp_instance"],
-        scope_root=global_root,
-        root=root,
-        max_per_type=params.max_records_per_type,
-        page_size=params.page_size,
-        query_override={
-            "sp_instance": f"sp_widget.sys_scope.scope={_escape_query_value(params.scope)}"
-        },
-        incremental=params.incremental,
-        reconcile_deletions=params.reconcile_deletions,
-    )
-    gi = dl_global["type_results"].get("sp_instance", {"count": 0})
-    all_type_results["sp_instance_global"] = gi
-    all_warnings.extend(dl_global["warnings"])
-    all_deletion_candidates.update(dl_global.get("deletion_candidates", {}))
-    all_files += dl_global["total_files"]
+    def _stage_global():
+        nonlocal all_files
+        global_root = root / "global"
+        global_root.mkdir(parents=True, exist_ok=True)
+        dl_global = _download_source_types(
+            config,
+            auth_manager,
+            scope="global",
+            source_types=["sp_instance"],
+            scope_root=global_root,
+            root=root,
+            max_per_type=params.max_records_per_type,
+            page_size=params.page_size,
+            query_override={
+                "sp_instance": f"sp_widget.sys_scope.scope={_escape_query_value(params.scope)}"
+            },
+            incremental=params.incremental,
+            reconcile_deletions=params.reconcile_deletions,
+        )
+        gi = dl_global["type_results"].get("sp_instance", {"count": 0})
+        all_type_results["sp_instance_global"] = gi
+        all_warnings.extend(dl_global["warnings"])
+        all_deletion_candidates.update(dl_global.get("deletion_candidates", {}))
+        all_files += dl_global["total_files"]
+        return {}
+
+    _run_stage("global_sp_instance", _stage_global)
 
     # --- Table schema ---
-    schema_summary: Optional[Dict[str, Any]] = None
-    if params.include_schema:
+    def _stage_schema():
+        nonlocal schema_summary
         table_names = _scan_tables_from_source_root(scope_root)
         if table_names:
             schema_results, schema_warnings = _fetch_and_write_schema(
@@ -3174,16 +3253,24 @@ def download_app_sources(
                 "total_fields": sum(schema_results.values()),
             }
             all_warnings.extend(schema_warnings)
+        return {"schema_summary": schema_summary}
+
+    if params.include_schema:
+        schema_summary = _run_stage("schema", _stage_schema).get("schema_summary")
 
     # --- Auto-resolve cross-scope dependencies ---
-    dep_summary: Optional[Dict[str, Any]] = None
-    if params.auto_resolve_deps:
+    def _stage_deps():
+        nonlocal all_files, dep_summary
         try:
             dep_summary = _auto_resolve_deps(config, auth_manager, scope_root, params.page_size)
             if dep_summary.get("total_new_records", 0) > 0:
                 all_files += dep_summary["total_new_records"]
         except Exception as exc:
             all_warnings.append(f"dep_resolve: {exc}")
+        return {"dep_summary": dep_summary}
+
+    if params.auto_resolve_deps:
+        dep_summary = _run_stage("deps", _stage_deps).get("dep_summary")
 
     # --- Write unified manifest ---
     _dl_write_json(
@@ -3260,10 +3347,16 @@ def download_app_sources(
         except Exception as exc:
             all_warnings.append(f"build_graph: relationship audit failed: {exc}")
 
+    if resumed:
+        summary["resumed_stages"] = resumed
     if all_warnings:
         summary["warnings"] = all_warnings
     summary["safety_notice"] = (
         "All source files written to disk in full — no truncation. "
         "Only this summary is returned to the conversation context."
     )
+    # Reached the end → every stage finished. Drop the progress file so the next
+    # call starts fresh. Done LAST (after build_graph) so a graph timeout replays
+    # cheap cached stages instead of forcing a full re-download.
+    clear_progress(scope_root)
     return summary
