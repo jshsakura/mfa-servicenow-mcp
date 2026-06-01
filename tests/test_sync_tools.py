@@ -321,10 +321,44 @@ class TestResolveLocalPath:
         with pytest.raises(ValueError, match="does not exist"):
             _resolve_local_path(tmp_path / "nope.js")
 
-    def test_resolve_non_widget_directory_raises(self, download_root):
+    def test_resolve_bare_table_directory_raises(self, download_root):
+        # Passing the TABLE dir (not a record dir) is still unresolvable: its
+        # parent ("global") is not a known table.
         path = download_root / "global" / "sp_angular_provider"
-        with pytest.raises(ValueError, match="folder-based tables"):
+        with pytest.raises(ValueError, match="Directory push is only supported"):
             _resolve_local_path(path)
+
+    def test_resolve_provider_folder_layout_file(self, download_root):
+        # Download writes providers as a folder per record: <name>/script.js.
+        # Push must resolve that layout directly (no record-lookup fallback).
+        rec_dir = download_root / "global" / "sp_angular_provider" / "myService"
+        rec_dir.mkdir(parents=True)
+        (rec_dir / "script.js").write_text("angular.module('x');", encoding="utf-8")
+
+        resolved = _resolve_local_path(rec_dir / "script.js")
+        assert resolved.table == "sp_angular_provider"
+        assert resolved.sys_id == "prov-1"
+        assert "script" in resolved.fields
+
+    def test_resolve_provider_folder_layout_dir(self, download_root):
+        # The whole record folder resolves too, collecting every source field.
+        rec_dir = download_root / "global" / "sp_angular_provider" / "myService"
+        rec_dir.mkdir(parents=True)
+        (rec_dir / "script.js").write_text("angular.module('x');", encoding="utf-8")
+        (rec_dir / "client_script.client.js").write_text("function(){}", encoding="utf-8")
+
+        resolved = _resolve_local_path(rec_dir)
+        assert resolved.table == "sp_angular_provider"
+        assert resolved.sys_id == "prov-1"
+        assert resolved.fields.keys() == {"script", "client_script"}
+
+    def test_resolve_provider_flat_layout_still_supported(self, download_root):
+        # Back-compat: the historical flat "<name>.script.js" layout still works.
+        path = download_root / "global" / "sp_angular_provider" / "myService.script.js"
+        resolved = _resolve_local_path(path)
+        assert resolved.table == "sp_angular_provider"
+        assert resolved.sys_id == "prov-1"
+        assert "script" in resolved.fields
 
     def test_resolve_widget_directory_safe_name_fallback(self, download_root):
         # Widget id with special chars: _map.json key = "My Widget [v2]",
@@ -1087,6 +1121,33 @@ class TestExtendedSyncCoverage:
         result = _scan_download_root(mock_config, mock_auth, root)
         assert result["mode"] == "scan"
         assert result["summary"]["total"] == 0
+
+    @patch("servicenow_mcp.tools.sync_tools._batch_fetch_updated_on")
+    def test_scan_download_root_finds_provider_folder_layout(
+        self, mock_batch, mock_config, mock_auth, tmp_path
+    ):
+        """A provider downloaded as a folder (<name>/script.js) used to be
+        skipped by the scope scan because it only looked for the flat layout."""
+        root = tmp_path / "output"
+        root.mkdir()
+        (root / "_settings.json").write_text(
+            json.dumps({"name": "t", "url": "https://test.service-now.com", "g_ck": ""}),
+            encoding="utf-8",
+        )
+        scope = root / "global"
+        scope.mkdir()
+        prov_dir = scope / "sp_angular_provider"
+        prov_dir.mkdir()
+        (prov_dir / "_map.json").write_text(json.dumps({"myService": "prov-1"}), encoding="utf-8")
+        rec = prov_dir / "myService"
+        rec.mkdir()
+        (rec / "script.js").write_text("angular.module('x');", encoding="utf-8")
+        mock_batch.return_value = {"prov-1": {"on": "2025-01-10 10:00:00", "by": "alice"}}
+
+        result = _scan_download_root(mock_config, mock_auth, root)
+
+        names = {c["name"] for c in result["components"]}
+        assert "myService" in names
 
     # --- Lines 472-473, 485-488: _scan_download_root status transitions ---
     @patch("servicenow_mcp.tools.sync_tools._batch_fetch_updated_on")

@@ -8,7 +8,7 @@ import difflib
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 from pydantic import BaseModel, Field
 
@@ -65,6 +65,44 @@ SINGLE_FILE_TABLES: Set[str] = {
     "sp_ng_template",
 }
 
+# The downloaders (download_app_sources / download_portal_sources) always write
+# a folder per record — <table>/<name>/<field>.<ext> — even for the tables we
+# historically pushed as a single flat "<name>.<suffix>" file. That divergence
+# is why a freshly downloaded provider/SI tree could not be pushed by local
+# path and forced a record-lookup + update_code fallback. Accept the folder
+# layout these tables actually ship in; the flat layout stays supported for
+# back-compat. Both writer conventions for client_script are tolerated.
+SINGLE_FILE_FOLDER_FIELD_MAP: Dict[str, Dict[str, str]] = {
+    "sp_angular_provider": {
+        "script.js": "script",
+        "client_script.client.js": "client_script",
+        "client_script.js": "client_script",
+    },
+    "sys_script_include": {"script.js": "script"},
+    "sp_css": {"css.scss": "css"},
+    "sp_ng_template": {"template.html": "template"},
+}
+
+
+def _folder_layout_field_map(table_name: str) -> Optional[Dict[str, str]]:
+    """Return the on-disk ``filename -> field`` map for a table's FOLDER layout.
+
+    Folder tables use their real-filename entries from TABLE_FILE_FIELD_MAP
+    (the suffix-style ".xxx" keys belong to the flat single-file layout and are
+    skipped). Single-file tables use the folder map above. Returns None for an
+    unknown table so callers can fall through to flat-layout handling.
+    """
+    if table_name in FOLDER_TABLES:
+        return {
+            fn: field
+            for fn, field in TABLE_FILE_FIELD_MAP.get(table_name, {}).items()
+            if not fn.startswith(".")
+        }
+    if table_name in SINGLE_FILE_TABLES:
+        return SINGLE_FILE_FOLDER_FIELD_MAP.get(table_name, {})
+    return None
+
+
 SUPPORTED_TABLES: Set[str] = {
     "sp_widget",
     "sp_angular_provider",
@@ -101,9 +139,9 @@ class PushLocalComponentParams(BaseModel):
     path: str = Field(
         default=...,
         description=(
-            "Local path. sp_widget|sys_script = <table>/<name>/<file> (folder). "
-            "sp_angular_provider|sys_script_include|sp_css|sp_ng_template = "
-            "<table>/<name>.<suffix> (single file, NO subfolder)."
+            "Local path from a download. Folder layout <table>/<name>/<file> "
+            "(as downloaded) works for all tables; flat <table>/<name>.<suffix> "
+            "also accepted for sp_angular_provider|sys_script_include|sp_css|sp_ng_template."
         ),
     )
     force: bool = Field(
@@ -242,26 +280,29 @@ def _is_download_root(path: Path) -> bool:
 def _resolve_local_path(path: Path) -> _ResolvedComponent:
     """Resolve a local file or directory to its ServiceNow component identity.
 
-    Folder-based tables (sp_widget, sp_header_footer, sys_ui_page):
-      .../sp_widget/<folder>/script.js          -> (sp_widget, script)
-      .../sp_header_footer/<folder>/template.html -> (sp_header_footer, template)
-      .../sys_ui_page/<folder>/html.html        -> (sys_ui_page, html)
+    Folder layout (what the downloaders write for EVERY table — <table>/<name>/<file>):
+      .../sp_widget/<folder>/script.js            -> (sp_widget, script)
+      .../sp_angular_provider/<name>/script.js    -> (sp_angular_provider, script)
+      .../sys_script_include/<name>/script.js     -> (sys_script_include, script)
 
-    Single-file tables (sp_angular_provider, sys_script_include, sp_css, sp_ng_template):
-      .../sp_angular_provider/<name>.script.js   -> (sp_angular_provider, script)
-      .../sp_css/<name>.css.scss                 -> (sp_css, css)
-      .../sp_ng_template/<name>.template.html    -> (sp_ng_template, template)
+    Flat layout (legacy single-file, still accepted for back-compat):
+      .../sp_angular_provider/<name>.script.js    -> (sp_angular_provider, script)
+      .../sp_css/<name>.css.scss                  -> (sp_css, css)
+      .../sp_ng_template/<name>.template.html     -> (sp_ng_template, template)
     """
     path = path.expanduser().resolve()
 
-    # Case 1: Directory -> folder-based table
+    # Case 1: Directory -> a record folder (<table>/<name>/) in either a
+    # folder-based table or a single-file table downloaded in folder layout.
     if path.is_dir():
         table_dir = path.parent
         table_name = table_dir.name
-        if table_name not in FOLDER_TABLES:
+        file_field_map = _folder_layout_field_map(table_name)
+        if file_field_map is None:
             raise ValueError(
-                f"Directory push is only supported for folder-based tables "
-                f"({', '.join(sorted(FOLDER_TABLES))}). Got: {table_name}"
+                f"Directory push is only supported for known tables "
+                f"({', '.join(sorted(FOLDER_TABLES | SINGLE_FILE_TABLES))}). "
+                f"Got: {table_name}"
             )
         folder_name = path.name
         map_data = _read_map_json(table_dir)
@@ -273,11 +314,8 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
                 f"Component '{folder_name}' not found in {table_dir / '_map.json'}. "
                 f"Re-download sources first."
             )
-        file_field_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
         fields: Dict[str, Path] = {}
         for filename, field_name in file_field_map.items():
-            if filename.startswith("."):
-                continue
             fpath = path / filename
             if fpath.exists():
                 fields[field_name] = fpath
@@ -300,18 +338,19 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
     parent = path.parent
     grandparent = parent.parent
 
-    # Case 2a: File inside a folder-based table directory
+    # Case 2a: File inside a record folder (<table>/<name>/<file>) — folder-based
+    # tables AND single-file tables downloaded in folder layout.
     #   e.g. .../sp_widget/<folder>/script.js
-    #   e.g. .../sp_header_footer/<folder>/template.html
-    if grandparent.name in FOLDER_TABLES:
+    #   e.g. .../sp_angular_provider/<name>/script.js   (folder layout)
+    if _folder_layout_field_map(grandparent.name) is not None:
         table_name = grandparent.name
         folder_name = parent.name
         table_dir = grandparent
         filename = path.name
-        file_field_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
+        file_field_map = _folder_layout_field_map(table_name) or {}
         _field_name_opt = file_field_map.get(filename)
         if not _field_name_opt:
-            supported = ", ".join(k for k in sorted(file_field_map) if not k.startswith("."))
+            supported = ", ".join(sorted(file_field_map))
             raise ValueError(f"Unknown file '{filename}' for {table_name}. Supported: {supported}")
         field_name = _field_name_opt
         map_data = _read_map_json(table_dir)
@@ -369,13 +408,11 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
     raise ValueError(
         f"Cannot resolve '{path}' to a ServiceNow component.\n"
         f"Expected layout:\n"
-        f"  - Folder tables (one dir per component, multiple files inside): "
-        f"{', '.join(sorted(FOLDER_TABLES))}\n"
-        f"    e.g. sp_widget/<name>/script.js, sp_widget/<name>/template.html\n"
-        f"  - Single-file tables (one file per component, NO subfolder): "
+        f"  - Folder layout (as downloaded, all tables): <table>/<name>/<file>\n"
+        f"    e.g. sp_widget/<name>/script.js, sp_angular_provider/<name>/script.js\n"
+        f"  - Flat layout (legacy single-file): <table>/<name>.<suffix> for "
         f"{', '.join(sorted(SINGLE_FILE_TABLES))}\n"
-        f"    e.g. sp_angular_provider/<name>.script.js, "
-        f"sys_script_include/<name>.script.js\n"
+        f"    e.g. sp_angular_provider/<name>.script.js\n"
         f"Tip: run diff_local_component on the parent scope dir to list "
         f"actual file paths that exist locally."
     )
@@ -543,19 +580,16 @@ def _scan_download_root(
                 remote_updated_by = rmeta.get("by", "")
                 has_sync_meta = bool(local_updated_on)
 
-                if table_name in FOLDER_TABLES:
-                    folder = table_dir / _safe_name(name)
-                    file_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
-                    local_files = [
-                        str(folder / fn)
-                        for fn in file_map
-                        if not fn.startswith(".") and (folder / fn).exists()
-                    ]
-                else:
-                    safe = _safe_name(name)
-                    file_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
-                    local_files = []
-                    for suffix_pattern in file_map:
+                # Folder layout (<table>/<name>/<field>.<ext>) is what the
+                # downloaders write for every table, so check it first. Single-
+                # file tables also accept the historical flat "<name>.<suffix>".
+                safe = _safe_name(name)
+                folder = table_dir / safe
+                folder_map = _folder_layout_field_map(table_name) or {}
+                local_files = [str(folder / fn) for fn in folder_map if (folder / fn).exists()]
+                if not local_files and table_name in SINGLE_FILE_TABLES:
+                    flat_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
+                    for suffix_pattern in flat_map:
                         if suffix_pattern.startswith("."):
                             fpath = table_dir / f"{safe}{suffix_pattern}"
                             if fpath.exists():
