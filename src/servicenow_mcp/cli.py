@@ -752,6 +752,34 @@ async def arun_http_server(server_instance, args):
     await server.serve()
 
 
+def _parse_version(value: str) -> tuple:
+    """Parse 'x.y.z' into a comparable int tuple. Non-numeric suffixes per
+    segment are dropped (e.g. '2rc1' -> 2); unparseable segments become 0."""
+    parts = []
+    for segment in str(value).split("."):
+        digits = ""
+        for ch in segment:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
+def _is_strictly_newer(latest: str, current: str) -> bool:
+    """True only when *latest* is a higher version than *current*.
+
+    Guards against the build running AHEAD of PyPI (e.g. a freshly tagged
+    1.14.13 while PyPI still serves 1.14.12) — which a plain ``!=`` mistook for
+    an available upgrade and advised a downgrade.
+    """
+    try:
+        return _parse_version(latest) > _parse_version(current)
+    except Exception:
+        return False
+
+
 def _check_for_updates() -> None:
     """Check PyPI for a newer version and log a warning if available."""
     try:
@@ -759,7 +787,7 @@ def _check_for_updates() -> None:
         req = urllib.request.Request(_PYPI_URL, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=3) as resp:
             latest = json.loads(resp.read())["info"]["version"]
-        if latest != current:
+        if _is_strictly_newer(latest, current):
             logger.warning(
                 f"New version available: {latest} (current: {current}). "
                 f"Upgrade: uvx {_PACKAGE_NAME}@latest  or  pip install -U {_PACKAGE_NAME}"
