@@ -200,3 +200,26 @@ class TestParentWatchdog:
         assert kwargs.get("daemon") is True
         assert kwargs.get("name") == "parent-watchdog"
         mock_thread.return_value.start.assert_called_once()
+
+
+# --- version-compare guard: never advise a downgrade (running ahead of PyPI) ---
+from servicenow_mcp.cli import _is_strictly_newer  # noqa: E402
+
+
+def test_is_strictly_newer_true_when_pypi_ahead():
+    assert _is_strictly_newer("1.14.13", "1.14.12") is True
+
+
+def test_is_strictly_newer_false_when_build_ahead_of_pypi():
+    # The exact dev-log case: running 1.14.13 while PyPI still serves 1.14.12.
+    assert _is_strictly_newer("1.14.12", "1.14.13") is False
+
+
+def test_is_strictly_newer_false_when_equal():
+    assert _is_strictly_newer("1.14.13", "1.14.13") is False
+
+
+def test_is_strictly_newer_handles_minor_major_and_suffixes():
+    assert _is_strictly_newer("1.15.0", "1.14.99") is True
+    assert _is_strictly_newer("2.0.0", "1.99.99") is True
+    assert _is_strictly_newer("1.14.13", "1.14.13rc1") is False  # suffix dropped -> equal
