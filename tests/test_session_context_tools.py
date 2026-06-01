@@ -348,3 +348,50 @@ def test_put_403_surfaces_server_reason():
     assert result["success"] is False
     assert "403" in result["message"]
     assert "XSRF" in result["message"]
+
+
+def test_not_applied_attaches_raw_diagnostics():
+    """Mirrors the dev failure: PUT accepted (200) but read-back current is empty.
+    The raw GET/PUT payloads must be attached so a shape mismatch can be fixed."""
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),  # PUT (200, no 403)
+        _resp({"result": {"current": {"sysId": "", "name": ""}}}),  # read-back: empty current
+    ]
+    result = manage_session_context(
+        _browser_config(),
+        auth,
+        ManageSessionContextParams(action="set_app", app_id="aaaa1111bbbb2222cccc3333dddd4444"),
+    )
+    assert result["success"] is False
+    assert result["error"] == "not_applied"
+    assert result["diagnostics"]["put"]["status"] == 200
+    assert result["diagnostics"]["readback"]["status"] == 200
+
+
+def test_picker_value_handles_list_with_selected_flag():
+    """Concoursepicker list-shape response: the active option is flagged, not
+    nested under 'current'. It must parse instead of reading as empty."""
+    from servicenow_mcp.tools.session_context_tools import _picker_value
+
+    payload = {
+        "result": [
+            {"sysId": "global-1", "name": "Global", "selected": False},
+            {"sysId": "bpm-1", "name": "BPM", "selected": True},
+        ]
+    }
+    assert _picker_value(payload) == {"sys_id": "bpm-1", "name": "BPM"}
+
+
+def test_set_app_success_with_list_shape_readback():
+    """End-to-end: PUT ok, read-back returns the list shape with BPM selected."""
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),  # PUT
+        _resp({"result": [{"sysId": "bpm-1", "name": "BPM", "selected": True}]}),  # read-back
+    ]
+    result = manage_session_context(
+        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="bpm-1")
+    )
+    assert result["success"] is True
+    assert result["current"]["sys_id"] == "bpm-1"
