@@ -1398,3 +1398,50 @@ class TestDownloadCapWarning:
         )
         assert result["type_results"]["script_include"]["capped"] is False
         assert not any("INCOMPLETE" in w for w in result["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Transitive dependency depth is configurable but clamped — deeper when asked,
+# never runaway (don't force, but allow looking further).
+# ---------------------------------------------------------------------------
+
+
+class TestDepMaxDepth:
+    def test_default_is_two(self):
+        import os
+        from unittest.mock import patch
+
+        from servicenow_mcp.tools.source_tools import _dep_max_depth
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SERVICENOW_DEP_MAX_DEPTH", None)
+            assert _dep_max_depth() == 2
+
+    def test_env_raises_depth(self):
+        import os
+        from unittest.mock import patch
+
+        from servicenow_mcp.tools.source_tools import _dep_max_depth
+
+        with patch.dict(os.environ, {"SERVICENOW_DEP_MAX_DEPTH": "4"}):
+            assert _dep_max_depth() == 4
+
+    def test_clamped_to_cap_and_floor(self):
+        import os
+        from unittest.mock import patch
+
+        from servicenow_mcp.tools.source_tools import _DEP_MAX_DEPTH_CAP, _dep_max_depth
+
+        with patch.dict(os.environ, {"SERVICENOW_DEP_MAX_DEPTH": "999"}):
+            assert _dep_max_depth() == _DEP_MAX_DEPTH_CAP
+        with patch.dict(os.environ, {"SERVICENOW_DEP_MAX_DEPTH": "0"}):
+            assert _dep_max_depth() == 1
+
+    def test_garbage_falls_back_to_default(self):
+        import os
+        from unittest.mock import patch
+
+        from servicenow_mcp.tools.source_tools import _dep_max_depth
+
+        with patch.dict(os.environ, {"SERVICENOW_DEP_MAX_DEPTH": "deep!"}):
+            assert _dep_max_depth() == 2
