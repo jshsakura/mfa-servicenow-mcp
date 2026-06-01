@@ -694,8 +694,8 @@ def test_download_portal_sources_exports_widget_provider_and_script_include(
     assert (scope_root / "sp_widget" / "quotation_widget" / "client_script.js").exists()
     assert (scope_root / "sp_widget" / "quotation_widget" / "_widget.json").exists()
     assert (scope_root / "sp_widget" / "quotation_widget" / "_test_urls.txt").exists()
-    assert (scope_root / "sp_angular_provider" / "quotationService.script.js").exists()
-    assert (scope_root / "sys_script_include" / "MyHelper.script.js").exists()
+    assert (scope_root / "sp_angular_provider" / "quotationService" / "script.js").exists()
+    assert (scope_root / "sys_script_include" / "MyHelper" / "script.js").exists()
     assert (scope_root / "sp_widget" / "_map.json").exists()
     assert (scope_root / "sp_angular_provider" / "_map.json").exists()
     assert (scope_root / "sys_script_include" / "_map.json").exists()
@@ -1009,8 +1009,8 @@ def test_download_portal_sources_targeted_widget_mode_auto_includes_linked_compo
     assert mock_sn_query_all.call_count == 4
 
     scope_root = tmp_path / "x_myapp"
-    assert (scope_root / "sp_angular_provider" / "quotationService.script.js").exists()
-    assert (scope_root / "sys_script_include" / "MyHelper.script.js").exists()
+    assert (scope_root / "sp_angular_provider" / "quotationService" / "script.js").exists()
+    assert (scope_root / "sys_script_include" / "MyHelper" / "script.js").exists()
     mock_fetch_linked_script_include_rows.assert_called_once()
 
 

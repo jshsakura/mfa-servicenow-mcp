@@ -20,6 +20,7 @@ from ..utils import json_fast
 from ..utils.config import ServerConfig
 from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file
 from ..utils.registry import register_tool
+from ..utils.source_layout import field_filename
 from .sn_api import (
     GenericQueryParams,
     _get_page_executor,
@@ -3041,8 +3042,11 @@ def download_portal_sources(
                     except Exception:
                         pass
                 if script.strip():
+                    # Folder layout (<table>/<name>/script.js) — same as the
+                    # generic downloader and what the uploader reads. See
+                    # source_layout for why this must not be a flat file.
                     _write_text_file(
-                        scope_root / "sp_angular_provider" / f"{file_name}.script.js",
+                        scope_root / "sp_angular_provider" / file_name / field_filename("script"),
                         script,
                     )
                 if name:
@@ -3175,8 +3179,10 @@ def download_portal_sources(
             name = str(row.get("name") or row.get("api_name") or row.get("sys_id") or "")
             sys_id = str(row.get("sys_id") or "")
             file_name = _safe_name(name)
+            # Folder layout (<table>/<name>/script.js) — match the generic
+            # downloader and the uploader. See source_layout.
             _write_text_file(
-                scope_root / "sys_script_include" / f"{file_name}.script.js",
+                scope_root / "sys_script_include" / file_name / field_filename("script"),
                 str(row.get("script") or ""),
             )
             si_map[name] = sys_id
