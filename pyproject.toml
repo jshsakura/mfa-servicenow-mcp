@@ -1,10 +1,15 @@
 [build-system]
-requires = ["hatchling"]
+# Pin hatchling to the 1.27 line: it emits Metadata-Version 2.4, which twine /
+# the PyPI publish action accept. hatchling >= 1.28 emits Metadata-Version 2.5,
+# which is not yet in the metadata spec and twine rejects ("'2.5' is not a valid
+# metadata version") — breaking `uv build` + publish. Revisit when twine ships
+# 2.5 support.
+requires = ["hatchling>=1.27,<1.28"]
 build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.14.6"
+version = "1.14.7"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
