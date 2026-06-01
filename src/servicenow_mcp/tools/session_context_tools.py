@@ -15,6 +15,7 @@ surfaces as a clear failure rather than a false positive.
 
 import logging
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -144,9 +145,32 @@ def _resolve_update_set_by_name(
     return {"sys_id": str(row.get("sys_id") or ""), "name": str(row.get("name") or "")}
 
 
+def _ui_context_headers(config: ServerConfig) -> Dict[str, str]:
+    """Headers that make a request look UI-driven to ServiceNow.
+
+    The concoursepicker lives under ``/api/now/ui`` — a session-mutating UI
+    endpoint that enforces same-origin (Referer/Origin) on top of the
+    X-UserToken the Table API already accepts. Without them the PUT is rejected
+    403 and the GET reads an empty current app, even for an admin whose token
+    works fine for Table API writes. We attach these ONLY to the concoursepicker
+    calls (not the global request path, which dropped Referer for unrelated
+    reasons — see auth_manager) so the supported scope switch actually applies.
+    """
+    base = config.instance_url.rstrip("/")
+    parsed = urlparse(base)
+    origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else base
+    return {
+        "Referer": f"{base}/",
+        "Origin": origin,
+        "X-WantSessionNotificationMessages": "true",
+    }
+
+
 def _get_current(config: ServerConfig, auth_manager: AuthManager, endpoint: str) -> Dict[str, str]:
     url = f"{config.instance_url.rstrip('/')}{endpoint}"
-    response = auth_manager.make_request("GET", url, timeout=config.timeout)
+    response = auth_manager.make_request(
+        "GET", url, timeout=config.timeout, headers=_ui_context_headers(config)
+    )
     response.raise_for_status()
     try:
         payload = response.json()
@@ -159,8 +183,19 @@ def _put_current(
     config: ServerConfig, auth_manager: AuthManager, endpoint: str, body: Dict[str, Any]
 ) -> None:
     url = f"{config.instance_url.rstrip('/')}{endpoint}"
-    response = auth_manager.make_request("PUT", url, json=body, timeout=config.timeout)
-    response.raise_for_status()
+    response = auth_manager.make_request(
+        "PUT", url, json=body, timeout=config.timeout, headers=_ui_context_headers(config)
+    )
+    # Surface the server's reason instead of a bare "HTTP Error 403": the body
+    # of a rejected concoursepicker PUT usually names the actual cause.
+    if response.status_code >= 400:
+        detail = ""
+        try:
+            detail = (response.text or "").strip()
+        except Exception:
+            detail = ""
+        snippet = f" — {detail[:200]}" if detail else ""
+        raise RuntimeError(f"HTTP {response.status_code} from {endpoint}{snippet}")
 
 
 def _browser_only_error() -> Dict[str, Any]:
@@ -304,7 +339,7 @@ def ensure_current_app(
         config,
         auth_manager,
         endpoint=_APP_ENDPOINT,
-        body={"appId": scope_id, "app_id": scope_id},
+        body={"value": scope_id, "appId": scope_id, "app_id": scope_id},
         expected_id=scope_id,
         label="application",
     )
@@ -346,7 +381,7 @@ def ensure_current_update_set(
         config,
         auth_manager,
         endpoint=_UPDATESET_ENDPOINT,
-        body={"sysId": target_id, "sys_id": target_id},
+        body={"value": target_id, "sysId": target_id, "sys_id": target_id},
         expected_id=target_id,
         label="update set",
     )
@@ -386,7 +421,7 @@ def manage_session_context(
             config,
             auth_manager,
             endpoint=_APP_ENDPOINT,
-            body={"appId": params.app_id, "app_id": params.app_id},
+            body={"value": params.app_id, "appId": params.app_id, "app_id": params.app_id},
             expected_id=params.app_id,
             label="application",
         )
@@ -405,7 +440,7 @@ def manage_session_context(
         config,
         auth_manager,
         endpoint=_UPDATESET_ENDPOINT,
-        body={"sysId": update_set_id, "sys_id": update_set_id},
+        body={"value": update_set_id, "sysId": update_set_id, "sys_id": update_set_id},
         expected_id=update_set_id,
         label="update set",
     )
