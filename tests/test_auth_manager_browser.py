@@ -18,6 +18,7 @@ from servicenow_mcp.auth.auth_manager import (
     AuthManager,
     _click_first_matching,
     _fill_first_matching,
+    _response_confirms_browser_probe_session,
     _response_indicates_authenticated_session,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig
@@ -1565,13 +1566,34 @@ class TestTryRestoreBrowserSessionProbe:
                 else:
                     sys.modules[k] = v
 
-    def test_restore_probe_401_json_returns_true_and_loads_cookie(self, tmp_path):
-        """401 JSON probe during restore still means authenticated but unauthorized."""
+    def test_restore_probe_401_json_no_markers_returns_false(self, tmp_path):
+        """Positive-confirmation rule: a 401 with no explicit ACL marker is NOT a
+        reusable session (a 401 means unauthenticated by default). Previously this
+        was optimistically adopted, which let dead sessions through (issue #40)."""
         cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
             tmp_path, self._INSTANCE_COOKIES
         )
         result = self._run_restore(manager, cfg, mock_pw_mod, probe_status=401)
+        assert result is False
+        assert manager._browser_cookie_header is None
+
+    def test_restore_probe_401_acl_markers_returns_true(self, tmp_path):
+        """A 401 whose body POSITIVELY indicates an ACL/permission block means the
+        session is authenticated but unauthorized for the probe path — accept it
+        (some instances answer 401 instead of 403 for a probe-path ACL deny)."""
+        cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
+            tmp_path, self._INSTANCE_COOKIES
+        )
+        result = self._run_restore(
+            manager,
+            cfg,
+            mock_pw_mod,
+            probe_status=401,
+            probe_text='{"error":{"message":"Insufficient rights to query records"}}',
+            content_type="application/json;charset=UTF-8",
+        )
         assert result is True
+        assert manager._browser_cookie_header is not None
         assert manager._browser_cookie_header is not None
 
     def test_restore_probe_403_returns_true_and_loads_cookie(self, tmp_path):
@@ -1657,6 +1679,70 @@ def test_response_indicates_authenticated_session_rejects_unauth_body():
     response.text = "User Not Authenticated"
 
     assert _response_indicates_authenticated_session(response) is False
+
+
+def _probe(status, *, body="", content_type="application/json", url=None, history=None):
+    r = MagicMock()
+    r.status_code = status
+    r.is_redirect = False
+    r.headers = {"Content-Type": content_type}
+    r.url = url or "https://example.service-now.com/api/now/table/sys_user_preference"
+    r.text = body
+    r.history = history or []
+    return r
+
+
+class TestPositiveProbeConfirmation:
+    """Structural rule (issue #40): a session is confirmed ONLY on positive
+    evidence of authentication, never merely on the absence of a failure marker."""
+
+    def test_200_with_data_confirms(self):
+        assert _response_confirms_browser_probe_session(_probe(200, body='{"result":[]}')) is True
+
+    def test_200_with_logout_html_body_rejected(self):
+        # requests follows 302->logout and surfaces logout HTML with status 200.
+        assert (
+            _response_confirms_browser_probe_session(
+                _probe(200, body="<title>Log in | ServiceNow</title>", content_type="text/html")
+            )
+            is False
+        )
+
+    def test_403_confirms_authenticated_but_unauthorized(self):
+        # 403 = authorization failure ⇒ authentication necessarily passed.
+        assert _response_confirms_browser_probe_session(_probe(403, body="forbidden")) is True
+
+    def test_401_user_is_not_authenticated_rejected(self):
+        # The literal dead-session body that caused the incident.
+        assert (
+            _response_confirms_browser_probe_session(
+                _probe(
+                    401,
+                    body='{"error":{"message":"User is not authenticated",'
+                    '"detail":"Required to provide Auth information"}}',
+                )
+            )
+            is False
+        )
+
+    def test_401_ambiguous_json_rejected(self):
+        # No ACL marker, no expiry marker → unauthenticated by default (was
+        # optimistically accepted before the positive-confirmation flip).
+        assert (
+            _response_confirms_browser_probe_session(_probe(401, body='{"error":{"x":1}}')) is False
+        )
+
+    def test_401_with_acl_markers_confirms(self):
+        # Some instances answer 401 (not 403) for a probe-path ACL deny.
+        assert (
+            _response_confirms_browser_probe_session(
+                _probe(401, body='{"error":{"message":"Insufficient rights to query records"}}')
+            )
+            is True
+        )
+
+    def test_500_rejected(self):
+        assert _response_confirms_browser_probe_session(_probe(500, body="boom")) is False
 
 
 def test_login_final_probe_request_error_does_not_persist_session(tmp_path):
