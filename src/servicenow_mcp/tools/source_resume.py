@@ -25,6 +25,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from servicenow_mcp.utils.atomic_io import atomic_write_text
+
 logger = logging.getLogger(__name__)
 
 PROGRESS_FILENAME = "_download_progress.json"
@@ -106,10 +108,11 @@ def save_stage(
             stages = {}
     stages[stage_key] = payload
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        # Atomic: a kill mid-write must not corrupt the progress file (a torn
+        # file would force a full re-run; os.replace keeps it all-or-nothing).
+        atomic_write_text(
+            path,
             json.dumps({"fingerprint": fingerprint, "stages": stages}, ensure_ascii=False),
-            encoding="utf-8",
         )
     except OSError as exc:
         logger.warning("could not persist download progress (%s): %s", path, exc)
