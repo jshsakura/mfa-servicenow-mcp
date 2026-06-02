@@ -110,11 +110,11 @@ class ScaffoldRowDef(BaseModel):
 
     columns: List[int] = Field(
         ...,
-        description="List of Bootstrap column sizes. Must sum to 12. e.g. [6, 6] or [4, 4, 4] or [12]",
+        description="Bootstrap column sizes; must sum to 12.",
     )
     widgets: Optional[List[Optional[str]]] = Field(
         default=None,
-        description="Widget sys_ids to place in each column. Use null for empty columns. Length must match columns.",
+        description="Widget sys_id per column (null = empty); length must match columns.",
     )
     widget_params: Optional[List[Optional[str]]] = Field(
         default=None,
@@ -128,9 +128,9 @@ class ScaffoldPageParams(BaseModel):
 
     portal_id: Optional[str] = Field(
         default=None,
-        description="Portal sys_id. Optional — page will be created regardless, but useful for validation.",
+        description="Portal sys_id (optional; used for validation).",
     )
-    page_id: str = Field(..., description="Page URL path (e.g. 'landing_v2')")
+    page_id: str = Field(..., description="Page URL path")
     title: str = Field(..., description="Page title")
     description: Optional[str] = Field(default=None, description="Page description")
     css: Optional[str] = Field(default=None, description="Page-level CSS")
@@ -141,7 +141,7 @@ class ScaffoldPageParams(BaseModel):
     )
     rows: List[ScaffoldRowDef] = Field(
         ...,
-        description="List of row definitions. Each row has column sizes and optional widget placements.",
+        description="Row definitions: column sizes + optional widget placements.",
     )
     scope: str = Field(
         ..., description="REQUIRED. sys_scope sys_id — the application scope for the page."
@@ -591,7 +591,7 @@ class ManagePortalComponentParams(BaseModel):
     force: bool = Field(default=False, description="Override conflict check.")
     confirm_update_set: Optional[str] = Field(
         default=None,
-        description="Set 'approve' to proceed when this record was last edited in a different update set.",
+        description="Set 'approve' if record was last edited in another update set.",
     )
 
     dry_run: bool = Field(default=False)

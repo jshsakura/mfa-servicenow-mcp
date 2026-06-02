@@ -219,7 +219,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
 | `diff_local_component` | R | Diff local edits vs remote. Run before update_remote_from_local (review) or re-download (freshness). | standard, portal_developer, platform_developer, service_desk, full |
-| `update_remote_from_local` | W | Push local edits to ServiceNow — run diff_local_component first to review. Path: sp_widget|sys_script/<name>/<file> (... | portal_developer, platform_developer, full |
+| `update_remote_from_local` | W | Push local edits to ServiceNow. Run diff_local_component first to review. | portal_developer, platform_developer, full |
 
 ### UI Policy (1)
 

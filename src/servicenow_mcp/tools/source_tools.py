@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -1757,8 +1758,35 @@ def _collect_downloaded_names(scope_root: Path, table: str, id_field: str) -> Se
     return names
 
 
-_DEP_MAX_WORKERS = 3  # max concurrent API calls during dep resolution
+# Download concurrency cap. A single application scope can hold thousands of
+# records across ~24 source types; fetched serially that overruns the client's
+# 120s call timeout (a real scope measured ~4 min). Source types are mutually
+# independent (own query, own scope_root/<table> dir), so we fan them out under
+# this cap. Kept deliberately low so we stay well under per-instance rate limits
+# / bot detection — the win is parallelism, not flooding the instance.
+_DOWNLOAD_MAX_WORKERS = 4
+_DEP_MAX_WORKERS = _DOWNLOAD_MAX_WORKERS  # max concurrent API calls during dep resolution
 _DEP_CHUNK_SIZE = 30  # names per API query chunk (smaller = safer under rate limits)
+
+# Markers that mean "no point retrying or fanning out more requests": the
+# session/account can't authenticate to the API. Re-auth either already failed
+# or would just produce another rejected session. When one parallel worker hits
+# this, the rest abort instead of each firing the same doomed call (the "401
+# bomb" — N source types × _DOWNLOAD_MAX_WORKERS all 401-ing at once).
+_AUTH_FAILURE_MARKERS = (
+    "fresh_session_rejected",
+    "acl_blocked",
+    "not authenticated",
+    "401",
+)
+
+
+def _is_auth_failure(exc: Exception) -> bool:
+    """True when an exception indicates an unrecoverable auth failure."""
+    text = str(exc).lower()
+    return any(marker in text for marker in _AUTH_FAILURE_MARKERS)
+
+
 _DEP_MAX_DEPTH_DEFAULT = 2  # transitive resolution passes (conservative default)
 _DEP_MAX_DEPTH_CAP = 6  # hard ceiling — each extra pass fans out more API calls
 
@@ -1800,6 +1828,7 @@ def _download_dep_records(
     effective_page_size = min(page_size, 10) if cfg["source_fields"] else page_size
 
     chunks = _chunked(names, _DEP_CHUNK_SIZE)
+    use_inner_page_parallel = len(chunks) <= 1
 
     def _fetch_chunk(chunk: List[str]) -> List[Dict[str, Any]]:
         escaped = ",".join(_escape_query_fragment(n) for n in chunk)
@@ -1812,6 +1841,12 @@ def _download_dep_records(
                 fields=",".join(all_fields),
                 page_size=effective_page_size,
                 max_records=500,
+                # If dependency names split into multiple chunks, this function
+                # already fans out chunk queries via _DEP_MAX_WORKERS. Keep
+                # inner pagination sequential in that case so one download job
+                # does not stack chunk-level and page-level parallelism. A
+                # single chunk keeps the normal page fetch parallelism.
+                parallel=use_inner_page_parallel,
                 display_value=False,
             )
         except Exception as exc:
@@ -2124,10 +2159,30 @@ def _download_source_types(
     deletion_candidates: Dict[str, List[str]] = {}
     total_files = 0
 
-    for source_type in source_types:
+    # Tripped by the first worker that hits an unrecoverable auth failure, so
+    # the remaining (queued) types bail immediately instead of each re-firing
+    # the same doomed call against a dead session.
+    auth_failure = threading.Event()
+
+    def _process_one_type(source_type):
+        # Per-type LOCAL accumulators. Threads never touch the shared outer
+        # accumulators — each type's partial result is merged back in input
+        # order after the parallel run, so output stays deterministic.
+        type_results: Dict[str, Dict[str, Any]] = {}
+        manifest_entries: List[Dict[str, Any]] = []
+        warnings: List[str] = []
+        deletion_candidates: Dict[str, List[str]] = {}
+        total_files = 0
+
+        # Fail-fast: a sibling type already proved auth is dead. Skip silently
+        # (the originating type carries the actionable error) — no 401 bomb.
+        if auth_failure.is_set():
+            type_results[source_type] = {"count": 0, "skipped": "auth_failure_abort"}
+            return type_results, manifest_entries, warnings, deletion_candidates, total_files
+
         if source_type not in SOURCE_CONFIG:
             warnings.append(f"Unknown source type: {source_type}")
-            continue
+            return type_results, manifest_entries, warnings, deletion_candidates, total_files
 
         source_cfg = SOURCE_CONFIG[source_type]
         table = source_cfg["table"]
@@ -2181,6 +2236,10 @@ def _download_source_types(
                             max_records=max_per_type,
                             display_value=False,
                             fail_silently=True,
+                            # Serial paging: types already fan out under the
+                            # _DOWNLOAD_MAX_WORKERS cap, so this worker must not
+                            # also borrow the shared page pool (would stack >cap).
+                            parallel=False,
                         )
                         if r.get("sys_id")
                     }
@@ -2209,6 +2268,9 @@ def _download_source_types(
                     max_records=max_per_type,
                     display_value=False,
                     fail_silently=False,
+                    # Serial paging — see reconcile call above. Per-type workers
+                    # run under the cap; the shared page pool stays unused here.
+                    parallel=False,
                 )
                 _last_exc = None
                 break
@@ -2229,13 +2291,23 @@ def _download_source_types(
                     break
         if _last_exc is not None:
             logger.error("Failed to download %s: %s", source_type, _last_exc)
-            warnings.append(f"{source_type}: fetch failed — {_last_exc}")
+            # Auth failure → trip the shared flag so queued types abort instead
+            # of re-firing. Re-auth already failed (or would); retrying is just
+            # a 401 bomb. The error message stays actionable ("re-login needed").
+            if _is_auth_failure(_last_exc):
+                auth_failure.set()
+                warnings.append(
+                    f"{source_type}: auth failed — {_last_exc}. Download aborted; "
+                    "remaining source types skipped. Re-authenticate and retry."
+                )
+            else:
+                warnings.append(f"{source_type}: fetch failed — {_last_exc}")
             type_results[source_type] = {"count": 0, "error": str(_last_exc)}
-            continue
+            return type_results, manifest_entries, warnings, deletion_candidates, total_files
 
         if not records:
             type_results[source_type] = {"count": 0}
-            continue
+            return type_results, manifest_entries, warnings, deletion_candidates, total_files
 
         # Completeness guard: sn_query_all returns exactly `max_per_type` rows
         # only when the scope holds at least that many, so hitting the cap means
@@ -2352,24 +2424,15 @@ def _download_source_types(
                 }
             )
 
-        # Parallel retry: individually fetch records whose source was empty in batch
+        # Serial retry: the concurrency budget is already spent fanning out
+        # source types, so empty-source records are re-fetched serially here.
+        # Keeps total in-flight API calls at the cap instead of workers × types.
         if retry_records:
             _src_fields = list(source_cfg["source_fields"])
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                futures = [
-                    executor.submit(
-                        _retry_empty_source,
-                        config,
-                        auth_manager,
-                        table,
-                        _src_fields,
-                        source_type,
-                        rec,
-                        warnings,
-                    )
-                    for rec in retry_records
-                ]
-                type_file_count += sum(f.result() for f in futures)
+            for rec in retry_records:
+                type_file_count += _retry_empty_source(
+                    config, auth_manager, table, _src_fields, source_type, rec, warnings
+                )
 
         merge_map_file(
             type_dir / "_map.json",
@@ -2402,6 +2465,21 @@ def _download_source_types(
             "capped": capped,
         }
         total_files += type_file_count
+        return type_results, manifest_entries, warnings, deletion_candidates, total_files
+
+    # Fan out source types under the concurrency cap. They are independent
+    # (own query, own scope_root/<table> dir — verified no two types share a
+    # table), so the only shared state is the merged result, combined below in
+    # input order for deterministic output. pool.map preserves that order.
+    with ThreadPoolExecutor(max_workers=_DOWNLOAD_MAX_WORKERS) as pool:
+        per_type_results = list(pool.map(_process_one_type, source_types))
+
+    for tr, me, wn, dc, fc in per_type_results:
+        type_results.update(tr)
+        manifest_entries.extend(me)
+        warnings.extend(wn)
+        deletion_candidates.update(dc)
+        total_files += fc
 
     return {
         "type_results": type_results,

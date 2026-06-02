@@ -388,7 +388,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 글로벌 두 개, 인스턴스별 하나로 정리됩니다:
 
 - **툴 surface는 글로벌** — `MCP_TOOL_PACKAGE` 하나로 결정. 서버 프로세스당 active 인스턴스는 항상 하나라 인스턴스별 tool package는 없습니다.
-- **쓰기 권한은 인스턴스별** — alias마다 `allow_writes`. 호출 시점에 active 인스턴스 기준으로 강제됩니다 — 쓰기 도구가 로드돼 있어도 active 인스턴스가 `allow_writes: false`면 거부. `role: "prod"`면 자동으로 false.
+- **쓰기 권한은 인스턴스별** — alias마다 `allow_writes`. 호출 시점에 active 인스턴스 기준으로 강제됩니다 — 쓰기 도구가 로드돼 있어도 active 인스턴스가 `allow_writes: false`면 거부. 쓰기는 opt-in이라 `allow_writes`를 생략하면 읽기 전용입니다.
 - **자격증명은 인스턴스별 + 글로벌 fallback** — alias에 `username` / `password` / `api_key`(및 `auth_type`)를 넣으면 오버라이드, 없으면 글로벌 `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` 등을 상속합니다. 모든 인스턴스가 같은 로그인을 쓰면 글로벌에 한 번만 넣고 alias는 자격증명 없이 두면 됩니다.
 
 그 외 규칙:
@@ -406,15 +406,15 @@ export SERVICENOW_USERNAME=svc_account
 export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
-  "dev":  { "url": "https://dev.service-now.com",  "role": "development", "allow_writes": true },
-  "test": { "url": "https://test.service-now.com", "role": "test",        "allow_writes": false }
+  "dev":  { "url": "https://dev.service-now.com",  "allow_writes": true },
+  "test": { "url": "https://test.service-now.com", "allow_writes": false }
 }'
 ```
 
 특정 인스턴스에 별도 로그인을 주려면 해당 alias에 필드를 추가하세요 (`${ENV}` 참조가 해석되므로 비밀번호를 JSON에 평문으로 안 박아도 됩니다):
 
 ```json
-"prod": { "url": "https://prod.service-now.com", "role": "prod", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
+"prod": { "url": "https://prod.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
 dev/test drift 확인에는 `compare_instances`를 사용하세요. 다른 인스턴스에 실제 작업을 해야 한다면 프로젝트/클라이언트 설정을 분리하는 방식을 권장합니다.
