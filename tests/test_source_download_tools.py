@@ -337,6 +337,103 @@ class TestDownloadSourceTypes:
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_multiple_types_run_in_parallel_and_merge_deterministically(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        """Source types fan out concurrently; results merge in input order with
+        no cross-type leakage. Guards the parallel rewrite of the type loop."""
+        by_table = {
+            "sys_script_include": _si_records(),
+            "sys_script": _br_records(),
+        }
+
+        def _all_side_effect(*args, **kwargs):
+            return _strip_source(by_table.get(kwargs.get("table"), []))
+
+        all_full = _si_records() + _br_records()
+
+        mock_query_all.side_effect = _all_side_effect
+        mock_query_page.side_effect = _page_side_effect_for(all_full)
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        result = _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include", "business_rule"],
+            scope_root=scope_root,
+            root=tmp_path,
+        )
+
+        # Both types processed, counts correct, no cross-type bleed.
+        assert result["type_results"]["script_include"]["count"] == 2
+        assert result["type_results"]["business_rule"]["count"] == 1
+        assert result["total_files"] == 3
+
+        # Files landed under each type's own table dir.
+        assert (scope_root / "sys_script_include" / "x_app.CommitHelper" / "script.js").exists()
+        assert (scope_root / "sys_script" / "Validate_Before_Insert" / "script.js").exists()
+
+        # Merge is deterministic: type_results follows input order.
+        assert list(result["type_results"].keys()) == ["script_include", "business_rule"]
+        manifest_types = {e["source_type"] for e in result["manifest_entries"]}
+        assert manifest_types == {"script_include", "business_rule"}
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_auth_failure_aborts_remaining_types_no_401_bomb(
+        self, mock_query_all, config, auth, tmp_path
+    ):
+        """An auth failure on one type trips the abort flag so the remaining
+        types skip instead of each re-firing the same doomed call (401 bomb)."""
+        import requests
+
+        call_count = {"n": 0}
+
+        def _fail_auth(*args, **kwargs):
+            call_count["n"] += 1
+            raise requests.HTTPError(
+                "FRESH_SESSION_REJECTED: brand-new browser session (<90s old) "
+                "rejected by ServiceNow with 401."
+            )
+
+        mock_query_all.side_effect = _fail_auth
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        # Many types queued; only up to the worker cap should actually fire
+        # before the abort flag short-circuits the rest.
+        many_types = [
+            "script_include",
+            "business_rule",
+            "ui_action",
+            "client_script",
+            "ui_script",
+            "fix_script",
+            "scheduled_job",
+            "transform_script",
+        ]
+        result = _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=many_types,
+            scope_root=scope_root,
+            root=tmp_path,
+        )
+
+        # Far fewer API calls than queued types — the bomb was contained.
+        assert call_count["n"] < len(many_types)
+        # At least one type carries the actionable abort warning.
+        assert any("aborted" in w.lower() for w in result["warnings"])
+        # Some types were explicitly skipped via the abort flag.
+        skipped = [
+            t for t, r in result["type_results"].items() if r.get("skipped") == "auth_failure_abort"
+        ]
+        assert skipped
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     def test_map_and_sync_meta_content(
         self, mock_query_page, mock_query_all, config, auth, tmp_path
     ):

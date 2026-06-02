@@ -263,7 +263,7 @@ class TestShallowCopySchemaInjection:
         assert second["required"].count("confirm") == 1
 
     def test_inject_confirm_field_shape(self):
-        """Confirm field must have correct type, enum, and description."""
+        """Confirm field has type + single-value enum; no description (token saving)."""
         from servicenow_mcp.server import ServiceNowMCP
 
         schema = {"type": "object", "properties": {}, "required": []}
@@ -271,7 +271,8 @@ class TestShallowCopySchemaInjection:
         confirm = result["properties"]["confirm"]
         assert confirm["type"] == "string"
         assert confirm["enum"] == ["approve"]
-        assert "description" in confirm
+        # No description: field name + enum + tool desc "(confirm='approve')" suffice.
+        assert "description" not in confirm
 
 
 # ============================================================================

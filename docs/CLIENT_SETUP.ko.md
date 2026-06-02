@@ -156,13 +156,11 @@ SERVICENOW_ACTIVE_INSTANCE=dev
 SERVICENOW_INSTANCE_CONFIG='{
   "dev": {
     "url": "https://dev.service-now.com",
-    "role": "development",
     "tool_package": "standard",
     "allow_writes": false
   },
   "test": {
     "url": "https://test.service-now.com",
-    "role": "test",
     "tool_package": "standard",
     "allow_writes": false
   }

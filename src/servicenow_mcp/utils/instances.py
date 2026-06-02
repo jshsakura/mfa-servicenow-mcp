@@ -16,8 +16,7 @@ ACTIVE_INSTANCE_ENV = "SERVICENOW_ACTIVE_INSTANCE"
 class InstanceDefinition:
     alias: str
     url: str
-    role: str = "default"
-    allow_writes: bool = True
+    allow_writes: bool = False
     raw: dict[str, Any] | None = None
 
 
@@ -46,23 +45,17 @@ def load_instance_config_env(raw: str | None) -> dict[str, dict[str, Any]]:
     return result
 
 
-def role_default_allow_writes(role: str) -> bool:
-    return role.strip().lower() not in {"prod", "production"}
-
-
 def build_instance_definition(alias: str, entry: dict[str, Any]) -> InstanceDefinition:
     url = str(entry.get("url") or entry.get("instance_url") or "").strip()
     if not url:
         raise ValueError(f"{INSTANCE_CONFIG_ENV}.{alias}.url is required")
-    role = str(entry.get("role") or "default").strip() or "default"
-    allow_writes = coerce_bool(
-        entry.get("allow_writes"),
-        default=role_default_allow_writes(role),
-    )
+    # Writes are opt-in per instance: omit allow_writes and the instance is
+    # read-only. Safer default for prod/test peers where a forgotten flag
+    # should never silently enable writes.
+    allow_writes = coerce_bool(entry.get("allow_writes"), default=False)
     return InstanceDefinition(
         alias=alias,
         url=url,
-        role=role,
         allow_writes=allow_writes,
         raw=dict(entry),
     )

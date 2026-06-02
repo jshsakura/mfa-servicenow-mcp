@@ -114,12 +114,10 @@ class UpdatePortalComponentParams(BaseModel):
         description="The table name (sp_widget, sp_angular_provider, sys_script_include)",
     )
     sys_id: str = Field(..., description="The sys_id of the component")
-    update_data: Dict[str, str] = Field(
-        default=..., description="Field-value pairs to update (e.g. {'client_script': '...'})"
-    )
+    update_data: Dict[str, str] = Field(default=..., description="Field-value pairs to update.")
     base_updated_on: Optional[str] = Field(
         default=None,
-        description="sys_updated_on from when you last read this record. Blocks write if remote is newer.",
+        description="Last-read sys_updated_on; blocks write if remote is newer.",
     )
     force: bool = Field(default=False, description="Override conflict check and write anyway.")
 

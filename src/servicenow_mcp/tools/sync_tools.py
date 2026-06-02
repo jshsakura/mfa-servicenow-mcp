@@ -138,11 +138,7 @@ class PushLocalComponentParams(BaseModel):
 
     path: str = Field(
         default=...,
-        description=(
-            "Local path from a download. Folder layout <table>/<name>/<file> "
-            "(as downloaded) works for all tables; flat <table>/<name>.<suffix> "
-            "also accepted for sp_angular_provider|sys_script_include|sp_css|sp_ng_template."
-        ),
+        description="Local path from a download; <table>/<name>/<file> folder layout.",
     )
     force: bool = Field(
         default=False,
@@ -769,11 +765,7 @@ def diff_local_component(
 @register_tool(
     "update_remote_from_local",
     params=PushLocalComponentParams,
-    description=(
-        "Push local edits to ServiceNow — run diff_local_component first to review. "
-        "Path: sp_widget|sys_script/<name>/<file> (folder) | sp_angular_provider|"
-        "sys_script_include|sp_css|sp_ng_template/<name>.<suffix> (single file)."
-    ),
+    description="Push local edits to ServiceNow. Run diff_local_component first to review.",
     serialization="raw_dict",
     return_type=dict,
 )
