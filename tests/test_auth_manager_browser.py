@@ -1623,6 +1623,30 @@ class TestTryRestoreBrowserSessionProbe:
         assert result is False
         assert manager._browser_cookie_header is None
 
+    def test_restore_probe_401_json_user_is_not_authenticated_returns_false(self, tmp_path):
+        """The literal ServiceNow REST 401 JSON body ("User is not authenticated")
+        must reject the restore so a fresh interactive login is triggered.
+
+        Regression: the prior "user not authenticated" marker missed the "is"
+        variant, so this exact dead-session body was misread as authenticated
+        and the dead cookies were adopted (no login window → 401 bomb)."""
+        cfg, manager, mock_pw_mod = self._make_manager_and_pw_patch(
+            tmp_path, self._INSTANCE_COOKIES
+        )
+        result = self._run_restore(
+            manager,
+            cfg,
+            mock_pw_mod,
+            probe_status=401,
+            probe_text=(
+                '{"error":{"message":"User is not authenticated",'
+                '"detail":"Required to provide Auth information"},"status":"failure"}'
+            ),
+            content_type="application/json;charset=UTF-8",
+        )
+        assert result is False
+        assert manager._browser_cookie_header is None
+
 
 def test_response_indicates_authenticated_session_rejects_unauth_body():
     response = MagicMock()

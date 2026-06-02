@@ -1051,6 +1051,27 @@ class TestDownloadDepRecords:
         )
         assert result["count"] == 1
         assert result["files"] == 1
+        assert mock_all.call_args.kwargs["parallel"] is True
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_disables_inner_page_parallel_when_chunk_fanout_is_used(self, mock_all, tmp_path):
+        config = _build_config()
+        auth_manager = MagicMock()
+        mock_all.return_value = []
+
+        result = _download_dep_records(
+            config,
+            auth_manager,
+            "script_include",
+            "name",
+            [f"ExternalHelper{i}" for i in range(31)],
+            tmp_path,
+            20,
+        )
+
+        assert result["count"] == 0
+        assert mock_all.call_count == 2
+        assert all(call.kwargs["parallel"] is False for call in mock_all.call_args_list)
 
     def test_empty_names(self, tmp_path):
         config = _build_config()

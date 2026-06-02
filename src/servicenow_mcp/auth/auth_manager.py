@@ -543,7 +543,12 @@ def _response_indicates_authenticated_session(response: requests.Response) -> bo
         body = ""
 
     unauthenticated_markers = [
-        "user not authenticated",
+        # Match both "user not authenticated" and "User is not authenticated"
+        # (the literal ServiceNow REST 401 body). The earlier "user not
+        # authenticated" form missed the "is" variant, so a dead session whose
+        # probe returns 401+JSON was misread as authenticated and adopted.
+        "not authenticated",
+        "required to provide auth",
         "login with sso",
         "forgot password ?",
         "forgot password?",
@@ -715,9 +720,13 @@ def _response_indicates_acl_block(response: requests.Response) -> bool:
         body = (response.text or "")[:2000].lower()
     except Exception:
         return False
-    # Strong session-expiry signals — definitively NOT ACL
+    # Strong session-expiry signals — definitively NOT ACL.
+    # "not authenticated" matches both "user not authenticated" and the literal
+    # "User is not authenticated" REST 401 body; "required to provide auth" is
+    # ServiceNow's detail string for an unauthenticated REST call.
     session_expiry_markers = (
-        "user not authenticated",
+        "not authenticated",
+        "required to provide auth",
         "session has expired",
         "session expired",
         "invalid session",

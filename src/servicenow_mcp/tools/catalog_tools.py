@@ -364,7 +364,7 @@ class ManageCatalogParams(BaseModel):
         default=None, description="Internal name (create_variable)"
     )
     variable_type: Optional[str] = Field(
-        default=None, description="e.g. string/integer/boolean/reference"
+        default=None, description="string/integer/boolean/reference"
     )
     label: Optional[str] = Field(default=None)
     mandatory: Optional[bool] = Field(default=None)

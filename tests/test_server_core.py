@@ -857,13 +857,11 @@ class TestInstanceEcho:
         dev = InstanceDefinition(
             alias="dev",
             url="https://dev.service-now.com",
-            role="development",
             allow_writes=True,
         )
         prod = InstanceDefinition(
             alias="prod",
             url="https://prod.service-now.com",
-            role="production",
             allow_writes=False,
         )
         server.instance_contexts = {
@@ -883,7 +881,6 @@ class TestInstanceEcho:
         server.active_instance_alias = "dev"
         server.active_instance_meta = {
             "alias": "dev",
-            "role": "development",
             "allow_writes": True,
             "url": "https://dev.service-now.com",
         }
@@ -918,7 +915,6 @@ class TestInstanceEcho:
             )
             payload = json.loads(result[0].text)
             assert payload["instance_target"]["alias"] == "dev"
-            assert payload["instance_target"]["role"] == "development"
             assert payload["instance_target"]["host"] == "dev.service-now.com"
             assert payload["result"] == "created"
 
@@ -934,7 +930,6 @@ class TestInstanceEcho:
             result = await server._call_tool_impl("my_tool", {"x": 1, "instance": "prod"})
             payload = json.loads(result[0].text)
             assert payload["instance_source"]["alias"] == "prod"
-            assert payload["instance_source"]["role"] == "production"
             assert payload["instance_source"]["host"] == "prod.service-now.com"
 
         asyncio.run(_check())

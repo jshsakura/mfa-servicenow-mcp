@@ -185,6 +185,7 @@ _SCHEMA_DETAIL_FULL = "full"
 _SELF_EXPLANATORY_FIELDS = frozenset(
     {
         "dry_run",
+        "sys_id",
         "count_only",
         "limit",
         "offset",
@@ -638,13 +639,11 @@ class ServiceNowMCP:
             definition = self.instance_contexts[self.active_instance_alias]["definition"]
             return {
                 "alias": definition.alias,
-                "role": definition.role,
                 "allow_writes": definition.allow_writes,
                 "url": definition.url,
             }
         return {
             "alias": "default",
-            "role": "default",
             "allow_writes": True,
             "url": self.config.instance_url,
         }
@@ -837,10 +836,13 @@ class ServiceNowMCP:
         # avoiding an expensive copy.deepcopy of the entire Pydantic schema.
         schema_with_confirm = {**schema}
         properties = {**schema.get("properties", {})}
+        # No description: the field name `confirm`, the single-value enum
+        # ["approve"], and the tool description's "(confirm='approve')" suffix
+        # already say everything. Repeated on every write tool, every request —
+        # dropping it is a systematic per-package saving.
         properties[CONFIRM_FIELD] = {
             "type": "string",
             "enum": [CONFIRM_VALUE],
-            "description": "Pass 'approve' for writes.",
         }
         schema_with_confirm["properties"] = properties
         required = list(schema.get("required", []))
@@ -859,8 +861,10 @@ class ServiceNowMCP:
         aliases = sorted(self.instance_contexts)
         schema_with_instance = {**schema}
         properties = {**schema.get("properties", {})}
-        # No description — the field name + alias enum are self-explanatory,
-        # and list_instances carries the usage hint. Saves ~15 tok/read-tool.
+        # No per-tool description — it would repeat on every read tool, every
+        # request. The field name + alias enum are self-explanatory, and the
+        # one-time multi-instance `instructions` block carries the steer
+        # (default-to-active, no fan-out). Keeps the per-request schema lean.
         properties[INSTANCE_FIELD] = {"type": "string", "enum": aliases}
         schema_with_instance["properties"] = properties
         return schema_with_instance
@@ -1306,7 +1310,6 @@ class ServiceNowMCP:
             return {
                 "instance_source": {
                     "alias": definition.alias,
-                    "role": definition.role,
                     "host": safe_instance_url(definition.url),
                 }
             }
@@ -1316,7 +1319,6 @@ class ServiceNowMCP:
         return {
             "instance_target": {
                 "alias": meta.get("alias"),
-                "role": meta.get("role"),
                 "host": safe_instance_url(str(meta.get("url", ""))),
             }
         }
@@ -1329,7 +1331,6 @@ class ServiceNowMCP:
                 {
                     "alias": alias,
                     "active": alias == self.active_instance_alias,
-                    "role": definition.role,
                     "allow_writes": definition.allow_writes,
                     "host": safe_instance_url(definition.url),
                 }
@@ -1578,6 +1579,24 @@ class ServiceNowMCP:
             existing = getattr(self.mcp_server, "instructions", None) or ""
             self.mcp_server.instructions = (
                 f"{existing}\n\n{snapshot_note}" if existing else snapshot_note
+            )
+
+        # Multi-instance only: steer default-to-active reads. The `instance`
+        # arg on read tools otherwise reads as an invitation to fan out (e.g.
+        # health-checking test while dev is active), which forces a separate
+        # instance login and slows the response. One-time here, not repeated
+        # per read tool per request.
+        if len(self.instance_contexts) > 1:
+            multi_instance_steer = (
+                "Multiple ServiceNow instances are configured but only one is active. "
+                "Default every read to the active instance — do NOT fan out (e.g. don't "
+                "also health-check or query the others). Pass the read tools' optional "
+                "instance=<alias> arg ONLY when the user explicitly names a non-active one. "
+                "Writes always target the active instance."
+            )
+            existing = getattr(self.mcp_server, "instructions", None) or ""
+            self.mcp_server.instructions = (
+                f"{existing}\n\n{multi_instance_steer}" if existing else multi_instance_steer
             )
 
         # When browser auth is selected and Chromium is missing, surface a
