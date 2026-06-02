@@ -5,11 +5,14 @@ must, on re-invocation, skip the stages already finished AND still produce a
 complete result — nothing downloaded twice, nothing missed.
 """
 
+import threading
+import time
 from unittest.mock import patch
 
 import pytest
 
 from servicenow_mcp.tools import source_resume as sr
+from servicenow_mcp.tools import source_tools
 from servicenow_mcp.tools.source_tools import DownloadAppSourcesParams, download_app_sources
 
 
@@ -88,6 +91,43 @@ def test_timeout_then_resume_skips_finished_groups_and_completes(config, auth, t
     # Manifest written and progress cleared on full completion.
     assert (tmp_path / "_manifest.json").exists()
     assert not sr.progress_path(tmp_path).exists()
+
+
+def test_background_start_poll_result(config, auth, tmp_path):
+    """background=true: first call starts a thread and returns immediately;
+    polling (same args) reports running, then returns the final result. Same
+    tool, no second tool, no client-side timeout."""
+    source_tools._BG_JOBS.clear()
+    release = threading.Event()
+
+    def slow_group(*args, **kwargs):
+        # Block so the test can observe the "running" state deterministically.
+        release.wait(timeout=5)
+        return _empty_group_result(kwargs["source_types"])
+
+    with patch("servicenow_mcp.tools.source_tools._download_source_types", side_effect=slow_group):
+        started = download_app_sources(config, auth, _params(tmp_path, background=True))
+        assert started["background"] is True
+        assert started["status"] == "started"
+
+        # Worker is blocked → a poll must report running, NOT start a 2nd job.
+        polled = download_app_sources(config, auth, _params(tmp_path, background=True))
+        assert polled["status"] == "running"
+        assert len(source_tools._BG_JOBS) == 1
+
+        # Let the worker finish, then poll for the final result.
+        release.set()
+        result = None
+        for _ in range(100):
+            r = download_app_sources(config, auth, _params(tmp_path, background=True))
+            if r.get("status") == "running":
+                time.sleep(0.02)
+                continue
+            result = r
+            break
+
+    assert result is not None
+    assert result["success"] is True
 
 
 def test_completed_run_leaves_no_progress_file(config, auth, tmp_path):
