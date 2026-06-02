@@ -33,6 +33,7 @@ from servicenow_mcp.tools.source_resume import (
     params_fingerprint,
     save_stage,
 )
+from servicenow_mcp.utils.atomic_io import atomic_write_text
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.download_map import (
     map_sys_ids,
@@ -2052,13 +2053,13 @@ def _safe_filename(value: str) -> str:
 
 
 def _dl_write_file(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    # Atomic: an interrupted download never leaves a truncated file that
+    # resume-skip would later trust as "already downloaded".
+    atomic_write_text(path, content)
 
 
 def _dl_write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False))
 
 
 def _resolve_scope_root(
@@ -3044,6 +3045,119 @@ class DownloadAppSourcesParams(BaseModel):
         default=True,
         description="Replay finished stages from a prior timed-out call; skip re-downloading them.",
     )
+    background: bool = Field(
+        default=False,
+        description="Run in background; call again (same args) to poll progress, then result.",
+    )
+
+
+# Background download jobs (no new tool: download_app_sources(background=true)
+# starts one and polls it). Keyed by (instance host, scope, params fingerprint)
+# so polling with the same args maps to the same job. The work runs in a daemon
+# thread; progress is also on disk (source_resume), so a server/thread death is
+# survivable — a later call resumes from disk.
+_BG_JOBS: Dict[str, Dict[str, Any]] = {}
+_BG_JOBS_LOCK = threading.Lock()
+
+
+def _bg_job_key(instance_host: str, scope: str, fingerprint: str) -> str:
+    return f"{instance_host}|{scope}|{fingerprint}"
+
+
+def _bg_progress_snapshot(scope_root: Path, fingerprint: str) -> Dict[str, Any]:
+    """Cheap, disk-derived progress — works even across a server restart."""
+    prog = load_progress(scope_root, fingerprint) or {}
+    files = sum(int((v or {}).get("files") or 0) for v in prog.values() if isinstance(v, dict))
+    return {"stages_done": sorted(prog.keys()), "files_so_far": files}
+
+
+def _run_or_poll_background(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: DownloadAppSourcesParams,
+    scope_root: Path,
+    fingerprint: str,
+) -> Dict[str, Any]:
+    """Start the download in a daemon thread, or report an existing job's state.
+
+    Same tool, same args: first call starts, later calls poll, and once finished
+    a call returns the full sync result. No second tool, no client-side timeout —
+    the thread runs as long as it needs while polls stay fast.
+    """
+    instance_host = urlparse(config.instance_url).hostname or config.instance_url
+    key = _bg_job_key(instance_host, params.scope, fingerprint)
+    snapshot = _bg_progress_snapshot(scope_root, fingerprint)
+
+    with _BG_JOBS_LOCK:
+        job = _BG_JOBS.get(key)
+        # A job marked running whose thread has died was interrupted (server
+        # restart / kill). Disk progress survived, so allow a restart that
+        # resumes — never report a dead thread as still running.
+        if job and job["status"] == "running":
+            thread = job.get("thread")
+            if thread is None or not thread.is_alive():
+                job["status"] = "interrupted"
+
+        if job is not None and job["status"] == "running":
+            return {
+                "success": True,
+                "background": True,
+                "status": "running",
+                "scope": params.scope,
+                "progress": snapshot,
+                "message": "Download still running. Call again (same args) to poll.",
+            }
+        if job is not None and job["status"] == "done":
+            return job["result"]
+        if job is not None and job["status"] == "failed":
+            return {
+                "success": False,
+                "background": True,
+                "status": "failed",
+                "scope": params.scope,
+                "error": job.get("error"),
+                "progress": snapshot,
+            }
+
+        # No job, or a prior one was interrupted → (re)start. Resume picks up any
+        # disk progress, so a restart never re-downloads completed stages.
+        # `new_job` is a distinct, definitely-non-None local so the worker
+        # closure indexes a dict, not the dict|None from _BG_JOBS.get() above.
+        sync_params = params.model_copy(update={"background": False})
+        new_job: Dict[str, Any] = {
+            "status": "running",
+            "thread": None,
+            "result": None,
+            "error": None,
+            "scope": params.scope,
+        }
+
+        def _worker() -> None:
+            try:
+                result = download_app_sources(config, auth_manager, sync_params)
+                with _BG_JOBS_LOCK:
+                    new_job["status"] = "done"
+                    new_job["result"] = result
+            except BaseException as exc:  # noqa: BLE001 — surfaced via poll
+                with _BG_JOBS_LOCK:
+                    new_job["status"] = "failed"
+                    new_job["error"] = str(exc)
+
+        thread = threading.Thread(target=_worker, name=f"dl-{params.scope}", daemon=True)
+        new_job["thread"] = thread
+        _BG_JOBS[key] = new_job
+        thread.start()
+        return {
+            "success": True,
+            "background": True,
+            "status": "started",
+            "scope": params.scope,
+            "progress": snapshot,
+            "message": (
+                "Download started in background. Call download_app_sources again with the "
+                "same args (background=true) to poll progress, then the final result."
+            ),
+        }
 
 
 @register_tool(
@@ -3061,6 +3175,14 @@ def download_app_sources(
     params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
     started = time.perf_counter()
     root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
+
+    # Background mode: hand off to a daemon thread and return immediately (or
+    # report an in-flight/finished job). Keeps the call under the client's 120s
+    # timeout while the download runs as long as it needs. Done here — AFTER
+    # scope_root is resolved — so start and poll share the same job key.
+    if params.background:
+        fingerprint = params_fingerprint(params.model_copy(update={"background": False}))
+        return _run_or_poll_background(config, auth_manager, params, scope_root, fingerprint)
 
     all_type_results: Dict[str, Dict[str, Any]] = {}
     all_manifest_entries: List[Dict[str, Any]] = []
