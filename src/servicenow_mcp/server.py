@@ -1145,9 +1145,12 @@ class ServiceNowMCP:
 
         if not self._active_instance_allows_tool_write(name, arguments):
             raise ValueError(
-                f"Active instance '{self.active_instance_meta.get('alias')}' "
-                "does not allow write operations. Use a read-only tool or start the "
-                "server with a different SERVICENOW_ACTIVE_INSTANCE."
+                f"Active instance '{self.active_instance_meta.get('alias')}' is read-only "
+                "(allow_writes=false). This is fixed at server startup and CANNOT be changed "
+                "at runtime. Do NOT edit .mcp.json / config / env files to flip allow_writes "
+                "or switch SERVICENOW_ACTIVE_INSTANCE — it has no effect until a restart and "
+                "is not a valid workaround. Ask the user to restart the server with the target "
+                "instance active (allow_writes=true), or to make the change directly in ServiceNow."
             )
 
         # Write guards: block writes against wrong/denied/bloated update sets,
@@ -1605,7 +1608,13 @@ class ServiceNowMCP:
                 "Default every read to the active instance — do NOT fan out (e.g. don't "
                 "also health-check or query the others). Pass the read tools' optional "
                 "instance=<alias> arg ONLY when the user explicitly names a non-active one. "
-                "Writes always target the active instance."
+                "Writes ALWAYS target the active instance and cannot be redirected. "
+                "The active instance is fixed at server startup. To write to a different "
+                "instance you CANNOT switch it at runtime — and you must NEVER edit "
+                ".mcp.json / config / env files to change SERVICENOW_ACTIVE_INSTANCE or "
+                "allow_writes: that has no effect until a restart and is not a valid "
+                "workaround. Instead, tell the user to restart with the target instance "
+                "active, or to apply the change directly in ServiceNow."
             )
             existing = getattr(self.mcp_server, "instructions", None) or ""
             self.mcp_server.instructions = (
