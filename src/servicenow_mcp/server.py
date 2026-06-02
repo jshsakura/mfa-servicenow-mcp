@@ -1327,11 +1327,24 @@ class ServiceNowMCP:
         instances = []
         for alias, ctx in self.instance_contexts.items():
             definition = ctx["definition"]
+            # Explicit, no-network auth state per instance so the caller sees
+            # which instance needs a login without trial-and-error sn_health
+            # probes. `session_cached` = local cookies held (verified live on
+            # use), `no_session` = login required, `credentials` = non-browser.
+            auth_status = "unknown"
+            auth_manager = ctx.get("auth_manager")
+            session_status = getattr(auth_manager, "session_status", None)
+            if callable(session_status):
+                try:
+                    auth_status = session_status()
+                except Exception:
+                    auth_status = "unknown"
             instances.append(
                 {
                     "alias": alias,
                     "active": alias == self.active_instance_alias,
                     "allow_writes": definition.allow_writes,
+                    "auth_status": auth_status,
                     "host": safe_instance_url(definition.url),
                 }
             )

@@ -1781,10 +1781,15 @@ _AUTH_FAILURE_MARKERS = (
 )
 
 
+def _text_indicates_auth_failure(text: str) -> bool:
+    """True when a message/error string carries an auth-failure marker."""
+    t = (text or "").lower()
+    return any(marker in t for marker in _AUTH_FAILURE_MARKERS)
+
+
 def _is_auth_failure(exc: Exception) -> bool:
     """True when an exception indicates an unrecoverable auth failure."""
-    text = str(exc).lower()
-    return any(marker in text for marker in _AUTH_FAILURE_MARKERS)
+    return _text_indicates_auth_failure(str(exc))
 
 
 _DEP_MAX_DEPTH_DEFAULT = 2  # transitive resolution passes (conservative default)
@@ -3074,6 +3079,13 @@ def download_app_sources(
     done_stages = (load_progress(scope_root, fingerprint) or {}) if params.resume else {}
     resumed: List[str] = []
 
+    # Orchestrator-level auth abort. The per-type abort inside
+    # _download_source_types only covers the source-types stage; portal / schema
+    # / deps each run independently. Without this, a dead session 401-bombs every
+    # stage (observed: a 100s download of pure 401s). The first stage to surface
+    # an auth failure trips this, and every later stage short-circuits.
+    _auth_abort = {"hit": False}
+
     def _run_stage(key, fn):
         """Run a stage, or replay it from saved progress.
 
@@ -3083,6 +3095,14 @@ def download_app_sources(
         (a partially finished stage is never mistaken for a complete one).
         """
         nonlocal all_files
+        # A prior stage already proved auth is dead — skip without running and
+        # WITHOUT caching (so a resume after re-login retries this stage).
+        if _auth_abort["hit"]:
+            all_warnings.append(
+                f"{key}: skipped — download aborted after an auth failure. "
+                "Re-authenticate and retry."
+            )
+            return {}
         if key in done_stages:
             p = done_stages[key] or {}
             all_type_results.update(p.get("type_results") or {})
@@ -3098,6 +3118,23 @@ def download_app_sources(
         dc0 = set(all_deletion_candidates)
         f0 = all_files
         extra = fn() or {}
+        # Detect an auth failure surfaced by this stage (warnings or per-type
+        # errors). If found, trip the abort and do NOT cache this stage, so a
+        # resume after re-login re-runs it instead of replaying the failure.
+        new_warnings = all_warnings[wn0:]
+        new_results = [v for k, v in all_type_results.items() if k not in tr0]
+        if _text_indicates_auth_failure(" ".join(new_warnings)) or any(
+            _text_indicates_auth_failure(str(r.get("error", "")))
+            for r in new_results
+            if isinstance(r, dict)
+        ):
+            _auth_abort["hit"] = True
+            all_warnings.append(
+                "Download aborted: authentication failed (session rejected by "
+                "ServiceNow). Re-authenticate and retry — remaining stages skipped, "
+                "this stage not cached."
+            )
+            return extra
         save_stage(
             scope_root,
             fingerprint,
