@@ -1745,6 +1745,83 @@ class TestPositiveProbeConfirmation:
         assert _response_confirms_browser_probe_session(_probe(500, body="boom")) is False
 
 
+# Real-world ServiceNow probe-response corpus (issue #40 backlog). Each row is a
+# response shape observed in the wild; `confirms` is the authoritative trust
+# decision. This locks the positive-confirmation rule against every known way an
+# instance signals authenticated / unauthenticated / ACL-blocked, so a future
+# tweak that re-loosens the gate fails here.
+_PROBE_CORPUS = [
+    # name, status, content_type, body, history_locations, confirms
+    ("healthy_200_data", 200, "application/json", '{"result":[{"sys_id":"1"}]}', [], True),
+    (
+        "200_logout_html_no_redirect",
+        200,
+        "text/html",
+        "<title>Log in | ServiceNow</title>",
+        [],
+        False,
+    ),
+    (
+        "200_after_silent_302_to_logout",
+        200,
+        "text/html",
+        "<html>signed out</html>",
+        ["/logout_success.do"],
+        False,
+    ),
+    (
+        "403_forbidden_authenticated",
+        403,
+        "application/json",
+        '{"error":{"message":"forbidden"}}',
+        [],
+        True,
+    ),
+    (
+        "401_user_is_not_authenticated",
+        401,
+        "application/json;charset=UTF-8",
+        '{"error":{"message":"User is not authenticated","detail":"Required to provide Auth information"}}',
+        [],
+        False,
+    ),
+    ("401_login_html", 401, "text/html", "<title>Log in | ServiceNow</title>", [], False),
+    (
+        "401_session_expired_marker",
+        401,
+        "application/json",
+        '{"error":{"message":"Session expired"}}',
+        [],
+        False,
+    ),
+    ("401_ambiguous_json", 401, "application/json", '{"error":{"detail":"nope"}}', [], False),
+    (
+        "401_acl_insufficient_rights",
+        401,
+        "application/json",
+        '{"error":{"message":"Insufficient rights to query records"}}',
+        [],
+        True,
+    ),
+    ("500_server_error", 500, "application/json", '{"error":"boom"}', [], False),
+]
+
+
+@pytest.mark.parametrize(
+    "name,status,content_type,body,history_locations,confirms",
+    _PROBE_CORPUS,
+    ids=[row[0] for row in _PROBE_CORPUS],
+)
+def test_probe_response_corpus(name, status, content_type, body, history_locations, confirms):
+    history = []
+    for loc in history_locations:
+        hop = MagicMock()
+        hop.headers = {"Location": loc}
+        history.append(hop)
+    response = _probe(status, body=body, content_type=content_type, history=history)
+    assert _response_confirms_browser_probe_session(response) is confirms
+
+
 def test_login_final_probe_request_error_does_not_persist_session(tmp_path):
     cfg = AuthConfig(
         type=AuthType.BROWSER,
