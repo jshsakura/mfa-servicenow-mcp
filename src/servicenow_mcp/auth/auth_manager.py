@@ -587,13 +587,31 @@ def _response_redirected_through_logout(response: requests.Response) -> bool:
 
 
 def _response_confirms_browser_probe_session(response: requests.Response) -> bool:
-    """Return True only when the probe proves the session is reusable."""
-    if not _response_indicates_authenticated_session(response):
-        return False
-    if response.status_code == 401:
-        content_type = (response.headers.get("Content-Type") or "").lower()
-        return "application/json" in content_type
-    return response.status_code == 403 or 200 <= response.status_code < 300
+    """Confirm a reusable session only on POSITIVE evidence of authentication.
+
+    Structural rule: a session is trusted only when the probe returns a positive
+    authenticated signal — NOT merely the absence of a failure marker. Absence-of-
+    failure was brittle: when an instance changed how it signals an unauthenticated
+    REST call (e.g. 302->logout flipped to a bare 401+JSON after a clone), a dead
+    session slipped through and was adopted. See issue #40.
+
+      - 2xx   -> authenticated (still guard against a 200 logout-HTML body).
+      - 403   -> authenticated but unauthorized for the probe path (an
+                 authorization failure necessarily implies authentication passed).
+      - 401   -> unauthenticated BY DEFAULT. Trusted only when the body POSITIVELY
+                 indicates an ACL/permission block (some instances answer 401
+                 instead of 403 for a probe-path ACL deny). A plain or
+                 "not authenticated" 401 is rejected -> caller re-authenticates.
+      - else  -> rejected.
+    """
+    status = response.status_code
+    if 200 <= status < 300:
+        return _response_indicates_authenticated_session(response)
+    if status == 403:
+        return not _response_indicates_login_redirect(response)
+    if status == 401:
+        return _response_indicates_acl_block(response)
+    return False
 
 
 # ---------------------------------------------------------------------------
