@@ -358,8 +358,14 @@ def test_active_instance_allow_writes_blocks_mutating_tool(
     if "update_foo" not in server.enabled_tool_names:
         server.enabled_tool_names.append("update_foo")
 
-    with pytest.raises(ValueError, match="does not allow write operations"):
+    # Read-only active instance blocks the write, and the message explicitly
+    # tells the LLM NOT to edit config/env to bypass (prevents the
+    # "edit .mcp.json to flip allow_writes" flailing).
+    with pytest.raises(ValueError, match="read-only") as exc_info:
         asyncio.run(server._call_tool_impl("update_foo", {"confirm": "approve"}))
+    msg = str(exc_info.value)
+    assert "allow_writes" in msg
+    assert "Do NOT edit" in msg or "do NOT edit" in msg
 
 
 def test_compare_instances_reports_changed_and_missing(monkeypatch: pytest.MonkeyPatch, tmp_path):
