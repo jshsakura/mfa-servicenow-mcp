@@ -244,6 +244,14 @@ def test_list_instances_reports_active_and_hosts(monkeypatch: pytest.MonkeyPatch
     assert {item["alias"] for item in payload["instances"]} == {"dev", "test"}
     assert any(item["host"] == "test.service-now.com" for item in payload["instances"])
     assert "read_other_instance" in payload
+    # Explicit per-instance auth state surfaced (no-network, deterministic).
+    for item in payload["instances"]:
+        assert item["auth_status"] in {
+            "credentials",
+            "session_cached",
+            "no_session",
+            "unknown",
+        }
 
 
 # ---------------------------------------------------------------------------

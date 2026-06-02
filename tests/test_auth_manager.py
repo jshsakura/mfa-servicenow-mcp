@@ -105,6 +105,33 @@ def _make_browser_manager(
     return manager
 
 
+class TestSessionStatus:
+    """session_status() is a no-network, deterministic auth-state surface."""
+
+    def test_basic_auth_is_credentials(self):
+        assert _make_basic_manager().session_status() == "credentials"
+
+    def test_apikey_auth_is_credentials(self):
+        assert _make_apikey_manager().session_status() == "credentials"
+
+    def test_browser_no_session_is_no_session(self):
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = None
+        assert mgr.session_status() == "no_session"
+
+    def test_browser_with_unexpired_cookies_is_session_cached(self):
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = "glide_session_store=abc"
+        mgr._browser_cookie_expires_at = time.time() + 600
+        assert mgr.session_status() == "session_cached"
+
+    def test_browser_with_expired_cookies_is_no_session(self):
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = "glide_session_store=abc"
+        mgr._browser_cookie_expires_at = time.time() - 1
+        assert mgr.session_status() == "no_session"
+
+
 # ===========================================================================
 # Helper / utility function tests
 # ===========================================================================
