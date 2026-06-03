@@ -392,6 +392,33 @@ def _set_and_verify(
     }
 
 
+def set_application_scope(
+    config: ServerConfig, auth_manager: AuthManager, app_sys_id: str
+) -> Dict[str, Any]:
+    """Set the session's current application scope to *app_sys_id* (a sys_scope
+    sys_id), verifying the switch. Browser auth only; never raises.
+
+    Used by the push flow to align the session scope to the component's scope
+    BEFORE writing: ServiceNow rejects a REST write to a scoped record when the
+    session's current app is a different scope, even though the same user can
+    save it in the in-scope UI.
+    """
+    if not _is_browser_auth(config) or not app_sys_id:
+        return {"success": False, "error": "unavailable"}
+    try:
+        return _set_and_verify(
+            config,
+            auth_manager,
+            endpoint=_APP_ENDPOINT,
+            body={"value": app_sys_id, "appId": app_sys_id, "app_id": app_sys_id},
+            expected_id=app_sys_id,
+            label="application",
+        )
+    except Exception as exc:  # never let a scope-switch attempt break the caller
+        logger.warning("set_application_scope failed: %s", exc)
+        return {"success": False, "error": "exception", "message": str(exc)}
+
+
 def _apply_update_set(
     config: ServerConfig,
     auth_manager: AuthManager,
