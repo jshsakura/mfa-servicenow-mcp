@@ -175,7 +175,9 @@ def test_list_tools_caches_generated_schemas(monkeypatch: pytest.MonkeyPatch, tm
     assert schema_calls["count"] == 1
 
 
-def _build_multi_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNowMCP:
+def _build_multi_server(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, test_allow_writes: bool = False
+) -> ServiceNowMCP:
     config_path = tmp_path / "tool_packages.yaml"
     config_path.write_text(
         "\n".join(
@@ -205,7 +207,7 @@ def _build_multi_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNow
                 "test": {
                     "url": "https://test.service-now.com",
                     "role": "test",
-                    "allow_writes": False,
+                    "allow_writes": test_allow_writes,
                 },
             }
         ),
@@ -302,17 +304,56 @@ def test_instance_arg_unknown_alias_rejected(monkeypatch, tmp_path):
         asyncio.run(server._call_tool_impl("sn_query", {"instance": "nope"}))
 
 
-def test_cross_instance_write_rejected(monkeypatch, tmp_path):
-    # Active is "dev"; writing with instance="test" would mis-target → blocked.
-    server = _build_multi_server(monkeypatch, tmp_path)
+def test_cross_instance_write_without_confirm_instance_rejected(monkeypatch, tmp_path):
+    # Active is "dev"; writing with instance="test" but NO confirm_instance is
+    # blocked — the strong, target-naming approval is required.
+    server = _build_multi_server(monkeypatch, tmp_path, test_allow_writes=True)
     seen = _register_recorder(server, "update_foo")
 
-    with pytest.raises(ValueError, match="can't be redirected"):
+    with pytest.raises(ValueError, match="confirm_instance"):
         asyncio.run(
             server._call_tool_impl("update_foo", {"instance": "test", "confirm": "approve"})
         )
-    # The tool must never have executed against the target instance.
+    assert seen == {}  # never executed
+
+
+def test_cross_instance_write_to_read_only_target_rejected(monkeypatch, tmp_path):
+    # Even with confirm_instance, a read-only (allow_writes=false) target is blocked.
+    server = _build_multi_server(monkeypatch, tmp_path, test_allow_writes=False)
+    seen = _register_recorder(server, "update_foo")
+
+    with pytest.raises(ValueError, match="read-only"):
+        asyncio.run(
+            server._call_tool_impl(
+                "update_foo",
+                {"instance": "test", "confirm_instance": "test", "confirm": "approve"},
+            )
+        )
     assert seen == {}
+
+
+def test_cross_instance_write_authorized_routes_to_target(monkeypatch, tmp_path):
+    # Active is "dev"; a single write to writable "test" with confirm_instance=test
+    # routes to test, then the active instance is restored.
+    server = _build_multi_server(monkeypatch, tmp_path, test_allow_writes=True)
+    seen = _register_recorder(server, "update_foo")
+
+    result = asyncio.run(
+        server._call_tool_impl(
+            "update_foo",
+            {"instance": "test", "confirm_instance": "test", "confirm": "approve"},
+        )
+    )
+    # Write executed against the TARGET (test), not the active (dev).
+    assert seen["auth_manager"] is server.instance_contexts["test"]["auth_manager"]
+    assert seen["instance_url"] == "https://test.service-now.com"
+    # Echo makes the cross-instance target explicit.
+    payload = json.loads(result[0].text)
+    assert payload["instance_target"]["alias"] == "test"
+    assert payload["instance_target"]["cross_instance"] is True
+    # Active instance was restored — NOT left swapped on test.
+    assert server.active_instance_alias == "dev"
+    assert server.active_instance_meta.get("alias") == "dev"
 
 
 def test_write_naming_active_instance_is_accepted(monkeypatch, tmp_path):
