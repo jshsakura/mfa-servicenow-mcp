@@ -51,11 +51,12 @@ class ManageSessionContextParams(BaseModel):
         default=None, description="sys_scope sys_id (required for set_app)"
     )
     update_set_id: Optional[str] = Field(
-        default=None, description="sys_update_set sys_id (set_update_set; or pass update_set_name)"
+        default=None,
+        description="sys_update_set sys_id (set_update_set, or pass with set_app to set both)",
     )
     update_set_name: Optional[str] = Field(
         default=None,
-        description="Update set name — resolved to sys_id among in-progress sets (set_update_set)",
+        description="Update set name, resolved among in-progress sets (set_update_set or set_app)",
     )
 
     @model_validator(mode="after")
@@ -391,6 +392,35 @@ def _set_and_verify(
     }
 
 
+def _apply_update_set(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    update_set_id: Optional[str],
+    update_set_name: Optional[str],
+) -> Dict[str, Any]:
+    """Resolve (by name if needed) and switch the session's current update set."""
+    if not update_set_id:
+        if not update_set_name:
+            return {
+                "success": False,
+                "error": "missing_update_set",
+                "message": "update_set_id or update_set_name is required.",
+            }
+        resolved = _resolve_update_set_by_name(config, auth_manager, update_set_name)
+        if resolved.get("error"):
+            return {"success": False, **resolved}
+        update_set_id = resolved["sys_id"]
+    assert update_set_id  # narrowed: set by param or resolved above
+    return _set_and_verify(
+        config,
+        auth_manager,
+        endpoint=_UPDATESET_ENDPOINT,
+        body={"value": update_set_id, "sysId": update_set_id, "sys_id": update_set_id},
+        expected_id=update_set_id,
+        label="update set",
+    )
+
+
 def get_current_update_set(
     config: ServerConfig, auth_manager: AuthManager
 ) -> Optional[Dict[str, str]]:
@@ -554,7 +584,7 @@ def manage_session_context(
 
     if params.action == "set_app":
         assert params.app_id is not None
-        return _set_and_verify(
+        app_result = _set_and_verify(
             config,
             auth_manager,
             endpoint=_APP_ENDPOINT,
@@ -562,22 +592,23 @@ def manage_session_context(
             expected_id=params.app_id,
             label="application",
         )
+        # Scope + update set are managed together: switching the app already
+        # changes the update set as a side effect, so when the caller names an
+        # update set, set it in the SAME call — "put me in scope X with update
+        # set Y" is one step, not two (and a scoped write then lands correctly).
+        if app_result.get("success") and (params.update_set_id or params.update_set_name):
+            us_result = _apply_update_set(
+                config, auth_manager, params.update_set_id, params.update_set_name
+            )
+            return {
+                "success": bool(us_result.get("success")),
+                "application": app_result.get("current"),
+                "update_set": us_result.get("current"),
+                "message": f"{app_result.get('message', '')} | "
+                f"{us_result.get('message') or us_result.get('error', '')}",
+                **({"update_set_error": us_result} if not us_result.get("success") else {}),
+            }
+        return app_result
 
-    # set_update_set — resolve by name when no explicit sys_id was given.
-    update_set_id = params.update_set_id
-    if not update_set_id:
-        assert params.update_set_name is not None
-        resolved = _resolve_update_set_by_name(config, auth_manager, params.update_set_name)
-        if resolved.get("error"):
-            return {"success": False, **resolved}
-        update_set_id = resolved["sys_id"]
-
-    assert update_set_id  # narrowed: set by param or resolved above
-    return _set_and_verify(
-        config,
-        auth_manager,
-        endpoint=_UPDATESET_ENDPOINT,
-        body={"value": update_set_id, "sysId": update_set_id, "sys_id": update_set_id},
-        expected_id=update_set_id,
-        label="update set",
-    )
+    # set_update_set — change only the update set (within the current scope).
+    return _apply_update_set(config, auth_manager, params.update_set_id, params.update_set_name)
