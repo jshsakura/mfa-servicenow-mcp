@@ -889,10 +889,15 @@ def _generate_query_hint(query: str, error_msg: str) -> Optional[str]:
             "A persistent 401 after re-auth means ACL blocks this table (not a session issue). "
             "Try a different table or use a Flow Designer tool instead."
         )
-    if "403" in error_lower or "forbidden" in error_lower:
+    if "403" in error_lower or "forbidden" in error_lower or "security constraint" in error_lower:
         hints.append(
-            "403 Forbidden — table ACL blocks REST API access. "
-            "For scoped tables (x_* prefix), try browser auth or grant the API user the app role."
+            "403 / ACL Exception. Two distinct causes — check SCOPE before assuming permissions: "
+            "(1) SCOPE CONTEXT (common right after a fresh login / cross-instance write): writing a "
+            "record whose sys_scope is a scoped app (x_*) while the session's current application is "
+            "a different scope is blocked cross-scope. Set the session app to that scope via "
+            "manage_session_context, then retry — no role change needed. "
+            "(2) ACCOUNT ACL: the user genuinely lacks write access to the table/scope — grant the "
+            "app role, or promote the change via an Update Set (admin import bypasses the per-table ACL)."
         )
     return " | ".join(hints) if hints else None
 
