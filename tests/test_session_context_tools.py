@@ -105,6 +105,40 @@ def test_set_app_reports_failure_when_not_applied():
     assert result["current"]["sys_id"] == "bpm-old"
 
 
+def test_set_app_with_update_set_sets_both_in_one_call():
+    # scope + update set are managed together — set_app with an update_set sets both.
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),  # app PUT
+        _resp({"result": {"current": {"sysId": "app-1", "name": "BPM"}}}),  # app GET
+        _resp({}),  # update set PUT
+        _resp({"result": {"current": {"sysId": "us-1", "name": "My Set"}}}),  # update set GET
+    ]
+    result = manage_session_context(
+        _browser_config(),
+        auth,
+        ManageSessionContextParams(action="set_app", app_id="app-1", update_set_id="us-1"),
+    )
+    assert result["success"] is True
+    assert result["application"]["sys_id"] == "app-1"
+    assert result["update_set"]["sys_id"] == "us-1"
+
+
+def test_set_app_without_update_set_unchanged():
+    # set_app alone still returns the single-result shape (no update_set wrangling).
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),
+        _resp({"result": {"current": {"sysId": "app-1", "name": "BPM"}}}),
+    ]
+    result = manage_session_context(
+        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="app-1")
+    )
+    assert result["success"] is True
+    assert result["current"]["sys_id"] == "app-1"
+    assert auth.make_request.call_count == 2  # only app PUT+GET, no update-set calls
+
+
 def test_set_update_set_success():
     auth = MagicMock()
     auth.make_request.side_effect = [
