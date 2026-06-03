@@ -786,8 +786,9 @@ def update_remote_from_local(
     except ValueError as e:
         return {"error": str(e)}
 
-    # 1. Fetch remote content + sys_updated_on
-    all_fields = list(resolved.fields.keys()) + ["sys_updated_on"]
+    # 1. Fetch remote content + sys_updated_on (+ sys_scope so we can align the
+    #    session scope before writing — see the pre-write scope alignment below).
+    all_fields = list(resolved.fields.keys()) + ["sys_updated_on", "sys_scope"]
     try:
         remote_record = _fetch_portal_component_record(
             config, auth_manager, resolved.table, resolved.sys_id, all_fields
@@ -838,6 +839,26 @@ def update_remote_from_local(
                 "name": resolved.name,
             },
         }
+
+    # 3b. Align the session scope to the component's scope BEFORE writing. A REST
+    # write to a scoped record is rejected (403 cross-scope) when the session's
+    # current app is a different scope — even though the same user can save it in
+    # the in-scope UI. The component's scope is known from the record we just
+    # read, so set it proactively (browser auth only; best-effort — if it can't
+    # switch, the write still attempts and the 403 path below explains why).
+    from servicenow_mcp.tools.session_context_tools import _is_browser_auth, set_application_scope
+
+    if _is_browser_auth(config):
+        sc = remote_record.get("sys_scope")
+        scope_sys_id = str(sc.get("value") or "") if isinstance(sc, dict) else str(sc or "")
+        if scope_sys_id:
+            switched = set_application_scope(config, auth_manager, scope_sys_id)
+            if not switched.get("success"):
+                logger.info(
+                    "Pre-write scope align to %s did not confirm: %s",
+                    scope_sys_id,
+                    switched.get("error"),
+                )
 
     # 4. Delegate to existing update_portal_component
     try:
