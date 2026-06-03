@@ -431,14 +431,25 @@ def _reverse_lookup_name(map_data: Dict[str, str], safe_name: str) -> str | None
 
 
 def _validate_instance_url(resolved: _ResolvedComponent, config: ServerConfig) -> None:
-    """Ensure local files belong to the currently connected instance."""
+    """Ensure local files belong to the instance this write will hit.
+
+    On a mismatch, the local file records WHERE it came from, so the fix is not
+    "re-download" — it's "push it back to that origin". Guide the caller to the
+    single safe target: the cross-instance write gate (instance + confirm_instance).
+    """
     if resolved.instance_url and resolved.instance_url.rstrip("/") != config.instance_url.rstrip(
         "/"
     ):
+        origin = resolved.instance_url.rstrip("/")
+        active = config.instance_url.rstrip("/")
         raise ValueError(
-            f"Instance mismatch: local files are from '{resolved.instance_url}' "
-            f"but current connection is '{config.instance_url}'. "
-            f"Re-download from the correct instance first."
+            f"Instance mismatch: this local component is from '{origin}', but the active "
+            f"instance is '{active}' — operating against the active one targets the WRONG "
+            f"instance, so it's blocked. The local file records its origin, so route the "
+            f"call to it (alias for '{origin}' — see list_instances): for a read/diff pass "
+            f"instance=<alias>; for a push pass instance=<alias> confirm_instance=<alias> "
+            f"confirm='approve' (scope is aligned automatically). Do NOT edit config or "
+            f"re-download just to change the target."
         )
 
 
