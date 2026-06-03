@@ -4,6 +4,7 @@ ServiceNow MCP Server
 This module provides the main implementation of the ServiceNow MCP server.
 """
 
+import contextlib
 import logging
 import os
 from functools import lru_cache
@@ -95,6 +96,11 @@ INSTANCE_HELPER_TOOLS = {"list_instances", "compare_instances"}
 
 CONFIRM_FIELD = "confirm"
 CONFIRM_VALUE = "approve"
+# Strong, target-naming approval for a SINGLE cross-instance write: must equal
+# the `instance=` alias. Routes exactly one write to a named non-active instance
+# (via a scoped active-swap so guards + write + echo all see the target), then
+# the active instance is restored. No persistent state to forget to revert.
+CONFIRM_INSTANCE_FIELD = "confirm_instance"
 
 # Reserved arg: route a single read-only call to a named non-active instance.
 # Stripped before the tool's Pydantic model sees it (like CONFIRM_FIELD).
@@ -1103,6 +1109,9 @@ class ServiceNowMCP:
         # tool's Pydantic model never sees `instance`.
         call_config = self.config
         call_auth_manager = self.auth_manager
+        # Set when an authorized single-call cross-instance write routes to a
+        # named non-active instance; used to scope the guards + echo to it.
+        cross_instance_ctx: Optional[Dict[str, Any]] = None
         target_alias = arguments.pop(INSTANCE_FIELD, None)
         if target_alias is not None:
             target_alias = str(target_alias).strip()
@@ -1118,14 +1127,30 @@ class ServiceNowMCP:
                 call_config = ctx["config"]
                 call_auth_manager = ctx["auth_manager"]
             elif target_alias != self.active_instance_alias:
-                # Cross-instance write: blocked. Writes are pinned to the active
-                # instance; redirecting them needs a server restart.
-                raise ValueError(
-                    f"'{name}' is a write operation; writes go to the active instance "
-                    f"'{self.active_instance_alias}' and can't be redirected to "
-                    f"'{target_alias}'. To write to '{target_alias}', restart the server "
-                    f"with SERVICENOW_ACTIVE_INSTANCE={target_alias}."
-                )
+                # Single-call cross-instance write. Allowed ONLY with a strong,
+                # target-naming approval (confirm_instance == target) AND the
+                # target allowing writes. Routed below via a scoped active-swap so
+                # the write guards, the write, and the echo ALL see the target —
+                # never "guard dev, write test". The active instance is restored
+                # right after this call (no persistent swap to forget to revert).
+                confirm_instance = str(arguments.get(CONFIRM_INSTANCE_FIELD, "")).strip()
+                if confirm_instance != target_alias:
+                    raise ValueError(
+                        f"'{name}' would write to the NON-active instance '{target_alias}' "
+                        f"(active is '{self.active_instance_alias}'). This needs explicit "
+                        f"acknowledgement of the target: pass {CONFIRM_INSTANCE_FIELD}="
+                        f"'{target_alias}' AND {CONFIRM_FIELD}='{CONFIRM_VALUE}'. Only this one "
+                        "write goes there; the active instance is restored afterwards. Do NOT "
+                        "edit config/env to switch instances."
+                    )
+                if not ctx["definition"].allow_writes:
+                    raise ValueError(
+                        f"Instance '{target_alias}' is read-only (allow_writes=false); "
+                        "cannot write to it."
+                    )
+                cross_instance_ctx = ctx
+                call_config = ctx["config"]
+                call_auth_manager = ctx["auth_manager"]
             # else: write naming the already-active instance — accept it as-is
             # (no redirect needed; falls through to the active config).
 
@@ -1165,7 +1190,8 @@ class ServiceNowMCP:
         )
         from servicenow_mcp.policies.write_guards import strip_post_confirm_fields
 
-        run_write_guards(self, name, arguments)
+        with self._scoped_active_instance(cross_instance_ctx):
+            run_write_guards(self, name, arguments)
         arguments = strip_guard_fields(arguments)
 
         # Safety check for mutating actions: require confirmation
@@ -1192,11 +1218,14 @@ class ServiceNowMCP:
         # G9) run HERE — after the confirm gate — so an unconfirmed mutation is
         # rejected above without any network call. They make one live remote read
         # to block a blind overwrite of a concurrent edit or a silent duplicate.
-        run_post_confirm_guards(self, name, arguments)
+        with self._scoped_active_instance(cross_instance_ctx):
+            run_post_confirm_guards(self, name, arguments)
         arguments = strip_post_confirm_fields(arguments)
 
-        # Strip the confirmation field before passing to the tool
-        arguments = {k: v for k, v in arguments.items() if k != CONFIRM_FIELD}
+        # Strip the confirmation fields before passing to the tool
+        arguments = {
+            k: v for k, v in arguments.items() if k not in (CONFIRM_FIELD, CONFIRM_INSTANCE_FIELD)
+        }
 
         # Get tool definition (we don't need the serialization hint anymore)
         definition = self.tool_definitions[name]
@@ -1267,7 +1296,8 @@ class ServiceNowMCP:
         # terminal switched the session to — is fully visible rather than silent.
         # Writes only; new dict (never mutate the tool result); fail-open.
         if isinstance(result, dict) and not self._is_read_only_call(name, arguments):
-            us_ctx = update_set_context(self, name, arguments, result)
+            with self._scoped_active_instance(cross_instance_ctx):
+                us_ctx = update_set_context(self, name, arguments, result)
             if us_ctx:
                 result = {**result, "update_set_context": us_ctx}
 
@@ -1277,6 +1307,40 @@ class ServiceNowMCP:
 
         # Return a list with a TextContent object
         return [types.TextContent(type="text", text=serialized_string)]
+
+    @contextlib.contextmanager
+    def _scoped_active_instance(self, ctx: Optional[Dict[str, Any]]):
+        """Temporarily make `ctx`'s instance the active one, then restore.
+
+        Used to scope an authorized single-call cross-instance write so the
+        write guards and the update-set echo read the SAME instance the write
+        targets — never "guard the active instance, write a different one". A
+        no-op when ctx is None. Restores on every exit path (return or raise),
+        so the active instance is never left swapped. Safe because tool dispatch
+        is serialized on the event-loop thread (impl funcs run synchronously).
+        """
+        if ctx is None:
+            yield
+            return
+        saved = (
+            self.config,
+            self.auth_manager,
+            self.active_instance_alias,
+            self.active_instance_meta,
+        )
+        try:
+            self.config = ctx["config"]
+            self.auth_manager = ctx["auth_manager"]
+            self.active_instance_alias = ctx["definition"].alias
+            self.active_instance_meta = self._active_instance_meta()
+            yield
+        finally:
+            (
+                self.config,
+                self.auth_manager,
+                self.active_instance_alias,
+                self.active_instance_meta,
+            ) = saved
 
     def _is_read_only_call(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
         if tool_name in MANAGE_READ_ACTIONS:
@@ -1316,8 +1380,21 @@ class ServiceNowMCP:
                     "host": safe_instance_url(definition.url),
                 }
             }
-        # Writes are pinned to the active instance (cross-instance writes are
-        # blocked earlier), so the target is always the active instance.
+        # An authorized single-call cross-instance write echoes its ACTUAL
+        # target (the active instance was already restored by now), so the
+        # response makes "this write landed on test, not dev" explicit.
+        if target_alias and target_alias != self.active_instance_alias:
+            ctx = self.instance_contexts.get(target_alias)
+            if ctx:
+                definition = ctx["definition"]
+                return {
+                    "instance_target": {
+                        "alias": definition.alias,
+                        "host": safe_instance_url(definition.url),
+                        "cross_instance": True,
+                    }
+                }
+        # Otherwise the write went to the active instance.
         meta = self.active_instance_meta
         return {
             "instance_target": {
@@ -1608,13 +1685,14 @@ class ServiceNowMCP:
                 "Default every read to the active instance — do NOT fan out (e.g. don't "
                 "also health-check or query the others). Pass the read tools' optional "
                 "instance=<alias> arg ONLY when the user explicitly names a non-active one. "
-                "Writes ALWAYS target the active instance and cannot be redirected. "
-                "The active instance is fixed at server startup. To write to a different "
-                "instance you CANNOT switch it at runtime — and you must NEVER edit "
-                ".mcp.json / config / env files to change SERVICENOW_ACTIVE_INSTANCE or "
-                "allow_writes: that has no effect until a restart and is not a valid "
-                "workaround. Instead, tell the user to restart with the target instance "
-                "active, or to apply the change directly in ServiceNow."
+                "Writes default to the active instance. To write to a NON-active instance "
+                "for a single call, pass BOTH instance=<alias> AND confirm_instance=<alias> "
+                "(the same alias) plus confirm='approve' — that one write is routed there and "
+                "the active instance is restored afterwards; only works if that instance has "
+                "allow_writes=true. NEVER edit .mcp.json / config / env files to switch "
+                "instances or flip allow_writes: that has no effect until a restart and is not "
+                "a valid workaround. If the target is read-only, ask the user to change it in "
+                "config and restart, or to apply the change directly in ServiceNow."
             )
             existing = getattr(self.mcp_server, "instructions", None) or ""
             self.mcp_server.instructions = (
