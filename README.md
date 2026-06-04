@@ -177,7 +177,62 @@ Then restart the client. The first browser tool call opens a window for Okta/Ent
 
 ## Install (offline / corporate)
 
-For most users the [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) above (uvx) is all you need. Use the release zip **only** when `uvx` or PyPI is blocked by corporate security.
+For most users the [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) above (uvx) is all you need. Two corporate-network variants:
+
+- **PyPI reachable, but HTTPS is TLS-inspected** (Zscaler / Netskope / corporate MITM) → see **pip install (internal network behind TLS inspection)** just below.
+- **PyPI / uvx fully blocked** → see **Release zip/exe (local install)** further down.
+
+### pip install (internal network behind TLS inspection — Zscaler etc.)
+
+Use this when PyPI **is** reachable but a TLS-inspecting proxy re-signs HTTPS, so installs and runtime calls fail with `SSL: CERTIFICATE_VERIFY_FAILED`. Registering the proxy's root CA in the **OS trust store is not enough** — Python (`pip`, `requests`, `httpx`), `curl_cffi`, and Playwright each ship their own CA bundle (certifi / libcurl / node) and ignore the OS store unless you point them at the cert via env.
+
+**1. Get the proxy root CA** as a PEM file (ask IT, or export it from the OS keychain). Assume it lands at `/etc/ssl/zscaler-root.pem` (Windows: `C:\certs\zscaler-root.pem`).
+
+**2. Install** — point the installer at the cert:
+
+```bash
+pip install --cert /etc/ssl/zscaler-root.pem mfa-servicenow-mcp
+python -m playwright install chromium     # NODE_EXTRA_CA_CERTS (step 3) covers its download
+```
+
+Prefer uvx? `uv` can use the OS trust store directly (where the proxy CA is already registered):
+
+```bash
+UV_NATIVE_TLS=1 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
+```
+
+**3. Runtime — set the CA path in your MCP client `env`.** The non-obvious part: live ServiceNow calls go through **curl_cffi (libcurl)**, which reads `CURL_CA_BUNDLE` — *not* `REQUESTS_CA_BUNDLE`. Set all of them so every layer trusts the proxy:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "servicenow-mcp",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "CURL_CA_BUNDLE": "/etc/ssl/zscaler-root.pem",
+        "REQUESTS_CA_BUNDLE": "/etc/ssl/zscaler-root.pem",
+        "SSL_CERT_FILE": "/etc/ssl/zscaler-root.pem",
+        "NODE_EXTRA_CA_CERTS": "/etc/ssl/zscaler-root.pem"
+      }
+    }
+  }
+}
+```
+
+| Env var | Layer it fixes |
+|---------|----------------|
+| `CURL_CA_BUNDLE` | **curl_cffi / libcurl — the actual ServiceNow API + browser-login probe calls** |
+| `REQUESTS_CA_BUNDLE` | `requests` (OAuth / API-key token calls, fallback HTTP path) |
+| `SSL_CERT_FILE` | Python stdlib `ssl` / `httpx` / `uv` |
+| `NODE_EXTRA_CA_CERTS` | Playwright's Chromium download |
+| `PIP_CERT` (install only) | `pip` fetching from PyPI (same as `--cert`) |
+
+In a fully-inspected network the proxy re-signs every host, so the single proxy-root PEM covers all HTTPS. If some hosts **bypass** the proxy, concatenate the proxy root with certifi's bundle (`python -m certifi` prints its path) into one PEM and point the env vars at that.
+
+> Last resort if you genuinely can't obtain the PEM: `pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org mfa-servicenow-mcp` skips verification for the **install only** — it does nothing for runtime ServiceNow calls, which still need `CURL_CA_BUNDLE`. Prefer the cert path; `--trusted-host` disables a security control.
 
 ### Release zip/exe (local install)
 
