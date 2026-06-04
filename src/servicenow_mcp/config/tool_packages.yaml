@@ -63,7 +63,6 @@ standard:
   - search_portal_regex_matches
   - trace_portal_route_targets
   - analyze_widget_performance
-  - extract_widget_table_dependencies
   # Widget dependency/provider graph (read) — write actions exposed in
   # portal_developer/full. Absorbed get_provider_dependency_map +
   # resolve_widget_chain + resolve_page_dependencies (now internal resolvers).
