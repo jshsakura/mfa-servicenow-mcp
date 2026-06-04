@@ -127,7 +127,7 @@ SERVICENOW_AUTH_TYPE = "browser"
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **등록 도구 66개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
+- **등록 도구 65개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
 - **16개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **Streamable HTTP transport** — 기본 stdio는 그대로 두고, HTTP 지원 클라이언트/브리지에는 `/mcp` 엔드포인트 제공
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성

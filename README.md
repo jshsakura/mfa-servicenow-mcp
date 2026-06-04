@@ -128,7 +128,7 @@ Then restart the client. The first browser tool call opens a window for Okta/Ent
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **66 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **65 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **16 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge

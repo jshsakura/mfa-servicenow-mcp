@@ -562,6 +562,41 @@ def test_extract_widget_table_dependencies_returns_widget_and_linked_si_tables()
     assert result["scan_summary"]["linked_script_includes_scanned"] == 1
 
 
+def test_extract_table_dependencies_delegates_to_widget_mode_when_widget_id_set():
+    # widget_id present -> extract_table_dependencies must delegate to the
+    # single-widget scanner and return the widget-shaped result.
+    config = _build_config()
+    auth_manager = MagicMock()
+
+    widget_response = _response(
+        [
+            {
+                "sys_id": "wid-1",
+                "name": "Order Widget",
+                "id": "order_widget",
+                "sys_scope": "x_myapp",
+                "script": "var gr = new GlideRecord('task');",
+            }
+        ],
+        total_count=1,
+    )
+    label_response = _response([{"name": "task", "label": "Task"}], total_count=1)
+    auth_manager.make_request.side_effect = [widget_response, label_response]
+
+    result = extract_table_dependencies(
+        config,
+        auth_manager,
+        ExtractTableDependenciesParams(
+            widget_id="order_widget", scope="x_myapp", include_linked_script_includes=False
+        ),
+    )
+
+    assert result["success"] is True
+    # Widget-shaped result (has 'widget'), proving delegation, not scope-wide scan.
+    assert result["widget"]["identifier"] == "order_widget"
+    assert "task" in {entry["table_name"] for entry in result["tables"]}
+
+
 def test_extract_widget_table_dependencies_returns_not_found_for_missing_widget():
     config = _build_config()
     auth_manager = MagicMock()

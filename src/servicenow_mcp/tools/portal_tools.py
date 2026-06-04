@@ -658,7 +658,7 @@ class SearchPortalRegexMatchesParams(BaseModel):
     )
     source_types: List[str] = Field(
         default=["widget"],
-        description="Source types: widget | script_include | angular_provider",
+        description="widget | script_include | angular_provider",
     )
     updated_after: str | None = Field(default=None, description="sys_updated_on >= (YYYY-MM-DD)")
     updated_before: str | None = Field(default=None, description="sys_updated_on <= (YYYY-MM-DD)")

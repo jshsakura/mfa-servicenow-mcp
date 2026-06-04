@@ -20,7 +20,6 @@ TOOL_MODULE_INDEX = {
     "download_sources": "source_tools",
     "download_table_schema": "source_tools",
     "extract_table_dependencies": "source_tools",
-    "extract_widget_table_dependencies": "source_tools",
     "get_developer_changes": "portal_dev_tools",
     "get_developer_daily_summary": "portal_dev_tools",
     "get_logs": "log_tools",

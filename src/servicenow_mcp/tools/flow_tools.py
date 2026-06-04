@@ -111,7 +111,7 @@ class ManageFlowDesignerParams(BaseModel):
     # ---- Common ----
     flow_id: Optional[str] = Field(
         default=None,
-        description="Flow sys_id (sys_hub_flow); required for get_detail/get_executions/update/edit",
+        description="Flow sys_id; required for get_detail/get_executions/update/edit",
     )
     limit: int = Field(default=20, description="Max records")
     offset: int = Field(default=0, description="Pagination offset")
@@ -145,7 +145,7 @@ class ManageFlowDesignerParams(BaseModel):
     )
     flow_name: Optional[str] = Field(default=None, description="Flow name contains-match")
     exec_state: Optional[str] = Field(
-        default=None, description="State: Complete/Error/Waiting/Cancelled/In Progress"
+        default=None, description="Complete/Error/Waiting/Cancelled/In Progress"
     )
     source_record: Optional[str] = Field(default=None, description="Source record display value")
     errors_only: bool = Field(default=False, description="Only errored executions")
