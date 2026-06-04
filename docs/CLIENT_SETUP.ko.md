@@ -155,16 +155,34 @@ dev/test drift 분석이 필요할 때 `SERVICENOW_INSTANCE_CONFIG`로 named ins
 SERVICENOW_ACTIVE_INSTANCE=dev
 SERVICENOW_INSTANCE_CONFIG='{
   "dev": {
-    "url": "https://dev.service-now.com",
+    "url": "https://acme-dev.service-now.com",
     "tool_package": "standard",
     "allow_writes": false
   },
   "test": {
-    "url": "https://test.service-now.com",
+    "url": "https://acme-test.service-now.com",
     "tool_package": "standard",
     "allow_writes": false
   }
 }'
+```
+
+MCP 클라이언트 `env` 블록에서 인스턴스별 자격증명 (alias마다 자체 `username` / `password` / `auth_type` / `api_key`; `${ENV}`로 비밀번호를 JSON 밖에 보관; 단일 인스턴스 `SERVICENOW_INSTANCE_URL` 방식도 폴백으로 동작):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["mfa-servicenow-mcp@latest"],
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"username\": \"dev_user\", \"password\": \"${SERVICENOW_DEV_PASSWORD}\", \"allow_writes\": true }, \"test\": { \"url\": \"https://acme-test.service-now.com\", \"auth_type\": \"browser\", \"username\": \"test_user\", \"password\": \"${SERVICENOW_TEST_PASSWORD}\" } }"
+      }
+    }
+  }
+}
 ```
 
 비교 예시:
