@@ -2,12 +2,7 @@
 
 Covers:
 - _download_source_types (core loop)
-- download_script_includes
-- download_server_scripts
-- download_ui_components
-- download_api_sources
-- download_security_sources
-- download_admin_scripts
+- download_sources (consolidated targeted source-family refresh)
 - download_table_schema
 - download_app_sources (orchestrator)
 """
@@ -18,25 +13,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from servicenow_mcp.tools.source_tools import (
-    DownloadAdminScriptsParams,
-    DownloadAPISourcesParams,
     DownloadAppSourcesParams,
-    DownloadScriptIncludesParams,
-    DownloadSecuritySourcesParams,
-    DownloadServerScriptsParams,
+    DownloadSourcesParams,
     DownloadTableSchemaParams,
-    DownloadUIComponentsParams,
     _download_source_types,
     _resolve_scope_root,
     _safe_filename,
-    download_admin_scripts,
-    download_api_sources,
     download_app_sources,
-    download_script_includes,
-    download_security_sources,
-    download_server_scripts,
+    download_sources,
     download_table_schema,
-    download_ui_components,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
@@ -646,23 +631,24 @@ class TestDownloadSourceTypes:
 # ---------------------------------------------------------------------------
 
 
-class TestDownloadScriptIncludes:
+class TestDownloadSourcesScriptIncludes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     def test_happy_path(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _strip_source(_si_records())
         mock_query_page.side_effect = _page_side_effect_for(_si_records())
-        result = download_script_includes(
+        result = download_sources(
             config,
             auth,
-            DownloadScriptIncludesParams(
+            DownloadSourcesParams(
                 scope="x_app",
                 output_dir=str(tmp_path),
+                families=["script_includes"],
             ),
         )
 
         assert result["success"] is True
-        assert result["tool"] == "download_script_includes"
+        assert result["tool"] == "download_sources"
         assert result["total_records"] == 2
         assert result["total_files"] == 2
 
@@ -673,19 +659,37 @@ class TestDownloadScriptIncludes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_empty_scope(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = []
-        result = download_script_includes(
+        result = download_sources(
             config,
             auth,
-            DownloadScriptIncludesParams(
+            DownloadSourcesParams(
                 scope="x_empty",
                 output_dir=str(tmp_path),
+                families=["script_includes"],
             ),
         )
         assert result["success"] is True
         assert result["total_records"] == 0
 
+    def test_unknown_family_rejected(self, config, auth, tmp_path):
+        result = download_sources(
+            config,
+            auth,
+            DownloadSourcesParams(scope="x_app", output_dir=str(tmp_path), families=["bogus"]),
+        )
+        assert result["success"] is False
+        assert "bogus" in result["message"]
 
-class TestDownloadServerScripts:
+    def test_empty_families_rejected(self, config, auth, tmp_path):
+        result = download_sources(
+            config,
+            auth,
+            DownloadSourcesParams(scope="x_app", output_dir=str(tmp_path), families=[]),
+        )
+        assert result["success"] is False
+
+
+class TestDownloadSourcesServerScripts:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     def test_downloads_br_and_client_scripts(
@@ -693,12 +697,13 @@ class TestDownloadServerScripts:
     ):
         mock_query_all.side_effect = [_strip_source(_br_records()), [], []]
         mock_query_page.side_effect = _page_side_effect_for(_br_records())
-        result = download_server_scripts(
+        result = download_sources(
             config,
             auth,
-            DownloadServerScriptsParams(
+            DownloadSourcesParams(
                 scope="x_app",
                 output_dir=str(tmp_path),
+                families=["server_scripts"],
             ),
         )
 
@@ -711,18 +716,19 @@ class TestDownloadServerScripts:
         assert first_call[1]["table"] == "sys_script"
 
 
-class TestDownloadUIComponents:
+class TestDownloadSourcesUIComponents:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     def test_downloads_all_ui_types(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.side_effect = [_strip_source(_ui_action_records()), [], [], []]
         mock_query_page.side_effect = _page_side_effect_for(_ui_action_records())
-        result = download_ui_components(
+        result = download_sources(
             config,
             auth,
-            DownloadUIComponentsParams(
+            DownloadSourcesParams(
                 scope="x_app",
                 output_dir=str(tmp_path),
+                families=["ui"],
             ),
         )
 
@@ -750,12 +756,13 @@ class TestDownloadUIComponents:
         ]
         mock_query_all.side_effect = [[], [], _strip_source(ui_page_full), []]
         mock_query_page.side_effect = _page_side_effect_for(ui_page_full)
-        download_ui_components(
+        download_sources(
             config,
             auth,
-            DownloadUIComponentsParams(
+            DownloadSourcesParams(
                 scope="x_app",
                 output_dir=str(tmp_path),
+                families=["ui"],
             ),
         )
 
@@ -766,7 +773,7 @@ class TestDownloadUIComponents:
         assert (page_dir / "processing_script.js").exists()
 
 
-class TestDownloadAPISources:
+class TestDownloadSourcesAPI:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     def test_downloads_rest_and_processor(
@@ -774,12 +781,13 @@ class TestDownloadAPISources:
     ):
         mock_query_all.side_effect = [_strip_source(_rest_records()), []]
         mock_query_page.side_effect = _page_side_effect_for(_rest_records())
-        result = download_api_sources(
+        result = download_sources(
             config,
             auth,
-            DownloadAPISourcesParams(
+            DownloadSourcesParams(
                 scope="x_app",
                 output_dir=str(tmp_path),
+                families=["api"],
             ),
         )
 
@@ -792,18 +800,19 @@ class TestDownloadAPISources:
         assert "x_app_request" in script
 
 
-class TestDownloadSecuritySources:
+class TestDownloadSourcesSecurity:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     def test_acl_script_only_filter(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _strip_source(_acl_records())
         mock_query_page.return_value = ([], None)
-        result = download_security_sources(
+        result = download_sources(
             config,
             auth,
-            DownloadSecuritySourcesParams(
+            DownloadSourcesParams(
                 scope="x_app",
                 output_dir=str(tmp_path),
+                families=["security"],
                 acl_script_only=True,
             ),
         )
@@ -817,12 +826,13 @@ class TestDownloadSecuritySources:
     def test_acl_all_no_filter(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _strip_source(_acl_records())
         mock_query_page.return_value = ([], None)
-        download_security_sources(
+        download_sources(
             config,
             auth,
-            DownloadSecuritySourcesParams(
+            DownloadSourcesParams(
                 scope="x_app",
                 output_dir=str(tmp_path),
+                families=["security"],
                 acl_script_only=False,
             ),
         )
@@ -833,7 +843,7 @@ class TestDownloadSecuritySources:
         mock_query_page.assert_not_called()
 
 
-class TestDownloadAdminScripts:
+class TestDownloadSourcesAdmin:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     def test_downloads_all_admin_types(
@@ -841,18 +851,39 @@ class TestDownloadAdminScripts:
     ):
         mock_query_all.side_effect = [_strip_source(_fix_script_records()), [], [], [], []]
         mock_query_page.side_effect = _page_side_effect_for(_fix_script_records())
-        result = download_admin_scripts(
+        result = download_sources(
             config,
             auth,
-            DownloadAdminScriptsParams(
+            DownloadSourcesParams(
                 scope="x_app",
                 output_dir=str(tmp_path),
+                families=["admin"],
             ),
         )
 
         assert result["success"] is True
         assert result["source_types"]["fix_script"]["count"] == 1
         assert mock_query_all.call_count == 5  # 5 admin types
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_multiple_families_one_call(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        # script_includes (1 type) + api (2 types) = 3 source-type queries in one call.
+        mock_query_all.side_effect = [_strip_source(_si_records()), [], []]
+        mock_query_page.side_effect = _page_side_effect_for(_si_records())
+        result = download_sources(
+            config,
+            auth,
+            DownloadSourcesParams(
+                scope="x_app",
+                output_dir=str(tmp_path),
+                families=["script_includes", "api"],
+            ),
+        )
+        assert result["success"] is True
+        assert mock_query_all.call_count == 3
 
 
 # ---------------------------------------------------------------------------
