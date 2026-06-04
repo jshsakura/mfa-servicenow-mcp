@@ -279,6 +279,28 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 
 > `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택 — MFA 로그인 폼을 미리 채웁니다. Windows에서는 시스템 환경변수로 설정하세요.
 
+#### 한 클라이언트에서 여러 인스턴스 (dev / test / prod)
+
+위 예시는 단일 인스턴스 — 그게 기본입니다. 한 클라이언트에서 여러 인스턴스를 오가려면 `SERVICENOW_INSTANCE_CONFIG`(alias → 설정)에 나열하고 `SERVICENOW_ACTIVE_INSTANCE`로 활성 인스턴스를 고르세요. alias마다 **자체 자격증명**(`username` / `password` / `auth_type` / `api_key`)을 가질 수 있고, `${ENV}` 참조로 비밀번호를 JSON 밖에 둘 수 있습니다. 기존 단일 인스턴스 `SERVICENOW_INSTANCE_URL` 방식도 폴백으로 그대로 동작합니다.
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["mfa-servicenow-mcp@latest"],
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"username\": \"dev_user\", \"password\": \"${SERVICENOW_DEV_PASSWORD}\", \"allow_writes\": true }, \"test\": { \"url\": \"https://acme-test.service-now.com\", \"auth_type\": \"browser\", \"username\": \"test_user\", \"password\": \"${SERVICENOW_TEST_PASSWORD}\" } }"
+      }
+    }
+  }
+}
+```
+
+`SERVICENOW_ACTIVE_INSTANCE`가 쓰기가 닿는 인스턴스이고, 읽기 도구는 `instance="test"`로 다른 인스턴스를 들여다볼 수 있습니다. 전체 규칙(쓰기 게이트·비교·`${ENV}`): [읽기 전용 데이터 비교 모드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md#읽기-전용-데이터-비교-모드).
+
 ---
 
 ## 인증 방법
@@ -410,15 +432,15 @@ export SERVICENOW_USERNAME=svc_account
 export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
-  "dev":  { "url": "https://dev.service-now.com",  "allow_writes": true },
-  "test": { "url": "https://test.service-now.com", "allow_writes": false }
+  "dev":  { "url": "https://acme-dev.service-now.com",  "allow_writes": true },
+  "test": { "url": "https://acme-test.service-now.com", "allow_writes": false }
 }'
 ```
 
 특정 인스턴스에 별도 로그인을 주려면 해당 alias에 필드를 추가하세요 (`${ENV}` 참조가 해석되므로 비밀번호를 JSON에 평문으로 안 박아도 됩니다):
 
 ```json
-"prod": { "url": "https://prod.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
+"prod": { "url": "https://acme.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
 dev/test drift 확인에는 `compare_instances`를 사용하세요. 다른 인스턴스에 실제 작업을 해야 한다면 프로젝트/클라이언트 설정을 분리하는 방식을 권장합니다.
