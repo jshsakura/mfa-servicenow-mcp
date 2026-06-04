@@ -598,7 +598,15 @@ class GetMetadataSourceParams(BaseModel):
 class ExtractTableDependenciesParams(BaseModel):
     scope: str | None = Field(
         default=None,
-        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
+        description="App scope filter (sys_scope), e.g. x_company_bpm",
+    )
+    widget_id: str | None = Field(
+        default=None,
+        description="Limit to ONE widget (sys_id/id/name). Omit for a scope-wide scan.",
+    )
+    max_linked_script_includes: int = Field(
+        default=DEFAULT_MAX_LINKED_SI,
+        description=f"widget_id mode: max linked SIs to resolve. Clamped to {MAX_LINKED_SI}.",
     )
     include_widgets: bool = Field(
         default=True,
@@ -634,7 +642,7 @@ class ExtractWidgetTableDependenciesParams(BaseModel):
     widget_id: str = Field(..., description="Widget sys_id, id, or name")
     scope: str | None = Field(
         default=None,
-        description="Optional app scope filter (sys_scope). Example: x_company_bpm",
+        description="App scope filter (sys_scope), e.g. x_company_bpm",
     )
     include_linked_script_includes: bool = Field(
         default=True,
@@ -1205,7 +1213,7 @@ def get_metadata_source(
 @register_tool(
     "extract_table_dependencies",
     params=ExtractTableDependenciesParams,
-    description="Build a GlideRecord table dependency graph from server scripts. Scans SI, BR, and widget code.",
+    description="GlideRecord table dependency graph from server scripts (SI/BR/widgets). Pass widget_id for one widget.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1214,6 +1222,21 @@ def extract_table_dependencies(
     auth_manager: AuthManager,
     params: ExtractTableDependenciesParams,
 ) -> Dict[str, Any]:
+    # widget_id present → single-widget mode (delegated to the widget scanner).
+    if params.widget_id:
+        return extract_widget_table_dependencies(
+            config,
+            auth_manager,
+            ExtractWidgetTableDependenciesParams(
+                widget_id=params.widget_id,
+                scope=params.scope,
+                include_linked_script_includes=params.include_linked_script_includes,
+                only_active=params.only_active,
+                include_loose_literal_scan=params.include_loose_literal_scan,
+                max_linked_script_includes=params.max_linked_script_includes,
+            ),
+        )
+
     started = time.perf_counter()
     max_records = _clamp_dep_scan_limit(params.max_records_per_source)
     page_size = _clamp_page_size(params.page_size)
@@ -1434,13 +1457,9 @@ def extract_table_dependencies(
     }
 
 
-@register_tool(
-    "extract_widget_table_dependencies",
-    params=ExtractWidgetTableDependenciesParams,
-    description="Build a table dependency graph for a single widget, optionally expanding linked script includes.",
-    serialization="raw_dict",
-    return_type=dict,
-)
+# Internal helper — no longer a standalone tool. Reached via
+# extract_table_dependencies(widget_id=...) which delegates here. Kept as a
+# function so the single-widget logic and its tests stay intact.
 def extract_widget_table_dependencies(
     config: ServerConfig,
     auth_manager: AuthManager,

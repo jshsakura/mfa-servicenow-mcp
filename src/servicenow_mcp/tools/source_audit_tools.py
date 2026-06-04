@@ -1370,7 +1370,7 @@ def audit_local_sources(
             },
             "call_graph": {
                 "file": str(scope_root / "_cross_references.json"),
-                "answers": "SI/table call chains, widget→SI refs (replaces manage_widget_dependency / extract_widget_table_dependencies)",
+                "answers": "SI/table call chains, widget→SI refs (replaces manage_widget_dependency / extract_table_dependencies)",
             },
         },
         "safety_notice": (

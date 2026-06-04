@@ -79,7 +79,7 @@ live resolver tools once these files exist:
 - "which providers does widget X use?" → `_graph.json` (replaces manage_widget_dependency)
 - "which widgets are on page Y?" → `_page_graph.json` (replaces manage_widget_dependency)
 - "what calls Script Include Z / which tables?" → `_cross_references.json`
-  (replaces manage_widget_dependency / extract_widget_table_dependencies)
+  (replaces manage_widget_dependency / extract_table_dependencies)
 
 The audit result's `offline_analysis` field names the exact file per question.
 
