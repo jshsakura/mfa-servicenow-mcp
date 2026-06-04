@@ -21,11 +21,13 @@ from servicenow_mcp.utils.registry import register_tool
 
 from .flow_designer_tools import (
     CompareFlowsParams,
+    GetActionSourceParams,
     GetFlowDetailsParams,
     GetFlowExecutionsParams,
     ListFlowsParams,
     UpdateFlowDesignerParams,
     compare_flows,
+    get_action_source,
     get_flow_details,
     get_flow_executions,
     list_flows,
@@ -36,7 +38,9 @@ from .flow_edit_tools import ManageFlowEditParams, manage_flow_edit
 logger = logging.getLogger(__name__)
 
 # Action groups — used by validator and by docs.
-_READ_ACTIONS = frozenset({"list", "get_detail", "get_executions", "compare", "edit_status"})
+_READ_ACTIONS = frozenset(
+    {"list", "get_detail", "get_executions", "compare", "edit_status", "get_action_source"}
+)
 _EDIT_ACTIONS = frozenset(
     {
         "checkout",
@@ -88,6 +92,7 @@ class ManageFlowDesignerParams(BaseModel):
         "get_detail",
         "get_executions",
         "compare",
+        "get_action_source",
         # Write — metadata
         "update",
         # Write — edit workflow (browser auth)
@@ -157,6 +162,14 @@ class ManageFlowDesignerParams(BaseModel):
     description: Optional[str] = Field(default=None, description="New flow description")
     active: Optional[bool] = Field(default=None, description="New active status")
 
+    # ---- get_action_source ----
+    action_ref: Optional[str] = Field(
+        default=None, description="Action sys_id/name/internal_name (get_action_source)"
+    )
+    include_versions: bool = Field(
+        default=False, description="get_action_source: include published-snapshot versions"
+    )
+
     # ---- edit workflow ----
     node_id: Optional[str] = Field(default=None, description="Action/logic/trigger instance id")
     input_name: Optional[str] = Field(default=None, description="Input field name")
@@ -202,6 +215,7 @@ class ManageFlowDesignerParams(BaseModel):
             }
         ),
         "compare": frozenset({"flow_id_a", "flow_id_b", "name_a", "name_b", "include_label_cache"}),
+        "get_action_source": frozenset({"action_ref", "include_versions", "limit"}),
         "update": frozenset({"flow_id", "new_name", "description", "active"}),
         "checkout": frozenset({"flow_id"}),
         "set_action_input": frozenset({"flow_id", "node_id", "input_name", "value"}),
@@ -224,6 +238,9 @@ class ManageFlowDesignerParams(BaseModel):
                 raise ValueError("compare requires flow_id_a or name_a")
             if not (self.flow_id_b or self.name_b):
                 raise ValueError("compare requires flow_id_b or name_b")
+
+        if action == "get_action_source" and not self.action_ref:
+            raise ValueError("get_action_source requires action_ref")
 
         if action == "update":
             if self.new_name is None and self.description is None and self.active is None:
@@ -345,6 +362,21 @@ def _do_update(
     )
 
 
+def _do_get_action_source(
+    config: ServerConfig, auth_manager: AuthManager, p: ManageFlowDesignerParams
+) -> Dict[str, Any]:
+    assert p.action_ref is not None  # guaranteed by _validate_per_action
+    return get_action_source(
+        config,
+        auth_manager,
+        GetActionSourceParams(
+            action_ref=p.action_ref,
+            include_versions=p.include_versions,
+            limit=p.limit,
+        ),
+    )
+
+
 # Map unified action → ManageFlowEditParams.action (1:1 except edit_status).
 _EDIT_ACTION_MAP: Dict[str, str] = {
     "checkout": "checkout",
@@ -398,6 +430,7 @@ _DISPATCH = {
     "get_detail": _do_get_detail,
     "get_executions": _do_get_executions,
     "compare": _do_compare,
+    "get_action_source": _do_get_action_source,
     "update": _do_update,
 }
 
