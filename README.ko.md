@@ -124,13 +124,14 @@ SERVICENOW_AUTH_TYPE = "browser"
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **등록 도구 70개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
+- **등록 도구 71개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
 - **16개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **Streamable HTTP transport** — 기본 stdio는 그대로 두고, HTTP 지원 클라이언트/브리지에는 `/mcp` 엔드포인트 제공
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
 - **권위 관계 그래프를 디스크에** — `_graph.json`(위젯→Angular Provider, 라이브 M2M 기반)과 `_page_graph.json`(페이지→위젯, `sp_instance` 기반)으로 LLM이 인스턴스에 다시 묻지 않고 의존성 질문을 오프라인으로 답합니다
 - **증분 동기화** (`incremental=True`) — 지난 동기화 이후 바뀐 레코드만 다시 받음(`sys_updated_on` 워터마크, `git pull` 방식); `reconcile_deletions=True`로 인스턴스에서 삭제된 레코드 경고
 - **크로스-스코프 의존성 자동 해석** — `download_app_sources`가 앱 코드에서 참조하는 글로벌 스코프의 Script Include, Widget, Angular Provider, UI Macro까지 함께 받아 로컬 번들을 분석에 자족적으로 만듭니다
+- **첨부파일 다운로드** (`download_attachment`) — 레코드 첨부파일(xlsx, PDF, Word 등)을 attachment sys_id 또는 부모 `table`+`record`로 받아 로컬 디스크에 저장. 레코드의 첨부를 자동 해석하고 바이트를 디스크에 쓰므로 LLM은 `saved_path`에서 파일을 읽습니다
 - **Dry-run 프리뷰** — 모든 쓰기 도구에서 `dry_run=True` 지원. 실행 전 필드 단위 diff, 의존성 카운트, 정확도 노트를 반환합니다. 읽기 전용 API만 사용하므로 모든 인증 모드에서 동작.
 - `confirm='approve'` 기반 안전한 수정 승인 정책
 - 페이로드 안전 제한, 필드별 절단, 총 응답 한도 (200K 문자)

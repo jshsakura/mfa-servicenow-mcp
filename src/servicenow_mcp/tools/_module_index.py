@@ -17,6 +17,7 @@ TOOL_MODULE_INDEX = {
     "download_admin_scripts": "source_tools",
     "download_api_sources": "source_tools",
     "download_app_sources": "source_tools",
+    "download_attachment": "attachment_tools",
     "download_portal_sources": "portal_tools",
     "download_script_includes": "source_tools",
     "download_security_sources": "source_tools",

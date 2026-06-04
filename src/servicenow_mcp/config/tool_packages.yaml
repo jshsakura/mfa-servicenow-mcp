@@ -82,6 +82,8 @@ standard:
   - extract_table_dependencies
   - download_app_sources
   - audit_local_sources
+  # Attachments (Read) — download a record's attachment file(s) to local disk
+  - download_attachment
   # Local Sync (Read)
   - diff_local_component
 
