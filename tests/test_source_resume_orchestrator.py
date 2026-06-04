@@ -93,11 +93,14 @@ def test_timeout_then_resume_skips_finished_groups_and_completes(config, auth, t
     assert not sr.progress_path(tmp_path).exists()
 
 
-def test_background_start_poll_result(config, auth, tmp_path):
+def test_background_start_poll_result(config, auth, tmp_path, monkeypatch):
     """background=true: first call starts a thread and returns immediately;
     polling (same args) reports running, then returns the final result. Same
     tool, no second tool, no client-side timeout."""
     source_tools._BG_JOBS.clear()
+    # Keep the server-side long-poll tiny so the test stays fast.
+    monkeypatch.setattr(source_tools, "_BG_POLL_MAX_BLOCK_SECONDS", 0.05)
+    monkeypatch.setattr(source_tools, "_BG_POLL_TICK_SECONDS", 0.02)
     release = threading.Event()
 
     def slow_group(*args, **kwargs):
@@ -127,6 +130,65 @@ def test_background_start_poll_result(config, auth, tmp_path):
             break
 
     assert result is not None
+    assert result["success"] is True
+
+
+def test_background_poll_blocks_until_cap_then_reports_running(config, auth, tmp_path, monkeypatch):
+    """A poll on a still-running job blocks server-side up to the cap (not a
+    busy 1s spin), then returns running with a no-sleep-needed hint."""
+    source_tools._BG_JOBS.clear()
+    monkeypatch.setattr(source_tools, "_BG_POLL_MAX_BLOCK_SECONDS", 0.2)
+    monkeypatch.setattr(source_tools, "_BG_POLL_TICK_SECONDS", 0.04)
+    release = threading.Event()
+
+    def slow_group(*args, **kwargs):
+        release.wait(timeout=5)
+        return _empty_group_result(kwargs["source_types"])
+
+    with patch("servicenow_mcp.tools.source_tools._download_source_types", side_effect=slow_group):
+        download_app_sources(config, auth, _params(tmp_path, background=True))
+
+        start = time.perf_counter()
+        polled = download_app_sources(config, auth, _params(tmp_path, background=True))
+        elapsed = time.perf_counter() - start
+
+        # Blocked roughly the cap rather than returning instantly.
+        assert polled["status"] == "running"
+        assert elapsed >= 0.18
+        assert polled["next_poll_after_seconds"] == 0
+        assert "server-side" in polled["message"]
+
+        release.set()
+
+
+def test_background_poll_returns_early_when_job_finishes_midwait(
+    config, auth, tmp_path, monkeypatch
+):
+    """The long-poll must not wait the full cap once the worker finishes — it
+    returns the final result as soon as the job flips to done."""
+    source_tools._BG_JOBS.clear()
+    # Large cap so a full-cap wait would be obvious; the poll must beat it.
+    monkeypatch.setattr(source_tools, "_BG_POLL_MAX_BLOCK_SECONDS", 5.0)
+    monkeypatch.setattr(source_tools, "_BG_POLL_TICK_SECONDS", 0.02)
+    release = threading.Event()
+
+    def slow_group(*args, **kwargs):
+        release.wait(timeout=5)
+        return _empty_group_result(kwargs["source_types"])
+
+    with patch("servicenow_mcp.tools.source_tools._download_source_types", side_effect=slow_group):
+        download_app_sources(config, auth, _params(tmp_path, background=True))
+
+        # Release shortly after the poll starts blocking; it should return well
+        # before the 5s cap.
+        timer = threading.Timer(0.1, release.set)
+        timer.start()
+        start = time.perf_counter()
+        result = download_app_sources(config, auth, _params(tmp_path, background=True))
+        elapsed = time.perf_counter() - start
+        timer.cancel()
+
+    assert elapsed < 2.0
     assert result["success"] is True
 
 
