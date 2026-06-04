@@ -53,7 +53,7 @@ standard:
       actions: [list, get_activities]
   # Flow Designer (Read) — unified tool, write actions blocked here
   - manage_flow_designer:
-      actions: [list, get_detail, get_executions]
+      actions: [list, get_detail, get_executions, get_action_source]
   # Portal (Read)
   - get_page
   - get_widget_bundle

@@ -32,6 +32,25 @@ SUBFLOW_V2_TABLE = "sys_hub_sub_flow_instance_v2"
 FLOW_CONTEXT_TABLE = "sys_flow_context"
 TRIGGER_TABLE = "sys_hub_trigger_instance"
 
+# Custom Action source retrieval (Action Designer).
+# The internal Script-step body of a custom action does NOT live on the action
+# definition/base/snapshot records — it is stored in sys_variable_value, keyed
+# by the step instance. The structural chain (confirmed live):
+#   sys_hub_action_type_definition (the action)
+#     └─ sys_hub_step_instance WHERE action = <def sys_id>   (live edit = current source)
+#           └─ sys_variable_value WHERE document='sys_hub_step_instance'
+#                                   AND document_key=<step sys_id>   (value = plaintext body)
+# sys_hub_step_instance.action also points at base sys_ids (master/latest snapshot)
+# for published versions — include_versions surfaces those too.
+ACTION_DEF_TABLE = "sys_hub_action_type_definition"
+STEP_INSTANCE_TABLE = "sys_hub_step_instance"
+VARIABLE_VALUE_TABLE = "sys_variable_value"
+# OOB "Script step" script-input variable. Used as the preferred selector for
+# the script body; falls back to the longest variable value when a step is a
+# different type (REST/Lookup/etc.) whose input variable differs.
+SCRIPT_STEP_VAR_SYSID = "71aa7f6647032200b4fad7527c9a719b"
+_MIN_SCRIPT_LEN = 40
+
 # ---------------------------------------------------------------------------
 # Parameter Models
 # ---------------------------------------------------------------------------
@@ -2126,4 +2145,172 @@ def compare_flows(
         }
     except Exception as e:
         logger.error(f"Error comparing flows: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Custom Action source retrieval (read-only)
+# ---------------------------------------------------------------------------
+
+
+class GetActionSourceParams(BaseModel):
+    """Read a custom Flow Designer action's step source (scripts)."""
+
+    action_ref: str = Field(
+        ..., description="Action sys_id, name, or internal_name (sys_hub_action_type_definition)"
+    )
+    include_versions: bool = Field(
+        default=False, description="Also return published-snapshot step versions, not just live"
+    )
+    limit: int = Field(default=50, description="Max step instances to read")
+
+
+def _looks_like_sys_id(value: str) -> bool:
+    """True when *value* is a 32-char lowercase-hex sys_id."""
+    if len(value) != 32:
+        return False
+    return all(c in "0123456789abcdef" for c in value.lower())
+
+
+def _resolve_action_definition(
+    config: ServerConfig, auth_manager: AuthManager, action_ref: str
+) -> Optional[Dict[str, Any]]:
+    """Resolve an action_ref (sys_id|internal_name|name) to its definition row."""
+    ref = action_ref.strip()
+    fields = "sys_id,name,internal_name,master_snapshot,latest_snapshot,sys_scope"
+
+    if _looks_like_sys_id(ref):
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=ACTION_DEF_TABLE,
+            query=f"sys_id={ref}",
+            fields=fields,
+            limit=1,
+            offset=0,
+        )
+        if rows:
+            return rows[0]
+
+    # Exact internal_name / name, then contains-match as a last resort.
+    for query in (
+        f"internal_name={ref}^ORname={ref}",
+        f"nameLIKE{ref}^ORinternal_nameLIKE{ref}",
+    ):
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=ACTION_DEF_TABLE,
+            query=query,
+            fields=fields,
+            limit=5,
+            offset=0,
+        )
+        if rows:
+            return rows[0]
+    return None
+
+
+def _extract_step_script(variables: List[Dict[str, str]]) -> str:
+    """Pick the script body from a step's variable rows.
+
+    Prefer the OOB Script-step script variable; otherwise fall back to the
+    longest value (covers non-Script steps whose input variable differs).
+    """
+    for row in variables:
+        if str(row.get("variable") or "") == SCRIPT_STEP_VAR_SYSID:
+            return str(row.get("value") or "")
+    longest = ""
+    for row in variables:
+        value = str(row.get("value") or "")
+        if len(value) > len(longest):
+            longest = value
+    return longest if len(longest) >= _MIN_SCRIPT_LEN else ""
+
+
+def get_action_source(
+    config: ServerConfig, auth_manager: AuthManager, params: GetActionSourceParams
+) -> Dict[str, Any]:
+    """Return the step scripts of a custom Flow Designer action (read-only).
+
+    Surfaces what Action Designer's UI shows but no source/metadata tool covers:
+    the real Script-step body, read from sys_variable_value via the step chain.
+    """
+    try:
+        definition = _resolve_action_definition(config, auth_manager, params.action_ref)
+        if not definition:
+            return {"success": False, "error": f"Action not found: {params.action_ref}"}
+
+        def_sys_id = str(definition.get("sys_id") or "")
+        # Live source = steps whose action is the definition itself. Optionally
+        # add the published snapshots (base sys_ids on the definition).
+        action_refs = [def_sys_id]
+        if params.include_versions:
+            for key in ("master_snapshot", "latest_snapshot"):
+                snap = str(definition.get(key) or "")
+                if snap and snap not in action_refs:
+                    action_refs.append(snap)
+
+        step_rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=STEP_INSTANCE_TABLE,
+            query="action=" + "^ORaction=".join(action_refs),
+            fields="sys_id,label,order,step_type,action",
+            limit=params.limit,
+            offset=0,
+            orderby="order",
+        )
+
+        steps: List[Dict[str, Any]] = []
+        for step in step_rows:
+            step_sys_id = str(step.get("sys_id") or "")
+            if not step_sys_id:
+                continue
+            var_rows, _ = sn_query_page(
+                config,
+                auth_manager,
+                table=VARIABLE_VALUE_TABLE,
+                query=f"document={STEP_INSTANCE_TABLE}^document_key={step_sys_id}",
+                fields="variable,value",
+                limit=100,
+                offset=0,
+            )
+            variables = [
+                {"variable": str(r.get("variable") or ""), "value": str(r.get("value") or "")}
+                for r in var_rows
+            ]
+            steps.append(
+                {
+                    "sys_id": step_sys_id,
+                    "label": str(step.get("label") or ""),
+                    "order": _safe_int(step.get("order")),
+                    "step_type": str(step.get("step_type") or ""),
+                    "action_ref": str(step.get("action") or ""),
+                    "is_live": str(step.get("action") or "") == def_sys_id,
+                    "script": _extract_step_script(variables),
+                    "variables": variables,
+                }
+            )
+
+        return {
+            "success": True,
+            "action": {
+                "sys_id": def_sys_id,
+                "name": str(definition.get("name") or ""),
+                "internal_name": str(definition.get("internal_name") or ""),
+                "scope": str(definition.get("sys_scope") or ""),
+                "master_snapshot": str(definition.get("master_snapshot") or ""),
+                "latest_snapshot": str(definition.get("latest_snapshot") or ""),
+            },
+            "step_count": len(steps),
+            "steps": steps,
+            "note": (
+                "Live source = steps where is_live=true (action == definition). "
+                "Creation/copy of actions is not supported via API — recreate in "
+                "Action Designer using this source."
+            ),
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.error("Error reading action source: %s", e)
         return {"success": False, "error": str(e)}
