@@ -15,23 +15,23 @@ MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so 
 
 ## Table of Contents
 
-- [Features](#features)
-- [Setup](#setup)
-- [Prerequisites](#prerequisites)
-- [MCP Client Configuration](#mcp-client-configuration)
-- [Authentication](#authentication)
-- [Tool Packages](#tool-packages)
-- [CLI Reference](#cli-reference)
-- [Keeping Up to Date](#keeping-up-to-date)
-- [Safety Policy](#safety-policy)
-- [Performance Optimizations](#performance-optimizations)
-- [Local Source Audit](#local-source-audit)
-- [Skills](#skills)
-- [Docker](#docker)
-- [Developer Setup](#developer-setup)
-- [Documentation](#documentation)
-- [Related Projects](#related-projects-and-acknowledgements)
-- [License](#license)
+- [Features](https://github.com/jshsakura/mfa-servicenow-mcp#features)
+- [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup)
+- [Prerequisites](https://github.com/jshsakura/mfa-servicenow-mcp#prerequisites)
+- [MCP Client Configuration](https://github.com/jshsakura/mfa-servicenow-mcp#mcp-client-configuration)
+- [Authentication](https://github.com/jshsakura/mfa-servicenow-mcp#authentication)
+- [Tool Packages](https://github.com/jshsakura/mfa-servicenow-mcp#tool-packages)
+- [CLI Reference](https://github.com/jshsakura/mfa-servicenow-mcp#cli-reference)
+- [Keeping Up to Date](https://github.com/jshsakura/mfa-servicenow-mcp#keeping-up-to-date)
+- [Safety Policy](https://github.com/jshsakura/mfa-servicenow-mcp#safety-policy)
+- [Performance Optimizations](https://github.com/jshsakura/mfa-servicenow-mcp#performance-optimizations)
+- [Local Source Audit](https://github.com/jshsakura/mfa-servicenow-mcp#local-source-audit)
+- [Skills](https://github.com/jshsakura/mfa-servicenow-mcp#skills)
+- [Docker](https://github.com/jshsakura/mfa-servicenow-mcp#docker)
+- [Developer Setup](https://github.com/jshsakura/mfa-servicenow-mcp#developer-setup)
+- [Documentation](https://github.com/jshsakura/mfa-servicenow-mcp#documentation)
+- [Related Projects](https://github.com/jshsakura/mfa-servicenow-mcp#related-projects-and-acknowledgements)
+- [License](https://github.com/jshsakura/mfa-servicenow-mcp#license)
 
 ---
 
@@ -111,13 +111,13 @@ SERVICENOW_AUTH_TYPE = "browser"
 }
 ```
 
-Other clients (Cursor, VS Code, Gemini, Zed, …) and full env options (auth types, tool packages) are in [MCP Client Configuration](#mcp-client-configuration).
+Other clients (Cursor, VS Code, Gemini, Zed, …) and full env options (auth types, tool packages) are in [MCP Client Configuration](https://github.com/jshsakura/mfa-servicenow-mcp#mcp-client-configuration).
 
 Then restart the client. The first browser tool call opens a window for Okta/Entra ID/SAML/MFA login. Sessions persist — no re-login every time.
 
 > Prefer an AI to do it? Paste into Claude Code / Cursor / Codex / etc.:
 > `Install and configure mfa-servicenow-mcp following https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md`
-> Corporate network blocking uvx/PyPI? Use the [release zip/exe](#install-offline--corporate).
+> Corporate network blocking uvx/PyPI? Use the [release zip/exe](https://github.com/jshsakura/mfa-servicenow-mcp#install-offline--corporate).
 
 ---
 
@@ -125,20 +125,21 @@ Then restart the client. The first browser tool call opens a window for Okta/Ent
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **70 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **71 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **16 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - **Authoritative relationship graphs on disk** — `_graph.json` (widget→Angular Provider, from the live M2M) and `_page_graph.json` (page→widget, from `sp_instance`) let the LLM answer dependency questions offline instead of re-querying the instance
 - **Incremental sync** (`incremental=True`) — re-download only records changed since last sync (`sys_updated_on` watermark), like `git pull`; `reconcile_deletions=True` flags records deleted on the instance
 - **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
+- **Attachment download** (`download_attachment`) — fetch a record's attachment file(s) (xlsx, PDF, Word, …) to local disk by attachment sys_id or by parent `table`+`record`; resolves a record's attachments automatically and writes bytes to disk so the LLM reads them from `saved_path`
 - **Dry-run preview** on every write tool (`dry_run=True`) — returns field-level diff, dependency counts, and precision notes before any side effect. Uses read-only APIs, works under all auth modes.
 - Safe write confirmation with `confirm='approve'`
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
 - Tool packages for core, standard, service desk, portal developers, and platform developers — `full` available for advanced users (see [warning](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/TOOL_PACKAGES.md))
 - Developer productivity tools: activity tracking, uncommitted changes, dependency mapping, daily summary
-- Full coverage of core ServiceNow artifact tables (see [Supported Tables](#supported-servicenow-tables))
+- Full coverage of core ServiceNow artifact tables (see [Supported Tables](https://github.com/jshsakura/mfa-servicenow-mcp#supported-servicenow-tables))
 - CI/CD with auto-tagging, PyPI publishing, and Docker multi-platform builds
 
 ### Supported ServiceNow Tables
@@ -173,7 +174,7 @@ Then restart the client. The first browser tool call opens a window for Okta/Ent
 
 ## Install (offline / corporate)
 
-For most users the [Setup](#setup) above (uvx) is all you need. Use the release zip **only** when `uvx` or PyPI is blocked by corporate security.
+For most users the [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) above (uvx) is all you need. Use the release zip **only** when `uvx` or PyPI is blocked by corporate security.
 
 ### Release zip/exe (local install)
 
@@ -217,7 +218,7 @@ If the version prints, you're done with the binary half — every remaining step
 
 #### 4. Wire it up in your MCP client (copy-paste)
 
-Reuse the same client config as the `uvx` path in [Setup](#setup) — only `command` changes to the absolute path of your executable, the `env` block stays identical. Claude Code example:
+Reuse the same client config as the `uvx` path in [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) — only `command` changes to the absolute path of your executable, the `env` block stays identical. Claude Code example:
 
 ```json
 {
@@ -258,7 +259,7 @@ The result is the same `ms-playwright/chromium-*/…` layout the bundled zip pro
 
 ## MCP Client Configuration
 
-> Recommended: use [Setup](#setup) above. Use the copy-paste configs below when you need to inspect, repair, or hand-manage a client config file.
+> Recommended: use [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) above. Use the copy-paste configs below when you need to inspect, repair, or hand-manage a client config file.
 
 Each project can connect to a different ServiceNow instance. Set the config in your **project directory** so each project has its own instance URL and credentials.
 
@@ -288,7 +289,7 @@ Choose the auth mode based on your ServiceNow environment.
 
 ### Browser Auth (MFA/SSO) — Default
 
-The [Setup](#setup) command uses browser auth by default. Optional flags:
+The [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) command uses browser auth by default. Optional flags:
 
 | Flag | Env Variable | Default | Description |
 |------|-------------|---------|-------------|

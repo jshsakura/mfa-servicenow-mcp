@@ -38,3 +38,25 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
         except OSError:
             pass
         raise
+
+
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    """Write *content* bytes to *path* atomically (temp file + os.replace).
+
+    Binary sibling of ``atomic_write_text`` — used for downloaded attachment
+    files so an interrupted write never leaves a half-written (corrupt) file in
+    place of a complete one.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    try:
+        with open(tmp, "wb") as handle:
+            handle.write(content)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
