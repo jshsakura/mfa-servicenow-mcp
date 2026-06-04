@@ -117,6 +117,20 @@ SUPPORTED_TABLES: Set[str] = {
 MAX_DIFF_LINES = 120
 
 
+def _normalize_for_compare(text: str) -> str:
+    """Line-ending–insensitive view of *text* for change detection.
+
+    ServiceNow normalizes EOLs on store, so a CRLF<->LF-only delta is NOT a real
+    change. A raw ``local == remote`` check is byte-sensitive and would flag such
+    a delta as 'modified' — yet the rendered diff uses ``splitlines()`` (which
+    collapses EOL differences), so it comes back EMPTY. That mismatch produced the
+    phantom "status: modified, diff: '', local_lines == remote_lines" report.
+    Comparing on the same ``splitlines()`` basis the diff uses keeps the two
+    consistent and stops phantom pushes of pure line-ending noise.
+    """
+    return "\n".join(text.splitlines())
+
+
 # ---------------------------------------------------------------------------
 # Pydantic Parameter Models
 # ---------------------------------------------------------------------------
@@ -726,7 +740,9 @@ def diff_local_component(
         local_content = file_path.read_text(encoding="utf-8")
         remote_content = str(remote_record.get(field_name) or "")
 
-        if local_content == remote_content:
+        # Compare on a line-ending–normalized basis (same as the diff render) so a
+        # pure CRLF<->LF delta is not reported as a phantom "modified".
+        if _normalize_for_compare(local_content) == _normalize_for_compare(remote_content):
             diffs.append({"field": field_name, "status": "unchanged"})
             continue
 
@@ -838,7 +854,10 @@ def update_remote_from_local(
             continue
         local_content = file_path.read_text(encoding="utf-8")
         remote_content = str(remote_record.get(field_name) or "")
-        if local_content != remote_content:
+        # Line-ending–normalized: never push a pure CRLF<->LF delta (ServiceNow
+        # normalizes EOLs on store anyway, and a noise-only write can spuriously
+        # trip ACL/conflict paths).
+        if _normalize_for_compare(local_content) != _normalize_for_compare(remote_content):
             update_data[field_name] = local_content
 
     if not update_data:
@@ -922,6 +941,23 @@ def update_remote_from_local(
                 "(3) scoped-app protection or wrong scope. Local files and _sync_meta are "
                 "UNCHANGED — free/switch the update set (or use a privileged session), then retry."
             )
+            # Service Portal tables carry protections BEYOND the table role ACL.
+            # The user's account can hold sp_admin and the update set can be open,
+            # yet a Table-API write to an sp_* script field still 403s because the
+            # request lacks the SP Designer context (Referer/source check) or the
+            # record/field has an instance-specific protection policy or
+            # condition-scripted field ACL. This commonly differs per instance
+            # (works on dev, blocked on test) even with identical roles.
+            if resolved.table.startswith("sp_"):
+                hint += (
+                    f" NOTE: '{resolved.table}' is a Service Portal table — its write is "
+                    "gated by protections layered on top of role/ACL (script-field source-"
+                    "context checks, sys_policy record protection, condition-scripted field "
+                    "ACLs) that the generic Table API path does not satisfy and that can "
+                    "differ per instance even with sp_admin. If roles + update set check out, "
+                    "edit this record in the SP Designer UI on that instance, or compare the "
+                    "record's ACLs/protection policy between the working and blocked instances."
+                )
         else:
             hint = (
                 "Remote rejected the write. Local files and _sync_meta are UNCHANGED; "

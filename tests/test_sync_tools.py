@@ -440,6 +440,29 @@ class TestDiffLocalComponent:
 
     @patch("servicenow_mcp.tools.sync_tools.sn_query")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_diff_crlf_only_delta_is_unchanged_not_phantom(
+        self, mock_fetch, mock_sn_query, mock_config, mock_auth, download_root
+    ):
+        # Local reads as LF (read_text normalizes), remote stores CRLF — identical
+        # text. Before the fix this reported status "modified" with an EMPTY diff
+        # (the phantom). It must now be "unchanged".
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        path.write_text("var x = 1;\nvar y = 2;\n", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 1;\r\nvar y = 2;\r\n",  # remote CRLF, same content
+            "sys_updated_on": "2025-01-10 10:00:00",
+        }
+
+        result = diff_local_component(
+            mock_config, mock_auth, DiffLocalComponentParams(path=str(path))
+        )
+
+        assert result["diffs"][0]["status"] == "unchanged"
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_diff_detects_conflict_warning(
         self, mock_fetch, mock_sn_query, mock_config, mock_auth, download_root
     ):
@@ -587,6 +610,72 @@ class TestUpdateRemoteFromLocal:
         assert "snapshot" not in result["local_sync"]
         assert result["success"] is True
         mock_update.assert_called_once()
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_crlf_only_delta_is_no_change(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
+    ):
+        # Local (LF) vs remote (CRLF) with identical text must NOT push — pushing
+        # pure line-ending noise can spuriously trip ACL/conflict paths.
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        path.write_text("var x = 1;\nvar y = 2;\n", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 1;\r\nvar y = 2;\r\n",
+            "sys_updated_on": "2025-01-10 10:00:00",
+        }
+
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert "No changes to push" in result["message"]
+        mock_update.assert_not_called()
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_403_sp_table_hint_mentions_service_portal(
+        self,
+        mock_fetch,
+        mock_update,
+        mock_write_meta,
+        mock_sn_query,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        # sp_* tables carry protections beyond role/ACL; the 403 hint must call
+        # that out so the user doesn't chase update-set/role red herrings.
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "prov-1",
+                "name": "myService",
+                "script": "angular.module('x').factory('myService',function(){ /* old */ });",
+                "sys_updated_on": "2025-01-10 10:00:00",
+            },
+            {"sys_scope": {"value": "scope-1", "display_value": "x_app_bpm"}},
+        ]
+        mock_update.return_value = {
+            "error": "ACL Exception Update Failed due to security constraints",
+            "status": 403,
+        }
+        mock_sn_query.return_value = {"results": []}
+
+        path = download_root / "global" / "sp_angular_provider" / "myService.script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert result["success"] is False
+        assert result["status"] == 403
+        assert "Service Portal" in result["hint"]
+        assert "SP Designer" in result["hint"]
+        mock_write_meta.assert_not_called()
 
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
