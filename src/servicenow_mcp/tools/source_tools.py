@@ -3059,9 +3059,39 @@ class DownloadAppSourcesParams(BaseModel):
 _BG_JOBS: Dict[str, Dict[str, Any]] = {}
 _BG_JOBS_LOCK = threading.Lock()
 
+# Server-side long-poll: when a poll lands on a still-running job, block here up
+# to _BG_POLL_MAX_BLOCK_SECONDS (re-checking every _BG_POLL_TICK_SECONDS) instead
+# of returning instantly. Without this, a client busy-spins identical "still
+# running" polls — wasted round-trips + context churn while the disk progress
+# counter is flat across a long stage (schema/graph build). The wait is bounded
+# (never indefinite) and well under the client's 120s call timeout, and it
+# returns the moment the job finishes mid-wait. The cap is deterministic here so
+# correct cadence does not depend on the LLM choosing to sleep between polls.
+_BG_POLL_MAX_BLOCK_SECONDS = 20.0
+_BG_POLL_TICK_SECONDS = 2.0
+
 
 def _bg_job_key(instance_host: str, scope: str, fingerprint: str) -> str:
     return f"{instance_host}|{scope}|{fingerprint}"
+
+
+def _read_job(key: str) -> Optional[Dict[str, Any]]:
+    """Snapshot a job's terminal-relevant fields under the lock.
+
+    A job marked running whose thread has died was interrupted (server restart /
+    kill); mark it so the caller restarts a resume rather than reporting a dead
+    thread as alive. Returns a fresh dict (never the shared one) so callers read
+    status/result without holding the lock; None means no job for this key.
+    """
+    with _BG_JOBS_LOCK:
+        job = _BG_JOBS.get(key)
+        if job is None:
+            return None
+        if job["status"] == "running":
+            thread = job.get("thread")
+            if thread is None or not thread.is_alive():
+                job["status"] = "interrupted"
+        return {"status": job["status"], "result": job.get("result"), "error": job.get("error")}
 
 
 def _bg_progress_snapshot(scope_root: Path, fingerprint: str) -> Dict[str, Any]:
@@ -3086,37 +3116,67 @@ def _run_or_poll_background(
     """
     instance_host = urlparse(config.instance_url).hostname or config.instance_url
     key = _bg_job_key(instance_host, params.scope, fingerprint)
+
+    job = _read_job(key)
+
+    # In-flight: block server-side up to the cap so each client poll is productive
+    # instead of busy-spinning identical snapshots. Bounded loop, lock never held
+    # across the sleep; returns early the moment the worker finishes.
+    if job is not None and job["status"] == "running":
+        waited = 0.0
+        while waited < _BG_POLL_MAX_BLOCK_SECONDS and job["status"] == "running":
+            tick = min(_BG_POLL_TICK_SECONDS, _BG_POLL_MAX_BLOCK_SECONDS - waited)
+            time.sleep(tick)
+            waited += tick
+            job = _read_job(key) or {"status": "interrupted", "result": None, "error": None}
+
     snapshot = _bg_progress_snapshot(scope_root, fingerprint)
 
-    with _BG_JOBS_LOCK:
-        job = _BG_JOBS.get(key)
-        # A job marked running whose thread has died was interrupted (server
-        # restart / kill). Disk progress survived, so allow a restart that
-        # resumes — never report a dead thread as still running.
-        if job and job["status"] == "running":
-            thread = job.get("thread")
-            if thread is None or not thread.is_alive():
-                job["status"] = "interrupted"
+    if job is not None and job["status"] == "running":
+        return {
+            "success": True,
+            "background": True,
+            "status": "running",
+            "scope": params.scope,
+            "progress": snapshot,
+            "next_poll_after_seconds": 0,
+            "message": (
+                "Download still running. This poll already waited "
+                f"~{int(_BG_POLL_MAX_BLOCK_SECONDS)}s server-side — call again (same "
+                "args) immediately to keep polling; no client-side sleep needed."
+            ),
+        }
+    if job is not None and job["status"] == "done":
+        return job["result"]
+    if job is not None and job["status"] == "failed":
+        return {
+            "success": False,
+            "background": True,
+            "status": "failed",
+            "scope": params.scope,
+            "error": job.get("error"),
+            "progress": snapshot,
+        }
 
-        if job is not None and job["status"] == "running":
+    with _BG_JOBS_LOCK:
+        # Re-check under the lock: a concurrent poll may have (re)started a job
+        # between the lock-free _read_job above and here. If one is now in flight
+        # or finished, report it rather than starting a duplicate.
+        existing = _BG_JOBS.get(key)
+        if (
+            existing is not None
+            and existing["status"] == "running"
+            and existing.get("thread") is not None
+            and existing["thread"].is_alive()
+        ):
             return {
                 "success": True,
                 "background": True,
                 "status": "running",
                 "scope": params.scope,
                 "progress": snapshot,
+                "next_poll_after_seconds": 0,
                 "message": "Download still running. Call again (same args) to poll.",
-            }
-        if job is not None and job["status"] == "done":
-            return job["result"]
-        if job is not None and job["status"] == "failed":
-            return {
-                "success": False,
-                "background": True,
-                "status": "failed",
-                "scope": params.scope,
-                "error": job.get("error"),
-                "progress": snapshot,
             }
 
         # No job, or a prior one was interrupted → (re)start. Resume picks up any
