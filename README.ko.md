@@ -175,7 +175,62 @@ SERVICENOW_AUTH_TYPE = "browser"
 
 ## 설치 (사내망 / 오프라인)
 
-대부분은 위 [설치](#설치) (uvx)면 충분합니다. 릴리즈 zip은 `uvx`나 PyPI가 사내 보안에 막힐 때**만** 쓰세요.
+대부분은 위 [설치](#설치) (uvx)면 충분합니다. 사내망은 두 갈래입니다:
+
+- **PyPI는 되는데 HTTPS가 TLS 검사됨**(Zscaler / Netskope / 사내 MITM) → 바로 아래 **pip 설치 (사내망 / TLS 검사)**.
+- **PyPI / uvx 자체가 차단** → 그 아래 **릴리즈 zip/exe (로컬 설치)**.
+
+### pip 설치 (사내망 / TLS 검사 — Zscaler 등)
+
+PyPI는 **되는데** TLS 검사 프록시가 HTTPS를 재서명해서 설치·런타임 호출이 `SSL: CERTIFICATE_VERIFY_FAILED`로 깨질 때 쓰는 경로입니다. 프록시 루트 CA를 **OS 트러스트 스토어에 등록해도 부족**합니다 — Python(`pip`, `requests`, `httpx`), `curl_cffi`, Playwright는 각자 자체 CA 번들(certifi / libcurl / node)을 쓰기 때문에, env로 인증서 경로를 명시해야 OS 스토어 대신 그걸 신뢰합니다.
+
+**1. 프록시 루트 CA를 PEM 파일로 확보** (IT에 요청하거나 OS 키체인에서 export). 예: `/etc/ssl/zscaler-root.pem` (Windows: `C:\certs\zscaler-root.pem`).
+
+**2. 설치** — 인스톨러에 인증서를 지정:
+
+```bash
+pip install --cert /etc/ssl/zscaler-root.pem mfa-servicenow-mcp
+python -m playwright install chromium     # Chromium 다운로드는 3단계 NODE_EXTRA_CA_CERTS가 커버
+```
+
+uvx가 편하면? `uv`는 OS 트러스트 스토어를 직접 쓸 수 있습니다(프록시 CA가 이미 등록된 곳):
+
+```bash
+UV_NATIVE_TLS=1 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
+```
+
+**3. 런타임 — MCP 클라이언트 `env`에 CA 경로 지정.** 비자명한 핵심: 실제 ServiceNow 호출은 **curl_cffi(libcurl)** 를 타고, 이건 `REQUESTS_CA_BUNDLE`이 아니라 `CURL_CA_BUNDLE`을 읽습니다. 모든 레이어가 프록시를 신뢰하도록 전부 지정하세요:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "servicenow-mcp",
+      "args": [],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "CURL_CA_BUNDLE": "/etc/ssl/zscaler-root.pem",
+        "REQUESTS_CA_BUNDLE": "/etc/ssl/zscaler-root.pem",
+        "SSL_CERT_FILE": "/etc/ssl/zscaler-root.pem",
+        "NODE_EXTRA_CA_CERTS": "/etc/ssl/zscaler-root.pem"
+      }
+    }
+  }
+}
+```
+
+| Env 변수 | 해결하는 레이어 |
+|----------|-----------------|
+| `CURL_CA_BUNDLE` | **curl_cffi / libcurl — 실제 ServiceNow API + 브라우저 로그인 probe 호출** |
+| `REQUESTS_CA_BUNDLE` | `requests` (OAuth / API-key 토큰 호출, fallback HTTP) |
+| `SSL_CERT_FILE` | Python 표준 `ssl` / `httpx` / `uv` |
+| `NODE_EXTRA_CA_CERTS` | Playwright Chromium 다운로드 |
+| `PIP_CERT` (설치 시만) | `pip`의 PyPI 다운로드 (= `--cert`) |
+
+전부 검사되는 망이면 프록시가 모든 호스트를 재서명하므로 프록시 루트 PEM 하나로 전 HTTPS가 커버됩니다. 일부 호스트가 프록시를 **우회**한다면, 프록시 루트와 certifi 번들(`python -m certifi`로 경로 출력)을 한 PEM으로 합쳐 그걸 가리키세요.
+
+> PEM을 도저히 못 구할 때 최후수단: `pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org mfa-servicenow-mcp` 는 **설치만** 검증을 건너뜁니다 — 런타임 ServiceNow 호출엔 효과 없고 여전히 `CURL_CA_BUNDLE`이 필요합니다. 보안 통제를 끄는 거라 인증서 경로 방식을 우선하세요.
 
 ### 릴리즈 zip/exe (로컬 설치)
 
