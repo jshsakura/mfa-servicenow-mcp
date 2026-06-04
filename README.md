@@ -11,6 +11,9 @@ MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-live-blue?logo=github)](https://jshsakura.github.io/mfa-servicenow-mcp/)
 
+> [!WARNING]
+> **Built for personal use — use at your own risk.** This project was created primarily for the author's own workflows. Risk is actively minimized (read-only defaults, write guards, dry-run previews, and `confirm='approve'` gates on every write), but it operates against **live ServiceNow instances**. You are solely responsible for what it does on your instances. Provided **"as is", without warranty of any kind** (Apache-2.0, see [LICENSE](LICENSE)). Review what a tool will do before approving it.
+
 ---
 
 ## Table of Contents
@@ -125,7 +128,7 @@ Then restart the client. The first browser tool call opens a window for Okta/Ent
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **71 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **66 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **16 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
@@ -676,17 +679,13 @@ The download is the source of truth for offline analysis, so it is built to be d
 
 ### Individual Download Tools
 
-Each source type has a dedicated download tool — use the orchestrator for everything, or pick what you need:
+Use the orchestrator for a full dump, or `download_sources` for a targeted single-family refresh:
 
 | Tool | Sources |
 |------|---------|
+| `download_app_sources` | Full app dump (all families + portal + schema + cross-scope deps) |
 | `download_portal_sources` | Widgets, Angular Providers, linked Script Includes |
-| `download_script_includes` | Script Includes (scope-wide) |
-| `download_server_scripts` | Business Rules, Client Scripts, Catalog Client Scripts |
-| `download_ui_components` | UI Actions, UI Scripts, UI Pages, UI Macros |
-| `download_api_sources` | Scripted REST APIs, Processors |
-| `download_security_sources` | ACLs (script-only by default) |
-| `download_admin_scripts` | Fix Scripts, Scheduled Jobs, Script Actions, Email Notifications |
+| `download_sources` (`families=`) | Targeted refresh — `script_includes`, `server_scripts` (BR/Client/Catalog Client), `ui` (Actions/Scripts/Pages/Macros), `api` (Scripted REST/Processors), `security` (ACLs, script-only by default), `admin` (Fix Scripts/Scheduled Jobs/Script Actions/Notifications/Transforms) |
 | `download_table_schema` | sys_dictionary field definitions |
 
 All downloads write full source to disk with zero truncation. Only a summary is returned to the LLM context.

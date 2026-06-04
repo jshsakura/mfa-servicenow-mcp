@@ -7,13 +7,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from servicenow_mcp.tools.source_tools import (
-    DownloadAdminScriptsParams,
-    DownloadAPISourcesParams,
-    DownloadScriptIncludesParams,
-    DownloadSecuritySourcesParams,
-    DownloadServerScriptsParams,
+    DownloadSourcesParams,
     DownloadTableSchemaParams,
-    DownloadUIComponentsParams,
     ExtractTableDependenciesParams,
     ExtractWidgetTableDependenciesParams,
     GetMetadataSourceParams,
@@ -55,13 +50,8 @@ from servicenow_mcp.tools.source_tools import (
     _scan_scope_dep_refs,
     _scan_tables_from_source_root,
     _truncate_text,
-    download_admin_scripts,
-    download_api_sources,
-    download_script_includes,
-    download_security_sources,
-    download_server_scripts,
+    download_sources,
     download_table_schema,
-    download_ui_components,
     extract_table_dependencies,
     extract_widget_table_dependencies,
     get_metadata_source,
@@ -1189,9 +1179,12 @@ class TestRetryEmptySource:
 
 
 class TestDownloadToolWrappers:
+    @pytest.mark.parametrize(
+        "family", ["script_includes", "server_scripts", "ui", "api", "security", "admin"]
+    )
     @patch("servicenow_mcp.tools.source_tools._download_source_types")
     @patch("servicenow_mcp.tools.source_tools._resolve_scope_root")
-    def test_download_script_includes(self, mock_resolve, mock_dl, tmp_path):
+    def test_download_sources_per_family(self, mock_resolve, mock_dl, family, tmp_path):
         config = _build_config()
         auth_manager = MagicMock()
         mock_resolve.return_value = (tmp_path, tmp_path)
@@ -1202,14 +1195,15 @@ class TestDownloadToolWrappers:
             "total_files": 3,
         }
 
-        result = download_script_includes(
-            config, auth_manager, DownloadScriptIncludesParams(scope="x_app")
+        result = download_sources(
+            config, auth_manager, DownloadSourcesParams(scope="x_app", families=[family])
         )
         assert result["success"] is True
+        assert result["tool"] == "download_sources"
 
     @patch("servicenow_mcp.tools.source_tools._download_source_types")
     @patch("servicenow_mcp.tools.source_tools._resolve_scope_root")
-    def test_download_server_scripts(self, mock_resolve, mock_dl, tmp_path):
+    def test_download_sources_security_script_only_query(self, mock_resolve, mock_dl, tmp_path):
         config = _build_config()
         auth_manager = MagicMock()
         mock_resolve.return_value = (tmp_path, tmp_path)
@@ -1219,81 +1213,13 @@ class TestDownloadToolWrappers:
             "warnings": [],
             "total_files": 0,
         }
-
-        result = download_server_scripts(
-            config, auth_manager, DownloadServerScriptsParams(scope="x_app")
+        download_sources(
+            config,
+            auth_manager,
+            DownloadSourcesParams(scope="x_app", families=["security"], acl_script_only=True),
         )
-        assert result["success"] is True
-
-    @patch("servicenow_mcp.tools.source_tools._download_source_types")
-    @patch("servicenow_mcp.tools.source_tools._resolve_scope_root")
-    def test_download_ui_components(self, mock_resolve, mock_dl, tmp_path):
-        config = _build_config()
-        auth_manager = MagicMock()
-        mock_resolve.return_value = (tmp_path, tmp_path)
-        mock_dl.return_value = {
-            "type_results": {},
-            "manifest_entries": [],
-            "warnings": [],
-            "total_files": 0,
-        }
-
-        result = download_ui_components(
-            config, auth_manager, DownloadUIComponentsParams(scope="x_app")
-        )
-        assert result["success"] is True
-
-    @patch("servicenow_mcp.tools.source_tools._download_source_types")
-    @patch("servicenow_mcp.tools.source_tools._resolve_scope_root")
-    def test_download_api_sources(self, mock_resolve, mock_dl, tmp_path):
-        config = _build_config()
-        auth_manager = MagicMock()
-        mock_resolve.return_value = (tmp_path, tmp_path)
-        mock_dl.return_value = {
-            "type_results": {},
-            "manifest_entries": [],
-            "warnings": [],
-            "total_files": 0,
-        }
-
-        result = download_api_sources(config, auth_manager, DownloadAPISourcesParams(scope="x_app"))
-        assert result["success"] is True
-
-    @patch("servicenow_mcp.tools.source_tools._download_source_types")
-    @patch("servicenow_mcp.tools.source_tools._resolve_scope_root")
-    def test_download_security_sources(self, mock_resolve, mock_dl, tmp_path):
-        config = _build_config()
-        auth_manager = MagicMock()
-        mock_resolve.return_value = (tmp_path, tmp_path)
-        mock_dl.return_value = {
-            "type_results": {},
-            "manifest_entries": [],
-            "warnings": [],
-            "total_files": 0,
-        }
-
-        result = download_security_sources(
-            config, auth_manager, DownloadSecuritySourcesParams(scope="x_app")
-        )
-        assert result["success"] is True
-
-    @patch("servicenow_mcp.tools.source_tools._download_source_types")
-    @patch("servicenow_mcp.tools.source_tools._resolve_scope_root")
-    def test_download_admin_scripts(self, mock_resolve, mock_dl, tmp_path):
-        config = _build_config()
-        auth_manager = MagicMock()
-        mock_resolve.return_value = (tmp_path, tmp_path)
-        mock_dl.return_value = {
-            "type_results": {},
-            "manifest_entries": [],
-            "warnings": [],
-            "total_files": 0,
-        }
-
-        result = download_admin_scripts(
-            config, auth_manager, DownloadAdminScriptsParams(scope="x_app")
-        )
-        assert result["success"] is True
+        # acl_script_only routes the ACL script filter into extra_query.
+        assert mock_dl.call_args[1]["extra_query"] == {"acl": "scriptISNOTEMPTY"}
 
 
 class TestDownloadTableSchema:

@@ -9,12 +9,7 @@ output: files
 tools:
   - download_app_sources
   - download_portal_sources
-  - download_script_includes
-  - download_server_scripts
-  - download_ui_components
-  - download_api_sources
-  - download_security_sources
-  - download_admin_scripts
+  - download_sources
   - download_table_schema
 triggers:
   - "앱 소스 다운로드"
@@ -36,7 +31,7 @@ You are downloading all source code for a ServiceNow application scope to local 
 |------|------|-------|
 | Full app | "전체 받아", no specific type | download_app_sources (orchestrator) |
 | Portal only | "위젯만", "포탈 소스" | download_portal_sources |
-| Specific group | "BR만", "SI만", "ACL만" | Individual download tool |
+| Specific family | "BR만", "SI만", "ACL만" | download_sources(families=[...]) |
 
 ## Pipeline
 
@@ -82,25 +77,23 @@ CALL download_app_sources(scope=INPUT_SCOPE, incremental=true, reconcile_deletio
 Both `download_app_sources` and `download_portal_sources` support these flags. Run a full
 (non-incremental) download periodically to stay fully in sync.
 
-### Individual Group Download
+### Targeted Family Download
 
-IF "SI" or "스크립트 인클루드":
-  CALL download_script_includes(scope=INPUT_SCOPE)
+One tool, pick families (combine in a single call):
 
-IF "BR" or "비즈니스 룰":
-  CALL download_server_scripts(scope=INPUT_SCOPE)
+| Input | families= |
+|-------|-----------|
+| "SI" / "스크립트 인클루드" | `script_includes` |
+| "BR" / "비즈니스 룰" / server scripts | `server_scripts` |
+| "UI" / "UI 액션" | `ui` |
+| "REST" / "API" | `api` |
+| "ACL" / "보안" | `security` (acl_script_only=true by default) |
+| "Fix" / "스케줄" / "관리" | `admin` |
 
-IF "UI" or "UI 액션":
-  CALL download_ui_components(scope=INPUT_SCOPE)
-
-IF "REST" or "API":
-  CALL download_api_sources(scope=INPUT_SCOPE)
-
-IF "ACL" or "보안":
-  CALL download_security_sources(scope=INPUT_SCOPE)
-
-IF "Fix" or "스케줄" or "관리":
-  CALL download_admin_scripts(scope=INPUT_SCOPE)
+```
+CALL download_sources(scope=INPUT_SCOPE, families=["script_includes"])
+CALL download_sources(scope=INPUT_SCOPE, families=["server_scripts", "ui"])   # combine
+```
 
 IF "스키마" or "테이블 정의":
   CALL download_table_schema(source_root=OUTPUT_ROOT)
@@ -116,13 +109,13 @@ After any download, suggest:
 temp/<instance>/<scope>/
   sp_widget/           ← download_portal_sources
   sp_angular_provider/ ← download_portal_sources
-  sys_script_include/  ← download_script_includes
-  sys_script/          ← download_server_scripts (BR)
-  sys_script_client/   ← download_server_scripts
-  sys_ui_action/       ← download_ui_components
-  sys_ws_operation/    ← download_api_sources
-  sys_security_acl/    ← download_security_sources
-  sys_script_fix/      ← download_admin_scripts
+  sys_script_include/  ← download_sources(families=["script_includes"])
+  sys_script/          ← download_sources(families=["server_scripts"]) (BR)
+  sys_script_client/   ← download_sources(families=["server_scripts"])
+  sys_ui_action/       ← download_sources(families=["ui"])
+  sys_ws_operation/    ← download_sources(families=["api"])
+  sys_security_acl/    ← download_sources(families=["security"])
+  sys_script_fix/      ← download_sources(families=["admin"])
   sys_ui_macro/        ← auto_resolve_deps (if any macros referenced)
   _schema/             ← download_table_schema
   _manifest.json       ← unified inventory
