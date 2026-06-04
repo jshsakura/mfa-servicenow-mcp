@@ -153,16 +153,34 @@ For dev/test drift analysis, you can configure named instances with `SERVICENOW_
 SERVICENOW_ACTIVE_INSTANCE=dev
 SERVICENOW_INSTANCE_CONFIG='{
   "dev": {
-    "url": "https://dev.service-now.com",
+    "url": "https://acme-dev.service-now.com",
     "tool_package": "standard",
     "allow_writes": false
   },
   "test": {
-    "url": "https://test.service-now.com",
+    "url": "https://acme-test.service-now.com",
     "tool_package": "standard",
     "allow_writes": false
   }
 }'
+```
+
+Per-instance credentials, in an MCP client `env` block (each alias can carry its own `username` / `password` / `auth_type` / `api_key`; `${ENV}` keeps secrets out of the JSON; the single-instance `SERVICENOW_INSTANCE_URL` form still works as a fallback):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["mfa-servicenow-mcp@latest"],
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"username\": \"dev_user\", \"password\": \"${SERVICENOW_DEV_PASSWORD}\", \"allow_writes\": true }, \"test\": { \"url\": \"https://acme-test.service-now.com\", \"auth_type\": \"browser\", \"username\": \"test_user\", \"password\": \"${SERVICENOW_TEST_PASSWORD}\" } }"
+      }
+    }
+  }
+}
 ```
 
 Example comparison:

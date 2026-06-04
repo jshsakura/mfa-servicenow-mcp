@@ -284,6 +284,28 @@ Copy-paste configs for each client: **[Client Setup Guide](https://github.com/js
 
 > `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional — they prefill the MFA login form. On Windows, set these as system environment variables.
 
+#### Multiple instances (dev / test / prod) in one client
+
+The examples above are single-instance — that stays the default. To switch between several instances from one client, list them in `SERVICENOW_INSTANCE_CONFIG` (alias → settings) and pick the active one with `SERVICENOW_ACTIVE_INSTANCE`. Each alias can carry its **own credentials** (`username` / `password` / `auth_type` / `api_key`); `${ENV}` references keep secrets out of the JSON. The single-instance `SERVICENOW_INSTANCE_URL` form still works as a fallback.
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["mfa-servicenow-mcp@latest"],
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"username\": \"dev_user\", \"password\": \"${SERVICENOW_DEV_PASSWORD}\", \"allow_writes\": true }, \"test\": { \"url\": \"https://acme-test.service-now.com\", \"auth_type\": \"browser\", \"username\": \"test_user\", \"password\": \"${SERVICENOW_TEST_PASSWORD}\" } }"
+      }
+    }
+  }
+}
+```
+
+`SERVICENOW_ACTIVE_INSTANCE` is the instance writes hit; read tools can still peek at the others with `instance="test"`. Full rules (write gating, comparison, `${ENV}`): [Read-Only Data Comparison Mode](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md#read-only-data-comparison-mode).
+
 ---
 
 ## Authentication
@@ -415,15 +437,15 @@ export SERVICENOW_USERNAME=svc_account
 export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
-  "dev":  { "url": "https://dev.service-now.com",  "allow_writes": true },
-  "test": { "url": "https://test.service-now.com", "allow_writes": false }
+  "dev":  { "url": "https://acme-dev.service-now.com",  "allow_writes": true },
+  "test": { "url": "https://acme-test.service-now.com", "allow_writes": false }
 }'
 ```
 
 To give an instance its own login instead, add the fields to that alias (a `${ENV}` reference is resolved, so you can keep secrets out of the JSON):
 
 ```json
-"prod": { "url": "https://prod.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
+"prod": { "url": "https://acme.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
 Use `compare_instances` for dev/test drift checks. Use separate project/client configs for actual work against a different instance.
