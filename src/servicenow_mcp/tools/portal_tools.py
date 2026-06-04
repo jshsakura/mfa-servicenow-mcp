@@ -10,7 +10,7 @@ import re
 from concurrent.futures import as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel, Field
@@ -1427,6 +1427,45 @@ def _sn_query_all(
     )
 
 
+# Process-lifetime capability cache: (instance_url, table) -> table exists?
+# Some Service Portal m2m tables (notably the angular-provider junction
+# m2m_sp_widget_angular_provider) are simply ABSENT on certain ServiceNow
+# releases — the Table API hard-fails them with 400 "Invalid table" in ~12ms.
+# We learn this from the FIRST real query's response (no extra probe request)
+# and cache it, so subsequent dependent reads across the process skip the dead
+# query instead of each 400-ing on its own. Confirmed via sys_db_object (0 rows
+# on the affected instances) + transaction-log fast-fail.
+_TABLE_AVAILABILITY: Dict[Tuple[str, str], bool] = {}
+
+
+def _table_known_absent(config: ServerConfig, table: str) -> bool:
+    """True only when a prior query proved *table* absent (400 Invalid table).
+
+    Unknown tables return False so the real query still runs — the cache is
+    populated as a side effect of that run via ``_note_table_response``.
+    """
+    return _TABLE_AVAILABILITY.get((config.instance_url, table)) is False
+
+
+def _note_table_response(config: ServerConfig, table: str, response: Dict[str, Any]) -> None:
+    """Record table availability from a real ``sn_query`` response.
+
+    A success marks the table present; a 400 marks it absent (cached for the
+    process). Other failures (401/timeout) are NOT cached, so a transient blip
+    never suppresses the table for the rest of the process.
+    """
+    key = (config.instance_url, table)
+    if response.get("success"):
+        _TABLE_AVAILABILITY[key] = True
+    elif "400" in str(response.get("message", "")):
+        _TABLE_AVAILABILITY[key] = False
+        logger.debug(
+            "Table %s unavailable on %s (400 Invalid table) — skipping dependent reads",
+            table,
+            config.instance_url,
+        )
+
+
 def _write_text_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -1585,16 +1624,19 @@ def get_widget_bundle(
 
     # 2. Fetch Angular Provider list (minimal info to save context)
     if params.include_providers:
-        m2m_query_params = GenericQueryParams(
-            table=ANGULAR_PROVIDER_M2M_TABLE,
-            query=f"sp_widget={widget['sys_id']}",
-            fields="sp_angular_provider",
-            limit=100,
-            offset=0,
-            display_value=False,
-        )
-        m2m_response = sn_query(config, auth_manager, m2m_query_params)
-        providers_m2m = m2m_response.get("results", [])
+        providers_m2m: List[Dict[str, Any]] = []
+        if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE):
+            m2m_query_params = GenericQueryParams(
+                table=ANGULAR_PROVIDER_M2M_TABLE,
+                query=f"sp_widget={widget['sys_id']}",
+                fields="sp_angular_provider",
+                limit=100,
+                offset=0,
+                display_value=False,
+            )
+            m2m_response = sn_query(config, auth_manager, m2m_query_params)
+            _note_table_response(config, ANGULAR_PROVIDER_M2M_TABLE, m2m_response)
+            providers_m2m = m2m_response.get("results", [])
 
         provider_ids: List[str] = []
         for provider_row in providers_m2m:
@@ -2048,15 +2090,19 @@ def search_portal_regex_matches(
             escaped_chunks = [
                 [_escape_query(v) for v in chunk] for chunk in _chunked(widget_ids, 30)
             ]
-            relation_rows = _parallel_chunked_query(
-                config,
-                auth_manager,
-                table=ANGULAR_PROVIDER_M2M_TABLE,
-                chunks=escaped_chunks,
-                query_template="sp_widgetIN{ids}",
-                fields="sp_angular_provider",
-                page_size=page_size,
-                max_records=1000,
+            relation_rows = (
+                _parallel_chunked_query(
+                    config,
+                    auth_manager,
+                    table=ANGULAR_PROVIDER_M2M_TABLE,
+                    chunks=escaped_chunks,
+                    query_template="sp_widgetIN{ids}",
+                    fields="sp_angular_provider",
+                    page_size=page_size,
+                    max_records=1000,
+                )
+                if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE)
+                else []
             )
             for row in relation_rows:
                 provider_id = _as_ref_sys_id(row.get("sp_angular_provider"))
@@ -2254,14 +2300,18 @@ def trace_portal_route_targets(
             str(row.get("sys_id") or "") for row in provider_lookup_rows if row.get("sys_id")
         ]
         if resolved_provider_ids:
-            relation_rows = _sn_query_all(
-                config,
-                auth_manager,
-                table=ANGULAR_PROVIDER_M2M_TABLE,
-                query=f"sp_angular_providerIN{','.join(resolved_provider_ids)}",
-                fields="sp_widget,sp_angular_provider",
-                page_size=page_size,
-                max_records=1000,
+            relation_rows = (
+                _sn_query_all(
+                    config,
+                    auth_manager,
+                    table=ANGULAR_PROVIDER_M2M_TABLE,
+                    query=f"sp_angular_providerIN{','.join(resolved_provider_ids)}",
+                    fields="sp_widget,sp_angular_provider",
+                    page_size=page_size,
+                    max_records=1000,
+                )
+                if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE)
+                else []
             )
             for row in relation_rows:
                 widget_sys_id = _as_ref_sys_id(row.get("sp_widget"))
@@ -2317,15 +2367,19 @@ def trace_portal_route_targets(
         escaped_chunks = [
             [_escape_query(v) for v in chunk] for chunk in _chunked(widget_sys_ids, 100)
         ]
-        relation_rows = _parallel_chunked_query(
-            config,
-            auth_manager,
-            table=ANGULAR_PROVIDER_M2M_TABLE,
-            chunks=escaped_chunks,
-            query_template="sp_widgetIN{ids}",
-            fields="sp_widget,sp_angular_provider",
-            page_size=page_size,
-            max_records=1000,
+        relation_rows = (
+            _parallel_chunked_query(
+                config,
+                auth_manager,
+                table=ANGULAR_PROVIDER_M2M_TABLE,
+                chunks=escaped_chunks,
+                query_template="sp_widgetIN{ids}",
+                fields="sp_widget,sp_angular_provider",
+                page_size=page_size,
+                max_records=1000,
+            )
+            if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE)
+            else []
         )
         for row in relation_rows:
             widget_sys_id = _as_ref_sys_id(row.get("sp_widget"))
@@ -2962,7 +3016,8 @@ def download_portal_sources(
     if include_linked_angular_providers and (widgets or incremental_active):
         widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
         m2m_ids: List[str] = []
-        for sys_id_chunk in _chunked(widget_sys_ids, 100):
+        m2m_available = not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE)
+        for sys_id_chunk in _chunked(widget_sys_ids, 100) if m2m_available else []:
             m2m_rows = _sn_query_all(
                 config,
                 auth_manager,
@@ -3360,24 +3415,27 @@ def resolve_widget_chain(
 
     # --- Step 2: Fetch linked Angular Providers with full script ---
     widget_sys_id = widget.get("sys_id", "")
-    try:
-        m2m_resp = sn_query(
-            config,
-            auth_manager,
-            GenericQueryParams(
-                table=ANGULAR_PROVIDER_M2M_TABLE,
-                query=f"sp_widget={widget_sys_id}",
-                fields="sp_angular_provider",
-                limit=100,
-                offset=0,
-                display_value=False,
-            ),
-        )
-        result["api_calls"] += 1
-    except Exception as exc:
-        result["warnings"] = [f"Failed to fetch provider M2M: {exc}"]
-        result["success"] = True
-        return result
+    m2m_resp: Dict[str, Any] = {"results": []}
+    if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE):
+        try:
+            m2m_resp = sn_query(
+                config,
+                auth_manager,
+                GenericQueryParams(
+                    table=ANGULAR_PROVIDER_M2M_TABLE,
+                    query=f"sp_widget={widget_sys_id}",
+                    fields="sp_angular_provider",
+                    limit=100,
+                    offset=0,
+                    display_value=False,
+                ),
+            )
+            _note_table_response(config, ANGULAR_PROVIDER_M2M_TABLE, m2m_resp)
+            result["api_calls"] += 1
+        except Exception as exc:
+            result["warnings"] = [f"Failed to fetch provider M2M: {exc}"]
+            result["success"] = True
+            return result
 
     provider_ids = []
     for row in m2m_resp.get("results", []):
@@ -3655,23 +3713,26 @@ def resolve_page_dependencies(
     widget_to_providers: Dict[str, List[str]] = {}  # widget_sys_id → [provider_sys_ids]
 
     if all_widget_sys_ids:
-        try:
-            m2m_resp = sn_query(
-                config,
-                auth_manager,
-                GenericQueryParams(
-                    table=ANGULAR_PROVIDER_M2M_TABLE,
-                    query=f"sp_widgetIN{','.join(all_widget_sys_ids)}",
-                    fields="sp_widget,sp_angular_provider",
-                    limit=500,
-                    offset=0,
-                    display_value=False,
-                ),
-            )
-            api_calls += 1
-        except Exception as exc:
-            warnings.append(f"Failed to fetch provider M2M: {exc}")
-            m2m_resp = {"results": []}
+        m2m_resp: Dict[str, Any] = {"results": []}
+        if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE):
+            try:
+                m2m_resp = sn_query(
+                    config,
+                    auth_manager,
+                    GenericQueryParams(
+                        table=ANGULAR_PROVIDER_M2M_TABLE,
+                        query=f"sp_widgetIN{','.join(all_widget_sys_ids)}",
+                        fields="sp_widget,sp_angular_provider",
+                        limit=500,
+                        offset=0,
+                        display_value=False,
+                    ),
+                )
+                _note_table_response(config, ANGULAR_PROVIDER_M2M_TABLE, m2m_resp)
+                api_calls += 1
+            except Exception as exc:
+                warnings.append(f"Failed to fetch provider M2M: {exc}")
+                m2m_resp = {"results": []}
 
         all_provider_ids: Set[str] = set()
         for row in m2m_resp.get("results", []):
