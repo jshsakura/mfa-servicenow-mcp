@@ -139,12 +139,7 @@ platform_developer:
     # Local Sync writes
     - update_remote_from_local
     # Domain-targeted source dumps (rare, kept for explicit upgrade)
-    - download_script_includes
-    - download_server_scripts
-    - download_ui_components
-    - download_api_sources
-    - download_security_sources
-    - download_admin_scripts
+    - download_sources
     - download_table_schema
 
 # --- Service Desk: standard + incident writes ---
@@ -198,12 +193,7 @@ full:
     # Portal entry (rare; get_page covers most cases)
     - get_portal
     # Domain-targeted source dumps
-    - download_script_includes
-    - download_server_scripts
-    - download_ui_components
-    - download_api_sources
-    - download_security_sources
-    - download_admin_scripts
+    - download_sources
     - download_table_schema
     # Audit / change reports (rare)
     - audit_pending_changes

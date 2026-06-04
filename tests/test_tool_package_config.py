@@ -91,16 +91,12 @@ def test_download_and_audit_tools_in_all_packages():
     for pkg in ["portal_developer", "platform_developer", "full"]:
         assert "download_app_sources" in pkgs[pkg], f"download_app_sources missing from {pkg}"
 
-    # Domain-targeted sub-downloads (script_includes/server_scripts/etc.) are
-    # rare; they live in platform_developer + full only, NOT portal_developer
-    # — portal_developer users get the noise off their surface.
+    # Targeted source-family refresh (download_sources) + schema are rare; they
+    # live in platform_developer + full only, NOT portal_developer — portal
+    # developers get the noise off their surface. download_sources replaced the
+    # former six per-family tools (download_script_includes/server_scripts/etc.).
     rare_downloads = [
-        "download_script_includes",
-        "download_server_scripts",
-        "download_ui_components",
-        "download_api_sources",
-        "download_security_sources",
-        "download_admin_scripts",
+        "download_sources",
         "download_table_schema",
     ]
     for pkg in ["platform_developer", "full"]:
@@ -110,6 +106,18 @@ def test_download_and_audit_tools_in_all_packages():
         assert (
             tool not in pkgs["portal_developer"]
         ), f"'{tool}' should NOT be in portal_developer (sub-downloads moved to platform_developer)"
+
+    # The old per-family download tools were consolidated into download_sources.
+    for old in [
+        "download_script_includes",
+        "download_server_scripts",
+        "download_ui_components",
+        "download_api_sources",
+        "download_security_sources",
+        "download_admin_scripts",
+    ]:
+        for pkg_name, pkg_tools in pkgs.items():
+            assert old not in pkg_tools, f"consolidated tool '{old}' still in '{pkg_name}'"
 
     # Portal-specific downloads
     assert "download_portal_sources" in pkgs["portal_developer"]
