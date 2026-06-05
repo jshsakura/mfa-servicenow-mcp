@@ -93,11 +93,15 @@ before touching `auth_manager.py`:
 
 1. `get_auth_headers` calls `_login_with_browser(force_interactive=False)`.
 2. `_login_with_browser_sync` launches a persistent Chromium context.
-3. **The FIRST attempt is headless by default** (v1.15.8+): `use_headless =
-   not force_interactive`, regardless of `SERVICENOW_BROWSER_HEADLESS`. With a
-   valid remembered-MFA cookie the login replays it silently — no window the
-   user watches auto-fill. Escape hatch: `SERVICENOW_BROWSER_HEADLESS_FIRST=off`
-   reverts to the old `browser_config.headless and not force_interactive`.
+3. **The FIRST attempt is headless by default** (v1.15.8+) when BOTH
+   preconditions hold: (a) credentials present (`browser_config.username` AND
+   `password` — so a headless attempt can fill an expired-SSO login form
+   instead of stalling 30s), and (b) MFA bypass possible (the gate in step 4).
+   Then `use_headless = not force_interactive`, regardless of
+   `SERVICENOW_BROWSER_HEADLESS`, and a valid remembered-MFA cookie replays
+   silently — no window the user watches auto-fill. No creds → visible-first.
+   Escape hatch: `SERVICENOW_BROWSER_HEADLESS_FIRST=off` reverts to the old
+   `browser_config.headless and not force_interactive`.
 4. **Headless gate** (`use_headless=True`): if the profile has no non-expired
    `glide_mfa_remembered_browser` cookie, raise `MFA_REQUIRED` immediately. The
    wrapper catches that marker and re-runs with `force_interactive=True`,
