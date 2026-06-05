@@ -487,11 +487,12 @@ def analyze_widget_performance(
             "Review and optimize these patterns."
         )
 
-    for pattern_type, count in sorted(pattern_counts.items(), key=lambda x: -x[1]):
-        if count > 0:
-            suggestions = OPTIMIZATION_SUGGESTIONS.get(pattern_type, [])
-            if suggestions:
-                recommendations.append(f"[{pattern_type}] {suggestions[0]}")
+    if params.include_auto_fix_suggestions:
+        for pattern_type, count in sorted(pattern_counts.items(), key=lambda x: -x[1]):
+            if count > 0:
+                suggestions = OPTIMIZATION_SUGGESTIONS.get(pattern_type, [])
+                if suggestions:
+                    recommendations.append(f"[{pattern_type}] {suggestions[0]}")
 
     if not recommendations:
         recommendations.append("No significant performance issues detected.")
