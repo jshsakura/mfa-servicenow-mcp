@@ -126,10 +126,6 @@ class ScaffoldRowDef(BaseModel):
 class ScaffoldPageParams(BaseModel):
     """Parameters for scaffolding a complete page with layout and widgets."""
 
-    portal_id: Optional[str] = Field(
-        default=None,
-        description="Portal sys_id (optional; used for validation).",
-    )
     page_id: str = Field(..., description="Page URL path")
     title: str = Field(..., description="Page title")
     description: Optional[str] = Field(default=None, description="Page description")
