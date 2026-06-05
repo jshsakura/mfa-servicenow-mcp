@@ -22,13 +22,27 @@ logger = logging.getLogger(__name__)
 
 # Record tables (the dependency/provider definitions).
 RECORD_TABLE = {"provider": "sp_angular_provider", "dependency": "sp_dependency"}
-# Junction tables (widget <-> record links).
+# Junction tables (widget <-> record links). NOTE: the provider junction table
+# name varies by ServiceNow release, so link/unlink/list resolve it at runtime
+# via _m2m_table_for() -> resolve_angular_provider_m2m(); this dict's provider
+# entry is only a fallback default (the canonical modern name).
 M2M_TABLE = {
-    "provider": "m2m_sp_widget_angular_provider",
+    "provider": "m2m_sp_ng_pro_sp_widget",
     "dependency": "m2m_sp_widget_dependency",
 }
 # The reference column on each junction table that points at the record.
 M2M_REF_FIELD = {"provider": "sp_angular_provider", "dependency": "sp_dependency"}
+
+
+def _m2m_table_for(config: ServerConfig, auth_manager: AuthManager, target: str) -> str:
+    """Junction table for a link target. The provider junction is resolved
+    against the live instance (its name differs by ServiceNow release)."""
+    if target == "provider":
+        from .portal_dev_tools import resolve_angular_provider_m2m
+
+        return resolve_angular_provider_m2m(config, auth_manager)
+    return M2M_TABLE[target]
+
 
 MAX_DEP_WIDGETS = 30
 M2M_IN_CHUNK = 50
@@ -449,7 +463,8 @@ def _link(
 ) -> Dict[str, Any]:
     from .portal_dev_tools import _sn_get
 
-    m2m, ref_field = M2M_TABLE[params.target], M2M_REF_FIELD[params.target]
+    m2m = _m2m_table_for(config, auth_manager, params.target)
+    ref_field = M2M_REF_FIELD[params.target]
     w_sys = _resolve_widget_sys_id(config, auth_manager, params.widget_id)
     if not w_sys:
         return {
@@ -487,7 +502,8 @@ def _unlink(
 ) -> Dict[str, Any]:
     from .portal_dev_tools import _sn_get
 
-    m2m, ref_field = M2M_TABLE[params.target], M2M_REF_FIELD[params.target]
+    m2m = _m2m_table_for(config, auth_manager, params.target)
+    ref_field = M2M_REF_FIELD[params.target]
     w_sys = _resolve_widget_sys_id(config, auth_manager, params.widget_id)
     if not w_sys:
         return {

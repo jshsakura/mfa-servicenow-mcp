@@ -1,7 +1,9 @@
 """Tests for portal developer productivity tools."""
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from servicenow_mcp.tools.portal_dev_tools import (
     GetDeveloperChangesParams,
@@ -17,6 +19,20 @@ from servicenow_mcp.tools.portal_dev_tools import (
     get_uncommitted_changes,
 )
 from servicenow_mcp.tools.sn_api import invalidate_query_cache
+
+
+@pytest.fixture(autouse=True)
+def _stub_provider_m2m_resolver():
+    """The provider junction table is discovered against the live instance at
+    runtime; stub it to a fixed name in unit tests so discovery round-trips do
+    not perturb exact make_request/_sn_get mock sequences. The resolver's own
+    logic is covered in tests/test_provider_m2m_resolver.py."""
+    import servicenow_mcp.tools.portal_dev_tools as _pdt
+
+    _pdt._ANGULAR_PROVIDER_M2M_RESOLVED.clear()
+    with patch.object(_pdt, "resolve_angular_provider_m2m", return_value="m2m_sp_ng_pro_sp_widget"):
+        yield
+    _pdt._ANGULAR_PROVIDER_M2M_RESOLVED.clear()
 
 
 def _make_config():
