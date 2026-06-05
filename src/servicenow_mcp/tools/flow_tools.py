@@ -69,7 +69,13 @@ _NEEDS_FLOW_ID = frozenset(
 
 
 class ManageFlowDesignerParams(BaseModel):
-    """Unified Flow Designer tool — list/inspect/compare flows + full edit workflow.
+    """Unified Flow Designer tool — primarily read/inspect, with LIMITED edits.
+
+    Edit scope (important): edits are confined to EXISTING nodes' leaf values —
+    action inputs (set_action_input) and trigger/branch conditions
+    (set_trigger_condition / set_branch_condition), then save with publish=true.
+    NOT supported: changing the trigger TABLE, retyping/adding/removing action
+    nodes, or any other structural change — use the Flow Designer UI for those.
 
     Required per action:
       list:                  (none — all params optional)
@@ -442,8 +448,8 @@ _DISPATCH = {
     name="manage_flow_designer",
     params=ManageFlowDesignerParams,
     description=(
-        "Flow Designer (sys_hub_flow) read+edit. "
-        "Edit: checkout→set_*→save+publish. Browser auth to write."
+        "Flow Designer read/inspect. Edits LIMITED to action inputs + "
+        "trigger/branch conditions; no structural changes (use UI)."
     ),
     serialization="json",
     return_type=dict,
