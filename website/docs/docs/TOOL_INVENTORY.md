@@ -59,9 +59,9 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `approve_change` | W | Approve a change request and transition its state to implement. Requires change_id. | full |
+| `approve_change` | W | Approve a change's approval record (targets approver_id); advance change_request (default implement, override change_... | full |
 | `manage_change` | R/W | Get/create/update a change request or add a change task (table: change_request). | platform_developer, full |
-| `reject_change` | W | Reject a change request and transition its state to canceled. Requires change_id and rejection_reason. | full |
+| `reject_change` | W | Reject a change's approval record (targets approver_id) with reason; advance change_request (default canceled, overri... | full |
 | `submit_change_for_approval` | W | Transition a change request to assess state and create an approval record. Requires change_id. | platform_developer, full |
 
 ### Changeset Tools (1)
