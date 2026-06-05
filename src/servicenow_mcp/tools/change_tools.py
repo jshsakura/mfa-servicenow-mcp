@@ -57,14 +57,24 @@ class SubmitChangeForApprovalParams(BaseModel):
     approval_comments: Optional[str] = Field(
         default=None, description="Comments for the approval request"
     )
+    change_state: Optional[str] = Field(
+        default=None, description="change_request target state (default: assess)"
+    )
 
 
 class ApproveChangeParams(BaseModel):
     """Parameters for approving a change request."""
 
     change_id: str = Field(..., description="Change request ID or sys_id")
-    approver_id: Optional[str] = Field(default=None, description="ID of the approver")
+    approver_id: Optional[str] = Field(
+        default=None,
+        description="Target this approver's record (sys_id or name); else first pending",
+    )
     approval_comments: Optional[str] = Field(default=None, description="Comments for the approval")
+    change_state: Optional[str] = Field(
+        default=None,
+        description="change_request target state per your change model (default: implement)",
+    )
     dry_run: bool = Field(
         default=False,
         description="Preview approval-record and change-request transitions without executing.",
@@ -75,8 +85,14 @@ class RejectChangeParams(BaseModel):
     """Parameters for rejecting a change request."""
 
     change_id: str = Field(..., description="Change request ID or sys_id")
-    approver_id: Optional[str] = Field(default=None, description="ID of the approver")
+    approver_id: Optional[str] = Field(
+        default=None,
+        description="Target this approver's record (sys_id or name); else first pending",
+    )
     rejection_reason: str = Field(..., description="Reason for rejection")
+    change_state: Optional[str] = Field(
+        default=None, description="change_request target state (default: canceled)"
+    )
     dry_run: bool = Field(
         default=False,
         description="Preview rejection transitions without executing.",
@@ -204,7 +220,7 @@ def submit_change_for_approval(
     params: SubmitChangeForApprovalParams,
 ) -> Dict[str, Any]:
     """Submit a change request for approval in ServiceNow."""
-    data: Dict[str, Any] = {"state": "assess"}
+    data: Dict[str, Any] = {"state": params.change_state or "assess"}
 
     if params.approval_comments:
         data["work_notes"] = params.approval_comments
@@ -251,10 +267,71 @@ def submit_change_for_approval(
         }
 
 
+# ---------------------------------------------------------------------------
+# Shared approval-record helpers (approve_change / reject_change)
+# ---------------------------------------------------------------------------
+
+# An approval decision is final at these states — used to prefer a still-pending
+# approver record over one that was already decided.
+_DECIDED_APPROVAL_STATES = {"approved", "rejected"}
+
+
+def _unwrap(value: Any) -> str:
+    """Flatten a Table-API field that may be a {value, display_value} dict."""
+    if isinstance(value, dict):
+        return str(value.get("value") or value.get("display_value") or "")
+    return str(value or "")
+
+
+def _ref_matches(field: Any, wanted: str) -> bool:
+    """True when *field* (raw sys_id or {value, display_value}) matches *wanted*
+    by either sys_id or display name."""
+    if isinstance(field, dict):
+        return wanted in (
+            str(field.get("value") or ""),
+            str(field.get("display_value") or ""),
+        )
+    return str(field or "") == wanted
+
+
+def _find_change_approval(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    change_id: str,
+    approver_id: Optional[str],
+) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Locate the approval record to act on.
+
+    Broadened match (``document_id`` OR ``sysapproval``) so it works regardless
+    of which reference the instance populates. When ``approver_id`` is given,
+    targets THAT approver's record (by sys_id or name) — not just the first one.
+    Prefers a still-pending record over one already approved/rejected.
+    Returns ``(row, None)`` or ``(None, error_message)``.
+    """
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table="sysapproval_approver",
+        query=f"document_id={change_id}^ORsysapproval={change_id}",
+        fields="sys_id,approver,state",
+        limit=50,
+        offset=0,
+        display_value="all",
+    )
+    if not rows:
+        return None, "No approval record found for this change request"
+    if approver_id:
+        rows = [r for r in rows if _ref_matches(r.get("approver"), approver_id)]
+        if not rows:
+            return None, (f"No approval record for approver '{approver_id}' on this change request")
+    pending = [r for r in rows if _unwrap(r.get("state")).lower() not in _DECIDED_APPROVAL_STATES]
+    return (pending[0] if pending else rows[0]), None
+
+
 @register_tool(
     name="approve_change",
     params=ApproveChangeParams,
-    description="Approve a change request and transition its state to implement. Requires change_id.",
+    description="Approve a change's approval record (targets approver_id); advance change_request (default implement, override change_state).",
     serialization="str",
     return_type=str,
 )
@@ -265,24 +342,15 @@ def approve_change(
 ) -> Dict[str, Any]:
     """Approve a change request in ServiceNow."""
     try:
-        # Step 1: Find the approval record
-        approval_rows, _ = sn_query_page(
-            config,
-            auth_manager,
-            table="sysapproval_approver",
-            query=f"document_id={params.change_id}",
-            fields="",
-            limit=1,
-            offset=0,
+        # Step 1: Find the approval record to act on (approver-targeted).
+        approval, err = _find_change_approval(
+            config, auth_manager, params.change_id, params.approver_id
         )
-
-        if not approval_rows:
-            return {
-                "success": False,
-                "message": "No approval record found for this change request",
-            }
-
-        approval_id = approval_rows[0]["sys_id"]
+        if err:
+            return {"success": False, "message": err}
+        assert approval is not None
+        approval_id = _unwrap(approval.get("sys_id"))
+        target_state = params.change_state or "implement"
 
         if params.dry_run:
             change_rows, _ = sn_query_page(
@@ -299,10 +367,14 @@ def approve_change(
                 "dry_run": True,
                 "operation": "approve_change",
                 "target": {"table": "change_request", "sys_id": params.change_id},
-                "approval_record": {"sys_id": approval_id, "new_state": "approved"},
+                "approval_record": {
+                    "sys_id": approval_id,
+                    "new_state": "approved",
+                    "approver": _unwrap(approval.get("approver")),
+                },
                 "change_record": {
                     "current": current_change,
-                    "proposed_state": "implement",
+                    "proposed_state": target_state,
                 },
                 "warnings": (
                     [] if change_rows else [f"change_request {params.change_id} not found"]
@@ -316,40 +388,33 @@ def approve_change(
 
         headers = {"Content-Type": "application/json"}
 
-        # Step 2: PATCH approval record to "approved"
-        approval_update_url = f"{config.api_url}/table/sysapproval_approver/{approval_id}"
+        # Step 2: PATCH the approval record to "approved".
         approval_data: Dict[str, Any] = {"state": "approved"}
-
         if params.approval_comments:
             approval_data["comments"] = params.approval_comments
-
         approval_update_response = auth_manager.make_request(
             "PATCH",
-            approval_update_url,
+            f"{config.api_url}/table/sysapproval_approver/{approval_id}",
             json=approval_data,
             headers=headers,
         )
         approval_update_response.raise_for_status()
 
-        # Step 3: PATCH change_request state to "implement"
-        change_url = f"{config.api_url}/table/change_request/{params.change_id}"
-        change_data = {"state": "implement"}
-
+        # Step 3: advance the change_request (override via change_state).
         change_response = auth_manager.make_request(
             "PATCH",
-            change_url,
-            json=change_data,
+            f"{config.api_url}/table/change_request/{params.change_id}",
+            json={"state": target_state},
             headers=headers,
         )
         change_response.raise_for_status()
 
-        # Invalidate both tables
         invalidate_query_cache(table="sysapproval_approver")
         invalidate_query_cache(table="change_request")
 
         return {
             "success": True,
-            "message": "Change request approved successfully",
+            "message": f"Change request approved (change_request → {target_state}).",
         }
     except Exception as e:
         logger.error(f"Error approving change: {e}")
@@ -362,7 +427,7 @@ def approve_change(
 @register_tool(
     name="reject_change",
     params=RejectChangeParams,
-    description="Reject a change request and transition its state to canceled. Requires change_id and rejection_reason.",
+    description="Reject a change's approval record (targets approver_id) with reason; advance change_request (default canceled, override change_state).",
     serialization="str",
     return_type=str,
 )
@@ -373,24 +438,15 @@ def reject_change(
 ) -> Dict[str, Any]:
     """Reject a change request in ServiceNow."""
     try:
-        # Step 1: Find the approval record
-        approval_rows, _ = sn_query_page(
-            config,
-            auth_manager,
-            table="sysapproval_approver",
-            query=f"document_id={params.change_id}",
-            fields="",
-            limit=1,
-            offset=0,
+        # Step 1: Find the approval record to act on (approver-targeted).
+        approval, err = _find_change_approval(
+            config, auth_manager, params.change_id, params.approver_id
         )
-
-        if not approval_rows:
-            return {
-                "success": False,
-                "message": "No approval record found for this change request",
-            }
-
-        approval_id = approval_rows[0]["sys_id"]
+        if err:
+            return {"success": False, "message": err}
+        assert approval is not None
+        approval_id = _unwrap(approval.get("sys_id"))
+        target_state = params.change_state or "canceled"
 
         if params.dry_run:
             change_rows, _ = sn_query_page(
@@ -410,11 +466,12 @@ def reject_change(
                 "approval_record": {
                     "sys_id": approval_id,
                     "new_state": "rejected",
+                    "approver": _unwrap(approval.get("approver")),
                     "rejection_reason": params.rejection_reason,
                 },
                 "change_record": {
                     "current": current_change,
-                    "proposed_state": "canceled",
+                    "proposed_state": target_state,
                 },
                 "warnings": (
                     [] if change_rows else [f"change_request {params.change_id} not found"]
@@ -428,43 +485,33 @@ def reject_change(
 
         headers = {"Content-Type": "application/json"}
 
-        # Step 2: PATCH approval record to "rejected"
-        approval_update_url = f"{config.api_url}/table/sysapproval_approver/{approval_id}"
-        approval_data = {
-            "state": "rejected",
-            "comments": params.rejection_reason,
-        }
-
+        # Step 2: PATCH the approval record to "rejected".
         approval_update_response = auth_manager.make_request(
             "PATCH",
-            approval_update_url,
-            json=approval_data,
+            f"{config.api_url}/table/sysapproval_approver/{approval_id}",
+            json={"state": "rejected", "comments": params.rejection_reason},
             headers=headers,
         )
         approval_update_response.raise_for_status()
 
-        # Step 3: PATCH change_request state to "canceled"
-        change_url = f"{config.api_url}/table/change_request/{params.change_id}"
-        change_data = {
-            "state": "canceled",
-            "work_notes": f"Change request rejected: {params.rejection_reason}",
-        }
-
+        # Step 3: advance the change_request (override via change_state).
         change_response = auth_manager.make_request(
             "PATCH",
-            change_url,
-            json=change_data,
+            f"{config.api_url}/table/change_request/{params.change_id}",
+            json={
+                "state": target_state,
+                "work_notes": f"Change request rejected: {params.rejection_reason}",
+            },
             headers=headers,
         )
         change_response.raise_for_status()
 
-        # Invalidate both tables
         invalidate_query_cache(table="sysapproval_approver")
         invalidate_query_cache(table="change_request")
 
         return {
             "success": True,
-            "message": "Change request rejected successfully",
+            "message": f"Change request rejected (change_request → {target_state}).",
         }
     except Exception as e:
         logger.error(f"Error rejecting change: {e}")
