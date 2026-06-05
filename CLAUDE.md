@@ -93,14 +93,27 @@ before touching `auth_manager.py`:
 
 1. `get_auth_headers` calls `_login_with_browser(force_interactive=False)`.
 2. `_login_with_browser_sync` launches a persistent Chromium context.
-3. **Headless gate** (`use_headless=True` only): if the profile has no
-   non-expired `glide_mfa_remembered_browser` cookie, raise `MFA_REQUIRED`
-   immediately. The wrapper catches that marker and re-runs with
-   `force_interactive=True`, opening a visible window for MFA/SSO.
-4. If the gate passes, headless attempt has 30s to confirm a probe-200.
-   If it times out, the wrapper also falls back to interactive (90s).
-5. Interactive mode opens a visible window with credentials prefilled and
+3. **The FIRST attempt is headless by default** (v1.15.8+): `use_headless =
+   not force_interactive`, regardless of `SERVICENOW_BROWSER_HEADLESS`. With a
+   valid remembered-MFA cookie the login replays it silently — no window the
+   user watches auto-fill. Escape hatch: `SERVICENOW_BROWSER_HEADLESS_FIRST=off`
+   reverts to the old `browser_config.headless and not force_interactive`.
+4. **Headless gate** (`use_headless=True`): if the profile has no non-expired
+   `glide_mfa_remembered_browser` cookie, raise `MFA_REQUIRED` immediately. The
+   wrapper catches that marker and re-runs with `force_interactive=True`,
+   opening a visible window for MFA/SSO.
+5. If the gate passes, headless attempt has 30s to confirm a probe-200. On
+   timeout it raises "...browser login/MFA in headless mode" — the wrapper
+   matches that too and falls back to interactive (90s). So **1st attempt
+   invisible, 2nd+ visible for diagnosis**.
+6. Interactive mode opens a visible window with credentials prefilled and
    waits up to 90s for the user to complete MFA.
+
+**Critical safety (do NOT regress):** `_last_login_started_at` is set AFTER the
+headless gate passes (just before login.do), NOT before launch. A gate-rejected
+first attempt submits no login.do, so it must not burn the 60s
+`_MIN_LOGIN_INTERVAL_SECONDS` — otherwise the visible fallback is blocked by
+`LOGIN_COOLDOWN` and re-auth dies. See `test_gate_rejection_does_not_burn_min_login_interval`.
 
 Why this matters:
 - Reverting to "always interactive" wastes the persistent profile and
