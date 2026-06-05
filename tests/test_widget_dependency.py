@@ -22,6 +22,19 @@ DEV = "servicenow_mcp.tools.portal_dev_tools"
 PORTAL = "servicenow_mcp.tools.portal_tools"
 
 
+@pytest.fixture(autouse=True)
+def _stub_provider_m2m_resolver():
+    """link/unlink/list resolve the provider junction table against the live
+    instance; stub it to a fixed name so discovery round-trips don't perturb the
+    _sn_get mock sequences here. Resolver logic: tests/test_provider_m2m_resolver.py."""
+    import servicenow_mcp.tools.portal_dev_tools as _pdt
+
+    _pdt._ANGULAR_PROVIDER_M2M_RESOLVED.clear()
+    with patch.object(_pdt, "resolve_angular_provider_m2m", return_value="m2m_sp_ng_pro_sp_widget"):
+        yield
+    _pdt._ANGULAR_PROVIDER_M2M_RESOLVED.clear()
+
+
 def _config():
     return ServerConfig(
         instance_url="https://test.service-now.com",
@@ -428,6 +441,25 @@ class TestLink:
             "sp_widget": "W1",
             "sp_angular_provider": "P1",
         }
+
+    def test_link_posts_to_resolved_junction_table(self):
+        # The provider link must hit the junction table resolved for the
+        # instance (stubbed here to m2m_sp_ng_pro_sp_widget), not a guessed name.
+        auth = MagicMock()
+        auth.make_request.return_value = _resp({"result": {"sys_id": "M1"}})
+        with (
+            patch(f"{DEV}._sn_get", side_effect=[([{"sys_id": "W1"}], None), ([], None)]),
+            patch(
+                "servicenow_mcp.tools.sn_api._safe_json", return_value={"result": {"sys_id": "M1"}}
+            ),
+        ):
+            out = manage_widget_dependency(
+                _config(), auth, _p(action="link", target="provider", widget_id="w", record_id="P1")
+            )
+        assert out["success"] is True
+        method, url = auth.make_request.call_args.args[:2]
+        assert method == "POST"
+        assert url.endswith("/api/now/table/m2m_sp_ng_pro_sp_widget")
 
     def test_link_idempotent_noop(self):
         auth = MagicMock()
