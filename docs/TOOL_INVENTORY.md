@@ -80,7 +80,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_flow_designer` | R/W | Flow Designer (sys_hub_flow) read+edit. Edit: checkout→set_*→save+publish. Browser auth to write. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `manage_flow_designer` | R/W | Flow Designer read/inspect. Edits LIMITED to action inputs + trigger/branch conditions; no structural changes (use UI). | core, standard, portal_developer, platform_developer, service_desk, full |
 
 ### Incident Management (1)
 
