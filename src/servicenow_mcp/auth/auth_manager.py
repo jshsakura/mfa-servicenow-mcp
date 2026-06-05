@@ -392,6 +392,29 @@ def _is_login_page_url(url: str) -> bool:
     )
 
 
+def _is_mfa_challenge_url(url: str) -> bool:
+    """Return True only for ServiceNow's MFA/TOTP *challenge* pages.
+
+    A headless browser can never satisfy these — there is no human to type
+    the code into the invisible window — so the login flow aborts fast and
+    falls back to a visible window the moment it lands here.
+
+    Deliberately NARROWER than ``_is_login_page_url``: it must NOT match the
+    plain ``/login.do`` the success path transits for a beat before the
+    remembered-browser cookie redirects to the dashboard, or we would kill a
+    login that was about to succeed. Only the explicit multi-factor endpoints.
+    """
+    path = urlparse(url or "").path.lower()
+    mfa_markers = (
+        "/validate_multifactor_auth_code.do",
+        "/multi_factor_auth_view.do",
+        "/multi_factor_auth_setup.do",
+        "/mfa.do",
+        "/mfa_setup.do",
+    )
+    return any(marker in path for marker in mfa_markers) or "multifactor" in path
+
+
 def _extract_cookie_names(cookie_header: Optional[str]) -> list[str]:
     if not cookie_header:
         return []
@@ -2265,9 +2288,25 @@ class AuthManager:
         response means the server is happy with our session, so the next time
         a logout-302 fires we should start the escalation ladder from zero
         again (don't force MFA based on stale counter state).
+
+        v1.15.x: SLIDE the session TTL on proven activity. ServiceNow's
+        session inactivity timeout is sliding — each authenticated request
+        resets it server-side. Previously our ``_browser_cookie_expires_at``
+        was a FIXED window from login time, so an actively-used session was
+        torn down and re-logged-in every ~TTL minutes even under continuous
+        use (the "login window every 30 min" complaint). Pushing the expiry
+        forward on each confirmed-alive response mirrors the server. If the
+        server has actually ended the session (real idle gap or a hard cap),
+        the next request 401s and the normal self-heal re-login runs — so this
+        never keeps a genuinely-dead session alive, it only stops us giving up
+        on a live one early.
         """
-        self._browser_last_validated_at = time.time()
+        now = time.time()
+        self._browser_last_validated_at = now
         self._consecutive_self_heal_count = 0
+        if self._browser_cookie_expires_at is not None and self.config.browser:
+            ttl_seconds = (self.config.browser.session_ttl_minutes or 30) * 60
+            self._browser_cookie_expires_at = now + ttl_seconds
 
     def _absorb_response_bigip_rotation(self, response: requests.Response) -> Optional[str]:
         """v1.12.18: when a logout-redirect response carries a new
@@ -3019,6 +3058,12 @@ class AuthManager:
         # failure that has to wait its turn, surfacing a clear LOGIN_COOLDOWN
         # error instead of silently re-firing login.do.
         now = time.time()
+        # Snapshot the cooldown clock BEFORE we overwrite it below. A
+        # headless pre-attempt that bails without firing a real login.do
+        # (no remembered cookie, or the server bounced us to an MFA page)
+        # restores this value before raising, so the immediate visible
+        # fallback in _login_with_browser is NOT blocked by LOGIN_COOLDOWN.
+        prev_last_login_started_at = self._last_login_started_at
         since_last = now - self._last_login_started_at if self._last_login_started_at else None
         if since_last is not None and since_last < _MIN_LOGIN_INTERVAL_SECONDS:
             remaining = _MIN_LOGIN_INTERVAL_SECONDS - since_last
@@ -3067,16 +3112,32 @@ class AuthManager:
         # but only the 30 s headless budget, which is what the v1.11.6
         # field bug exposed.
         #
-        # NOTE (v1.15.14): a "headless-first" experiment (v1.15.8-1.15.9) made
-        # the FIRST attempt headless even with HEADLESS=false. It REGRESSED
-        # login on real MFA instances: when the server still demands a TOTP
-        # code despite the remembered-browser cookie, the headless attempt
-        # reaches validate_multifactor_auth_code.do, can't enter the code,
-        # times out at 30s AND burns the 60s min-login-interval — so the
-        # visible fallback is blocked by LOGIN_COOLDOWN and re-auth FAILS.
-        # Reverted to this proven form. Do not reintroduce without solving the
-        # "cookie present but MFA still required" + cooldown-blocks-fallback case.
-        use_headless = browser_config.headless and not force_interactive
+        # Headless-first with a SAFE fallback (v1.15.x). The first attempt
+        # (force_interactive=False) runs headless so a valid remembered-browser
+        # cookie produces a silent refresh — no visible window stealing the
+        # user's cursor/focus mid-work. This is the common case under the 16h
+        # MFA "remember this browser" window.
+        #
+        # The "headless-first" experiment (v1.15.8-1.15.9) was reverted in
+        # v1.15.14 because it REGRESSED on real MFA instances: when the server
+        # still demands a TOTP despite the cookie, the headless attempt reached
+        # validate_multifactor_auth_code.do, timed out at 30s AND burned the
+        # 60s min-login-interval, so the visible fallback was blocked by
+        # LOGIN_COOLDOWN → re-auth FAILED. We now reintroduce it WITH the three
+        # fixes that close exactly that hole:
+        #   1. Cookie gate below: no valid remembered cookie → bail immediately
+        #      (before any login.do) → fast visible fallback.
+        #   2. MFA-page fast-detect in the wait loop: the instant the server
+        #      lands us on an MFA challenge, abort (~1s) instead of waiting 30s.
+        #   3. Both bail paths restore _last_login_started_at (the cooldown
+        #      clock) before raising, so the visible fallback opens NOW.
+        # force_interactive=True ALWAYS means visible — it is the "a human must
+        # complete MFA/SSO right now" path, so the fallback window must be shown.
+        # The first attempt (force_interactive=False) is headless regardless of
+        # the SERVICENOW_BROWSER_HEADLESS flag: a valid remembered cookie then
+        # refreshes silently, and the gate/fast-detect above route to a visible
+        # fallback the moment MFA is actually required.
+        use_headless = not force_interactive
         wait_budget_ms = self._compute_login_wait_budget_ms(
             timeout_ms,
             use_headless=use_headless,
@@ -3150,6 +3211,11 @@ class AuthManager:
             # back to interactive mode.
             if use_headless and not _is_debug_mode():
                 if not self._has_valid_mfa_remembered_cookie(context.cookies()):
+                    # No usable cookie → MFA is certain and headless can't do
+                    # it. We have NOT fired login.do, so restore the cooldown
+                    # clock; otherwise the visible fallback would be refused by
+                    # LOGIN_COOLDOWN (the v1.15.10 failure mode).
+                    self._last_login_started_at = prev_last_login_started_at
                     _safe_close_context()
                     raise ValueError(
                         "MFA_REQUIRED: persistent profile has no valid "
@@ -3339,6 +3405,23 @@ class AuthManager:
                     raise
 
                 current_host = (urlparse(current_url).hostname or "").lower()
+
+                # Headless can't satisfy an MFA/TOTP challenge — no human to
+                # type the code into an invisible window. The instant the
+                # server lands us on a multi-factor page, abort fast (~1s) and
+                # let the wrapper open a visible window, instead of burning the
+                # full 30s headless budget. Restore the cooldown clock so that
+                # fallback opens immediately. Narrow MFA-only match so the
+                # success path's transient login.do is never mis-detected.
+                if use_headless and not _is_debug_mode() and _is_mfa_challenge_url(current_url):
+                    self._last_login_started_at = prev_last_login_started_at
+                    self._auth_event("login.headless.mfa_detected", url=current_url)
+                    _safe_close_context()
+                    raise ValueError(
+                        "MFA_REQUIRED: server presented an MFA/TOTP challenge "
+                        "in headless mode — falling back to interactive login."
+                    )
+
                 on_instance_non_login = current_host == instance_host and not _is_login_page_url(
                     current_url
                 )
@@ -3471,6 +3554,10 @@ class AuthManager:
                 )
                 _safe_close_context()
                 if use_headless:
+                    # Restore the cooldown clock so the wrapper's visible
+                    # fallback opens immediately rather than tripping
+                    # LOGIN_COOLDOWN after a fruitless headless attempt.
+                    self._last_login_started_at = prev_last_login_started_at
                     raise ValueError(
                         "Timed out waiting for browser login/MFA in headless mode. "
                         "If MFA prompt is required, run once with SERVICENOW_BROWSER_HEADLESS=false "
