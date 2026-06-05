@@ -3087,10 +3087,17 @@ class AuthManager:
         # headless 30s wait-budget fits a fast cookie replay; the visible
         # fallback keeps the generous human-MFA budget.
         #
+        # Headless-first activates only when BOTH preconditions are clear:
+        #  1. Credentials present (username AND password). Without them a
+        #     headless attempt that hits an expired-SSO login form cannot fill
+        #     it and just stalls until the 30s budget, then falls back to a
+        #     visible window anyway — so skip straight to visible instead.
+        #  2. MFA bypass possible — enforced post-launch by the headless gate
+        #     below (valid glide_mfa_remembered_browser cookie).
         # Escape hatch (SERVICENOW_BROWSER_HEADLESS_FIRST=off): revert to the
-        # pre-v1.15.8 behavior where the window is hidden only when the config
-        # asks for headless AND no caller forced interactive.
-        if _headless_first_enabled():
+        # pre-v1.15.8 behavior (hidden only when config asks for headless).
+        creds_present = bool(browser_config.username and browser_config.password)
+        if _headless_first_enabled() and creds_present:
             use_headless = not force_interactive
         else:
             use_headless = browser_config.headless and not force_interactive
