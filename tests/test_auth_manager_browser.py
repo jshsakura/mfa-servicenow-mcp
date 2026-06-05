@@ -18,6 +18,7 @@ from servicenow_mcp.auth.auth_manager import (
     AuthManager,
     _click_first_matching,
     _fill_first_matching,
+    _is_mfa_challenge_url,
     _response_confirms_browser_probe_session,
     _response_indicates_authenticated_session,
 )
@@ -258,6 +259,48 @@ def test_make_request_success_marks_browser_session_recently_valid():
 
     assert manager._browser_last_validated_at is not None
     assert manager._browser_last_validated_at >= before
+
+
+def test_mark_recently_valid_slides_session_ttl():
+    """A proven-alive response pushes the cookie expiry forward to now+TTL,
+    so an actively-used session is not re-logged-in on the fixed login window."""
+    manager = _make_browser_manager(session_ttl_minutes=30)
+    # Pretend the fixed window was about to lapse.
+    manager._browser_cookie_expires_at = time.time() - 5
+    before = time.time()
+
+    manager._mark_browser_session_recently_valid()
+
+    ttl_seconds = (manager.config.browser.session_ttl_minutes or 30) * 60
+    # Expiry slid forward to roughly now + TTL (well past the old value).
+    assert manager._browser_cookie_expires_at >= before + ttl_seconds - 5
+    assert manager._browser_cookie_expires_at <= time.time() + ttl_seconds + 5
+
+
+def test_mark_recently_valid_does_not_create_expiry_when_absent():
+    """If there is no expiry set (no active browser session window), sliding
+    is a no-op — we never fabricate a session lifetime out of thin air."""
+    manager = _make_browser_manager()
+    manager._browser_cookie_expires_at = None
+
+    manager._mark_browser_session_recently_valid()
+
+    assert manager._browser_cookie_expires_at is None
+
+
+def test_is_mfa_challenge_url_matches_only_mfa_pages():
+    """Fast-detect must fire on MFA challenge pages but NOT on the plain
+    login.do the success path transits, nor on dashboard URLs."""
+    assert _is_mfa_challenge_url("https://x.service-now.com/validate_multifactor_auth_code.do")
+    assert _is_mfa_challenge_url("https://x.service-now.com/multi_factor_auth_setup.do")
+    assert _is_mfa_challenge_url("https://x.service-now.com/multi_factor_auth_view.do")
+    # Must NOT match — success path transits login.do briefly before the
+    # remembered cookie redirects to the dashboard.
+    assert not _is_mfa_challenge_url("https://x.service-now.com/login.do")
+    assert not _is_mfa_challenge_url(
+        "https://x.service-now.com/now/nav/ui/classic/params/target/home_splash.do"
+    )
+    assert not _is_mfa_challenge_url("")
 
 
 class _FakeLocator:

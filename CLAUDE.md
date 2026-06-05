@@ -85,45 +85,63 @@ so clearly when something breaks.
 - Gate browser-only calls behind `_is_browser_auth(config)`.
 - Never silently try browser-only APIs with basic auth — it wastes a network round-trip.
 
-## Browser Login Flow (headless-first)
+## Browser Login Flow (safe headless-first, v1.15.15)
 
-The browser auth flow is "try headless, fall back to interactive on demand" —
-NOT "always open a visible window". Future maintainers must understand this
-before touching `auth_manager.py`:
+The flow is "try headless silently, fall back to a visible window ONLY when the
+server actually demands MFA". The whole point: while the 16h
+`glide_mfa_remembered_browser` cookie is valid the session refreshes invisibly
+(no window stealing the user's cursor/focus); a window appears only when a human
+must type a TOTP code. Read this before touching `auth_manager.py`:
 
 1. `get_auth_headers` calls `_login_with_browser(force_interactive=False)`.
-2. `_login_with_browser_sync` launches a persistent Chromium context.
-3. **Headless gate** (`use_headless=True` only — i.e. `SERVICENOW_BROWSER_HEADLESS=true`):
-   if the profile has no non-expired `glide_mfa_remembered_browser` cookie, raise
-   `MFA_REQUIRED` immediately. The wrapper catches that marker and re-runs with
-   `force_interactive=True`, opening a visible window for MFA/SSO.
-4. If the gate passes, headless attempt has 30s to confirm a probe-200.
-   If it times out, the wrapper also falls back to interactive (90s).
-5. Interactive mode opens a visible window with credentials prefilled and
-   waits up to 90s for the user to complete MFA.
+2. `_login_with_browser_sync`: `use_headless = not force_interactive`. So the
+   FIRST attempt is always headless (regardless of `SERVICENOW_BROWSER_HEADLESS`);
+   the interactive fallback (`force_interactive=True`) is always visible.
+3. **Cookie gate** (headless, non-debug): no non-expired
+   `glide_mfa_remembered_browser` cookie → raise `MFA_REQUIRED` immediately,
+   BEFORE any login.do. Wrapper re-runs `force_interactive=True` → visible window.
+4. **MFA-page fast-detect**: if the headless wait loop lands on an MFA challenge
+   (`_is_mfa_challenge_url` — narrow, MFA pages only, NOT the plain `login.do` the
+   success path transits), abort in ~1s → visible fallback. Without this it would
+   burn the full 30s headless budget.
+5. Headless success: a valid cookie makes the server skip MFA → confirmed in ~3s,
+   silent. Visible fallback: window with creds prefilled, 90s for the user.
 
-**DO NOT make the first attempt headless when `SERVICENOW_BROWSER_HEADLESS=false`**
-(the "headless-first" experiment v1.15.8-1.15.9, reverted in v1.15.14). On real
-MFA instances the server can still demand a TOTP code despite a present
-remembered-browser cookie: the headless attempt reaches
-`validate_multifactor_auth_code.do`, can't enter the code, times out at 30s AND
-burns the 60s `_MIN_LOGIN_INTERVAL_SECONDS` — so the visible fallback is blocked
-by `LOGIN_COOLDOWN` and re-auth FAILS entirely. A present cookie is NOT a
-guarantee MFA is skipped server-side. `use_headless = browser_config.headless and
-not force_interactive` is the proven form; `_last_login_started_at` is set before
-launch — keep it there.
+**Why the v1.15.8-9 "headless-first" experiment failed and how v1.15.15 fixes it.**
+That version trapped re-auth: cookie present → gate passed → login.do submitted →
+server still demanded TOTP → 30s timeout that ALSO burned the 60s
+`_MIN_LOGIN_INTERVAL_SECONDS`, so the visible fallback hit `LOGIN_COOLDOWN` and
+re-auth FAILED. It was reverted to visible-only in v1.15.14. v1.15.15 reintroduces
+headless-first WITH the three fixes that close exactly that hole:
+- **Cooldown clock restore.** `_last_login_started_at` is snapshotted at entry
+  (`prev_last_login_started_at`). Every headless bail path — gate-reject, MFA
+  fast-detect, headless timeout — restores it before raising, so the immediate
+  visible fallback is NEVER refused by `LOGIN_COOLDOWN`. (Do NOT move the set
+  back to "before launch unconditionally"; that is what re-broke it.)
+- **MFA fast-detect** (step 4) so the fallback is snappy, not 30s late.
+- **`force_interactive=True` ⇒ visible, always.** It is the "a human must act
+  now" path; never let the headless config flag keep it invisible.
 
-Why this matters:
-- Reverting to "always interactive" wastes the persistent profile and
-  re-prompts MFA every session. The only legitimate trigger for forcing
-  interactive is `force_interactive=True` from the wrapper's fallback.
-- Hardcoding `force_interactive=True` at call sites kills the headless
-  attempt — which is the entire point of the persistent profile.
+## Sliding session TTL (v1.15.15)
+
+`_browser_cookie_expires_at` is a SLIDING window, not a fixed login+TTL one.
+`_mark_browser_session_recently_valid()` (called on every authenticated 200)
+pushes the expiry to `now + session_ttl_minutes` — mirroring ServiceNow's
+sliding inactivity timeout. Before this, an actively-used session was torn down
+and re-logged-in every ~30 min from login even under continuous traffic (the
+"login window every 30 min" complaint). If the server has genuinely ended the
+session, the next request 401s and normal self-heal re-logs-in — so sliding
+never keeps a dead session alive, it only stops us giving up on a live one early.
+
+Other invariants (still true):
+- The only legitimate trigger for forcing interactive is `force_interactive=True`
+  from the wrapper's fallback. Hardcoding it at call sites kills the silent path.
 - The probe path default is `sys_user_preference` (NOT `sys_user`).
   See `cli.py:325-363` for the full history of why.
 
 Don't break this without reading `auth_manager.py` and the related tests
-end-to-end.
+(`test_auth_manager_final.py::TestLoginWithBrowserSync`,
+`test_auth_manager_browser.py`) end-to-end.
 
 ## Version Bumps & Git Tags
 
