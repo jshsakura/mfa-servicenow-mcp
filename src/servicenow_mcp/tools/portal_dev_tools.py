@@ -157,6 +157,96 @@ def _sn_get(
     )
 
 
+# The widget <-> Angular-provider junction table name differs by ServiceNow
+# release (e.g. m2m_sp_ng_pro_sp_widget vs m2m_sp_widget_angular_provider), and
+# m2m table names are NOT uniform across instances. Guessing a name is what made
+# provider reads return 0 and link/unlink 400 ("Invalid table"). So we DISCOVER
+# the real junction table from sys_dictionary — the m2m table that has reference
+# columns to BOTH sp_angular_provider and sp_widget — instead of assuming a name.
+# Known names are kept only as a last-resort fallback. Result cached per instance.
+ANGULAR_PROVIDER_M2M_CANDIDATES = (
+    "m2m_sp_ng_pro_sp_widget",
+    "m2m_sp_widget_angular_provider",
+)
+_ANGULAR_PROVIDER_M2M_RESOLVED: Dict[str, str] = {}
+
+
+def _dict_value(raw: Any) -> str:
+    """Coerce a sys_dictionary field (str, or {'value'/'display_value'}) to str."""
+    if isinstance(raw, dict):
+        return str(raw.get("value") or raw.get("display_value") or "")
+    return str(raw or "")
+
+
+def _discover_junction_table(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    ref_a: str,
+    ref_b: str,
+) -> Optional[str]:
+    """Find the m2m table that references BOTH ``ref_a`` and ``ref_b`` via the
+    dictionary. Instance-agnostic — no table-name assumptions. Returns None if
+    the dictionary lookup yields nothing (caller falls back to known names)."""
+    try:
+        rows, _ = _sn_get(
+            config,
+            auth_manager,
+            "sys_dictionary",
+            f"reference={ref_a}^internal_type=reference",
+            "name",
+            limit=100,
+        )
+    except Exception:  # noqa: BLE001 — dictionary unreadable → caller falls back
+        return None
+    # Tables that have a reference column to ref_a; the junction also refs ref_b.
+    tables = {_dict_value(r.get("name")) for r in rows}
+    tables.discard("")
+    # Prefer m2m-named tables (the junction convention) to bound confirm queries.
+    ordered = sorted(tables, key=lambda t: (not t.startswith("m2m"), t))
+    for table in ordered:
+        try:
+            chk, _ = _sn_get(
+                config,
+                auth_manager,
+                "sys_dictionary",
+                f"name={table}^reference={ref_b}^internal_type=reference",
+                "element",
+                limit=1,
+            )
+        except Exception:  # noqa: BLE001
+            continue
+        if chk:
+            return table
+    return None
+
+
+def resolve_angular_provider_m2m(config: ServerConfig, auth_manager: AuthManager) -> str:
+    """Return the Angular-provider↔widget junction table for this instance.
+
+    1. DISCOVER it from sys_dictionary (table referencing both sp_angular_provider
+       and sp_widget) — precise, no name assumptions.
+    2. Fall back to probing the known candidate names (a 400 "Invalid table"
+       raises → try the next).
+    3. Last resort: the canonical modern name, so any surfaced error is real.
+    Cached per instance_url.
+    """
+    cached = _ANGULAR_PROVIDER_M2M_RESOLVED.get(config.instance_url)
+    if cached:
+        return cached
+    discovered = _discover_junction_table(config, auth_manager, "sp_angular_provider", "sp_widget")
+    if discovered:
+        _ANGULAR_PROVIDER_M2M_RESOLVED[config.instance_url] = discovered
+        return discovered
+    for table in ANGULAR_PROVIDER_M2M_CANDIDATES:
+        try:
+            _sn_get(config, auth_manager, table, "", "sys_id", limit=1)
+        except Exception:  # noqa: BLE001 — absent table 400s; try the next candidate
+            continue
+        _ANGULAR_PROVIDER_M2M_RESOLVED[config.instance_url] = table
+        return table
+    return ANGULAR_PROVIDER_M2M_CANDIDATES[0]
+
+
 def _compact_record(row: Dict[str, Any]) -> Dict[str, Any]:
     """Strip empty/null values and flatten display_value dicts for token savings."""
     out: Dict[str, Any] = {}
@@ -610,6 +700,7 @@ def get_provider_dependency_map(
     # `sp_widgetIN…` query stays under URL length limits. Sending all
     # IDs in one request was returning 400 on instances with hundreds
     # of widgets in scope.
+    m2m_table = resolve_angular_provider_m2m(config, auth_manager)
     m2m_rows: List[Dict[str, Any]] = []
     for id_chunk in _chunk(widget_ids, M2M_IN_CHUNK_SIZE):
         m2m_query = "sp_widgetIN" + ",".join(id_chunk)
@@ -617,7 +708,7 @@ def get_provider_dependency_map(
             chunk_rows, _ = _sn_get(
                 config,
                 auth_manager,
-                "m2m_sp_widget_angular_provider",
+                m2m_table,
                 m2m_query,
                 "sys_id,sp_widget,sp_angular_provider",
                 limit=500,
@@ -1033,12 +1124,13 @@ def get_developer_daily_summary(
     if params.include_details and all_widget_ids:
         try:
             # Chunk IDs to keep the URL under proxy/server length limits.
+            m2m_table = resolve_angular_provider_m2m(config, auth_manager)
             m2m_rows: List[Dict[str, Any]] = []
             for id_chunk in _chunk(all_widget_ids, M2M_IN_CHUNK_SIZE):
                 chunk_rows, _ = _sn_get(
                     config,
                     auth_manager,
-                    "m2m_sp_widget_angular_provider",
+                    m2m_table,
                     "sp_widgetIN" + ",".join(id_chunk),
                     "sp_widget,sp_angular_provider",
                     limit=500,
