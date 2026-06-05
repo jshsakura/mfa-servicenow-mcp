@@ -382,6 +382,90 @@ class TestChangeTools(unittest.TestCase):
         self.assertIn("Error rejecting change", result["message"])
         mock_invalidate.assert_not_called()
 
+    # ------------------------------------------------------------------ #
+    # correctness fixes: approver targeting, change_state, pending pref
+    # ------------------------------------------------------------------ #
+
+    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
+    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
+    def test_approve_change_targets_specified_approver(self, mock_query_page, mock_invalidate):
+        """approver_id selects THAT approver's record, not just the first."""
+        mock_query_page.return_value = (
+            [
+                {
+                    "sys_id": "ap_alice",
+                    "approver": {"value": "u_alice", "display_value": "Alice"},
+                    "state": "requested",
+                },
+                {
+                    "sys_id": "ap_bob",
+                    "approver": {"value": "u_bob", "display_value": "Bob"},
+                    "state": "requested",
+                },
+            ],
+            2,
+        )
+        self.auth_manager.make_request.return_value = self._make_response({"result": {}})
+
+        params = ApproveChangeParams(change_id="cr1", approver_id="u_bob")
+        result = approve_change(self.config, self.auth_manager, params)
+
+        self.assertTrue(result["success"])
+        # First PATCH must hit Bob's approval record, not the first row.
+        first_url = self.auth_manager.make_request.call_args_list[0][0][1]
+        self.assertIn("ap_bob", first_url)
+        # The broadened lookup queries document_id OR sysapproval.
+        q = mock_query_page.call_args[1]["query"]
+        self.assertIn("document_id=cr1", q)
+        self.assertIn("ORsysapproval=cr1", q)
+
+    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
+    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
+    def test_approve_change_unknown_approver_errors(self, mock_query_page, mock_invalidate):
+        mock_query_page.return_value = (
+            [{"sys_id": "ap_alice", "approver": {"value": "u_alice"}, "state": "requested"}],
+            1,
+        )
+        params = ApproveChangeParams(change_id="cr1", approver_id="u_nobody")
+        result = approve_change(self.config, self.auth_manager, params)
+
+        self.assertFalse(result["success"])
+        self.assertIn("No approval record for approver", result["message"])
+        self.auth_manager.make_request.assert_not_called()
+
+    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
+    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
+    def test_approve_change_state_override(self, mock_query_page, mock_invalidate):
+        """change_state overrides the hardcoded 'implement' default."""
+        mock_query_page.return_value = ([{"sys_id": "ap1", "state": "requested"}], 1)
+        self.auth_manager.make_request.return_value = self._make_response({"result": {}})
+
+        params = ApproveChangeParams(change_id="cr1", change_state="scheduled")
+        result = approve_change(self.config, self.auth_manager, params)
+
+        self.assertTrue(result["success"])
+        second_patch_body = self.auth_manager.make_request.call_args_list[1][1]["json"]
+        self.assertEqual(second_patch_body["state"], "scheduled")
+
+    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
+    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
+    def test_approve_change_prefers_pending_record(self, mock_query_page, mock_invalidate):
+        """An already-approved record is skipped in favor of a pending one."""
+        mock_query_page.return_value = (
+            [
+                {"sys_id": "ap_done", "approver": {"value": "u1"}, "state": "approved"},
+                {"sys_id": "ap_open", "approver": {"value": "u2"}, "state": "requested"},
+            ],
+            2,
+        )
+        self.auth_manager.make_request.return_value = self._make_response({"result": {}})
+
+        params = ApproveChangeParams(change_id="cr1")
+        approve_change(self.config, self.auth_manager, params)
+
+        first_url = self.auth_manager.make_request.call_args_list[0][0][1]
+        self.assertIn("ap_open", first_url)
+
 
 if __name__ == "__main__":
     unittest.main()
