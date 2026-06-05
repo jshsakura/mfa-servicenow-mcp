@@ -1120,7 +1120,12 @@ class TestLoginWithBrowserSync:
                         mgr._login_with_browser_sync(browser_cfg)
 
     def test_login_timeout_non_headless(self):
-        """Timeout in non-headless mode raises specific error."""
+        """Timeout in non-headless mode raises specific error.
+
+        Non-headless now requires force_interactive=True: the first attempt
+        is headless-first by default, so we pass force_interactive to exercise
+        the visible timeout path.
+        """
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(
             timeout_seconds=2,
@@ -1147,7 +1152,58 @@ class TestLoginWithBrowserSync:
                         ValueError,
                         match="Timed out waiting for manual browser login",
                     ):
-                        mgr._login_with_browser_sync(browser_cfg)
+                        mgr._login_with_browser_sync(browser_cfg, force_interactive=True)
+
+    def test_headless_first_gate_reject_restores_cooldown_clock(self):
+        """The first attempt is headless-first by default. With no valid
+        remembered cookie the gate bails (MFA_REQUIRED) WITHOUT firing a real
+        login.do, and restores _last_login_started_at so the visible fallback
+        in the wrapper is not refused by LOGIN_COOLDOWN (the v1.15.10 trap)."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10, headless=False, session_ttl_minutes=30)
+        sentinel = 12345.0  # an old timestamp → cooldown check passes
+        mgr._last_login_started_at = sentinel
+
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks(cookies=[])
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                with pytest.raises(ValueError, match="MFA_REQUIRED"):
+                    mgr._login_with_browser_sync(browser_cfg)
+
+        launch = mock_spw.return_value.__enter__.return_value.chromium.launch_persistent_context
+        # First attempt ran headless even though config headless=False ...
+        assert launch.call_args.kwargs.get("headless") is True
+        # ... and the cooldown clock was restored (not advanced to "now").
+        assert mgr._last_login_started_at == sentinel
+
+    def test_headless_mfa_page_fast_detect_restores_clock(self):
+        """Cookie present (gate passes) but the server lands us on the MFA
+        challenge page in headless → abort fast with MFA_REQUIRED and restore
+        the cooldown clock so the visible fallback opens immediately."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10, headless=False, session_ttl_minutes=30)
+        sentinel = 12345.0
+        mgr._last_login_started_at = sentinel
+
+        # Default mocks include a valid remembered cookie → gate passes.
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        mock_page.url = "https://example.service-now.com/validate_multifactor_auth_code.do"
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                with pytest.raises(ValueError, match="MFA_REQUIRED"):
+                    mgr._login_with_browser_sync(browser_cfg)
+
+        assert mgr._last_login_started_at == sentinel
 
     def test_login_interactive_forces_non_headless(self):
         """force_interactive=True overrides headless setting."""
