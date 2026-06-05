@@ -175,7 +175,10 @@ class ManageFlowDesignerParams(BaseModel):
     input_name: Optional[str] = Field(default=None, description="Input field name")
     value: Optional[str] = Field(default=None, description="New value")
     condition_label: Optional[str] = Field(default=None, description="Branch condition label")
-    publish: bool = Field(default=False, description="Publish after save")
+    publish: bool = Field(
+        default=False,
+        description="save: publish (recompile snapshot) — required for the edit to show in get_detail / take effect",
+    )
 
     _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
         "list": frozenset(

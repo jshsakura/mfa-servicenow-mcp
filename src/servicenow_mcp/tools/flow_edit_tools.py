@@ -152,7 +152,10 @@ class ManageFlowEditParams(BaseModel):
     condition_label: Optional[str] = Field(
         default=None, description="Human label for branch condition (set_branch_condition)"
     )
-    publish: bool = Field(default=False, description="Publish after save")
+    publish: bool = Field(
+        default=False,
+        description="Publish (recompile snapshot) after save. Required for the edit to appear in get_detail / take effect; publish != active.",
+    )
 
 
 def manage_flow_edit(
@@ -221,10 +224,44 @@ def manage_flow_edit(
                 pub_resp = auth_manager.make_request("POST", pub_url, headers=_PF_HEADERS, json={})
                 pub_resp.raise_for_status()
             except Exception as e:
-                return {"success": True, "saved": True, "published": False, "publish_error": str(e)}
+                # Saved to design-time but the recompile failed — the edit is
+                # NOT live. Be explicit so this isn't reported as done.
+                return {
+                    "success": False,
+                    "saved": True,
+                    "published": False,
+                    "publish_error": str(e),
+                    "warning": (
+                        "Saved to design-time but publish (snapshot recompile) FAILED — "
+                        "the edit is NOT live and will not appear in get_detail."
+                    ),
+                }
 
         _checkout_path(flow_id).unlink(missing_ok=True)
-        return {"success": True, "saved": True, "published": params.publish}
+        if params.publish:
+            return {
+                "success": True,
+                "saved": True,
+                "published": True,
+                "note": (
+                    "Published — flow snapshot recompiled; the edit now appears in get_detail "
+                    "and takes effect. publish does NOT activate an inactive flow."
+                ),
+            }
+        # Saved without publishing: the design-time model changed, but the
+        # compiled snapshot that get_detail and the runtime read did NOT. This
+        # is the #1 'edit looks lost' trap — surface it loudly instead of
+        # reporting a bare success.
+        return {
+            "success": True,
+            "saved": True,
+            "published": False,
+            "warning": (
+                "Saved to DESIGN-TIME ONLY (not published). This edit will NOT appear in "
+                "get_detail and will NOT take effect until you re-run save with publish=true "
+                "(which recompiles the flow snapshot). publish does not activate an inactive flow."
+            ),
+        }
 
     # Patch operations require a checkout
     try:
