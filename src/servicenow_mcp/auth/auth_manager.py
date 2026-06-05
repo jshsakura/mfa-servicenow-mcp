@@ -276,20 +276,6 @@ def _is_debug_mode() -> bool:
     return val in ("1", "true", "yes", "on")
 
 
-def _headless_first_enabled() -> bool:
-    """Whether the FIRST browser-login attempt runs headless (default on).
-
-    When a valid glide_mfa_remembered_browser cookie is present, the first
-    attempt replays it silently — no window the user has to watch auto-fill.
-    The in-context MFA gate raises MFA_REQUIRED when the cookie is absent and
-    the wrapper falls back to a VISIBLE window. Escape hatch: set
-    SERVICENOW_BROWSER_HEADLESS_FIRST=off (false/0/no/none) to revert to the
-    old behavior (first attempt visible unless SERVICENOW_BROWSER_HEADLESS=true).
-    """
-    val = (os.environ.get("SERVICENOW_BROWSER_HEADLESS_FIRST") or "").strip().lower()
-    return val not in ("off", "false", "0", "no", "none", "disable")
-
-
 def _launch_persistent_with_retry(chromium, user_data_dir: str, *, headless: bool):
     """Launch a persistent Chromium context, retrying briefly if the profile
     directory is locked by a concurrent MCP process.
@@ -3055,14 +3041,10 @@ class AuthManager:
                 f"ago. Wait {remaining:.1f}s before retrying — back-to-back login "
                 f"submissions risk getting the account flagged."
             )
-        # NOTE: _last_login_started_at is intentionally set LATER — after the
-        # headless MFA gate passes (just before the login.do flow). A gate-
-        # rejected first attempt (no remembered cookie) submits no login.do,
-        # so it must not burn the 60s min-login-interval and block the visible
-        # fallback. The cooldown CHECK above still uses the prior real attempt.
+        self._last_login_started_at = now
         self._auth_event(
             "login.start",
-            interactive=force_interactive,
+            interactive=not (browser_config.headless and not force_interactive),
             force_interactive=force_interactive,
             needs_full_purge=self._needs_full_profile_purge,
         )
@@ -3077,30 +3059,24 @@ class AuthManager:
 
         login_url = browser_config.login_url or f"{instance_url}/login.do"
         timeout_ms = int(browser_config.timeout_seconds) * 1000
-        # Visibility decision. Default (headless-first ON): the FIRST attempt
-        # (force_interactive=False) is headless — a valid remembered-MFA cookie
-        # replays silently, so the user never watches a window auto-fill. The
-        # in-context MFA gate below raises MFA_REQUIRED when the cookie is
-        # absent; the wrapper then re-runs with force_interactive=True →
-        # use_headless=False → a VISIBLE window. So 1st attempt invisible,
-        # 2nd+ visible for diagnosis (the fallback path is unchanged). The
-        # headless 30s wait-budget fits a fast cookie replay; the visible
-        # fallback keeps the generous human-MFA budget.
+        # The actual visibility decision: a window is hidden only when the
+        # config asks for headless AND no caller forced interactive. Both
+        # the wait-budget rule and the startup log key off this, NOT off
+        # `force_interactive` alone — otherwise a user with
+        # `SERVICENOW_BROWSER_HEADLESS=false` would get a visible window
+        # but only the 30 s headless budget, which is what the v1.11.6
+        # field bug exposed.
         #
-        # Headless-first activates only when BOTH preconditions are clear:
-        #  1. Credentials present (username AND password). Without them a
-        #     headless attempt that hits an expired-SSO login form cannot fill
-        #     it and just stalls until the 30s budget, then falls back to a
-        #     visible window anyway — so skip straight to visible instead.
-        #  2. MFA bypass possible — enforced post-launch by the headless gate
-        #     below (valid glide_mfa_remembered_browser cookie).
-        # Escape hatch (SERVICENOW_BROWSER_HEADLESS_FIRST=off): revert to the
-        # pre-v1.15.8 behavior (hidden only when config asks for headless).
-        creds_present = bool(browser_config.username and browser_config.password)
-        if _headless_first_enabled() and creds_present:
-            use_headless = not force_interactive
-        else:
-            use_headless = browser_config.headless and not force_interactive
+        # NOTE (v1.15.14): a "headless-first" experiment (v1.15.8-1.15.9) made
+        # the FIRST attempt headless even with HEADLESS=false. It REGRESSED
+        # login on real MFA instances: when the server still demands a TOTP
+        # code despite the remembered-browser cookie, the headless attempt
+        # reaches validate_multifactor_auth_code.do, can't enter the code,
+        # times out at 30s AND burns the 60s min-login-interval — so the
+        # visible fallback is blocked by LOGIN_COOLDOWN and re-auth FAILS.
+        # Reverted to this proven form. Do not reintroduce without solving the
+        # "cookie present but MFA still required" + cooldown-blocks-fallback case.
+        use_headless = browser_config.headless and not force_interactive
         wait_budget_ms = self._compute_login_wait_budget_ms(
             timeout_ms,
             use_headless=use_headless,
@@ -3180,13 +3156,6 @@ class AuthManager:
                         "glide_mfa_remembered_browser cookie — falling back to "
                         "interactive login."
                     )
-
-            # Past the headless MFA gate (or a visible attempt that skips it):
-            # we are now committed to submitting login.do. Record the attempt
-            # time HERE — not before launch — so a gate-rejected headless first
-            # attempt (no remembered cookie, no login.do submitted) does not
-            # burn the 60s min-login-interval and block the visible fallback.
-            self._last_login_started_at = now
 
             page = context.pages[0] if context.pages else context.new_page()
 
