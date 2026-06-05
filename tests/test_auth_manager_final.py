@@ -1162,7 +1162,10 @@ class TestLoginWithBrowserSync:
         visible window. The wrapper then falls back to a visible attempt."""
         mgr = _make_browser_manager()
         mgr._last_login_started_at = None
-        browser_cfg = BrowserAuthConfig(timeout_seconds=2, headless=False, session_ttl_minutes=30)
+        # Credentials present -> headless-first precondition satisfied.
+        browser_cfg = BrowserAuthConfig(
+            timeout_seconds=2, headless=False, session_ttl_minutes=30, username="u", password="p"
+        )
 
         # No glide_mfa_remembered_browser cookie -> headless gate must fire.
         mock_sync, _, _, _ = self._make_playwright_mocks(
@@ -1176,6 +1179,31 @@ class TestLoginWithBrowserSync:
                 with pytest.raises(ValueError, match="MFA_REQUIRED"):
                     mgr._login_with_browser_sync(browser_cfg, force_interactive=False)
 
+    def test_headless_first_skipped_without_credentials(self):
+        """Precondition: no username/password -> headless-first does NOT engage
+        even with headless=False, so the first attempt is visible (gate skipped)
+        and it times out on manual login rather than raising MFA_REQUIRED."""
+        mgr = _make_browser_manager()
+        mgr._last_login_started_at = None
+        # No username/password -> headless-first precondition fails.
+        browser_cfg = BrowserAuthConfig(timeout_seconds=2, headless=False, session_ttl_minutes=30)
+
+        mock_sync, mock_page, _, _ = self._make_playwright_mocks(
+            cookies=[{"name": "JSESSIONID", "value": "x", "domain": "example.service-now.com"}]
+        )
+        mock_page.url = "https://example.service-now.com/login.do"
+        mock_page.is_closed.return_value = False
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules", {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)}
+        ):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                with patch.object(AuthManager, "MIN_VISIBLE_LOGIN_WAIT_BUDGET_MS", 50):
+                    with pytest.raises(
+                        ValueError, match="Timed out waiting for manual browser login"
+                    ):
+                        mgr._login_with_browser_sync(browser_cfg, force_interactive=False)
+
     def test_gate_rejection_does_not_burn_min_login_interval(self):
         """SAFETY: a gate-rejected headless first attempt submits no login.do, so
         it must NOT advance _last_login_started_at — otherwise the visible
@@ -1183,7 +1211,9 @@ class TestLoginWithBrowserSync:
         mgr = _make_browser_manager()
         old_ts = time.time() - 1000.0  # well outside the 60s interval
         mgr._last_login_started_at = old_ts
-        browser_cfg = BrowserAuthConfig(timeout_seconds=2, headless=False, session_ttl_minutes=30)
+        browser_cfg = BrowserAuthConfig(
+            timeout_seconds=2, headless=False, session_ttl_minutes=30, username="u", password="p"
+        )
 
         mock_sync, _, _, _ = self._make_playwright_mocks(
             cookies=[{"name": "JSESSIONID", "value": "x", "domain": "example.service-now.com"}]
@@ -1204,7 +1234,10 @@ class TestLoginWithBrowserSync:
         times out on manual login instead of raising MFA_REQUIRED."""
         mgr = _make_browser_manager()
         mgr._last_login_started_at = None
-        browser_cfg = BrowserAuthConfig(timeout_seconds=2, headless=False, session_ttl_minutes=30)
+        # Creds present, but the escape hatch must still force visible-first.
+        browser_cfg = BrowserAuthConfig(
+            timeout_seconds=2, headless=False, session_ttl_minutes=30, username="u", password="p"
+        )
 
         mock_sync, mock_page, _, _ = self._make_playwright_mocks(
             cookies=[{"name": "JSESSIONID", "value": "x", "domain": "example.service-now.com"}]
