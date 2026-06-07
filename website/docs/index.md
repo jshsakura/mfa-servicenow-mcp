@@ -67,7 +67,7 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.7;">
-      Works with Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI, Zed, and more.<br>
+      Works with Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Antigravity, Zed, and more.<br>
       Your AI detects the client and OS, then walks you through setup interactively.<br>
       After setup, <strong>restart your AI client</strong> to load the MCP server.
     </p>
@@ -198,7 +198,7 @@ uvx --with playwright playwright install chromium
     </p>
     <div class="install-block reveal">
       <div class="install-tabs" id="mcp-tabs">
-        <button class="install-tab active" data-target="mcp-standard">Claude Desktop / Claude Code / Gemini / AntiGravity / Cursor</button>
+        <button class="install-tab active" data-target="mcp-standard">Claude Desktop / Claude Code / AntiGravity / Cursor</button>
         <button class="install-tab" data-target="mcp-zed">Zed</button>
         <button class="install-tab" data-target="mcp-codex">Codex (TOML)</button>
         <button class="install-tab" data-target="mcp-opencode">OpenCode</button>
@@ -303,7 +303,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
         <button class="install-tab active" data-target="skill-claude">Claude Code</button>
         <button class="install-tab" data-target="skill-codex">Codex</button>
         <button class="install-tab" data-target="skill-opencode">OpenCode</button>
-        <button class="install-tab" data-target="skill-gemini">Gemini CLI</button>
+        <button class="install-tab" data-target="skill-antigravity">Antigravity</button>
       </div>
       <div class="install-panels" id="skill-panels">
         <div class="install-panel active" id="skill-claude">
@@ -321,9 +321,9 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
             <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills opencode</code></pre>
           </div>
         </div>
-        <div class="install-panel" id="skill-gemini">
+        <div class="install-panel" id="skill-antigravity">
           <div class="install-code-block">
-            <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills gemini</code></pre>
+            <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills antigravity</code></pre>
           </div>
         </div>
       </div>
@@ -443,7 +443,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       </div>
       <div class="step-card" style="--i:4">
         <h3>🤖 Broad Client Support</h3>
-        <p>Works with Claude, Codex, Cursor, Zed, Gemini, OpenCode, Windsurf, VS Code Copilot, and MCP clients over stdio or Streamable HTTP.</p>
+        <p>Works with Claude, Codex, Cursor, Zed, Antigravity, OpenCode, Windsurf, VS Code Copilot, and MCP clients over stdio or Streamable HTTP.</p>
       </div>
     </div>
 

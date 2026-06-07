@@ -34,7 +34,6 @@ CLIENT_SPECS: dict[str, ClientSpec] = {
     "opencode": ClientSpec("opencode", "json", "project", True, False),
     "codex": ClientSpec("codex", "toml", "project", True, True),
     "windsurf": ClientSpec("windsurf", "json", "global", False, True),
-    "gemini": ClientSpec("gemini", "json", "project", True, True),
     "zed": ClientSpec("zed", "json", "global", False, True),
     "antigravity": ClientSpec("antigravity", "json", "global", False, True),
 }
@@ -43,7 +42,7 @@ SKILL_TARGETS = {
     "claude-code": "claude",
     "codex": "codex",
     "opencode": "opencode",
-    "gemini": "gemini",
+    "antigravity": "antigravity",
 }
 
 
@@ -367,10 +366,6 @@ def resolve_config_path(client: str, scope: str, cwd: Path) -> Path:
         return cwd / ".codex/config.toml" if scope == "project" else home / ".codex/config.toml"
     if client == "windsurf":
         return home / ".codeium/windsurf/mcp_config.json"
-    if client == "gemini":
-        return (
-            cwd / ".gemini/settings.json" if scope == "project" else home / ".gemini/settings.json"
-        )
     if client == "zed":
         return home / ".config/zed/settings.json"
     if client == "antigravity":
@@ -464,7 +459,7 @@ def update_json_config(client: str, path: Path, args: argparse.Namespace) -> Non
     mode, command, command_args, env, enabled = build_client_config(client, args)
     data = _read_json(path)
 
-    if client in {"claude-code", "claude-desktop", "cursor", "windsurf", "gemini", "antigravity"}:
+    if client in {"claude-code", "claude-desktop", "cursor", "windsurf", "antigravity"}:
         servers = data.setdefault("mcpServers", {})
         entry: dict[str, Any] = {"command": command, "args": command_args, "env": env}
         servers["servicenow"] = entry
@@ -496,7 +491,7 @@ def remove_json_config(client: str, path: Path) -> bool:
     data = _read_json(path)
     removed = False
 
-    if client in {"claude-code", "claude-desktop", "cursor", "windsurf", "gemini", "antigravity"}:
+    if client in {"claude-code", "claude-desktop", "cursor", "windsurf", "antigravity"}:
         servers = data.get("mcpServers")
         if isinstance(servers, dict) and "servicenow" in servers:
             del servers["servicenow"]

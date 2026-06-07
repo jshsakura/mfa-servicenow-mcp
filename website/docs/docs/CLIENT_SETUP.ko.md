@@ -24,27 +24,35 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-### 2. Playwright Chromium 설치
+### 2. 서버 fetch + Chromium 설치
 
 ```bash
-uvx --with playwright playwright install chromium
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version  # 서버 fetch + 검증
+uvx --with playwright playwright install chromium                                   # MFA/SSO 로그인용 Chromium
 ```
 
-Playwright는 표준 브라우저 캐시를 사용합니다. `uvx`가 로컬 Playwright Python 패키지를 자동으로 우선 사용하지는 않지만, 같은 Chromium revision이 표준 캐시에 있으면 다시 다운로드하지 않습니다.
+첫 명령은 클라이언트가 쓰는 것과 같은 `--with playwright` env에 서버를 미리 받아 검증하므로 첫 시작이 즉시 뜹니다. 둘째 명령은 Chromium을 받습니다(같은 revision이 표준 캐시에 있으면 재다운로드 안 함).
 
-### 3. setup 실행
+### 3. MCP 클라이언트 설정에 서버 추가
 
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
+클라이언트 설정파일에 엔트리를 추가하세요 (별도 installer 명령 불필요):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
 ```
 
-```powershell
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser"
-```
+클라이언트별 경로·형식(Codex TOML 등)은 아래에 있습니다. 추가 후 클라이언트를 재시작하세요.
 
 ### 로컬 설치 (릴리즈 zip/exe)
 
@@ -147,18 +155,34 @@ dev/test drift 분석이 필요할 때 `SERVICENOW_INSTANCE_CONFIG`로 named ins
 SERVICENOW_ACTIVE_INSTANCE=dev
 SERVICENOW_INSTANCE_CONFIG='{
   "dev": {
-    "url": "https://dev.service-now.com",
-    "role": "development",
+    "url": "https://acme-dev.service-now.com",
     "tool_package": "standard",
     "allow_writes": false
   },
   "test": {
-    "url": "https://test.service-now.com",
-    "role": "test",
+    "url": "https://acme-test.service-now.com",
     "tool_package": "standard",
     "allow_writes": false
   }
 }'
+```
+
+MCP 클라이언트 `env` 블록에서 인스턴스별 자격증명 (alias마다 자체 `username` / `password` / `auth_type` / `api_key`; `${ENV}`로 비밀번호를 JSON 밖에 보관; 단일 인스턴스 `SERVICENOW_INSTANCE_URL` 방식도 폴백으로 동작):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["mfa-servicenow-mcp@latest"],
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"username\": \"dev_user\", \"password\": \"${SERVICENOW_DEV_PASSWORD}\", \"allow_writes\": true }, \"test\": { \"url\": \"https://acme-test.service-now.com\", \"auth_type\": \"browser\", \"username\": \"test_user\", \"password\": \"${SERVICENOW_TEST_PASSWORD}\" } }"
+      }
+    }
+  }
+}
 ```
 
 비교 예시:
@@ -310,34 +334,6 @@ MCP_TOOL_PACKAGE = "standard"
       "command": ["uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "enabled": true,
       "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
----
-
-## Gemini CLI
-
-| 범위 | 경로 |
-|------|------|
-| 전역 | `~/.gemini/settings.json` |
-| 프로젝트 | 프로젝트 루트의 `.gemini/settings.json` |
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
-      "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",

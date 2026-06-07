@@ -114,7 +114,7 @@ SERVICENOW_AUTH_TYPE = "browser"
 }
 ```
 
-Other clients (Cursor, VS Code, Gemini, Zed, …) and full env options (auth types, tool packages) are in [MCP Client Configuration](https://github.com/jshsakura/mfa-servicenow-mcp#mcp-client-configuration).
+Other clients (Cursor, VS Code, Antigravity, Zed, …) and full env options (auth types, tool packages) are in [MCP Client Configuration](https://github.com/jshsakura/mfa-servicenow-mcp#mcp-client-configuration).
 
 Then restart the client. The first browser tool call opens a window for Okta/Entra ID/SAML/MFA login. Sessions persist — no re-login every time.
 
@@ -298,7 +298,7 @@ Reuse the same client config as the `uvx` path in [Setup](https://github.com/jsh
 
 On Windows replace `"command"` with `"C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe"`.
 
-> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional (MFA login pre-fill). If Chromium lives somewhere other than next to the executable, add `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` to the env block. Codex (TOML), OpenCode, Cursor, VS Code Copilot, Gemini, Zed snippets: [Client Setup Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md).
+> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional (MFA login pre-fill). If Chromium lives somewhere other than next to the executable, add `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` to the env block. Codex (TOML), OpenCode, Cursor, VS Code Copilot, Antigravity, Zed snippets: [Client Setup Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md).
 
 #### Chromium fallback (optional)
 
@@ -328,7 +328,6 @@ Each project can connect to a different ServiceNow instance. Set the config in y
 | VS Code (Copilot) | `.vscode/mcp.json` | *Project only* | JSON |
 | Zed | *Global only* | `~/.config/zed/settings.json` | JSON |
 | OpenAI Codex | `.codex/config.toml` | `~/.codex/config.toml` | TOML |
-| Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | JSON |
 | OpenCode | `opencode.json` | *Project only* | JSON |
 | Windsurf | *Global only* | `~/.codeium/windsurf/mcp_config.json` | JSON |
 | Claude Desktop | *Global only* | `claude_desktop_config.json` | JSON |
@@ -794,8 +793,8 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills codex
 # OpenCode
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills opencode
 
-# Gemini CLI
-uvx --from mfa-servicenow-mcp servicenow-mcp-skills gemini
+# Antigravity
+uvx --from mfa-servicenow-mcp servicenow-mcp-skills antigravity
 ```
 
 The installer downloads 24 skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
@@ -805,7 +804,7 @@ The installer downloads 24 skill files from this repository's `skills/` director
 | Claude Code | `.claude/commands/servicenow/` | `/servicenow` slash commands appear on next startup |
 | OpenAI Codex | `.codex/skills/servicenow/` | Skills loaded on next agent session |
 | OpenCode | `.opencode/skills/servicenow/` | Skills loaded on next session |
-| Gemini CLI | `.gemini/skills/servicenow/` | Skills activated on next session |
+| Antigravity | `.gemini/antigravity/skills/servicenow/` | Skills activated on next session |
 
 **How it works:** Each skill is a standalone Markdown file with YAML frontmatter (metadata) and pipeline instructions. The LLM client reads these files from the install path and exposes them as callable commands or skill triggers.
 

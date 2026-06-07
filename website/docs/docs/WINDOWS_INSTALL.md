@@ -10,13 +10,28 @@ Open PowerShell without admin privileges:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
 uvx --with playwright playwright install chromium
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser"
 ```
 
-`uvx` does not use a locally installed Playwright Python package. It can reuse a matching Chromium already present in the standard Playwright browser cache. If Chromium is missing, run the Playwright install command above.
+That installs `uv`, fetches+verifies the server, and downloads Chromium. Then add the server to your MCP client config file (no installer command):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
+```
+
+`uvx` reuses a matching Chromium already in the standard Playwright cache; if Chromium is missing, run the install command above first.
 
 ---
 
@@ -55,7 +70,7 @@ Then paste this into your client config file (Claude Code / Claude Desktop examp
 }
 ```
 
-`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional MFA login pre-fill. If you put Chromium somewhere other than the sibling `ms-playwright\` directory, add `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"` to the `env` block. Snippets for Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Gemini / Zed live in the [Client Setup Guide](CLIENT_SETUP.md).
+`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional MFA login pre-fill. If you put Chromium somewhere other than the sibling `ms-playwright\` directory, add `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"` to the `env` block. Snippets for Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Antigravity / Zed live in the [Client Setup Guide](CLIENT_SETUP.md).
 
 This keeps `uvx` out of runtime entirely.
 
@@ -314,11 +329,11 @@ Set `MCP_TOOL_PACKAGE` to choose a tool set. Default: `standard` (read-only).
 | Package | Tools | Description |
 |---------|:-----:|-------------|
 | `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key lookups |
-| `standard` | 30 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 32 | standard + incident and change operational writes |
-| `portal_developer` | 42 | standard + portal, changeset, script include, and local-sync delivery workflows |
-| `platform_developer` | 46 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 61 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
+| `standard` | 27 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 29 | standard + incident and change operational writes |
+| `portal_developer` | 38 | standard + portal, changeset, script include, and local-sync delivery workflows |
+| `platform_developer` | 43 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 57 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
 
 To change, update the `MCP_TOOL_PACKAGE` value:
 

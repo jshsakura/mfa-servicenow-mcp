@@ -1,6 +1,11 @@
 # ServiceNow MCP 워크플로우 관리
 
-이 문서는 ServiceNow MCP 서버에서 제공하는 워크플로우 관리 도구에 대한 상세 정보를 다룹니다.
+이 문서는 두 종류의 워크플로우 엔진을 다룹니다.
+
+1. **레거시 워크플로우** (`wf_workflow`) — 아래의 `manage_workflow` 액션 라우터로 조작합니다.
+2. **Flow Designer** (`sys_hub_flow`) — 단일 통합 도구 `manage_flow_designer`(action 디스패치). `standard` 패키지는 읽기 액션(`list` / `get_detail` / `get_executions` / `compare`)만 노출하고, 상위 패키지(`portal_developer` / `platform_developer` / `full`)에서 쓰기 액션(`update` / `checkout` / `set_*` / `save` / `discard`)이 풀립니다. Action / SubFlow / Playbook 테이블은 [Flow Designer 테이블 맵](#flow-designer-테이블-맵) 참고.
+
+어느 엔진을 쓰는지 모르겠으면 최신 인스턴스에서는 `manage_flow_designer(action="list")`로 시작하고, 레거시 `wf_workflow` 레코드는 `manage_workflow(action="list")`로 폴백하세요.
 
 ## 개요
 
@@ -205,6 +210,42 @@ result = manage_workflow({"action": "reorder_activities",
     ]
 })
 ```
+
+## Flow Designer 도구
+
+Flow Designer(`sys_hub_flow`)는 레거시 워크플로우의 후속 엔진입니다. MCP 서버는 Table API로 안전하게 노출 가능한 읽기 위주 표면만 제공합니다. 전체 CRUD는 비공개 processflow API가 필요해 의도적으로 표면화하지 않습니다.
+
+### `manage_flow_designer` (통합 도구)
+단일 합성 도구. 기존 6개 개별 도구(`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`, `update_flow_designer`, `manage_flow_edit`)를 대체합니다. `standard`에서는 action enum이 읽기 전용으로 좁혀지고, `portal_developer` / `platform_developer` / `full`에서 쓰기까지 풀립니다.
+
+읽기 액션 (`standard` 포함):
+- `action="list"` — 플로우/서브플로우 검색. 주요 파라미터: `limit`, `offset`, `include_inactive`, `flow_status`, `scope`, `name_filter`.
+- `action="get_detail"` — 단일 플로우 메타데이터 + 선택적 heavy 섹션. 주요 파라미터: `flow_id`(필수), `include_structure`, `include_triggers`, `include_executions_summary`, `trace_pill`, `include_subflow_tree`, `summary_format`.
+- `action="get_executions"` — 실행 이력(필터) 또는 단일 실행 상세. 주요 파라미터: `context_id`(단일 모드), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
+- `action="compare"` — 두 플로우 diff. `flow_id_a`/`flow_id_b` 또는 `name_a`/`name_b`. 구조/서브플로우/트리거 차이 리포트. `get_detail` 두 번 호출보다 권장.
+
+쓰기 액션 (`portal_developer` / `platform_developer` / `full`):
+- `action="update"` — 메타데이터만(`new_name` / `description` / `active`). 스텝/트리거 등 구조 변경은 아래 편집 워크플로우 또는 Workflow Studio UI 필요.
+- `action="checkout"` — 로컬 편집 세션 시작 (브라우저 auth, processflow API).
+- `action="set_action_input"` — 액션 입력값 패치. `node_id`, `input_name`, `value` 필수.
+- `action="set_branch_condition"` — 플로우 로직 분기 조건 패치. `node_id`, `value` 필수, `condition_label` 선택.
+- `action="set_trigger_condition"` — 트리거 조건 패치. `value` 필수, `node_id` 생략 시 첫 트리거.
+- `action="save"` — processflow API로 저장. `publish=true` 시 저장 후 퍼블리시.
+- `action="discard"` — 로컬 편집 세션 폐기.
+- `action="edit_status"` — 현재 로컬 체크아웃 상태 확인.
+
+### Flow Designer 테이블 맵
+
+| Workflow Studio 탭 | 테이블 |
+| --- | --- |
+| Flows / SubFlows | `sys_hub_flow` |
+| Actions | `sys_hub_action_type_definition` |
+| Playbooks | `sys_pd_process_definition` |
+| Decision Tables | `sys_decision` |
+
+### 읽기 위주 정책
+
+플로우 변경은 이 코드베이스에서 가장 위험한 작업입니다 — 퍼블리시된 플로우가 깨지면 인스턴스 전반의 자동화가 멈출 수 있습니다. 기본적으로 읽기 액션만 쓰고, 쓰기는 사용자 명시 확인을 게이트로 두며, 변경 전 `manage_flow_designer(action="compare")` + `manage_flow_designer(action="get_executions")`로 동작을 검증하세요.
 
 ## 주요 액티비티 유형
 

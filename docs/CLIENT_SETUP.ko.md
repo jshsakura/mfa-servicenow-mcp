@@ -348,34 +348,6 @@ MCP_TOOL_PACKAGE = "standard"
 
 ---
 
-## Gemini CLI
-
-| 범위 | 경로 |
-|------|------|
-| 전역 | `~/.gemini/settings.json` |
-| 프로젝트 | 프로젝트 루트의 `.gemini/settings.json` |
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
----
-
 ## AntiGravity
 
 | 범위 | 경로 |

@@ -206,13 +206,10 @@ class TestResolveConfigPath:
         path = resolve_config_path("windsurf", "global", tmp_path)
         assert ".codeium/windsurf" in str(path)
 
-    def test_gemini_project(self, tmp_path):
-        path = resolve_config_path("gemini", "project", tmp_path)
-        assert path == tmp_path / ".gemini/settings.json"
-
-    def test_gemini_global(self, tmp_path):
-        path = resolve_config_path("gemini", "global", tmp_path)
-        assert path == Path.home() / ".gemini/settings.json"
+    def test_gemini_removed_raises(self, tmp_path):
+        # Gemini CLI is discontinued — replaced by antigravity.
+        with pytest.raises(ValueError):
+            resolve_config_path("gemini", "project", tmp_path)
 
     def test_zed_global(self, tmp_path):
         path = resolve_config_path("zed", "global", tmp_path)
@@ -351,14 +348,6 @@ class TestRemoveJsonConfig:
             json.dumps({"mcpServers": {"servicenow": {"command": "uvx"}}}), encoding="utf-8"
         )
         removed = remove_json_config("windsurf", path)
-        assert removed is True
-
-    def test_remove_gemini(self, tmp_path):
-        path = tmp_path / "settings.json"
-        path.write_text(
-            json.dumps({"mcpServers": {"servicenow": {"command": "uvx"}}}), encoding="utf-8"
-        )
-        removed = remove_json_config("gemini", path)
         assert removed is True
 
     def test_remove_empty_servers_removes_key(self, tmp_path):

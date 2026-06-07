@@ -22,9 +22,9 @@ Read-only — safe for any environment, no write tools:
 | Package | Tools | When to use |
 | :--- | :---: | :--- |
 | `service_desk` | 29 | ⚠️ Service desk agents who need to update/close incidents and changes |
-| `portal_developer` | 38 | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
-| `platform_developer` | 43 | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
-| `full` | 57 | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
+| `portal_developer` | 39 | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
+| `platform_developer` | 39 | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
+| `full` | 53 | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
 
 All packages except `core` and `none` inherit `standard` read-only tools via `_extends`. See `config/tool_packages.yaml` for the full inheritance tree.
 

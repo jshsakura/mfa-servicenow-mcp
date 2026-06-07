@@ -1396,8 +1396,22 @@ class AuthManager:
         if content_hash == self._session_disk_hash:
             return
         try:
-            with open(self._session_cache_path, "w") as f:
+            # Cookies + X-UserToken are credentials: create the file owner-only
+            # (0600) via os.open so umask can't widen it to a world-readable
+            # 0644 that a co-tenant on a shared host could copy and replay.
+            fd = os.open(
+                self._session_cache_path,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                0o600,
+            )
+            with os.fdopen(fd, "w") as f:
                 json.dump(data, f)
+            # Re-assert mode on an already-existing file (os.open honors the
+            # mode only on creation, so a pre-existing 0644 would survive).
+            try:
+                os.chmod(self._session_cache_path, 0o600)
+            except OSError:
+                pass
             self._session_disk_hash = content_hash
             # Record our own mtime so _maybe_adopt_sibling_session_update()
             # doesn't treat this write as a sibling update on the next call.

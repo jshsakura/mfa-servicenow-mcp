@@ -70,7 +70,7 @@ C:\Users\you\apps\servicenow-mcp\
 }
 ```
 
-`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택(MFA 폼 미리 채우기). Chromium을 실행 파일 옆 `ms-playwright\` 이 *아닌* 다른 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"`를 추가하세요. Codex(`config.toml`) / OpenCode(`opencode.json`) / Cursor / Gemini / Zed 등 다른 클라이언트 설정 스니펫은 [클라이언트 설정 가이드](CLIENT_SETUP.ko.md) 참조.
+`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택(MFA 폼 미리 채우기). Chromium을 실행 파일 옆 `ms-playwright\` 이 *아닌* 다른 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"`를 추가하세요. Codex(`config.toml`) / OpenCode(`opencode.json`) / Cursor / Antigravity / Zed 등 다른 클라이언트 설정 스니펫은 [클라이언트 설정 가이드](CLIENT_SETUP.ko.md) 참조.
 
 이 방식은 runtime에서 `uvx`를 일절 쓰지 않습니다.
 

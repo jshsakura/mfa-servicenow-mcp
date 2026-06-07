@@ -86,46 +86,64 @@ def _instance_host_slug() -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", host)
 
 
-_log_handlers: list[logging.Handler] = [logging.StreamHandler()]
-_log_file_path = os.getenv("LOG_FILE")
-if _log_file_path:
-    try:
-        _log_file_path = os.path.expanduser(_log_file_path)
-        if os.path.isdir(_log_file_path) or _log_file_path.endswith(os.sep):
-            _log_file_path = os.path.join(
-                _log_file_path, f"servicenow-mcp_{_instance_host_slug()}.log"
-            )
-        _log_dir = os.path.dirname(_log_file_path)
-        if _log_dir:
-            os.makedirs(_log_dir, exist_ok=True)
-        _log_handlers.append(
-            logging.handlers.RotatingFileHandler(
-                _log_file_path,
-                maxBytes=10_000_000,
-                backupCount=3,
-                encoding="utf-8",
-            )
-        )
-    except OSError:
-        # Silent fallback to stderr-only — never block startup on log path issues.
-        pass
+def configure_logging(force: bool = False) -> None:
+    """Configure root logging (stderr + optional rotating LOG_FILE).
 
-# Wire handlers onto the root logger directly. logging.basicConfig is a
-# no-op when the root logger already has handlers, and `from .server
-# import ServiceNowMCP` above pulls in mcp/anyio which can register a
-# default handler before we get here. Going through basicConfig means
-# our RotatingFileHandler silently never gets attached on real Claude
-# Desktop / Claude Code installs — exactly the v1.12.8/v1.12.9 symptom
-# users hit. Reset and re-attach explicitly so we don't depend on
-# import-order luck.
-_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-_root_logger = logging.getLogger()
-_root_logger.setLevel(logging.INFO)
-for _existing_handler in list(_root_logger.handlers):
-    _root_logger.removeHandler(_existing_handler)
-for _handler in _log_handlers:
-    _handler.setFormatter(_formatter)
-    _root_logger.addHandler(_handler)
+    Called explicitly from ``main()`` with ``force=True``. Keeping this OUT of
+    module import means ``import servicenow_mcp.cli`` has no logging side effect:
+    embedders/tests/other launchers that import this module keep their own
+    logging config. With ``force=False`` we no-op when the root logger already
+    has handlers, so we never stomp on a host application's configuration.
+
+    Opt-in file logging: stderr-only by default (preserves the v1.11.47 decision
+    to let users manage log paths via shell redirect). When LOG_FILE is set, also
+    write there with rotation so a runaway session can't fill the disk. If
+    LOG_FILE points to a directory (or ends with a separator), auto-append a
+    host-tagged filename so concurrent instances don't interleave into one file.
+    """
+    root_logger = logging.getLogger()
+    if root_logger.handlers and not force:
+        return
+
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    log_file_path = os.getenv("LOG_FILE")
+    if log_file_path:
+        try:
+            log_file_path = os.path.expanduser(log_file_path)
+            if os.path.isdir(log_file_path) or log_file_path.endswith(os.sep):
+                log_file_path = os.path.join(
+                    log_file_path, f"servicenow-mcp_{_instance_host_slug()}.log"
+                )
+            log_dir = os.path.dirname(log_file_path)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
+            handlers.append(
+                logging.handlers.RotatingFileHandler(
+                    log_file_path,
+                    maxBytes=10_000_000,
+                    backupCount=3,
+                    encoding="utf-8",
+                )
+            )
+        except OSError:
+            # Silent fallback to stderr-only — never block startup on log path issues.
+            pass
+
+    # Wire handlers onto the root logger directly. logging.basicConfig is a
+    # no-op when the root logger already has handlers, and importing .server
+    # pulls in mcp/anyio which can register a default handler first — so
+    # basicConfig would silently drop our RotatingFileHandler (the
+    # v1.12.8/v1.12.9 symptom). Reset and re-attach explicitly so we don't
+    # depend on import-order luck.
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    root_logger.setLevel(logging.INFO)
+    for existing_handler in list(root_logger.handlers):
+        root_logger.removeHandler(existing_handler)
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        root_logger.addHandler(handler)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -824,6 +842,12 @@ def _warn_if_chromium_missing(args) -> None:
 
 def main():
     """Main entry point for the CLI."""
+    # Configure logging first thing — force=True so the CLI always owns the root
+    # logger regardless of any handler an imported module registered. Done before
+    # load_dotenv() to match the prior import-time behavior (LOG_FILE is read
+    # from the real environment, not from .env).
+    configure_logging(force=True)
+
     # Load environment variables from .env file
     from dotenv import load_dotenv
 
