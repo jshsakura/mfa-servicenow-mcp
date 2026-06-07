@@ -14,7 +14,13 @@ from pathlib import Path
 
 import yaml
 
-from servicenow_mcp.server import MANAGE_READ_ACTIONS, MUTATING_TOOL_NAMES, MUTATING_TOOL_PREFIXES
+from servicenow_mcp.server import (
+    MANAGE_READ_ACTIONS,
+    MUTATING_TOOL_NAMES,
+    MUTATING_TOOL_PREFIXES,
+    _flatten_package_entries,
+    _load_packaged_package_definitions,
+)
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +105,52 @@ def _load_packages() -> dict[str, list[str]]:
     return resolved
 
 
+def _load_action_restrictions() -> dict[str, dict[str, list[str]]]:
+    """Per-package action allowlists, computed with the SERVER's own flattening
+    so the inventory matches runtime exactly.
+
+    Returns ``{package_name: {tool_name: [allowed_action, ...]}}`` containing
+    only tools a package exposes with a RESTRICTED action set (e.g. read-only
+    ``manage_*`` in ``standard``). Tools exposed at full capability are absent.
+    """
+    raw = _load_packaged_package_definitions()
+
+    def resolve_entries(name: str) -> list:
+        value = raw.get(name, [])
+        if isinstance(value, dict):
+            if "_extends" in value:
+                # _extends concatenates base entries FIRST, then this package's
+                # own — mirroring server resolution where first occurrence wins.
+                return resolve_entries(value["_extends"]) + list(value.get("_tools", []))
+            return list(value.get("_tools", []))
+        return list(value)
+
+    restrictions: dict[str, dict[str, list[str]]] = {}
+    for package_name in raw:
+        _names, action_map = _flatten_package_entries(resolve_entries(str(package_name)))
+        restrictions[str(package_name)] = {
+            tool: sorted(actions) for tool, actions in action_map.items() if actions is not None
+        }
+    return restrictions
+
+
+def _format_package_membership(
+    tool_name: str,
+    package_names: list[str],
+    restrictions: dict[str, dict[str, list[str]]],
+) -> str:
+    """Render a tool's package list, annotating packages that expose it with a
+    restricted action set, e.g. ``standard (list, get)``."""
+    parts: list[str] = []
+    for package_name in package_names:
+        allowed = restrictions.get(package_name, {}).get(tool_name)
+        if allowed:
+            parts.append(f"{package_name} ({', '.join(allowed)})")
+        else:
+            parts.append(package_name)
+    return ", ".join(parts)
+
+
 def _is_write_tool(tool_name: str) -> bool:
     if tool_name in READ_ONLY_OVERRIDES:
         return False
@@ -133,6 +185,7 @@ def _truncate(text: str, max_len: int = 120) -> str:
 def build_inventory_markdown() -> str:
     tool_definitions = get_tool_definitions()
     packages = _load_packages()
+    restrictions = _load_action_restrictions()
 
     package_membership: dict[str, list[str]] = defaultdict(list)
     for package_name, tools in packages.items():
@@ -153,7 +206,9 @@ def build_inventory_markdown() -> str:
                 tool_name,
                 _rw_label(tool_name),
                 _truncate(description),
-                ", ".join(package_membership.get(tool_name, ["—"])),
+                _format_package_membership(
+                    tool_name, package_membership.get(tool_name, ["—"]), restrictions
+                ),
             )
         )
 
@@ -211,7 +266,20 @@ def build_inventory_markdown() -> str:
     else:
         lines.append("None.")
 
-    lines.extend(["", "## Tools by Module", ""])
+    lines.extend(
+        [
+            "",
+            "## Tools by Module",
+            "",
+            "The **R/W** column is the tool's full capability when unrestricted. A "
+            "package shown as `pkg (actions…)` exposes ONLY those actions of that "
+            "tool — e.g. `manage_script_include` is registered `R/W` but the "
+            "read-only packages (`core`, `standard`) expose it as "
+            "`standard (get, list)`. Packages listed without parentheses expose the "
+            "tool at its full R/W capability.",
+            "",
+        ]
+    )
 
     for module_name in sorted(grouped_rows, key=lambda name: (_module_title(name), name)):
         rows = sorted(grouped_rows[module_name])

@@ -22,9 +22,9 @@
 | 패키지명 | 도구 수 | 사용 시기 |
 | :--- | :---: | :--- |
 | `service_desk` | 29 | ⚠️ 인시던트/변경 업데이트·종료가 필요한 서비스 데스크 담당자 |
-| `portal_developer` | 38 | ⚠️ 위젯, 체인지셋, Script Include를 배포하는 포털 개발자 |
-| `platform_developer` | 43 | ⚠️ 워크플로우, Flow Designer, 스크립트를 관리하는 플랫폼 엔지니어 |
-| `full` | 57 | ⚠️ 가장 고급 — 모든 도메인의 쓰기 도구 전체를 동시에 (아래 경고 참고) |
+| `portal_developer` | 39 | ⚠️ 위젯, 체인지셋, Script Include를 배포하는 포털 개발자 |
+| `platform_developer` | 39 | ⚠️ 워크플로우, Flow Designer, 스크립트를 관리하는 플랫폼 엔지니어 |
+| `full` | 53 | ⚠️ 가장 고급 — 모든 도메인의 쓰기 도구 전체를 동시에 (아래 경고 참고) |
 
 `core`와 `none`을 제외한 모든 패키지는 `_extends`를 통해 `standard` 읽기 전용 도구를 상속합니다. 전체 상속 구조는 `config/tool_packages.yaml`을 참고하세요.
 

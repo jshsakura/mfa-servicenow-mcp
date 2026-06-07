@@ -6,7 +6,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from servicenow_mcp.setup_skills import CATEGORIES, TARGETS, _download_skills, _print, main
+from servicenow_mcp.setup_skills import (
+    BRANCH,
+    CATEGORIES,
+    TARGETS,
+    _copy_bundled_skills,
+    _download_refs,
+    _download_skills,
+    _print,
+    _ref_url_and_prefix,
+    main,
+)
 
 # ---------------------------------------------------------------------------
 # _print
@@ -144,16 +154,16 @@ class TestMain:
 
     @patch("servicenow_mcp.setup_skills.urlopen")
     @patch("servicenow_mcp.setup_skills.Path.cwd")
-    def test_gemini_target(self, mock_cwd, mock_urlopen, tmp_path):
+    def test_antigravity_target(self, mock_cwd, mock_urlopen, tmp_path):
         mock_cwd.return_value = tmp_path
         mock_resp = MagicMock()
         mock_resp.read.return_value = _make_zip_bytes()
         mock_urlopen.return_value = mock_resp
 
-        with patch("sys.argv", ["setup_skills", "gemini"]):
+        with patch("sys.argv", ["setup_skills", "antigravity"]):
             main()
 
-        dest = tmp_path / ".gemini" / "skills" / "servicenow"
+        dest = tmp_path / ".gemini" / "antigravity" / "skills" / "servicenow"
         assert dest.exists()
 
 
@@ -162,12 +172,57 @@ class TestMain:
 # ---------------------------------------------------------------------------
 
 
+class TestBundledSkills:
+    def test_copy_bundled_skills_copies_real_skills(self, tmp_path):
+        # The repo checkout always has a skills/ dir, so the bundled path is
+        # the one exercised on a normal install — no network involved.
+        dest = tmp_path / "out"
+        count = _copy_bundled_skills(dest)
+        assert count is not None and count > 0
+        assert (dest / "SKILL.md").exists()
+        # At least one category .md landed.
+        assert any(dest.rglob("*/*.md"))
+
+    def test_copy_returns_none_when_no_bundled_dir(self, tmp_path):
+        with patch("servicenow_mcp.setup_skills._find_bundled_skills_dir", return_value=None):
+            assert _copy_bundled_skills(tmp_path / "out") is None
+
+    def test_install_prefers_bundled_over_download(self, tmp_path):
+        # urlopen must never be called when bundled skills are available.
+        from servicenow_mcp.setup_skills import install_skills
+
+        with patch("servicenow_mcp.setup_skills.urlopen") as mock_urlopen:
+            count = install_skills("claude", tmp_path / "skills")
+        mock_urlopen.assert_not_called()
+        assert count > 0
+        assert (tmp_path / "skills" / "_mcp_info.md").exists()
+
+
+class TestDownloadRefs:
+    def test_version_tag_first_then_main(self):
+        refs = _download_refs()
+        assert refs[-1] == BRANCH
+        # When a version is resolvable, a v-prefixed tag precedes main.
+        assert any(r.startswith("v") for r in refs[:-1]) or refs == [BRANCH]
+
+    def test_branch_url_uses_heads(self):
+        url, prefix = _ref_url_and_prefix(BRANCH)
+        assert "/refs/heads/main.zip" in url
+        assert prefix == f"mfa-servicenow-mcp-{BRANCH}/skills/"
+
+    def test_tag_url_uses_tags_and_strips_v_in_dir(self):
+        url, prefix = _ref_url_and_prefix("v1.2.3")
+        assert "/refs/tags/v1.2.3.zip" in url
+        assert prefix == "mfa-servicenow-mcp-1.2.3/skills/"
+
+
 class TestConstants:
     def test_targets_has_expected_keys(self):
         assert "claude" in TARGETS
         assert "codex" in TARGETS
         assert "opencode" in TARGETS
-        assert "gemini" in TARGETS
+        assert "antigravity" in TARGETS
+        assert "gemini" not in TARGETS
 
     def test_categories_list(self):
         assert "analyze" in CATEGORIES

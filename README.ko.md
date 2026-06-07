@@ -113,7 +113,7 @@ SERVICENOW_AUTH_TYPE = "browser"
 }
 ```
 
-다른 클라이언트(Cursor, VS Code, Gemini, Zed 등)와 전체 env 옵션(인증 방식, 도구 패키지)은 [MCP 클라이언트 설정](#mcp-클라이언트-설정) 참고.
+다른 클라이언트(Cursor, VS Code, Antigravity, Zed 등)와 전체 env 옵션(인증 방식, 도구 패키지)은 [MCP 클라이언트 설정](#mcp-클라이언트-설정) 참고.
 
 그다음 클라이언트를 재시작하세요. 첫 브라우저 도구 호출 시 Okta/Entra ID/SAML/MFA 로그인 창이 뜹니다. 세션은 유지되어 매번 재로그인할 필요 없습니다.
 
@@ -296,7 +296,7 @@ UV_NATIVE_TLS=1 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp -
 
 Windows라면 `"command"`를 `"C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe"`로.
 
-> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택(MFA 폼 prefill). Chromium을 실행 파일 옆이 아닌 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` 추가. Codex(TOML)·OpenCode·Cursor·VS Code Copilot·Gemini·Zed 설정: [클라이언트 설정 가이드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.ko.md).
+> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택(MFA 폼 prefill). Chromium을 실행 파일 옆이 아닌 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` 추가. Codex(TOML)·OpenCode·Cursor·VS Code Copilot·Antigravity·Zed 설정: [클라이언트 설정 가이드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.ko.md).
 
 #### Chromium 대체 (선택)
 
@@ -324,7 +324,6 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 | Claude Code | `.mcp.json` | `~/.claude.json` | JSON |
 | Zed | ⬜ | `~/.config/zed/settings.json` | JSON |
 | OpenAI Codex | `.codex/config.toml` | `~/.codex/config.toml` | TOML |
-| Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | JSON |
 | OpenCode | `opencode.json` | ⬜ | JSON |
 | Claude Desktop | ⬜ | `claude_desktop_config.json` | JSON |
 | AntiGravity | ⬜ | `~/.gemini/antigravity/mcp_config.json` | JSON |
@@ -783,8 +782,8 @@ servicenow-mcp-skills codex
 # OpenCode
 servicenow-mcp-skills opencode
 
-# Gemini CLI
-servicenow-mcp-skills gemini
+# Antigravity
+servicenow-mcp-skills antigravity
 
 # uvx로 설치 없이 바로 실행
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
@@ -797,7 +796,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 | Claude Code | `.claude/commands/servicenow/` | 다음 시작 시 `/servicenow` 슬래시 명령으로 노출 |
 | OpenAI Codex | `.codex/skills/servicenow/` | 다음 에이전트 세션에서 로드 |
 | OpenCode | `.opencode/skills/servicenow/` | 다음 세션에서 로드 |
-| Gemini CLI | `.gemini/skills/servicenow/` | 다음 세션에서 활성화 |
+| Antigravity | `.gemini/antigravity/skills/servicenow/` | 다음 세션에서 활성화 |
 
 **동작 원리:** 각 스킬은 YAML 프론트매터(메타데이터) + 파이프라인 지시문으로 구성된 독립 Markdown 파일입니다. LLM 클라이언트가 설치 경로에서 이 파일을 읽어 호출 가능한 명령이나 스킬 트리거로 노출합니다.
 
