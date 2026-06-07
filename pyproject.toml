@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.15.16"
+version = "1.15.17"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,13 +25,18 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "mcp[cli]>=1.27.0",
-    "requests>=2.32.4",
-    "pydantic>=2.0.0",
-    "python-dotenv>=1.0.0",
-    "httpx>=0.28.0",
-    "PyYAML>=6.0",
-    "orjson>=3.9.0",
+    # Upper bounds cap each dep at the next major: uvx/PyPI installs always
+    # pull the latest allowed combo (no lockfile), so an upstream major with a
+    # breaking schema/transport/validation API would otherwise break a fresh
+    # install with no code change here. We bind deeply to mcp's schema gen,
+    # pydantic v2 model API, and httpx's 0.x transport — the riskiest surfaces.
+    "mcp[cli]>=1.27.0,<2",
+    "requests>=2.32.4,<3",
+    "pydantic>=2.0.0,<3",
+    "python-dotenv>=1.0.0,<2",
+    "httpx>=0.28.0,<1",
+    "PyYAML>=6.0,<7",
+    "orjson>=3.9.0,<4",
     # v1.12.20: curl_cffi promoted from optional to regular dependency.
     # Routing through libcurl-impersonate (BoringSSL fork) lets the auth
     # manager switch to a real-browser TLS handshake at runtime when
@@ -42,7 +47,7 @@ dependencies = [
     # ship for macOS / Linux / Windows × Python 3.11+, ~20MB on first
     # install — small enough not to gate the feature behind extras when
     # the symptom is "real browser works, MCP doesn't, no recovery path".
-    "curl_cffi>=0.7.0",
+    "curl_cffi>=0.7.0,<1",
 ]
 
 [project.optional-dependencies]
@@ -68,6 +73,13 @@ servicenow-mcp-skills = "servicenow_mcp.setup_skills:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/servicenow_mcp"]
 include = ["src/servicenow_mcp/config/*"]
+
+# Ship the repo-root skills/ inside the package as servicenow_mcp/skills/ so
+# pip/uvx installs expose them too. skill_resources._find_skills_dir() already
+# probes "<package>/skills", and setup_skills prefers this bundled copy over a
+# GitHub download — keeping the installed server and its skills on one version.
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "servicenow_mcp/skills"
 
 [tool.black]
 line-length = 100

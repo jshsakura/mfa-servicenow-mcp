@@ -10,13 +10,28 @@
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
 uvx --with playwright playwright install chromium
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser"
 ```
 
-`uvx`는 로컬 Playwright Python 패키지를 자동으로 우선 사용하지 않습니다. 다만 같은 Chromium revision이 표준 Playwright 브라우저 캐시에 있으면 다시 다운로드하지 않습니다. Chromium이 없으면 위 Playwright 설치 명령을 먼저 실행하세요.
+`uv` 설치 + 서버 fetch·검증 + Chromium 다운로드를 합니다. 그다음 MCP 클라이언트 설정파일에 서버를 추가하세요 (별도 installer 명령 불필요):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
+```
+
+`uvx`는 같은 Chromium revision이 표준 Playwright 캐시에 있으면 재다운로드하지 않습니다. 없으면 위 설치 명령을 먼저 실행하세요.
 
 ---
 
@@ -55,7 +70,7 @@ C:\Users\you\apps\servicenow-mcp\
 }
 ```
 
-`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택(MFA 폼 미리 채우기). Chromium을 실행 파일 옆 `ms-playwright\` 이 *아닌* 다른 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"`를 추가하세요. Codex(`config.toml`) / OpenCode(`opencode.json`) / Cursor / Gemini / Zed 등 다른 클라이언트 설정 스니펫은 [클라이언트 설정 가이드](CLIENT_SETUP.ko.md) 참조.
+`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택(MFA 폼 미리 채우기). Chromium을 실행 파일 옆 `ms-playwright\` 이 *아닌* 다른 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"`를 추가하세요. Codex(`config.toml`) / OpenCode(`opencode.json`) / Cursor / Antigravity / Zed 등 다른 클라이언트 설정 스니펫은 [클라이언트 설정 가이드](CLIENT_SETUP.ko.md) 참조.
 
 이 방식은 runtime에서 `uvx`를 일절 쓰지 않습니다.
 
@@ -314,11 +329,11 @@ TTL을 변경하려면 `--browser-session-ttl` 옵션을 사용하세요 (단위
 | 패키지 | 도구 수 | 설명 |
 |--------|:------:|------|
 | `core` | 12 | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
-| `standard` | 30 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 전반의 읽기 전용 패키지 |
-| `service_desk` | 32 | standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 42 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
-| `platform_developer` | 46 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 61 | 가장 넓은 패키지 표면: 번들 `manage_*` 워크플로우 + 고급 운영 도구 |
+| `standard` | 27 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 전반의 읽기 전용 패키지 |
+| `service_desk` | 29 | standard + 인시던트/변경 운영 쓰기 |
+| `portal_developer` | 38 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
+| `platform_developer` | 43 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `full` | 57 | 가장 넓은 패키지 표면: 번들 `manage_*` 워크플로우 + 고급 운영 도구 |
 
 수정 권한이 필요하면 `MCP_TOOL_PACKAGE` 값만 바꾸면 됩니다:
 

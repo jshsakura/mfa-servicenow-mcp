@@ -36,7 +36,7 @@ You are setting up **mfa-servicenow-mcp** — an MCP server that gives AI agents
 | You are inside Codex CLI or `.codex/` exists | **codex** |
 | You are inside Windsurf IDE or `.windsurf/` exists | **windsurf** |
 | You are inside VS Code with Copilot | **vscode-copilot** |
-| You are inside Gemini CLI | **gemini** |
+| You are inside Antigravity | **antigravity** |
 | You are inside Zed editor or `~/.config/zed/` exists | **zed** |
 | None of the above | Ask the user which client they use |
 
@@ -49,9 +49,8 @@ You are setting up **mfa-servicenow-mcp** — an MCP server that gives AI agents
    > 5. Codex (OpenAI)
    > 6. Windsurf
    > 7. VS Code Copilot
-   > 8. Gemini CLI
-   > 9. Zed
-   > 10. AntiGravity (Google)
+   > 8. Zed
+   > 9. AntiGravity (Google)
 
 Store the result as `$CLIENT`.
 
@@ -148,7 +147,7 @@ Ask the user these questions one by one. Provide defaults in brackets.
    > 2. service_desk — Standard + assignment, SLA, escalation
    > 3. portal_developer — Standard + portal widgets, pages, themes
    > 4. platform_developer — Standard + scripts, flows, update sets
-   > 5. full — Broadest packaged surface with bundled workflows (61 tools)
+   > 5. full — Broadest packaged surface with bundled workflows (53 tools)
 
    Store as `$TOOL_PACKAGE`. Default: `standard`
 

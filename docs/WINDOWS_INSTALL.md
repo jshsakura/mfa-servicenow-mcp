@@ -70,7 +70,7 @@ Then paste this into your client config file (Claude Code / Claude Desktop examp
 }
 ```
 
-`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional MFA login pre-fill. If you put Chromium somewhere other than the sibling `ms-playwright\` directory, add `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"` to the `env` block. Snippets for Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Gemini / Zed live in the [Client Setup Guide](CLIENT_SETUP.md).
+`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional MFA login pre-fill. If you put Chromium somewhere other than the sibling `ms-playwright\` directory, add `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"` to the `env` block. Snippets for Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Antigravity / Zed live in the [Client Setup Guide](CLIENT_SETUP.md).
 
 This keeps `uvx` out of runtime entirely.
 

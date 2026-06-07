@@ -67,7 +67,7 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.7;">
-      Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Gemini CLI, Zed 등과 호환됩니다.<br>
+      Claude Code, Cursor, Codex, OpenCode, Windsurf, VS Code Copilot, Antigravity, Zed 등과 호환됩니다.<br>
       AI가 클라이언트와 OS를 감지한 뒤, 대화형으로 설정을 진행해 줍니다.<br>
       설정이 완료되면 <strong>AI 클라이언트를 재시작</strong>하여 MCP 서버를 로드하세요.
     </p>
@@ -197,7 +197,7 @@ uvx --with playwright playwright install chromium
     </p>
     <div class="install-block reveal">
       <div class="install-tabs" id="mcp-tabs">
-        <button class="install-tab active" data-target="mcp-standard">Claude Desktop / Claude Code / Gemini / AntiGravity / Cursor</button>
+        <button class="install-tab active" data-target="mcp-standard">Claude Desktop / Claude Code / AntiGravity / Cursor</button>
         <button class="install-tab" data-target="mcp-zed">Zed</button>
         <button class="install-tab" data-target="mcp-codex">Codex (TOML)</button>
         <button class="install-tab" data-target="mcp-opencode">OpenCode</button>
@@ -302,7 +302,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
         <button class="install-tab active" data-target="skill-claude">Claude Code</button>
         <button class="install-tab" data-target="skill-codex">Codex</button>
         <button class="install-tab" data-target="skill-opencode">OpenCode</button>
-        <button class="install-tab" data-target="skill-gemini">Gemini CLI</button>
+        <button class="install-tab" data-target="skill-antigravity">Antigravity</button>
       </div>
       <div class="install-panels" id="skill-panels">
         <div class="install-panel active" id="skill-claude">
@@ -320,9 +320,9 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
             <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills opencode</code></pre>
           </div>
         </div>
-        <div class="install-panel" id="skill-gemini">
+        <div class="install-panel" id="skill-antigravity">
           <div class="install-code-block">
-            <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills gemini</code></pre>
+            <pre class="install-code"><code>uvx --from mfa-servicenow-mcp servicenow-mcp-skills antigravity</code></pre>
           </div>
         </div>
       </div>
@@ -443,7 +443,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       </div>
       <div class="step-card" style="--i:4">
         <h3>🤖 폭넓은 클라이언트 지원</h3>
-        <p>Claude, Codex, Cursor, Zed, Gemini, OpenCode, Windsurf, VS Code Copilot과 stdio/Streamable HTTP MCP 클라이언트에서 동작합니다.</p>
+        <p>Claude, Codex, Cursor, Zed, Antigravity, OpenCode, Windsurf, VS Code Copilot과 stdio/Streamable HTTP MCP 클라이언트에서 동작합니다.</p>
       </div>
     </div>
 

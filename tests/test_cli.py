@@ -1,6 +1,7 @@
 """Tests for cli.py — argument parsing, config creation, main entry."""
 
 import json
+import logging
 import os
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +15,7 @@ from servicenow_mcp.cli import (
     _resolve_env_reference,
     _split_csv,
     _warn_if_chromium_missing,
+    configure_logging,
     create_config,
     main,
     parse_args,
@@ -630,3 +632,58 @@ class TestMain:
         from servicenow_mcp.cli import arun_http_server
 
         mock_anyio_run.assert_called_once_with(arun_http_server, mock_server, mock_args)
+
+
+# ---------------------------------------------------------------------------
+# configure_logging — import must have no side effect; force controls override
+# ---------------------------------------------------------------------------
+
+
+class TestConfigureLogging:
+    def _restore(self, root, saved_handlers, saved_level):
+        for h in list(root.handlers):
+            root.removeHandler(h)
+        for h in saved_handlers:
+            root.addHandler(h)
+        root.setLevel(saved_level)
+
+    def test_force_false_no_op_when_handlers_present(self):
+        root = logging.getLogger()
+        saved_handlers, saved_level = list(root.handlers), root.level
+        try:
+            sentinel = logging.NullHandler()
+            for h in list(root.handlers):
+                root.removeHandler(h)
+            root.addHandler(sentinel)
+            configure_logging(force=False)
+            # Existing handler left untouched — no stomping on a host config.
+            assert root.handlers == [sentinel]
+        finally:
+            self._restore(root, saved_handlers, saved_level)
+
+    def test_force_true_resets_and_attaches_stream_handler(self):
+        root = logging.getLogger()
+        saved_handlers, saved_level = list(root.handlers), root.level
+        try:
+            for h in list(root.handlers):
+                root.removeHandler(h)
+            root.addHandler(logging.NullHandler())
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("LOG_FILE", None)
+                configure_logging(force=True)
+            assert any(isinstance(h, logging.StreamHandler) for h in root.handlers)
+            assert not any(isinstance(h, logging.NullHandler) for h in root.handlers)
+            assert root.level == logging.INFO
+        finally:
+            self._restore(root, saved_handlers, saved_level)
+
+    def test_log_file_adds_rotating_handler(self, tmp_path):
+        root = logging.getLogger()
+        saved_handlers, saved_level = list(root.handlers), root.level
+        try:
+            log_path = tmp_path / "out.log"
+            with patch.dict(os.environ, {"LOG_FILE": str(log_path)}, clear=False):
+                configure_logging(force=True)
+            assert any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers)
+        finally:
+            self._restore(root, saved_handlers, saved_level)

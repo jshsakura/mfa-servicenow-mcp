@@ -24,27 +24,35 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-### 2. Install Playwright Chromium
+### 2. Fetch the server + install Chromium
 
 ```bash
-uvx --with playwright playwright install chromium
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version  # fetch + verify the server
+uvx --with playwright playwright install chromium                                   # Chromium for MFA/SSO login
 ```
 
-Playwright uses its standard browser cache. `uvx` does not use a locally installed Playwright Python package, but it can reuse a matching Chromium already present in that cache.
+The first command pre-fetches and verifies the server in the exact `--with playwright` env the client uses, so the first start is instant. The second downloads Chromium; `uvx` reuses a matching Chromium already in the standard cache.
 
-### 3. Run setup
+### 3. Add the server to your MCP client config
 
-```bash
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode \
-  --instance-url "https://your-instance.service-now.com" \
-  --auth-type "browser"
+Add an entry to your client's config file (no installer command needed):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
 ```
 
-```powershell
-uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup opencode `
-  --instance-url "https://your-instance.service-now.com" `
-  --auth-type "browser"
-```
+Per-client file paths and formats (Codex TOML, etc.) are below; restart the client afterward.
 
 ### Local install (release zip/exe)
 
@@ -145,18 +153,34 @@ For dev/test drift analysis, you can configure named instances with `SERVICENOW_
 SERVICENOW_ACTIVE_INSTANCE=dev
 SERVICENOW_INSTANCE_CONFIG='{
   "dev": {
-    "url": "https://dev.service-now.com",
-    "role": "development",
+    "url": "https://acme-dev.service-now.com",
     "tool_package": "standard",
     "allow_writes": false
   },
   "test": {
-    "url": "https://test.service-now.com",
-    "role": "test",
+    "url": "https://acme-test.service-now.com",
     "tool_package": "standard",
     "allow_writes": false
   }
 }'
+```
+
+Per-instance credentials, in an MCP client `env` block (each alias can carry its own `username` / `password` / `auth_type` / `api_key`; `${ENV}` keeps secrets out of the JSON; the single-instance `SERVICENOW_INSTANCE_URL` form still works as a fallback):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "uvx",
+      "args": ["mfa-servicenow-mcp@latest"],
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"username\": \"dev_user\", \"password\": \"${SERVICENOW_DEV_PASSWORD}\", \"allow_writes\": true }, \"test\": { \"url\": \"https://acme-test.service-now.com\", \"auth_type\": \"browser\", \"username\": \"test_user\", \"password\": \"${SERVICENOW_TEST_PASSWORD}\" } }"
+      }
+    }
+  }
+}
 ```
 
 Example comparison:
@@ -308,34 +332,6 @@ MCP_TOOL_PACKAGE = "standard"
       "command": ["uvx", "--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "enabled": true,
       "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
----
-
-## Gemini CLI
-
-| Scope | Path |
-|-------|------|
-| Global | `~/.gemini/settings.json` |
-| Project | `.gemini/settings.json` in project root |
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
-      "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
         "SERVICENOW_BROWSER_HEADLESS": "false",

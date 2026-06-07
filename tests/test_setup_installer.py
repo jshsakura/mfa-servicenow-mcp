@@ -182,9 +182,9 @@ class TestJsonConfigUpdates:
         data = json.loads(path.read_text(encoding="utf-8"))
         assert "servicenow" in data["servers"]
 
-    def test_gemini_config_matches_documented_shape(self, tmp_path):
-        path = tmp_path / ".gemini/settings.json"
-        update_json_config("gemini", path, _args(clients=["gemini"]))
+    def test_antigravity_config_matches_documented_shape(self, tmp_path):
+        path = tmp_path / ".gemini/antigravity/mcp_config.json"
+        update_json_config("antigravity", path, _args(clients=["antigravity"]))
 
         data = json.loads(path.read_text(encoding="utf-8"))
         entry = data["mcpServers"]["servicenow"]

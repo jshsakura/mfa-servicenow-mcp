@@ -37,6 +37,8 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 ## Tools by Module
 
+The **R/W** column is the tool's full capability when unrestricted. A package shown as `pkg (actions…)` exposes ONLY those actions of that tool — e.g. `manage_script_include` is registered `R/W` but the read-only packages (`core`, `standard`) expose it as `standard (get, list)`. Packages listed without parentheses expose the tool at its full R/W capability.
+
 ### Attachment Tools (1)
 
 | Tool | R/W | Description | Packages |
@@ -53,7 +55,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_catalog` | R/W | Catalog category/item/variable CRUD (tables: sc_category, sc_cat_item, item_option_new). | portal_developer, service_desk, full |
+| `manage_catalog` | R/W | Catalog category/item/variable CRUD (tables: sc_category, sc_cat_item, item_option_new). | portal_developer, service_desk (get_item, list_categories, list_item_variables, list_items), full |
 
 ### Change Tools (4)
 
@@ -80,7 +82,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_flow_designer` | R/W | Flow Designer read/inspect. Edits LIMITED to action inputs + trigger/branch conditions; no structural changes (use UI). | core, standard, portal_developer, platform_developer, service_desk, full |
+| `manage_flow_designer` | R/W | Flow Designer read/inspect. Edits LIMITED to action inputs + trigger/branch conditions; no structural changes (use UI). | core (list), standard (get_action_source, get_detail, get_executions, list), portal_developer, platform_developer, service_desk (get_action_source, get_detail, get_executions, list), full |
 
 ### Incident Management (1)
 
@@ -165,7 +167,7 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_script_include` | R/W | List/get/create/update/delete/execute a script include (table: sys_script_include). | core, standard, portal_developer, platform_developer, service_desk, full |
+| `manage_script_include` | R/W | List/get/create/update/delete/execute a script include (table: sys_script_include). | core (get, list), standard (get, list), portal_developer, platform_developer, service_desk (get, list), full |
 
 ### Scrum Task Tools (1)
 
@@ -238,10 +240,10 @@ These tools are registered in code but intentionally excluded from the packaged 
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_widget_dependency` | R/W | CRUD + link/unlink for widget Angular providers & CSS/JS dependencies. Use action=list first for sys_ids. | standard, portal_developer, platform_developer, service_desk, full |
+| `manage_widget_dependency` | R/W | CRUD + link/unlink for widget Angular providers & CSS/JS dependencies. Use action=list first for sys_ids. | standard (get, list), portal_developer, platform_developer (get, list), service_desk (get, list), full |
 
 ### Workflow (1)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_workflow` | R/W | LEGACY workflows (wf_workflow/wf_activity). For modern Flow Designer use manage_flow_designer. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `manage_workflow` | R/W | LEGACY workflows (wf_workflow/wf_activity). For modern Flow Designer use manage_flow_designer. | core (get_activities, list), standard (get_activities, list), portal_developer, platform_developer, service_desk (get_activities, list), full |
