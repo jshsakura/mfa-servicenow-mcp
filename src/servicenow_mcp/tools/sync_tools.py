@@ -158,6 +158,10 @@ class PushLocalComponentParams(BaseModel):
         default=False,
         description="Override a conflict (remote changed since download) and push anyway. Default false.",
     )
+    cross_instance_deploy: bool = Field(
+        default=False,
+        description="Deploy local source to a DIFFERENT instance than its origin; target record re-resolved by name.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +446,35 @@ def _reverse_lookup_name(map_data: Dict[str, str], safe_name: str) -> str | None
         if _safe_name(key) == safe_name or key == safe_name:
             return key
     return None
+
+
+def _resolve_target_by_name(
+    config: ServerConfig, auth_manager: AuthManager, table: str, name: str
+) -> List[Dict[str, str]]:
+    """Look up a record on the TARGET instance by its name — used for
+    cross-instance deploy so we push to the target's OWN sys_id instead of the
+    origin's (which may not exist / may be a different record on the target). The
+    name is the stable identity across instances; returns all matches so the
+    caller can require exactly one (0 = not there, >1 = ambiguous)."""
+    safe_name = name.replace("^", "").replace("=", "")
+    try:
+        resp = sn_query(
+            config,
+            auth_manager,
+            GenericQueryParams(
+                table=table,
+                query=f"name={safe_name}",
+                fields="sys_id,name",
+                limit=5,
+                offset=0,
+                display_value=False,
+            ),
+        )
+        rows = resp.get("results", []) if isinstance(resp, dict) else []
+    except Exception:
+        logger.debug("Target name lookup failed for %s name=%s", table, name, exc_info=True)
+        return []
+    return [r for r in rows if isinstance(r, dict)]
 
 
 def _push_actor_username(config: ServerConfig, auth_manager: AuthManager) -> str:
@@ -829,10 +862,67 @@ def update_remote_from_local(
     except ValueError as e:
         return {"error": str(e)}
 
-    try:
-        _validate_instance_url(resolved, config)
-    except ValueError as e:
-        return {"error": str(e)}
+    # Cross-instance deploy gate. Local source records its origin instance; when
+    # the push target differs, we do NOT blindly trust the origin's sys_id (it may
+    # be absent or a DIFFERENT record on the target). Instead, with explicit
+    # opt-in, re-resolve the target record BY NAME on the target instance and push
+    # to its own sys_id — works whether or not the two instances share sys_ids,
+    # and never touches the wrong record (0/many matches stop it). Without opt-in,
+    # inform rather than hard-wall (don't force a re-download).
+    origin = (resolved.instance_url or "").rstrip("/")
+    active = config.instance_url.rstrip("/")
+    is_cross_instance = bool(origin and origin != active)
+    cross_instance_deploy = False
+
+    if is_cross_instance:
+        if not params.cross_instance_deploy:
+            return {
+                "error": "CROSS_INSTANCE",
+                "message": (
+                    f"Local source is from '{origin}', but the target is '{active}'. To deploy "
+                    f"across instances pass cross_instance_deploy=true — the target record is "
+                    f"re-resolved BY NAME on '{active}' (its own sys_id), so it works whether or "
+                    f"not the instances share sys_ids and never hits the wrong record. (Or "
+                    f"re-download from '{active}' to edit it there directly.)"
+                ),
+                "origin_instance": origin,
+                "target_instance": active,
+                "component": {"table": resolved.table, "name": resolved.name},
+            }
+        matches = _resolve_target_by_name(config, auth_manager, resolved.table, resolved.name)
+        if not matches:
+            return {
+                "error": "TARGET_NOT_FOUND",
+                "message": (
+                    f"No '{resolved.name}' record found on '{active}' ({resolved.table}). "
+                    f"Cross-instance deploy updates an existing record only — it never creates."
+                ),
+                "component": {"table": resolved.table, "name": resolved.name},
+            }
+        if len(matches) > 1:
+            return {
+                "error": "TARGET_AMBIGUOUS",
+                "message": (
+                    f"{len(matches)} records named '{resolved.name}' on '{active}' "
+                    f"({resolved.table}) — can't pick the deploy target unambiguously."
+                ),
+                "candidates": [{"sys_id": m.get("sys_id"), "name": m.get("name")} for m in matches],
+            }
+        # Rebind to the TARGET's own sys_id (new object — never mutate resolved).
+        resolved = _ResolvedComponent(
+            resolved.table,
+            str(matches[0].get("sys_id") or ""),
+            resolved.name,
+            resolved.fields,
+            resolved.scope_root,
+            active,
+        )
+        cross_instance_deploy = True
+    else:
+        try:
+            _validate_instance_url(resolved, config)
+        except ValueError as e:
+            return {"error": str(e)}
 
     # 1. Fetch remote content + sys_updated_on (+ sys_scope so we can align the
     #    session scope before writing — see the pre-write scope alignment below).
@@ -861,7 +951,12 @@ def update_remote_from_local(
     remote_updated_by = str(remote_record.get("sys_updated_by") or "").strip()
     me = _push_actor_username(config, auth_manager)
 
-    drifted = bool(local_updated_on and remote_updated_on and remote_updated_on > local_updated_on)
+    # The baseline lives in _sync_meta from the ORIGIN download, so it's only
+    # meaningful for a same-instance round-trip. For a cross-instance deploy the
+    # target was re-resolved by name (already verified), so skip the drift gate.
+    drifted = not cross_instance_deploy and bool(
+        local_updated_on and remote_updated_on and remote_updated_on > local_updated_on
+    )
     # A known remote editor that isn't the current user (or 'me' is unknown, so we
     # can't rule out a coworker) → flag it as someone else's edit in the message.
     by_known_other = bool(remote_updated_by and remote_updated_by != me)

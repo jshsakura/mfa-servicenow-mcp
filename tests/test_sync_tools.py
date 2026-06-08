@@ -1662,3 +1662,101 @@ class TestPushConflictGate:
         )
         assert result.get("success") is True
         mock_update.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Cross-instance deploy — push dev-origin local source to a different (test)
+# instance, re-resolving the target record BY NAME (no re-download, sys_id-safe).
+# Origin is forced to dev; mock_config targets test.
+# ---------------------------------------------------------------------------
+class TestCrossInstanceDeploy:
+    def _widget_path(self, root):
+        return root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+    def _set_origin_dev(self, root):
+        (root / "_settings.json").write_text(
+            json.dumps({"name": "dev", "url": "https://dev.service-now.com", "g_ck": ""}),
+            encoding="utf-8",
+        )
+
+    def test_blocked_without_optin_informs_not_walls(self, mock_config, mock_auth, download_root):
+        self._set_origin_dev(download_root)
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(self._widget_path(download_root))),
+        )
+        assert result["error"] == "CROSS_INSTANCE"
+        assert result["origin_instance"] == "https://dev.service-now.com"
+        assert result["target_instance"] == "https://test.service-now.com"
+        assert "cross_instance_deploy=true" in result["message"]
+
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_target_not_found(self, mock_resolve, mock_config, mock_auth, download_root):
+        self._set_origin_dev(download_root)
+        mock_resolve.return_value = []
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(self._widget_path(download_root)), cross_instance_deploy=True
+            ),
+        )
+        assert result["error"] == "TARGET_NOT_FOUND"
+
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_target_ambiguous(self, mock_resolve, mock_config, mock_auth, download_root):
+        self._set_origin_dev(download_root)
+        mock_resolve.return_value = [
+            {"sys_id": "a", "name": "my-widget"},
+            {"sys_id": "b", "name": "my-widget"},
+        ]
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(self._widget_path(download_root)), cross_instance_deploy=True
+            ),
+        )
+        assert result["error"] == "TARGET_AMBIGUOUS"
+        assert len(result["candidates"]) == 2
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_deploys_to_target_own_sys_id(
+        self,
+        mock_resolve,
+        mock_fetch,
+        mock_update,
+        mock_write_meta,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        self._set_origin_dev(download_root)
+        # Target (test) has its OWN sys_id for "my-widget", different from dev's wid-1.
+        mock_resolve.return_value = [{"sys_id": "TEST-wid-99", "name": "my-widget"}]
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "TEST-wid-99",
+                "name": "my-widget",
+                "script": "var x = 0;",  # differs from local "var x = 1;"
+                "sys_updated_on": "2025-01-12 09:00:00",  # newer than dev baseline — but
+                "sys_updated_by": "whoever",  # drift gate is skipped for cross-instance
+            },
+            {"sys_id": "TEST-wid-99", "sys_updated_on": "2025-01-12 10:00:00"},
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "TEST-wid-99"}
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(self._widget_path(download_root)), cross_instance_deploy=True
+            ),
+        )
+        assert result.get("success") is True
+        mock_update.assert_called_once()
+        pushed = mock_update.call_args.args[2]
+        assert pushed.sys_id == "TEST-wid-99"  # target's own sys_id, not dev's wid-1

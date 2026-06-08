@@ -85,7 +85,21 @@ After all pushes, suggest: `git add . && git commit` to create a local checkpoin
 | `CONFLICT_OTHER_USER` | A DIFFERENT user (`remote_updated_by`) edited it after your download. Show the user WHO + WHEN; recommend coordinating or re-downloading and re-applying. If the user still wants to overwrite that person's change, pass `force=true` |
 | `403 Forbidden` | Record may be locked to another user's open update set — check ACLs, update set scope, or API permissions |
 | `Component not found` | `_map.json` may be stale — re-download sources |
-| `Instance mismatch` | Local files are from a different instance — re-download |
+| `CROSS_INSTANCE` | Local source is from a DIFFERENT instance than the target (e.g. dev→test). To deploy without re-downloading, re-run with `cross_instance_deploy=true` — the target record is re-resolved BY NAME on the target (its own sys_id), safe whether or not the instances share sys_ids |
+| `TARGET_NOT_FOUND` | Cross-instance deploy: no record of that name on the target. It updates an existing record only — never creates. Create it on the target first if intended |
+| `TARGET_AMBIGUOUS` | Cross-instance deploy: multiple records share the name on the target — disambiguate before deploying |
+
+## Cross-instance deploy (dev → test)
+
+To promote a change you edited against `dev` onto `test` WITHOUT re-downloading test's source:
+
+```
+update_remote_from_local(path=DEV_COMPONENT_PATH, cross_instance_deploy=true)
+```
+
+The target record is matched **by name** on the target instance and pushed to ITS own sys_id, so it works whether or not dev/test share sys_ids and never touches the wrong record (0 matches → `TARGET_NOT_FOUND`, >1 → `TARGET_AMBIGUOUS`).
+
+To just **compare** the same record across two instances (no push), use `compare_instances(source=dev, target=test, table=..., key_field=..., fields="script,css,template,...")` — read-only, by business key.
 
 ## DELEGATE hint
 
