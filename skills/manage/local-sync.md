@@ -82,7 +82,7 @@ After all pushes, suggest: `git add . && git commit` to create a local checkpoin
 | Error | Action |
 |-------|--------|
 | `CONFLICT` | Remote changed since download (by you/unattributed). Re-download, or `force=true` with explicit user approval |
-| `CONFLICT_OTHER_USER` | A DIFFERENT user (`remote_updated_by`) edited it after your download — `force` will NOT bypass. Tell the user WHO + WHEN; coordinate first (ask them to commit/close their update set) or re-download and re-apply. Only override with `confirm_overwrite_of='<their user_name>'` after the user explicitly agrees to overwrite that person's work |
+| `CONFLICT_OTHER_USER` | A DIFFERENT user (`remote_updated_by`) edited it after your download. Show the user WHO + WHEN; recommend coordinating or re-downloading and re-applying. If the user still wants to overwrite that person's change, pass `force=true` |
 | `403 Forbidden` | Record may be locked to another user's open update set — check ACLs, update set scope, or API permissions |
 | `Component not found` | `_map.json` may be stale — re-download sources |
 | `Instance mismatch` | Local files are from a different instance — re-download |
