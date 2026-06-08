@@ -48,6 +48,7 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -291,43 +292,81 @@ def _current_username(server: Any) -> Optional[str]:
         return None
 
 
-def _fetch_record_audit(ctx: WriteGuardContext, table: str, query: str) -> Optional[Dict[str, str]]:
+def _parse_http_date(date_header: Optional[str]) -> Optional[datetime]:
+    """Parse an HTTP ``Date`` response header (RFC 7231, GMT) into an aware UTC
+    datetime, or None if absent/unparseable. This is ServiceNow's OWN clock at
+    the moment it answered — used as the reference 'now' so the concurrent-edit
+    window never depends on the local machine clock (which may have drifted)."""
+    if not date_header:
+        return None
+    try:
+        parsed = parsedate_to_datetime(date_header)
+        if parsed is None:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _fetch_record_audit(
+    ctx: WriteGuardContext, table: str, query: str
+) -> Tuple[Optional[Dict[str, str]], Optional[datetime]]:
     """LIVE fetch of the record's CURRENT sys_updated_by / sys_updated_on from
-    ServiceNow — NOT local cache, NOT the downloaded copy. This is a fresh remote
+    ServiceNow — NOT local cache, NOT the downloaded copy. A fresh remote
     table-API read at write time (encoded `query`, e.g. ``sys_id=...`` or
     ``sys_id=...^ORnumber=...``), so the concurrent-edit decision is made against
-    the record's real present state. Returns None on any failure (fail-open)."""
-    try:
-        from servicenow_mcp.tools.sn_api import sn_query_page
+    the record's real present state.
 
-        records, _ = sn_query_page(
-            ctx.server.config,
-            ctx.server.auth_manager,
-            table=table,
-            query=query,
-            fields="sys_updated_by,sys_updated_on",
-            limit=1,
-            offset=0,
-            display_value=False,
-            fail_silently=True,
+    Returns ``(record, server_now)`` where ``server_now`` is parsed from the
+    response ``Date`` header — ServiceNow's own clock. Both ``sys_updated_on``
+    (raw UTC, display_value=false) and ``server_now`` come from the SAME response,
+    so the elapsed-time calc is server-vs-server and immune to local clock drift.
+    Both ``None`` on any failure (fail-open). No extra round-trip — the Date
+    header rides on the audit fetch we already make."""
+    try:
+        url = f"{ctx.server.config.instance_url}/api/now/table/{table}"
+        params: Dict[str, Any] = {
+            "sysparm_limit": 1,
+            "sysparm_offset": 0,
+            "sysparm_display_value": "false",  # sys_updated_on stays raw UTC
+            "sysparm_exclude_reference_link": "true",
+            "sysparm_fields": "sys_updated_by,sys_updated_on",
+        }
+        if query:
+            params["sysparm_query"] = query
+
+        response = ctx.server.auth_manager.make_request(
+            "GET", url, params=params, timeout=ctx.server.config.request_timeout
         )
-        if records:
-            return records[0]
+        response.raise_for_status()
+        server_now = _parse_http_date(response.headers.get("Date"))
+        rows = (response.json() or {}).get("result", [])
+        record = rows[0] if rows else None
+        return record, server_now
     except Exception:
         logger.debug("Audit fetch failed for %s (%s)", table, query, exc_info=True)
-    return None
+        return None, None
 
 
-def _elapsed_minutes(timestamp_str: Optional[str]) -> Optional[float]:
-    """ServiceNow datetimes are UTC, "YYYY-MM-DD HH:MM:SS"."""
+def _elapsed_minutes(
+    timestamp_str: Optional[str], now: Optional[datetime] = None
+) -> Optional[float]:
+    """Minutes between ``sys_updated_on`` and *now*.
+
+    ServiceNow datetimes are UTC ("YYYY-MM-DD HH:MM:SS"). Pass the SERVER's time
+    (from the audit response ``Date`` header) as *now* so the result is
+    server-vs-server and never depends on the local machine clock; falls back to
+    local UTC only when the server time is unavailable."""
     if not timestamp_str:
         return None
     try:
         ts = datetime.fromisoformat(timestamp_str.replace(" ", "T"))
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
-        delta = datetime.now(timezone.utc) - ts
-        return delta.total_seconds() / 60.0
+        reference = now or datetime.now(timezone.utc)
+        return (reference - ts).total_seconds() / 60.0
     except Exception:
         return None
 
@@ -396,7 +435,7 @@ def _check_concurrent_edit(
     on any uncertainty (audit fetch failed, no editor, unparseable timestamp) —
     a guard must never block a legitimate write on missing data, only on a
     confirmed clash. `label` (e.g. "incident/INC001") is for the message only."""
-    target = _fetch_record_audit(ctx, table, query)
+    target, server_now = _fetch_record_audit(ctx, table, query)
     if target is None:
         return  # fail-open if audit fetch fails
 
@@ -405,7 +444,8 @@ def _check_concurrent_edit(
     if not other or other == me:
         return  # same user (or unknown) — never block your own work
 
-    elapsed = _elapsed_minutes(target.get("sys_updated_on"))
+    # server_now is ServiceNow's clock from the same response — drift-proof.
+    elapsed = _elapsed_minutes(target.get("sys_updated_on"), now=server_now)
     if elapsed is None:
         return
 
