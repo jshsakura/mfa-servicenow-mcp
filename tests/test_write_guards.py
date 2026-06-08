@@ -21,7 +21,13 @@ from servicenow_mcp.policies import (
     run_write_guards,
     strip_guard_fields,
 )
-from servicenow_mcp.policies.write_guards import _is_publish_class, _is_read_only
+from servicenow_mcp.policies.write_guards import (
+    _elapsed_minutes,
+    _fetch_record_audit,
+    _is_publish_class,
+    _is_read_only,
+    _parse_http_date,
+)
 
 
 class _MockAuth:
@@ -200,10 +206,13 @@ def test_g3_blocks_when_other_user_edited_recently() -> None:
     """Within the 10-min window, other user's edit blocks our update."""
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value={
-            "sys_updated_by": "alice@example.com",
-            "sys_updated_on": _utc_iso_minus_min(3),
-        },
+        return_value=(
+            {
+                "sys_updated_by": "alice@example.com",
+                "sys_updated_on": _utc_iso_minus_min(3),
+            },
+            None,
+        ),
     ):
         with pytest.raises(PolicyViolation, match=r"(?s)\[G3\].*alice"):
             run_post_confirm_guards(
@@ -217,10 +226,13 @@ def test_g3_allows_when_my_own_recent_edit() -> None:
     """My own recent edit should not block."""
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value={
-            "sys_updated_by": _MockAuth.username,
-            "sys_updated_on": _utc_iso_minus_min(3),
-        },
+        return_value=(
+            {
+                "sys_updated_by": _MockAuth.username,
+                "sys_updated_on": _utc_iso_minus_min(3),
+            },
+            None,
+        ),
     ):
         run_post_confirm_guards(
             _SERVER,
@@ -233,10 +245,13 @@ def test_g3_allows_when_other_user_edit_is_old() -> None:
     """Outside window, other user's edit should not block."""
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value={
-            "sys_updated_by": "alice@example.com",
-            "sys_updated_on": _utc_iso_minus_min(60),  # 1 hour ago
-        },
+        return_value=(
+            {
+                "sys_updated_by": "alice@example.com",
+                "sys_updated_on": _utc_iso_minus_min(60),  # 1 hour ago
+            },
+            None,
+        ),
     ):
         run_post_confirm_guards(
             _SERVER,
@@ -268,7 +283,7 @@ def test_g3_fails_open_on_missing_audit_data() -> None:
     """If audit fetch returns None, don't block (fail-open)."""
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value=None,
+        return_value=(None, None),
     ):
         run_post_confirm_guards(
             _SERVER,
@@ -282,10 +297,13 @@ def test_g3_custom_window_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN", "60")
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value={
-            "sys_updated_by": "alice@example.com",
-            "sys_updated_on": _utc_iso_minus_min(30),
-        },
+        return_value=(
+            {
+                "sys_updated_by": "alice@example.com",
+                "sys_updated_on": _utc_iso_minus_min(30),
+            },
+            None,
+        ),
     ):
         with pytest.raises(PolicyViolation, match=r"\[G3\]"):
             run_post_confirm_guards(
@@ -338,10 +356,13 @@ def _portal_update_args() -> Dict[str, Any]:
 def test_g8_blocks_portal_update_when_other_user_edited_recently() -> None:
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value={
-            "sys_updated_by": "alice@example.com",
-            "sys_updated_on": _utc_iso_minus_min(3),
-        },
+        return_value=(
+            {
+                "sys_updated_by": "alice@example.com",
+                "sys_updated_on": _utc_iso_minus_min(3),
+            },
+            None,
+        ),
     ):
         with pytest.raises(PolicyViolation, match=r"(?s)\[G8\].*alice"):
             run_post_confirm_guards(_SERVER, "update_portal_component", _portal_update_args())
@@ -350,10 +371,13 @@ def test_g8_blocks_portal_update_when_other_user_edited_recently() -> None:
 def test_g8_allows_my_own_recent_edit() -> None:
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value={
-            "sys_updated_by": _MockAuth.username,
-            "sys_updated_on": _utc_iso_minus_min(2),
-        },
+        return_value=(
+            {
+                "sys_updated_by": _MockAuth.username,
+                "sys_updated_on": _utc_iso_minus_min(2),
+            },
+            None,
+        ),
     ):
         run_post_confirm_guards(_SERVER, "update_portal_component", _portal_update_args())
 
@@ -361,10 +385,13 @@ def test_g8_allows_my_own_recent_edit() -> None:
 def test_g8_allows_old_other_user_edit() -> None:
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value={
-            "sys_updated_by": "alice@example.com",
-            "sys_updated_on": _utc_iso_minus_min(90),
-        },
+        return_value=(
+            {
+                "sys_updated_by": "alice@example.com",
+                "sys_updated_on": _utc_iso_minus_min(90),
+            },
+            None,
+        ),
     ):
         run_post_confirm_guards(_SERVER, "update_portal_component", _portal_update_args())
 
@@ -381,7 +408,7 @@ def test_g8_does_not_double_fetch_for_sn_write() -> None:
     """sn_write is handled by G3; G8 must skip it (no duplicate audit fetch)."""
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value=None,
+        return_value=(None, None),
     ) as mocked_fetch:
         run_post_confirm_guards(
             _SERVER,
@@ -394,7 +421,7 @@ def test_g8_does_not_double_fetch_for_sn_write() -> None:
 def test_g8_fails_open_on_missing_audit() -> None:
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value=None,
+        return_value=(None, None),
     ):
         run_post_confirm_guards(_SERVER, "update_portal_component", _portal_update_args())
 
@@ -423,10 +450,13 @@ def test_concurrent_guard_off_switch_disables_g3_and_g8() -> None:
 def test_g8_registry_blocks_manage_incident_update_other_user() -> None:
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value={
-            "sys_updated_by": "alice@example.com",
-            "sys_updated_on": _utc_iso_minus_min(2),
-        },
+        return_value=(
+            {
+                "sys_updated_by": "alice@example.com",
+                "sys_updated_on": _utc_iso_minus_min(2),
+            },
+            None,
+        ),
     ):
         with pytest.raises(PolicyViolation, match=r"(?s)\[G8\].*alice"):
             run_post_confirm_guards(
@@ -439,10 +469,13 @@ def test_g8_registry_blocks_manage_incident_update_other_user() -> None:
 def test_g8_registry_allows_my_own_edit() -> None:
     with patch(
         "servicenow_mcp.policies.write_guards._fetch_record_audit",
-        return_value={
-            "sys_updated_by": _MockAuth.username,
-            "sys_updated_on": _utc_iso_minus_min(2),
-        },
+        return_value=(
+            {
+                "sys_updated_by": _MockAuth.username,
+                "sys_updated_on": _utc_iso_minus_min(2),
+            },
+            None,
+        ),
     ):
         run_post_confirm_guards(
             _SERVER,
@@ -471,7 +504,7 @@ def test_g8_registry_or_query_matches_sys_id_or_number() -> None:
     def _fake_fetch(ctx, table, query):
         captured["table"] = table
         captured["query"] = query
-        return None  # fail-open; we only inspect the query
+        return None, None  # fail-open; we only inspect the query
 
     with patch("servicenow_mcp.policies.write_guards._fetch_record_audit", _fake_fetch):
         run_post_confirm_guards(
@@ -560,3 +593,132 @@ def test_strip_post_confirm_fields_removes_allow_duplicate() -> None:
     )
     assert "allow_duplicate" not in cleaned
     assert cleaned == {"action": "create", "name": "x"}
+
+
+# ---------------------------------------------------------------------------
+# Server-clock anchoring — the concurrent-edit window must use ServiceNow's
+# clock (response Date header), never the local machine clock (drift-proof).
+# ---------------------------------------------------------------------------
+
+
+from types import SimpleNamespace  # noqa: E402
+
+
+class _FakeResponse:
+    def __init__(self, date_header, result):
+        self.headers = {"Date": date_header} if date_header else {}
+        self._result = result
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {"result": self._result}
+
+
+def _ctx_with_make_request(make_request):
+    auth = SimpleNamespace(make_request=make_request, username=_MockAuth.username)
+    config = SimpleNamespace(instance_url="https://x.service-now.com", request_timeout=30)
+    server = SimpleNamespace(config=config, auth_manager=auth)
+    return SimpleNamespace(server=server)
+
+
+class TestParseHttpDate:
+    def test_valid_gmt_header(self) -> None:
+        dt = _parse_http_date("Sun, 08 Jun 2026 12:00:00 GMT")
+        assert dt == datetime(2026, 6, 8, 12, 0, 0, tzinfo=timezone.utc)
+
+    def test_none_and_garbage_return_none(self) -> None:
+        assert _parse_http_date(None) is None
+        assert _parse_http_date("") is None
+        assert _parse_http_date("not a date") is None
+
+
+class TestElapsedMinutes:
+    def test_uses_explicit_server_now(self) -> None:
+        # ts is 5 min before the supplied server 'now' → exactly 5.0, regardless
+        # of whatever the local clock says.
+        server_now = datetime(2026, 6, 8, 12, 5, 0, tzinfo=timezone.utc)
+        assert _elapsed_minutes("2026-06-08 12:00:00", now=server_now) == 5.0
+
+    def test_falls_back_to_local_when_now_missing(self) -> None:
+        # No server time → local clock; ~3 min ago should be close to 3.
+        elapsed = _elapsed_minutes(_utc_iso_minus_min(3), now=None)
+        assert elapsed is not None and 2.5 < elapsed < 3.5
+
+    def test_none_timestamp(self) -> None:
+        assert _elapsed_minutes(None, now=datetime.now(timezone.utc)) is None
+
+
+class TestConcurrentEditUsesServerClock:
+    def test_blocks_using_server_time_even_when_local_says_ancient(self) -> None:
+        # sys_updated_on is in 2020 — by the local clock that's millions of
+        # minutes ago (would NOT block). But server_now is only 3 min later, so
+        # the server clock says "edited 3 min ago" → block. Proves the window is
+        # anchored on the server's Date, not the local machine.
+        server_now = datetime(2020, 1, 1, 0, 3, 0, tzinfo=timezone.utc)
+        with patch(
+            "servicenow_mcp.policies.write_guards._fetch_record_audit",
+            return_value=(
+                {"sys_updated_by": "alice@example.com", "sys_updated_on": "2020-01-01 00:00:00"},
+                server_now,
+            ),
+        ):
+            with pytest.raises(PolicyViolation, match=r"(?s)\[G3\].*alice"):
+                run_post_confirm_guards(
+                    _SERVER,
+                    "sn_write",
+                    {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+                )
+
+    def test_allows_using_server_time_even_when_local_says_recent(self) -> None:
+        # sys_updated_on is "now" by the local clock (recent → would block), but
+        # server_now is 90 min later → server says it's old → allow.
+        recent = _utc_iso_minus_min(1)
+        server_now = datetime.now(timezone.utc) + timedelta(minutes=90)
+        with patch(
+            "servicenow_mcp.policies.write_guards._fetch_record_audit",
+            return_value=(
+                {"sys_updated_by": "alice@example.com", "sys_updated_on": recent},
+                server_now,
+            ),
+        ):
+            run_post_confirm_guards(
+                _SERVER,
+                "sn_write",
+                {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+            )
+
+
+class TestFetchRecordAuditPlumbing:
+    def test_returns_record_and_parsed_server_date(self) -> None:
+        resp = _FakeResponse(
+            "Sun, 08 Jun 2026 12:00:00 GMT",
+            [{"sys_updated_by": "alice@example.com", "sys_updated_on": "2026-06-08 11:58:00"}],
+        )
+        ctx = _ctx_with_make_request(lambda *a, **k: resp)
+        record, server_now = _fetch_record_audit(ctx, "incident", "sys_id=abc")
+        assert record is not None and record["sys_updated_by"] == "alice@example.com"
+        assert server_now == datetime(2026, 6, 8, 12, 0, 0, tzinfo=timezone.utc)
+
+    def test_no_date_header_yields_none_server_now(self) -> None:
+        resp = _FakeResponse(
+            None, [{"sys_updated_by": "a", "sys_updated_on": "2026-06-08 11:58:00"}]
+        )
+        ctx = _ctx_with_make_request(lambda *a, **k: resp)
+        record, server_now = _fetch_record_audit(ctx, "incident", "sys_id=abc")
+        assert record is not None and server_now is None
+
+    def test_fail_open_on_request_error(self) -> None:
+        def _boom(*a, **k):
+            raise RuntimeError("network down")
+
+        ctx = _ctx_with_make_request(_boom)
+        assert _fetch_record_audit(ctx, "incident", "sys_id=abc") == (None, None)
+
+    def test_empty_result_returns_none_record_with_server_now(self) -> None:
+        resp = _FakeResponse("Sun, 08 Jun 2026 12:00:00 GMT", [])
+        ctx = _ctx_with_make_request(lambda *a, **k: resp)
+        record, server_now = _fetch_record_audit(ctx, "incident", "sys_id=abc")
+        assert record is None
+        assert server_now == datetime(2026, 6, 8, 12, 0, 0, tzinfo=timezone.utc)
