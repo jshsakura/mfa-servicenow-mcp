@@ -1606,3 +1606,62 @@ def test_update_portal_component_conflict_force_overrides(
     assert result.get("error") != "CONFLICT"
     # PATCH (write) + GET (full=True validation read)
     assert mock_auth_manager.make_request.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# _fetch_field_by_sys_id_parallel — concurrent one-record-per-request fetch of
+# a large field (e.g. provider script). Replaces the old sequential N+1 loop.
+# ---------------------------------------------------------------------------
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_page")
+def test_fetch_field_parallel_maps_each_record_one_request(mock_qp):
+    from servicenow_mcp.tools.portal_tools import _fetch_field_by_sys_id_parallel
+
+    scripts = {"a": "scriptA", "b": "scriptB", "c": ""}
+
+    def _side(config, auth_manager, *, table, query, fields, **kw):
+        sid = query.split("=", 1)[1]
+        return ([{"script": scripts[sid]}], None)
+
+    mock_qp.side_effect = _side
+    out = _fetch_field_by_sys_id_parallel(
+        None, None, table="sp_angular_provider", sys_ids=["a", "b", "c"], field="script"
+    )
+    assert out == {"a": "scriptA", "b": "scriptB", "c": ""}
+    # One request per record (no bulk IN) — preserves the no-truncation property.
+    assert mock_qp.call_count == 3
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_page")
+def test_fetch_field_parallel_dedups_and_skips_empty_ids(mock_qp):
+    from servicenow_mcp.tools.portal_tools import _fetch_field_by_sys_id_parallel
+
+    mock_qp.return_value = ([{"script": "x"}], None)
+    out = _fetch_field_by_sys_id_parallel(
+        None, None, table="t", sys_ids=["a", "a", "", "a"], field="script"
+    )
+    assert out == {"a": "x"}
+    assert mock_qp.call_count == 1  # deduped to one unique id, empties dropped
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_page")
+def test_fetch_field_parallel_empty_input_no_calls(mock_qp):
+    from servicenow_mcp.tools.portal_tools import _fetch_field_by_sys_id_parallel
+
+    assert _fetch_field_by_sys_id_parallel(None, None, table="t", sys_ids=[], field="script") == {}
+    mock_qp.assert_not_called()
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_page")
+def test_fetch_field_parallel_fail_open_on_error(mock_qp):
+    from servicenow_mcp.tools.portal_tools import _fetch_field_by_sys_id_parallel
+
+    def _side(config, auth_manager, *, table, query, fields, **kw):
+        if query.endswith("=b"):
+            raise RuntimeError("boom")
+        return ([{"script": "ok"}], None)
+
+    mock_qp.side_effect = _side
+    out = _fetch_field_by_sys_id_parallel(None, None, table="t", sys_ids=["a", "b"], field="script")
+    assert out == {"a": "ok", "b": ""}  # failed id maps to "" — fail-open, no crash

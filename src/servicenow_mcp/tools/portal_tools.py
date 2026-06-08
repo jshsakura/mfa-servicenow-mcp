@@ -808,6 +808,56 @@ def _parallel_chunked_query(
     return rows
 
 
+def _fetch_field_by_sys_id_parallel(
+    config: "ServerConfig",
+    auth_manager: "AuthManager",
+    *,
+    table: str,
+    sys_ids: List[str],
+    field: str,
+) -> Dict[str, str]:
+    """Fetch a single large text *field* (e.g. ``script``) for many records
+    CONCURRENTLY — one record per request via the shared executor.
+
+    Why one-record-per-request rather than a bulk ``sys_idIN`` query: provider
+    scripts are frequently large (>12KB); bundling dozens into one response
+    bloats it and risks truncation. Keeping one value per response preserves that
+    safety while the shared executor removes the sequential round-trip-per-record
+    bottleneck (N sequential GETs → N parallel). Missing/failed fetches map to ""
+    (fail-open). Returns ``{sys_id: field_value}``."""
+    unique_ids = [sid for sid in dict.fromkeys(sys_ids) if sid]
+    if not unique_ids:
+        return {}
+
+    def _fetch_one(sys_id: str) -> Tuple[str, str]:
+        try:
+            rows, _ = sn_query_page(
+                config,
+                auth_manager,
+                table=table,
+                query=f"sys_id={sys_id}",
+                fields=field,
+                limit=1,
+                offset=0,
+                display_value=False,
+                no_count=True,
+            )
+            return sys_id, (str(rows[0].get(field) or "") if rows else "")
+        except Exception:
+            return sys_id, ""
+
+    result: Dict[str, str] = {}
+    executor = _get_page_executor()
+    futures = {executor.submit(_fetch_one, sid): sid for sid in unique_ids}
+    for future in as_completed(futures):
+        try:
+            sys_id, value = future.result()
+            result[sys_id] = value
+        except Exception:
+            logger.warning("Parallel field fetch failed for %s.%s", table, field)
+    return result
+
+
 def _dedupe_preserve_order_strings(values: List[str]) -> List[str]:
     seen: Set[str] = set()
     result: List[str] = []
@@ -3071,29 +3121,21 @@ def download_portal_sources(
                 page_size=100,
                 max_records=1000,
             )
-            # Fetch script per provider individually (no truncation)
+            # Pre-fetch each provider's script CONCURRENTLY — still one record per
+            # request (no bulk IN, so large scripts never truncate) but parallel
+            # instead of one sequential round-trip per provider.
+            provider_scripts = _fetch_field_by_sys_id_parallel(
+                config,
+                auth_manager,
+                table=ANGULAR_PROVIDER_TABLE,
+                sys_ids=[str(p.get("sys_id") or "") for p in provider_rows],
+                field="script",
+            )
             for provider in provider_rows:
                 name = str(provider.get("name") or provider.get("sys_id") or "")
                 sys_id = str(provider.get("sys_id") or "")
                 file_name = _safe_name(name)
-                script = ""
-                if sys_id:
-                    try:
-                        src_rows, _ = sn_query_page(
-                            config,
-                            auth_manager,
-                            table=ANGULAR_PROVIDER_TABLE,
-                            query=f"sys_id={sys_id}",
-                            fields="script",
-                            limit=1,
-                            offset=0,
-                            display_value=False,
-                            no_count=True,
-                        )
-                        if src_rows:
-                            script = str(src_rows[0].get("script") or "")
-                    except Exception:
-                        pass
+                script = provider_scripts.get(sys_id, "")
                 if script.strip():
                     # Folder layout (<table>/<name>/script.js) — same as the
                     # generic downloader and what the uploader reads. See
