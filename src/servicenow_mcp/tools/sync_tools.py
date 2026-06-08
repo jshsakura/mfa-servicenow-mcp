@@ -158,6 +158,10 @@ class PushLocalComponentParams(BaseModel):
         default=False,
         description="Force push even if remote is newer than local download. Default false.",
     )
+    confirm_overwrite_of: str = Field(
+        default="",
+        description="user_name whose edit you accept overwriting (cross-user conflicts; force won't bypass).",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +446,27 @@ def _reverse_lookup_name(map_data: Dict[str, str], safe_name: str) -> str | None
         if _safe_name(key) == safe_name or key == safe_name:
             return key
     return None
+
+
+def _push_actor_username(config: ServerConfig, auth_manager: AuthManager) -> str:
+    """Best-effort current user_name, in the same string form ServiceNow stores
+    in ``sys_updated_by`` — so a push can tell 'my own later edit' from 'someone
+    else changed it'.
+
+    The configured username lives on the ACTIVE sub-config (basic/oauth/browser),
+    not on AuthConfig itself. Empty when unknown (e.g. api_key, or SSO browser
+    auth with no configured username) — and that's deliberately safe: an unknown
+    'me' makes any identified remote editor compare as 'not me', so the stronger
+    cross-user gate applies rather than letting force silently overwrite."""
+    auth = getattr(config, "auth", None)
+    for sub in ("basic", "oauth", "browser"):
+        name = getattr(getattr(auth, sub, None), "username", None)
+        if name:
+            return str(name).strip()
+    # Fallbacks: a top-level username (test doubles) or the auth manager.
+    return str(
+        getattr(auth, "username", None) or getattr(auth_manager, "username", None) or ""
+    ).strip()
 
 
 def _validate_instance_url(resolved: _ResolvedComponent, config: ServerConfig) -> None:
@@ -815,7 +840,7 @@ def update_remote_from_local(
 
     # 1. Fetch remote content + sys_updated_on (+ sys_scope so we can align the
     #    session scope before writing — see the pre-write scope alignment below).
-    all_fields = list(resolved.fields.keys()) + ["sys_updated_on", "sys_scope"]
+    all_fields = list(resolved.fields.keys()) + ["sys_updated_on", "sys_updated_by", "sys_scope"]
     try:
         remote_record = _fetch_portal_component_record(
             config, auth_manager, resolved.table, resolved.sys_id, all_fields
@@ -823,28 +848,71 @@ def update_remote_from_local(
     except ValueError as e:
         return {"error": str(e)}
 
-    # 2. Conflict check
+    # 2. Baseline-drift conflict check — TIME-INDEPENDENT. Compares the remote's
+    #    CURRENT sys_updated_on against the value recorded in _sync_meta at
+    #    download, so it catches an overwrite whether it happened 3 minutes or 3
+    #    DAYS after your download (the 10-min concurrent-edit window can't). Two
+    #    tiers, by who changed it:
+    #      • you / unattributed  → force=true overrides (routine: your re-edit, or
+    #        a stale/absent baseline).
+    #      • a DIFFERENT user    → force is NOT enough. Require an explicit
+    #        confirm_overwrite_of=<their user_name>, so a coworker's concurrent
+    #        edit can never be silently stomped — you must name them to override.
     table_dir = resolved.scope_root / resolved.table
     sync_meta = _read_sync_meta(table_dir)
     meta = sync_meta.get(resolved.name, {})
     local_updated_on = meta.get("sys_updated_on", "")
     remote_updated_on = str(remote_record.get("sys_updated_on") or "")
+    remote_updated_by = str(remote_record.get("sys_updated_by") or "").strip()
+    me = _push_actor_username(config, auth_manager)
 
-    if local_updated_on and remote_updated_on and remote_updated_on > local_updated_on:
-        if not params.force:
+    drifted = bool(local_updated_on and remote_updated_on and remote_updated_on > local_updated_on)
+    # "not provably me": a known remote editor that isn't the current user (or the
+    # current user is unknown, so we can't rule out a coworker).
+    by_known_other = bool(remote_updated_by and remote_updated_by != me)
+
+    if drifted:
+        component_info = {
+            "table": resolved.table,
+            "sys_id": resolved.sys_id,
+            "name": resolved.name,
+        }
+        if by_known_other:
+            if params.confirm_overwrite_of != remote_updated_by:
+                return {
+                    "error": "CONFLICT_OTHER_USER",
+                    "message": (
+                        f"'{remote_updated_by}' modified this record on {remote_updated_on}, "
+                        f"after your download ({local_updated_on}). Pushing now OVERWRITES "
+                        f"their work. Coordinate first (ask them to commit/close their update "
+                        f"set), or re-download and re-apply your change on top. To override "
+                        f"anyway, pass confirm_overwrite_of='{remote_updated_by}'. "
+                        f"force=true does NOT bypass a different-user conflict."
+                    ),
+                    "remote_updated_by": remote_updated_by,
+                    "remote_updated_on": remote_updated_on,
+                    "local_downloaded_on": local_updated_on,
+                    "component": component_info,
+                }
+            logger.warning(
+                "Overwriting %s's edit on %s/%s (%s) per explicit confirm_overwrite_of",
+                remote_updated_by,
+                resolved.table,
+                resolved.name,
+                resolved.sys_id,
+            )
+        elif not params.force:
             return {
                 "error": "CONFLICT",
                 "message": (
-                    "Remote has been modified since your download. "
-                    "Use force=true to override, or re-download first."
+                    f"Remote has been modified since your download (updated {remote_updated_on}; "
+                    f"your baseline {local_updated_on}). Use force=true to override, or "
+                    "re-download first."
                 ),
                 "remote_updated_on": remote_updated_on,
+                "remote_updated_by": remote_updated_by,
                 "local_downloaded_on": local_updated_on,
-                "component": {
-                    "table": resolved.table,
-                    "sys_id": resolved.sys_id,
-                    "name": resolved.name,
-                },
+                "component": component_info,
             }
 
     # 3. Build update_data from local files (only changed fields)
