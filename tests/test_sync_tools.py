@@ -1608,42 +1608,14 @@ class TestPushConflictGate:
         assert result["remote_updated_by"] == "coworker@corp.com"
         mock_update.assert_not_called()
 
-    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
-    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
-    def test_force_does_not_bypass_cross_user(
-        self, mock_fetch, mock_update, mock_config, mock_auth, download_root
-    ):
-        mock_fetch.return_value = self._remote(updated_by="coworker@corp.com")
-        result = update_remote_from_local(
-            mock_config,
-            mock_auth,
-            PushLocalComponentParams(path=str(self._widget_path(download_root)), force=True),
-        )
-        assert result["error"] == "CONFLICT_OTHER_USER"  # force is NOT enough
-        mock_update.assert_not_called()
-
-    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
-    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
-    def test_wrong_confirm_name_blocks(
-        self, mock_fetch, mock_update, mock_config, mock_auth, download_root
-    ):
-        mock_fetch.return_value = self._remote(updated_by="coworker@corp.com")
-        result = update_remote_from_local(
-            mock_config,
-            mock_auth,
-            PushLocalComponentParams(
-                path=str(self._widget_path(download_root)), confirm_overwrite_of="someone-else"
-            ),
-        )
-        assert result["error"] == "CONFLICT_OTHER_USER"
-        mock_update.assert_not_called()
-
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
-    def test_named_confirm_overwrite_proceeds(
+    def test_force_overrides_cross_user(
         self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
     ):
+        # Verification gate, not a hard block: once you've seen who/when (the
+        # un-forced call surfaces it), force=true overrides a coworker's edit too.
         mock_fetch.side_effect = [
             self._remote(updated_by="coworker@corp.com"),
             {"sys_id": "wid-1", "sys_updated_on": "2025-01-12 10:00:00"},  # post-update meta
@@ -1652,10 +1624,7 @@ class TestPushConflictGate:
         result = update_remote_from_local(
             mock_config,
             mock_auth,
-            PushLocalComponentParams(
-                path=str(self._widget_path(download_root)),
-                confirm_overwrite_of="coworker@corp.com",
-            ),
+            PushLocalComponentParams(path=str(self._widget_path(download_root)), force=True),
         )
         assert result.get("success") is True
         mock_update.assert_called_once()
