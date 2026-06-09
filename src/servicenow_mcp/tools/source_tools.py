@@ -2619,7 +2619,7 @@ class DownloadSourcesParams(_ScopeDownloadParams):
 @register_tool(
     "download_sources",
     params=DownloadSourcesParams,
-    description="Targeted source-family refresh (script_includes/server_scripts/ui/api/security/admin). Full dump: download_app_sources.",
+    description="Specific source families only (SIs/BRs/UI/api/security/admin) — NOT full source. Full: download_app_sources.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -3073,7 +3073,7 @@ def _run_or_poll_background(
 @register_tool(
     "download_app_sources",
     params=DownloadAppSourcesParams,
-    description="Full app dump (all source groups + cross-scope deps). Use as Step 1 before audit/diff.",
+    description="Download a scope's FULL source to disk (all groups + deps). THE tool for 'all/full/entire source'. Step 1.",
     serialization="raw_dict",
     return_type=dict,
 )

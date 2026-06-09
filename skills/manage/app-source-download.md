@@ -29,9 +29,11 @@ You are downloading all source code for a ServiceNow application scope to local 
 
 | Mode | When | Tools |
 |------|------|-------|
-| Full app | "전체 받아", no specific type | download_app_sources (orchestrator) |
+| **Full / all / entire source** | "전체 받아", "full source", no specific type | **`download_app_sources`** (orchestrator) — the ONLY full-source tool |
 | Portal only | "위젯만", "포탈 소스" | download_portal_sources |
 | Specific family | "BR만", "SI만", "ACL만" | download_sources(families=[...]) |
+
+> For "full/all source", use `download_app_sources` — NOT `download_portal_sources` (portal widgets/providers only) and NOT `download_sources` (specific families only). Those are partial.
 
 ## Pipeline
 

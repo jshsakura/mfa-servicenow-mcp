@@ -132,7 +132,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 |------|-----|-------------|----------|
 | `analyze_portal_component_update` | R | Analyze a proposed portal component edit and return bounded risk and field-change summaries | portal_developer, full |
 | `detect_angular_implicit_globals` | R | Detect undeclared variable assignments in Angular provider scripts that cause runtime 'not defined' errors. | portal_developer, full |
-| `download_portal_sources` | R | Targeted widget/provider export to disk. Use widget_ids for one widget; download_app_sources for full app. | standard, portal_developer, platform_developer, service_desk, full |
+| `download_portal_sources` | R | Portal widgets/providers ONLY — NOT full source. For all/full source use download_app_sources. widget_ids=one. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_portal_component_code` | R | Fetch widget/provider/SI fields. Returns full body by default. Never chunk for analysis. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_widget_bundle` | R | Fetch full widget bundle (HTML, scripts, providers, CSS/JS dependencies) in one call. Analysis starting point. | standard, portal_developer, platform_developer, service_desk, full |
 | `preview_portal_component_update` | R | Preview bounded before/after snippets and diff for a proposed portal component edit | portal_developer, full |
@@ -197,8 +197,8 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `download_app_sources` | R | Full app dump (all source groups + cross-scope deps). Use as Step 1 before audit/diff. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_sources` | R | Targeted source-family refresh (script_includes/server_scripts/ui/api/security/admin). Full dump: download_app_sources. | platform_developer, full |
+| `download_app_sources` | R | Download a scope's FULL source to disk (all groups + deps). THE tool for 'all/full/entire source'. Step 1. | standard, portal_developer, platform_developer, service_desk, full |
+| `download_sources` | R | Specific source families only (SIs/BRs/UI/api/security/admin) — NOT full source. Full: download_app_sources. | platform_developer, full |
 | `download_table_schema` | R | Download sys_dictionary field defs. Specify tables or auto-detect from local sources. | platform_developer, full |
 | `extract_table_dependencies` | R | GlideRecord table dependency graph from server scripts (SI/BR/widgets). Pass widget_id for one widget. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_metadata_source` | R | Get a single source record (SI, BR, widget, etc.) by name or sys_id. Returns metadata + truncated script body. | standard, portal_developer, platform_developer, service_desk, full |
