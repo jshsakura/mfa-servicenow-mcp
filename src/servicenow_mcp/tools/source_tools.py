@@ -2852,7 +2852,8 @@ def download_table_schema(
 
 class DownloadAppSourcesParams(BaseModel):
     scope: str = Field(
-        ..., description="Scope namespace (x_app) or app name; auto-resolved to the namespace."
+        ...,
+        description="REQUIRED app namespace (x_...) or app name. Ask the user if not given.",
     )
     include_widget_sources: bool = Field(
         default=True,
@@ -3073,7 +3074,7 @@ def _run_or_poll_background(
 @register_tool(
     "download_app_sources",
     params=DownloadAppSourcesParams,
-    description="Download a scope's FULL source to disk (all groups + deps). THE tool for 'all/full/entire source'. Step 1.",
+    description="FULL/all source of an app scope to disk (all groups+deps). scope REQUIRED — ask user. Step 1, not portal.",
     serialization="raw_dict",
     return_type=dict,
 )

@@ -197,7 +197,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `download_app_sources` | R | Download a scope's FULL source to disk (all groups + deps). THE tool for 'all/full/entire source'. Step 1. | standard, portal_developer, platform_developer, service_desk, full |
+| `download_app_sources` | R | FULL/all source of an app scope to disk (all groups+deps). scope REQUIRED — ask user. Step 1, not portal. | standard, portal_developer, platform_developer, service_desk, full |
 | `download_sources` | R | Specific source families only (SIs/BRs/UI/api/security/admin) — NOT full source. Full: download_app_sources. | platform_developer, full |
 | `download_table_schema` | R | Download sys_dictionary field defs. Specify tables or auto-detect from local sources. | platform_developer, full |
 | `extract_table_dependencies` | R | GlideRecord table dependency graph from server scripts (SI/BR/widgets). Pass widget_id for one widget. | standard, portal_developer, platform_developer, service_desk, full |
