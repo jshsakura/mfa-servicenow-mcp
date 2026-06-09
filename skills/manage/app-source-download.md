@@ -39,8 +39,10 @@ You are downloading all source code for a ServiceNow application scope to local 
 
 ### Full App Download
 
+> `scope` is REQUIRED — it's the app to dump (an instance has many apps; there is no "everything" scope). If the user said "전체/full source" but named no app, ASK which app (or x_ namespace) first. Do NOT fall back to download_portal_sources just because it needs no scope.
+
 CALL download_app_sources
-  - scope = INPUT_SCOPE
+  - scope = INPUT_SCOPE   # required; ask the user if unknown
   - include_widget_sources = true
   - include_schema = true
   - auto_resolve_deps = true  # default; pulls cross-scope SI/widget/provider/ui_macro
