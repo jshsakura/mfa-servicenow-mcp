@@ -600,6 +600,27 @@ PORTAL_COMPONENT_EDITABLE_FIELDS: Dict[str, Set[str]] = {
     "sp_css": {"css"},
     "sp_ng_template": {"template"},
     "sys_ui_page": {"html", "client_script", "processing_script"},
+    # --- Code-bearing tables that download_server_sources can pull but had no
+    # write path (the read/write asymmetry). Editable fields mirror each table's
+    # download source_fields, so anything you can download you can push back BY
+    # SYS_ID — the only safe target for these (their names aren't globally unique;
+    # a folder/name-based push can hit the wrong record). sys_update_xml is
+    # deliberately EXCLUDED: it's the update-set change record, not a source.
+    # Scripted REST resource also exposes its path fields (relative_path /
+    # operation_uri) since editing the route is a normal operation.
+    "sys_ws_operation": {"operation_script", "relative_path", "operation_uri"},
+    "sys_ui_action": {"script"},
+    "sys_ui_script": {"script"},
+    "sys_ui_macro": {"xml"},
+    "sys_script_client": {"script"},
+    "catalog_script_client": {"script"},
+    "sys_script_fix": {"script"},
+    "sys_processor": {"script"},
+    "sys_security_acl": {"script"},
+    "sys_transform_script": {"script"},
+    "sysauto_script": {"script"},
+    "sysevent_script_action": {"script"},
+    "sysevent_email_action": {"message_html", "message_text"},
 }
 
 KNOWN_GLOBAL_IDENTIFIERS = {
