@@ -124,6 +124,46 @@ class TestValidatePortalComponentUpdateData:
             _validate_portal_component_update_data("sys_script", {"when": "before"})
 
 
+class TestDownloadablCodeTablesAreEditable:
+    """Close the read/write asymmetry: any code-bearing table that
+    download_server_sources can pull must be editable BY SYS_ID via the pinpoint
+    updater (the safe path — these tables' names aren't globally unique)."""
+
+    @pytest.mark.parametrize(
+        "table,field",
+        [
+            ("sys_ws_operation", "operation_script"),  # Scripted REST resource
+            ("sys_ui_action", "script"),
+            ("sys_ui_script", "script"),
+            ("sys_script_client", "script"),
+            ("catalog_script_client", "script"),
+            ("sys_script_fix", "script"),
+            ("sys_processor", "script"),
+            ("sys_security_acl", "script"),
+            ("sys_transform_script", "script"),
+            ("sysauto_script", "script"),
+            ("sysevent_script_action", "script"),
+            ("sys_ui_macro", "xml"),
+            ("sysevent_email_action", "message_html"),
+        ],
+    )
+    def test_downloadable_code_table_is_editable(self, table, field):
+        result = _validate_portal_component_update_data(table, {field: "x"})
+        assert result == {field: "x"}
+
+    def test_scripted_rest_path_field_editable(self):
+        result = _validate_portal_component_update_data(
+            "sys_ws_operation", {"relative_path": "/end/{po_no}"}
+        )
+        assert result == {"relative_path": "/end/{po_no}"}
+
+    def test_update_set_xml_stays_unwritable(self):
+        # sys_update_xml is the update-set change record, not a source — editing
+        # it directly corrupts the set. Deliberately NOT made writable.
+        with pytest.raises(ValueError, match="Unsupported table 'sys_update_xml'"):
+            _normalize_portal_component_table("sys_update_xml")
+
+
 # ---------------------------------------------------------------------------
 # _summarize_text_preview — lines 275-276
 # ---------------------------------------------------------------------------
