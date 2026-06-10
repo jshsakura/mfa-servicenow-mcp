@@ -1022,6 +1022,7 @@ def update_remote_from_local(
         "sys_updated_by",
         "sys_created_by",
         "sys_scope",
+        "sys_policy",
     ]
     try:
         remote_record = _fetch_portal_component_record(
@@ -1029,6 +1030,25 @@ def update_remote_from_local(
         )
     except ValueError as e:
         return {"error": str(e)}
+
+    # Pre-flight protection check (same as update_portal_component): a Protected
+    # record (sys_policy='read') is locked by ServiceNow — the write WILL be
+    # rejected. Stop with the reason + remedy rather than a doomed push.
+    # sys_policy rode the fetch above, so 0 extra API calls.
+    if str(remote_record.get("sys_policy") or "").strip().lower() == "read":
+        return {
+            "success": False,
+            "error": "PROTECTED_RECORD",
+            "message": (
+                "This record is Protected (sys_policy='read'); ServiceNow blocks writes to "
+                "it. Unprotect it in Studio, or edit it in the UI, then retry."
+            ),
+            "component": {
+                "table": resolved.table,
+                "sys_id": resolved.sys_id,
+                "name": resolved.name,
+            },
+        }
 
     # 2. Baseline-drift verification gate — TIME-INDEPENDENT. Compares the remote's
     #    CURRENT sys_updated_on against the value recorded in _sync_meta at
