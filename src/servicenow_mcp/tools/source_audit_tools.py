@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.progress import emit_progress
 from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
@@ -1244,11 +1245,13 @@ def audit_local_sources(
     instance = manifest.get("instance", "unknown")
 
     # 1. Build source index
+    emit_progress(1, None, "indexing sources")
     source_index = _scan_source_index(scope_root)
     if not source_index:
         return {"success": False, "message": "No source records found in source_root."}
 
     # 2. Build cross-references
+    emit_progress(2, None, "building cross-references")
     cross_refs = _build_cross_references(scope_root, source_index)
 
     # Sibling global/ folder from download_app_sources (sp_instance lives in global scope)
@@ -1266,15 +1269,19 @@ def audit_local_sources(
                 referencers.append({"name": page_label, "type": "page"})
 
     # 3. Detect orphans
+    emit_progress(3, None, "detecting orphans")
     orphans = _detect_orphans(source_index, cross_refs, scope_root, global_root)
 
     # 4. Build execution order
+    emit_progress(4, None, "building execution order")
     execution_order = _build_execution_order(source_index)
 
     # 5. Validate schema references
+    emit_progress(5, None, "validating schema references")
     schema_issues = _validate_schema_references(scope_root, cross_refs)
 
     # 6. Generate domain knowledge units
+    emit_progress(6, None, "generating domain knowledge")
     domain_stats = _generate_domain_knowledge(
         scope_root,
         scope,
@@ -1284,7 +1291,9 @@ def audit_local_sources(
         execution_order,
     )
 
-    # 8. Write JSON data files
+    # 7. Write JSON data files
+    emit_progress(7, None, "writing analysis files")
+
     def _dl_write(p: Path, d: Any) -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1305,6 +1314,7 @@ def audit_local_sources(
         _dl_write(scope_root / "_schema_issues.json", schema_issues)
 
     # 8. Generate HTML report
+    emit_progress(8, None, "generating report")
     html = _generate_html_report(
         scope=scope,
         instance=instance,
@@ -1357,9 +1367,12 @@ def audit_local_sources(
         # files instead of re-querying the instance with the live resolver tools.
         "offline_analysis": {
             "note": (
-                "Relationship data is on disk. For these questions read the file "
-                "directly — do NOT call the live resolver tools again:"
+                "Relationship data is on disk. Answer these OFFLINE (0 API) with "
+                f"query_local_graph(source_root='{scope_root}', action=..., name=...) — "
+                "use uses/used_by/page/impact. Do NOT call the live resolver tools again. "
+                "(Or read the JSON files below directly.)"
             ),
+            "tool": "query_local_graph",
             "widget_to_provider": {
                 "file": str(scope_root / "_graph.json"),
                 "answers": "which Angular providers a widget uses (replaces manage_widget_dependency action=list)",
