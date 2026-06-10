@@ -2832,7 +2832,7 @@ def update_portal_component(
 @register_tool(
     "download_portal_sources",
     params=DownloadPortalSourcesParams,
-    description="Portal widgets/providers ONLY — NOT full source. For all/full source use download_app_sources. widget_ids=one.",
+    description="Targeted portal widgets/providers. Whole app: download_app_sources. widget_ids=one widget.",
     serialization="raw_dict",
     return_type=dict,
 )

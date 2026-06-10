@@ -9,7 +9,7 @@ output: files
 tools:
   - download_app_sources
   - download_portal_sources
-  - download_sources
+  - download_server_sources
   - download_table_schema
 triggers:
   - "앱 소스 다운로드"
@@ -31,9 +31,9 @@ You are downloading all source code for a ServiceNow application scope to local 
 |------|------|-------|
 | **Full / all / entire source** | "전체 받아", "full source", no specific type | **`download_app_sources`** (orchestrator) — the ONLY full-source tool |
 | Portal only | "위젯만", "포탈 소스" | download_portal_sources |
-| Specific family | "BR만", "SI만", "ACL만" | download_sources(families=[...]) |
+| Specific family | "BR만", "SI만", "ACL만" | download_server_sources(families=[...]) |
 
-> For "full/all source", use `download_app_sources` — NOT `download_portal_sources` (portal widgets/providers only) and NOT `download_sources` (specific families only). Those are partial.
+> For "full/all source", use `download_app_sources` — NOT `download_portal_sources` (portal widgets/providers only) and NOT `download_server_sources` (specific families only). Those are partial.
 
 ## Pipeline
 
@@ -95,8 +95,8 @@ One tool, pick families (combine in a single call):
 | "Fix" / "스케줄" / "관리" | `admin` |
 
 ```
-CALL download_sources(scope=INPUT_SCOPE, families=["script_includes"])
-CALL download_sources(scope=INPUT_SCOPE, families=["server_scripts", "ui"])   # combine
+CALL download_server_sources(scope=INPUT_SCOPE, families=["script_includes"])
+CALL download_server_sources(scope=INPUT_SCOPE, families=["server_scripts", "ui"])   # combine
 ```
 
 IF "스키마" or "테이블 정의":
@@ -113,13 +113,13 @@ After any download, suggest:
 temp/<instance>/<scope>/
   sp_widget/           ← download_portal_sources
   sp_angular_provider/ ← download_portal_sources
-  sys_script_include/  ← download_sources(families=["script_includes"])
-  sys_script/          ← download_sources(families=["server_scripts"]) (BR)
-  sys_script_client/   ← download_sources(families=["server_scripts"])
-  sys_ui_action/       ← download_sources(families=["ui"])
-  sys_ws_operation/    ← download_sources(families=["api"])
-  sys_security_acl/    ← download_sources(families=["security"])
-  sys_script_fix/      ← download_sources(families=["admin"])
+  sys_script_include/  ← download_server_sources(families=["script_includes"])
+  sys_script/          ← download_server_sources(families=["server_scripts"]) (BR)
+  sys_script_client/   ← download_server_sources(families=["server_scripts"])
+  sys_ui_action/       ← download_server_sources(families=["ui"])
+  sys_ws_operation/    ← download_server_sources(families=["api"])
+  sys_security_acl/    ← download_server_sources(families=["security"])
+  sys_script_fix/      ← download_server_sources(families=["admin"])
   sys_ui_macro/        ← auto_resolve_deps (if any macros referenced)
   _schema/             ← download_table_schema
   _manifest.json       ← unified inventory

@@ -35,8 +35,9 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
 2. **Bulk source dump for analysis** → `download_app_sources(scope=...)` (Step 1).
    Then `audit_local_sources(source_root=...)` (Step 2). Do NOT chain 7
    individual `download_*` sub-tools — they exist for targeted refreshes only.
-3. **Targeted refresh** (one widget or one source family) → the specific
-   `download_portal_sources(widget_ids=...)` or `download_<family>` sub-tool.
+3. **Targeted refresh** (portal slice or server-side families) → the specific
+   `download_portal_sources(widget_ids=...)` (portal) or
+   `download_server_sources(families=[...])` (SIs/BRs/UI/api/security/admin).
 4. **Already downloaded before** → `diff_local_component(path=...)` first.
    Re-download only if diff reports drift, or if `_manifest.json` is missing.
 5. **Push back to ServiceNow** → `diff_local_component` → `update_remote_from_local`.

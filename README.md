@@ -755,13 +755,13 @@ The download is the source of truth for offline analysis, so it is built to be d
 
 ### Individual Download Tools
 
-Use the orchestrator for a full dump, or `download_sources` for a targeted single-family refresh:
+Use the orchestrator for a full dump, or `download_server_sources` for a targeted single-family refresh:
 
 | Tool | Sources |
 |------|---------|
 | `download_app_sources` | Full app dump (all families + portal + schema + cross-scope deps) |
 | `download_portal_sources` | Widgets, Angular Providers, linked Script Includes |
-| `download_sources` (`families=`) | Targeted refresh — `script_includes`, `server_scripts` (BR/Client/Catalog Client), `ui` (Actions/Scripts/Pages/Macros), `api` (Scripted REST/Processors), `security` (ACLs, script-only by default), `admin` (Fix Scripts/Scheduled Jobs/Script Actions/Notifications/Transforms) |
+| `download_server_sources` (`families=`) | Targeted refresh — `script_includes`, `server_scripts` (BR/Client/Catalog Client), `ui` (Actions/Scripts/Pages/Macros), `api` (Scripted REST/Processors), `security` (ACLs, script-only by default), `admin` (Fix Scripts/Scheduled Jobs/Script Actions/Notifications/Transforms) |
 | `download_table_schema` | sys_dictionary field definitions |
 
 All downloads write full source to disk with zero truncation. Only a summary is returned to the LLM context.

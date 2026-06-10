@@ -50,7 +50,7 @@ from servicenow_mcp.tools.source_tools import (
     _scan_scope_dep_refs,
     _scan_tables_from_source_root,
     _truncate_text,
-    download_sources,
+    download_server_sources,
     download_table_schema,
     extract_table_dependencies,
     extract_widget_table_dependencies,
@@ -1184,7 +1184,7 @@ class TestDownloadToolWrappers:
     )
     @patch("servicenow_mcp.tools.source_tools._download_source_types")
     @patch("servicenow_mcp.tools.source_tools._resolve_scope_root")
-    def test_download_sources_per_family(self, mock_resolve, mock_dl, family, tmp_path):
+    def test_download_server_sources_per_family(self, mock_resolve, mock_dl, family, tmp_path):
         config = _build_config()
         auth_manager = MagicMock()
         mock_resolve.return_value = (tmp_path, tmp_path)
@@ -1195,15 +1195,17 @@ class TestDownloadToolWrappers:
             "total_files": 3,
         }
 
-        result = download_sources(
+        result = download_server_sources(
             config, auth_manager, DownloadSourcesParams(scope="x_app", families=[family])
         )
         assert result["success"] is True
-        assert result["tool"] == "download_sources"
+        assert result["tool"] == "download_server_sources"
 
     @patch("servicenow_mcp.tools.source_tools._download_source_types")
     @patch("servicenow_mcp.tools.source_tools._resolve_scope_root")
-    def test_download_sources_security_script_only_query(self, mock_resolve, mock_dl, tmp_path):
+    def test_download_server_sources_security_script_only_query(
+        self, mock_resolve, mock_dl, tmp_path
+    ):
         config = _build_config()
         auth_manager = MagicMock()
         mock_resolve.return_value = (tmp_path, tmp_path)
@@ -1213,7 +1215,7 @@ class TestDownloadToolWrappers:
             "warnings": [],
             "total_files": 0,
         }
-        download_sources(
+        download_server_sources(
             config,
             auth_manager,
             DownloadSourcesParams(scope="x_app", families=["security"], acl_script_only=True),
