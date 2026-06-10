@@ -187,7 +187,7 @@ class TestServerPackageLoading:
     def test_tool_counts_unchanged_by_allowlist(self):
         # Allowlists narrow visible actions but don't add or remove tools.
         # These counts must match the headline numbers in TOOL_INVENTORY.md.
-        expected = {"core": 12, "standard": 27, "service_desk": 29, "full": 53}
+        expected = {"core": 12, "standard": 28, "service_desk": 30, "full": 54}
         for pkg, count in expected.items():
             s = _server_with_package(pkg)
             assert (
@@ -285,3 +285,38 @@ class TestDispatchRejectGate:
         s = _server_with_package("standard")
         assert "sn_query" in s.enabled_tool_names
         assert s._active_action_allowlists.get("sn_query") is None
+
+    def test_deprecated_download_sources_alias_routes_to_new_name(self):
+        # The generic old name is no longer advertised, but an old caller/allowlist
+        # using it still works — call_tool routes it to the renamed tool.
+        import asyncio
+
+        from servicenow_mcp.server import _DEPRECATED_TOOL_ALIASES
+
+        assert _DEPRECATED_TOOL_ALIASES["download_sources"] == "download_server_sources"
+
+        s = _server_with_package("full")
+        assert "download_server_sources" in s.enabled_tool_names
+        assert "download_sources" not in s.enabled_tool_names  # not in the listed surface
+
+        impl_def = s.tool_definitions["download_server_sources"]
+        marker = {"ran": False}
+
+        def fake_impl(config, auth, params):
+            marker["ran"] = True
+            return {"success": True}
+
+        s.tool_definitions["download_server_sources"] = (
+            fake_impl,
+            impl_def[1],
+            impl_def[2],
+            impl_def[3],
+            impl_def[4],
+        )
+        try:
+            asyncio.run(
+                s._call_tool_impl("download_sources", {"scope": "x_app", "families": ["si"]})
+            )
+            assert marker["ran"], "old name should route to download_server_sources"
+        finally:
+            s.tool_definitions["download_server_sources"] = impl_def

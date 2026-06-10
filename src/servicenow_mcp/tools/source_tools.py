@@ -41,6 +41,7 @@ from servicenow_mcp.utils.download_map import (
     merge_map_file,
     read_download_map,
 )
+from servicenow_mcp.utils.progress import emit_progress
 from servicenow_mcp.utils.registry import register_tool
 from servicenow_mcp.utils.source_layout import FIELD_FILENAME, field_extension
 
@@ -2437,6 +2438,10 @@ def _download_source_types(
                 "sys_id": sys_id,
                 "name": name,
                 "sys_updated_on": str(record.get("sys_updated_on") or ""),
+                # Named baseline: WHO owned the record at download. Free —
+                # sys_updated_by is already in every family's summary_fields. Lets
+                # a later push/diff say "you downloaded when X owned it".
+                "sys_updated_by": str(record.get("sys_updated_by") or ""),
                 "downloaded_at": now_iso,
             }
             manifest_entries.append(
@@ -2617,13 +2622,13 @@ class DownloadSourcesParams(_ScopeDownloadParams):
 
 
 @register_tool(
-    "download_sources",
+    "download_server_sources",
     params=DownloadSourcesParams,
-    description="Specific source families only (SIs/BRs/UI/api/security/admin) — NOT full source. Full: download_app_sources.",
+    description="Targeted server-side source families (SIs/BRs/UI/api/security/admin). Whole app: download_app_sources.",
     serialization="raw_dict",
     return_type=dict,
 )
-def download_sources(
+def download_server_sources(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: DownloadSourcesParams,
@@ -2676,7 +2681,7 @@ def download_sources(
         scope_root,
         dl,
         int((time.perf_counter() - started) * 1000),
-        "download_sources",
+        "download_server_sources",
         scope_resolution=scope_resolution,
     )
 
@@ -3119,6 +3124,12 @@ def download_app_sources(
     # an auth failure trips this, and every later stage short-circuits.
     _auth_abort = {"hit": False}
 
+    # Perceived-speed: report each stage as it starts so a long download streams
+    # "downloading: <stage>" instead of going silent until the end. Indeterminate
+    # total (None) — the group count is dynamic and replayed stages pass through
+    # here too. No-op unless the server installed a progress emitter for the call.
+    _stage_n = {"i": 0}
+
     def _run_stage(key, fn):
         """Run a stage, or replay it from saved progress.
 
@@ -3128,6 +3139,8 @@ def download_app_sources(
         (a partially finished stage is never mistaken for a complete one).
         """
         nonlocal all_files
+        _stage_n["i"] += 1
+        emit_progress(_stage_n["i"], None, f"downloading: {key}")
         # A prior stage already proved auth is dead — skip without running and
         # WITHOUT caching (so a resume after re-login retries this stage).
         if _auth_abort["hit"]:
