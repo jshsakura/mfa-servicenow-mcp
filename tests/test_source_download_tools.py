@@ -2,7 +2,7 @@
 
 Covers:
 - _download_source_types (core loop)
-- download_sources (consolidated targeted source-family refresh)
+- download_server_sources (consolidated targeted source-family refresh)
 - download_table_schema
 - download_app_sources (orchestrator)
 """
@@ -20,7 +20,7 @@ from servicenow_mcp.tools.source_tools import (
     _resolve_scope_root,
     _safe_filename,
     download_app_sources,
-    download_sources,
+    download_server_sources,
     download_table_schema,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
@@ -637,7 +637,7 @@ class TestDownloadSourcesScriptIncludes:
     def test_happy_path(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _strip_source(_si_records())
         mock_query_page.side_effect = _page_side_effect_for(_si_records())
-        result = download_sources(
+        result = download_server_sources(
             config,
             auth,
             DownloadSourcesParams(
@@ -648,7 +648,7 @@ class TestDownloadSourcesScriptIncludes:
         )
 
         assert result["success"] is True
-        assert result["tool"] == "download_sources"
+        assert result["tool"] == "download_server_sources"
         assert result["total_records"] == 2
         assert result["total_files"] == 2
 
@@ -659,7 +659,7 @@ class TestDownloadSourcesScriptIncludes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_empty_scope(self, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = []
-        result = download_sources(
+        result = download_server_sources(
             config,
             auth,
             DownloadSourcesParams(
@@ -672,7 +672,7 @@ class TestDownloadSourcesScriptIncludes:
         assert result["total_records"] == 0
 
     def test_unknown_family_rejected(self, config, auth, tmp_path):
-        result = download_sources(
+        result = download_server_sources(
             config,
             auth,
             DownloadSourcesParams(scope="x_app", output_dir=str(tmp_path), families=["bogus"]),
@@ -681,7 +681,7 @@ class TestDownloadSourcesScriptIncludes:
         assert "bogus" in result["message"]
 
     def test_empty_families_rejected(self, config, auth, tmp_path):
-        result = download_sources(
+        result = download_server_sources(
             config,
             auth,
             DownloadSourcesParams(scope="x_app", output_dir=str(tmp_path), families=[]),
@@ -697,7 +697,7 @@ class TestDownloadSourcesServerScripts:
     ):
         mock_query_all.side_effect = [_strip_source(_br_records()), [], []]
         mock_query_page.side_effect = _page_side_effect_for(_br_records())
-        result = download_sources(
+        result = download_server_sources(
             config,
             auth,
             DownloadSourcesParams(
@@ -722,7 +722,7 @@ class TestDownloadSourcesUIComponents:
     def test_downloads_all_ui_types(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.side_effect = [_strip_source(_ui_action_records()), [], [], []]
         mock_query_page.side_effect = _page_side_effect_for(_ui_action_records())
-        result = download_sources(
+        result = download_server_sources(
             config,
             auth,
             DownloadSourcesParams(
@@ -756,7 +756,7 @@ class TestDownloadSourcesUIComponents:
         ]
         mock_query_all.side_effect = [[], [], _strip_source(ui_page_full), []]
         mock_query_page.side_effect = _page_side_effect_for(ui_page_full)
-        download_sources(
+        download_server_sources(
             config,
             auth,
             DownloadSourcesParams(
@@ -781,7 +781,7 @@ class TestDownloadSourcesAPI:
     ):
         mock_query_all.side_effect = [_strip_source(_rest_records()), []]
         mock_query_page.side_effect = _page_side_effect_for(_rest_records())
-        result = download_sources(
+        result = download_server_sources(
             config,
             auth,
             DownloadSourcesParams(
@@ -806,7 +806,7 @@ class TestDownloadSourcesSecurity:
     def test_acl_script_only_filter(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _strip_source(_acl_records())
         mock_query_page.return_value = ([], None)
-        result = download_sources(
+        result = download_server_sources(
             config,
             auth,
             DownloadSourcesParams(
@@ -826,7 +826,7 @@ class TestDownloadSourcesSecurity:
     def test_acl_all_no_filter(self, mock_query_page, mock_query_all, config, auth, tmp_path):
         mock_query_all.return_value = _strip_source(_acl_records())
         mock_query_page.return_value = ([], None)
-        download_sources(
+        download_server_sources(
             config,
             auth,
             DownloadSourcesParams(
@@ -851,7 +851,7 @@ class TestDownloadSourcesAdmin:
     ):
         mock_query_all.side_effect = [_strip_source(_fix_script_records()), [], [], [], []]
         mock_query_page.side_effect = _page_side_effect_for(_fix_script_records())
-        result = download_sources(
+        result = download_server_sources(
             config,
             auth,
             DownloadSourcesParams(
@@ -873,7 +873,7 @@ class TestDownloadSourcesAdmin:
         # script_includes (1 type) + api (2 types) = 3 source-type queries in one call.
         mock_query_all.side_effect = [_strip_source(_si_records()), [], []]
         mock_query_page.side_effect = _page_side_effect_for(_si_records())
-        result = download_sources(
+        result = download_server_sources(
             config,
             auth,
             DownloadSourcesParams(

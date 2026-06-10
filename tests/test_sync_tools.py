@@ -611,6 +611,182 @@ class TestUpdateRemoteFromLocal:
         assert result["success"] is True
         mock_update.assert_called_once()
 
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_conflict_includes_risk_naming_other_user(
+        self, mock_fetch, mock_config, mock_auth, download_root
+    ):
+        # Remote drifted AND the last editor is someone else → blocked, with a
+        # graduated risk score that NAMES them so the overwrite is never silent.
+        mock_fetch.return_value = {
+            "sys_id": "si-1",
+            "name": "MyUtil",
+            "script": "// remote rewrote this\n// many\n// new\n// lines\nvar a = 1;\n",
+            "sys_updated_on": "2025-01-12 10:00:00",
+            "sys_updated_by": "alice",
+            "sys_scope": "global",
+        }
+        path = download_root / "global" / "sys_script_include" / "MyUtil.script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+        assert result["error"] == "CONFLICT_OTHER_USER"
+        assert result["risk"]["other_user"] is True
+        assert result["risk"]["level"] in ("high", "critical")
+        assert "alice" in result["risk"]["message"]
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_force_overwrite_still_reports_risk(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
+    ):
+        # force=true overwrites, but the risk it overrode stays visible in the
+        # success result — accident-prevention even on a deliberate overwrite.
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "si-1",
+                "name": "MyUtil",
+                "script": "// remote changed\nvar a = 1;\n",
+                "sys_updated_on": "2025-01-12 10:00:00",
+                "sys_updated_by": "alice",
+                "sys_scope": "global",
+            },
+            {"sys_id": "si-1", "sys_updated_on": "2025-01-12 11:00:00"},
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "si-1"}
+
+        path = download_root / "global" / "sys_script_include" / "MyUtil.script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path), force=True)
+        )
+        assert result["success"] is True
+        assert result["risk"]["other_user"] is True
+
+    @patch("servicenow_mcp.tools.sync_tools._resolve_current_user")
+    @patch("servicenow_mcp.tools.sync_tools._push_actor_username")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_live_resolved_self_is_not_flagged_as_other_user(
+        self, mock_fetch, mock_actor, mock_live, mock_config, mock_auth, download_root
+    ):
+        # SSO/browser: no configured username, but the live session says we ARE
+        # 'alice'. alice's own later edit must NOT be flagged as a coworker's —
+        # this is the "another user committed your update set" bug, fixed.
+        mock_actor.return_value = ""  # nothing configured
+        mock_live.return_value = "alice"  # server: you are alice
+        mock_fetch.return_value = {
+            "sys_id": "si-1",
+            "name": "MyUtil",
+            "script": "// my own later edit\nvar a = 1;\n",
+            "sys_updated_on": "2025-01-12 10:00:00",
+            "sys_updated_by": "alice",
+            "sys_scope": "global",
+        }
+        path = download_root / "global" / "sys_script_include" / "MyUtil.script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+        assert result["risk"]["identity"] == "confirmed"
+        assert result["risk"]["other_user"] is False
+        assert result["error"] != "CONFLICT_OTHER_USER"
+
+    @patch("servicenow_mcp.tools.sync_tools._resolve_current_user")
+    @patch("servicenow_mcp.tools.sync_tools._push_actor_username")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_unconfirmed_identity_hedges_not_accuses(
+        self, mock_fetch, mock_actor, mock_live, mock_config, mock_auth, download_root
+    ):
+        # Identity truly unresolvable (config empty AND live lookup failed) →
+        # block on drift, but NEVER assert "bob overwrote you". Hedge instead.
+        mock_actor.return_value = ""
+        mock_live.return_value = ""
+        mock_fetch.return_value = {
+            "sys_id": "si-1",
+            "name": "MyUtil",
+            "script": "// changed\nvar a = 1;\n",
+            "sys_updated_on": "2025-01-12 10:00:00",
+            "sys_updated_by": "bob",
+            "sys_scope": "global",
+        }
+        path = download_root / "global" / "sys_script_include" / "MyUtil.script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+        assert result["error"] == "CONFLICT"  # NOT CONFLICT_OTHER_USER
+        assert result["risk"]["identity"] == "unconfirmed"
+        assert result["risk"]["other_user"] is False
+        assert "confirm" in result["risk"]["message"].lower()
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_flags_ownership_changed_since_download(
+        self, mock_fetch, mock_config, mock_auth, download_root
+    ):
+        # Free signal: the download baseline said 'alice' owned it; remote now
+        # says 'bob' → ownership changed under me. Surfaced from data already on
+        # hand (local baseline + the one fetch), no extra API call.
+        si_meta = download_root / "global" / "sys_script_include" / "_sync_meta.json"
+        si_meta.write_text(
+            json.dumps(
+                {
+                    "MyUtil": {
+                        "sys_id": "si-1",
+                        "sys_updated_on": "2025-01-10 10:00:00",
+                        "sys_updated_by": "alice",
+                        "downloaded_at": "2025-01-10T10:05:00+00:00",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        mock_fetch.return_value = {
+            "sys_id": "si-1",
+            "name": "MyUtil",
+            "script": "// changed remotely\nvar a = 1;\n",
+            "sys_updated_on": "2025-01-12 10:00:00",
+            "sys_updated_by": "bob",
+            "sys_created_by": "alice",
+            "sys_scope": "global",
+        }
+        path = download_root / "global" / "sys_script_include" / "MyUtil.script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+        assert result["risk"]["attribution"] == "ownership_changed"
+        assert result["risk"]["ownership_changed"] is True
+        assert "alice" in result["risk"]["message"] and "bob" in result["risk"]["message"]
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_diff_surfaces_attribution_before_push(
+        self, mock_fetch, mock_config, mock_auth, download_root
+    ):
+        # The handoff must be visible at REVIEW time (diff), before any push.
+        si_meta = download_root / "global" / "sys_script_include" / "_sync_meta.json"
+        si_meta.write_text(
+            json.dumps(
+                {
+                    "MyUtil": {
+                        "sys_id": "si-1",
+                        "sys_updated_on": "2025-01-10 10:00:00",
+                        "sys_updated_by": "alice",
+                        "downloaded_at": "2025-01-10T10:05:00+00:00",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        mock_fetch.return_value = {
+            "sys_id": "si-1",
+            "name": "MyUtil",
+            "script": "var gr = new GlideRecord('task');",
+            "sys_updated_on": "2025-01-12 10:00:00",
+            "sys_updated_by": "bob",
+            "sys_created_by": "alice",
+        }
+        path = download_root / "global" / "sys_script_include" / "MyUtil.script.js"
+        result = diff_local_component(
+            mock_config, mock_auth, DiffLocalComponentParams(path=str(path))
+        )
+        assert result["attribution"]["attribution"] == "ownership_changed"
+
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")

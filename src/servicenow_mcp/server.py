@@ -10,6 +10,7 @@ import os
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Union
 
+import anyio
 import mcp.types as types
 import yaml
 from mcp.server.lowlevel import Server
@@ -37,11 +38,31 @@ from servicenow_mcp.utils.instances import (
     safe_instance_url,
     select_active_alias,
 )
+from servicenow_mcp.utils.progress import use_progress_emitter
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 
 logger = logging.getLogger(__name__)
 
 FastMCP = Server
+
+# Tools heavy enough that streaming mid-call progress is worth a worker thread.
+# MUST be pure data tools — NEVER browser/auth tools, which have to run on the
+# event-loop thread (Playwright requires the thread that created its loop). The
+# whitelist is the hard guarantee behind that invariant; see CLAUDE.md's note on
+# why asyncio.to_thread() was removed for the default dispatch path.
+PROGRESS_STREAMING_TOOLS = frozenset({"download_app_sources"})
+
+# Deprecated tool name -> current name. Routed at call time but NOT advertised in
+# list_tools, so an old name keeps working without cluttering the tool surface.
+_DEPRECATED_TOOL_ALIASES = {"download_sources": "download_server_sources"}
+
+
+def _should_stream_progress(name: str, progress_token: Optional[Union[str, int]]) -> bool:
+    """Stream progress only when the client subscribed (token present) AND the
+    tool is a whitelisted heavy data tool. Everything else keeps the legacy
+    synchronous on-loop path — zero behaviour change."""
+    return progress_token is not None and name in PROGRESS_STREAMING_TOOLS
+
 
 # Define path for the configuration file
 TOOL_PACKAGE_CONFIG_PATH = os.getenv("TOOL_PACKAGE_CONFIG_PATH", "config/tool_packages.yaml")
@@ -1052,6 +1073,13 @@ class ServiceNowMCP:
             ValueError: If the tool is unknown, disabled, or if arguments are invalid.
         """
         logger.info(f"Received call_tool request for tool '{name}'")
+        # Back-compat: route deprecated tool names to their replacement WITHOUT
+        # listing the old name (keeps the tool surface clean; old callers/allowlists
+        # still work). The renamed tool's clearer name is the only one advertised.
+        if name in _DEPRECATED_TOOL_ALIASES:
+            new_name = _DEPRECATED_TOOL_ALIASES[name]
+            logger.info("Tool '%s' is deprecated; routing to '%s'.", name, new_name)
+            name = new_name
         # Handle the introspection tool separately
         if name == "list_tool_packages":
             if self.current_package_name == "none":
@@ -1251,12 +1279,16 @@ class ServiceNowMCP:
             )
             raise ValueError(f"Failed to parse arguments for tool '{name}': {e}") from e
 
-        # Execute the tool implementation function synchronously.
-        # NOTE: asyncio.to_thread() was removed because Playwright (browser auth)
-        # requires execution on the thread that created its event loop. Running in
-        # a separate thread causes crashes during MFA/SSO login flows.
+        # Execute the tool implementation function.
+        # DEFAULT: synchronously on the event-loop thread. asyncio.to_thread() was
+        # removed from the default path because Playwright (browser auth) requires
+        # execution on the thread that created its event loop — a separate thread
+        # crashes MFA/SSO login flows. Whitelisted heavy DATA tools (no Playwright)
+        # may opt into a worker thread to stream progress; see _invoke_impl.
         try:
-            result = impl_func(call_config, call_auth_manager, params)
+            result = await self._invoke_impl(
+                name, impl_func, call_config, call_auth_manager, params
+            )
             logger.debug(f"Raw result type from tool '{name}': {type(result)}")
         except Exception as e:
             logger.error(f"Error executing tool '{name}': {e}", exc_info=True)
@@ -1314,6 +1346,55 @@ class ServiceNowMCP:
 
         # Return a list with a TextContent object
         return [types.TextContent(type="text", text=serialized_string)]
+
+    def _progress_channel(self):
+        """Return (progress_token, session) for the in-flight request, or
+        (None, None) when there is no request context or the client did not
+        request progress (no progressToken in the call's _meta)."""
+        try:
+            ctx = self.mcp_server.request_context
+        except LookupError:
+            return None, None
+        meta = getattr(ctx, "meta", None)
+        token = getattr(meta, "progressToken", None) if meta is not None else None
+        if token is None:
+            return None, None
+        return token, getattr(ctx, "session", None)
+
+    async def _invoke_impl(self, name, impl_func, call_config, call_auth_manager, params):
+        """Dispatch a tool, streaming progress when it is worthwhile and safe.
+
+        Default path (everything except whitelisted heavy data tools, or any tool
+        when the client did not subscribe): run synchronously on the event-loop
+        thread — preserves the browser-auth invariant (Playwright needs its
+        creating thread).
+
+        Streaming path (whitelisted DATA tool + subscribed client): run in a
+        worker thread and bridge each emit_progress() call back to the loop as an
+        MCP progress notification. A failed notification never breaks the tool.
+        """
+        progress_token, session = self._progress_channel()
+        if session is None or not _should_stream_progress(name, progress_token):
+            return impl_func(call_config, call_auth_manager, params)
+
+        def _report(progress, total, message):
+            # Runs in the worker thread; hop back to the loop to send the notice.
+            try:
+                anyio.from_thread.run(
+                    session.send_progress_notification,
+                    progress_token,
+                    progress,
+                    total,
+                    message,
+                )
+            except Exception:  # noqa: BLE001 - progress must never break the tool
+                logger.debug("send_progress_notification failed; ignoring", exc_info=True)
+
+        def _worker():
+            with use_progress_emitter(_report):
+                return impl_func(call_config, call_auth_manager, params)
+
+        return await anyio.to_thread.run_sync(_worker)
 
     @contextlib.contextmanager
     def _scoped_active_instance(self, ctx: Optional[Dict[str, Any]]):

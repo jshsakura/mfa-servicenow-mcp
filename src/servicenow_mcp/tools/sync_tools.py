@@ -22,6 +22,7 @@ from .portal_tools import (
     _safe_name,
     update_portal_component,
 )
+from .push_safety import assess_push_risk, describe_attribution
 from .sn_api import GenericQueryParams, sn_query
 
 logger = logging.getLogger(__name__)
@@ -498,6 +499,52 @@ def _push_actor_username(config: ServerConfig, auth_manager: AuthManager) -> str
     ).strip()
 
 
+# Live current-user, cached per instance. Successes only (a transient failure
+# retries next push instead of permanently hedging).
+_CURRENT_USER_CACHE: Dict[str, str] = {}
+
+
+def _resolve_current_user(config: ServerConfig, auth_manager: AuthManager) -> str:
+    """Ask the live session who it is: GET /api/now/ui/user/current_user.
+
+    A valid session always knows its user (it's how the UI greets you), so an
+    SSO/browser login with no configured username is still identifiable — we just
+    ask the server. Cheap, cached. '' on any failure → caller hedges, never
+    falsely accuses.
+    """
+    base = config.instance_url.rstrip("/")
+    cached = _CURRENT_USER_CACHE.get(base)
+    if cached:
+        return cached
+    name = ""
+    try:
+        response = auth_manager.make_request(
+            "GET", f"{base}/api/now/ui/user/current_user", timeout=config.timeout
+        )
+        payload = response.json() if hasattr(response, "json") else {}
+        result = payload.get("result", payload) if isinstance(payload, dict) else {}
+        if isinstance(result, dict):
+            name = str(result.get("user_name") or result.get("name") or "").strip()
+    except Exception as exc:  # noqa: BLE001 - identity is best-effort
+        logger.debug("current_user lookup failed: %s", exc)
+    if name:
+        _CURRENT_USER_CACHE[base] = name
+    return name
+
+
+def _resolve_push_actor(config: ServerConfig, auth_manager: AuthManager) -> tuple:
+    """Return (username, confirmed). The configured username or a live session
+    lookup are both trusted identities. Only when BOTH fail do we return
+    ('', False) so the push gate HEDGES instead of blaming a coworker."""
+    name = _push_actor_username(config, auth_manager)
+    if name:
+        return name, True
+    live = _resolve_current_user(config, auth_manager)
+    if live:
+        return live, True
+    return "", False
+
+
 def _validate_instance_url(resolved: _ResolvedComponent, config: ServerConfig) -> None:
     """Ensure local files belong to the instance this write will hit.
 
@@ -763,7 +810,11 @@ def diff_local_component(
     except ValueError as e:
         return {"error": str(e)}
 
-    remote_fields = list(resolved.fields.keys()) + ["sys_updated_on", "sys_updated_by"]
+    remote_fields = list(resolved.fields.keys()) + [
+        "sys_updated_on",
+        "sys_updated_by",
+        "sys_created_by",
+    ]
     try:
         remote_record = _fetch_portal_component_record(
             config, auth_manager, resolved.table, resolved.sys_id, remote_fields, full=True
@@ -778,6 +829,13 @@ def diff_local_component(
     remote_updated_on = str(remote_record.get("sys_updated_on") or "")
     # sys_updated_by is a string (user_name) field — readable as-is.
     remote_updated_by = _display_str(remote_record.get("sys_updated_by"))
+    # Free attribution corroboration (same fetch + local baseline) so a handoff /
+    # spoofed editor is visible at REVIEW time, before any push. No extra API.
+    attribution = describe_attribution(
+        baseline_by=meta.get("sys_updated_by", ""),
+        current_by=remote_updated_by,
+        created_by=_display_str(remote_record.get("sys_created_by")),
+    )
     conflict_warning = None
     if local_updated_on and remote_updated_on and remote_updated_on > local_updated_on:
         by = f" by {remote_updated_by}" if remote_updated_by else ""
@@ -833,11 +891,44 @@ def diff_local_component(
         "conflict_warning": conflict_warning,
         "diffs": diffs,
     }
+    # Surface attribution only when it's NOT plain-consistent — token-lean: a
+    # clean record adds nothing, a handoff/shared one shows the evidence.
+    if attribution["attribution"] != "consistent":
+        result["attribution"] = attribution
     if conflict_warning and remote_updated_by:
         result["remote_updated_by"] = remote_updated_by
     if not resolved.instance_url:
         result["origin_unverified"] = _ORIGIN_UNVERIFIED_MSG
     return result
+
+
+def _build_update_data_and_magnitude(resolved, remote_record):
+    """Local-only: changed fields + (changed_lines, total_lines) for risk scoring.
+
+    No network. Line-ending normalized so a pure CRLF<->LF delta is neither
+    pushed nor counted as a change. changed_lines approximates the edit size via
+    difflib opcodes (added/removed lines per modified field).
+    """
+    update_data: Dict[str, str] = {}
+    changed_lines = 0
+    total_lines = 0
+    for field_name, file_path in resolved.fields.items():
+        remote_content = str(remote_record.get(field_name) or "")
+        total_lines += len(remote_content.splitlines())
+        if not file_path.exists():
+            continue
+        local_content = file_path.read_text(encoding="utf-8")
+        if _normalize_for_compare(local_content) != _normalize_for_compare(remote_content):
+            update_data[field_name] = local_content
+            matcher = difflib.SequenceMatcher(
+                None, remote_content.splitlines(), local_content.splitlines()
+            )
+            changed_lines += sum(
+                max(i2 - i1, j2 - j1)
+                for tag, i1, i2, j1, j2 in matcher.get_opcodes()
+                if tag != "equal"
+            )
+    return update_data, changed_lines, total_lines
 
 
 # ---------------------------------------------------------------------------
@@ -926,7 +1017,12 @@ def update_remote_from_local(
 
     # 1. Fetch remote content + sys_updated_on (+ sys_scope so we can align the
     #    session scope before writing — see the pre-write scope alignment below).
-    all_fields = list(resolved.fields.keys()) + ["sys_updated_on", "sys_updated_by", "sys_scope"]
+    all_fields = list(resolved.fields.keys()) + [
+        "sys_updated_on",
+        "sys_updated_by",
+        "sys_created_by",
+        "sys_scope",
+    ]
     try:
         remote_record = _fetch_portal_component_record(
             config, auth_manager, resolved.table, resolved.sys_id, all_fields
@@ -949,7 +1045,10 @@ def update_remote_from_local(
     local_updated_on = meta.get("sys_updated_on", "")
     remote_updated_on = str(remote_record.get("sys_updated_on") or "")
     remote_updated_by = str(remote_record.get("sys_updated_by") or "").strip()
-    me = _push_actor_username(config, auth_manager)
+    # Resolve WHO we are with confidence. A live session knows its user, so when
+    # the configured username is absent (SSO/browser) we ASK the server rather
+    # than guess — only a genuine resolution failure leaves identity unconfirmed.
+    me, me_confirmed = _resolve_push_actor(config, auth_manager)
 
     # The baseline lives in _sync_meta from the ORIGIN download, so it's only
     # meaningful for a same-instance round-trip. For a cross-instance deploy the
@@ -957,9 +1056,29 @@ def update_remote_from_local(
     drifted = not cross_instance_deploy and bool(
         local_updated_on and remote_updated_on and remote_updated_on > local_updated_on
     )
-    # A known remote editor that isn't the current user (or 'me' is unknown, so we
-    # can't rule out a coworker) → flag it as someone else's edit in the message.
-    by_known_other = bool(remote_updated_by and remote_updated_by != me)
+
+    # Local-only magnitude + deterministic risk score. Built BEFORE the gate so a
+    # blocked push and a forced push both surface the same "what you're about to
+    # overwrite" picture. No network here — keeps the gate's no-network invariant.
+    update_data, _changed_lines, _total_lines = _build_update_data_and_magnitude(
+        resolved, remote_record
+    )
+    risk = assess_push_risk(
+        me=me,
+        remote_updated_by=remote_updated_by,
+        drifted=drifted,
+        changed_lines=_changed_lines,
+        total_lines=_total_lines,
+        me_confirmed=me_confirmed,
+        # Free corroboration from the SAME fetch + the local download baseline:
+        # who created it, and who owned it when you downloaded. No extra API.
+        baseline_by=meta.get("sys_updated_by", ""),
+        created_by=str(remote_record.get("sys_created_by") or "").strip(),
+    )
+    # CONFLICT_OTHER_USER is asserted ONLY when identity is confirmed AND differs
+    # — never on an unconfirmed guess (that was the false "someone else committed
+    # your update set" bug). Unconfirmed-but-drifted still blocks as CONFLICT.
+    confirmed_other = risk["other_user"]
 
     if drifted:
         if not params.force:
@@ -968,28 +1087,21 @@ def update_remote_from_local(
                 "sys_id": resolved.sys_id,
                 "name": resolved.name,
             }
-            if by_known_other:
-                message = (
-                    f"'{remote_updated_by}' modified this record on {remote_updated_on}, after "
-                    f"your download ({local_updated_on}). Pushing OVERWRITES their work — verify "
-                    f"with them first (or re-download and re-apply). Pass force=true to override."
-                )
-                error_code = "CONFLICT_OTHER_USER"
-            else:
-                message = (
-                    f"Remote changed since your download (updated {remote_updated_on}; your "
-                    f"baseline {local_updated_on}). Pass force=true to override, or re-download."
-                )
-                error_code = "CONFLICT"
+            error_code = "CONFLICT_OTHER_USER" if confirmed_other else "CONFLICT"
+            message = (
+                f"{risk['message']} (remote updated {remote_updated_on}; your baseline "
+                f"{local_updated_on}.) Pass force=true to override, or re-download and re-apply."
+            )
             return {
                 "error": error_code,
                 "message": message,
+                "risk": risk,
                 "remote_updated_by": remote_updated_by,
                 "remote_updated_on": remote_updated_on,
                 "local_downloaded_on": local_updated_on,
                 "component": component_info,
             }
-        if by_known_other:
+        if confirmed_other:
             logger.warning(
                 "force=true overwriting %s's edit on %s/%s (%s, updated %s)",
                 remote_updated_by,
@@ -999,19 +1111,7 @@ def update_remote_from_local(
                 remote_updated_on,
             )
 
-    # 3. Build update_data from local files (only changed fields)
-    update_data: Dict[str, str] = {}
-    for field_name, file_path in resolved.fields.items():
-        if not file_path.exists():
-            continue
-        local_content = file_path.read_text(encoding="utf-8")
-        remote_content = str(remote_record.get(field_name) or "")
-        # Line-ending–normalized: never push a pure CRLF<->LF delta (ServiceNow
-        # normalizes EOLs on store anyway, and a noise-only write can spuriously
-        # trip ACL/conflict paths).
-        if _normalize_for_compare(local_content) != _normalize_for_compare(remote_content):
-            update_data[field_name] = local_content
-
+    # 3. update_data was built above (with the magnitude used for risk scoring).
     if not update_data:
         return {
             "message": "No changes to push — local files match remote.",
@@ -1151,6 +1251,7 @@ def update_remote_from_local(
 
     # 6. Enrich result (reached only on a confirmed successful push)
     result["success"] = True
+    result["risk"] = risk
     result["local_sync"] = {
         "pushed_from": str(path),
         "fields_pushed": list(update_data.keys()),
