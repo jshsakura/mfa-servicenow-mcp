@@ -2748,6 +2748,9 @@ def update_portal_component(
     fetch_fields = list(normalized_update_data.keys())
     if params.base_updated_on:
         fetch_fields = _dedupe_fields([*fetch_fields, "sys_updated_on"])
+    # sys_policy rides the fetch we already do (0 extra API) for the pre-flight
+    # protection check below.
+    fetch_fields = _dedupe_fields([*fetch_fields, "sys_policy"])
     current_record = _fetch_portal_component_record(
         config,
         auth_manager,
@@ -2755,6 +2758,32 @@ def update_portal_component(
         params.sys_id,
         fetch_fields,
     )
+
+    # Pre-flight protection check. A Protected record (sys_policy='read') is locked
+    # by ServiceNow itself — a Table API write WILL be rejected regardless of role.
+    # Stop here with the real reason + remedy instead of firing a doomed write.
+    if str(current_record.get("sys_policy") or "").strip().lower() == "read":
+        return {
+            "success": False,
+            "error": "PROTECTED_RECORD",
+            "message": (
+                "This record is Protected (sys_policy='read'); ServiceNow blocks Table "
+                "API writes to it. Unprotect it in Studio, or edit it in the UI, then retry."
+            ),
+            "component": {"table": normalized_table, "sys_id": params.sys_id},
+        }
+
+    # Pre-flight advisory (non-blocking): editing an sp_widget SERVER script is
+    # gated by the SP Designer source-context check on some instances (works on
+    # one, 403s on another with identical roles). Surface it up front; the write
+    # still attempts since many instances allow it.
+    pre_flight_warnings: List[str] = []
+    if normalized_table == "sp_widget" and "script" in normalized_update_data:
+        pre_flight_warnings.append(
+            "Editing the sp_widget SERVER script ('script'). Some instances gate this "
+            "behind the SP Designer source-context check and reject the Table API write "
+            "(403) even with sp_admin — if that happens, edit the widget in SP Designer."
+        )
 
     # Conflict check: remote was modified after the caller's last read.
     if params.base_updated_on and not params.force:
@@ -2808,7 +2837,13 @@ def update_portal_component(
     response = auth_manager.make_request("PATCH", url, json=effective_update_data, headers=headers)
 
     if response.status_code >= 400:
-        return {"error": f"Update failed: {response.text}", "status": response.status_code}
+        error_dict: Dict[str, Any] = {
+            "error": f"Update failed: {response.text}",
+            "status": response.status_code,
+        }
+        if pre_flight_warnings:
+            error_dict["pre_flight_warnings"] = pre_flight_warnings
+        return error_dict
 
     invalidate_query_cache(table=normalized_table)
 
@@ -2847,6 +2882,8 @@ def update_portal_component(
     }
     if size_warnings:
         result_dict["size_warnings"] = size_warnings
+    if pre_flight_warnings:
+        result_dict["pre_flight_warnings"] = pre_flight_warnings
     return result_dict
 
 

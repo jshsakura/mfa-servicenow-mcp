@@ -1300,6 +1300,51 @@ class TestUpdatePortalComponentExtra:
         assert result["status"] == 500
 
 
+class TestPreFlightProtection:
+    @patch("servicenow_mcp.tools.portal_tools.sn_query")
+    def test_protected_record_blocked_before_write(self, mock_q, mock_config, mock_auth_manager):
+        # sys_policy='read' → ServiceNow would reject the write. Block pre-flight
+        # with the real reason + remedy, and DON'T attempt the doomed write.
+        mock_q.return_value = {
+            "success": True,
+            "results": [{"sys_id": "s1", "name": "T", "script": "old", "sys_policy": "read"}],
+        }
+        result = update_portal_component(
+            mock_config,
+            mock_auth_manager,
+            UpdatePortalComponentParams(
+                table="sys_script_include", sys_id="s1", update_data={"script": "new"}
+            ),
+        )
+        assert result["error"] == "PROTECTED_RECORD"
+        assert "Studio" in result["message"]
+        assert mock_auth_manager.make_request.call_count == 0  # no write attempted
+
+    @patch("servicenow_mcp.tools.portal_tools.invalidate_query_cache")
+    @patch("servicenow_mcp.tools.portal_tools.sn_query")
+    def test_sp_widget_server_script_warns_but_proceeds(
+        self, mock_q, mock_invalidate, mock_config, mock_auth_manager
+    ):
+        # sp_widget SERVER script edit is instance-gated (SP Designer) — warn, but
+        # don't block (some instances allow it). Write proceeds.
+        mock_q.side_effect = [
+            {"success": True, "results": [{"sys_id": "s1", "name": "W", "script": "old"}]},
+            {"success": True, "results": [{"sys_id": "s1", "name": "W", "script": "new"}]},
+        ]
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_auth_manager.make_request.return_value = mock_response
+        result = update_portal_component(
+            mock_config,
+            mock_auth_manager,
+            UpdatePortalComponentParams(
+                table="sp_widget", sys_id="s1", update_data={"script": "new"}
+            ),
+        )
+        assert result["message"] == "Update successful"
+        assert any("SP Designer" in w for w in result.get("pre_flight_warnings", []))
+
+
 # ---------------------------------------------------------------------------
 # resolve_widget_chain — lines 3346-3347, 3382-3385, 3409-3412, 3454-3459
 # ---------------------------------------------------------------------------
