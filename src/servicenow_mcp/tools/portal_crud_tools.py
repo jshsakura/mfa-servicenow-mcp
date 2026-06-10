@@ -684,7 +684,7 @@ def _local_sync_hint(
 @register_tool(
     name="manage_portal_component",
     params=ManagePortalComponentParams,
-    description="Portal component create (widget/provider/theme/etc.) + update_code.",
+    description="Create portal components; or edit code-record fields by sys_id (widget/SI/UI/Scripted REST/ACL). update_code.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )

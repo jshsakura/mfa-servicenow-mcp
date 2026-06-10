@@ -120,7 +120,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_portal_component` | W | Portal component create (widget/provider/theme/etc.) + update_code. | portal_developer, platform_developer, full |
+| `manage_portal_component` | W | Create portal components; or edit code-record fields by sys_id (widget/SI/UI/Scripted REST/ACL). update_code. | portal_developer, platform_developer, full |
 | `manage_portal_layout` | W | Portal layout: page CRUD + container/row/column + widget instance placement. | portal_developer, platform_developer, full |
 | `scaffold_page` | W | Create a complete portal page with layout (container/rows/columns) and widget placements in one call. Scope is required. | portal_developer, platform_developer, full |
 

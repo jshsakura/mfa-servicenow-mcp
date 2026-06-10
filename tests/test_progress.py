@@ -246,3 +246,46 @@ class TestInvokeImplBridge:
 
         result = asyncio.run(stub._invoke_impl("download_app_sources", impl, None, None, None))
         assert result == {"survived": True}
+
+
+# ---------------------------------------------------------------------------
+# audit_local_sources also streams progress (Phase C expansion)
+# ---------------------------------------------------------------------------
+
+
+class TestAuditEmitsProgress:
+    def test_audit_local_sources_streams_phase_progress(self, config, auth, tmp_path):
+        import json as _json
+
+        from servicenow_mcp.tools.source_audit_tools import (
+            AuditAppSourcesParams,
+            audit_local_sources,
+        )
+
+        (tmp_path / "_manifest.json").write_text(
+            _json.dumps({"scope": "x_app", "instance": "test"}), encoding="utf-8"
+        )
+        rec = tmp_path / "sys_script_include" / "UtilSI"
+        rec.mkdir(parents=True)
+        (rec / "_metadata.json").write_text(
+            _json.dumps(
+                {
+                    "source_type": "script_include",
+                    "table": "sys_script_include",
+                    "sys_id": "s1",
+                    "name": "UtilSI",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (rec / "script.js").write_text("var x = 1;", encoding="utf-8")
+
+        calls = []
+        with use_progress_emitter(lambda p, t, m: calls.append((p, m))):
+            result = audit_local_sources(
+                config, auth, AuditAppSourcesParams(source_root=str(tmp_path))
+            )
+
+        assert result.get("success") is not False
+        assert len(calls) >= 3
+        assert any("cross-reference" in m for _, m in calls)
