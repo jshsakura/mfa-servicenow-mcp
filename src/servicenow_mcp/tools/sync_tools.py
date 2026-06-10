@@ -64,6 +64,7 @@ SINGLE_FILE_TABLES: Set[str] = {
     "sys_script_include",
     "sp_css",
     "sp_ng_template",
+    "sys_ws_operation",
 }
 
 # The downloaders (download_app_sources / download_portal_sources) always write
@@ -82,6 +83,10 @@ SINGLE_FILE_FOLDER_FIELD_MAP: Dict[str, Dict[str, str]] = {
     "sys_script_include": {"script.js": "script"},
     "sp_css": {"css.scss": "css"},
     "sp_ng_template": {"template.html": "template"},
+    # Scripted REST resource: only operation_script is a downloaded source file.
+    # relative_path / operation_uri are metadata — edit those via the sys_id path
+    # (manage_portal_component), not file-based sync.
+    "sys_ws_operation": {"operation_script.js": "operation_script"},
 }
 
 
@@ -113,6 +118,7 @@ SUPPORTED_TABLES: Set[str] = {
     "sp_css",
     "sp_ng_template",
     "sys_ui_page",
+    "sys_ws_operation",
 }
 
 MAX_DIFF_LINES = 120
@@ -261,6 +267,24 @@ def _read_sync_meta(table_dir: Path) -> Dict[str, Dict[str, str]]:
         return {}
 
 
+def _read_metadata_sys_id(record_dir: Path) -> str:
+    """Exact sys_id from a record folder's _metadata.json.
+
+    Collision-proof: operation/script names are NOT globally unique (two web
+    services can each have a 'get' operation), so a name -> _map.json lookup can
+    resolve the WRONG record. The per-folder _metadata.json carries this record's
+    own sys_id, written at download time. '' when absent (fall back to _map.json).
+    """
+    meta = record_dir / "_metadata.json"
+    if not meta.is_file():
+        return ""
+    try:
+        data = json_fast.loads(meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(data.get("sys_id") or "").strip() if isinstance(data, dict) else ""
+
+
 def _read_map_json(table_dir: Path) -> Dict[str, str]:
     """Read _map.json from a table directory. Returns empty dict if missing."""
     path = table_dir / "_map.json"
@@ -321,9 +345,14 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             )
         folder_name = path.name
         map_data = _read_map_json(table_dir)
-        # _map.json keys are original names; folder names are _safe_name(original).
-        # Fall back to reverse lookup so "My Widget [v2]" → "My_Widget_v2" still resolves.
-        sys_id = map_data.get(folder_name) or _reverse_lookup_map(map_data, folder_name)
+        # Prefer this record's own sys_id from _metadata.json (collision-proof);
+        # _map.json keys are original names; folder names are _safe_name(original),
+        # so fall back to direct then reverse lookup.
+        sys_id = (
+            _read_metadata_sys_id(path)
+            or map_data.get(folder_name)
+            or _reverse_lookup_map(map_data, folder_name)
+        )
         if not sys_id:
             raise ValueError(
                 f"Component '{folder_name}' not found in {table_dir / '_map.json'}. "
@@ -369,7 +398,13 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             raise ValueError(f"Unknown file '{filename}' for {table_name}. Supported: {supported}")
         field_name = _field_name_opt
         map_data = _read_map_json(table_dir)
-        sys_id = map_data.get(folder_name) or _reverse_lookup_map(map_data, folder_name)
+        # Prefer the record's own _metadata.json sys_id (collision-proof) over the
+        # name-keyed _map.json — see _read_metadata_sys_id.
+        sys_id = (
+            _read_metadata_sys_id(parent)
+            or map_data.get(folder_name)
+            or _reverse_lookup_map(map_data, folder_name)
+        )
         if not sys_id:
             raise ValueError(f"Component '{folder_name}' not found in {table_dir / '_map.json'}")
         scope_root = table_dir.parent

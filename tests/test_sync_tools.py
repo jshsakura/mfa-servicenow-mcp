@@ -298,6 +298,34 @@ class TestResolveLocalPath:
         assert resolved.sys_id == "br-1"
         assert set(resolved.fields) == {"script", "condition"}
 
+    def test_resolve_scripted_rest_operation_file(self, download_root):
+        # sys_ws_operation/<name>/operation_script.js — the Scripted REST resource
+        # file-based workflow now resolves (was 'Cannot resolve').
+        op_dir = download_root / "global" / "sys_ws_operation" / "get"
+        op_dir.mkdir(parents=True)
+        (op_dir / "_metadata.json").write_text(
+            json.dumps({"sys_id": "op-exact", "name": "get"}), encoding="utf-8"
+        )
+        (op_dir / "operation_script.js").write_text("(function(){})();", encoding="utf-8")
+        resolved = _resolve_local_path(op_dir / "operation_script.js")
+        assert resolved.table == "sys_ws_operation"
+        assert "operation_script" in resolved.fields
+
+    def test_metadata_sys_id_wins_over_colliding_map(self, download_root):
+        # operation names aren't globally unique; the per-folder _metadata.json
+        # sys_id must win over a name-keyed _map.json (collision-proof).
+        op_dir = download_root / "global" / "sys_ws_operation" / "get"
+        op_dir.mkdir(parents=True)
+        (op_dir / "_metadata.json").write_text(
+            json.dumps({"sys_id": "op-exact", "name": "get"}), encoding="utf-8"
+        )
+        (op_dir / "operation_script.js").write_text("x", encoding="utf-8")
+        (download_root / "global" / "sys_ws_operation" / "_map.json").write_text(
+            json.dumps({"get": "op-WRONG-from-other-webservice"}), encoding="utf-8"
+        )
+        resolved = _resolve_local_path(op_dir / "operation_script.js")
+        assert resolved.sys_id == "op-exact"  # _metadata wins, not the colliding _map
+
     def test_resolve_unknown_file_raises(self, tmp_path):
         (tmp_path / "random.txt").write_text("hello")
         with pytest.raises(ValueError, match="Cannot resolve"):
