@@ -840,9 +840,9 @@ def diff_local_component(
     if local_updated_on and remote_updated_on and remote_updated_on > local_updated_on:
         by = f" by {remote_updated_by}" if remote_updated_by else ""
         conflict_warning = (
-            f"Remote was updated at {remote_updated_on}{by}, "
-            f"after your download (remote was {local_updated_on} at download time). "
-            f"Someone else may have modified this component or holds the update set."
+            f"Changed on the server at {remote_updated_on}{by}, after your download "
+            f"(your copy is from {local_updated_on}). Someone edited it since you "
+            f"downloaded — review before pushing."
         )
 
     diffs: List[Dict[str, Any]] = []
@@ -1089,8 +1089,8 @@ def update_remote_from_local(
             }
             error_code = "CONFLICT_OTHER_USER" if confirmed_other else "CONFLICT"
             message = (
-                f"{risk['message']} (remote updated {remote_updated_on}; your baseline "
-                f"{local_updated_on}.) Pass force=true to override, or re-download and re-apply."
+                f"{risk['message']} (server: {remote_updated_on}, your copy: {local_updated_on}). "
+                f"Use force=true to push anyway, or re-download to get the latest first."
             )
             return {
                 "error": error_code,

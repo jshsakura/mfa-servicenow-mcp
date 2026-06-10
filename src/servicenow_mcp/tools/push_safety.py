@@ -142,32 +142,33 @@ def assess_push_risk(
 
     score = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}[level]
 
-    magnitude = f"~{round(ratio * 100)}% of lines" if total_lines else "an unknown amount"
+    magnitude = f"~{round(ratio * 100)}% of the lines" if total_lines else "an unknown amount"
     if level == "none":
-        message = "Low-risk push: no drift and a small change."
+        message = "Safe to push: nothing changed on the server since your download, and this edit is small."
     elif ownership_changed and drifted:
         message = (
-            f"Ownership changed since your download: recorded owner was '{baseline_by}', "
-            f"now '{remote_editor}'. Your push rewrites {magnitude}. sys_updated_by is only "
-            f"a claim — verify who really holds this before overwriting."
+            f"When you downloaded this, the last editor was '{baseline_by}' — now it's "
+            f"'{remote_editor}'. Someone changed it after your download. Your push would "
+            f"overwrite {magnitude} of the current version; confirm before overwriting."
         )
     elif other_user and drifted:
         message = (
-            f"'{remote_editor}' last modified this record; your push rewrites "
-            f"{magnitude}. Confirm you intend to overwrite their work."
+            f"'{remote_editor}' changed this on the server after your download. Your push "
+            f"would overwrite {magnitude} of their version; confirm before overwriting."
         )
     elif other_user_unconfirmed and drifted:
         message = (
-            f"Remote last edited by '{remote_editor}', but the current user could not be "
-            f"confirmed — verify this isn't your own session before overwriting ({magnitude})."
+            f"'{remote_editor}' changed this after your download. I could not confirm who "
+            f"you are logged in as, so I can't tell whether that was you — confirm before "
+            f"overwriting ({magnitude})."
         )
     elif drifted:
         message = (
-            f"Remote drifted since your download; your push rewrites {magnitude}. "
-            "Review before overwriting."
+            f"This changed on the server after your download. Your push would overwrite "
+            f"{magnitude}; review before overwriting."
         )
     else:
-        message = f"Sizeable change ({magnitude}) — review before pushing."
+        message = f"This is a sizeable edit ({magnitude}); review before pushing."
 
     return {
         "level": level,
