@@ -339,9 +339,11 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         file_field_map = _folder_layout_field_map(table_name)
         if file_field_map is None:
             raise ValueError(
-                f"Directory push is only supported for known tables "
-                f"({', '.join(sorted(FOLDER_TABLES | SINGLE_FILE_TABLES))}). "
-                f"Got: {table_name}"
+                f"File-based push doesn't cover '{table_name}' (file-path tables: "
+                f"{', '.join(sorted(FOLDER_TABLES | SINGLE_FILE_TABLES))}). This is a "
+                f"file-path limit, NOT 'uneditable' — edit it by sys_id instead: "
+                f"manage_portal_component(action='update_code', table='{table_name}', "
+                f"sys_id=..., update_data={{...}})."
             )
         folder_name = path.name
         map_data = _read_map_json(table_dir)
@@ -395,7 +397,12 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         _field_name_opt = file_field_map.get(filename)
         if not _field_name_opt:
             supported = ", ".join(sorted(file_field_map))
-            raise ValueError(f"Unknown file '{filename}' for {table_name}. Supported: {supported}")
+            raise ValueError(
+                f"File-based push doesn't recognize '{filename}' for {table_name} "
+                f"(known files: {supported}). If it's a metadata field (not a downloaded "
+                f"file), edit it by sys_id: manage_portal_component(action='update_code', "
+                f"table='{table_name}', sys_id=..., update_data={{...}})."
+            )
         field_name = _field_name_opt
         map_data = _read_map_json(table_dir)
         # Prefer the record's own _metadata.json sys_id (collision-proof) over the

@@ -334,7 +334,7 @@ class TestResolveLocalPath:
     def test_resolve_unknown_widget_file_raises(self, download_root):
         unknown = download_root / "global" / "sp_widget" / "my-widget" / "unknown.txt"
         unknown.write_text("test")
-        with pytest.raises(ValueError, match="Unknown file"):
+        with pytest.raises(ValueError, match="doesn't recognize"):
             _resolve_local_path(unknown)
 
     def test_resolve_missing_map_entry_raises(self, download_root):
@@ -353,7 +353,7 @@ class TestResolveLocalPath:
         # Passing the TABLE dir (not a record dir) is still unresolvable: its
         # parent ("global") is not a known table.
         path = download_root / "global" / "sp_angular_provider"
-        with pytest.raises(ValueError, match="Directory push is only supported"):
+        with pytest.raises(ValueError, match="File-based push doesn't cover"):
             _resolve_local_path(path)
 
     def test_resolve_provider_folder_layout_file(self, download_root):
