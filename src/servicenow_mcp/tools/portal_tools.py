@@ -2759,28 +2759,20 @@ def update_portal_component(
         fetch_fields,
     )
 
-    # Pre-flight protection check. A Protected record (sys_policy='read') is locked
-    # by ServiceNow itself — a Table API write WILL be rejected regardless of role.
-    # Stop here with the real reason + remedy instead of firing a doomed write.
-    if str(current_record.get("sys_policy") or "").strip().lower() == "read":
-        return {
-            "success": False,
-            "error": "PROTECTED_RECORD",
-            "message": (
-                "This record is Protected (sys_policy='read'): ServiceNow blocks API writes "
-                "to it, but NOT your own UI/Studio edit (protection limits the API, not you). "
-                "Easiest: edit it directly in the UI/Studio — no unprotect needed. Only as a "
-                "last resort, unprotecting (clearing sys_policy) lets an API push through, but "
-                "that changes the protection policy itself, so re-protect after."
-            ),
-            "component": {"table": normalized_table, "sys_id": params.sys_id},
-        }
-
-    # Pre-flight advisory (non-blocking): editing an sp_widget SERVER script is
-    # gated by the SP Designer source-context check on some instances (works on
-    # one, 403s on another with identical roles). Surface it up front; the write
-    # still attempts since many instances allow it.
+    # Pre-flight advisories (NON-blocking). The server is the authority on whether
+    # a write is allowed — we do NOT pre-refuse on our own guess. sys_policy='read'
+    # means "protected", which limits the API but NOT necessarily this caller in
+    # this scope/context (the same record is editable in the UI). So we WARN and
+    # let the server decide; a real rejection comes back as the 403 below.
     pre_flight_warnings: List[str] = []
+    if str(current_record.get("sys_policy") or "").strip().lower() == "read":
+        pre_flight_warnings.append(
+            "Record is Protected (sys_policy='read'): protection limits the API, not your "
+            "UI/Studio edit. Attempting the write anyway — if ServiceNow rejects it (403), "
+            "edit it directly in the UI/Studio (no unprotect needed)."
+        )
+    # Editing an sp_widget SERVER script is gated by the SP Designer source-context
+    # check on some instances (works on one, 403s on another with identical roles).
     if normalized_table == "sp_widget" and "script" in normalized_update_data:
         pre_flight_warnings.append(
             "Editing the sp_widget SERVER script ('script'). Some instances gate this "

@@ -1301,14 +1301,26 @@ class TestUpdatePortalComponentExtra:
 
 
 class TestPreFlightProtection:
+    @patch("servicenow_mcp.tools.portal_tools.invalidate_query_cache")
     @patch("servicenow_mcp.tools.portal_tools.sn_query")
-    def test_protected_record_blocked_before_write(self, mock_q, mock_config, mock_auth_manager):
-        # sys_policy='read' → ServiceNow would reject the write. Block pre-flight
-        # with the real reason + remedy, and DON'T attempt the doomed write.
-        mock_q.return_value = {
-            "success": True,
-            "results": [{"sys_id": "s1", "name": "T", "script": "old", "sys_policy": "read"}],
-        }
+    def test_protected_record_warns_but_attempts(
+        self, mock_q, mock_invalidate, mock_config, mock_auth_manager
+    ):
+        # sys_policy='read' is "protected", which limits the API but not necessarily
+        # this caller/scope (the record is UI-editable). We must NOT pre-refuse on
+        # our own guess — WARN and let the SERVER decide. Earlier this hard-blocked,
+        # which falsely told users an editable record was uneditable.
+        mock_q.side_effect = [
+            {
+                "success": True,
+                "results": [{"sys_id": "s1", "name": "T", "script": "old", "sys_policy": "read"}],
+            },
+            {"success": True, "results": [{"sys_id": "s1", "name": "T", "script": "new"}]},
+        ]
+        mock_response = MagicMock()
+        mock_response.status_code = 200  # server allows it
+        mock_auth_manager.make_request.return_value = mock_response
+
         result = update_portal_component(
             mock_config,
             mock_auth_manager,
@@ -1316,9 +1328,9 @@ class TestPreFlightProtection:
                 table="sys_script_include", sys_id="s1", update_data={"script": "new"}
             ),
         )
-        assert result["error"] == "PROTECTED_RECORD"
-        assert "Studio" in result["message"]
-        assert mock_auth_manager.make_request.call_count == 0  # no write attempted
+        assert result["message"] == "Update successful"  # attempted, server allowed
+        assert mock_auth_manager.make_request.call_count >= 1  # write WAS attempted
+        assert any("Protected" in w for w in result.get("pre_flight_warnings", []))
 
     @patch("servicenow_mcp.tools.portal_tools.invalidate_query_cache")
     @patch("servicenow_mcp.tools.portal_tools.sn_query")

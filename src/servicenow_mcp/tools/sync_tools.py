@@ -1064,7 +1064,6 @@ def update_remote_from_local(
         "sys_updated_by",
         "sys_created_by",
         "sys_scope",
-        "sys_policy",
     ]
     try:
         remote_record = _fetch_portal_component_record(
@@ -1073,27 +1072,11 @@ def update_remote_from_local(
     except ValueError as e:
         return {"error": str(e)}
 
-    # Pre-flight protection check (same as update_portal_component): a Protected
-    # record (sys_policy='read') is locked by ServiceNow — the write WILL be
-    # rejected. Stop with the reason + remedy rather than a doomed push.
-    # sys_policy rode the fetch above, so 0 extra API calls.
-    if str(remote_record.get("sys_policy") or "").strip().lower() == "read":
-        return {
-            "success": False,
-            "error": "PROTECTED_RECORD",
-            "message": (
-                "This record is Protected (sys_policy='read'): ServiceNow blocks API writes "
-                "to it, but NOT your own UI/Studio edit (protection limits the API, not you). "
-                "Easiest: edit it directly in the UI/Studio — no unprotect needed. Only as a "
-                "last resort, unprotecting (clearing sys_policy) lets a push through, but that "
-                "changes the protection policy itself, so re-protect after."
-            ),
-            "component": {
-                "table": resolved.table,
-                "sys_id": resolved.sys_id,
-                "name": resolved.name,
-            },
-        }
+    # NOTE: no pre-flight protection BLOCK here. A Protected record
+    # (sys_policy='read') limits the API but not necessarily this caller/scope (the
+    # same record is UI-editable), so we never pre-refuse on our own guess — the
+    # actual write goes through update_portal_component, which warns and lets the
+    # SERVER decide. A genuine rejection surfaces there as a 403 with guidance.
 
     # 2. Baseline-drift verification gate — TIME-INDEPENDENT. Compares the remote's
     #    CURRENT sys_updated_on against the value recorded in _sync_meta at
