@@ -2491,10 +2491,11 @@ def _download_source_types(
             names = ", ".join(s["name"] for s in stale_skipped[:10])
             more = "" if len(stale_skipped) <= 10 else f" (+{len(stale_skipped) - 10} more)"
             warnings.append(
-                f"{source_type}: {len(stale_skipped)} local file(s) are STALE — the remote "
-                f"changed since download but resume kept the local copy. The sync watermark was "
-                f"preserved so a push will flag the conflict. Re-download with incremental=true to "
-                f"pull the remote change: {names}{more}"
+                f"{source_type}: {len(stale_skipped)} local file(s) are OLDER than the server — "
+                f"the remote changed after your download, but resume kept your local copy. Nothing "
+                f"was overwritten (the sync watermark was preserved, so a push will flag the "
+                f"conflict). Re-download with incremental=true to pull the server's version: "
+                f"{names}{more}"
             )
 
         type_results[source_type] = {
