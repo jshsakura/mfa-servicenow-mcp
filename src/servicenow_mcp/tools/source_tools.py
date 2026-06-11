@@ -1760,21 +1760,41 @@ def _scan_scope_dep_refs(scope_root: Path) -> Dict[str, Set[str]]:
 
 
 def _collect_downloaded_names(scope_root: Path, table: str, id_field: str) -> Set[str]:
-    """Read _metadata.json files to get set of identifier values already downloaded."""
+    """Identifier values already downloaded for a table.
+
+    Reads BOTH metadata formats: the source download writes _metadata.json, the
+    PORTAL download writes _widget.json (id lives in the nested "widget" payload).
+    Counting only one made the dep resolver blind to portal-downloaded widgets, so
+    it re-downloaded every widget on every run and kept recreating scope-prefixed
+    folders. Both formats now count. The scope-stripped form is also added so a
+    plain ref (e.g. $sp.getWidget('Name')) matches a scoped id (scope.Name).
+    """
     names: Set[str] = set()
     table_dir = scope_root / table
     if not table_dir.is_dir():
         return names
+
+    def _add(val: Any) -> None:
+        if val:
+            names.add(str(val))
+            names.add(str(val).split(".")[-1])
+
     for meta_file in table_dir.rglob("_metadata.json"):
         try:
             data = json.loads(meta_file.read_text(encoding="utf-8"))
-            val = data.get(id_field) or data.get("name")
-            if val:
-                names.add(str(val))
-                names.add(str(val).split(".")[-1])
+            _add(data.get(id_field) or data.get("name"))
         except (OSError, json.JSONDecodeError, AttributeError):
             # OSError: file vanished mid-scan; JSONDecodeError: corrupted metadata
             # written by a previous interrupted run; AttributeError: data is not a dict.
+            pass
+    for widget_file in table_dir.rglob("_widget.json"):
+        try:
+            data = json.loads(widget_file.read_text(encoding="utf-8"))
+            payload = data.get("widget") if isinstance(data, dict) else None
+            if isinstance(payload, dict):
+                _add(payload.get(id_field) or payload.get("name"))
+            _add(data.get("name") if isinstance(data, dict) else None)
+        except (OSError, json.JSONDecodeError, AttributeError):
             pass
     return names
 
@@ -1958,20 +1978,11 @@ def _auto_resolve_deps(
     }
 
     def _saved_names(table: str, id_field: str) -> Set[str]:
-        names: Set[str] = set()
-        tdir = scope_root / table
-        if not tdir.is_dir():
-            return names
-        for meta in tdir.rglob("_metadata.json"):
-            try:
-                d = json.loads(meta.read_text(encoding="utf-8"))
-                v = d.get(id_field) or d.get("name")
-                if v:
-                    names.add(str(v))
-                    names.add(str(v).split(".")[-1])
-            except (OSError, json.JSONDecodeError, AttributeError):
-                pass
-        return names
+        # Single source of truth — counts BOTH _metadata.json AND the portal
+        # _widget.json format. (A local copy here that read only _metadata.json
+        # was the bug: it never saw portal-downloaded widgets, so the resolver
+        # re-fetched every widget every run and recreated scope-prefixed folders.)
+        return _collect_downloaded_names(scope_root, table, id_field)
 
     for depth in range(_dep_max_depth()):
         # Scan all files in scope_root (including newly fetched deps from prior passes)

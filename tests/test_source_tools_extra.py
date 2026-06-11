@@ -449,6 +449,25 @@ class TestCollectDownloadedNames:
         assert "MyHelper" in names
         assert "x_app.MyHelper" in names
 
+    def test_recognizes_portal_widget_json(self, tmp_path):
+        # Portal download writes _widget.json (NOT _metadata.json). The dep
+        # resolver's already-downloaded check must recognize it, or it re-downloads
+        # every widget every run and recreates scope-prefixed folders.
+        wdir = tmp_path / "sp_widget" / "x_app.MyWidget"
+        wdir.mkdir(parents=True)
+        wdir.joinpath("_widget.json").write_text(
+            json.dumps(
+                {
+                    "name": "MyWidget",
+                    "sys_id": "w1",
+                    "widget": {"id": "x_app.MyWidget", "name": "MyWidget"},
+                }
+            )
+        )
+        names = _collect_downloaded_names(tmp_path, "sp_widget", "id")
+        assert "x_app.MyWidget" in names  # full scoped id
+        assert "MyWidget" in names  # plain form (matches plain $sp.getWidget refs)
+
     def test_missing_dir_returns_empty(self, tmp_path):
         names = _collect_downloaded_names(tmp_path, "nonexistent_table", "name")
         assert len(names) == 0
