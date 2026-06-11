@@ -1082,8 +1082,11 @@ def update_remote_from_local(
             "success": False,
             "error": "PROTECTED_RECORD",
             "message": (
-                "This record is Protected (sys_policy='read'); ServiceNow blocks writes to "
-                "it. Unprotect it in Studio, or edit it in the UI, then retry."
+                "This record is Protected (sys_policy='read'): ServiceNow blocks API writes "
+                "to it, but NOT your own UI/Studio edit (protection limits the API, not you). "
+                "Easiest: edit it directly in the UI/Studio — no unprotect needed. Only as a "
+                "last resort, unprotecting (clearing sys_policy) lets a push through, but that "
+                "changes the protection policy itself, so re-protect after."
             ),
             "component": {
                 "table": resolved.table,
