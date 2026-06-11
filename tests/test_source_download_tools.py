@@ -1464,7 +1464,7 @@ class TestResumeSkipWatermark:
         local_script = (si_dir / "x_app.CommitHelper" / "script.js").read_text()
         assert "REMOTE_CHANGED" not in local_script
         # The drift is surfaced so the user knows to refresh.
-        assert any("STALE" in w and "CommitHelper" in w for w in result["warnings"])
+        assert any("OLDER than the server" in w and "CommitHelper" in w for w in result["warnings"])
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
@@ -1475,7 +1475,7 @@ class TestResumeSkipWatermark:
         self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
         # Re-download with identical timestamps → resume-skip, but nothing stale.
         result = self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
-        assert not any("STALE" in w for w in result["warnings"])
+        assert not any("OLDER than the server" in w for w in result["warnings"])
 
 
 # ---------------------------------------------------------------------------
