@@ -268,21 +268,33 @@ def _read_sync_meta(table_dir: Path) -> Dict[str, Dict[str, str]]:
 
 
 def _read_metadata_sys_id(record_dir: Path) -> str:
-    """Exact sys_id from a record folder's _metadata.json.
+    """Exact sys_id from a record folder's metadata file.
 
     Collision-proof: operation/script names are NOT globally unique (two web
     services can each have a 'get' operation), so a name -> _map.json lookup can
-    resolve the WRONG record. The per-folder _metadata.json carries this record's
-    own sys_id, written at download time. '' when absent (fall back to _map.json).
+    resolve the WRONG record. The per-folder metadata carries this record's own
+    sys_id, written at download time. '' when absent (fall back to _map.json).
+
+    Reads BOTH formats: source downloads write _metadata.json; the PORTAL
+    download (download_portal_sources / download_app_sources) writes _widget.json
+    with a top-level "sys_id". Reading only the first made push silently fall
+    back to the name-keyed _map.json for every portal/bulk-downloaded widget,
+    bypassing the collision-proof sys_id that was sitting right there. So the
+    resolution path differed by which downloader wrote the folder; both now count.
     """
-    meta = record_dir / "_metadata.json"
-    if not meta.is_file():
-        return ""
-    try:
-        data = json_fast.loads(meta.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return ""
-    return str(data.get("sys_id") or "").strip() if isinstance(data, dict) else ""
+    for fname in ("_metadata.json", "_widget.json"):
+        meta = record_dir / fname
+        if not meta.is_file():
+            continue
+        try:
+            data = json_fast.loads(meta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            sys_id = str(data.get("sys_id") or "").strip()
+            if sys_id:
+                return sys_id
+    return ""
 
 
 def _read_map_json(table_dir: Path) -> Dict[str, str]:
