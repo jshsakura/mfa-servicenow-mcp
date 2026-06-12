@@ -326,6 +326,23 @@ class TestResolveLocalPath:
         resolved = _resolve_local_path(op_dir / "operation_script.js")
         assert resolved.sys_id == "op-exact"  # _metadata wins, not the colliding _map
 
+    def test_widget_json_sys_id_wins_over_colliding_map(self, download_root):
+        # Portal/bulk download writes _widget.json (NOT _metadata.json) with a
+        # top-level sys_id. Push must use that exact sys_id, not fall back to the
+        # name-keyed _map.json — otherwise the collision-proof path silently does
+        # not apply to the most common widget case (download_app_sources).
+        w_dir = download_root / "global" / "sp_widget" / "cool-widget"
+        w_dir.mkdir(parents=True)
+        (w_dir / "_widget.json").write_text(
+            json.dumps({"sys_id": "wid-exact", "name": "Cool Widget"}), encoding="utf-8"
+        )
+        (w_dir / "script.js").write_text("x", encoding="utf-8")
+        (download_root / "global" / "sp_widget" / "_map.json").write_text(
+            json.dumps({"cool-widget": "wid-WRONG-from-map"}), encoding="utf-8"
+        )
+        resolved = _resolve_local_path(w_dir / "script.js")
+        assert resolved.sys_id == "wid-exact"  # _widget.json wins, not the _map
+
     def test_resolve_unknown_file_raises(self, tmp_path):
         (tmp_path / "random.txt").write_text("hello")
         with pytest.raises(ValueError, match="Cannot resolve"):
