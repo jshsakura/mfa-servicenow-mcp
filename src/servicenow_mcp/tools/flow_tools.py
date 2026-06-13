@@ -170,7 +170,8 @@ class ManageFlowDesignerParams(BaseModel):
 
     # ---- get_action_source ----
     action_ref: Optional[str] = Field(
-        default=None, description="Action sys_id/name/internal_name (get_action_source)"
+        default=None,
+        description="Action sys_id/name; find via sn_query on sys_hub_action_type_definition",
     )
     include_versions: bool = Field(
         default=False, description="get_action_source: include published-snapshot versions"

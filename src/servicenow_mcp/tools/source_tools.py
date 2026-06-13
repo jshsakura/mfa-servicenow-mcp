@@ -1056,7 +1056,7 @@ def _build_snippet(record: Dict[str, Any], fields: List[str], query: str, max_le
 @register_tool(
     "search_server_code",
     params=SearchServerCodeParams,
-    description="Search across 22 server-side source types (SI, BR, widget, ACL, etc.) by keyword/regex. Returns matching snippets.",
+    description="Fast keyword search across 22 server-side code types (SI/BR/ACL). Portal regex+snippets: search_portal_regex_matches.",
     serialization="raw_dict",
     return_type=dict,
 )

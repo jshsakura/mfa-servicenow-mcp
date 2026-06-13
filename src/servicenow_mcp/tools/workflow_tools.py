@@ -1105,7 +1105,7 @@ class ManageWorkflowParams(BaseModel):
 @register_tool(
     name="manage_workflow",
     params=ManageWorkflowParams,
-    description="LEGACY workflows (wf_workflow/wf_activity). For modern Flow Designer use manage_flow_designer.",
+    description="LEGACY Workflow engine ONLY (wf_workflow/wf_activity). Most flows are Flow Designer -> use manage_flow_designer.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )

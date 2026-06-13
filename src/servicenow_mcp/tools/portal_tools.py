@@ -2007,7 +2007,7 @@ def route_portal_component_edit(
 @register_tool(
     "search_portal_regex_matches",
     params=SearchPortalRegexMatchesParams,
-    description="Regex search across widget/SI/provider sources. Output: minimal|compact|full.",
+    description="True regex over portal code (widget/provider/SI), offsets+context. Server-table keyword search: search_server_code.",
     serialization="raw_dict",
     return_type=dict,
 )

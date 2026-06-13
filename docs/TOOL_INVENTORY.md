@@ -143,7 +143,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 | `get_widget_bundle` | R | Fetch full widget bundle (HTML, scripts, providers, CSS/JS dependencies) in one call. Analysis starting point. | standard, portal_developer, platform_developer, service_desk, full |
 | `preview_portal_component_update` | R | Preview bounded before/after snippets and diff for a proposed portal component edit | portal_developer, full |
 | `route_portal_component_edit` | R | Route a portal edit instruction to the right analyze/preview/apply tool. | portal_developer, full |
-| `search_portal_regex_matches` | R | Regex search across widget/SI/provider sources. Output: minimal|compact|full. | standard, portal_developer, platform_developer, service_desk, full |
+| `search_portal_regex_matches` | R | True regex over portal code (widget/provider/SI), offsets+context. Server-table keyword search: search_server_code. | standard, portal_developer, platform_developer, service_desk, full |
 | `trace_portal_route_targets` | R | Map widget→provider→route relationships. Metadata only, no script bodies. | standard, portal_developer, platform_developer, service_desk, full |
 
 ### Portal Management Tools (3)
@@ -208,7 +208,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 | `download_table_schema` | R | Download sys_dictionary field defs. Specify tables or auto-detect from local sources. | platform_developer, full |
 | `extract_table_dependencies` | R | GlideRecord table dependency graph from server scripts (SI/BR/widgets). Pass widget_id for one widget. | standard, portal_developer, platform_developer, service_desk, full |
 | `get_metadata_source` | R | Get a single source record (SI, BR, widget, etc.) by name or sys_id. Returns metadata + truncated script body. | standard, portal_developer, platform_developer, service_desk, full |
-| `search_server_code` | R | Search across 22 server-side source types (SI, BR, widget, ACL, etc.) by keyword/regex. Returns matching snippets. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `search_server_code` | R | Fast keyword search across 22 server-side code types (SI/BR/ACL). Portal regex+snippets: search_portal_regex_matches. | core, standard, portal_developer, platform_developer, service_desk, full |
 
 ### Source Audit Tools (1)
 
@@ -252,4 +252,4 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_workflow` | R/W | LEGACY workflows (wf_workflow/wf_activity). For modern Flow Designer use manage_flow_designer. | core (get_activities, list), standard (get_activities, list), portal_developer, platform_developer, service_desk (get_activities, list), full |
+| `manage_workflow` | R/W | LEGACY Workflow engine ONLY (wf_workflow/wf_activity). Most flows are Flow Designer -> use manage_flow_designer. | core (get_activities, list), standard (get_activities, list), portal_developer, platform_developer, service_desk (get_activities, list), full |
