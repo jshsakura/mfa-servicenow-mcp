@@ -78,7 +78,7 @@ class ManageFlowDesignerParams(BaseModel):
     nodes, or any other structural change — use the Flow Designer UI for those.
 
     Required per action:
-      list:                  (none — all params optional)
+      list:                  (none — all optional; flow_type=action lists custom actions)
       get_detail:            flow_id
       get_executions:        flow_id (or context_id for single execution)
       compare:               flow_id_a|name_a AND flow_id_b|name_b
@@ -129,8 +129,8 @@ class ManageFlowDesignerParams(BaseModel):
     scope: Optional[str] = Field(default=None, description="Scope namespace")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(default=False, description="Return count only")
-    flow_type: Optional[Literal["flow", "subflow", "all"]] = Field(
-        default=None, description="Type filter; None = flows only"
+    flow_type: Optional[Literal["flow", "subflow", "all", "action"]] = Field(
+        default=None, description="flow (default) | subflow | all | action (custom actions)"
     )
 
     # ---- get_detail ----
@@ -171,7 +171,7 @@ class ManageFlowDesignerParams(BaseModel):
     # ---- get_action_source ----
     action_ref: Optional[str] = Field(
         default=None,
-        description="Action sys_id/name; find via sn_query on sys_hub_action_type_definition",
+        description="Action sys_id/name; discover via action=list with flow_type=action",
     )
     include_versions: bool = Field(
         default=False, description="get_action_source: include published-snapshot versions"
