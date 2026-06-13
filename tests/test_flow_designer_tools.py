@@ -69,6 +69,32 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertEqual(result["count"], 42)
         self.assertNotIn("flows", result)
 
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_flows_type_action_lists_action_definitions(self, mock_qp):
+        # flow_type=action queries sys_hub_action_type_definition (not sys_hub_flow)
+        # and returns rows under "actions" — restores the folded-away list_actions.
+        mock_qp.return_value = ([{"sys_id": "a1", "name": "My Action"}], 1)
+
+        result = list_flows(self.config, self.auth_manager, ListFlowsParams(type="action"))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["actions"][0]["sys_id"], "a1")
+        self.assertEqual(mock_qp.call_args[1]["table"], "sys_hub_action_type_definition")
+        # must NOT carry the flow-only type!=subflow filter
+        self.assertNotIn("subflow", mock_qp.call_args[1]["query"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_count")
+    def test_list_flows_type_action_count_only(self, mock_count):
+        mock_count.return_value = 7
+
+        result = list_flows(
+            self.config, self.auth_manager, ListFlowsParams(type="action", count_only=True)
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 7)
+        self.assertEqual(mock_count.call_args[0][2], "sys_hub_action_type_definition")
+
     @patch("servicenow_mcp.tools.flow_designer_tools._build_subflow_tree")
     @patch("servicenow_mcp.tools.flow_designer_tools._trace_pill_usage")
     @patch("servicenow_mcp.tools.flow_designer_tools._fetch_execution_summary")
