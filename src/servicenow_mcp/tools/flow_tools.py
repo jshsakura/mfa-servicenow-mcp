@@ -78,7 +78,7 @@ class ManageFlowDesignerParams(BaseModel):
     nodes, or any other structural change — use the Flow Designer UI for those.
 
     Required per action:
-      list:                  (none — all optional; flow_type=action lists custom actions)
+      list:                  (none — all optional; flow_type=action|playbook|decision lists those tabs)
       get_detail:            flow_id
       get_executions:        flow_id (or context_id for single execution)
       compare:               flow_id_a|name_a AND flow_id_b|name_b
@@ -129,8 +129,11 @@ class ManageFlowDesignerParams(BaseModel):
     scope: Optional[str] = Field(default=None, description="Scope namespace")
     query: Optional[str] = Field(default=None, description="Additional encoded query")
     count_only: bool = Field(default=False, description="Return count only")
-    flow_type: Optional[Literal["flow", "subflow", "all", "action"]] = Field(
-        default=None, description="flow (default) | subflow | all | action (custom actions)"
+    flow_type: Optional[Literal["flow", "subflow", "all", "action", "playbook", "decision"]] = (
+        Field(
+            default=None,
+            description="flow (default) | subflow | all | action | playbook | decision",
+        )
     )
 
     # ---- get_detail ----

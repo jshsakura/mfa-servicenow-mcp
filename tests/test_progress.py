@@ -16,7 +16,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from servicenow_mcp.tools.source_tools import DownloadAppSourcesParams, download_app_sources
+from servicenow_mcp.tools.source_tools import (
+    DownloadAppSourcesParams,
+    DownloadSourcesParams,
+    download_app_sources,
+    download_server_sources,
+)
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 from servicenow_mcp.utils.progress import emit_progress, use_progress_emitter
 
@@ -144,6 +149,30 @@ class TestDownloadEmitsProgress:
         assert progresses == sorted(progresses)
         # The schema stage is identifiable in the stream.
         assert any("schema" in m for _, m in calls)
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_server_sources_emits_per_type_progress(self, mock_query_all, config, auth, tmp_path):
+        # download_server_sources streams a tick per finished source type, and the
+        # per-type counter is monotonic within its single _download_source_types call.
+        mock_query_all.return_value = []
+
+        calls = []
+        with use_progress_emitter(lambda p, t, m: calls.append((p, m))):
+            result = download_server_sources(
+                config,
+                auth,
+                DownloadSourcesParams(
+                    scope="x_app",
+                    families=["ui"],  # multiple source types -> multiple ticks
+                    output_dir=str(tmp_path),
+                ),
+            )
+
+        assert result["success"] is True
+        assert calls, "expected per-type progress to be emitted"
+        progresses = [p for p, _ in calls]
+        assert progresses == sorted(progresses)
+        assert any("downloaded:" in m for _, m in calls)
 
     @patch("servicenow_mcp.tools.source_tools._fetch_and_write_schema")
     @patch("servicenow_mcp.tools.source_tools._scan_tables_from_source_root")
