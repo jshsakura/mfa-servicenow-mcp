@@ -420,7 +420,7 @@ class GetUncommittedChangesParams(BaseModel):
     )
     count_only: bool = Field(
         default=False,
-        description="When true, returns update set counts and entry count estimate without fetching details.",
+        description="When true, return update-set + entry counts only, no details.",
     )
 
 
@@ -997,11 +997,7 @@ class GetDeveloperDailySummaryParams(BaseModel):
     )
     include_details: bool = Field(
         default=True,
-        description=(
-            "When true, fetch source fields to extract line counts, function names, "
-            "and field presence. Script bodies are parsed then discarded (not returned). "
-            "For widgets, also resolves linked Angular Providers."
-        ),
+        description="Extract line/function metrics from source; bodies parsed then discarded.",
     )
     output_format: str = Field(
         default="jira",

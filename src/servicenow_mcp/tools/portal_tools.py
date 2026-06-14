@@ -161,11 +161,11 @@ class DownloadPortalSourcesParams(BaseModel):
     )
     include_linked_script_includes: bool | None = Field(
         default=None,
-        description="Include script includes referenced by exported widgets. Defaults to true for targeted widget export.",
+        description="Include SIs referenced by exported widgets (default on for targeted export).",
     )
     include_linked_angular_providers: bool | None = Field(
         default=None,
-        description="Include angular providers linked via widget-provider M2M. Defaults to true for targeted widget export.",
+        description="Include angular providers via widget M2M (default on for targeted export).",
     )
     include_widget_client_script: bool = Field(
         default=True,
@@ -189,7 +189,7 @@ class DownloadPortalSourcesParams(BaseModel):
     )
     max_widgets: int = Field(
         default=25,
-        description="Maximum widgets to export (default 25, clamped to 500). Values >25 are allowed, not blocked.",
+        description="Max widgets to export (default 25, clamped to 500; >25 allowed).",
     )
     page_size: int = Field(default=50, description="Pagination size for API queries (10..100)")
     incremental: bool = Field(

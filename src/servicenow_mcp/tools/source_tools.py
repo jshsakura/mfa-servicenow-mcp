@@ -619,7 +619,7 @@ class ExtractTableDependenciesParams(BaseModel):
     )
     include_linked_script_includes: bool = Field(
         default=True,
-        description="From scanned widget/business rule scripts, resolve referenced Script Includes and scan them too",
+        description="Also resolve + scan Script Includes referenced by scanned scripts.",
     )
     only_active: bool = Field(
         default=True,
@@ -635,7 +635,7 @@ class ExtractTableDependenciesParams(BaseModel):
     )
     include_loose_literal_scan: bool = Field(
         default=False,
-        description="If true, also scan generic string literals that look like table names (higher recall, lower precision)",
+        description="Also scan table-name-like string literals (higher recall, lower precision).",
     )
 
 
@@ -655,7 +655,7 @@ class ExtractWidgetTableDependenciesParams(BaseModel):
     )
     include_loose_literal_scan: bool = Field(
         default=False,
-        description="If true, also scan generic string literals that look like table names (higher recall, lower precision)",
+        description="Also scan table-name-like string literals (higher recall, lower precision).",
     )
     max_linked_script_includes: int = Field(
         default=DEFAULT_MAX_LINKED_SI,
@@ -2726,18 +2726,11 @@ def download_server_sources(
 class DownloadTableSchemaParams(BaseModel):
     tables: Optional[List[str]] = Field(
         default=None,
-        description=(
-            "Explicit list of table names to fetch schema for. "
-            "When omitted, auto-scans source_root for GlideRecord references."
-        ),
+        description="Tables to fetch schema for; omitted = auto-scan source_root for refs.",
     )
     source_root: Optional[str] = Field(
         default=None,
-        description=(
-            "Path to a downloaded source directory (e.g. temp/<instance>/<scope>). "
-            "Scripts inside will be scanned for GlideRecord table references. "
-            "Ignored when tables is provided."
-        ),
+        description="Downloaded source dir (e.g. temp/<inst>/<scope>); scanned for GlideRecord refs.",
     )
     output_dir: Optional[str] = Field(
         default=None,

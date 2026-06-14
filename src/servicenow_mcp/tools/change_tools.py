@@ -331,7 +331,7 @@ def _find_change_approval(
 @register_tool(
     name="approve_change",
     params=ApproveChangeParams,
-    description="Approve a change's approval record (targets approver_id); advance change_request (default implement, override change_state).",
+    description="Approve a change's approval record (by approver_id); advance the change_request (default: implement).",
     serialization="str",
     return_type=str,
 )
@@ -427,7 +427,7 @@ def approve_change(
 @register_tool(
     name="reject_change",
     params=RejectChangeParams,
-    description="Reject a change's approval record (targets approver_id) with reason; advance change_request (default canceled, override change_state).",
+    description="Reject a change's approval record (by approver_id) with reason; advance the change_request (default: canceled).",
     serialization="str",
     return_type=str,
 )

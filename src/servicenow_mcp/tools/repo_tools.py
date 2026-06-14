@@ -27,7 +27,7 @@ class GetRepoRecentCommitsParams(RepoQueryBaseParams):
 class GetRepoFileLastModifierParams(RepoQueryBaseParams):
     files: List[str] | None = Field(
         default=None,
-        description="Optional target files. If omitted, uses files from working tree status and recent commits",
+        description="Target files; if omitted, uses working-tree + recent-commit files.",
     )
     commits_scan_limit: int = Field(
         default=100, description="Commit scan depth used for file last-commit cache"
