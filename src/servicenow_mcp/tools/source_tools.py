@@ -3251,7 +3251,9 @@ def download_app_sources(
             # Retry up to _RETRY_MAX_ATTEMPTS times before falling back.
             _portal_attempt = 0
             while True:
-                widget_summary = _dps(config, auth_manager, ws_params)
+                # emit_phases=False: this orchestrator owns the per-stage progress
+                # counter; portal phase ticks would make the stream non-monotonic.
+                widget_summary = _dps(config, auth_manager, ws_params, emit_phases=False)
                 assert widget_summary is not None
                 if widget_summary.get("success"):
                     break

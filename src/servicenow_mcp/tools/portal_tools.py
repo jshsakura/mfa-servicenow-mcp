@@ -2894,7 +2894,13 @@ def download_portal_sources(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: DownloadPortalSourcesParams,
+    *,
+    emit_phases: bool = True,
 ) -> Dict[str, Any]:
+    # emit_phases=False when called as the "portal" sub-stage of
+    # download_app_sources: that orchestrator owns a per-STAGE progress counter,
+    # and letting these phase ticks (1,2,3) interleave with it would make the
+    # stream non-monotonic. Standalone (the registered tool) keeps phases on.
     # Canonicalize the scope to its namespace so the folder/query are
     # deterministic even when a display name or sys_id is passed.
     params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
@@ -3012,7 +3018,8 @@ def download_portal_sources(
 
     # Perceived-speed: announce each phase as it starts (no-op unless the tool is
     # progress-whitelisted). Indeterminate total — phase counts are dynamic.
-    emit_progress(1, None, f"portal: writing {len(widgets)} widgets")
+    if emit_phases:
+        emit_progress(1, None, f"portal: writing {len(widgets)} widgets")
     for widget in widgets:
         sys_id = str(widget.get("sys_id") or "")
         widget_id = str(widget.get("id") or widget.get("name") or sys_id)
@@ -3168,7 +3175,8 @@ def download_portal_sources(
                         m2m_ids.append(pid)
 
         if m2m_ids:
-            emit_progress(2, None, "portal: linked angular providers")
+            if emit_phases:
+                emit_progress(2, None, "portal: linked angular providers")
             # Fetch provider metadata first (no script — lightweight)
             provider_rows = _sn_query_all(
                 config,
@@ -3321,7 +3329,8 @@ def download_portal_sources(
     _si_sync_meta: Dict[str, Dict[str, str]] = {}
     exported_script_includes: List[Dict[str, str]] = []
     if include_linked_script_includes and script_include_candidates:
-        emit_progress(3, None, "portal: linked script includes")
+        if emit_phases:
+            emit_progress(3, None, "portal: linked script includes")
         script_include_rows = _fetch_linked_script_include_rows(
             config,
             auth_manager,
