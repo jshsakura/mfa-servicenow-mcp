@@ -50,7 +50,16 @@ FastMCP = Server
 # event-loop thread (Playwright requires the thread that created its loop). The
 # whitelist is the hard guarantee behind that invariant; see CLAUDE.md's note on
 # why asyncio.to_thread() was removed for the default dispatch path.
-PROGRESS_STREAMING_TOOLS = frozenset({"download_app_sources", "audit_local_sources"})
+# download_app_sources already runs these two as sub-steps on the worker thread,
+# so streaming them when invoked directly adds no new thread-safety risk.
+PROGRESS_STREAMING_TOOLS = frozenset(
+    {
+        "download_app_sources",
+        "download_server_sources",
+        "download_portal_sources",
+        "audit_local_sources",
+    }
+)
 
 # Deprecated tool name -> current name. Routed at call time but NOT advertised in
 # list_tools, so an old name keeps working without cluttering the tool surface.

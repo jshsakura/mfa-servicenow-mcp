@@ -226,7 +226,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `diff_local_component` | R | Diff local edits vs remote. Run before update_remote_from_local (review) or re-download (freshness). | standard, portal_developer, platform_developer, service_desk, full |
+| `diff_local_component` | R | Diff local edits vs remote (or vs a 2nd download root via compare_to, e.g. dev-vs-test). | standard, portal_developer, platform_developer, service_desk, full |
 | `update_remote_from_local` | W | Push local edits to ServiceNow. Run diff_local_component first to review. | portal_developer, platform_developer, full |
 
 ### UI Policy (1)

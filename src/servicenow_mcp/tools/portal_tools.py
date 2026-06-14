@@ -19,6 +19,7 @@ from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
 from ..utils.config import ServerConfig
 from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file
+from ..utils.progress import emit_progress
 from ..utils.registry import register_tool
 from ..utils.source_layout import field_filename
 from .sn_api import (
@@ -3009,6 +3010,9 @@ def download_portal_sources(
 
     dictionary_by_field: Dict[str, Dict[str, Any]] = {}
 
+    # Perceived-speed: announce each phase as it starts (no-op unless the tool is
+    # progress-whitelisted). Indeterminate total — phase counts are dynamic.
+    emit_progress(1, None, f"portal: writing {len(widgets)} widgets")
     for widget in widgets:
         sys_id = str(widget.get("sys_id") or "")
         widget_id = str(widget.get("id") or widget.get("name") or sys_id)
@@ -3164,6 +3168,7 @@ def download_portal_sources(
                         m2m_ids.append(pid)
 
         if m2m_ids:
+            emit_progress(2, None, "portal: linked angular providers")
             # Fetch provider metadata first (no script — lightweight)
             provider_rows = _sn_query_all(
                 config,
@@ -3316,6 +3321,7 @@ def download_portal_sources(
     _si_sync_meta: Dict[str, Dict[str, str]] = {}
     exported_script_includes: List[Dict[str, str]] = []
     if include_linked_script_includes and script_include_candidates:
+        emit_progress(3, None, "portal: linked script includes")
         script_include_rows = _fetch_linked_script_include_rows(
             config,
             auth_manager,

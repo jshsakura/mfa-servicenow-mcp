@@ -9,7 +9,7 @@ Provides read-only tools for analyzing Flow Designer flows:
 """
 
 import logging
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -43,7 +43,18 @@ TRIGGER_TABLE = "sys_hub_trigger_instance"
 # sys_hub_step_instance.action also points at base sys_ids (master/latest snapshot)
 # for published versions — include_versions surfaces those too.
 ACTION_DEF_TABLE = "sys_hub_action_type_definition"
+PLAYBOOK_DEF_TABLE = "sys_pd_process_definition"
+DECISION_TABLE = "sys_decision"
 STEP_INSTANCE_TABLE = "sys_hub_step_instance"
+
+# Non-flow Workflow Studio tabs reachable through list (flow_type=...). Each is a
+# distinct table, not sys_hub_flow — restoring list_actions/playbooks/decisions
+# that the flow-designer consolidation folded away. result_key names the payload.
+_NON_FLOW_LIST_TABLES: Dict[str, Tuple[str, str]] = {
+    "action": (ACTION_DEF_TABLE, "actions"),
+    "playbook": (PLAYBOOK_DEF_TABLE, "playbooks"),
+    "decision": (DECISION_TABLE, "decisions"),
+}
 VARIABLE_VALUE_TABLE = "sys_variable_value"
 # OOB "Script step" script-input variable. Used as the preferred selector for
 # the script body; falls back to the longest variable value when a step is a
@@ -75,11 +86,11 @@ class ListFlowsParams(BaseModel):
         description="Return count only without fetching records.",
     )
     # 'flow' excludes subflows; 'subflow' = subflows only; 'all' = both;
-    # 'action' = custom action definitions (a separate Workflow Studio tab).
+    # action/playbook/decision = other Workflow Studio tabs (separate tables).
     # None (default) behaves like 'flow'.
-    type: Optional[Literal["flow", "subflow", "all", "action"]] = Field(
+    type: Optional[Literal["flow", "subflow", "all", "action", "playbook", "decision"]] = Field(
         default=None,
-        description="flow (default) | subflow | all | action (custom actions).",
+        description="flow (default) | subflow | all | action | playbook | decision.",
     )
 
 
@@ -1166,16 +1177,19 @@ def _try_processflow_api(
 # ---------------------------------------------------------------------------
 
 
-def _list_action_definitions(
+def _list_non_flow_definitions(
     config: ServerConfig,
     auth_manager: AuthManager,
     params: ListFlowsParams,
+    table: str,
+    result_key: str,
 ) -> Dict[str, Any]:
-    """List custom Flow Designer action definitions (sys_hub_action_type_definition).
+    """List a non-flow Workflow Studio surface (actions/playbooks/decisions).
 
-    Returns rows under an "actions" key (not "flows") since these are a distinct
-    Workflow Studio surface. The same filters (active/name/scope/query/count_only)
-    apply; the flow-only type!=subflow filter is omitted.
+    These live in their own tables (not sys_hub_flow), so rows come back under
+    result_key (not "flows"). Same filters (active/name/scope/query/count_only)
+    apply; the flow-only type!=subflow filter is omitted. Restores the
+    list_actions/playbooks/decisions tools the flow-designer consolidation dropped.
     """
     query_parts: List[str] = []
     if not params.include_inactive:
@@ -1192,14 +1206,14 @@ def _list_action_definitions(
     query_string = "^".join(query_parts) if query_parts else ""
 
     if params.count_only:
-        count = sn_count(config, auth_manager, ACTION_DEF_TABLE, query_string)
+        count = sn_count(config, auth_manager, table, query_string)
         return {"success": True, "count": count}
 
     try:
-        actions, total_count = sn_query_page(
+        rows, total_count = sn_query_page(
             config,
             auth_manager,
-            table=ACTION_DEF_TABLE,
+            table=table,
             query=query_string,
             fields="sys_id,name,status,active,sys_scope,sys_updated_on,sys_updated_by,description",
             limit=min(params.limit, 100),
@@ -1208,12 +1222,12 @@ def _list_action_definitions(
         )
         return {
             "success": True,
-            "actions": actions,
-            "count": len(actions),
-            "total": total_count if total_count is not None else len(actions),
+            result_key: rows,
+            "count": len(rows),
+            "total": total_count if total_count is not None else len(rows),
         }
     except Exception as e:
-        logger.error(f"Error listing action definitions: {e}")
+        logger.error(f"Error listing {result_key}: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -1225,12 +1239,12 @@ def list_flows(
     """List Flow Designer flows, subflows, or custom action definitions."""
     flow_type = (params.type or "flow").lower()
 
-    # Custom actions live in sys_hub_action_type_definition (a separate Workflow
-    # Studio tab), NOT sys_hub_flow — branch to their own query. This restores
-    # the list_actions capability that the flow-designer consolidation folded
-    # away, so get_action_source's action_ref can be discovered in this tool.
-    if flow_type == "action":
-        return _list_action_definitions(config, auth_manager, params)
+    # Actions/playbooks/decisions are separate Workflow Studio tabs in their own
+    # tables (NOT sys_hub_flow) — branch to their own query. Restores the
+    # list_actions/playbooks/decisions discovery the consolidation folded away.
+    if flow_type in _NON_FLOW_LIST_TABLES:
+        table, result_key = _NON_FLOW_LIST_TABLES[flow_type]
+        return _list_non_flow_definitions(config, auth_manager, params, table, result_key)
 
     query_parts: List[str] = []
 
