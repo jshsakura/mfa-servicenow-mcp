@@ -167,11 +167,11 @@ class PushLocalComponentParams(BaseModel):
     )
     force: bool = Field(
         default=False,
-        description="Override a conflict (remote changed since download) and push anyway. Default false.",
+        description="Override a conflict (remote changed since download) and push anyway.",
     )
     cross_instance_deploy: bool = Field(
         default=False,
-        description="Deploy local source to a DIFFERENT instance than its origin; target record re-resolved by name.",
+        description="Deploy to a DIFFERENT instance than origin; target re-resolved by name.",
     )
 
 

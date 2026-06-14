@@ -61,9 +61,9 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `approve_change` | W | Approve a change's approval record (targets approver_id); advance change_request (default implement, override change_... | full |
+| `approve_change` | W | Approve a change's approval record (by approver_id); advance the change_request (default: implement). | full |
 | `manage_change` | R/W | Get/create/update a change request or add a change task (table: change_request). | platform_developer, full |
-| `reject_change` | W | Reject a change's approval record (targets approver_id) with reason; advance change_request (default canceled, overri... | full |
+| `reject_change` | W | Reject a change's approval record (by approver_id) with reason; advance the change_request (default: canceled). | full |
 | `submit_change_for_approval` | W | Transition a change request to assess state and create an approval record. Requires change_id. | platform_developer, full |
 
 ### Changeset Tools (1)
@@ -197,7 +197,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 | `sn_query` | R | Generic table query — last resort. Prefer domain tools: search_server_code, manage_workflow, manage_flow_designer. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_resolve_url` | R | Parse a ServiceNow URL → table, sys_id, scope, suggested next tool. Read-only. | core, standard, portal_developer, platform_developer, service_desk, full |
 | `sn_schema` | R | Fetch field names, types, labels, and constraints from sys_dictionary for a given table. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_write` | W | LAST RESORT generic CRUD — only for tables with NO dedicated tool. Prefer a manage_*/update_* domain tool first (they... | full |
+| `sn_write` | W | LAST RESORT CRUD (no dedicated tool). Prefer manage_*/update_*. ACL/user/group/scope blocked. confirm='approve'. | full |
 
 ### Source Analysis (6)
 

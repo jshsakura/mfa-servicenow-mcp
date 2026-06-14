@@ -798,23 +798,15 @@ class HealthCheckParams(BaseModel):
 class GenericQueryParams(BaseModel):
     table: str = Field(
         default=...,
-        description=(
-            "Target table name for general record lookup (e.g., incident, kb_knowledge). "
-            "For portal/widget/provider source analysis, prefer specialized portal tools instead of raw table reads. "
-            "Heavy tables have automatic safety limits."
-        ),
+        description="Target table (e.g. incident, kb_knowledge); heavy tables get auto safety limits.",
     )
     query: Optional[str] = Field(
         default=None,
-        description=(
-            "Encoded query (sysparm_query) for generic filtering. Use portal tracing/search tools when the goal is to map widget/provider logic or route targets."
-        ),
+        description="Encoded query (sysparm_query) for filtering.",
     )
     fields: Optional[str] = Field(
         default=None,
-        description=(
-            "Comma-separated field list. Avoid large fields like 'script' for list queries; use specialized source-aware tools when code evidence is needed."
-        ),
+        description="Comma-separated field list; avoid heavy fields like 'script' in list queries.",
     )
     limit: int = Field(default=20, description="Max records (max 100). Default 20.")
     offset: int = Field(
@@ -1467,7 +1459,7 @@ def _sn_write_denied(table: str, action: str) -> Optional[str]:
 @register_tool(
     name="sn_write",
     params=SnWriteParams,
-    description="LAST RESORT generic CRUD — only for tables with NO dedicated tool. Prefer a manage_*/update_* domain tool first (they validate fields + support dry_run). ACL/user/group/scope tables blocked here. (confirm='approve')",
+    description="LAST RESORT CRUD (no dedicated tool). Prefer manage_*/update_*. ACL/user/group/scope blocked. confirm='approve'.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
