@@ -612,6 +612,90 @@ class TestDiffLocalComponent:
         assert "error" in result
         assert "mismatch" in result["error"].lower()
 
+    # --- compare_to: local-vs-local (dev-vs-test), no network ---
+    def test_compare_to_roots_summary(self, mock_config, mock_auth, download_root, tmp_path):
+        # A 2nd download root with one widget field changed. Root-vs-root returns
+        # per-component status only (bodies stay on disk) and hits NO network.
+        import shutil
+
+        right = tmp_path / "right_root"
+        shutil.copytree(download_root, right)
+        (right / "global" / "sp_widget" / "my-widget" / "script.js").write_text(
+            "var x = 999;", encoding="utf-8"
+        )
+
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(download_root), compare_to=str(right)),
+        )
+
+        assert result["mode"] == "compare_local_roots"
+        comps = {(c["table"], c["name"]): c for c in result["components"]}
+        widget = comps[("sp_widget", "my-widget")]
+        assert widget["status"] == "different"
+        assert "script" in widget["changed_fields"]
+        # summary only — field names, no diff bodies
+        assert set(widget.keys()) == {"table", "name", "status", "changed_fields"}
+        assert comps[("sys_script_include", "MyUtil")]["status"] == "identical"
+
+    def test_compare_to_roots_only_in_one_side(
+        self, mock_config, mock_auth, download_root, tmp_path
+    ):
+        import shutil
+
+        right = tmp_path / "right_root"
+        shutil.copytree(download_root, right)
+        # Add a widget only present on the right.
+        extra = right / "global" / "sp_widget" / "right-only"
+        extra.mkdir(parents=True)
+        (extra / "script.js").write_text("var only = 1;", encoding="utf-8")
+        (right / "global" / "sp_widget" / "_map.json").write_text(
+            json.dumps({"my-widget": "wid-1", "right-only": "wid-2"}), encoding="utf-8"
+        )
+
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(download_root), compare_to=str(right)),
+        )
+
+        comps = {(c["table"], c["name"]): c for c in result["components"]}
+        assert comps[("sp_widget", "right-only")]["status"] == "only_in_right"
+
+    def test_compare_to_component_returns_bodies(
+        self, mock_config, mock_auth, download_root, tmp_path
+    ):
+        import shutil
+
+        right = tmp_path / "right_root"
+        shutil.copytree(download_root, right)
+        (right / "global" / "sp_widget" / "my-widget" / "script.js").write_text(
+            "var x = 999;", encoding="utf-8"
+        )
+
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(path), compare_to=str(right)),
+        )
+
+        assert result["mode"] == "compare_local_component"
+        # single-file path -> only the script field, with full diff body
+        assert {d["field"] for d in result["diffs"]} == {"script"}
+        script_diff = result["diffs"][0]
+        assert script_diff["status"] == "modified"
+        assert "diff" in script_diff
+
+    def test_compare_to_missing_path_errors(self, mock_config, mock_auth, download_root):
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(download_root), compare_to="/no/such/root"),
+        )
+        assert "error" in result
+
 
 # ---------------------------------------------------------------------------
 # update_remote_from_local tests

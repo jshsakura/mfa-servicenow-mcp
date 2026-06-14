@@ -95,6 +95,29 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertEqual(result["count"], 7)
         self.assertEqual(mock_count.call_args[0][2], "sys_hub_action_type_definition")
 
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_flows_type_playbook(self, mock_qp):
+        # Playbooks live in sys_pd_process_definition, returned under "playbooks".
+        mock_qp.return_value = ([{"sys_id": "pb1", "name": "Onboarding"}], 1)
+
+        result = list_flows(self.config, self.auth_manager, ListFlowsParams(type="playbook"))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["playbooks"][0]["sys_id"], "pb1")
+        self.assertEqual(mock_qp.call_args[1]["table"], "sys_pd_process_definition")
+        self.assertNotIn("subflow", mock_qp.call_args[1]["query"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_list_flows_type_decision(self, mock_qp):
+        # Decision tables live in sys_decision, returned under "decisions".
+        mock_qp.return_value = ([{"sys_id": "d1", "name": "Routing"}], 1)
+
+        result = list_flows(self.config, self.auth_manager, ListFlowsParams(type="decision"))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["decisions"][0]["sys_id"], "d1")
+        self.assertEqual(mock_qp.call_args[1]["table"], "sys_decision")
+
     @patch("servicenow_mcp.tools.flow_designer_tools._build_subflow_tree")
     @patch("servicenow_mcp.tools.flow_designer_tools._trace_pill_usage")
     @patch("servicenow_mcp.tools.flow_designer_tools._fetch_execution_summary")

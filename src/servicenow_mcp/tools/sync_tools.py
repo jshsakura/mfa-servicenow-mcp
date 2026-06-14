@@ -8,7 +8,7 @@ import difflib
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -151,6 +151,10 @@ class DiffLocalComponentParams(BaseModel):
     context_lines: int = Field(
         default=3,
         description="Number of context lines in unified diff output (default 3)",
+    )
+    compare_to: Optional[str] = Field(
+        default=None,
+        description="2nd download root to diff against instead of remote (dev-vs-test, no network).",
     )
 
 
@@ -829,13 +833,177 @@ def _scan_download_root(
     }
 
 
+def _component_field_files(table_dir: Path, name: str, table_name: str) -> Dict[str, Path]:
+    """field_name -> on-disk file for one downloaded component. Local-only, no network."""
+    fields: Dict[str, Path] = {}
+    safe = _safe_name(name)
+    folder = table_dir / safe
+    folder_map = _folder_layout_field_map(table_name) or {}
+    for filename, field_name in folder_map.items():
+        fpath = folder / filename
+        if fpath.exists():
+            fields[field_name] = fpath
+    if not fields and table_name in SINGLE_FILE_TABLES:
+        flat_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
+        for suffix_pattern, field_name in flat_map.items():
+            if suffix_pattern.startswith("."):
+                fpath = table_dir / f"{safe}{suffix_pattern}"
+                if fpath.exists():
+                    fields[field_name] = fpath
+    return fields
+
+
+def _enumerate_local_components(root: Path) -> Dict[Tuple[str, str], Dict[str, Path]]:
+    """(table, name) -> {field: file path} for every downloaded component under root."""
+    out: Dict[Tuple[str, str], Dict[str, Path]] = {}
+    for table_name in sorted(SUPPORTED_TABLES):
+        for table_dir in _find_table_dirs(root, table_name):
+            for name in _read_map_json(table_dir):
+                fields = _component_field_files(table_dir, name, table_name)
+                if fields:
+                    out[(table_name, name)] = fields
+    return out
+
+
+def _diff_field_files(
+    left_fields: Dict[str, Path],
+    right_fields: Dict[str, Path],
+    context_lines: int,
+    *,
+    with_bodies: bool,
+) -> List[Dict[str, Any]]:
+    """Diff two field->Path maps on disk. with_bodies=False returns status only."""
+    diffs: List[Dict[str, Any]] = []
+    for field_name in sorted(set(left_fields) | set(right_fields)):
+        lp = left_fields.get(field_name)
+        rp = right_fields.get(field_name)
+        left = lp.read_text(encoding="utf-8") if lp and lp.exists() else None
+        right = rp.read_text(encoding="utf-8") if rp and rp.exists() else None
+        if left is None:
+            diffs.append({"field": field_name, "status": "only_in_right"})
+            continue
+        if right is None:
+            diffs.append({"field": field_name, "status": "only_in_left"})
+            continue
+        if _normalize_for_compare(left) == _normalize_for_compare(right):
+            diffs.append({"field": field_name, "status": "unchanged"})
+            continue
+        entry: Dict[str, Any] = {"field": field_name, "status": "modified"}
+        if with_bodies:
+            diff_lines = list(
+                difflib.unified_diff(
+                    right.splitlines(),
+                    left.splitlines(),
+                    fromfile=f"right/{field_name}",
+                    tofile=f"left/{field_name}",
+                    lineterm="",
+                    n=context_lines,
+                )
+            )
+            if len(diff_lines) > MAX_DIFF_LINES:
+                diff_lines = diff_lines[:MAX_DIFF_LINES] + [
+                    "... [DIFF TRUNCATED FOR CONTEXT SAFETY]"
+                ]
+            entry["diff"] = "\n".join(diff_lines)
+            entry["left_lines"] = len(left.splitlines())
+            entry["right_lines"] = len(right.splitlines())
+        diffs.append(entry)
+    return diffs
+
+
+def _diff_local_roots(left: Path, right: Path, context_lines: int) -> Dict[str, Any]:
+    """Diff two download roots component-by-component, no network. Summary only.
+
+    'left' is `path`, 'right' is `compare_to`. Bodies stay on disk — per-component
+    status + which fields differ (names), not the diff text. Drill into one
+    component with path=<that file/dir>, compare_to=<right root> for full bodies.
+    """
+    left_comps = _enumerate_local_components(left)
+    right_comps = _enumerate_local_components(right)
+    components: List[Dict[str, Any]] = []
+    for table, name in sorted(set(left_comps) | set(right_comps)):
+        lf = left_comps.get((table, name))
+        rf = right_comps.get((table, name))
+        if lf is None:
+            components.append({"table": table, "name": name, "status": "only_in_right"})
+            continue
+        if rf is None:
+            components.append({"table": table, "name": name, "status": "only_in_left"})
+            continue
+        field_diffs = _diff_field_files(lf, rf, context_lines, with_bodies=False)
+        changed = [d["field"] for d in field_diffs if d["status"] != "unchanged"]
+        comp: Dict[str, Any] = {
+            "table": table,
+            "name": name,
+            "status": "different" if changed else "identical",
+        }
+        if changed:
+            comp["changed_fields"] = changed
+        components.append(comp)
+    status_counts: Dict[str, int] = {}
+    for c in components:
+        status_counts[c["status"]] = status_counts.get(c["status"], 0) + 1
+    return {
+        "mode": "compare_local_roots",
+        "left": str(left),
+        "right": str(right),
+        "components": components,
+        "summary": {"total": len(components), **status_counts},
+    }
+
+
+def _diff_local_component_vs_root(
+    path: Path, right_root: Path, context_lines: int
+) -> Dict[str, Any]:
+    """Diff one local component (path) against its counterpart in another root. No network."""
+    try:
+        resolved = _resolve_local_path(path)
+    except ValueError as e:
+        return {"error": str(e)}
+    right_dirs = _find_table_dirs(right_root, resolved.table)
+    right_fields: Dict[str, Path] = {}
+    for table_dir in right_dirs:
+        right_fields = _component_field_files(table_dir, resolved.name, resolved.table)
+        if right_fields:
+            break
+    if not right_fields:
+        return {
+            "error": (
+                f"'{resolved.name}' ({resolved.table}) not found under compare_to root "
+                f"{right_root}. Download the same scope there first."
+            )
+        }
+    # Mirror the field scope of `path`: a single-file path resolves to one field,
+    # a whole record dir to all — don't surface the other side's extra fields.
+    right_fields = {f: p for f, p in right_fields.items() if f in resolved.fields}
+    diffs = _diff_field_files(resolved.fields, right_fields, context_lines, with_bodies=True)
+    return {
+        "mode": "compare_local_component",
+        "left": str(path),
+        "right": str(right_root),
+        "component": {"table": resolved.table, "name": resolved.name},
+        "diffs": diffs,
+    }
+
+
+def _diff_against_compare_to(path: Path, compare_to: Path, context_lines: int) -> Dict[str, Any]:
+    """Route a compare_to diff: root-vs-root (summary) or component-vs-root (bodies)."""
+    if not compare_to.exists():
+        return {"error": f"compare_to path does not exist: {compare_to}"}
+    if path.is_dir() and _is_download_root(path):
+        if not _is_download_root(compare_to):
+            return {"error": f"compare_to must be a download root when path is one: {compare_to}"}
+        return _diff_local_roots(path, compare_to, context_lines)
+    return _diff_local_component_vs_root(path, compare_to, context_lines)
+
+
 # ---------------------------------------------------------------------------
 # Tool 1: diff_local_component
 # ---------------------------------------------------------------------------
 @register_tool(
     "diff_local_component",
     params=DiffLocalComponentParams,
-    description="Diff local edits vs remote. Run before update_remote_from_local (review) or re-download (freshness).",
+    description="Diff local edits vs remote (or vs a 2nd download root via compare_to, e.g. dev-vs-test).",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -848,6 +1016,12 @@ def diff_local_component(
 
     if not path.exists():
         return {"error": f"Path does not exist: {path}"}
+
+    # compare_to mode: diff against a 2nd local download root (dev-vs-test),
+    # not the live remote. Pure local — no network, no auth needed.
+    if params.compare_to:
+        compare_to = Path(params.compare_to).expanduser().resolve()
+        return _diff_against_compare_to(path, compare_to, params.context_lines)
 
     # Directory mode: if this is a download root, scan all components
     if path.is_dir() and _is_download_root(path):

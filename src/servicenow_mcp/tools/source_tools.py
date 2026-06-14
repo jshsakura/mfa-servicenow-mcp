@@ -10,7 +10,7 @@ import re
 import threading
 import time
 from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
@@ -2168,6 +2168,7 @@ def _download_source_types(
     skip_empty_source_retry: Optional[Set[str]] = None,
     incremental: bool = False,
     reconcile_deletions: bool = False,
+    emit_per_type: bool = False,
 ) -> Dict[str, Any]:
     """Core download loop shared by all individual download tools.
 
@@ -2513,8 +2514,26 @@ def _download_source_types(
     # (own query, own scope_root/<table> dir — verified no two types share a
     # table), so the only shared state is the merged result, combined below in
     # input order for deterministic output. pool.map preserves that order.
+    # submit + as_completed (not pool.map) so each finished type can stream a
+    # progress tick as it lands; results are reassembled in input order below so
+    # output stays deterministic regardless of completion order. emit_per_type is
+    # set ONLY by standalone download_server_sources — download_app_sources owns
+    # its own per-STAGE counter (_run_stage), and mixing a per-type counter that
+    # restarts at 1 each group call would make progress non-monotonic there. emit
+    # runs in the orchestrator thread, where the progress contextvar is live
+    # (worker threads don't inherit it); it's a no-op without a whitelisted token.
+    total_types = len(source_types)
+    results_by_type: Dict[str, tuple] = {}
     with ThreadPoolExecutor(max_workers=_DOWNLOAD_MAX_WORKERS) as pool:
-        per_type_results = list(pool.map(_process_one_type, source_types))
+        future_to_type = {pool.submit(_process_one_type, st): st for st in source_types}
+        done = 0
+        for fut in as_completed(future_to_type):
+            st = future_to_type[fut]
+            results_by_type[st] = fut.result()
+            done += 1
+            if emit_per_type:
+                emit_progress(done, total_types, f"downloaded: {st}")
+    per_type_results = [results_by_type[st] for st in source_types]
 
     for tr, me, wn, dc, fc in per_type_results:
         type_results.update(tr)
@@ -2687,6 +2706,7 @@ def download_server_sources(
         only_active=params.only_active,
         extra_query=extra_q or None,
         skip_empty_source_retry=skip_empty_source_retry or None,
+        emit_per_type=True,
     )
     return _build_download_result(
         params.scope,
