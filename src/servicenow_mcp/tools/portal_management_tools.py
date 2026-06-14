@@ -100,7 +100,7 @@ class GetPortalParams(BaseModel):
 
     portal_id: Optional[str] = Field(
         default=None,
-        description="sys_id or url_suffix. If provided, returns single portal detail. Otherwise lists all portals.",
+        description="sys_id or url_suffix; provided = single portal detail, omitted = list all.",
     )
     limit: int = Field(default=20, description="Maximum portals to return in list mode (max 50)")
     offset: int = Field(default=0, description="Pagination offset for list mode")

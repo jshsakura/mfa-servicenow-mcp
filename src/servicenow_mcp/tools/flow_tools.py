@@ -187,7 +187,7 @@ class ManageFlowDesignerParams(BaseModel):
     condition_label: Optional[str] = Field(default=None, description="Branch condition label")
     publish: bool = Field(
         default=False,
-        description="save: publish (recompile snapshot) — required for the edit to show in get_detail / take effect",
+        description="save: publish (recompile snapshot); required for the edit to take effect.",
     )
 
     _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {

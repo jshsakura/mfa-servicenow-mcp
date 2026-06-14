@@ -55,11 +55,11 @@ class CreateCategoryParams(BaseModel):
     knowledge_base: str = Field(..., description="The knowledge base to create the category in")
     parent_category: Optional[str] = Field(
         default=None,
-        description="Parent category (if creating a subcategory). Sys_id refering to the parent category or sys_id of the parent table.",
+        description="Parent category sys_id (subcategory): parent category or parent table sys_id.",
     )
     parent_table: Optional[str] = Field(
         default=None,
-        description="Parent table (if creating a subcategory). Sys_id refering to the table where the parent category is defined.",
+        description="Parent table sys_id (subcategory): table where the parent category is defined.",
     )
     active: bool = Field(default=True, description="Whether the category is active")
 
