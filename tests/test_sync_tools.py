@@ -696,6 +696,21 @@ class TestDiffLocalComponent:
         )
         assert "error" in result
 
+    def test_compare_to_file_not_dir_errors_cleanly(
+        self, mock_config, mock_auth, download_root, tmp_path
+    ):
+        # compare_to pointing at a regular file must return a clean error dict,
+        # not raise a raw NotADirectoryError from iterdir().
+        a_file = tmp_path / "afile.txt"
+        a_file.write_text("x", encoding="utf-8")
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(download_root), compare_to=str(a_file)),
+        )
+        assert "error" in result
+        assert "must be a download root" in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # update_remote_from_local tests
