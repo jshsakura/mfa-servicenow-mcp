@@ -174,6 +174,44 @@ class TestDownloadEmitsProgress:
         assert progresses == sorted(progresses)
         assert any("downloaded:" in m for _, m in calls)
 
+    @patch("servicenow_mcp.tools.portal_tools._sn_query_all")
+    @patch("servicenow_mcp.tools.portal_tools.apply_scope_namespace")
+    def test_portal_phase_emits_gated_when_nested(
+        self, mock_scope, mock_qall, config, auth, tmp_path
+    ):
+        # Standalone download_portal_sources streams phase ticks; the emit_phases=False
+        # path (how download_app_sources invokes it) stays silent so the app's
+        # per-stage counter remains monotonic. Guards the v1.16.14 progress invariant.
+        from servicenow_mcp.tools.portal_tools import (
+            DownloadPortalSourcesParams,
+            download_portal_sources,
+        )
+
+        mock_scope.side_effect = lambda c, a, p: (p, None)
+        mock_qall.return_value = []
+        # Nest output_dir one level: download_portal_sources writes _settings.json
+        # to the scope root's PARENT, so a bare tmp_path would leak settings into
+        # the shared pytest tmp base and pollute sibling tests' _find_settings_json.
+        out = tmp_path / "portal_out"
+        base = dict(
+            scope="x_app",
+            output_dir=str(out),
+            include_linked_angular_providers=False,
+            include_linked_script_includes=False,
+        )
+
+        on: list = []
+        with use_progress_emitter(lambda p, t, m: on.append(m)):
+            download_portal_sources(config, auth, DownloadPortalSourcesParams(**base))
+        assert any("portal:" in m for m in on), "standalone should emit phase progress"
+
+        off: list = []
+        with use_progress_emitter(lambda p, t, m: off.append(m)):
+            download_portal_sources(
+                config, auth, DownloadPortalSourcesParams(**base), emit_phases=False
+            )
+        assert not any("portal:" in m for m in off), "nested call must not emit phases"
+
     @patch("servicenow_mcp.tools.source_tools._fetch_and_write_schema")
     @patch("servicenow_mcp.tools.source_tools._scan_tables_from_source_root")
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
