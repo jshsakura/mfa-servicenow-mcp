@@ -802,7 +802,7 @@ class GenericQueryParams(BaseModel):
     )
     query: Optional[str] = Field(
         default=None,
-        description="Encoded query (sysparm_query) for filtering.",
+        description="Encoded query (sysparm_query), e.g. active=true^priority=1.",
     )
     fields: Optional[str] = Field(
         default=None,
