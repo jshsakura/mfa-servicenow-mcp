@@ -1574,3 +1574,83 @@ class TestDepMaxDepth:
 
         with patch.dict(os.environ, {"SERVICENOW_DEP_MAX_DEPTH": "deep!"}):
             assert _dep_max_depth() == 2
+
+
+# ---------------------------------------------------------------------------
+# Resume-skip is PER FIELD, not all-or-nothing. A prior download that wrote some
+# source fields but not others must NOT mark the whole record "already
+# downloaded" — the missing field files are backfilled from the batch content
+# already in hand (no extra API call), while existing files stay untouched.
+# Regression guard for the "success but the file isn't there" floundering.
+# ---------------------------------------------------------------------------
+
+
+def _ui_page_records():
+    return [
+        {
+            "sys_id": "uip-1",
+            "name": "Request Form",
+            "description": "Custom request form",
+            "sys_scope": "x_app",
+            "sys_updated_on": "2026-04-01 12:00:00",
+            "sys_updated_by": "admin",
+            "html": "<g:ui_form>FORM</g:ui_form>",
+            "client_script": "function onLoad() { salesGroup(); }",
+            "processing_script": "current.update();",
+        },
+    ]
+
+
+class TestResumeSkipBackfill:
+    def _download(self, config, auth, records, scope_root, tmp_path, mqa, mqp):
+        mqa.return_value = _strip_source(records)
+        mqp.side_effect = _page_side_effect_for(records)
+        return _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=["ui_page"],
+            scope_root=scope_root,
+            root=tmp_path,
+        )
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_missing_field_is_backfilled_existing_untouched(self, mqp, mqa, config, auth, tmp_path):
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        # First download writes all three field files.
+        self._download(config, auth, _ui_page_records(), scope_root, tmp_path, mqa, mqp)
+        rec_dir = next((scope_root / "sys_ui_page").glob("*/client_script.js")).parent
+        assert (rec_dir / "html.html").exists()
+        assert (rec_dir / "processing_script.js").exists()
+
+        # Simulate a prior PARTIAL download: the client_script file never landed.
+        # Mark an existing file so we can prove it is NOT clobbered on backfill.
+        (rec_dir / "client_script.js").unlink()
+        (rec_dir / "html.html").write_text("<g:ui_form>LOCAL EDIT</g:ui_form>")
+
+        # Re-download (non-incremental) — the old any()-skip would leave
+        # client_script.js missing forever; the per-field backfill must restore it.
+        result = self._download(config, auth, _ui_page_records(), scope_root, tmp_path, mqa, mqp)
+
+        assert (rec_dir / "client_script.js").exists()
+        assert "salesGroup" in (rec_dir / "client_script.js").read_text()
+        # Existing local edit preserved (never clobbered).
+        assert "LOCAL EDIT" in (rec_dir / "html.html").read_text()
+        # Surfaced as both a human warning and a machine-readable disk-truth field.
+        assert result["type_results"]["ui_page"]["backfilled"] == 1
+        assert any("backfilled" in w and "Request Form" in w for w in result["warnings"])
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_complete_record_is_not_backfilled(self, mqp, mqa, config, auth, tmp_path):
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        self._download(config, auth, _ui_page_records(), scope_root, tmp_path, mqa, mqp)
+        # Re-download with every field already on disk → nothing backfilled.
+        result = self._download(config, auth, _ui_page_records(), scope_root, tmp_path, mqa, mqp)
+        assert "backfilled" not in result["type_results"]["ui_page"]
+        assert not any("backfilled" in w for w in result["warnings"])
