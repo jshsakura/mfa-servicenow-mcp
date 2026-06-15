@@ -2367,6 +2367,9 @@ def _download_source_types(
         # current remote value) and to flag local copies that went stale.
         prior_meta = read_download_map(type_dir / "_sync_meta.json")
         stale_skipped: List[Dict[str, str]] = []
+        # Records whose resume-skip preserved existing files but had to backfill
+        # one or more source-field files a prior download left missing.
+        backfilled_records: List[str] = []
         now_iso = datetime.now(timezone.utc).isoformat()
         type_file_count = 0
         retry_records: List[tuple] = []
@@ -2389,22 +2392,60 @@ def _download_source_types(
 
             record_dir = type_dir / safe_name
 
-            # Resume: skip if source files already exist from a previous run.
+            # Resume: a record downloaded in a previous run keeps its local files
+            # (which may hold the user's own edits) instead of being re-written.
             # Disabled under incremental — a returned record changed, so its
             # stale local file must be overwritten, not preserved.
+            #
+            # The skip is PER FIELD, not all-or-nothing: a prior run may have
+            # written some source fields but not others (interrupted download, or
+            # a field that was empty then and has content now). Existing files are
+            # preserved; MISSING ones are backfilled from the batch content already
+            # in hand — no extra API call. Without this, one present field (e.g.
+            # template) marked the whole record "already downloaded" and a
+            # genuinely-missing field (e.g. client_script) never landed: a silent
+            # "success" with the file not actually on disk.
             if source_cfg["source_fields"] and not incremental:
-                existing_source = any(
-                    (record_dir / f"{sf}{_FIELD_EXTENSIONS.get(sf, '.txt')}").exists()
+                field_paths = {
+                    sf: record_dir / f"{sf}{_FIELD_EXTENSIONS.get(sf, '.txt')}"
                     for sf in source_cfg["source_fields"]
-                )
-                if existing_source:
+                }
+                present = {sf for sf, p in field_paths.items() if p.exists()}
+                if present:
                     name_map[safe_name] = sys_id
-                    # Resume-skip: the local file is kept untouched, so its sync
-                    # watermark must NOT be bumped to the current remote value —
-                    # that would mask that the local copy is stale and let a later
-                    # push silently revert someone else's remote change. Leave the
-                    # key out of sync_meta so merge_map_file preserves the prior
-                    # entry (the timestamp matching the actual local content).
+                    # Backfill only the MISSING field files; never clobber an
+                    # existing local file. Prefer the batch content already in
+                    # hand (no API call); for any field the batch left blank
+                    # (some instances return empty source in bulk), do ONE
+                    # targeted page fetch restricted to the missing fields so
+                    # existing files stay untouched.
+                    backfilled = 0
+                    still_missing: List[str] = []
+                    for sf in source_cfg["source_fields"]:
+                        if sf in present:
+                            continue
+                        content = record.get(sf)
+                        if content and isinstance(content, str) and content.strip():
+                            _dl_write_file(field_paths[sf], content)
+                            backfilled += 1
+                        else:
+                            still_missing.append(sf)
+                    if still_missing and sys_id:
+                        backfilled += _retry_empty_source(
+                            config,
+                            auth_manager,
+                            table,
+                            still_missing,
+                            source_type,
+                            (sys_id, safe_name, record_dir),
+                            warnings,
+                        )
+                    if backfilled:
+                        backfilled_records.append(name)
+                    # Resume-skip watermark rule (unchanged): the preserved local
+                    # files may be older than the remote, so DON'T bump the sync
+                    # watermark — leave the key out of sync_meta so merge_map_file
+                    # keeps the prior entry and a later push can flag the conflict.
                     remote_updated = str(record.get("sys_updated_on") or "")
                     prior_updated = str(prior_meta.get(safe_name, {}).get("sys_updated_on") or "")
                     if prior_updated and remote_updated and remote_updated > prior_updated:
@@ -2416,11 +2457,7 @@ def _download_source_types(
                                 "remote_sys_updated_on": remote_updated,
                             }
                         )
-                    type_file_count += sum(
-                        1
-                        for sf in source_cfg["source_fields"]
-                        if (record_dir / f"{sf}{_FIELD_EXTENSIONS.get(sf, '.txt')}").exists()
-                    )
+                    type_file_count += len(present) + backfilled
                     continue
 
             _dl_write_json(record_dir / "_metadata.json", metadata)
@@ -2499,6 +2536,17 @@ def _download_source_types(
                 f"{names}{more}"
             )
 
+        if backfilled_records:
+            names = ", ".join(backfilled_records[:10])
+            more = (
+                "" if len(backfilled_records) <= 10 else f" (+{len(backfilled_records) - 10} more)"
+            )
+            warnings.append(
+                f"{source_type}: backfilled missing source file(s) for "
+                f"{len(backfilled_records)} record(s) a prior download left incomplete "
+                f"(existing files untouched): {names}{more}"
+            )
+
         type_results[source_type] = {
             "count": len(records),
             "files": type_file_count,
@@ -2507,6 +2555,10 @@ def _download_source_types(
             # tree can refuse/flag instead of trusting a truncated source.
             "capped": capped,
         }
+        if backfilled_records:
+            # Disk-truth signal: records whose missing field files were just
+            # filled in (= a prior "success" had not actually written them).
+            type_results[source_type]["backfilled"] = len(backfilled_records)
         total_files += type_file_count
         return type_results, manifest_entries, warnings, deletion_candidates, total_files
 
