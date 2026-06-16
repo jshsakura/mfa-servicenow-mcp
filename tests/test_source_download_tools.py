@@ -1905,3 +1905,53 @@ def test_audit_index_spans_dep_scope(tmp_path):
     assert "A" in names and "B" in names  # dep from sibling scope is indexed
     b_path = next(e["path"] for e in idx if e["name"] == "B")
     assert b_path.startswith("global/")  # path relative to instance base
+
+
+# ---------------------------------------------------------------------------
+# EOL canonicalization — CRLF bodies land on disk as LF (clean cross-instance diff)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_source_eol():
+    from servicenow_mcp.utils.source_layout import normalize_source_eol
+
+    assert normalize_source_eol("a\r\nb\r\n") == "a\nb\n"  # CRLF -> LF
+    assert normalize_source_eol("a\rb") == "a\nb"  # lone CR -> LF
+    assert normalize_source_eol("a\nb") == "a\nb"  # already LF, unchanged
+
+
+class TestDownloadEolNormalization:
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_crlf_body_written_as_lf(self, mqp, mqa, config, auth, tmp_path):
+        record = {
+            "sys_id": "si-1",
+            "name": "Foo",
+            "api_name": "x_app.Foo",
+            "sys_scope": "x_app",
+            "sys_updated_on": "2026-04-01 12:00:00",
+            "sys_updated_by": "admin",
+            "script": "line1\r\nline2\r\n",
+        }
+        mqa.return_value = [{k: v for k, v in record.items() if k != "script"}]
+
+        def _page(*a, **k):
+            if "si-1" in k.get("query", ""):
+                return [{"script": record["script"]}], None
+            return [], None
+
+        mqp.side_effect = _page
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
+        )
+        raw = (scope_root / "sys_script_include" / "Foo" / "script.js").read_bytes()
+        assert b"\r" not in raw  # no CRLF noise survives to disk
+        assert raw == b"line1\nline2\n"

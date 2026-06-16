@@ -43,7 +43,12 @@ from servicenow_mcp.utils.download_map import (
 )
 from servicenow_mcp.utils.progress import emit_progress
 from servicenow_mcp.utils.registry import register_tool
-from servicenow_mcp.utils.source_layout import FIELD_FILENAME, dep_scope_roots, field_extension
+from servicenow_mcp.utils.source_layout import (
+    FIELD_FILENAME,
+    dep_scope_roots,
+    field_extension,
+    normalize_source_eol,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2226,8 +2231,9 @@ def _record_scope_namespace(record: Dict[str, Any], fallback: str) -> str:
 
 def _dl_write_file(path: Path, content: str) -> None:
     # Atomic: an interrupted download never leaves a truncated file that
-    # resume-skip would later trust as "already downloaded".
-    atomic_write_text(path, content)
+    # resume-skip would later trust as "already downloaded". EOL canonicalized to
+    # LF so the same script downloaded from two instances compares clean.
+    atomic_write_text(path, normalize_source_eol(content))
 
 
 def _dl_write_json(path: Path, payload: Any) -> None:
