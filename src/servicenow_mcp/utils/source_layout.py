@@ -46,6 +46,21 @@ FIELD_FILENAME: Dict[str, str] = {
 DEFAULT_FILENAME_EXT = ".txt"
 
 
+def normalize_source_eol(text: str) -> str:
+    """Canonicalize line endings to LF for downloaded source bodies.
+
+    ServiceNow stores the same logical script with different EOLs across instances
+    (CRLF on one, LF on another, depending on the UI / update-set / API edit path).
+    Written verbatim, an identical script then shows as a whole-file change under
+    any byte/line diff (git, raw ``diff``, editors) — pure EOL noise that buries the
+    real differences in cross-instance comparison. Normalizing to LF on write makes
+    the local copy canonical so every comparison method is clean. Safe for the push
+    round-trip: ServiceNow normalizes EOLs on store and the uploader already treats
+    a pure CRLF<->LF delta as no change, so a normalized body is never a phantom push.
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def field_filename(field: str) -> str:
     """Canonical on-disk filename for *field* (folder layout)."""
     return FIELD_FILENAME.get(field, f"{field}{DEFAULT_FILENAME_EXT}")

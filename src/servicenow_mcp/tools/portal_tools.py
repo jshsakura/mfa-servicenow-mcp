@@ -21,7 +21,7 @@ from ..utils.config import ServerConfig
 from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file
 from ..utils.progress import emit_progress
 from ..utils.registry import register_tool
-from ..utils.source_layout import field_filename
+from ..utils.source_layout import field_filename, normalize_source_eol
 from .sn_api import (
     GenericQueryParams,
     _get_page_executor,
@@ -1540,7 +1540,9 @@ def _note_table_response(config: ServerConfig, table: str, response: Dict[str, A
 
 def _write_text_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    # EOL canonicalized to LF so the same widget downloaded from two instances
+    # compares clean (no whole-file CRLF<->LF phantom diff).
+    path.write_text(normalize_source_eol(content), encoding="utf-8")
 
 
 def _write_json_file(path: Path, payload: Any) -> None:
