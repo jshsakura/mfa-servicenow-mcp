@@ -1094,7 +1094,12 @@ class TestDownloadDepRecords:
     def test_skips_existing_metadata(self, mock_all, tmp_path):
         config = _build_config()
         auth_manager = MagicMock()
-        rec_dir = tmp_path / "sys_script_include" / "ExistingHelper"
+        scope_root = tmp_path / "x_app"
+        scope_root.mkdir()
+        # A global-scope dependency routes to ITS OWN scope tree (sibling 'global'),
+        # not under the app that pulled it, and as a bare name. Pre-create it there →
+        # it must be skipped (already present), not re-fetched into the app tree.
+        rec_dir = tmp_path / "global" / "sys_script_include" / "ExistingHelper"
         rec_dir.mkdir(parents=True)
         rec_dir.joinpath("_metadata.json").write_text('{"name":"ExistingHelper"}')
 
@@ -1103,6 +1108,7 @@ class TestDownloadDepRecords:
                 "sys_id": "si-exist",
                 "name": "ExistingHelper",
                 "api_name": "global.ExistingHelper",
+                "sys_scope.scope": "global",
                 "script": "content",
             }
         ]
@@ -1113,10 +1119,10 @@ class TestDownloadDepRecords:
             "script_include",
             "name",
             ["ExistingHelper"],
-            tmp_path,
+            scope_root,
             20,
         )
-        assert result["count"] == 0  # skipped
+        assert result["count"] == 0  # skipped (already in the global tree)
 
 
 class TestAutoResolveDeps:
