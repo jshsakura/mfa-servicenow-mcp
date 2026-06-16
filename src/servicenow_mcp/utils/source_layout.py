@@ -15,7 +15,13 @@ construction; a contract test pins it so a future edit cannot silently re-drift.
 
 from __future__ import annotations
 
-from typing import Dict
+import json
+from pathlib import Path
+from typing import Dict, List
+
+# Written by the dependency resolver at the scope root; lists the sibling scope
+# namespaces that hold this scope's routed dependencies.
+DEP_SCOPES_FILE = "_dep_scopes.json"
 
 # Canonical on-disk filename for each source field, in the folder layout
 # ``<table>/<name>/<filename>``. The filename always begins with the field
@@ -43,6 +49,32 @@ DEFAULT_FILENAME_EXT = ".txt"
 def field_filename(field: str) -> str:
     """Canonical on-disk filename for *field* (folder layout)."""
     return FIELD_FILENAME.get(field, f"{field}{DEFAULT_FILENAME_EXT}")
+
+
+def dep_scope_roots(scope_root: Path) -> List[Path]:
+    """Sibling scope trees that hold this scope's routed dependencies.
+
+    The dependency resolver routes a dep to its OWN scope tree (a global SI lands
+    in the sibling ``global/`` tree, not under the app that pulled it) and records
+    the sibling namespaces in ``<scope_root>/_dep_scopes.json``. Audit and schema
+    scans read this so they cover exactly those dep trees — not every unrelated app
+    under ``temp/<instance>``. Returns existing sibling roots only (never the scope
+    itself), so callers can scan ``[scope_root, *dep_scope_roots(scope_root)]``.
+    """
+    manifest = scope_root / DEP_SCOPES_FILE
+    if not manifest.is_file():
+        return []
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    base = scope_root.parent
+    roots: List[Path] = []
+    for ns in data.get("dep_scopes", []) if isinstance(data, dict) else []:
+        cand = base / str(ns)
+        if cand.is_dir() and cand != scope_root:
+            roots.append(cand)
+    return roots
 
 
 def field_extension(field: str) -> str:

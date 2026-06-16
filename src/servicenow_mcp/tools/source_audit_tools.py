@@ -19,6 +19,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.progress import emit_progress
 from servicenow_mcp.utils.registry import register_tool
+from servicenow_mcp.utils.source_layout import dep_scope_roots
 
 logger = logging.getLogger(__name__)
 
@@ -101,18 +102,40 @@ def _read_text(path: Path) -> str:
 
 
 def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
-    """Build a flat index of all source records under scope_root.
+    """Build a flat index of all source records under scope_root AND the sibling
+    scope trees its dependencies were routed into.
 
     Recognizes two metadata formats:
     - _metadata.json (from _download_source_types): has source_type, table, sys_id
     - _widget.json (from download_portal_sources): has tableName, sys_id, name
     Also picks up flat provider/SI files from portal download (no metadata dir).
+
+    Dep entries from a sibling scope keep a path relative to the instance base
+    (e.g. ``global/sys_script_include/Foo``) so a global SI a widget references
+    resolves to a real record instead of a false orphan.
     """
     entries: List[Dict[str, Any]] = []
     seen_dirs: set[str] = set()
+    # (index_root, path_base): the app scope keeps paths relative to itself; dep
+    # trees are siblings, so their paths are relative to the shared instance base.
+    roots: List[tuple[Path, Path]] = [(scope_root, scope_root)]
+    for dep_root in dep_scope_roots(scope_root):
+        roots.append((dep_root, scope_root.parent))
+    for index_root, path_base in roots:
+        _index_one_root(index_root, path_base, entries, seen_dirs)
+    return entries
 
+
+def _index_one_root(
+    index_root: Path,
+    path_base: Path,
+    entries: List[Dict[str, Any]],
+    seen_dirs: set[str],
+) -> None:
+    """Append index entries for every record under index_root (paths relative to
+    path_base). Shared by the app scope and each routed dependency scope tree."""
     # --- Pass 1: _metadata.json directories (from _download_source_types) ---
-    for meta_file in sorted(scope_root.rglob("_metadata.json")):
+    for meta_file in sorted(index_root.rglob("_metadata.json")):
         meta = _read_json(meta_file)
         if not meta or not isinstance(meta, dict):
             continue
@@ -128,7 +151,7 @@ def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
                 "table": meta.get("table", ""),
                 "sys_id": meta.get("sys_id", ""),
                 "name": meta.get("name", record_dir.name),
-                "path": str(record_dir.relative_to(scope_root)),
+                "path": str(record_dir.relative_to(path_base)),
                 "files": source_files,
                 "lines": total_lines,
                 "active": meta.get("active", "true"),
@@ -139,7 +162,7 @@ def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
         )
 
     # --- Pass 2: _widget.json directories (from download_portal_sources) ---
-    for widget_file in sorted(scope_root.rglob("_widget.json")):
+    for widget_file in sorted(index_root.rglob("_widget.json")):
         record_dir = widget_file.parent
         if str(record_dir) in seen_dirs:
             continue
@@ -157,7 +180,7 @@ def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
                 "table": wdata.get("tableName", "sp_widget"),
                 "sys_id": wdata.get("sys_id", ""),
                 "name": wdata.get("name", record_dir.name),
-                "path": str(record_dir.relative_to(scope_root)),
+                "path": str(record_dir.relative_to(path_base)),
                 "files": source_files,
                 "lines": total_lines,
                 "active": "true",
@@ -168,7 +191,7 @@ def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
         )
 
     # --- Pass 3: flat files from portal download (sp_angular_provider/*.script.js) ---
-    for table_dir in sorted(scope_root.iterdir()):
+    for table_dir in sorted(index_root.iterdir()):
         if not table_dir.is_dir() or table_dir.name.startswith("_"):
             continue
         # Map directory names to source types
@@ -203,7 +226,7 @@ def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
                     "table": table_dir.name,
                     "sys_id": name_map.get(file_name, ""),
                     "name": file_name,
-                    "path": str(src_file.relative_to(scope_root)),
+                    "path": str(src_file.relative_to(path_base)),
                     "files": [src_file.name],
                     "lines": lines,
                     "active": "true",
@@ -212,8 +235,6 @@ def _scan_source_index(scope_root: Path) -> List[Dict[str, Any]]:
                     "order": "",
                 }
             )
-
-    return entries
 
 
 def _count_lines_in_dir(record_dir: Path) -> int:

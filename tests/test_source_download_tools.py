@@ -19,6 +19,7 @@ from servicenow_mcp.tools.source_tools import (
     _download_source_types,
     _resolve_scope_root,
     _safe_filename,
+    _strip_scope_prefix,
     download_app_sources,
     download_server_sources,
     download_table_schema,
@@ -303,20 +304,20 @@ class TestDownloadSourceTypes:
 
         # Verify files written (identifier_field for SI is api_name)
         si_dir = scope_root / "sys_script_include"
-        assert (si_dir / "x_app.CommitHelper" / "_metadata.json").exists()
-        assert (si_dir / "x_app.CommitHelper" / "script.js").exists()
-        assert (si_dir / "x_app.ApprovalUtil" / "script.js").exists()
+        assert (si_dir / "CommitHelper" / "_metadata.json").exists()
+        assert (si_dir / "CommitHelper" / "script.js").exists()
+        assert (si_dir / "ApprovalUtil" / "script.js").exists()
         assert (si_dir / "_map.json").exists()
         assert (si_dir / "_sync_meta.json").exists()
 
         # Verify metadata content
-        meta = json.loads((si_dir / "x_app.CommitHelper" / "_metadata.json").read_text())
+        meta = json.loads((si_dir / "CommitHelper" / "_metadata.json").read_text())
         assert meta["sys_id"] == "si-1"
         assert meta["source_type"] == "script_include"
         assert meta["table"] == "sys_script_include"
 
         # Verify script content is NOT truncated
-        script = (si_dir / "x_app.CommitHelper" / "script.js").read_text()
+        script = (si_dir / "CommitHelper" / "script.js").read_text()
         assert "CommitHelper" in script
         assert "validate" in script
 
@@ -357,7 +358,7 @@ class TestDownloadSourceTypes:
         assert result["total_files"] == 3
 
         # Files landed under each type's own table dir.
-        assert (scope_root / "sys_script_include" / "x_app.CommitHelper" / "script.js").exists()
+        assert (scope_root / "sys_script_include" / "CommitHelper" / "script.js").exists()
         assert (scope_root / "sys_script" / "Validate_Before_Insert" / "script.js").exists()
 
         # Merge is deterministic: type_results follows input order.
@@ -438,12 +439,12 @@ class TestDownloadSourceTypes:
 
         si_dir = scope_root / "sys_script_include"
         name_map = json.loads((si_dir / "_map.json").read_text())
-        assert name_map["x_app.CommitHelper"] == "si-1"
-        assert name_map["x_app.ApprovalUtil"] == "si-2"
+        assert name_map["CommitHelper"] == "si-1"
+        assert name_map["ApprovalUtil"] == "si-2"
 
         sync_meta = json.loads((si_dir / "_sync_meta.json").read_text())
-        assert sync_meta["x_app.CommitHelper"]["sys_id"] == "si-1"
-        assert "downloaded_at" in sync_meta["x_app.CommitHelper"]
+        assert sync_meta["CommitHelper"]["sys_id"] == "si-1"
+        assert "downloaded_at" in sync_meta["CommitHelper"]
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_empty_results(self, mock_query_all, config, auth, tmp_path):
@@ -595,7 +596,7 @@ class TestDownloadSourceTypes:
         )
 
         assert result["total_files"] == 0  # no script file written
-        si_dir = scope_root / "sys_script_include" / "x_app.EmptySI"
+        si_dir = scope_root / "sys_script_include" / "EmptySI"
         assert (si_dir / "_metadata.json").exists()  # metadata always written
         assert not (si_dir / "script.js").exists()  # empty script not written
 
@@ -623,7 +624,7 @@ class TestDownloadSourceTypes:
         assert entry["source_type"] == "script_include"
         assert entry["sys_id"] == "si-1"
         assert entry["name"] == "x_app.CommitHelper"
-        assert "x_app/sys_script_include/x_app.CommitHelper" in entry["path"]
+        assert "x_app/sys_script_include/CommitHelper" in entry["path"]
 
 
 # ---------------------------------------------------------------------------
@@ -1449,7 +1450,7 @@ class TestResumeSkipWatermark:
         # First download at T0.
         self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
         meta0 = json.loads((si_dir / "_sync_meta.json").read_text())
-        assert meta0["x_app.CommitHelper"]["sys_updated_on"] == "2026-04-01 12:00:00"
+        assert meta0["CommitHelper"]["sys_updated_on"] == "2026-04-01 12:00:00"
 
         # Someone edits CommitHelper remotely at T1 (> T0) and changes its body.
         recs2 = _si_records()
@@ -1459,9 +1460,9 @@ class TestResumeSkipWatermark:
 
         # Watermark for the skipped record stays at T0 — NOT bumped to T1.
         meta1 = json.loads((si_dir / "_sync_meta.json").read_text())
-        assert meta1["x_app.CommitHelper"]["sys_updated_on"] == "2026-04-01 12:00:00"
+        assert meta1["CommitHelper"]["sys_updated_on"] == "2026-04-01 12:00:00"
         # Resume kept the local copy (did not pull the remote change).
-        local_script = (si_dir / "x_app.CommitHelper" / "script.js").read_text()
+        local_script = (si_dir / "CommitHelper" / "script.js").read_text()
         assert "REMOTE_CHANGED" not in local_script
         # The drift is surfaced so the user knows to refresh.
         assert any("OLDER than the server" in w and "CommitHelper" in w for w in result["warnings"])
@@ -1654,3 +1655,253 @@ class TestResumeSkipBackfill:
         result = self._download(config, auth, _ui_page_records(), scope_root, tmp_path, mqa, mqp)
         assert "backfilled" not in result["type_results"]["ui_page"]
         assert not any("backfilled" in w for w in result["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Folder-name consistency (single style, no scope-prefix mix, no bare sys_id)
+# ---------------------------------------------------------------------------
+
+
+class TestStripScopePrefix:
+    def test_strips_only_the_resolved_scope(self):
+        assert _strip_scope_prefix("x_app.Foo", "x_app") == "Foo"
+
+    def test_bare_name_untouched(self):
+        assert _strip_scope_prefix("Foo", "x_app") == "Foo"
+
+    def test_other_scope_not_stripped(self):
+        # A different scope's prefix is not the parent dir → keep it to stay unique.
+        assert _strip_scope_prefix("global.Foo", "x_app") == "global.Foo"
+
+    def test_scope_without_dot_untouched(self):
+        assert _strip_scope_prefix("x_app", "x_app") == "x_app"
+
+
+class TestSIFolderConsistency:
+    """script_include uses api_name; an SI with an empty api_name fell back to
+    name, mixing 'x_app.Foo' and 'Foo' folders in one tree. Both must now be bare."""
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_scoped_and_unscoped_si_both_bare(self, mqp, mqa, config, auth, tmp_path):
+        records = [
+            {
+                "sys_id": "si-1",
+                "name": "CommitHelper",
+                "api_name": "x_app.CommitHelper",  # api_name populated → was prefixed
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-04-01 12:00:00",
+                "sys_updated_by": "admin",
+                "script": "var CommitHelper = Class.create();",
+            },
+            {
+                "sys_id": "si-2",
+                "name": "LegacyUtil",
+                "api_name": "",  # empty api_name → fell back to bare name already
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-04-02 10:00:00",
+                "sys_updated_by": "dev1",
+                "script": "var LegacyUtil = Class.create();",
+            },
+        ]
+        mqa.return_value = [{k: v for k, v in r.items() if k != "script"} for r in records]
+
+        def _page(*a, **k):
+            q = k.get("query", "")
+            for r in records:
+                if r["sys_id"] in q:
+                    return [{"script": r["script"]}], None
+            return [], None
+
+        mqp.side_effect = _page
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
+        )
+        si_dir = scope_root / "sys_script_include"
+        # Single consistent style: no scope prefix on either folder.
+        assert (si_dir / "CommitHelper" / "script.js").exists()
+        assert (si_dir / "LegacyUtil" / "script.js").exists()
+        assert not (si_dir / "x_app.CommitHelper").exists()
+
+
+class TestTransformScriptFolderName:
+    """sys_transform_script.name is blank → folder must compose map.name/when/order,
+    not collapse to the bare sys_id."""
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_nameless_record_composes_readable_folder(self, mqp, mqa, config, auth, tmp_path):
+        records = [
+            {
+                "sys_id": "ts-1",
+                "name": "",
+                "map": "map-sysid-1",
+                "map.name": "User Import",
+                "when": "onBefore",
+                "order": 100,
+                "sys_updated_on": "2026-04-01 12:00:00",
+                "sys_updated_by": "admin",
+                "script": "target.name = source.u_name;",
+            },
+        ]
+        mqa.return_value = [{k: v for k, v in r.items() if k != "script"} for r in records]
+
+        def _page(*a, **k):
+            q = k.get("query", "")
+            return ([{"script": records[0]["script"]}], None) if "ts-1" in q else ([], None)
+
+        mqp.side_effect = _page
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=["transform_script"],
+            scope_root=scope_root,
+            root=tmp_path,
+        )
+        ts_dir = scope_root / "sys_transform_script"
+        assert (ts_dir / "User_Import_onBefore_100" / "script.js").exists()
+        # sys_id must NOT be used as the folder when composable fields exist.
+        assert not (ts_dir / "ts-1").exists()
+
+
+# ---------------------------------------------------------------------------
+# Scope routing — every record lands under ITS OWN scope tree, always bare
+# ---------------------------------------------------------------------------
+
+
+def test_record_scope_namespace_sources():
+    from servicenow_mcp.tools.source_tools import _record_scope_namespace as ns
+
+    # sys_scope.scope is the authoritative source
+    assert ns({"sys_scope.scope": "x_app", "api_name": "global.Foo"}, "fb") == "x_app"
+    # api_name prefix is the SI fallback when sys_scope.scope is absent
+    assert ns({"api_name": "global.Foo"}, "fb") == "global"
+    # bare api_name (no dot) → fall back to the download scope, never mis-route
+    assert ns({"api_name": "Foo"}, "x_app") == "x_app"
+    assert ns({}, "x_app") == "x_app"
+
+
+class TestDepScopeRouting:
+    """A dependency is written under its OWN scope tree (global -> sibling 'global',
+    same-scope -> the app), always as a bare name."""
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_global_and_same_scope_deps_routed(self, mqa, config, auth, tmp_path):
+        from servicenow_mcp.tools.source_tools import _download_dep_records
+
+        scope_root = tmp_path / "x_app"
+        scope_root.mkdir()
+        mqa.return_value = [
+            {
+                "sys_id": "g1",
+                "name": "GUtil",
+                "api_name": "global.GUtil",
+                "sys_scope.scope": "global",
+                "script": "var GUtil;",
+            },
+            {
+                "sys_id": "a1",
+                "name": "AUtil",
+                "api_name": "x_app.AUtil",
+                "sys_scope.scope": "x_app",
+                "script": "var AUtil;",
+            },
+        ]
+        res = _download_dep_records(
+            config, auth, "script_include", "name", ["GUtil", "AUtil"], scope_root, 20
+        )
+        # global dep -> sibling global tree, bare name
+        assert (tmp_path / "global" / "sys_script_include" / "GUtil" / "script.js").exists()
+        # same-scope dep -> the app's own tree, bare name
+        assert (scope_root / "sys_script_include" / "AUtil" / "script.js").exists()
+        # never buried under the app that pulled the global one
+        assert not (scope_root / "sys_script_include" / "global.GUtil").exists()
+        assert set(res["scope_roots"]) == {str(tmp_path / "global"), str(scope_root)}
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_metadata_records_scope_namespace(self, mqa, config, auth, tmp_path):
+        from servicenow_mcp.tools.source_tools import _download_dep_records
+
+        scope_root = tmp_path / "x_app"
+        scope_root.mkdir()
+        mqa.return_value = [
+            {
+                "sys_id": "g1",
+                "name": "GUtil",
+                "api_name": "global.GUtil",
+                "sys_scope.scope": "global",
+                "script": "var GUtil;",
+            }
+        ]
+        _download_dep_records(config, auth, "script_include", "name", ["GUtil"], scope_root, 20)
+        meta = json.loads(
+            (tmp_path / "global" / "sys_script_include" / "GUtil" / "_metadata.json").read_text()
+        )
+        assert meta["scope_namespace"] == "global"
+        assert meta["is_dependency"] is True
+
+
+def test_dep_scope_roots_reads_manifest(tmp_path):
+    from servicenow_mcp.utils.source_layout import dep_scope_roots
+
+    scope_root = tmp_path / "x_app"
+    scope_root.mkdir()
+    (tmp_path / "global").mkdir()
+    # x_other listed but not on disk → excluded; global exists → included
+    (scope_root / "_dep_scopes.json").write_text('{"dep_scopes": ["global", "x_other"]}')
+    assert dep_scope_roots(scope_root) == [tmp_path / "global"]
+    # no manifest → empty
+    assert dep_scope_roots(tmp_path / "nope") == []
+
+
+def test_schema_scan_spans_dep_scope(tmp_path):
+    from servicenow_mcp.tools.source_tools import _scan_tables_from_source_root
+
+    scope_root = tmp_path / "x_app"
+    app_si = scope_root / "sys_script_include" / "A"
+    app_si.mkdir(parents=True)
+    (app_si / "script.js").write_text("new GlideRecord('app_tbl');")
+    dep_si = tmp_path / "global" / "sys_script_include" / "B"
+    dep_si.mkdir(parents=True)
+    (dep_si / "script.js").write_text("new GlideRecord('global_tbl');")
+    (scope_root / "_dep_scopes.json").write_text('{"dep_scopes": ["global"]}')
+    tables = _scan_tables_from_source_root(scope_root)
+    assert "app_tbl" in tables
+    assert "global_tbl" in tables  # dep scope tree is scanned too
+
+
+def test_audit_index_spans_dep_scope(tmp_path):
+    from servicenow_mcp.tools.source_audit_tools import _scan_source_index
+
+    scope_root = tmp_path / "x_app"
+    a = scope_root / "sys_script_include" / "A"
+    a.mkdir(parents=True)
+    (a / "_metadata.json").write_text(
+        '{"source_type":"script_include","table":"sys_script_include","sys_id":"a1","name":"A"}'
+    )
+    (a / "script.js").write_text("x")
+    b = tmp_path / "global" / "sys_script_include" / "B"
+    b.mkdir(parents=True)
+    (b / "_metadata.json").write_text(
+        '{"source_type":"script_include","table":"sys_script_include","sys_id":"b1","name":"B"}'
+    )
+    (b / "script.js").write_text("y")
+    (scope_root / "_dep_scopes.json").write_text('{"dep_scopes": ["global"]}')
+
+    idx = _scan_source_index(scope_root)
+    names = {e["name"] for e in idx}
+    assert "A" in names and "B" in names  # dep from sibling scope is indexed
+    b_path = next(e["path"] for e in idx if e["name"] == "B")
+    assert b_path.startswith("global/")  # path relative to instance base
