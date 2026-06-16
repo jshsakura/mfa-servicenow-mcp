@@ -43,7 +43,7 @@ from servicenow_mcp.utils.download_map import (
 )
 from servicenow_mcp.utils.progress import emit_progress
 from servicenow_mcp.utils.registry import register_tool
-from servicenow_mcp.utils.source_layout import FIELD_FILENAME, field_extension
+from servicenow_mcp.utils.source_layout import FIELD_FILENAME, dep_scope_roots, field_extension
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +181,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "api_name",
             "description",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -198,6 +199,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "when",
             "active",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -216,6 +218,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "ui_type",
             "active",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -234,6 +237,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "active",
             "client",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -250,6 +254,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "global",
             "ui_type",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -265,6 +270,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "name",
             "description",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -282,6 +288,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "active",
             "web_service_definition",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -298,6 +305,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "description",
             "active",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -329,6 +337,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "name",
             "id",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -344,6 +353,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "name",
             "type",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -361,6 +371,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "type",
             "active",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -377,6 +388,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "description",
             "active",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -393,6 +405,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "active",
             "run_type",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -409,6 +422,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "event_name",
             "active",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -426,6 +440,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "event_name",
             "active",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -443,6 +458,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "operation",
             "active",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -453,10 +469,16 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
     "transform_script": {
         "table": "sys_transform_script",
         "identifier_field": "name",
+        # sys_transform_script.name is usually blank — a transform script is
+        # identified by its map + when + order, not a name. Without this the
+        # folder fell back to the bare sys_id. map.name is a dot-walked read so
+        # the readable map name comes back even under display_value=False.
+        "folder_fields": ["map.name", "when", "order"],
         "summary_fields": [
             "sys_id",
             "name",
             "map",
+            "map.name",
             "when",
             "order",
             "active",
@@ -477,6 +499,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "type",
             "active",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -491,6 +514,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_id",
             "name",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -505,6 +529,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_id",
             "name",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -519,6 +544,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_id",
             "id",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -538,6 +564,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "internal",
             "public",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -557,6 +584,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "order",
             "title",
             "sys_scope",
+            "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
@@ -1799,6 +1827,20 @@ def _collect_downloaded_names(scope_root: Path, table: str, id_field: str) -> Se
     return names
 
 
+def _collect_downloaded_names_multi(base: Path, table: str, id_field: str) -> Set[str]:
+    """Union of identifiers downloaded for `table` across ALL scope trees under base
+    (temp/<instance>). Dependencies route to their own scope tree, so the resolver
+    must look beyond the current app's scope_root to know a dep is already present —
+    otherwise it re-fetches the same sibling-scope record on every pass."""
+    names: Set[str] = set()
+    if not base.is_dir():
+        return names
+    for child in sorted(base.iterdir()):
+        if child.is_dir():
+            names |= _collect_downloaded_names(child, table, id_field)
+    return names
+
+
 # Download concurrency cap. A single application scope can hold thousands of
 # records across ~24 source types; fetched serially that overruns the client's
 # 120s call timeout (a real scope measured ~4 min). Source types are mutually
@@ -1859,14 +1901,20 @@ def _download_dep_records(
     names: List[str],
     scope_root: Path,
     page_size: int,
-) -> Dict[str, int]:
-    """Fetch records by name (no scope filter); save into scope_root/{table}/ (same structure).
+) -> Dict[str, Any]:
+    """Fetch records by name (no scope filter); route each to ITS OWN scope tree.
+
+    A record is written under `<base>/<record_namespace>/{table}/<bare_name>` where
+    base = scope_root.parent — so a global dependency lands in the `global` tree and
+    an app-scope one in that app's tree, never buried under the scope that happened
+    to pull it. Same-scope deps resolve back to scope_root. Returns the set of scope
+    roots written (so the resolver can scan them for transitive refs).
 
     Parallel chunk queries are bounded by _DEP_MAX_WORKERS.
     Already-present files are skipped (idempotent / concurrency-safe).
     """
     if not names:
-        return {"count": 0, "files": 0}
+        return {"count": 0, "files": 0, "scope_roots": set()}
 
     cfg = SOURCE_CONFIG[source_type]
     table = cfg["table"]
@@ -1907,15 +1955,23 @@ def _download_dep_records(
             for batch in pool.map(_fetch_chunk, chunks):
                 all_rows.extend(batch)
 
+    base = scope_root.parent
     fetched = 0
     file_count = 0
+    written_roots: Set[str] = set()
 
     for record in all_rows:
         sys_id = str(record.get("sys_id") or "")
-        id_val = str(record.get(id_field) or record.get("name") or sys_id)
-        safe_name = _safe_filename(id_val)
-        rec_dir = scope_root / table / safe_name
+        # Route each dep to ITS OWN scope tree (global deps -> the 'global' tree,
+        # app-scope deps -> that scope) so a record always lands at the same path
+        # regardless of which download pulled it. The record's own namespace also
+        # strips its prefix, so the folder is the same bare name as a direct download.
+        ns = _record_scope_namespace(record, scope_root.name)
+        rec_scope_root = base / _safe_filename(ns)
+        _, safe_name = _record_identifier_and_folder(record, cfg, ns)
+        rec_dir = rec_scope_root / table / safe_name
         meta_path = rec_dir / "_metadata.json"
+        written_roots.add(str(rec_scope_root))
 
         # Skip if already present (idempotent — safe under concurrent calls)
         if meta_path.exists():
@@ -1926,6 +1982,7 @@ def _download_dep_records(
             "table": table,
             "sys_id": sys_id,
             "is_dependency": True,
+            "scope_namespace": ns,
         }
         for sf in cfg["summary_fields"]:
             val = record.get(sf)
@@ -1943,7 +2000,7 @@ def _download_dep_records(
                     _dl_write_file(dest, content)
                     file_count += 1
 
-    return {"count": fetched, "files": file_count}
+    return {"count": fetched, "files": file_count, "scope_roots": written_roots}
 
 
 def _auto_resolve_deps(
@@ -1977,16 +2034,30 @@ def _auto_resolve_deps(
         "ui_macros": 0,
     }
 
+    base = scope_root.parent
+    # Roots scanned for transitive refs: the app scope plus every sibling tree a
+    # dep was routed into, so a routed dep's own refs are discovered on later passes.
+    dep_roots: Set[Path] = {scope_root}
+
     def _saved_names(table: str, id_field: str) -> Set[str]:
-        # Single source of truth — counts BOTH _metadata.json AND the portal
-        # _widget.json format. (A local copy here that read only _metadata.json
-        # was the bug: it never saw portal-downloaded widgets, so the resolver
-        # re-fetched every widget every run and recreated scope-prefixed folders.)
-        return _collect_downloaded_names(scope_root, table, id_field)
+        # Cross-scope: a dep already present in a SIBLING scope tree (e.g. global)
+        # must count as downloaded so it is not re-fetched every pass. Counts BOTH
+        # _metadata.json and the portal _widget.json format across all scope trees.
+        return _collect_downloaded_names_multi(base, table, id_field)
 
     for depth in range(_dep_max_depth()):
-        # Scan all files in scope_root (including newly fetched deps from prior passes)
-        refs = _scan_scope_dep_refs(scope_root)
+        # Scan the app scope + every sibling tree deps were routed into (picks up
+        # newly fetched deps from prior passes for transitive resolution).
+        refs: Dict[str, Set[str]] = {
+            "script_includes": set(),
+            "widgets": set(),
+            "angular_providers": set(),
+            "ui_macros": set(),
+        }
+        for root in dep_roots:
+            part = _scan_scope_dep_refs(root)
+            for key in refs:
+                refs[key] |= part.get(key, set())
 
         if depth == 0:
             total_refs["script_includes"] = len(refs["script_includes"])
@@ -2036,6 +2107,7 @@ def _auto_resolve_deps(
             )
             total_counts["script_include"]["count"] += r["count"]
             total_counts["script_include"]["files"] += r["files"]
+            dep_roots |= {Path(p) for p in r.get("scope_roots", ())}
 
         if missing_widgets:
             r = _download_dep_records(
@@ -2043,6 +2115,7 @@ def _auto_resolve_deps(
             )
             total_counts["widget"]["count"] += r["count"]
             total_counts["widget"]["files"] += r["files"]
+            dep_roots |= {Path(p) for p in r.get("scope_roots", ())}
 
         if missing_providers:
             r = _download_dep_records(
@@ -2056,6 +2129,7 @@ def _auto_resolve_deps(
             )
             total_counts["angular_provider"]["count"] += r["count"]
             total_counts["angular_provider"]["files"] += r["files"]
+            dep_roots |= {Path(p) for p in r.get("scope_roots", ())}
 
         if missing_ui_macros:
             r = _download_dep_records(
@@ -2069,18 +2143,85 @@ def _auto_resolve_deps(
             )
             total_counts["ui_macro"]["count"] += r["count"]
             total_counts["ui_macro"]["files"] += r["files"]
+            dep_roots |= {Path(p) for p in r.get("scope_roots", ())}
+
+    # Record which sibling scopes hold this app's deps so audit/schema can include
+    # exactly those trees (not unrelated apps) when scanning this scope.
+    sibling_ns = sorted({r.name for r in dep_roots} - {scope_root.name})
+    if sibling_ns:
+        _dl_write_json(scope_root / "_dep_scopes.json", {"dep_scopes": sibling_ns})
 
     total_new = sum(v["count"] for v in total_counts.values())
     return {
         "refs_found": total_refs,
         "downloaded": {k: v for k, v in total_counts.items() if v["count"] > 0},
         "total_new_records": total_new,
+        "dep_scopes": sibling_ns,
     }
 
 
 def _safe_filename(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
     return safe.strip("._") or "unnamed"
+
+
+def _strip_scope_prefix(identifier: str, scope: str) -> str:
+    """Drop a redundant leading '<scope>.' from a record identifier.
+
+    script_include is keyed on api_name ('x_app.Foo') while every other type uses
+    the bare name ('Foo'); an SI with an empty api_name falls back to name. Writing
+    the raw value therefore mixed 'x_app.Foo' and 'Foo' folders in one SI tree. The
+    scope is already the parent directory, so the prefix is pure duplication — strip
+    it so every folder lands in one consistent bare-name style.
+    """
+    prefix = f"{scope}."
+    if scope and identifier.startswith(prefix):
+        return identifier[len(prefix) :]
+    return identifier
+
+
+def _record_identifier_and_folder(
+    record: Dict[str, Any], source_cfg: Dict[str, Any], scope: str
+) -> tuple[str, str]:
+    """Single source of truth for a downloaded record's identifier + folder name.
+
+    Every download path (main scope loop, dependency fetch, by-name fetch) routes
+    through this, so a record lands at the SAME readable path no matter how it was
+    fetched. Order:
+      1. identifier_field (api_name for SI) or `name`;
+      2. if blank, compose from `folder_fields` (e.g. transform_script:
+         map.name + when + order) so nameless tables stay readable, not a sys_id;
+      3. else the sys_id (last resort);
+      4. strip the redundant leading '<scope>.' — the scope is already the
+         parent directory, so the prefix only duplicated it;
+      5. sanitize to a filesystem-safe folder name.
+    Returns (display_identifier, folder_name).
+    """
+    sys_id = str(record.get("sys_id") or "")
+    name = record.get(source_cfg["identifier_field"]) or record.get("name")
+    if not name:
+        folder_fields = source_cfg.get("folder_fields")
+        if folder_fields:
+            name = "_".join(str(record[f]) for f in folder_fields if record.get(f))
+    name = str(name or sys_id)
+    return name, _safe_filename(_strip_scope_prefix(name, scope))
+
+
+def _record_scope_namespace(record: Dict[str, Any], fallback: str) -> str:
+    """The record's own application scope namespace (e.g. 'x_app', 'global').
+
+    Under display_value=False, sys_scope is a sys_id, so the reliable source is the
+    dot-walked 'sys_scope.scope' field (added to every scope-scoped summary_fields).
+    For script includes the api_name prefix ('x_app.Foo') is a secondary source.
+    Falls back to the current download scope when neither is present, so an unknown
+    namespace never mis-routes a record away from where it would already land.
+    """
+    ns = str(record.get("sys_scope.scope") or "").strip()
+    if not ns:
+        api = str(record.get("api_name") or "")
+        if "." in api:
+            ns = api.split(".", 1)[0].strip()
+    return ns or fallback
 
 
 def _dl_write_file(path: Path, content: str) -> None:
@@ -2376,9 +2517,7 @@ def _download_source_types(
 
         for record in records:
             sys_id = str(record.get("sys_id") or "")
-            identifier_field = source_cfg["identifier_field"]
-            name = str(record.get(identifier_field) or record.get("name") or sys_id)
-            safe_name = _safe_filename(name)
+            name, safe_name = _record_identifier_and_folder(record, source_cfg, scope)
 
             metadata: Dict[str, Any] = {
                 "source_type": source_type,
@@ -2791,25 +2930,27 @@ class DownloadTableSchemaParams(BaseModel):
 
 
 def _scan_tables_from_source_root(source_root: Path) -> Set[str]:
-    """Scan .js/.html files under source_root for GlideRecord table references."""
+    """Scan .js/.html files for GlideRecord table references across source_root AND
+    the sibling scope trees its dependencies were routed into."""
     tables: Set[str] = set()
-    for js_file in source_root.rglob("*.js"):
-        try:
-            script_text = js_file.read_text(encoding="utf-8")
-            tables.update(
-                _extract_table_names_from_script(script_text, include_loose_literal_scan=False)
-            )
-        except (OSError, UnicodeDecodeError):
-            pass
-    for meta_file in source_root.rglob("_metadata.json"):
-        try:
-            meta = json.loads(meta_file.read_text(encoding="utf-8"))
-            for field in ("collection", "table"):
-                val = meta.get(field)
-                if isinstance(val, str) and TABLE_NAME_RE.match(val):
-                    tables.add(val)
-        except (OSError, json.JSONDecodeError, AttributeError):
-            pass
+    for root in [source_root, *dep_scope_roots(source_root)]:
+        for js_file in root.rglob("*.js"):
+            try:
+                script_text = js_file.read_text(encoding="utf-8")
+                tables.update(
+                    _extract_table_names_from_script(script_text, include_loose_literal_scan=False)
+                )
+            except (OSError, UnicodeDecodeError):
+                pass
+        for meta_file in root.rglob("_metadata.json"):
+            try:
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                for field in ("collection", "table"):
+                    val = meta.get(field)
+                    if isinstance(val, str) and TABLE_NAME_RE.match(val):
+                        tables.add(val)
+            except (OSError, json.JSONDecodeError, AttributeError):
+                pass
     return tables
 
 
