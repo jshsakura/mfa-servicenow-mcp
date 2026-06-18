@@ -1185,7 +1185,11 @@ class ServiceNowMCP:
                         f"acknowledgement of the target: pass {CONFIRM_INSTANCE_FIELD}="
                         f"'{target_alias}' AND {CONFIRM_FIELD}='{CONFIRM_VALUE}'. Only this one "
                         "write goes there; the active instance is restored afterwards. Do NOT "
-                        "edit config/env to switch instances."
+                        "edit config/env to switch instances. NOTE: a single cross-instance write "
+                        "is a TARGETED edit, not a bulk dev→test promotion — for promoting many "
+                        "records (esp. Service Portal / scoped tables) prefer an Update Set "
+                        "(commit on source, retrieve+commit on target in the UI), which bypasses "
+                        "the per-table/SP ACLs that single Table-API writes hit."
                     )
                 if not ctx["definition"].allow_writes:
                     raise ValueError(
