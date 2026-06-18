@@ -295,7 +295,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <p class="section-desc">
         Tools alone are raw API calls. Skills are what make your LLM actually useful —
         verified pipelines with safety gates, rollback, and context-aware delegation.
-        16 skills today, more coming with every release.
+        4 skills today, more coming with every release.
       </p>
     </div>
     <div class="install-block reveal">

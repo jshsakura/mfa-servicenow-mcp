@@ -20,7 +20,6 @@ WEBSITE_INDEX_EN = REPO_ROOT / "website" / "docs" / "index.md"
 WEBSITE_INDEX_KO = REPO_ROOT / "website" / "docs" / "index.ko.md"
 WEBSITE_WINDOWS_INSTALL_EN = REPO_ROOT / "website" / "docs" / "docs" / "WINDOWS_INSTALL.md"
 WEBSITE_WINDOWS_INSTALL_KO = REPO_ROOT / "website" / "docs" / "docs" / "WINDOWS_INSTALL.ko.md"
-SKILL_MANAGEMENT_DOC = SKILLS_DIR / "manage" / "skill-management.md"
 
 REQUIRED_META_FIELDS = [
     "name",
@@ -302,12 +301,6 @@ class TestSkillDocsSync:
     def test_output_enum_documented_in_index(self):
         content = (SKILLS_DIR / "SKILL.md").read_text(encoding="utf-8")
         assert f"output: {_output_choice_text('|')}" in content
-
-    def test_output_enum_documented_in_skill_management(self):
-        content = SKILL_MANAGEMENT_DOC.read_text(encoding="utf-8")
-        assert f"CHECK output is one of: {_output_choice_text()}" in content
-        assert f"output: {_output_choice_text('|')}" in content
-        assert f"| output | enum | {_output_choice_text()} | yes |" in content
 
     @pytest.mark.parametrize(
         ("doc_path", "expected_text"),
