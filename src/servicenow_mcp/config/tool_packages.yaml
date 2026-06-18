@@ -102,7 +102,7 @@ portal_developer:
     - manage_workflow
     - manage_catalog
     - manage_ui_policy
-    # Portal debugging (specialized read — needed by provider-audit/portal-diagnosis skills)
+    # Portal debugging (specialized read — used by portal analysis/audit skills)
     - detect_angular_implicit_globals
     # Portal writes
     - route_portal_component_edit
