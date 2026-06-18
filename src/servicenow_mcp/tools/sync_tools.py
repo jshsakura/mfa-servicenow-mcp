@@ -672,6 +672,68 @@ def _active_update_sets(
     ]
 
 
+def _record_update_set_hold(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    sys_id: str,
+    me: str,
+) -> Optional[Dict[str, str]]:
+    """The newest update set that CURRENTLY holds a change to this record, if it
+    is still open and owned by a DIFFERENT user.
+
+    Record-level *membership* check (sys_update_xml) decided against the LIVE
+    remote — not the local download baseline and not the time-window concurrent
+    guard. So it catches a record locked in someone else's open update set even
+    when that edit is old, and reports it as released once that set is committed.
+    That is the whole point: a hold that was true at download but committed by
+    push time must NOT keep reading as a conflict.
+
+    Returns None on any uncertainty (no entry, committed/released, same user,
+    read error) so it never masks the real failure or blocks a clean push.
+    """
+    if not (table and sys_id):
+        return None
+    try:
+        resp = sn_query(
+            config,
+            auth_manager,
+            GenericQueryParams(
+                table="sys_update_xml",
+                query=f"name={table}_{sys_id}",
+                fields="update_set.name,update_set.state,sys_updated_by",
+                orderby="-sys_updated_on",
+                limit=1,
+                offset=0,
+                display_value=True,
+            ),
+        )
+    except Exception as exc:  # best-effort diagnostic; never mask the real failure
+        logger.warning("Could not resolve update-set hold for %s/%s: %s", table, sys_id, exc)
+        return None
+    rows = resp.get("results") or []
+    if not rows:
+        return None
+    row = rows[0]
+    state = _display_str(row.get("update_set.state")).strip().lower()
+    set_name = _display_str(row.get("update_set.name")).strip()
+    holder = _display_str(row.get("sys_updated_by")).strip()
+    # A committed/closed set no longer holds the record — the change is released,
+    # so this is NOT a live hold (the "A committed, nobody holds it now" case).
+    if state in ("complete", "committed", "closed", "ignore"):
+        return None
+    if not set_name:
+        return None
+    # Your own open update set is not a cross-user hold.
+    if me and holder and holder == me.strip():
+        return None
+    return {
+        "update_set": set_name,
+        "held_by": holder or "unknown",
+        "state": state or "in progress",
+    }
+
+
 def _batch_fetch_updated_on(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1167,7 +1229,7 @@ def _build_update_data_and_magnitude(resolved, remote_record):
 @register_tool(
     "update_remote_from_local",
     params=PushLocalComponentParams,
-    description="Push local edits to ServiceNow. Run diff_local_component first to review.",
+    description="Push one local edit back to ServiceNow (diff_local_component first). Targeted refresh, not bulk dev→test promotion.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1324,9 +1386,28 @@ def update_remote_from_local(
                 "name": resolved.name,
             }
             error_code = "CONFLICT_OTHER_USER" if confirmed_other else "CONFLICT"
+            # LIVE re-check: the drift gate compares against the local download
+            # baseline, which can be stale. Frame the decision on the CURRENT
+            # remote hold, not on who held it at download time — a hold that was
+            # true at download but has since been committed must read as released.
+            live_hold = _record_update_set_hold(
+                config, auth_manager, resolved.table, resolved.sys_id, me
+            )
+            if live_hold:
+                live_note = (
+                    f" LIVE: still held by '{live_hold['held_by']}' in the uncommitted update "
+                    f"set '{live_hold['update_set']}' — force=true would overwrite their "
+                    "in-progress work."
+                )
+            else:
+                live_note = (
+                    " LIVE: no one is holding this record now (the change that moved it is "
+                    "committed/released). If your local copy is the intended final, this is a "
+                    "clean fast-forward — force=true is safe."
+                )
             message = (
-                f"{risk['message']} (server: {remote_updated_on}, your copy: {local_updated_on}). "
-                f"Use force=true to push anyway, or re-download to get the latest first."
+                f"{risk['message']} (server: {remote_updated_on}, your copy: {local_updated_on})."
+                f"{live_note} Use force=true to push, or re-download to get the latest first."
             )
             return {
                 "error": error_code,
@@ -1335,6 +1416,7 @@ def update_remote_from_local(
                 "remote_updated_by": remote_updated_by,
                 "remote_updated_on": remote_updated_on,
                 "local_downloaded_on": local_updated_on,
+                "record_hold": live_hold,
                 "component": component_info,
             }
         if confirmed_other:
@@ -1420,15 +1502,41 @@ def update_remote_from_local(
                 logger.warning("Could not resolve component scope for 403 diagnosis: %s", exc)
             active_sets = _active_update_sets(config, auth_manager, scope_value)
 
+        # Record-level LIVE hold: is THIS record currently held in someone else's
+        # uncommitted update set? (Membership — not the scope-wide list above, and
+        # not the local download baseline.) This is the signal a human sees in the
+        # UI banner "modified in update set X by <user>, not committed" — the one
+        # the time-window concurrent guard misses when the edit is old.
+        record_hold: Optional[Dict[str, str]] = None
         if is_acl:
-            hint = (
-                "HTTP 403 ACL Exception — the write reached ServiceNow but was rejected. "
-                "Likely causes, in order: (1) the target update set is locked, closed, or "
-                "held by another user (see active_update_sets below for owners); (2) the "
-                "account lacks sp_admin / write ACL on this table — verify roles via sn_health; "
-                "(3) scoped-app protection or wrong scope. Local files and _sync_meta are "
-                "UNCHANGED — free/switch the update set (or use a privileged session), then retry."
+            record_hold = _record_update_set_hold(
+                config, auth_manager, resolved.table, resolved.sys_id, me
             )
+
+        if is_acl:
+            if record_hold:
+                hint = (
+                    f"HTTP 403 — and this record is currently held by '{record_hold['held_by']}' "
+                    f"in the uncommitted update set '{record_hold['update_set']}'. A Table-API "
+                    "write can be rejected while another user's open update set holds the record. "
+                    "This is NOT a problem with your current update set or scope. Options: ask "
+                    f"'{record_hold['held_by']}' to commit/close '{record_hold['update_set']}', or "
+                    "edit the record in the ServiceNow UI (it prompts to continue in your own "
+                    "update set). Local files and _sync_meta are UNCHANGED."
+                )
+            else:
+                hint = (
+                    "HTTP 403 ACL Exception — the write reached ServiceNow and was rejected. No "
+                    "other user is holding this record in an open update set, and the session "
+                    "scope was already aligned, so do NOT blindly retry. Remaining causes: (1) the "
+                    "account lacks write ACL on this table/scope in the target instance (verify "
+                    "roles), or (2) a Service Portal table's extra protections (see note below). "
+                    "Local files and _sync_meta are UNCHANGED. NEXT: for a bulk dev→test "
+                    "promotion that keeps 403-ing here, stop the per-record Table-API write and "
+                    "use an Update Set — commit the change on the source (manage_changeset), then "
+                    "retrieve + commit it on the target in the ServiceNow UI; that path bypasses "
+                    "the per-table / Service Portal ACLs a Table-API write cannot."
+                )
             # Service Portal tables carry protections BEYOND the table role ACL.
             # The user's account can hold sp_admin and the update set can be open,
             # yet a Table-API write to an sp_* script field still 403s because the
@@ -1466,6 +1574,8 @@ def update_remote_from_local(
         }
         if active_sets:
             response["active_update_sets"] = active_sets
+        if record_hold:
+            response["record_hold"] = record_hold
         return response
 
     # 5. Update _sync_meta.json with new remote timestamp
