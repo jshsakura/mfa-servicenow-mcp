@@ -67,66 +67,34 @@ auto-resolved (table-bound, not referenced by name from code).
 
 ## Skill Index
 
-Single-tool wrappers were dropped — tool descriptions cover those directly.
-Only multi-step pipelines with safety gates or cross-tool orchestration remain.
+Kept deliberately lean: only general, cross-tool playbooks remain. Single-tool
+wrappers and feature-specific pipelines were dropped — tool descriptions and the
+tools' own built-in safety gates cover those. **Enforcement lives in the tools,
+not in skills** (skills are advisory; they can't be forced).
 
 ### analyze/ — Understand before you touch
 
 | Skill | Cost | Delegatable | Trigger Examples |
 |-------|------|-------------|-----------------|
-| [widget-analysis](analyze/widget-analysis.md) | medium | yes | "위젯 분석", "what does this widget do" |
-| [portal-diagnosis](analyze/portal-diagnosis.md) | high | yes | "포탈 진단", "portal health check" |
-| [provider-audit](analyze/provider-audit.md) | medium | yes | "프로바이더 감사", "find unused providers" |
 | [local-source-audit](analyze/local-source-audit.md) | low | yes | "로컬 검수", "dead code", "cross reference" |
-| [esc-page-audit](analyze/esc-page-audit.md) | high | yes | "ESC 구조", "audit ESC" |
-
-### fix/ — Modify with safety gates
-
-| Skill | Cost | Safety | Trigger Examples |
-|-------|------|--------|-----------------|
-| [widget-patching](fix/widget-patching.md) | medium | **staged** | "코드 수정", "fix widget" |
-| [widget-debugging](fix/widget-debugging.md) | high | none | "위젯이 안 돼", "debug widget" |
-| [code-review](fix/code-review.md) | medium | none | "보안 검사", "code review" |
 
 ### manage/ — CRUD and operations
 
 | Skill | Cost | Safety | Trigger Examples |
 |-------|------|--------|-----------------|
-| [changeset-workflow](manage/changeset-workflow.md) | low | **staged** | "체인지셋 커밋", "publish" |
 | [app-source-download](manage/app-source-download.md) | high | yes | "앱 소스 다운로드", "전체 소스 받아", "포털 소스 백업" |
-| [skill-management](manage/skill-management.md) | low | confirm | "스킬 업데이트", "update skill" |
 | [local-sync](manage/local-sync.md) | low | **staged** | "로컬 동기화", "push local changes" |
-| [workflow-management](manage/workflow-management.md) | low | **staged** | "워크플로우 수정", "edit workflow" |
-
-### deploy/ — Release and operations
-
-| Skill | Cost | Safety | Trigger Examples |
-|-------|------|--------|-----------------|
-| [change-lifecycle](deploy/change-lifecycle.md) | low | **staged** | "변경 요청", "approve change" |
 
 ### explore/ — Discover and navigate
 
 | Skill | Cost | Delegatable | Trigger Examples |
 |-------|------|-------------|-----------------|
-| [esc-catalog-flow](explore/esc-catalog-flow.md) | high | yes | "ESC 카탈로그", "catalog flow" |
 | [flow-trigger-tracing](explore/flow-trigger-tracing.md) | medium | yes | "트리거 추적", "what runs on this table" |
 
 ## Workflow Chains
 
-### Bug Fix Pipeline
-`fix/widget-debugging` → `analyze/widget-analysis` → `fix/widget-patching` → `manage/changeset-workflow`
-
-### Code Audit Pipeline
-`analyze/portal-diagnosis` → `analyze/provider-audit` → `fix/code-review`
-
-### New Feature Pipeline
-`analyze/widget-analysis` → `fix/widget-patching` → `manage/changeset-workflow` → `deploy/change-lifecycle`
-
-### Full App Audit Pipeline
-`manage/app-source-download` → `analyze/local-source-audit` → *(review HTML report)* → `fix/code-review`
+### Offline Analysis Pipeline
+`manage/app-source-download` → `analyze/local-source-audit` → *(review HTML report)*
 
 ### Local Edit Pipeline
-`manage/app-source-download` → *(edit locally)* → `manage/local-sync` → `manage/changeset-workflow` → `deploy/change-lifecycle`
-
-### ESC Customization Pipeline
-`analyze/esc-page-audit` → `explore/esc-catalog-flow` → `analyze/widget-analysis` → `fix/widget-patching`
+`manage/app-source-download` → *(edit locally)* → `manage/local-sync`
