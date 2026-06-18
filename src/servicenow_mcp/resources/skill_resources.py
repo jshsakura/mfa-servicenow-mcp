@@ -6,7 +6,7 @@ becomes an MCP resource with URI ``skill://{category}/{name}``.
 
 Clients can:
   * ``list_resources`` → discover available skill guides
-  * ``read_resource("skill://fix/widget-patching")`` → pull the full SOP
+  * ``read_resource("skill://manage/local-sync")`` → pull the full SOP
 
 This is **pull-based** — zero token cost until a client actually reads a skill.
 """
@@ -112,7 +112,7 @@ def load_skills() -> List[SkillEntry]:
             continue
 
         rel = md_path.relative_to(skills_dir)
-        parts = rel.with_suffix("").parts  # e.g. ("fix", "widget-patching")
+        parts = rel.with_suffix("").parts  # e.g. ("manage", "local-sync")
         if len(parts) != 2:
             continue
 
