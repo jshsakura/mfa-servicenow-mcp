@@ -1118,16 +1118,21 @@ class TestUpdateRemoteFromLocal:
             "error": "Update failed: ACL Exception Update Failed due to security constraints",
             "status": 403,
         }
-        mock_sn_query.return_value = {
-            "results": [
-                {
-                    "name": "KH refactor",
-                    "sys_created_by": "jane.doe",
-                    "sys_updated_by": "jane.doe",
-                    "sys_updated_on": "2026-05-27 09:00:00",
-                }
-            ]
-        }
+        mock_sn_query.side_effect = [
+            # 1) _active_update_sets — in-progress sets in the component's scope
+            {
+                "results": [
+                    {
+                        "name": "KH refactor",
+                        "sys_created_by": "jane.doe",
+                        "sys_updated_by": "jane.doe",
+                        "sys_updated_on": "2026-05-27 09:00:00",
+                    }
+                ]
+            },
+            # 2) _record_update_set_hold — no open set holds THIS record
+            {"results": []},
+        ]
         path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
         result = update_remote_from_local(
             mock_config, mock_auth, PushLocalComponentParams(path=str(path))
@@ -1136,9 +1141,170 @@ class TestUpdateRemoteFromLocal:
         assert result["success"] is False
         assert result["active_update_sets"][0]["name"] == "KH refactor"
         assert result["active_update_sets"][0]["updated_by"] == "jane.doe"
-        # in-progress update sets queried for the component's scope
-        assert "scope-1" in mock_sn_query.call_args.args[2].query
+        # in-progress update sets queried for the component's scope (FIRST sn_query call)
+        assert "scope-1" in mock_sn_query.call_args_list[0].args[2].query
+        # the record-level hold lookup queries sys_update_xml for THIS record
+        assert mock_sn_query.call_args_list[1].args[2].table == "sys_update_xml"
         mock_write_meta.assert_not_called()
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_403_surfaces_cross_user_update_set_hold(
+        self,
+        mock_fetch,
+        mock_update,
+        mock_write_meta,
+        mock_sn_query,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        # 403 where THIS record is held in ANOTHER user's UNCOMMITTED update set.
+        # The tool must name the holder + set and say it is NOT the caller's own
+        # update set/scope — the exact misdiagnosis this change fixes.
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 0;",
+                "sys_updated_on": "2025-01-10 10:00:00",  # == baseline, no drift
+            },
+            {"sys_scope": {"value": "scope-1", "display_value": "x_app_bpm"}},
+        ]
+        mock_update.return_value = {
+            "error": "ACL Exception Update Failed due to security constraints",
+            "status": 403,
+        }
+        mock_sn_query.side_effect = [
+            {"results": []},  # _active_update_sets (scope-wide)
+            {
+                "results": [
+                    {
+                        "update_set.name": "GwangSung Choi",
+                        "update_set.state": "in progress",
+                        "sys_updated_by": "gwang.choi",
+                    }
+                ]
+            },  # _record_update_set_hold — held by another user, open
+        ]
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert result["success"] is False
+        assert result["record_hold"]["held_by"] == "gwang.choi"
+        assert result["record_hold"]["update_set"] == "GwangSung Choi"
+        hint = result["hint"].lower()
+        assert "gwang.choi" in hint
+        assert "not a problem with your current update set" in hint
+        mock_write_meta.assert_not_called()
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_403_no_hold_when_update_set_committed(
+        self,
+        mock_fetch,
+        mock_update,
+        mock_write_meta,
+        mock_sn_query,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        # The holding set is COMMITTED -> released -> not a live hold. The hint
+        # must NOT blame another user and must point at ACL/SP protection instead.
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 0;",
+                "sys_updated_on": "2025-01-10 10:00:00",
+            },
+            {"sys_scope": {"value": "scope-1", "display_value": "x_app_bpm"}},
+        ]
+        mock_update.return_value = {
+            "error": "ACL Exception Update Failed due to security constraints",
+            "status": 403,
+        }
+        mock_sn_query.side_effect = [
+            {"results": []},  # _active_update_sets
+            {
+                "results": [
+                    {
+                        "update_set.name": "GwangSung Choi",
+                        "update_set.state": "complete",  # committed -> released
+                        "sys_updated_by": "gwang.choi",
+                    }
+                ]
+            },
+        ]
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert result["success"] is False
+        assert "record_hold" not in result
+        assert "no other user is holding this record" in result["hint"].lower()
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_conflict_live_note_released(
+        self, mock_fetch, mock_sn_query, mock_config, mock_auth, download_root
+    ):
+        # Remote moved since download (drift), but NO ONE holds it now -> frame it
+        # as a clean fast-forward, not a stale download-baseline "someone holds it".
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 99;",
+            "sys_updated_on": "2025-01-15 12:00:00",  # newer than 2025-01-10 baseline
+        }
+        mock_sn_query.return_value = {"results": []}  # no live hold
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert result["error"] in ("CONFLICT", "CONFLICT_OTHER_USER")
+        assert result["record_hold"] is None
+        msg = result["message"].lower()
+        assert "fast-forward" in msg
+        assert "force=true" in msg
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_conflict_live_note_held(
+        self, mock_fetch, mock_sn_query, mock_config, mock_auth, download_root
+    ):
+        # Drift AND the record is still actively held by another user -> warn loudly.
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 99;",
+            "sys_updated_on": "2025-01-15 12:00:00",
+        }
+        mock_sn_query.return_value = {
+            "results": [
+                {
+                    "update_set.name": "GwangSung Choi",
+                    "update_set.state": "in progress",
+                    "sys_updated_by": "gwang.choi",
+                }
+            ]
+        }
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert result["record_hold"]["held_by"] == "gwang.choi"
+        assert "still held by" in result["message"].lower()
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_push_conflict_rejected(self, mock_fetch, mock_config, mock_auth, download_root):
