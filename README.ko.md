@@ -833,10 +833,10 @@ triggers: ["위젯 분석", "analyze widget"]  # → LLM 트리거 매칭
 
 ```
 # 스킬 가이드 목록 조회
-list_resources → skill://fix/widget-patching, skill://deploy/change-lifecycle, ...
+list_resources → skill://manage/local-sync, skill://manage/app-source-download, ...
 
 # 특정 가이드 읽기
-read_resource("skill://fix/widget-patching") → 안전 게이트 포함 전체 파이프라인
+read_resource("skill://manage/local-sync") → 안전 게이트 포함 전체 파이프라인
 ```
 
 매칭되는 스킬 가이드가 있는 도구는 description에 `→ skill://...` 힌트가 표시됩니다. 가이드 본문은 **Pull 기반** — 클라이언트가 실제로 읽을 때까지 토큰 비용 0입니다.

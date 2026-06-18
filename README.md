@@ -841,10 +841,10 @@ Skills are also exposed as **MCP resources** directly from the server — no cli
 
 ```
 # List available skill guides
-list_resources → skill://fix/widget-patching, skill://deploy/change-lifecycle, ...
+list_resources → skill://manage/local-sync, skill://manage/app-source-download, ...
 
 # Read a specific guide
-read_resource("skill://fix/widget-patching") → full pipeline with safety gates
+read_resource("skill://manage/local-sync") → full pipeline with safety gates
 ```
 
 Tools that have a matching skill guide show a `→ skill://...` hint in their description. The guide content is **pull-based** — zero token cost until the client actually reads it.

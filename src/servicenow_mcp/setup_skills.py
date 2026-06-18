@@ -46,7 +46,7 @@ def _installed_version() -> str | None:
 
 
 def _count_skill(rel: str) -> bool:
-    """A countable skill is a category .md (e.g. ``fix/widget-patching.md``)."""
+    """A countable skill is a category .md (e.g. ``manage/local-sync.md``)."""
     return rel.endswith(".md") and rel != "SKILL.md" and "/" in rel
 
 
