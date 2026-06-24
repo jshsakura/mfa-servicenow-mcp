@@ -621,7 +621,7 @@ PORTAL_COMPONENT_EDITABLE_FIELDS: Dict[str, Set[str]] = {
     "sys_transform_script": {"script"},
     "sysauto_script": {"script"},
     "sysevent_script_action": {"script"},
-    "sysevent_email_action": {"message_html", "message_text"},
+    "sysevent_email_action": {"subject", "message_html", "message_text"},
 }
 
 KNOWN_GLOBAL_IDENTIFIERS = {

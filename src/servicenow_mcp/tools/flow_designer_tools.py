@@ -2302,6 +2302,81 @@ def _extract_step_script(variables: List[Dict[str, str]]) -> str:
     return longest if len(longest) >= _MIN_SCRIPT_LEN else ""
 
 
+def _read_action_steps(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    action_refs: List[str],
+    def_sys_id: str,
+    snapshot_labels: Dict[str, str],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    """Read step instances (+ their script bodies) for the given action refs.
+
+    *snapshot_labels* maps a base sys_id to its origin tag (snapshot:latest /
+    snapshot:master) so each returned step is labelled with where it came from.
+    """
+    if not action_refs:
+        return []
+    step_rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=STEP_INSTANCE_TABLE,
+        query="action=" + "^ORaction=".join(action_refs),
+        fields="sys_id,label,order,step_type,action",
+        limit=limit,
+        offset=0,
+        orderby="order",
+    )
+
+    steps: List[Dict[str, Any]] = []
+    for step in step_rows:
+        step_sys_id = str(step.get("sys_id") or "")
+        if not step_sys_id:
+            continue
+        var_rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=VARIABLE_VALUE_TABLE,
+            query=f"document={STEP_INSTANCE_TABLE}^document_key={step_sys_id}",
+            fields="variable,value",
+            limit=100,
+            offset=0,
+        )
+        variables = [
+            {"variable": str(r.get("variable") or ""), "value": str(r.get("value") or "")}
+            for r in var_rows
+        ]
+        action_ref = str(step.get("action") or "")
+        is_live = action_ref == def_sys_id
+        steps.append(
+            {
+                "sys_id": step_sys_id,
+                "label": str(step.get("label") or ""),
+                "order": _safe_int(step.get("order")),
+                "step_type": str(step.get("step_type") or ""),
+                "action_ref": action_ref,
+                "is_live": is_live,
+                "source": "live" if is_live else snapshot_labels.get(action_ref, "snapshot"),
+                "script": _extract_step_script(variables),
+                "variables": variables,
+            }
+        )
+    return steps
+
+
+def _pick_running_step(steps: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return the step whose body actually runs.
+
+    A live step with a non-empty body wins; otherwise the latest published
+    snapshot, then master — mirroring what Action Designer's UI surfaces.
+    """
+    for origin in ("live", "snapshot:latest", "snapshot:master", "snapshot"):
+        for step in steps:
+            if step["source"] == origin and step["script"]:
+                return step
+    return None
+
+
 def get_action_source(
     config: ServerConfig, auth_manager: AuthManager, params: GetActionSourceParams
 ) -> Dict[str, Any]:
@@ -2316,56 +2391,52 @@ def get_action_source(
             return {"success": False, "error": f"Action not found: {params.action_ref}"}
 
         def_sys_id = str(definition.get("sys_id") or "")
+        latest = str(definition.get("latest_snapshot") or "")
+        master = str(definition.get("master_snapshot") or "")
+        snapshot_labels: Dict[str, str] = {}
+        if latest:
+            snapshot_labels[latest] = "snapshot:latest"
+        if master:
+            snapshot_labels[master] = "snapshot:master"
+
         # Live source = steps whose action is the definition itself. Optionally
-        # add the published snapshots (base sys_ids on the definition).
+        # add the published snapshots (base sys_ids on the definition) up front.
         action_refs = [def_sys_id]
         if params.include_versions:
-            for key in ("master_snapshot", "latest_snapshot"):
-                snap = str(definition.get(key) or "")
-                if snap and snap not in action_refs:
-                    action_refs.append(snap)
+            action_refs += [s for s in (latest, master) if s and s not in action_refs]
 
-        step_rows, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=STEP_INSTANCE_TABLE,
-            query="action=" + "^ORaction=".join(action_refs),
-            fields="sys_id,label,order,step_type,action",
-            limit=params.limit,
-            offset=0,
-            orderby="order",
+        steps = _read_action_steps(
+            config, auth_manager, action_refs, def_sys_id, snapshot_labels, params.limit
         )
+        live_script_present = any(s["is_live"] and s["script"] for s in steps)
 
-        steps: List[Dict[str, Any]] = []
-        for step in step_rows:
-            step_sys_id = str(step.get("sys_id") or "")
-            if not step_sys_id:
-                continue
-            var_rows, _ = sn_query_page(
-                config,
-                auth_manager,
-                table=VARIABLE_VALUE_TABLE,
-                query=f"document={STEP_INSTANCE_TABLE}^document_key={step_sys_id}",
-                fields="variable,value",
-                limit=100,
-                offset=0,
+        # Auto-recover: the live definition has steps but no script body (common
+        # after a step is cleared during sandbox testing). The code that ACTUALLY
+        # runs is frozen in the published snapshot — fetch it so the caller never
+        # has to dig raw tables or open Action Designer to find the running body.
+        auto_recovered_from_snapshot = False
+        if not params.include_versions and not live_script_present:
+            extra = [s for s in (latest, master) if s and s not in action_refs]
+            if extra:
+                steps += _read_action_steps(
+                    config, auth_manager, extra, def_sys_id, snapshot_labels, params.limit
+                )
+                auto_recovered_from_snapshot = True
+
+        running = _pick_running_step(steps)
+        running_source = running["source"] if running else None
+
+        if running_source == "live":
+            diagnosis = "Live definition script is current and running."
+        elif running_source and running_source.startswith("snapshot"):
+            diagnosis = (
+                "Live definition script is EMPTY — the running code is the frozen "
+                f"published {running_source}. Action Designer's UI shows this snapshot "
+                "body, not the empty definition. Edit in Action Designer + Republish "
+                "the flow to change what runs."
             )
-            variables = [
-                {"variable": str(r.get("variable") or ""), "value": str(r.get("value") or "")}
-                for r in var_rows
-            ]
-            steps.append(
-                {
-                    "sys_id": step_sys_id,
-                    "label": str(step.get("label") or ""),
-                    "order": _safe_int(step.get("order")),
-                    "step_type": str(step.get("step_type") or ""),
-                    "action_ref": str(step.get("action") or ""),
-                    "is_live": str(step.get("action") or "") == def_sys_id,
-                    "script": _extract_step_script(variables),
-                    "variables": variables,
-                }
-            )
+        else:
+            diagnosis = "No script body found on the live definition or its snapshots."
 
         return {
             "success": True,
@@ -2374,15 +2445,20 @@ def get_action_source(
                 "name": str(definition.get("name") or ""),
                 "internal_name": str(definition.get("internal_name") or ""),
                 "scope": str(definition.get("sys_scope") or ""),
-                "master_snapshot": str(definition.get("master_snapshot") or ""),
-                "latest_snapshot": str(definition.get("latest_snapshot") or ""),
+                "master_snapshot": master,
+                "latest_snapshot": latest,
             },
             "step_count": len(steps),
             "steps": steps,
+            "live_script_present": live_script_present,
+            "running_source": running_source,
+            "running_step_sys_id": running["sys_id"] if running else None,
+            "auto_recovered_from_snapshot": auto_recovered_from_snapshot,
+            "diagnosis": diagnosis,
             "note": (
-                "Live source = steps where is_live=true (action == definition). "
-                "Creation/copy of actions is not supported via API — recreate in "
-                "Action Designer using this source."
+                "source=live → action == definition (current edit); source=snapshot:* "
+                "→ frozen published version. Creation/copy of actions is not supported "
+                "via API — recreate in Action Designer using this source."
             ),
         }
     except Exception as e:  # noqa: BLE001
