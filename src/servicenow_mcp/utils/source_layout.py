@@ -40,6 +40,7 @@ FIELD_FILENAME: Dict[str, str] = {
     "xml": "xml.xml",
     "payload": "payload.xml",
     "message_text": "message_text.txt",
+    "subject": "subject.txt",
 }
 
 # Fallback for any field not in the canonical map.

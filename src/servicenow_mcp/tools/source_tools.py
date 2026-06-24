@@ -449,8 +449,15 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_updated_on",
             "sys_updated_by",
         ],
-        "source_fields": ["message_html", "message_text"],
-        "search_fields": ["name", "collection", "event_name", "message_html", "message_text"],
+        "source_fields": ["subject", "message_html", "message_text"],
+        "search_fields": [
+            "name",
+            "collection",
+            "event_name",
+            "subject",
+            "message_html",
+            "message_text",
+        ],
         "lookup_fields": ["sys_id", "name"],
     },
     "acl": {
