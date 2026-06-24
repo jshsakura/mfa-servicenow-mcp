@@ -145,11 +145,24 @@ class TestDownloadablCodeTablesAreEditable:
             ("sysevent_script_action", "script"),
             ("sys_ui_macro", "xml"),
             ("sysevent_email_action", "message_html"),
+            ("sysevent_email_action", "subject"),  # the email title line bots match on
         ],
     )
     def test_downloadable_code_table_is_editable(self, table, field):
         result = _validate_portal_component_update_data(table, {field: "x"})
         assert result == {field: "x"}
+
+    def test_notification_subject_is_downloadable_and_writable(self):
+        """subject is the email title line; bots key on it, so it must be both
+        pulled by download_server_sources AND pushable by sys_id (write/read
+        parity). Editing only message_html/text would leave the title stale."""
+        from servicenow_mcp.tools.source_tools import SOURCE_CONFIG
+
+        cfg = SOURCE_CONFIG["email_notification"]
+        assert "subject" in cfg["source_fields"]
+        assert _validate_portal_component_update_data(
+            "sysevent_email_action", {"subject": "SO(${job_no}) ${url_classify}"}
+        ) == {"subject": "SO(${job_no}) ${url_classify}"}
 
     def test_scripted_rest_path_field_editable(self):
         result = _validate_portal_component_update_data(

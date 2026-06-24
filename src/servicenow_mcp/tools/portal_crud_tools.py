@@ -577,9 +577,16 @@ class ManagePortalComponentParams(BaseModel):
     category: Optional[str] = Field(default=None)
 
     # update_code
-    table: Optional[str] = Field(default=None)
-    sys_id: Optional[str] = Field(default=None)
-    update_data: Optional[Dict[str, str]] = Field(default=None)
+    table: Optional[str] = Field(
+        default=None, description="update_code: code table — BR, notif, SI, ACL, UI, Scripted REST…"
+    )
+    sys_id: Optional[str] = Field(
+        default=None, description="update_code: sys_id of the record to edit (names aren't unique)"
+    )
+    update_data: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="update_code: {field: value}; bad field returns allowed-field list",
+    )
     base_updated_on: Optional[str] = Field(
         default=None,
         description="sys_updated_on from your last read. Blocks write if remote is newer.",
@@ -684,7 +691,7 @@ def _local_sync_hint(
 @register_tool(
     name="manage_portal_component",
     params=ManagePortalComponentParams,
-    description="Create portal components; or edit code-record fields by sys_id (widget/SI/UI/Scripted REST/ACL). update_code.",
+    description="Create portal components; or edit ANY code record by sys_id — BR, notification, SI, ACL, UI, etc. action=update_code.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
