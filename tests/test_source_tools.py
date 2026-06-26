@@ -161,6 +161,75 @@ def test_get_metadata_source_resolves_widget_by_id_and_truncates_fields():
     assert "id=approval_widget" in kwargs["params"]["sysparm_query"]
 
 
+def test_get_metadata_source_flags_truncation_and_points_to_download():
+    config = _build_config()
+    auth_manager = MagicMock()
+
+    auth_manager.make_request.return_value = _response(
+        [
+            {
+                "sys_id": "si-1",
+                "name": "BigUtil",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-03-25 13:00:00",
+                "sys_updated_by": "admin",
+                "script": "x" * 5000,
+            }
+        ],
+        total_count=1,
+    )
+
+    result = get_metadata_source(
+        config,
+        auth_manager,
+        GetMetadataSourceParams(
+            source_type="script_include",
+            source_id="BigUtil",
+            max_field_length=300,
+        ),
+    )
+
+    assert result["complete"] is False
+    assert result["truncated_fields"] == [
+        {"field": "script", "returned_length": 300, "original_length": 5000}
+    ]
+    assert "download_app_sources" in result["safety_notice"]
+    assert "PREVIEW ONLY" in result["safety_notice"]
+
+
+def test_get_metadata_source_marks_complete_when_body_fits():
+    config = _build_config()
+    auth_manager = MagicMock()
+
+    auth_manager.make_request.return_value = _response(
+        [
+            {
+                "sys_id": "si-2",
+                "name": "SmallUtil",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-03-25 13:00:00",
+                "sys_updated_by": "admin",
+                "script": "function go() { return 1; }",
+            }
+        ],
+        total_count=1,
+    )
+
+    result = get_metadata_source(
+        config,
+        auth_manager,
+        GetMetadataSourceParams(
+            source_type="script_include",
+            source_id="SmallUtil",
+        ),
+    )
+
+    assert result["complete"] is True
+    assert "truncated_fields" not in result
+    assert "truncated" not in result["sources"]["script"]
+    assert "no field was truncated" in result["safety_notice"].lower()
+
+
 def test_get_metadata_source_returns_error_when_not_found():
     config = _build_config()
     auth_manager = MagicMock()

@@ -207,7 +207,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 | `download_server_sources` | R | Targeted server-side source families (SIs/BRs/UI/api/security/admin). Whole app: download_app_sources. | platform_developer, full |
 | `download_table_schema` | R | Download sys_dictionary field defs. Specify tables or auto-detect from local sources. | platform_developer, full |
 | `extract_table_dependencies` | R | GlideRecord table dependency graph from server scripts (SI/BR/widgets). Pass widget_id for one widget. | standard, portal_developer, platform_developer, service_desk, full |
-| `get_metadata_source` | R | Get a single source record (SI, BR, widget, etc.) by name or sys_id. Returns metadata + truncated script body. | standard, portal_developer, platform_developer, service_desk, full |
+| `get_metadata_source` | R | Get one source record (SI/BR/widget) by name/sys_id. Returns body; 'complete' flags if truncated preview. | standard, portal_developer, platform_developer, service_desk, full |
 | `search_server_code` | R | Fast keyword search across 22 server-side code types (SI/BR/ACL). Portal regex+snippets: search_portal_regex_matches. | core, standard, portal_developer, platform_developer, service_desk, full |
 
 ### Source Audit Tools (1)
