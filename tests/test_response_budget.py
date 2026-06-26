@@ -115,7 +115,7 @@ def test_stub_shape_and_integrity():
     result = {"sys_id": "s1", "table": "sp_widget", "script": body}
     bounded, _ = enforce_response_budget(result, tool_name="x", budget=5_000)
     stub = bounded["script"]
-    assert stub["_full_length"] == 40_000
+    assert stub["_full_length_bytes"] == 40_000
     assert stub["_sha256"] == _sha256(body)
     assert stub["_preview"] == body[:PREVIEW_CHARS]
     assert len(stub["_preview"]) == PREVIEW_CHARS
@@ -386,3 +386,92 @@ def test_min_stub_field_floor_respected():
     bounded, abridged = enforce_response_budget(result, tool_name="x", budget=500)
     assert abridged is False  # under floor, nothing eligible, left whole
     assert bounded is result
+
+
+# --------------------------------------------------------------------------- #
+# Byte semantics of the stub length field (CJK)
+# --------------------------------------------------------------------------- #
+
+
+def test_stub_full_length_is_utf8_bytes_not_chars():
+    # A CJK body: _full_length_bytes must report UTF-8 bytes (3x chars), matching
+    # _sha256/budget — so an agent comparing it to a re-fetched body's byte size agrees.
+    body = "가" * 10_000  # 10_000 chars == 30_000 UTF-8 bytes
+    result = {"sys_id": "s", "table": "sp_widget", "script": body}
+    bounded, _ = enforce_response_budget(result, tool_name="x", budget=5_000)
+    assert bounded["script"]["_full_length_bytes"] == 30_000
+    assert bounded["script"]["_full_length_bytes"] == len(body.encode("utf-8"))
+
+
+# --------------------------------------------------------------------------- #
+# Row truncation is gated to record-backed lists (never worse than client)
+# --------------------------------------------------------------------------- #
+
+
+def test_computed_list_not_truncated_left_whole():
+    # A large list of computed (no sys_id) items overflowing by COUNT must NOT be
+    # row-truncated: the dropped tail would be unrecoverable, strictly worse than
+    # the client's own scratchpad truncation. Leave it whole instead.
+    result = {"success": True, "findings": [f"finding-{i} " + _big(50) for i in range(2_000)]}
+    assert byte_len(result) > 3_000
+    bounded, abridged = enforce_response_budget(result, tool_name="audit", budget=3_000)
+    assert abridged is False
+    assert bounded is result
+    assert len(bounded["findings"]) == 2_000  # nothing dropped
+
+
+def test_mixed_record_and_computed_lists_only_record_truncated():
+    # Both lists overflow by count; only the record-backed one is truncated, the
+    # computed one is preserved whole.
+    result = {
+        "rows": [{"sys_id": f"r{i}", "desc": "y" * 200} for i in range(300)],
+        "labels": ["label-" + str(i) for i in range(300)],
+    }
+    bounded, abridged = enforce_response_budget(result, tool_name="x", budget=12_000)
+    assert abridged is True
+    assert byte_len(bounded) <= 12_000
+    assert bounded["rows"][-1]["_truncated_items"] > 0  # record list truncated
+    assert bounded["labels"] == result["labels"]  # computed list untouched
+
+
+# --------------------------------------------------------------------------- #
+# Honesty: best-effort that still overflows is reported, never claimed as a fit
+# --------------------------------------------------------------------------- #
+
+
+def test_honesty_still_over_budget_reported():
+    # A huge PROTECTED field keeps the result over budget even after stubbing the
+    # one stubbable field. The result must say so (docstring point 5), and must
+    # NOT falsely claim a fit.
+    result = {
+        "sys_id": "s",
+        "table": "sp_widget",
+        "message": _big(200_000),  # protected, cannot be abridged
+        "script": _big(40_000),  # record-backed, stubbed
+    }
+    bounded, abridged = enforce_response_budget(result, tool_name="x", budget=5_000)
+    assert abridged is True
+    assert isinstance(bounded["script"], dict)  # the stubbable field was stubbed
+    assert bounded["message"] == _big(200_000)  # protected kept whole
+    assert "still over budget" in bounded["_abridged_note"]
+    assert byte_len(bounded) > 5_000  # honest: genuinely still over, not a fake fit
+
+
+# --------------------------------------------------------------------------- #
+# Protected keys never abridged at NON-ZERO depth
+# --------------------------------------------------------------------------- #
+
+
+def test_protected_field_in_nested_record_kept():
+    # A large protected field inside a nested record-backed dict (own sys_id) must
+    # be kept whole while its stubbable sibling is stubbed — proving the protected
+    # skip holds when reached recursively, not only at depth 0.
+    result = {
+        "sys_id": "p",
+        "table": "sp_widget",
+        "results": [{"sys_id": "c", "message": _big(40_000), "script": _big(40_000)}],
+    }
+    bounded, abridged = enforce_response_budget(result, tool_name="x", budget=5_000)
+    assert abridged is True
+    assert bounded["results"][0]["message"] == _big(40_000)  # protected at depth>0
+    assert isinstance(bounded["results"][0]["script"], dict)  # sibling stubbed
