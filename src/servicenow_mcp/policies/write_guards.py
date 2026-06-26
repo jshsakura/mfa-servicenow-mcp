@@ -168,6 +168,23 @@ _PUBLISH_CLASS_TOOLS: Dict[str, Optional[Dict[str, Any]]] = {
 }
 
 
+# tool_name → a read-only way to PREVIEW the pending change, so a confirm/publish
+# rejection is never a dead-end: it tells the caller exactly how to see what would
+# happen, then retry. Empty for tools with no obvious read-only preview.
+_PREVIEW_HINTS: Dict[str, str] = {
+    "update_remote_from_local": (
+        "Preview first with diff_local_component(path=...): it shows the exact line "
+        "diff, whether the remote drifted, and who last edited it — then retry."
+    ),
+}
+
+
+def preview_hint(tool_name: str) -> str:
+    """Read-only-preview guidance for *tool_name*, or '' if none. Appended to
+    confirm/publish rejections so they hand back the next actionable step."""
+    return _PREVIEW_HINTS.get(tool_name, "")
+
+
 # Read-only manage_X sub-actions (mirror of server.MANAGE_READ_ACTIONS).
 # Duplicated here to avoid circular import; keep in sync.
 _MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
@@ -418,12 +435,13 @@ def _g7_publish_extra_confirm(ctx: WriteGuardContext) -> None:
     val = ctx.arguments.get(CONFIRM_PUBLISH_FIELD)
     if str(val).lower().strip() == CONFIRM_PUBLISH_VALUE:
         return
+    hint = preview_hint(ctx.tool_name)
     raise PolicyViolation(
         "G7",
         f"Publish-class action '{ctx.tool_name}' requires BOTH "
         f"confirm='approve' AND {CONFIRM_PUBLISH_FIELD}='{CONFIRM_PUBLISH_VALUE}'. "
         f"This prevents accidental publish/commit/push. "
-        f"Review what will be published before adding these flags.",
+        f"Review what will be published before adding these flags." + (f" {hint}" if hint else ""),
     )
 
 

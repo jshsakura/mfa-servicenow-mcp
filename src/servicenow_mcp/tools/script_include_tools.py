@@ -156,10 +156,41 @@ def get_script_include(
         )
 
         if not records:
-            return {
+            result: Dict[str, Any] = {
                 "success": False,
                 "message": f"Script include not found: {params.script_include_id}",
             }
+            # No-dead-end: for a NAME miss (a sys_id miss has no near-match), offer
+            # fuzzy nameLIKE suggestions so the caller can retry in one step.
+            # fail_silently so a failed suggestion lookup never worsens the miss.
+            if not params.script_include_id.startswith("sys_id:"):
+                near, _ = sn_query_page(
+                    config,
+                    auth_manager,
+                    table="sys_script_include",
+                    query=f"nameLIKE{params.script_include_id}",
+                    fields="name,sys_id,api_name",
+                    limit=5,
+                    offset=0,
+                    display_value=False,
+                    fail_silently=True,
+                )
+                suggestions = [
+                    {
+                        "name": r.get("name"),
+                        "sys_id": r.get("sys_id"),
+                        "api_name": r.get("api_name"),
+                    }
+                    for r in near
+                    if r.get("name")
+                ]
+                if suggestions:
+                    result["did_you_mean"] = suggestions
+                    result["hint"] = (
+                        "No exact name match. Retry with one of did_you_mean[].name, "
+                        "or sys_id:<sys_id> for an exact id lookup."
+                    )
+            return result
 
         item = records[0]
 
