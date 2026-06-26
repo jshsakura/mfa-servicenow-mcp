@@ -323,7 +323,13 @@ def _list_dependencies(
         return {
             "success": False,
             "error": f"Failed to fetch widgets: {exc}",
-            "hint": "Check the widget filter and that the active instance is reachable.",
+            "hint": (
+                "Check the widget filter and that the active instance is reachable. "
+                "If the instance is unreachable, answer OFFLINE from a prior download "
+                "(0 API) with query_local_graph(question='used_by'|'uses'|'impact', "
+                "name=<widget>)."
+            ),
+            "offline_alternative": "query_local_graph",
         }
 
     widget_ids = [_ref_value(w.get("sys_id")) for w in widgets if w.get("sys_id")]
