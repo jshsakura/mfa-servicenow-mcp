@@ -101,6 +101,36 @@ def test_call_tool_blocks_mutating_tool_without_confirmation(
     assert called["value"] is False
 
 
+def test_call_tool_push_confirm_miss_points_to_preview(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    # P0-2: a push confirm-miss must hand back the read-only preview step, never a
+    # bare dead-end. confirm_publish satisfies G7; the standard confirm is still
+    # missing, so the rejection must name diff_local_component — and not run.
+    server = _build_server(monkeypatch, tmp_path)
+
+    called = {"value": False}
+
+    def should_not_run(_config, _auth_manager, _params):
+        called["value"] = True
+        return {"ok": True}
+
+    server.tool_definitions["update_remote_from_local"] = (
+        should_not_run,
+        EmptyParams,
+        dict,
+        "blocked",
+        "raw_dict",
+    )
+    if "update_remote_from_local" not in server.enabled_tool_names:
+        server.enabled_tool_names.append("update_remote_from_local")
+
+    with pytest.raises(ValueError, match="diff_local_component"):
+        asyncio.run(
+            server._call_tool_impl("update_remote_from_local", {"confirm_publish": "approve"})
+        )
+
+    assert called["value"] is False
+
+
 def test_call_tool_allows_mutating_tool_with_confirmation(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ):
