@@ -796,9 +796,9 @@ class HealthCheckParams(BaseModel):
 
 
 class GenericQueryParams(BaseModel):
-    table: str = Field(
-        default=...,
-        description="Target table (e.g. incident, kb_knowledge); heavy tables get auto safety limits.",
+    table: Optional[str] = Field(
+        default=None,
+        description="Target table (REQUIRED), e.g. incident, kb_knowledge; heavy tables get auto safety limits.",
     )
     query: Optional[str] = Field(
         default=None,
@@ -1095,6 +1095,22 @@ def _sn_health_impl(
 def sn_query(
     config: ServerConfig, auth_manager: AuthManager, params: GenericQueryParams
 ) -> Dict[str, Any]:
+    if not params.table or not params.table.strip():
+        return {
+            "success": False,
+            "error": "table_required",
+            "message": "sn_query needs a target table. Pass table='<table>' (e.g. incident).",
+            "example": {
+                "table": "incident",
+                "query": "active=true^priority=1",
+                "fields": "number,short_description,priority",
+            },
+            "hint": (
+                "Discover the table with sn_schema or sn_discover. For dictionary fields, "
+                "prefer the local _schema/<table>.json from a prior download."
+            ),
+        }
+
     safe_limit, safe_fields, safety_notice = apply_payload_safety(
         params.table, params.limit, params.fields
     )
