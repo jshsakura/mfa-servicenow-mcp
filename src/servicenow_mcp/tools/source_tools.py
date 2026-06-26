@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 MAX_SEARCH_LIMIT = 10
 PER_TYPE_LIMIT = 5
 MAX_FIELD_LENGTH = 12000
-DEFAULT_FIELD_LENGTH = 4000
+DEFAULT_FIELD_LENGTH = 12000
 SNIPPET_RADIUS = 120
 MAX_DEP_SCAN_LIMIT = 5000
 DEFAULT_DEP_SCAN_LIMIT = 500
@@ -1183,7 +1183,7 @@ def search_server_code(
 @register_tool(
     "get_metadata_source",
     params=GetMetadataSourceParams,
-    description="Get a single source record (SI, BR, widget, etc.) by name or sys_id. Returns metadata + truncated script body.",
+    description="Get one source record (SI/BR/widget) by name/sys_id. Returns body; 'complete' flags if truncated preview.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -1237,18 +1237,42 @@ def get_metadata_source(
         "scope": record.get("sys_scope"),
     }
     max_field_length = _clamp_field_length(params.max_field_length)
-    sources = {
-        field: _truncate_text(record.get(field, ""), max_field_length)
-        for field in source_cfg["source_fields"]
-        if record.get(field)
-    }
+    sources: Dict[str, str] = {}
+    truncated_fields: List[Dict[str, Any]] = []
+    for field in source_cfg["source_fields"]:
+        raw = record.get(field)
+        if not raw:
+            continue
+        original_length = len(raw)
+        if original_length > max_field_length:
+            sources[field] = _truncate_text(raw, max_field_length)
+            truncated_fields.append(
+                {
+                    "field": field,
+                    "returned_length": max_field_length,
+                    "original_length": original_length,
+                }
+            )
+        else:
+            sources[field] = raw
 
-    return {
+    complete = not truncated_fields
+    result: Dict[str, Any] = {
         "success": True,
+        "complete": complete,
         "metadata": metadata,
         "sources": sources,
-        "safety_notice": "Only supported source fields are returned, each with per-field truncation.",
     }
+    if complete:
+        result["safety_notice"] = "Full source bodies returned — no field was truncated."
+    else:
+        result["truncated_fields"] = truncated_fields
+        result["safety_notice"] = (
+            "PREVIEW ONLY — these field(s) are truncated, NOT the full body: "
+            f"{', '.join(t['field'] for t in truncated_fields)}. Do NOT save/push this as source. "
+            "Use download_app_sources for the complete body."
+        )
+    return result
 
 
 @register_tool(
