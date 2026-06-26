@@ -474,15 +474,23 @@ def serialize_tool_output(result: Any, tool_name: str) -> str:
                 except Exception:
                     return result
             return result
-        elif isinstance(result, dict):
+        elif isinstance(result, (dict, list)):
             return _compact_with_budget(result, tool_name)
-        elif hasattr(result, "model_dump_json"):
-            try:
-                return result.model_dump_json()
-            except TypeError:
-                return _compact_json(result.model_dump())
         elif hasattr(result, "model_dump"):
-            return _compact_json(result.model_dump())
+            # Route Pydantic results through the budget too, so an oversized model
+            # body is abridged rather than silently truncated by the client.
+            # mode="json" matches model_dump_json's encoders (datetime -> str).
+            try:
+                return _compact_with_budget(result.model_dump(mode="json"), tool_name)
+            except Exception:
+                if hasattr(result, "model_dump_json"):
+                    return result.model_dump_json()
+                raise
+        elif hasattr(result, "model_dump_json"):
+            # Defensive: an object exposing only model_dump_json (no model_dump).
+            # Real Pydantic v2 models always have both, so this bypasses the budget
+            # only for unusual shims — never the normal record-bearing models.
+            return result.model_dump_json()
         else:
             logger.warning(
                 f"Could not serialize result for tool '{tool_name}' to JSON, falling back to str(). Type: {type(result)}"
