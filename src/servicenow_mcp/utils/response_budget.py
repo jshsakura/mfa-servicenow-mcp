@@ -98,7 +98,7 @@ PROTECTED_KEYS = frozenset(
         # our own stub internals
         "_fetch",
         "_sha256",
-        "_full_length",
+        "_full_length_bytes",
         "_abridged",
         "_abridged_fields",
         "_abridged_note",
@@ -188,7 +188,7 @@ def _stub(
 ) -> Dict[str, Any]:
     return {
         "_abridged": True,
-        "_full_length": len(value),
+        "_full_length_bytes": _str_bytes(value),
         "_sha256": _sha256(value),
         "_preview": value[:PREVIEW_CHARS],
         "_fetch": _build_fetch_hint(key, sys_id, table, tool_name),
@@ -272,7 +272,7 @@ def _with_marker(obj: Any, stubbed: List[str]) -> Any:
 
 
 _ABRIDGED_NOTE = (
-    "Large values were abridged to fit the response budget; each stub carries _full_length, "
+    "Large values were abridged to fit the response budget; each stub carries _full_length_bytes, "
     "_sha256, _preview, and a _fetch hint. This is NOT the complete content — fetch any field "
     "you need in full via its _fetch instruction."
 )
@@ -311,20 +311,36 @@ def _fit_by_stubbing(
 # --------------------------------------------------------------------------- #
 
 
+def _is_record_list(value: Any) -> bool:
+    """True only when every element is a record-backed dict (carries a sys_id).
+
+    Row truncation drops trailing elements, so it is restricted to such lists:
+    a dropped record row gets an actionable re-fetch hint. A computed list (no
+    sys_id — rendered lines, paths, audit findings) is LEFT WHOLE instead, so the
+    client's scratchpad copy stays recoverable. Mirrors the stubbing sys_id gate;
+    without it row truncation would be strictly worse than client truncation.
+    """
+    return (
+        isinstance(value, list)
+        and len(value) > 1
+        and all(isinstance(item, dict) and _container_sys_id(item) for item in value)
+    )
+
+
 def _largest_list(obj: Any, path: Tuple[Any, ...] = ()) -> Optional[Tuple[Tuple[Any, ...], int]]:
-    """Locate the (path, byte_len) of the largest non-protected list, or None."""
+    """Locate the (path, byte_len) of the largest truncatable record list, or None."""
     best: Optional[Tuple[Tuple[Any, ...], int]] = None
     if isinstance(obj, dict):
         for key, value in obj.items():
             if key in PROTECTED_KEYS:
                 continue
             best = _max_candidate(best, _largest_list(value, path + (key,)))
-            if isinstance(value, list) and len(value) > 1:
+            if _is_record_list(value):
                 best = _max_candidate(best, (path + (key,), byte_len(value)))
     elif isinstance(obj, list):
         for index, item in enumerate(obj):
             best = _max_candidate(best, _largest_list(item, path + (index,)))
-            if isinstance(item, list) and len(item) > 1:
+            if _is_record_list(item):
                 best = _max_candidate(best, (path + (index,), byte_len(item)))
     return best
 

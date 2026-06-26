@@ -798,7 +798,7 @@ class HealthCheckParams(BaseModel):
 class GenericQueryParams(BaseModel):
     table: Optional[str] = Field(
         default=None,
-        description="Target table (REQUIRED), e.g. incident, kb_knowledge; heavy tables get auto safety limits.",
+        description="Target table (REQUIRED): incident, kb_knowledge; heavy tables get safety limits.",
     )
     query: Optional[str] = Field(
         default=None,
