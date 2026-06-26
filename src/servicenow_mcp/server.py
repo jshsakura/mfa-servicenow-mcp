@@ -39,6 +39,7 @@ from servicenow_mcp.utils.instances import (
     select_active_alias,
 )
 from servicenow_mcp.utils.progress import use_progress_emitter
+from servicenow_mcp.utils.response_budget import enforce_response_budget, get_response_budget
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 
 logger = logging.getLogger(__name__)
@@ -438,6 +439,22 @@ def _compact_json(obj: Any) -> str:
     return json_fast.dumps(obj)
 
 
+def _compact_with_budget(obj: Any, tool_name: str) -> str:
+    """Compact-serialize *obj*, abridging oversized values first so the client
+    never silently truncates the result to a scratchpad file.
+
+    The common (small) case pays a single serialization; only an over-budget
+    result (measured in UTF-8 bytes, matching the client ceiling) is walked and
+    re-serialized.
+    """
+    budget = get_response_budget()
+    compact = _compact_json(obj)
+    if len(compact.encode("utf-8")) <= budget:
+        return compact
+    bounded, abridged = enforce_response_budget(obj, tool_name=tool_name, budget=budget)
+    return _compact_json(bounded) if abridged else compact
+
+
 def serialize_tool_output(result: Any, tool_name: str) -> str:
     """Serialize tool output to compact JSON for LLM token efficiency.
 
@@ -458,7 +475,7 @@ def serialize_tool_output(result: Any, tool_name: str) -> str:
                     return result
             return result
         elif isinstance(result, dict):
-            return _compact_json(result)
+            return _compact_with_budget(result, tool_name)
         elif hasattr(result, "model_dump_json"):
             try:
                 return result.model_dump_json()
