@@ -1280,10 +1280,13 @@ class ServiceNowMCP:
         if requires_confirmation:
             confirmation = str(arguments.get(CONFIRM_FIELD, "")).lower().strip()
             if confirmation != CONFIRM_VALUE:
+                from servicenow_mcp.policies.write_guards import preview_hint
+
+                hint = preview_hint(name)
                 raise ValueError(
                     f"This action for '{name}' will modify or delete data. "
                     f"To proceed, please add the parameter {CONFIRM_FIELD}='{CONFIRM_VALUE}' to your request "
-                    "to confirm you want to execute this."
+                    "to confirm you want to execute this." + (f" {hint}" if hint else "")
                 )
             logger.info("Executing confirmed action: tool=%s", name)
 

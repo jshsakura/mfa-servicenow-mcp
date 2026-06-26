@@ -283,6 +283,41 @@ class TestScriptIncludeTools(unittest.TestCase):
         self.assertIn("not found", result["message"])
 
     @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    def test_get_script_include_not_found_suggests_did_you_mean(self, mock_query_page):
+        """P2 no-dead-end: a NAME miss offers fuzzy nameLIKE suggestions."""
+        mock_query_page.side_effect = [
+            ([], 0),  # exact name= lookup: miss
+            (  # fuzzy nameLIKE lookup: near matches
+                [
+                    {"sys_id": "a1", "name": "MyUtils", "api_name": "global.MyUtils"},
+                    {"sys_id": "a2", "name": "MyUtilHelper", "api_name": "global.MyUtilHelper"},
+                ],
+                2,
+            ),
+        ]
+
+        params = GetScriptIncludeParams(script_include_id="MyUtil")
+        result = get_script_include(self.server_config, self.auth_manager, params)
+
+        self.assertFalse(result["success"])
+        self.assertIn("did_you_mean", result)
+        names = {s["name"] for s in result["did_you_mean"]}
+        self.assertIn("MyUtils", names)
+        self.assertIn("hint", result)
+
+    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
+    def test_get_script_include_sys_id_miss_has_no_suggestions(self, mock_query_page):
+        """A sys_id miss has no near-match → no fuzzy lookup, no did_you_mean."""
+        mock_query_page.return_value = ([], 0)
+
+        params = GetScriptIncludeParams(script_include_id="sys_id:deadbeef")
+        result = get_script_include(self.server_config, self.auth_manager, params)
+
+        self.assertFalse(result["success"])
+        self.assertNotIn("did_you_mean", result)
+        self.assertEqual(mock_query_page.call_count, 1)  # only the exact lookup ran
+
+    @patch("servicenow_mcp.tools.script_include_tools.sn_query_page")
     def test_get_script_include_error(self, mock_query_page):
         """Test getting a script include with an error."""
         mock_query_page.side_effect = Exception("Test error")
