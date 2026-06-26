@@ -537,6 +537,42 @@ class TestSnSchema:
         result = sn_schema(config, auth, params)
         assert result["success"] is False
 
+    def test_editable_table_surfaces_write_path(self):
+        # P2 discoverability: a code-bearing table editable via
+        # manage_portal_component must advertise that write path in its schema.
+        config = _make_config()
+        auth = MagicMock()
+        resp = _mock_response(
+            {
+                "result": [
+                    {
+                        "element": "script",
+                        "column_label": "Script",
+                        "internal_type": "script",
+                        "max_length": "8000",
+                        "mandatory": "false",
+                        "reference": "",
+                    }
+                ]
+            }
+        )
+        auth.make_request.return_value = resp
+        result = sn_schema(config, auth, SchemaParams(table="sys_script_include"))
+        assert result["success"] is True
+        assert result["editable_via"]["tool"] == "manage_portal_component"
+        assert result["editable_via"]["by"] == "sys_id"
+        assert "script" in result["editable_via"]["fields"]
+
+    def test_non_editable_table_has_no_write_path(self):
+        config = _make_config()
+        auth = MagicMock()
+        resp = _mock_response({"result": [{"element": "number", "column_label": "Number"}]})
+        auth.make_request.return_value = resp
+        # cmdb_ci is not in PORTAL_COMPONENT_EDITABLE_FIELDS — no write path claim.
+        result = sn_schema(config, auth, SchemaParams(table="cmdb_ci"))
+        assert result["success"] is True
+        assert "editable_via" not in result
+
 
 # ---------------------------------------------------------------------------
 # sn_discover
