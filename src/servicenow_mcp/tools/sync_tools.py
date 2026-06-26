@@ -122,6 +122,9 @@ SUPPORTED_TABLES: Set[str] = {
 }
 
 MAX_DIFF_LINES = 120
+# Context lines for the line diff embedded in a CONFLICT response (P1-1) — kept
+# tight so a blocked push shows what changed without bloating the rejection.
+_CONFLICT_DIFF_CONTEXT = 3
 
 
 def _normalize_for_compare(text: str) -> str:
@@ -1137,41 +1140,7 @@ def diff_local_component(
             f"downloaded — review before pushing."
         )
 
-    diffs: List[Dict[str, Any]] = []
-    for field_name, file_path in resolved.fields.items():
-        if not file_path.exists():
-            continue
-        local_content = file_path.read_text(encoding="utf-8")
-        remote_content = str(remote_record.get(field_name) or "")
-
-        # Compare on a line-ending–normalized basis (same as the diff render) so a
-        # pure CRLF<->LF delta is not reported as a phantom "modified".
-        if _normalize_for_compare(local_content) == _normalize_for_compare(remote_content):
-            diffs.append({"field": field_name, "status": "unchanged"})
-            continue
-
-        diff_lines = list(
-            difflib.unified_diff(
-                remote_content.splitlines(),
-                local_content.splitlines(),
-                fromfile=f"remote/{field_name}",
-                tofile=f"local/{field_name}",
-                lineterm="",
-                n=params.context_lines,
-            )
-        )
-        if len(diff_lines) > MAX_DIFF_LINES:
-            diff_lines = diff_lines[:MAX_DIFF_LINES] + ["... [DIFF TRUNCATED FOR CONTEXT SAFETY]"]
-
-        diffs.append(
-            {
-                "field": field_name,
-                "status": "modified",
-                "diff": "\n".join(diff_lines),
-                "local_lines": len(local_content.splitlines()),
-                "remote_lines": len(remote_content.splitlines()),
-            }
-        )
+    diffs = _compute_field_diffs(resolved, remote_record, params.context_lines)
 
     result: Dict[str, Any] = {
         "mode": "diff",
@@ -1192,6 +1161,55 @@ def diff_local_component(
     if not resolved.instance_url:
         result["origin_unverified"] = _ORIGIN_UNVERIFIED_MSG
     return result
+
+
+def _compute_field_diffs(
+    resolved, remote_record: Dict[str, Any], context_lines: int
+) -> List[Dict[str, Any]]:
+    """Per-field unified line diff (remote -> local), line-ending normalized.
+
+    Read-only and network-free: callers pass an already-fetched remote_record.
+    A pure CRLF<->LF delta reads as 'unchanged'; oversized diffs are truncated to
+    MAX_DIFF_LINES for context safety. Shared by diff_local_component (review) and
+    the push CONFLICT response, so a blocked push shows WHAT would change without a
+    second round-trip — never a dead-end.
+    """
+    diffs: List[Dict[str, Any]] = []
+    for field_name, file_path in resolved.fields.items():
+        if not file_path.exists():
+            continue
+        local_content = file_path.read_text(encoding="utf-8")
+        remote_content = str(remote_record.get(field_name) or "")
+
+        # Compare on a line-ending–normalized basis (same as the diff render) so a
+        # pure CRLF<->LF delta is not reported as a phantom "modified".
+        if _normalize_for_compare(local_content) == _normalize_for_compare(remote_content):
+            diffs.append({"field": field_name, "status": "unchanged"})
+            continue
+
+        diff_lines = list(
+            difflib.unified_diff(
+                remote_content.splitlines(),
+                local_content.splitlines(),
+                fromfile=f"remote/{field_name}",
+                tofile=f"local/{field_name}",
+                lineterm="",
+                n=context_lines,
+            )
+        )
+        if len(diff_lines) > MAX_DIFF_LINES:
+            diff_lines = diff_lines[:MAX_DIFF_LINES] + ["... [DIFF TRUNCATED FOR CONTEXT SAFETY]"]
+
+        diffs.append(
+            {
+                "field": field_name,
+                "status": "modified",
+                "diff": "\n".join(diff_lines),
+                "local_lines": len(local_content.splitlines()),
+                "remote_lines": len(remote_content.splitlines()),
+            }
+        )
+    return diffs
 
 
 def _build_update_data_and_magnitude(resolved, remote_record):
@@ -1418,6 +1436,10 @@ def update_remote_from_local(
                 "local_downloaded_on": local_updated_on,
                 "record_hold": live_hold,
                 "component": component_info,
+                # P1-1: the line-level diff of what THIS push would overwrite, from
+                # the already-fetched remote_record (no extra round-trip). Lets the
+                # caller decide force=true vs re-download without re-diffing.
+                "diffs": _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT),
             }
         if confirmed_other:
             logger.warning(

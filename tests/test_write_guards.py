@@ -173,6 +173,28 @@ def test_g7_blocks_update_remote_from_local() -> None:
         run_write_guards(_SERVER, "update_remote_from_local", {})
 
 
+def test_g7_push_rejection_points_to_preview_no_dead_end() -> None:
+    # P0-2: the publish rejection must hand back the read-only preview step,
+    # never a dead-end the caller can't recover from.
+    with pytest.raises(PolicyViolation) as exc:
+        run_write_guards(_SERVER, "update_remote_from_local", {})
+    assert "diff_local_component" in str(exc.value)
+
+
+def test_g7_generic_publish_rejection_has_no_push_hint() -> None:
+    # The hint is push-specific; a generic publish-class rejection stays clean.
+    with pytest.raises(PolicyViolation) as exc:
+        run_write_guards(_SERVER, "publish_changeset", {"changeset_id": "abc"})
+    assert "diff_local_component" not in str(exc.value)
+
+
+def test_preview_hint_unknown_tool_is_empty() -> None:
+    from servicenow_mcp.policies.write_guards import preview_hint
+
+    assert preview_hint("manage_incident") == ""
+    assert "diff_local_component" in preview_hint("update_remote_from_local")
+
+
 def test_g7_blocks_manage_changeset_publish() -> None:
     with pytest.raises(PolicyViolation, match=r"\[G7\]"):
         run_write_guards(_SERVER, "manage_changeset", {"action": "publish"})
