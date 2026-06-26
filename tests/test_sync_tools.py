@@ -777,6 +777,12 @@ class TestUpdateRemoteFromLocal:
         assert result["risk"]["other_user"] is True
         assert result["risk"]["level"] in ("high", "critical")
         assert "alice" in result["risk"]["message"]
+        # P1-1: the rejection carries the line-level diff of what would be
+        # overwritten, so the caller can decide without a second round-trip.
+        modified = [d for d in result["diffs"] if d.get("status") == "modified"]
+        assert modified, "CONFLICT must include the line diff of the pending push"
+        assert "script" in {d["field"] for d in modified}
+        assert "@@" in modified[0]["diff"] or "+" in modified[0]["diff"]
 
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
