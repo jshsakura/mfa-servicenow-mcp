@@ -218,6 +218,17 @@ class TestReadRouting:
         assert out["dependency_map"][0]["dependencies"][0]["name"] == "Common CSS"
         chain.assert_not_called()  # source chain must NOT be hit
 
+    def test_dependency_fetch_failure_points_to_offline_graph(self):
+        # P2 no-dead-end: when the live widget fetch fails (instance unreachable),
+        # the error must hand back the OFFLINE alternative, not a flat dead-end.
+        with patch(f"{DEV}._sn_get", side_effect=Exception("connection refused")):
+            out = manage_widget_dependency(
+                _config(), MagicMock(), _p(action="get", target="dependency", widget_id="W1")
+            )
+        assert out["success"] is False
+        assert out["offline_alternative"] == "query_local_graph"
+        assert "query_local_graph" in out["hint"]
+
     def test_include_source_is_only_source_trigger(self):
         sentinel = {"success": True, "_via": "chain"}
         with patch(f"{PORTAL}.resolve_widget_chain", return_value=sentinel) as chain:

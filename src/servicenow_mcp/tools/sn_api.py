@@ -1303,6 +1303,24 @@ def sn_schema(
                 "No fields are defined directly on this table — it likely extends a base "
                 "table and inherits its fields. Query the parent table or use display_value."
             )
+        # Surface the MCP write path: if this table's code body is editable via
+        # manage_portal_component (BY SYS_ID), say so — closes the read/write
+        # discoverability gap (anything download_*_sources can pull, you can push
+        # back). Lazy import avoids a module-load cycle with portal_tools.
+        from servicenow_mcp.tools.portal_tools import PORTAL_COMPONENT_EDITABLE_FIELDS
+
+        editable = PORTAL_COMPONENT_EDITABLE_FIELDS.get(params.table)
+        if editable:
+            result["editable_via"] = {
+                "tool": "manage_portal_component",
+                "action": "update",
+                "fields": sorted(editable),
+                "by": "sys_id",
+                "note": (
+                    "Edit these fields by sys_id via manage_portal_component(action='update'). "
+                    "Names aren't globally unique — target by sys_id, not name."
+                ),
+            }
         _cache_put(ck, result, ttl=_METADATA_CACHE_TTL_SECONDS)
         return result
     except Exception as exc:
