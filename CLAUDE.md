@@ -144,6 +144,50 @@ Don't break this without reading `auth_manager.py` and the related tests
 (`test_auth_manager_final.py::TestLoginWithBrowserSync`,
 `test_auth_manager_browser.py`) end-to-end.
 
+## Playwright/Chromium — the only external runtime dep; NEVER hard-fail on a bump (v1.18.5)
+
+Playwright is the single heavy external dependency, and its npm/PyPI package
+version is welded to a specific Chromium browser *revision*. The standard launch
+is `uvx --with playwright …`, which is UNPINNED: every launch resolves the
+LATEST Playwright, but the shared `~/.cache/ms-playwright` only holds the
+revision that was last `playwright install`ed. So a Playwright release silently
+makes the cached binary "missing or version-mismatched". This broke the whole
+MCP **twice** before v1.18.5 — see issue #62 for the post-mortem.
+
+**Why it was catastrophic, not merely degraded.** `_ensure_playwright_ready()`
+ran in `AuthManager.__init__` (startup) and RAISED on a mismatch →
+`ServiceNowMCP.__init__` raised → the MCP "failed to load" with the only helpful
+message buried in stderr. Even a session that needed no browser (valid cached
+cookie → Table API only) was killed.
+
+**The v1.18.5 recurrence-prevention design (do NOT regress any of these):**
+- **Startup is non-fatal.** The probe failure is caught, stored on
+  `self._browser_setup_error`, and the server boots anyway. A valid cached
+  session keeps serving Table API requests with no browser at all.
+- **Background self-heal.** `_start_background_chromium_install()` runs
+  `[sys.executable, -m, playwright, install, chromium]` in a DAEMON thread —
+  fetching exactly the revision the *resolved* Playwright expects. It MUST stay
+  background: a blocking inline install inside the handshake is what caused the
+  historical Codex "connection closed: initialize response" timeout (which is
+  why prior devs refused inline auto-install). Clears the flag on success;
+  keeps the manual remediation on failure.
+  - Opt out: `SERVICENOW_AUTO_INSTALL_CHROMIUM=off` (metered/locked-down nets).
+  - Skipped when `sys.frozen` (PyInstaller exe: `sys.executable` is the app, not
+    a Python — running it `-m playwright` would re-launch the app). The frozen
+    build bundles Chromium anyway.
+- **First login re-probes** when startup flagged a problem, surfacing the precise
+  `playwright install chromium` remediation as the tool-call error (not a raw
+  Playwright stack or silent timeout). `server.py` prefers the captured message
+  for the MCP `instructions`.
+
+Net effect: a Playwright bump now self-heals invisibly; if it can't, the user
+gets a clear actionable notice instead of a dead server. Don't reintroduce a
+startup raise, don't move the install inline/blocking, and don't "fix" it
+per-machine by swapping the client config to a local install (rejected — the
+product itself must self-heal + warn). Tests:
+`test_auth_manager.py::TestStartupNonFatalChromium`,
+`::TestAutoInstallChromium`.
+
 ## Version Bumps & Git Tags
 
 - Always patch increment: `x.y.z` → `x.y.(z+1)`.

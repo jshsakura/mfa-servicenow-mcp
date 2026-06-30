@@ -464,6 +464,105 @@ def test_concurrent_guard_off_switch_disables_g3_and_g8() -> None:
 
 
 # ---------------------------------------------------------------------------
+# G8 registry — newly covered write tools that identify their record by a
+# tool-specific id arg (manage_kb_article, manage_portal_layout) or whose table
+# depends on an arg (manage_widget_dependency target=provider|dependency).
+# These previously had NO concurrent-edit protection (v1.18.6 gap-closure).
+# ---------------------------------------------------------------------------
+
+
+def _other_user_recent():
+    return (
+        {"sys_updated_by": "alice@example.com", "sys_updated_on": _utc_iso_minus_min(3)},
+        None,
+    )
+
+
+def test_g8_registry_blocks_kb_article_update() -> None:
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=_other_user_recent(),
+    ) as fetch:
+        with pytest.raises(PolicyViolation, match=r"(?s)\[G8\].*alice"):
+            run_post_confirm_guards(
+                _SERVER,
+                "manage_kb_article",
+                {"action": "update", "article_id": "KB0001", "short_description": "x"},
+            )
+        assert fetch.call_args.args[1] == "kb_knowledge"
+
+
+def test_g8_registry_blocks_portal_layout_update_page() -> None:
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=_other_user_recent(),
+    ) as fetch:
+        with pytest.raises(PolicyViolation, match=r"\[G8\]"):
+            run_post_confirm_guards(
+                _SERVER,
+                "manage_portal_layout",
+                {"action": "update_page", "sys_id": "page-1", "title": "x"},
+            )
+        assert fetch.call_args.args[1] == "sp_page"
+
+
+def test_g8_registry_widget_dependency_resolves_table_by_target() -> None:
+    """The audit must hit the table the target selects, not a fixed one."""
+    for target, expected_table in (
+        ("provider", "sp_angular_provider"),
+        ("dependency", "sp_dependency"),
+    ):
+        with patch(
+            "servicenow_mcp.policies.write_guards._fetch_record_audit",
+            return_value=_other_user_recent(),
+        ) as fetch:
+            with pytest.raises(PolicyViolation, match=r"\[G8\]"):
+                run_post_confirm_guards(
+                    _SERVER,
+                    "manage_widget_dependency",
+                    {"action": "update", "target": target, "record_id": "rec-1", "name": "x"},
+                )
+            assert fetch.call_args.args[1] == expected_table
+
+
+def test_g8_registry_widget_dependency_default_target_is_provider() -> None:
+    """Omitted target defaults to provider (mirrors the tool's Pydantic default)."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=(None, None),
+    ) as fetch:
+        run_post_confirm_guards(
+            _SERVER,
+            "manage_widget_dependency",
+            {"action": "delete", "record_id": "rec-1"},
+        )
+        assert fetch.call_args.args[1] == "sp_angular_provider"
+
+
+def test_g8_registry_widget_dependency_link_unlink_not_guarded() -> None:
+    """link/unlink touch m2m junctions (ambiguous) — intentionally fail-open."""
+    with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as fetch:
+        run_post_confirm_guards(
+            _SERVER,
+            "manage_widget_dependency",
+            {"action": "link", "widget_id": "w1", "record_id": "rec-1"},
+        )
+        fetch.assert_not_called()
+
+
+def test_g8_registry_create_actions_not_guarded() -> None:
+    """Creates have no existing record to overwrite — no audit fetch."""
+    with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as fetch:
+        run_post_confirm_guards(
+            _SERVER, "manage_kb_article", {"action": "create", "short_description": "x"}
+        )
+        run_post_confirm_guards(
+            _SERVER, "manage_widget_dependency", {"action": "create", "name": "x"}
+        )
+        fetch.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # G8 registry — concurrent-edit for manage_* tools that identify the record by
 # a tool-specific id arg (incident_id, change_id, workflow_id, …).
 # ---------------------------------------------------------------------------

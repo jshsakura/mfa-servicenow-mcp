@@ -213,26 +213,29 @@ result = manage_workflow({"action": "reorder_activities",
 
 ## Flow Designer 도구
 
-Flow Designer(`sys_hub_flow`)는 레거시 워크플로우의 후속 엔진입니다. MCP 서버는 Table API로 안전하게 노출 가능한 읽기 위주 표면만 제공합니다. 전체 CRUD는 비공개 processflow API가 필요해 의도적으로 표면화하지 않습니다.
+Flow Designer(`sys_hub_flow`)는 레거시 워크플로우의 후속 엔진입니다. MCP 서버는 화면 충실도(screen-fidelity) 읽기 + 검증된 편집 표면(조건/액션입력/속성/복사/활성화)을 processflow API로 노출하며, 패키지 단위로 게이팅합니다. 단 **퍼블리시는 위조하지 않습니다** — 스냅샷 재컴파일은 에디터 전용이라, 거짓 성공 대신 수동 퍼블리시 안내를 반환합니다. `sys_hub_*`로의 원시 Table API 쓰기는 플로우 스냅샷을 손상시키므로 가드 G6가 차단합니다.
 
 ### `manage_flow_designer` (통합 도구)
 단일 합성 도구. 기존 6개 개별 도구(`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`, `update_flow_designer`, `manage_flow_edit`)를 대체합니다. `standard`에서는 action enum이 읽기 전용으로 좁혀지고, `portal_developer` / `platform_developer` / `full`에서 쓰기까지 풀립니다.
 
 읽기 액션 (`standard` 포함):
+- `action="read"` (v1.18.6) — **화면 충실도** 읽기: 실행 순서로 병합된 하나의 If/Else 중첩 스텝 트리(액션+로직+서브플로우), 조건을 **사람이 읽는 텍스트로 디코드**, 데이터 pill을 생산 스텝 라벨로 해석, 커스텀 Action 타입의 Script 본문까지. 사이클/누락 uid 가드. 142노드 플로우 ~18K 토큰(이전 ~130K) — 플로우 이해는 여기서 시작.
+- `action="read_action"` — 단일 커스텀 Action 정의의 Script 본문 읽기.
 - `action="list"` — 플로우/서브플로우 검색. 주요 파라미터: `limit`, `offset`, `include_inactive`, `flow_status`, `scope`, `name_filter`.
 - `action="get_detail"` — 단일 플로우 메타데이터 + 선택적 heavy 섹션. 주요 파라미터: `flow_id`(필수), `include_structure`, `include_triggers`, `include_executions_summary`, `trace_pill`, `include_subflow_tree`, `summary_format`.
 - `action="get_executions"` — 실행 이력(필터) 또는 단일 실행 상세. 주요 파라미터: `context_id`(단일 모드), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
 - `action="compare"` — 두 플로우 diff. `flow_id_a`/`flow_id_b` 또는 `name_a`/`name_b`. 구조/서브플로우/트리거 차이 리포트. `get_detail` 두 번 호출보다 권장.
 
-쓰기 액션 (`portal_developer` / `platform_developer` / `full`):
-- `action="update"` — 메타데이터만(`new_name` / `description` / `active`). 스텝/트리거 등 구조 변경은 아래 편집 워크플로우 또는 Workflow Studio UI 필요.
-- `action="checkout"` — 로컬 편집 세션 시작 (브라우저 auth, processflow API).
+쓰기 액션 (`portal_developer` / `platform_developer` / `full`). 모든 편집은 저장 후 **재읽기로 검증(verify)**되고 `dry_run`을 지원합니다:
+- `action="update"` — 메타데이터만(`new_name` / `description` / `active`).
+- `action="checkout"` — 로컬 편집 세션 시작 (브라우저 auth, processflow API). `action="status"`로 상태 확인, `action="discard"`로 폐기.
 - `action="set_action_input"` — 액션 입력값 패치. `node_id`, `input_name`, `value` 필수.
-- `action="set_branch_condition"` — 플로우 로직 분기 조건 패치. `node_id`, `value` 필수, `condition_label` 선택.
-- `action="set_trigger_condition"` — 트리거 조건 패치. `value` 필수, `node_id` 생략 시 첫 트리거.
-- `action="save"` — processflow API로 저장. `publish=true` 시 저장 후 퍼블리시.
-- `action="discard"` — 로컬 편집 세션 폐기.
-- `action="edit_status"` — 현재 로컬 체크아웃 상태 확인.
+- `action="set_branch_condition"` / `action="set_trigger_condition"` — 로직 분기/트리거 조건 패치. 구조화 행 `[{field, operator, value}]` **또는** 원시 인코드 쿼리 전달; 응답이 `condition_readable`를 echo해 인코더 결과를 확인 가능(CHANGES 계열·AND/OR/NQ 연산자 포함).
+- `action="set_property"` / `action="save_properties"` — 플로우 속성: Run As, Protection, Priority, `active`.
+- `action="copy"` — 네이티브 플로우/서브플로우 복제(Workflow Studio "Copy flow"와 동일 호출).
+- `action="activate"` / `action="deactivate"` — 활성 상태 토글.
+- `action="save"` — processflow API로 저장(스코프 정확한 PUT + 새 플로우 버전 기록 — 조용한 트리거 되돌림 버그 수정).
+- `action="publish"` — **에디터 게이팅.** 스냅샷 재컴파일은 대화형 Workflow Studio 에디터에서만 가능하고 모든 API 경로가 즉시 실패합니다. 도구는 성공을 위조하지 않고 `manual_publish_required` + 수동 퍼블리시 UI URL을 반환합니다.
 
 ### Flow Designer 테이블 맵
 

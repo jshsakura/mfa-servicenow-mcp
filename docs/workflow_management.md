@@ -213,26 +213,29 @@ result = manage_workflow({"action": "reorder_activities",
 
 ## Flow Designer Tools
 
-Flow Designer (`sys_hub_flow`) is the modern successor to legacy workflows. The MCP server exposes it as a read-mostly surface — full CRUD requires the undocumented processflow API and is intentionally not surfaced through Table API tools.
+Flow Designer (`sys_hub_flow`) is the modern successor to legacy workflows. The MCP server exposes a screen-fidelity read plus a verified edit surface (conditions, action inputs, properties, copy, activate) via the processflow API, gated by tool package. The one thing it will **not** fake is publish: snapshot recompile is editor-gated, so the tool returns a manual-publish instruction instead of a false success. Raw Table-API writes to `sys_hub_*` are blocked (guard G6) because they corrupt flow snapshots.
 
 ### `manage_flow_designer` (unified)
 Single composite tool with action dispatch. Replaces the previous 6 standalone flow tools (`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`, `update_flow_designer`, `manage_flow_edit`). Action enum is narrowed to read-only in `standard` and unlocked in `portal_developer` / `platform_developer` / `full`.
 
 Read actions (available in `standard`):
+- `action="read"` (v1.18.6) — the **screen-fidelity** read: one ordered, If/Else-nested step tree (actions + logic + subflows merged by execution order), conditions **decoded to human-readable text**, data pills resolved to their producing-step labels, and custom Action types with their Script bodies. Cycle/missing-uid guarded. ~18K tokens for a 142-node flow (vs ~130K before) — start here to understand a flow.
+- `action="read_action"` — read a single custom Action definition's Script body.
 - `action="list"` — search flows/subflows. Key params: `limit`, `offset`, `include_inactive`, `flow_status`, `scope`, `name_filter`.
 - `action="get_detail"` — flow metadata + optional heavy sections. Key params: `flow_id` (required), `include_structure`, `include_triggers`, `include_executions_summary`, `trace_pill`, `include_subflow_tree`, `summary_format`.
 - `action="get_executions"` — runtime history (filters) or single execution detail. Key params: `context_id` (single mode), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
 - `action="compare"` — diff two flows by `flow_id_a`/`flow_id_b` or `name_a`/`name_b`. Reports structural diff, subflow bindings, trigger differences. Preferred over calling `get_detail` twice.
 
-Write actions (only in `portal_developer` / `platform_developer` / `full`):
-- `action="update"` — metadata only (`new_name` / `description` / `active`). Anything structural (steps, triggers, publish) requires the edit workflow below or the Workflow Studio UI.
-- `action="checkout"` — start a local edit session (browser auth required, uses processflow API).
+Write actions (only in `portal_developer` / `platform_developer` / `full`). All edits are **verified live** (re-read after save) and support `dry_run`:
+- `action="update"` — metadata only (`new_name` / `description` / `active`).
+- `action="checkout"` — start a local edit session (browser auth required, uses processflow API). `action="status"` inspects it; `action="discard"` drops it.
 - `action="set_action_input"` — patch action input value. Requires `node_id`, `input_name`, `value`.
-- `action="set_branch_condition"` — patch flow logic branch condition. Requires `node_id`, `value`; optional `condition_label`.
-- `action="set_trigger_condition"` — patch trigger condition. Requires `value`; `node_id` optional (first trigger if omitted).
-- `action="save"` — persist edits via processflow API. Optional `publish=true` to publish after save.
-- `action="discard"` — drop the local edit session.
-- `action="edit_status"` — inspect current local checkout state.
+- `action="set_branch_condition"` / `action="set_trigger_condition"` — patch a logic-branch or trigger condition. Pass structured rows `[{field, operator, value}]` **or** a raw encoded query; the response echoes `condition_readable` so you can confirm the encoder produced what you meant (operators include the CHANGES family, AND/OR/NQ).
+- `action="set_property"` / `action="save_properties"` — flow properties: Run As, Protection, Priority, `active`.
+- `action="copy"` — native flow/subflow clone (the same call Workflow Studio's "Copy flow" makes).
+- `action="activate"` / `action="deactivate"` — toggle the flow's active state.
+- `action="save"` — persist edits via the processflow API (a scope-correct PUT that also writes a fresh flow version — the fix for the silent trigger-revert).
+- `action="publish"` — **editor-gated.** Snapshot recompile is only reachable from the interactive Workflow Studio editor; every API path fast-fails. The tool does not pretend success — it returns `manual_publish_required` plus the exact UI URL to finish the publish by hand.
 
 ### Flow Designer Table Map
 
