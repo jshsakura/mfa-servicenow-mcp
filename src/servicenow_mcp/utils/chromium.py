@@ -27,7 +27,7 @@ def check_chromium_install_hint() -> Optional[str]:
         Multi-line instructions string when remediation is needed, else None.
     """
     try:
-        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+        import playwright.sync_api  # type: ignore[import-not-found]  # noqa: F401
     except ImportError:
         return (
             "Playwright Python package is missing. Run the server with "
@@ -35,10 +35,50 @@ def check_chromium_install_hint() -> Optional[str]:
             "or install it manually (`pip install playwright`)."
         )
 
+    # The Sync API cannot run on a thread that already has a RUNNING asyncio
+    # loop — MCP dispatches tools on the event-loop thread (see server.py), so a
+    # naive sync_playwright() here always raised "using Playwright Sync API
+    # inside the asyncio loop" → the probe silently no-op'd and never caught a
+    # missing/mismatched Chromium. Offload to a worker thread when a loop is
+    # live (mirrors auth_manager._try_restore_browser_session).
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None and loop.is_running():
+        import threading
+
+        holder: dict = {}
+
+        def _run() -> None:
+            try:
+                holder["result"] = _probe_chromium()
+            except BaseException as exc:  # noqa: BLE001
+                holder["exc"] = exc
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        t.join(timeout=30)
+        if t.is_alive() or "exc" in holder:
+            logger.debug("Chromium probe thread failed/timed out: %s", holder.get("exc"))
+            return None
+        return holder.get("result")
+
+    return _probe_chromium()
+
+
+def _probe_chromium() -> Optional[str]:
+    """Actually open Playwright and check the Chromium binary. MUST run on a
+    thread with NO running asyncio loop (the Sync API requirement)."""
+    from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+
     try:
         with sync_playwright() as pw:
             _ = pw.chromium.executable_path
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         msg = str(exc).lower()
         if "executable" in msg or "browser" in msg or "doesn't exist" in msg:
             return (
