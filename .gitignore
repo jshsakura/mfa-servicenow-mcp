@@ -90,3 +90,8 @@ x_bpm/
 # Website (GitHub Pages)
 website/site/
 website/.cache/
+
+# Flow Designer network capture (contains session cookies / X-UserToken — never commit)
+scripts/_cap/
+scripts/processflow_capture.json
+scripts/live_result.json

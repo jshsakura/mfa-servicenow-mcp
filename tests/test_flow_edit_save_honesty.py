@@ -31,8 +31,13 @@ def _ok_response():
 def _save(publish: bool, make_request):
     auth = MagicMock(spec=AuthManager)
     auth.make_request = make_request
+    # Checkout payload carries the flow's app scope (sysparm_transaction_scope);
+    # save/publish require it, mirroring the real processflow write contract.
     with (
-        patch("servicenow_mcp.tools.flow_edit_tools._load_checkout", return_value={"flow": "x"}),
+        patch(
+            "servicenow_mcp.tools.flow_edit_tools._load_checkout",
+            return_value={"flow": "x", "scope": "scope_sys_id"},
+        ),
         patch("servicenow_mcp.tools.flow_edit_tools._checkout_path") as mock_path,
     ):
         mock_path.return_value.unlink = MagicMock()
@@ -50,22 +55,42 @@ def test_save_without_publish_warns_design_time_only():
     assert "publish=true" in result["warning"]
 
 
-def test_save_with_publish_reports_live():
-    # PUT (save) then POST (publish) both succeed.
-    result = _save(True, MagicMock(side_effect=[_ok_response(), _ok_response()]))
-    assert result["success"] is True
-    assert result["published"] is True
-    assert "note" in result and "recompiled" in result["note"]
+def test_save_with_publish_saves_and_redirects_to_ui():
+    # save(publish=true) persists design-time, then reports that publish itself
+    # must be done in the UI (recompile is editor-gated, not API-reachable).
+    result = _save(True, MagicMock(return_value=_ok_response()))
+    assert result["saved"] is True
+    assert result["published"] is False
+    assert result["manual_publish_required"] is True
+    assert result["ui_url"].endswith("/now/wsd/flow-designer/f1")
 
 
-def test_publish_failure_is_not_reported_as_success():
-    # save PUT ok, publish POST raises -> edit is staged but NOT live.
+def test_save_put_uses_scope_param_no_snapshot():
+    # save PUT must use the scope param (not the old param_only_properties), and
+    # NO curl /snapshot or legacy /publish is attempted.
+    calls = []
+
     def _mr(method, url, **kwargs):
-        if method == "POST":
-            raise RuntimeError("publish 500")
+        calls.append((method, url, kwargs.get("params")))
         return _ok_response()
 
     result = _save(True, MagicMock(side_effect=_mr))
+    assert result["saved"] is True
+    put = [c for c in calls if c[0] == "PUT"]
+    assert put and put[0][2] == {"sysparm_transaction_scope": "scope_sys_id"}
+    assert not any("/snapshot" in c[1] or "/publish" in c[1] for c in calls)
+
+
+def test_save_requires_scope():
+    # A checkout payload missing 'scope' cannot be safely written.
+    auth = MagicMock(spec=AuthManager)
+    auth.make_request = MagicMock(return_value=_ok_response())
+    with (
+        patch("servicenow_mcp.tools.flow_edit_tools._load_checkout", return_value={"flow": "x"}),
+        patch("servicenow_mcp.tools.flow_edit_tools._checkout_path"),
+    ):
+        result = manage_flow_edit(
+            _cfg(), auth, ManageFlowEditParams(action="save", flow_id="f1", publish=True)
+        )
     assert result["success"] is False
-    assert result["published"] is False
-    assert "publish_error" in result
+    assert "scope" in result["error"].lower()
