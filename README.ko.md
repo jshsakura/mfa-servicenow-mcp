@@ -1,6 +1,6 @@
 # MFA ServiceNow MCP
 
-[English](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md) | [한국어](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md)
+🌐 [English](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md) | 🇰🇷 [한국어](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md) | 🇯🇵 [日本語](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ja.md) | 🇮🇳 [हिन्दी](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.hi.md) | 🇨🇳 [简体中文](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.zh.md) | 🇪🇸 [Español](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.es.md) | 🚀 [**GitHub Pages**](https://jshsakura.github.io/mfa-servicenow-mcp/)
 
 MFA를 우선으로 지원하는 ServiceNow MCP 서버입니다. 실제 브라우저(Playwright)로 로그인하기 때문에 Okta, Entra ID, SAML 등 어떤 MFA/SSO 환경에서도 그대로 동작합니다. MFA를 강제하는 보안 정책 때문에 API Key 발급이 어려운 환경에서도 업무를 이어갈 수 있도록 만든 도구입니다. (headless·Docker 환경에서는 API Key 인증도 함께 지원합니다.)
 
