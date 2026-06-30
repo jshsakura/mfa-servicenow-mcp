@@ -91,6 +91,13 @@ _TLS_IMPERSONATE_ENV_VAR = "SERVICENOW_TLS_IMPERSONATE"
 _TLS_IMPERSONATE_DEFAULT_PROFILE = "chrome120"
 _TLS_IMPERSONATE_OFF_VALUES = frozenset({"off", "false", "0", "disable", "disabled", "no", "none"})
 
+# Auto-download the matching Chromium build when it's missing at startup (e.g.
+# uvx pulled a newer Playwright than the cached browser). Background-only, so it
+# never blocks the MCP handshake. Opt out with SERVICENOW_AUTO_INSTALL_CHROMIUM.
+_AUTO_INSTALL_CHROMIUM_ENV_VAR = "SERVICENOW_AUTO_INSTALL_CHROMIUM"
+_AUTO_INSTALL_CHROMIUM_OFF_VALUES = _TLS_IMPERSONATE_OFF_VALUES
+_AUTO_INSTALL_CHROMIUM_TIMEOUT_SECONDS = 600.0
+
 
 def _describe_http_session(session) -> str:
     """Return a short label for the active HTTP session: 'curl_cffi:<profile>'
@@ -948,13 +955,38 @@ class AuthManager:
         # Lazy browser auth: only load disk cache on startup (no browser).
         # The actual browser login is deferred to the first tool call
         # via get_headers(), avoiding an unwanted login window on MCP start.
+        # Remediation message when Playwright/Chromium isn't ready. Stored (not
+        # raised) so the server still boots and the "install needed" notice can
+        # reach the user through MCP `instructions`, sn_health, and the first
+        # browser tool call — instead of a silent "MCP failed to load".
+        self._browser_setup_error: Optional[str] = None
         if self.config.type == AuthType.BROWSER:
             # Log the resolved session path so users can confirm all MCP hosts
             # (Claude Desktop / Cursor / terminal / uvx) point at the same dir.
             # Sandboxed launchers occasionally remap $HOME — visible logging is
             # the simplest way to spot a path mismatch.
             logger.info("Session cache: %s", self._session_cache_path)
-            self._ensure_playwright_ready()
+            # Probe readiness but do NOT crash the server when Chromium is
+            # missing: a valid cached session still serves Table API requests
+            # with no browser at all — only a re-login needs Chromium. Remember
+            # the remediation so we can surface it where the user actually sees
+            # it, rather than killing server startup.
+            try:
+                self._ensure_playwright_ready()
+            except RuntimeError as exc:
+                self._browser_setup_error = str(exc)
+                logger.warning(
+                    "Browser auth setup incomplete — server will start, but "
+                    "browser login is unavailable until this is fixed:\n%s",
+                    exc,
+                )
+                # Try to self-heal by downloading the Chromium build that the
+                # *currently resolved* Playwright expects (e.g. the one uvx just
+                # pulled). Runs in the background so the MCP handshake never
+                # blocks — that blocking download is exactly what caused the
+                # historical Codex "connection closed: initialize response"
+                # timeout, which is why we DON'T auto-install inline.
+                self._start_background_chromium_install()
             self._load_session_from_disk()
             if self._browser_cookie_header and not self._is_browser_session_expired():
                 logger.info("Startup: session restored from disk cache — ready.")
@@ -1194,6 +1226,88 @@ class AuthManager:
                 ) from None
             # Some other Playwright error — re-raise so callers see the real cause.
             raise
+
+    def _start_background_chromium_install(self) -> None:
+        """Download the Chromium build the resolved Playwright expects, async.
+
+        When uvx pulls a newer Playwright than the cached browser, the binary
+        is "missing or version-mismatched". ``python -m playwright install
+        chromium`` (run with *this* interpreter's Playwright) fetches the exact
+        matching revision into the shared cache — so the next login just works.
+
+        Runs in a daemon thread: the ~150 MB download must never block the MCP
+        handshake. On success the setup-error flag clears; on failure the manual
+        remediation message stays. Opt out via
+        ``SERVICENOW_AUTO_INSTALL_CHROMIUM=off``.
+        """
+        import subprocess
+        import sys
+
+        opt_out = os.getenv(_AUTO_INSTALL_CHROMIUM_ENV_VAR, "").strip().lower()
+        if opt_out in _AUTO_INSTALL_CHROMIUM_OFF_VALUES:
+            logger.info(
+                "Chromium auto-install disabled via %s=%s — manual install required.",
+                _AUTO_INSTALL_CHROMIUM_ENV_VAR,
+                opt_out,
+            )
+            return
+
+        # In a PyInstaller single-file build sys.executable is the app exe, not
+        # a Python — `<exe> -m playwright install` would re-launch the app, not
+        # install anything. The frozen build bundles Chromium anyway; if it's
+        # somehow missing, keep the manual remediation rather than misfire.
+        if getattr(sys, "frozen", False):
+            logger.info(
+                "Frozen build detected — skipping Chromium auto-install; "
+                "manual install required if the bundled browser is missing."
+            )
+            return
+
+        # Reflect the in-progress download in the user-facing notice so the
+        # initialize-response instructions say "installing" rather than handing
+        # the user a command they don't need to run.
+        self._browser_setup_error = (
+            "Playwright Chromium is missing; downloading the matching build "
+            "automatically in the background. Retry your browser action in a "
+            "moment. If it does not resolve, run: playwright install chromium"
+        )
+
+        def _run() -> None:
+            logger.info("Auto-installing Playwright Chromium in background…")
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "playwright", "install", "chromium"],
+                    capture_output=True,
+                    text=True,
+                    timeout=_AUTO_INSTALL_CHROMIUM_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:  # noqa: BLE001 — network/timeout/spawn failures
+                logger.warning(
+                    "Chromium auto-install failed (%s); manual install still required: "
+                    "playwright install chromium",
+                    exc,
+                )
+                return
+
+            if result.returncode != 0:
+                logger.warning(
+                    "Chromium auto-install exited %s; manual install still required: "
+                    "playwright install chromium\n%s",
+                    result.returncode,
+                    (result.stderr or "").strip()[:500],
+                )
+                return
+
+            # Confirm the binary actually launches now before clearing the flag.
+            try:
+                self._ensure_playwright_ready()
+            except RuntimeError as exc:
+                logger.warning("Chromium auto-install did not resolve readiness:\n%s", exc)
+                return
+            self._browser_setup_error = None
+            logger.info("Playwright Chromium installed — browser login enabled.")
+
+        threading.Thread(target=_run, daemon=True, name="chromium-auto-install").start()
 
     def _get_cache_dir(self) -> str:
         """Resolve the root cache directory for session JSON and Playwright profile.
@@ -2771,6 +2885,18 @@ class AuthManager:
         MCP tool execution may happen while an event loop is active, so we
         offload Sync API usage to a separate thread in that case.
         """
+        # The actual login is the first point that genuinely needs Chromium.
+        # If startup flagged Playwright/Chromium as not ready, re-probe now
+        # (the user may have installed it since) so a still-missing binary
+        # surfaces the precise "playwright install chromium" remediation as the
+        # tool-call error — instead of a raw Playwright stack or silent timeout.
+        # On success, clear the flag so instructions/sn_health stop nagging.
+        # Skip the re-probe when startup was already clean: it launches a real
+        # browser, so doing it every login would be wasteful.
+        if self._browser_setup_error is not None:
+            self._ensure_playwright_ready()
+            self._browser_setup_error = None
+
         # Hard ceiling for thread join — in interactive mode give generous time
         # for MFA/SSO (user must open authenticator app, read code, type it in).
         # Do NOT close the browser or raise an error while the user is still working.

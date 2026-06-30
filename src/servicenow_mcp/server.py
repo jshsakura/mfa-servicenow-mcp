@@ -1833,7 +1833,12 @@ class ServiceNowMCP:
         # exact remediation command on the initialize response — instead of
         # silently failing on the first browser tool call.
         if self.config.auth and self.config.auth.type.value == "browser":
-            chromium_notice = check_chromium_install_hint()
+            # Prefer the precise remediation the auth manager captured at startup
+            # (it knows missing-vs-version-mismatch); fall back to a fresh probe.
+            chromium_notice = (
+                getattr(self.auth_manager, "_browser_setup_error", None)
+                or check_chromium_install_hint()
+            )
             if chromium_notice:
                 existing = getattr(self.mcp_server, "instructions", None) or ""
                 self.mcp_server.instructions = (
