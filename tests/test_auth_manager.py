@@ -2201,6 +2201,167 @@ class TestEnsurePlaywrightReady:
 
 
 # ===========================================================================
+# Startup must not crash when Chromium is missing — surface, don't die.
+# ===========================================================================
+
+
+class TestStartupNonFatalChromium:
+    _MISSING = "Playwright Chromium binary missing or version-mismatched."
+
+    def _browser_cfg(self) -> AuthConfig:
+        return AuthConfig(
+            type=AuthType.BROWSER,
+            browser=BrowserAuthConfig(headless=False, timeout_seconds=10),
+        )
+
+    def test_missing_chromium_does_not_crash_startup(self):
+        """A missing/mismatched Chromium binary must not kill server startup;
+        the remediation is remembered and a background auto-install kicks off."""
+        with (
+            patch.object(
+                AuthManager, "_ensure_playwright_ready", side_effect=RuntimeError(self._MISSING)
+            ),
+            patch.object(AuthManager, "_load_session_from_disk"),
+            patch.object(AuthManager, "_start_background_chromium_install") as mock_install,
+        ):
+            manager = AuthManager(self._browser_cfg(), "https://example.service-now.com")
+
+        assert manager._browser_setup_error is not None
+        assert "Chromium binary missing" in manager._browser_setup_error
+        mock_install.assert_called_once()
+
+    def test_clean_startup_leaves_no_setup_error(self):
+        """When Chromium is ready, no remediation flag is left dangling."""
+        with (
+            patch.object(AuthManager, "_ensure_playwright_ready"),
+            patch.object(AuthManager, "_load_session_from_disk"),
+        ):
+            manager = AuthManager(self._browser_cfg(), "https://example.service-now.com")
+
+        assert manager._browser_setup_error is None
+
+    def test_login_reraises_friendly_error_when_still_missing(self):
+        """First browser login re-probes; a still-missing binary surfaces the
+        precise install remediation as the tool-call error."""
+        mgr = _make_browser_manager()
+        mgr._browser_setup_error = "flagged at startup"
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+
+        with patch.object(
+            AuthManager, "_ensure_playwright_ready", side_effect=RuntimeError(self._MISSING)
+        ):
+            with pytest.raises(RuntimeError, match="Chromium binary missing"):
+                mgr._login_with_browser(browser_cfg, force_interactive=False)
+
+    def test_login_clears_flag_when_chromium_now_present(self):
+        """If the user installed Chromium after startup, the first login
+        re-probe succeeds and clears the nag flag."""
+        mgr = _make_browser_manager()
+        mgr._browser_setup_error = "flagged at startup"
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+
+        with (
+            patch.object(AuthManager, "_ensure_playwright_ready"),
+            patch.object(mgr, "_login_with_browser_sync"),
+        ):
+            mgr._login_with_browser(browser_cfg, force_interactive=False)
+
+        assert mgr._browser_setup_error is None
+
+
+class _ImmediateThread:
+    """Drop-in for threading.Thread that runs the target synchronously on
+    start(), so background-install logic can be asserted deterministically."""
+
+    def __init__(self, target=None, daemon=None, name=None):
+        self._target = target
+
+    def start(self):
+        if self._target is not None:
+            self._target()
+
+
+class TestAutoInstallChromium:
+    """Auto-download the matching Chromium build when it's missing — the
+    'if uvx, just fetch that version' self-heal."""
+
+    def test_opt_out_skips_install(self, monkeypatch):
+        mgr = _make_browser_manager()
+        mgr._browser_setup_error = "original remediation"
+        monkeypatch.setenv("SERVICENOW_AUTO_INSTALL_CHROMIUM", "off")
+
+        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
+            mgr._start_background_chromium_install()
+
+        mock_thread.assert_not_called()
+        assert mgr._browser_setup_error == "original remediation"
+
+    def test_frozen_build_skips_install(self, monkeypatch):
+        """In a PyInstaller exe, sys.executable is the app — never spawn it as
+        if it were Python; keep the manual remediation instead."""
+        import sys
+
+        mgr = _make_browser_manager()
+        mgr._browser_setup_error = "original remediation"
+        monkeypatch.delenv("SERVICENOW_AUTO_INSTALL_CHROMIUM", raising=False)
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
+            mgr._start_background_chromium_install()
+
+        mock_thread.assert_not_called()
+        assert mgr._browser_setup_error == "original remediation"
+
+    def test_success_clears_flag(self, monkeypatch):
+        mgr = _make_browser_manager()
+        mgr._browser_setup_error = "missing"
+        monkeypatch.delenv("SERVICENOW_AUTO_INSTALL_CHROMIUM", raising=False)
+        completed = MagicMock(returncode=0, stderr="")
+
+        with (
+            patch("servicenow_mcp.auth.auth_manager.threading.Thread", _ImmediateThread),
+            patch("subprocess.run", return_value=completed) as mock_run,
+            patch.object(AuthManager, "_ensure_playwright_ready"),
+        ):
+            mgr._start_background_chromium_install()
+
+        mock_run.assert_called_once()
+        assert mgr._browser_setup_error is None
+
+    def test_install_failure_keeps_remediation(self, monkeypatch):
+        mgr = _make_browser_manager()
+        monkeypatch.delenv("SERVICENOW_AUTO_INSTALL_CHROMIUM", raising=False)
+        completed = MagicMock(returncode=1, stderr="network error")
+
+        with (
+            patch("servicenow_mcp.auth.auth_manager.threading.Thread", _ImmediateThread),
+            patch("subprocess.run", return_value=completed),
+        ):
+            mgr._start_background_chromium_install()
+
+        assert mgr._browser_setup_error is not None
+        assert "playwright install chromium" in mgr._browser_setup_error
+
+    def test_install_succeeds_but_still_not_ready_keeps_flag(self, monkeypatch):
+        """Download returns 0 but the binary still won't launch — do NOT clear
+        the flag (avoid a false 'ready')."""
+        mgr = _make_browser_manager()
+        monkeypatch.delenv("SERVICENOW_AUTO_INSTALL_CHROMIUM", raising=False)
+        completed = MagicMock(returncode=0, stderr="")
+
+        with (
+            patch("servicenow_mcp.auth.auth_manager.threading.Thread", _ImmediateThread),
+            patch("subprocess.run", return_value=completed),
+            patch.object(
+                AuthManager, "_ensure_playwright_ready", side_effect=RuntimeError("still missing")
+            ),
+        ):
+            mgr._start_background_chromium_install()
+
+        assert mgr._browser_setup_error is not None
+
+
+# ===========================================================================
 # _login_with_browser (thread delegation) tests
 # ===========================================================================
 
