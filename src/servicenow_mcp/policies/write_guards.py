@@ -49,7 +49,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +58,14 @@ logger = logging.getLogger(__name__)
 class _EditTarget:
     """How to find the record a manage_* tool writes to, for the audit fetch."""
 
-    table: str
+    table: Optional[str]  # static target table, or None when table_fn resolves it
     id_arg: str  # argument key holding the record identifier
     update_actions: frozenset  # action values that edit an EXISTING record
     id_columns: Tuple[str, ...] = ("sys_id",)  # OR-matched columns for the id
+    # When a tool writes to one of several tables depending on its args (e.g.
+    # manage_widget_dependency target=provider|dependency), derive the table from
+    # the arguments. Returns None when it can't be resolved → guard fails open.
+    table_fn: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None
 
 
 # Registry of manage_* write tools that identify their target by a tool-specific
@@ -90,6 +94,21 @@ _CONCURRENT_EDIT_REGISTRY: Dict[str, _EditTarget] = {
     "manage_user": _EditTarget("sys_user", "user_id", frozenset({"update"})),
     "manage_group": _EditTarget("sys_user_group", "group_id", frozenset({"update"})),
     "manage_flow_designer": _EditTarget("sys_hub_flow", "flow_id", frozenset({"update"})),
+    "manage_kb_article": _EditTarget(
+        "kb_knowledge", "article_id", frozenset({"update", "publish"}), ("sys_id", "number")
+    ),
+    "manage_portal_layout": _EditTarget("sp_page", "sys_id", frozenset({"update_page"})),
+    # target=provider|dependency selects the record table; link/unlink touch m2m
+    # junctions (ambiguous) and stay fail-open, so they're not listed here.
+    "manage_widget_dependency": _EditTarget(
+        None,
+        "record_id",
+        frozenset({"update", "delete"}),
+        table_fn=lambda args: {
+            "provider": "sp_angular_provider",
+            "dependency": "sp_dependency",
+        }.get(str(args.get("target") or "provider").strip().lower()),
+    ),
 }
 
 
@@ -546,8 +565,13 @@ def _g8_registry_concurrent_edit(ctx: WriteGuardContext) -> None:
     value = str(ctx.arguments.get(target.id_arg) or "").strip()
     if not value:
         return
+    # Resolve the target table — static, or derived from args for multi-table
+    # tools. An unresolvable table fails open (skip) rather than guessing.
+    table = target.table_fn(ctx.arguments) if target.table_fn else target.table
+    if not table:
+        return
     query = "^OR".join(f"{col}={value}" for col in target.id_columns)
-    _check_concurrent_edit(ctx, target.table, query, f"{target.table}/{value}", guard="G8")
+    _check_concurrent_edit(ctx, table, query, f"{table}/{value}", guard="G8")
 
 
 def _fetch_existing_by_name(
