@@ -47,7 +47,14 @@ _EDIT_ACTIONS = frozenset(
         "set_action_input",
         "set_trigger_condition",
         "set_branch_condition",
+        "set_property",
         "save",
+        "save_properties",
+        "publish",
+        "activate",
+        "deactivate",
+        "copy",
+        "read_action",
         "discard",
         "edit_status",
     }
@@ -61,7 +68,14 @@ _NEEDS_FLOW_ID = frozenset(
         "set_action_input",
         "set_trigger_condition",
         "set_branch_condition",
+        "set_property",
         "save",
+        "save_properties",
+        "publish",
+        "activate",
+        "deactivate",
+        "copy",
+        "read_action",
         "discard",
         "edit_status",
     }
@@ -106,12 +120,19 @@ class ManageFlowDesignerParams(BaseModel):
         "set_action_input",
         "set_trigger_condition",
         "set_branch_condition",
+        "set_property",
         "save",
+        "save_properties",
+        "publish",
+        "activate",
+        "deactivate",
+        "copy",
+        "read_action",
         "discard",
         "edit_status",
     ] = Field(
         ...,
-        description="Writes (checkout/set_*/save/update/discard) need browser auth; rest are reads.",
+        description="Writes (checkout/set_*/save/publish/activate/deactivate/copy/update) need browser auth; rest are reads.",
     )
 
     # ---- Common ----
@@ -189,6 +210,10 @@ class ManageFlowDesignerParams(BaseModel):
         default=False,
         description="save: publish (recompile snapshot); required for the edit to take effect.",
     )
+    verify: bool = Field(
+        default=True, description="save: re-read after write to confirm edits persisted."
+    )
+    dry_run: bool = Field(default=False, description="save: show plan, don't write.")
 
     _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
         "list": frozenset(
@@ -234,7 +259,14 @@ class ManageFlowDesignerParams(BaseModel):
         "set_action_input": frozenset({"flow_id", "node_id", "input_name", "value"}),
         "set_trigger_condition": frozenset({"flow_id", "node_id", "value"}),
         "set_branch_condition": frozenset({"flow_id", "node_id", "value", "condition_label"}),
-        "save": frozenset({"flow_id", "publish"}),
+        "set_property": frozenset({"flow_id", "input_name", "value"}),
+        "save": frozenset({"flow_id", "publish", "verify", "dry_run"}),
+        "save_properties": frozenset({"flow_id"}),
+        "publish": frozenset({"flow_id"}),
+        "activate": frozenset({"flow_id"}),
+        "deactivate": frozenset({"flow_id"}),
+        "copy": frozenset({"flow_id", "value"}),
+        "read_action": frozenset({"flow_id"}),
         "discard": frozenset({"flow_id"}),
         "edit_status": frozenset({"flow_id"}),
     }
@@ -266,6 +298,12 @@ class ManageFlowDesignerParams(BaseModel):
                 raise ValueError("set_action_input requires input_name")
             if self.value is None:
                 raise ValueError("set_action_input requires value")
+
+        if action == "set_property":
+            if not self.input_name:
+                raise ValueError("set_property requires input_name (runAs/protection/...)")
+            if self.value is None:
+                raise ValueError("set_property requires value")
 
         if action == "set_branch_condition":
             if not self.node_id:
@@ -396,7 +434,14 @@ _EDIT_ACTION_MAP: Dict[str, str] = {
     "set_action_input": "set_action_input",
     "set_trigger_condition": "set_trigger_condition",
     "set_branch_condition": "set_branch_condition",
+    "set_property": "set_property",
     "save": "save",
+    "save_properties": "save_properties",
+    "publish": "publish",
+    "activate": "activate",
+    "deactivate": "deactivate",
+    "copy": "copy",
+    "read_action": "read_action",
     "discard": "discard",
     "edit_status": "status",  # rename to avoid collision with flow_status field
 }
@@ -407,7 +452,14 @@ _EditActionT = Literal[
     "set_action_input",
     "set_trigger_condition",
     "set_branch_condition",
+    "set_property",
     "save",
+    "save_properties",
+    "publish",
+    "activate",
+    "deactivate",
+    "copy",
+    "read_action",
     "discard",
     "status",
 ]
@@ -429,6 +481,8 @@ def _do_edit(
             value=p.value,
             condition_label=p.condition_label,
             publish=p.publish,
+            verify=p.verify,
+            dry_run=p.dry_run,
         ),
     )
 

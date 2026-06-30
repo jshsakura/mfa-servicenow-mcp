@@ -478,8 +478,197 @@ def _build_subflow_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, A
     return row
 
 
-def _render_row_lines(row: Dict[str, Any]) -> List[str]:
-    """Render a single tree row to one or more text lines (no truncation)."""
+# --- Shared condition / data-pill decoding (used by the compact renderer and
+# by flow_edit_tools) -------------------------------------------------------
+# ServiceNow encoded-query operators, longest/most-specific token first so e.g.
+# ">=" beats ">" and "ISNOTEMPTY" beats "ISEMPTY". Mapped to the human label the
+# Flow Designer condition builder shows.
+_QUERY_OPERATORS: List[tuple] = [
+    ("ISNOTEMPTY", "is not empty"),
+    ("ISEMPTY", "is empty"),
+    ("ANYTHING", "is anything"),
+    # CHANGES family (record-update triggers): FROM/TO before CHANGES so the
+    # longer token wins; VALCHANGES before CHANGES likewise.
+    ("CHANGESFROM", "changes from"),
+    ("CHANGESTO", "changes to"),
+    ("VALCHANGES", "changes"),
+    ("CHANGES", "changes"),
+    ("STARTSWITH", "starts with"),
+    ("ENDSWITH", "ends with"),
+    ("NOTLIKE", "does not contain"),
+    ("LIKE", "contains"),
+    ("NSAMEAS", "is different from"),
+    ("SAMEAS", "is the same as"),
+    ("INSTANCEOF", "is instance of"),
+    ("DYNAMIC", "is (dynamic)"),
+    ("NOTIN", "is not one of"),
+    ("IN", "is one of"),
+    ("!=", "is not"),
+    (">=", "is at or after"),
+    ("<=", "is at or before"),
+    (">", "is after"),
+    ("<", "is before"),
+    ("=", "is"),
+]
+
+
+def _readable_pill(value: str, label_map: Optional[Dict[str, str]] = None) -> Optional[str]:
+    """Turn a data-pill token '{{subflow.rfq1.division.name}}' into the canvas
+    breadcrumb 'subflow ▸ rfq1 ▸ division ▸ name'. If the leading segment is a
+    step's uiUniqueIdentifier, resolve it to that step's label."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip()
+    if v.startswith("{{") and v.endswith("}}"):
+        parts = [p for p in v[2:-2].split(".") if p]
+        if label_map and parts and parts[0] in label_map:
+            parts[0] = label_map[parts[0]]
+        return " ▸ ".join(parts)
+    return None
+
+
+def _decode_condition(
+    query: str, label_map: Optional[Dict[str, str]] = None
+) -> List[Dict[str, Any]]:
+    """Decode a ServiceNow encoded query into human-readable builder rows.
+    '^' joins with AND, '^OR' with OR, '^NQ' starts a new OR group."""
+    rows: List[Dict[str, Any]] = []
+    if not query:
+        return rows
+    for idx, chunk in enumerate(query.split("^")):
+        conj = "AND"
+        if chunk.startswith("NQ"):
+            conj, chunk = "NEW_GROUP", chunk[2:]
+        elif chunk.startswith("OR"):
+            conj, chunk = "OR", chunk[2:]
+        if idx == 0:
+            conj = "WHERE"
+        if not chunk:
+            continue
+        field = chunk
+        op_token = ""
+        op_label = chunk
+        value = ""
+        for token, label in _QUERY_OPERATORS:
+            pos = chunk.find(token)
+            if pos > 0:  # field must be non-empty before the operator
+                field = chunk[:pos]
+                op_token = token
+                op_label = label
+                value = chunk[pos + len(token) :]
+                break
+        row: Dict[str, Any] = {
+            "conjunction": conj,
+            "field": field,
+            "operator": op_token,
+            "op_label": op_label,
+        }
+        field_pill = _readable_pill(field, label_map)
+        if field_pill:
+            row["field_pill"] = field_pill
+        if value != "" or op_token in ("", "=", "!="):
+            row["value"] = value
+            pill = _readable_pill(value, label_map)
+            if pill:
+                row["value_pill"] = pill
+        rows.append(row)
+    return rows
+
+
+def _condition_to_text(query: str, label_map: Optional[Dict[str, str]] = None) -> str:
+    """One-line human form of an encoded query, e.g.
+    'state changes from 1 changes to 6 AND Company Code is {Updated.company}'."""
+    parts = []
+    for r in _decode_condition(query, label_map):
+        conj = r["conjunction"]
+        prefix = "" if conj == "WHERE" else f"{conj} "
+        if conj == "NEW_GROUP":
+            prefix = "OR-GROUP "
+        field = r.get("field_pill") or r["field"]
+        val = r.get("value_pill") or r.get("value", "")
+        seg = f"{prefix}{field} {r['op_label']}"
+        if val != "":
+            seg += f" {val}"
+        parts.append(seg.strip())
+    return " ".join(parts)
+
+
+# Reverse maps for ENCODING human condition rows back into an encoded query —
+# the inverse of _decode_condition. Lets callers describe conditions as
+# {field, operator, value} instead of hand-writing 'a=1^ORb=2'.
+_OP_LABEL_TO_TOKEN = {label.lower(): token for token, label in _QUERY_OPERATORS}
+_OP_TOKENS = {token for token, _label in _QUERY_OPERATORS}
+_NO_VALUE_OPS = frozenset({"ISEMPTY", "ISNOTEMPTY", "ANYTHING"})
+
+
+def _encode_condition(rows: List[Dict[str, Any]]) -> str:
+    """Build a ServiceNow encoded query from human-friendly rows — inverse of
+    _decode_condition. Each row: {field, operator, value, conjunction?}. The
+    `operator` may be a raw token ('=', 'LIKE', 'CHANGESTO') OR a human label
+    ('is', 'contains', 'changes to'). conjunction: AND (default, '^') | OR
+    ('^OR') | NEW_GROUP ('^NQ'). Value is omitted for is empty/not empty/anything.
+
+    So [{field:'state',operator:'is',value:'6'},
+        {field:'priority',operator:'is',value:'1'}]
+    -> 'state=6^priority=1'.
+    """
+    parts: List[str] = []
+    for idx, r in enumerate(rows or []):
+        field = str(r.get("field", "")).strip()
+        if not field:
+            continue
+        op_in = str(r.get("operator", "is")).strip()
+        token = op_in if op_in in _OP_TOKENS else _OP_LABEL_TO_TOKEN.get(op_in.lower(), "=")
+        value = "" if token in _NO_VALUE_OPS else str(r.get("value", ""))
+        term = f"{field}{token}{value}"
+        conj = str(r.get("conjunction", "AND")).upper().replace("-", "_")
+        if idx == 0:
+            prefix = ""
+        elif conj == "OR":
+            prefix = "^OR"
+        elif conj in ("NEW_GROUP", "NQ", "NEWGROUP"):
+            prefix = "^NQ"
+        else:
+            prefix = "^"
+        parts.append(prefix + term)
+    return "".join(parts)
+
+
+def _flow_instance_label(node: Dict[str, Any]) -> str:
+    """Canvas label of a step instance (renamed steps), else the action/type name."""
+    return node.get("displayText") or node.get("label") or node.get("name", "")
+
+
+def _build_label_map(flow_data: Dict[str, Any]) -> Dict[str, str]:
+    """uiUniqueIdentifier -> canvas label, so '{{<uiUID>.Record.field}}' pills
+    resolve to the producing step's name instead of a raw uuid."""
+    label_map: Dict[str, str] = {}
+    for coll in ("actionInstances", "flowLogicInstances", "subFlowInstances"):
+        for n in flow_data.get(coll, []) or []:
+            if n.get("deleted"):
+                continue
+            uid = n.get("uiUniqueIdentifier")
+            if uid:
+                label_map[uid] = _flow_instance_label(n)
+    return label_map
+
+
+def _humanize_input(name: str, value: Any, label_map: Optional[Dict[str, str]]) -> Any:
+    """Render an input value for the compact text tree: condition fields become
+    decoded text, lone data pills become breadcrumbs, everything else verbatim.
+    With label_map=None this is a no-op (preserves raw/verbatim behavior)."""
+    if label_map is None or not isinstance(value, str) or not value:
+        return value
+    if name in ("condition", "conditions"):
+        decoded = _condition_to_text(value.split(" / ")[0], label_map)
+        return decoded or value
+    return _readable_pill(value, label_map) or value
+
+
+def _render_row_lines(row: Dict[str, Any], label_map: Optional[Dict[str, str]] = None) -> List[str]:
+    """Render a single tree row to one or more text lines (no truncation).
+    When label_map is provided, condition/pill values are decoded to human text;
+    otherwise values are emitted verbatim (the get_detail contract)."""
     indent = "  " * int(row.get("depth") or 0)
     order = row.get("order", "")
     kind = row.get("kind", "")
@@ -494,13 +683,14 @@ def _render_row_lines(row: Dict[str, Any]) -> List[str]:
         head = f"[{order}] {indent}LOGIC {row.get('type','')}: {label}{marker}"
         lines.append(head)
         if row.get("condition"):
-            lines.append(f"     {indent}  cond= {row['condition']}")
+            cond = _humanize_input("condition", row["condition"], label_map)
+            lines.append(f"     {indent}  cond= {cond}")
         if row.get("connected_to"):
             lines.append(f"     {indent}  connected_to= {row['connected_to']}")
         if row.get("outputs_to_assign"):
             lines.append(f"     {indent}  outputs_to_assign= {row['outputs_to_assign']}")
         for k, v in (row.get("other_inputs") or {}).items():
-            lines.append(f"     {indent}  {k}= {v}")
+            lines.append(f"     {indent}  {k}= {_humanize_input(k, v, label_map)}")
     elif kind == "SUBFLOW":
         scope_part = f", scope={row['subflow_scope']}" if row.get("subflow_scope") else ""
         internal_part = (
@@ -513,7 +703,7 @@ def _render_row_lines(row: Dict[str, Any]) -> List[str]:
         )
         lines.append(head)
         for k, v in (row.get("inputs") or {}).items():
-            lines.append(f"     {indent}  in.{k}= {v}")
+            lines.append(f"     {indent}  in.{k}= {_humanize_input(k, v, label_map)}")
     else:  # ACTION
         deleted_tag = " [DELETED]" if row.get("deleted") else ""
         head = (
@@ -522,7 +712,7 @@ def _render_row_lines(row: Dict[str, Any]) -> List[str]:
         )
         lines.append(head)
         for k, v in (row.get("inputs") or {}).items():
-            lines.append(f"     {indent}  in.{k}= {v}")
+            lines.append(f"     {indent}  in.{k}= {_humanize_input(k, v, label_map)}")
         if row.get("outputs"):
             lines.append(f"     {indent}  out= {','.join(row['outputs'])}")
         if row.get("internal_name"):
@@ -537,6 +727,7 @@ def _render_tree_text(
     orphans: List[Dict[str, Any]],
     warnings: List[Dict[str, Any]],
     index: Dict[str, List[Dict[str, Any]]],
+    label_map: Optional[Dict[str, str]] = None,
 ) -> str:
     """Compact text rendering — denser than JSON, never truncated.
 
@@ -545,6 +736,9 @@ def _render_tree_text(
       2. INDEX — quick navigator: approvals / state_changes / subflows / branches
       3. TREE — canonical flat tree with full conditions and inputs
       4. ORPHANS — nodes with missing parents (preserved with full subtree)
+
+    With label_map provided, condition/pill values are decoded to human text;
+    without it (default) values are emitted verbatim (the get_detail contract).
     """
     sections: List[str] = []
 
@@ -587,20 +781,104 @@ def _render_tree_text(
         if index["branch_conditions"]:
             sections.append(f"  Branches ({len(index['branch_conditions'])}):")
             for b in index["branch_conditions"]:
-                sections.append(f"    [{b['order']}] {b.get('type','')}  cond= {b['condition']}")
+                cond = _humanize_input("condition", b["condition"], label_map)
+                sections.append(f"    [{b['order']}] {b.get('type','')}  cond= {cond}")
         sections.append("")
 
     sections.append("=== TREE ===")
     for row in tree:
-        sections.extend(_render_row_lines(row))
+        sections.extend(_render_row_lines(row, label_map))
 
     if orphans:
         sections.append("")
         sections.append("=== ORPHANS (missing parents) ===")
         for row in orphans:
-            sections.extend(_render_row_lines(row))
+            sections.extend(_render_row_lines(row, label_map))
 
     return "\n".join(sections)
+
+
+def render_flow_compact(flow_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Single context-safe flow/subflow view for checkout/read: compact meta +
+    decoded trigger(s) + one indented TEXT tree (conditions decoded, data pills
+    resolved to step labels). Reuses the canonical detail→summary→text pipeline —
+    NO second tree-walker. A 142-node flow renders in ~18KB, not 130KB.
+
+    The on-disk checkout file still holds the full raw flow_data for round-trip
+    save; only this returned view is compacted.
+    """
+    label_map = _build_label_map(flow_data)
+    triggers = []
+    for t in flow_data.get("triggerInstances", []) or []:
+        inputs = t.get("inputs", []) or []
+        table = next(
+            (i.get("displayValue") or i.get("value") for i in inputs if i.get("name") == "table"),
+            "",
+        )
+        raw_cond = next((i.get("value") for i in inputs if i.get("name") == "condition"), "")
+        triggers.append(
+            {
+                "id": t.get("id"),
+                "type": t.get("type", ""),
+                "table": table,
+                "condition": _condition_to_text(raw_cond or "", label_map),
+            }
+        )
+
+    def _count(coll: str) -> int:
+        return sum(1 for n in flow_data.get(coll, []) or [] if not n.get("deleted"))
+
+    counts = {
+        "actions": _count("actionInstances"),
+        "logic": _count("flowLogicInstances"),
+        "subflows": _count("subFlowInstances"),
+    }
+    try:
+        detail = _build_processflow_detail(flow_data)
+        summary = _build_flow_summary(detail)
+        tree = _render_tree_text(
+            summary["tree"],
+            summary.get("orphans", []),
+            summary.get("warnings", []),
+            summary.get("index", {}),
+            label_map=label_map,
+        )
+    except FlowSummaryIntegrityError as e:
+        tree = f"(structure summary unavailable — {e})"
+    except Exception as e:  # noqa: BLE001 — never let a render error break checkout
+        logger.warning("render_flow_compact tree failed for %s: %s", flow_data.get("id"), e)
+        tree = "(structure summary unavailable)"
+
+    # Subflow inputs/outputs (the Data panel) — small, high value.
+    def _vars(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out = []
+        for v in items or []:
+            nm = v.get("name")
+            if nm:
+                out.append({"name": nm, "label": v.get("label") or nm, "type": v.get("type") or ""})
+        return out
+
+    result: Dict[str, Any] = {
+        "flow_id": flow_data.get("id"),
+        "name": flow_data.get("name"),
+        "type": flow_data.get("type"),
+        "status": flow_data.get("status"),
+        "active": flow_data.get("active"),
+        "is_published": flow_data.get("isPublished"),
+        "scope": flow_data.get("scope"),
+        "scope_name": flow_data.get("scopeName"),
+        "can_write": flow_data.get("security", {}).get("can_write", False),
+        "counts": counts,
+        "triggers": triggers,
+        "tree": tree,
+    }
+    fv = _vars(flow_data.get("inputs", []))
+    fo = _vars(flow_data.get("outputs", []))
+    if fv:
+        result["inputs"] = fv
+    if fo:
+        result["outputs"] = fo
+    return result
 
 
 def _detect_flow_warnings(
