@@ -92,9 +92,11 @@ def _pf_get_json(auth_manager: AuthManager, url: str) -> Dict[str, Any]:
     raw = resp.json()
     if not isinstance(raw, dict):
         return {}
-    outer = raw.get("result") if isinstance(raw.get("result"), dict) else raw
-    if isinstance(outer.get("data"), dict) and outer["data"]:
-        return outer["data"]
+    result = raw.get("result")
+    outer: Dict[str, Any] = result if isinstance(result, dict) else raw
+    data = outer.get("data")
+    if isinstance(data, dict) and data:
+        return data
     return outer
 
 
@@ -449,8 +451,11 @@ def _verify_persisted(intended: Dict[str, Any], fresh: Dict[str, Any]) -> Dict[s
 
 
 def _order_key(node: Dict[str, Any]) -> float:
+    val = node.get("order")
+    if val is None:
+        return 1e9
     try:
-        return float(node.get("order"))
+        return float(val)
     except (TypeError, ValueError):
         return 1e9
 
@@ -483,7 +488,7 @@ def _compact_action_summary(
     (Script step / Look Up / Ask For Approval ...) -> Output Variables. Steps
     come from the separate /step_instances payload and use step_type_name/label
     rather than the flow action fields."""
-    raw_steps = []
+    raw_steps: List[Any] = []
     if isinstance(steps_data, dict):
         raw_steps = steps_data.get("steps") or steps_data.get("result", {}).get("steps") or []
     elif isinstance(steps_data, list):
@@ -592,6 +597,8 @@ def manage_flow_edit(
             }
         kind = target.get("kind")
         sys_id = target.get("sys_id")
+        if not sys_id:
+            return {"success": False, "error": "Could not resolve a sys_id for this flow."}
         if kind in ("flow", "subflow"):
             pf = _try_processflow_api(config, auth_manager, sys_id)
             if not pf or pf.get("_error"):
@@ -762,7 +769,7 @@ def manage_flow_edit(
                 verification = _verify_persisted(flow_data, fresh.get("result", fresh))
 
         _checkout_path(flow_id).unlink(missing_ok=True)
-        base = {"success": True, "saved": True, "published": bool(params.publish)}
+        base: Dict[str, Any] = {"success": True, "saved": True, "published": bool(params.publish)}
         if verification is not None:
             base["verified"] = verification["verified"]
             if not verification["verified"]:
