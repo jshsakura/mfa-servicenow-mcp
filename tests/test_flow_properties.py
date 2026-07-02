@@ -33,7 +33,7 @@ def _run(params, checkout):
         patch("servicenow_mcp.tools.flow_edit_tools._load_checkout", return_value=checkout),
         patch(
             "servicenow_mcp.tools.flow_edit_tools._save_checkout",
-            side_effect=lambda fid, data: saved.update(data),
+            side_effect=lambda cfg, fid, data: saved.update(data),
         ),
         patch("servicenow_mcp.tools.flow_edit_tools._checkout_path"),
     ):

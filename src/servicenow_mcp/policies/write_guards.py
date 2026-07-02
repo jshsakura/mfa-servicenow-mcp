@@ -70,8 +70,10 @@ class _EditTarget:
 
 # Registry of manage_* write tools that identify their target by a tool-specific
 # id arg (not a generic table+sys_id). Only single-record update/delete actions
-# on one known table are listed; ambiguous junction/multi-table actions (link,
-# add_members, update_activity) and creates are deliberately omitted → fail-open.
+# on one known table are listed; ambiguous junction/multi-record actions (link,
+# add_members, reorder_activities) and creates are deliberately omitted →
+# fail-open. Tools whose actions span a SECOND table get an extra entry in
+# _CONCURRENT_EDIT_REGISTRY_SECONDARY below.
 _CONCURRENT_EDIT_REGISTRY: Dict[str, _EditTarget] = {
     "manage_incident": _EditTarget(
         "incident", "incident_id", frozenset({"update", "comment", "resolve"}), ("sys_id", "number")
@@ -108,6 +110,21 @@ _CONCURRENT_EDIT_REGISTRY: Dict[str, _EditTarget] = {
             "provider": "sp_angular_provider",
             "dependency": "sp_dependency",
         }.get(str(args.get("target") or "provider").strip().lower()),
+    ),
+}
+
+# Additional per-tool targets for bundles whose actions write MORE than one
+# table (each action set must be disjoint from the primary entry's). Checked by
+# _g8_registry_concurrent_edit alongside the primary registry.
+_CONCURRENT_EDIT_REGISTRY_SECONDARY: Dict[str, Tuple[_EditTarget, ...]] = {
+    # Activity-level edits target wf_activity by activity_id; without this a
+    # blind overwrite of another user's concurrent activity edit went undetected.
+    "manage_workflow": (
+        _EditTarget(
+            "wf_activity",
+            "activity_id",
+            frozenset({"update_activity", "delete_activity"}),
+        ),
     ),
 }
 
@@ -261,7 +278,15 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     ),
     "manage_kb_article": frozenset({"list_kbs", "list_articles", "get_article", "list_categories"}),
     "manage_flow_designer": frozenset(
-        {"list", "get_detail", "get_executions", "compare", "edit_status", "get_action_source"}
+        {
+            "list",
+            "get_detail",
+            "get_executions",
+            "compare",
+            "edit_status",
+            "get_action_source",
+            "read_action",
+        }
     ),
     "manage_project": frozenset({"list"}),
     "manage_epic": frozenset({"list"}),
@@ -578,22 +603,24 @@ def _g8_registry_concurrent_edit(ctx: WriteGuardContext) -> None:
     matches the exact record regardless of which identifier form was passed."""
     if not _concurrent_guard_enabled():
         return
-    target = _CONCURRENT_EDIT_REGISTRY.get(ctx.tool_name)
-    if target is None:
-        return
+    primary = _CONCURRENT_EDIT_REGISTRY.get(ctx.tool_name)
+    targets = ([primary] if primary else []) + list(
+        _CONCURRENT_EDIT_REGISTRY_SECONDARY.get(ctx.tool_name, ())
+    )
     action = str(ctx.arguments.get("action") or "").lower()
-    if action not in target.update_actions:
-        return
-    value = str(ctx.arguments.get(target.id_arg) or "").strip()
-    if not value:
-        return
-    # Resolve the target table — static, or derived from args for multi-table
-    # tools. An unresolvable table fails open (skip) rather than guessing.
-    table = target.table_fn(ctx.arguments) if target.table_fn else target.table
-    if not table:
-        return
-    query = "^OR".join(f"{col}={value}" for col in target.id_columns)
-    _check_concurrent_edit(ctx, table, query, f"{table}/{value}", guard="G8")
+    for target in targets:
+        if action not in target.update_actions:
+            continue
+        value = str(ctx.arguments.get(target.id_arg) or "").strip()
+        if not value:
+            continue
+        # Resolve the target table — static, or derived from args for multi-table
+        # tools. An unresolvable table fails open (skip) rather than guessing.
+        table = target.table_fn(ctx.arguments) if target.table_fn else target.table
+        if not table:
+            continue
+        query = "^OR".join(f"{col}={value}" for col in target.id_columns)
+        _check_concurrent_edit(ctx, table, query, f"{table}/{value}", guard="G8")
 
 
 def _fetch_existing_by_name(
