@@ -34,8 +34,10 @@ from servicenow_mcp.utils.instances import (
     INSTANCE_CONFIG_ENV,
     build_instance_definition,
     coerce_bool,
+    has_env_reference,
     load_instance_config_env,
     resolve_auth_type,
+    resolve_env_reference,
     safe_instance_url,
     select_active_alias,
 )
@@ -78,58 +80,52 @@ def _should_stream_progress(name: str, progress_token: Optional[Union[str, int]]
 # Define path for the configuration file
 TOOL_PACKAGE_CONFIG_PATH = os.getenv("TOOL_PACKAGE_CONFIG_PATH", "config/tool_packages.yaml")
 
-MUTATING_TOOL_PREFIXES = (
-    "create_",
-    "update_",
-    "delete_",
-    "remove_",
-    "add_",
-    "move_",
-    "activate_",
-    "deactivate_",
-    "commit_",
-    "publish_",
-    "submit_",
-    "approve_",
-    "reject_",
-    "resolve_",
-    "reorder_",
-    "execute_",
-    "assign_",
-    # All manage_X tools are write bundles. Read-only sub-actions (e.g. future
-    # manage_user.action='list') get exempted via the per-action allowlist
-    # below — keep this list tight to that.
-    "manage_",
+# Write classification lives in policies.write_guards — the SINGLE source of
+# truth shared with the guard pipeline. It was duplicated here once and the
+# copies drifted (get_action_source); see tests/test_write_classification.py.
+from servicenow_mcp.policies.write_guards import (  # noqa: E402
+    MANAGE_READ_ACTIONS,
+    MUTATING_TOOL_NAMES,
+    MUTATING_TOOL_PREFIXES,
 )
-# manage_<X>: per-tool set of action values that are read-only (no confirm).
-# Bundles whose actions are all writes (incident/change/kb_article/changeset/
-# script_include/workflow) don't appear here — the prefix gate applies.
-MANAGE_READ_ACTIONS: Dict[str, set[str]] = {
-    "manage_incident": {"get"},
-    "manage_change": {"get"},
-    "manage_changeset": {"get"},
-    "manage_user": {"get", "list"},
-    "manage_group": {"list"},
-    "manage_workflow": {"list", "get", "list_versions", "get_activities"},
-    "manage_script_include": {"list", "get"},
-    "manage_widget_dependency": {"list", "get"},
-    "manage_catalog": {"list_items", "get_item", "list_categories", "list_item_variables"},
-    "manage_kb_article": {"list_kbs", "list_articles", "get_article", "list_categories"},
-    "manage_flow_designer": {
-        "list",
-        "get_detail",
-        "get_executions",
-        "compare",
-        "edit_status",
-        "get_action_source",
-    },
-    "manage_project": {"list"},
-    "manage_epic": {"list"},
-    "manage_scrum_task": {"list"},
-    "manage_story": {"list", "list_dependencies"},
-}
-# Tools that need confirmation but don't match a prefix above.
-MUTATING_TOOL_NAMES = {"sn_batch", "sn_write"}
+
+
+def _entry_cred(entry: Dict[str, Any], key: str, fallback: Any, *, required: bool = True) -> Any:
+    """Config field from a named-instance entry, with ``${ENV}`` indirection.
+
+    Missing key → fallback (the active config's value). A reference that does
+    not resolve — unset/empty/self-referential ``${VAR}``, or a partial/embedded
+    one like ``"${VAULT}_prod"`` (only full ``${VAR}`` values are expanded) —
+    NEVER silently degrades to a literal or to another instance's secret:
+    - required=True (basic/oauth/api_key credentials, URLs): raise, so the
+      operator gets "set the variable", not a confusing auth failure.
+    - required=False (browser SSO username/password/login_url — optional
+      prefill; identity lives in the IDP session): warn and treat as absent,
+      so one stale reference doesn't take down a working SSO instance.
+    """
+    if key not in entry:
+        return fallback
+    raw = entry.get(key)
+    if not isinstance(raw, str):
+        return raw
+    resolved = resolve_env_reference(raw)
+    if resolved is not None and not has_env_reference(resolved):
+        return resolved
+    if not required:
+        logger.warning(
+            "Instance config %s=%r has an unresolvable ${ENV} reference; "
+            "ignoring this optional field.",
+            key,
+            raw,
+        )
+        return None
+    raise ValueError(
+        f"Instance config {key}='{raw}' contains an environment reference that does not "
+        "resolve (the variable is unset/empty/self-referential, or the reference is "
+        "partial — only a full '${VAR}' value is expanded). Set the variable or inline "
+        "the value."
+    )
+
 
 INSTANCE_HELPER_TOOLS = {"list_instances", "compare_instances"}
 
@@ -618,21 +614,42 @@ class ServiceNowMCP:
         """
         contexts: Dict[str, Dict[str, Any]] = {}
         for alias, entry in self.instance_entries.items():
-            definition = build_instance_definition(alias, entry)
-            config = ServerConfig(
-                instance_url=definition.url,
-                auth=self._auth_for_instance_entry(entry),
-                debug=self.config.debug,
-                timeout=self.config.timeout,
-                connect_timeout=self.config.connect_timeout,
-                script_execution_api_resource_path=self.config.script_execution_api_resource_path,
-            )
-            contexts[alias] = {
-                "alias": alias,
-                "definition": definition,
-                "config": config,
-                "auth_manager": AuthManager(config.auth, config.instance_url),
-            }
+            # One broken peer entry (bad auth_type, missing creds, unset ${ENV}
+            # var) must NOT kill server startup — the Playwright lesson: a
+            # session that never touches that instance keeps working. The
+            # broken alias stays visible (list_instances → config_error) and
+            # raises a precise error only when actually targeted.
+            try:
+                definition = build_instance_definition(alias, entry)
+            except ValueError as exc:
+                logger.error("Instance '%s' config invalid, marked unusable: %s", alias, exc)
+                contexts[alias] = {"alias": alias, "config_error": str(exc)}
+                continue
+            try:
+                config = ServerConfig(
+                    instance_url=definition.url,
+                    auth=self._auth_for_instance_entry(entry),
+                    debug=self.config.debug,
+                    timeout=self.config.timeout,
+                    connect_timeout=self.config.connect_timeout,
+                    script_execution_api_resource_path=self.config.script_execution_api_resource_path,
+                )
+                contexts[alias] = {
+                    "alias": alias,
+                    "definition": definition,
+                    "config": config,
+                    "auth_manager": AuthManager(config.auth, config.instance_url),
+                }
+            except Exception as exc:  # noqa: BLE001 — isolate per-entry failures
+                # Broad on purpose (one broken peer must never kill startup), but
+                # say "initialization" not "config": AuthManager __init__ does
+                # filesystem I/O, so a transient FS fault can land here too.
+                logger.error("Instance '%s' initialization failed, marked unusable: %s", alias, exc)
+                contexts[alias] = {
+                    "alias": alias,
+                    "definition": definition,
+                    "config_error": str(exc),
+                }
         return contexts
 
     def _auth_for_instance_entry(self, entry: Dict[str, Any]) -> AuthConfig:
@@ -656,10 +673,16 @@ class ServiceNowMCP:
             return AuthConfig(
                 type=parsed,
                 browser=BrowserAuthConfig(
-                    username=entry.get("username", base_browser.username),
-                    password=entry.get("password", base_browser.password),
-                    login_url=entry.get("login_url", base_browser.login_url),
-                    probe_path=entry.get("probe_path", base_browser.probe_path),
+                    # required=False: browser creds/URLs are optional prefill —
+                    # one stale ${ENV} must not disable a working SSO instance.
+                    username=_entry_cred(entry, "username", base_browser.username, required=False),
+                    password=_entry_cred(entry, "password", base_browser.password, required=False),
+                    login_url=_entry_cred(
+                        entry, "login_url", base_browser.login_url, required=False
+                    ),
+                    probe_path=_entry_cred(
+                        entry, "probe_path", base_browser.probe_path, required=False
+                    ),
                     headless=coerce_bool(entry.get("headless"), base_browser.headless),
                     timeout_seconds=int(entry.get("timeout_seconds", base_browser.timeout_seconds)),
                     user_data_dir=entry.get("user_data_dir", base_browser.user_data_dir),
@@ -670,8 +693,8 @@ class ServiceNowMCP:
             )
         if parsed == AuthType.BASIC:
             base_basic = base.basic
-            username = entry.get("username", base_basic.username if base_basic else None)
-            password = entry.get("password", base_basic.password if base_basic else None)
+            username = _entry_cred(entry, "username", base_basic.username if base_basic else None)
+            password = _entry_cred(entry, "password", base_basic.password if base_basic else None)
             if not username or not password:
                 raise ValueError("Named basic-auth instance requires username and password")
             return AuthConfig(
@@ -680,8 +703,10 @@ class ServiceNowMCP:
             )
         if parsed == AuthType.API_KEY:
             base_api = base.api_key
-            api_key = entry.get("api_key", base_api.api_key if base_api else None)
-            header = entry.get("api_key_header", base_api.header_name if base_api else None)
+            api_key = _entry_cred(entry, "api_key", base_api.api_key if base_api else None)
+            header = _entry_cred(
+                entry, "api_key_header", base_api.header_name if base_api else None
+            )
             if not api_key:
                 raise ValueError("Named api_key instance requires api_key")
             return AuthConfig(
@@ -693,13 +718,17 @@ class ServiceNowMCP:
             )
         if parsed == AuthType.OAUTH:
             base_oauth = base.oauth
-            client_id = entry.get("client_id", base_oauth.client_id if base_oauth else None)
-            client_secret = entry.get(
-                "client_secret", base_oauth.client_secret if base_oauth else None
+            client_id = _entry_cred(
+                entry, "client_id", base_oauth.client_id if base_oauth else None
             )
-            username = entry.get("username", base_oauth.username if base_oauth else None)
-            password = entry.get("password", base_oauth.password if base_oauth else None)
-            token_url = entry.get("token_url", base_oauth.token_url if base_oauth else None)
+            client_secret = _entry_cred(
+                entry, "client_secret", base_oauth.client_secret if base_oauth else None
+            )
+            username = _entry_cred(entry, "username", base_oauth.username if base_oauth else None)
+            password = _entry_cred(entry, "password", base_oauth.password if base_oauth else None)
+            token_url = _entry_cred(
+                entry, "token_url", base_oauth.token_url if base_oauth else None
+            )
             if not client_id or not client_secret or not username or not password:
                 raise ValueError("Named oauth instance requires OAuth credentials")
             return AuthConfig(
@@ -716,11 +745,24 @@ class ServiceNowMCP:
 
     def _active_instance_meta(self) -> Dict[str, Any]:
         if self.active_instance_alias and self.active_instance_alias in self.instance_contexts:
-            definition = self.instance_contexts[self.active_instance_alias]["definition"]
+            ctx = self.instance_contexts[self.active_instance_alias]
+            definition = ctx.get("definition")
+            if definition is not None:
+                return {
+                    "alias": definition.alias,
+                    "allow_writes": definition.allow_writes,
+                    "url": definition.url,
+                }
+            # The ACTIVE alias is a broken (definition-less) config_error entry.
+            # FAIL CLOSED: falling through to the legacy default would report
+            # allow_writes=True and let writes proceed against the base config —
+            # a read-only-intended instance silently becoming writable is the
+            # worst direction to fail in.
             return {
-                "alias": definition.alias,
-                "allow_writes": definition.allow_writes,
-                "url": definition.url,
+                "alias": self.active_instance_alias,
+                "allow_writes": False,
+                "url": self.config.instance_url,
+                "config_error": ctx.get("config_error", "instance configuration invalid"),
             }
         return {
             "alias": "default",
@@ -1203,6 +1245,12 @@ class ServiceNowMCP:
                     f"instance '{target_alias}' is not configured. "
                     f"Set it in SERVICENOW_INSTANCE_CONFIG. Available: {available}."
                 )
+            if "config_error" in ctx:
+                raise ValueError(
+                    f"instance '{target_alias}' is configured but unusable: "
+                    f"{ctx['config_error']} Fix SERVICENOW_INSTANCE_CONFIG (or set the "
+                    "referenced environment variable) and restart the MCP server."
+                )
             if self._is_read_only_call(name, arguments):
                 # Read-only: route this single call to the named instance.
                 call_config = ctx["config"]
@@ -1567,6 +1615,21 @@ class ServiceNowMCP:
     def _list_instances_impl(self) -> Dict[str, Any]:
         instances = []
         for alias, ctx in self.instance_contexts.items():
+            # A broken entry (unset ${ENV} var, bad auth_type) is surfaced, not
+            # hidden — the operator sees WHY it's unusable without a failed call.
+            if "config_error" in ctx:
+                broken_def = ctx.get("definition")
+                instances.append(
+                    {
+                        "alias": alias,
+                        "active": alias == self.active_instance_alias,
+                        "allow_writes": broken_def.allow_writes if broken_def else None,
+                        "auth_status": "config_error",
+                        "config_error": ctx["config_error"],
+                        "host": safe_instance_url(broken_def.url) if broken_def else None,
+                    }
+                )
+                continue
             definition = ctx["definition"]
             # Explicit, no-network auth state per instance so the caller sees
             # which instance needs a login without trial-and-error sn_health
@@ -1664,6 +1727,10 @@ class ServiceNowMCP:
                 raise ValueError(f"{required_name} is required")
         if source not in self.instance_contexts or target not in self.instance_contexts:
             raise ValueError(f"Unknown instance alias. Available: {sorted(self.instance_contexts)}")
+        for alias in (source, target):
+            err = self.instance_contexts[alias].get("config_error")
+            if err:
+                raise ValueError(f"instance '{alias}' is configured but unusable: {err}")
 
         field_names = [f.strip() for f in fields.split(",") if f.strip()]
         if key_field not in field_names:
