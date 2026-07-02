@@ -204,9 +204,50 @@ def preview_hint(tool_name: str) -> str:
     return _PREVIEW_HINTS.get(tool_name, "")
 
 
-# Read-only manage_X sub-actions (mirror of server.MANAGE_READ_ACTIONS).
-# Duplicated here to avoid circular import; keep in sync.
-_MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
+# ---------------------------------------------------------------------------
+# Write classification — SINGLE SOURCE OF TRUTH.
+#
+# server.py imports these (module-level import is safe: this module only
+# imports stdlib at module level). History: this table used to be a hand
+# mirror of server.MANAGE_READ_ACTIONS "to avoid circular import" — and it
+# drifted (get_action_source was read-only in server but a write here, so a
+# pure read ran the concurrent-edit guards). Never fork these tables again;
+# tests/test_write_classification.py pins identity.
+# ---------------------------------------------------------------------------
+
+# Tool-name prefixes that mean "this call mutates ServiceNow data".
+# manage_* is a write bundle by default; read-only sub-actions are exempted
+# via MANAGE_READ_ACTIONS below.
+MUTATING_TOOL_PREFIXES = (
+    "create_",
+    "update_",
+    "delete_",
+    "remove_",
+    "add_",
+    "move_",
+    "activate_",
+    "deactivate_",
+    "commit_",
+    "publish_",
+    "submit_",
+    "approve_",
+    "reject_",
+    "resolve_",
+    "reorder_",
+    "execute_",
+    "assign_",
+    "manage_",
+)
+
+# Mutating tools whose NAME matches no prefix above. Any new tool that writes
+# but doesn't match a prefix MUST be listed here, or it silently bypasses the
+# confirm gate AND the allow_writes read-only guard (the scaffold_page bug).
+MUTATING_TOOL_NAMES = frozenset({"sn_batch", "sn_write", "scaffold_page"})
+
+# manage_<X>: per-tool set of action values that are read-only (no confirm).
+# Bundles whose actions are all writes don't appear here — the prefix gate
+# applies.
+MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_incident": frozenset({"get"}),
     "manage_change": frozenset({"get"}),
     "manage_changeset": frozenset({"get"}),
@@ -220,7 +261,7 @@ _MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     ),
     "manage_kb_article": frozenset({"list_kbs", "list_articles", "get_article", "list_categories"}),
     "manage_flow_designer": frozenset(
-        {"list", "get_detail", "get_executions", "compare", "edit_status"}
+        {"list", "get_detail", "get_executions", "compare", "edit_status", "get_action_source"}
     ),
     "manage_project": frozenset({"list"}),
     "manage_epic": frozenset({"list"}),
@@ -268,33 +309,14 @@ def _concurrent_guard_enabled() -> bool:
 
 def _is_read_only(tool_name: str, arguments: Dict[str, Any]) -> bool:
     """True if this call doesn't mutate ServiceNow data."""
-    if tool_name in {"sn_write", "sn_batch"}:
+    if tool_name in MUTATING_TOOL_NAMES:
         return False
     if tool_name.startswith("manage_"):
-        read_actions = _MANAGE_READ_ACTIONS.get(tool_name)
+        read_actions = MANAGE_READ_ACTIONS.get(tool_name)
         if read_actions is not None:
             return arguments.get("action") in read_actions
         return False
-    mutation_prefixes = (
-        "create_",
-        "update_",
-        "delete_",
-        "remove_",
-        "add_",
-        "move_",
-        "activate_",
-        "deactivate_",
-        "commit_",
-        "publish_",
-        "submit_",
-        "approve_",
-        "reject_",
-        "resolve_",
-        "reorder_",
-        "execute_",
-        "assign_",
-    )
-    if tool_name.startswith(mutation_prefixes):
+    if tool_name.startswith(MUTATING_TOOL_PREFIXES):
         return False
     return True
 

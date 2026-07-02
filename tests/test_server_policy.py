@@ -477,32 +477,33 @@ def test_compare_instances_reports_changed_and_missing(monkeypatch: pytest.Monke
     assert result["changed"][0]["key"] == "x_app.A"
 
 
-def _build_browser_default_server(monkeypatch, tmp_path):
-    """Active=dev on the global browser default; prod carries its own creds."""
+def _build_browser_default_server(monkeypatch, tmp_path, *, entries=None, active="dev"):
+    """Multi-instance server on the global browser default.
+
+    Default topology: dev/test bare (browser SSO) + prod with its own basic
+    creds. Pass ``entries`` to vary the instance map — the ONE fixture for all
+    env-reference / broken-entry scenarios; don't re-inline this setup."""
+    if entries is None:
+        entries = {
+            "dev": {"url": "https://dev.service-now.com", "allow_writes": True},
+            "test": {"url": "https://test.service-now.com", "allow_writes": True},
+            "prod": {
+                "url": "https://prod.service-now.com",
+                "allow_writes": False,
+                "username": "svc_prod",
+                "password": "pw",
+            },
+        }
     config_path = tmp_path / "tool_packages.yaml"
     config_path.write_text("none: []\nstandard:\n  - sn_query\n")
     monkeypatch.setenv("TOOL_PACKAGE_CONFIG_PATH", str(config_path))
     monkeypatch.setenv("MCP_TOOL_PACKAGE", "standard")
-    monkeypatch.setenv("SERVICENOW_ACTIVE_INSTANCE", "dev")
-    monkeypatch.setenv(
-        "SERVICENOW_INSTANCE_CONFIG",
-        json.dumps(
-            {
-                "dev": {"url": "https://dev.service-now.com", "allow_writes": True},
-                "test": {"url": "https://test.service-now.com", "allow_writes": True},
-                "prod": {
-                    "url": "https://prod.service-now.com",
-                    "allow_writes": False,
-                    "username": "svc_prod",
-                    "password": "pw",
-                },
-            }
-        ),
-    )
+    monkeypatch.setenv("SERVICENOW_ACTIVE_INSTANCE", active)
+    monkeypatch.setenv("SERVICENOW_INSTANCE_CONFIG", json.dumps(entries))
     monkeypatch.setattr(server_module, "TOOL_PACKAGE_CONFIG_PATH", str(config_path))
     return ServiceNowMCP(
         {
-            "instance_url": "https://dev.service-now.com",
+            "instance_url": entries[active].get("url", "https://dev.service-now.com"),
             "auth": {"type": "browser", "browser": {"headless": True}},
         }
     )
@@ -544,3 +545,138 @@ def test_list_instances_shows_auth_type_and_user_per_profile(monkeypatch, tmp_pa
     # write permission per profile still surfaced.
     assert by_alias["dev"]["allow_writes"] is True
     assert by_alias["prod"]["allow_writes"] is False
+
+
+def test_scaffold_page_treated_as_write_by_dispatch(monkeypatch, tmp_path):
+    # scaffold_page creates a page + rows + widget instances but matches no
+    # mutating prefix — it must still be classified a WRITE: naming a non-active
+    # instance without confirm_instance is rejected, never routed as a read.
+    server = _build_multi_server(monkeypatch, tmp_path, test_allow_writes=True)
+    seen = _register_recorder(server, "scaffold_page")
+
+    with pytest.raises(ValueError, match="confirm_instance"):
+        asyncio.run(
+            server._call_tool_impl("scaffold_page", {"instance": "test", "confirm": "approve"})
+        )
+    assert seen == {}  # never executed
+
+
+def _entries_with_prod(prod_entry):
+    return {
+        "dev": {"url": "https://dev.service-now.com", "allow_writes": True},
+        "prod": {"url": "https://prod.service-now.com", **prod_entry},
+    }
+
+
+def test_instance_entry_env_reference_resolved_for_credentials(monkeypatch, tmp_path):
+    # ${ENV} indirection must work for per-instance credentials too — otherwise
+    # named instances force plaintext passwords into SERVICENOW_INSTANCE_CONFIG.
+    from servicenow_mcp.utils.config import AuthType
+
+    monkeypatch.setenv("TEST_SN_PROD_PW", "real-secret")
+    server = _build_browser_default_server(
+        monkeypatch,
+        tmp_path,
+        entries=_entries_with_prod({"username": "svc_prod", "password": "${TEST_SN_PROD_PW}"}),
+    )
+
+    prod_auth = server.instance_contexts["prod"]["config"].auth
+    assert prod_auth.type == AuthType.BASIC
+    assert prod_auth.basic.password == "real-secret"  # resolved, not the literal
+
+
+def test_broken_instance_entry_does_not_kill_startup(monkeypatch, tmp_path):
+    # The Playwright lesson applied to instance config: prod referencing an
+    # UNSET env var must not prevent the server from serving dev/test.
+    monkeypatch.delenv("NOPE_UNSET_PW", raising=False)
+    server = _build_browser_default_server(
+        monkeypatch,
+        tmp_path,
+        entries=_entries_with_prod({"username": "svc_prod", "password": "${NOPE_UNSET_PW}"}),
+    )
+
+    # dev still fully usable.
+    assert "config" in server.instance_contexts["dev"]
+    # prod is visibly broken, with the reason.
+    out = server._list_instances_impl()
+    prod = next(i for i in out["instances"] if i["alias"] == "prod")
+    assert prod["auth_status"] == "config_error"
+    assert "NOPE_UNSET_PW" in prod["config_error"]
+    # Targeting prod raises a precise, actionable error (not a KeyError).
+    seen = _register_recorder(server, "sn_query")
+    with pytest.raises(ValueError, match="unusable"):
+        asyncio.run(server._call_tool_impl("sn_query", {"instance": "prod"}))
+    assert seen == {}
+
+
+def test_partial_env_reference_is_rejected_not_used_literally(monkeypatch, tmp_path):
+    # "${VAULT}_prod" doesn't full-match the placeholder grammar; using it as
+    # the literal password would be a silent mis-auth — must be rejected loudly.
+    monkeypatch.setenv("VAULT", "whatever")
+    server = _build_browser_default_server(
+        monkeypatch,
+        tmp_path,
+        entries=_entries_with_prod({"username": "svc_prod", "password": "${VAULT}_prod"}),
+    )
+    prod = next(i for i in server._list_instances_impl()["instances"] if i["alias"] == "prod")
+    assert prod["auth_status"] == "config_error"
+    assert "partial" in prod["config_error"]
+
+
+def test_browser_optional_cred_placeholder_does_not_disable_instance(monkeypatch, tmp_path):
+    # Browser SSO creds are optional prefill: a stale unset ${ENV} there must
+    # NOT take down the instance — warn, drop the field, keep SSO working.
+    monkeypatch.delenv("STALE_SSO_PW", raising=False)
+    server = _build_browser_default_server(
+        monkeypatch,
+        tmp_path,
+        entries=_entries_with_prod({"auth_type": "browser", "password": "${STALE_SSO_PW}"}),
+    )
+    prod_ctx = server.instance_contexts["prod"]
+    assert "config" in prod_ctx  # usable, not config_error
+    assert prod_ctx["config"].auth.browser.password is None  # field dropped
+
+
+def test_oauth_token_url_env_reference_resolved(monkeypatch, tmp_path):
+    # Non-credential auth fields resolve ${ENV} too — a literal "${SN_TOKEN_URL}"
+    # would silently break the token request.
+    monkeypatch.setenv("SN_TOKEN_URL", "https://prod.service-now.com/oauth_token.do")
+    server = _build_browser_default_server(
+        monkeypatch,
+        tmp_path,
+        entries=_entries_with_prod(
+            {
+                "auth_type": "oauth",
+                "client_id": "cid",
+                "client_secret": "cs",
+                "username": "svc",
+                "password": "pw",
+                "token_url": "${SN_TOKEN_URL}",
+            }
+        ),
+    )
+    prod_auth = server.instance_contexts["prod"]["config"].auth
+    assert prod_auth.oauth.token_url == "https://prod.service-now.com/oauth_token.do"
+
+
+def test_broken_active_instance_fails_closed(monkeypatch, tmp_path):
+    # If the ACTIVE alias itself is a definition-less config_error entry, the
+    # write gate must fail CLOSED (allow_writes False), never fall through to
+    # the permissive legacy default.
+    server = _build_browser_default_server(
+        monkeypatch,
+        tmp_path,
+        entries={
+            "dev": {"allow_writes": True},  # no url → build_instance_definition fails
+            "test": {"url": "https://test.service-now.com"},
+        },
+        active="dev",
+    )
+    assert "config_error" in server.instance_contexts["dev"]
+    meta = server.active_instance_meta
+    assert meta["allow_writes"] is False  # fail closed
+    # A write with no instance= arg is blocked by the read-only gate.
+    seen = _register_recorder(server, "update_foo")
+    with pytest.raises(ValueError, match="read-only"):
+        asyncio.run(server._call_tool_impl("update_foo", {"confirm": "approve"}))
+    assert seen == {}

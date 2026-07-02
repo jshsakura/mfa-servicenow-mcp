@@ -7,6 +7,7 @@ with conflict detection.
 import difflib
 import logging
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -326,13 +327,24 @@ def _read_metadata_sys_id(record_dir: Path) -> str:
     return ""
 
 
-# Tables whose folder was qualified by a parent (see source_tools
-# folder_qualifier_field). The value is the dot-walk field that both names the
-# parent AND disambiguates the record among same-named siblings on a target
-# instance. Mirror any folder_qualifier_field added there.
-_TARGET_QUALIFIER_FIELD: Dict[str, str] = {
-    "sys_ws_operation": "web_service_definition.name",
-}
+@lru_cache(maxsize=1)
+def _target_qualifier_fields() -> Dict[str, str]:
+    """Tables whose folder was qualified by a parent → the qualifying field.
+
+    DERIVED from source_tools.SOURCE_CONFIG (folder_qualifier_field), never
+    hand-mirrored — adding a qualifier to a new type automatically routes its
+    cross-instance push. The dot-walk field both names the parent and
+    disambiguates the record among same-named siblings on a target instance.
+    Import is lazy + cached: the 3800-line source_tools module must not become
+    a startup cost for packages that enable only sync tools.
+    """
+    from .source_tools import SOURCE_CONFIG
+
+    return {
+        cfg["table"]: cfg["folder_qualifier_field"]
+        for cfg in SOURCE_CONFIG.values()
+        if cfg.get("folder_qualifier_field")
+    }
 
 
 def _read_metadata_field(record_dir: Path, field: str) -> str:
@@ -363,7 +375,7 @@ def _resolve_remote_identity(
     absent (legacy/unqualified folders keep working)."""
     remote_name = _read_metadata_field(record_dir, "name") or folder_name
     qualifier: Optional[tuple] = None
-    qfield = _TARGET_QUALIFIER_FIELD.get(table)
+    qfield = _target_qualifier_fields().get(table)
     if qfield:
         qvalue = _read_metadata_field(record_dir, qfield)
         if qvalue:

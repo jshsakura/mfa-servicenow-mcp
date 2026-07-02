@@ -40,3 +40,35 @@ class TestResolveAuthType:
     def test_case_insensitive(self):
         assert resolve_auth_type({"auth_type": "BASIC"}, "browser") == "basic"
         assert resolve_auth_type({"username": "u", "password": "p"}, "BROWSER") == "basic"
+
+
+class TestResolveEnvReference:
+    def test_resolves_placeholder(self, monkeypatch):
+        from servicenow_mcp.utils.instances import resolve_env_reference
+
+        monkeypatch.setenv("MY_SECRET", "s3cret")
+        assert resolve_env_reference("${MY_SECRET}") == "s3cret"
+
+    def test_literal_passthrough(self):
+        from servicenow_mcp.utils.instances import resolve_env_reference
+
+        assert resolve_env_reference("plain-password") == "plain-password"
+        assert resolve_env_reference(None) is None
+
+    def test_unset_env_returns_none(self, monkeypatch):
+        from servicenow_mcp.utils.instances import resolve_env_reference
+
+        monkeypatch.delenv("NOPE_NOT_SET", raising=False)
+        assert resolve_env_reference("${NOPE_NOT_SET}") is None
+
+
+class TestHasEnvReference:
+    def test_detects_full_and_partial_references(self):
+        from servicenow_mcp.utils.instances import has_env_reference
+
+        assert has_env_reference("${VAR}") is True
+        assert has_env_reference("${VAULT}_prod") is True  # partial — the trap
+        assert has_env_reference("prefix${A}") is True
+        assert has_env_reference("plain-password") is False
+        assert has_env_reference(None) is False
+        assert has_env_reference(123) is False

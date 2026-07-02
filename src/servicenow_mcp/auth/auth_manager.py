@@ -283,6 +283,24 @@ def _is_debug_mode() -> bool:
     return val in ("1", "true", "yes", "on")
 
 
+def _ensure_private_dir(path: str, *, chmod_existing: bool) -> None:
+    """Create *path* as a private (0700) directory.
+
+    chmod_existing=True is for dirs WE own (default cache dir, profile_* dirs):
+    also tighten a pre-existing dir, fixing 0755 modes left by older versions
+    or by Playwright's umask. chmod_existing=False is for user-chosen base
+    dirs: create private if missing, but never rewrite the mode of an existing
+    directory the user may deliberately share.
+    """
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    if not chmod_existing:
+        return
+    try:
+        os.chmod(path, 0o700)
+    except OSError:  # pragma: no cover — e.g. exotic filesystems; not fatal
+        pass
+
+
 def _launch_persistent_with_retry(chromium, user_data_dir: str, *, headless: bool):
     """Launch a persistent Chromium context, retrying briefly if the profile
     directory is locked by a concurrent MCP process.
@@ -1329,22 +1347,32 @@ class AuthManager:
         (``~/.servicenow_mcp/``) so users keep their existing sessions.
         """
         if self.config.browser and self.config.browser.user_data_dir:
+            # User-chosen base: create it private if missing, but NEVER chmod a
+            # pre-existing directory the user may deliberately share (imagine
+            # user_data_dir pointed at $HOME). The secrets inside are protected
+            # regardless: session JSON is 0600 and the profile subdir is forced
+            # 0700 in _resolve_user_data_dir.
             cache_dir = os.path.abspath(self.config.browser.user_data_dir)
-        else:
-            cache_dir = str(Path.home() / ".mfa_servicenow_mcp")
-            legacy_dir = str(Path.home() / ".servicenow_mcp")
-            if os.path.isdir(legacy_dir) and not os.path.exists(cache_dir):
-                try:
-                    os.rename(legacy_dir, cache_dir)
-                    logger.info("Migrated cache directory: %s → %s", legacy_dir, cache_dir)
-                except OSError as exc:
-                    logger.warning(
-                        "Failed to migrate %s → %s: %s. Starting fresh in new location.",
-                        legacy_dir,
-                        cache_dir,
-                        exc,
-                    )
-        os.makedirs(cache_dir, exist_ok=True)
+            _ensure_private_dir(cache_dir, chmod_existing=False)
+            return cache_dir
+        cache_dir = str(Path.home() / ".mfa_servicenow_mcp")
+        legacy_dir = str(Path.home() / ".servicenow_mcp")
+        if os.path.isdir(legacy_dir) and not os.path.exists(cache_dir):
+            try:
+                os.rename(legacy_dir, cache_dir)
+                logger.info("Migrated cache directory: %s → %s", legacy_dir, cache_dir)
+            except OSError as exc:
+                logger.warning(
+                    "Failed to migrate %s → %s: %s. Starting fresh in new location.",
+                    legacy_dir,
+                    cache_dir,
+                    exc,
+                )
+        # Default dir is OURS — force private even if an older version created
+        # it 0755. It holds the Chromium profile whose cookie DB is a live
+        # replayable SSO session; the session JSON alone being 0600 is not
+        # enough on a shared host.
+        _ensure_private_dir(cache_dir, chmod_existing=True)
         return cache_dir
 
     def _get_instance_user_suffix(self) -> str:
@@ -1391,8 +1419,17 @@ class AuthManager:
         ``<base>/profile_<host>_<user>``. This keeps the profile keyed the same
         way as the session JSON, so two instances (dev/test) or two users never
         share one cookie store even under a shared/global user_data_dir.
+
+        The profile dir is forced 0700: its Chromium cookie DB is a replayable
+        SSO session, and Playwright would otherwise create it with umask perms
+        (0755) — exposed whenever the base dir is user-chosen and shared.
         """
-        return self._get_default_user_data_dir()
+        profile_dir = self._get_default_user_data_dir()
+        try:
+            _ensure_private_dir(profile_dir, chmod_existing=True)
+        except OSError:  # pragma: no cover — never block login on perms
+            pass
+        return profile_dir
 
     def _instance_profile_label(self) -> str:
         """Short ``instance=<host> profile=<suffix>`` tag for auth messages.

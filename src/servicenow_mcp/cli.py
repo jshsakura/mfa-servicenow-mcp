@@ -59,6 +59,7 @@ from .utils.instances import (  # noqa: E402
     build_instance_definition,
     load_instance_config_env,
     resolve_auth_type,
+    resolve_env_reference,
     select_active_alias,
 )
 from .version import __version__  # noqa: E402
@@ -151,24 +152,9 @@ logger = logging.getLogger(__name__)
 _PACKAGE_NAME = "mfa-servicenow-mcp"
 _PYPI_URL = f"https://pypi.org/pypi/{_PACKAGE_NAME}/json"
 
-_ENV_REF_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
-
-
-def _resolve_env_reference(value: str | None) -> str | None:
-    """Resolve ${ENV_NAME} style values to the actual environment value."""
-    if not value:
-        return value
-    stripped = value.strip()
-    match = _ENV_REF_PATTERN.match(stripped)
-    if not match:
-        return value
-    env_name = match.group(1)
-    resolved = os.getenv(env_name)
-    # Guard against self-referential placeholder values like:
-    # SERVICENOW_USERNAME="${SERVICENOW_USERNAME}"
-    if not resolved or resolved.strip() == stripped:
-        return None
-    return resolved
+# ${ENV_NAME} indirection — canonical implementation lives in utils.instances
+# so the server's named-instance contexts resolve the same way.
+_resolve_env_reference = resolve_env_reference
 
 
 def _pick_first_resolved(*values: str | None) -> str | None:
