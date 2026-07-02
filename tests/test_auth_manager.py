@@ -409,7 +409,10 @@ class TestBuildHttpSession:
         curl_cffi causes a regression."""
         monkeypatch.setenv("SERVICENOW_TLS_IMPERSONATE", "off")
         s = _build_http_session()
-        assert isinstance(s, requests.Session)
+        # Sessions are wrapped in _SafeRedirectSession (cross-origin credential
+        # stripping); the opt-out contract is that the WRAPPED backend is a plain
+        # requests.Session, not curl_cffi.
+        assert isinstance(getattr(s, "_inner", s), requests.Session)
         assert "Accept-Encoding" in s.headers
 
 
