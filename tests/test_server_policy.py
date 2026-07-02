@@ -475,3 +475,54 @@ def test_compare_instances_reports_changed_and_missing(monkeypatch: pytest.Monke
     assert result["only_in_source"] == ["x_app.OnlyDev"]
     assert result["only_in_target"] == ["x_app.OnlyTest"]
     assert result["changed"][0]["key"] == "x_app.A"
+
+
+def _build_browser_default_server(monkeypatch, tmp_path):
+    """Active=dev on the global browser default; prod carries its own creds."""
+    config_path = tmp_path / "tool_packages.yaml"
+    config_path.write_text("none: []\nstandard:\n  - sn_query\n")
+    monkeypatch.setenv("TOOL_PACKAGE_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("MCP_TOOL_PACKAGE", "standard")
+    monkeypatch.setenv("SERVICENOW_ACTIVE_INSTANCE", "dev")
+    monkeypatch.setenv(
+        "SERVICENOW_INSTANCE_CONFIG",
+        json.dumps(
+            {
+                "dev": {"url": "https://dev.service-now.com", "allow_writes": True},
+                "test": {"url": "https://test.service-now.com", "allow_writes": True},
+                "prod": {
+                    "url": "https://prod.service-now.com",
+                    "allow_writes": False,
+                    "username": "svc_prod",
+                    "password": "pw",
+                },
+            }
+        ),
+    )
+    monkeypatch.setattr(server_module, "TOOL_PACKAGE_CONFIG_PATH", str(config_path))
+    return ServiceNowMCP(
+        {
+            "instance_url": "https://dev.service-now.com",
+            "auth": {"type": "browser", "browser": {"headless": True}},
+        }
+    )
+
+
+def test_instance_with_creds_opts_out_of_browser_to_basic(monkeypatch, tmp_path):
+    from servicenow_mcp.utils.config import AuthType
+
+    server = _build_browser_default_server(monkeypatch, tmp_path)
+
+    # Bare instances keep the global browser (headless) default.
+    assert server.instance_contexts["dev"]["config"].auth.type == AuthType.BROWSER
+    assert server.instance_contexts["test"]["config"].auth.type == AuthType.BROWSER
+    # prod brought its own username+password → basic (no browser), and those
+    # exact creds are used, not the global.
+    prod_auth = server.instance_contexts["prod"]["config"].auth
+    assert prod_auth.type == AuthType.BASIC
+    assert prod_auth.basic.username == "svc_prod"
+    assert prod_auth.basic.password == "pw"
+    # prod's own auth_manager targets prod with those creds.
+    assert server.instance_contexts["prod"]["auth_manager"].instance_url == (
+        "https://prod.service-now.com"
+    )
