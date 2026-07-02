@@ -632,7 +632,6 @@ class ServiceNowMCP:
                     debug=self.config.debug,
                     timeout=self.config.timeout,
                     connect_timeout=self.config.connect_timeout,
-                    script_execution_api_resource_path=self.config.script_execution_api_resource_path,
                 )
                 contexts[alias] = {
                     "alias": alias,

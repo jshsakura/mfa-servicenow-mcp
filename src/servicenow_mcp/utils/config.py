@@ -72,7 +72,6 @@ class ServerConfig(BaseModel):
     debug: bool = False
     timeout: int = 30
     connect_timeout: int = 10
-    script_execution_api_resource_path: Optional[str] = None
 
     @property
     def api_url(self) -> str:

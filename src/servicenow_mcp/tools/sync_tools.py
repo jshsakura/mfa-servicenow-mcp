@@ -91,13 +91,48 @@ SINGLE_FILE_FOLDER_FIELD_MAP: Dict[str, Dict[str, str]] = {
 }
 
 
+# Tables that are downloadable as source but must NOT be diffed/pushed by path.
+# sys_update_xml is an update-set payload snapshot, not editable source — its
+# body is managed by the update-set machinery, never hand-edited on disk.
+_DIFF_PUSH_EXCLUDE_TABLES: Set[str] = {"sys_update_xml"}
+
+
+@lru_cache(maxsize=1)
+def _derived_folder_field_maps() -> Dict[str, Dict[str, str]]:
+    """``table -> {filename: field}`` DERIVED from source_tools.SOURCE_CONFIG.
+
+    The generic downloader writes one folder per record as ``<field><ext>``
+    files (contract pinned by test_source_layout_contract), so the uploader's
+    folder map is fully determined by each table's source_fields — no second
+    hand-list to drift. This makes every downloadable code table diffable and
+    pushable by path (previously only 9 of ~22 were), instead of forcing a
+    record-lookup + update_code fallback for the rest.
+
+    Lazy + cached: SOURCE_CONFIG lives in the ~3800-line source_tools module,
+    which must stay out of sync-only tool startups (see _target_qualifier_fields).
+    """
+    from ..utils.source_layout import field_filename
+    from .source_tools import SOURCE_CONFIG
+
+    maps: Dict[str, Dict[str, str]] = {}
+    for cfg in SOURCE_CONFIG.values():
+        table = cfg["table"]
+        fields = cfg.get("source_fields") or []
+        if table in _DIFF_PUSH_EXCLUDE_TABLES or not fields:
+            continue
+        # First entry per table wins; hand-authored maps below still override.
+        maps.setdefault(table, {field_filename(f): f for f in fields})
+    return maps
+
+
 def _folder_layout_field_map(table_name: str) -> Optional[Dict[str, str]]:
     """Return the on-disk ``filename -> field`` map for a table's FOLDER layout.
 
     Folder tables use their real-filename entries from TABLE_FILE_FIELD_MAP
     (the suffix-style ".xxx" keys belong to the flat single-file layout and are
-    skipped). Single-file tables use the folder map above. Returns None for an
-    unknown table so callers can fall through to flat-layout handling.
+    skipped). Single-file tables use the folder map above. Any OTHER downloadable
+    table falls back to the map derived from SOURCE_CONFIG. Returns None only for
+    a table that isn't downloadable source at all.
     """
     if table_name in FOLDER_TABLES:
         return {
@@ -107,9 +142,12 @@ def _folder_layout_field_map(table_name: str) -> Optional[Dict[str, str]]:
         }
     if table_name in SINGLE_FILE_TABLES:
         return SINGLE_FILE_FOLDER_FIELD_MAP.get(table_name, {})
-    return None
+    return _derived_folder_field_maps().get(table_name)
 
 
+# Hand-authored core (special filenames / back-compat). The full push/diff
+# surface is this UNION the SOURCE_CONFIG-derived tables — use
+# _all_supported_tables() for enumeration.
 SUPPORTED_TABLES: Set[str] = {
     "sp_widget",
     "sp_angular_provider",
@@ -121,6 +159,13 @@ SUPPORTED_TABLES: Set[str] = {
     "sys_ui_page",
     "sys_ws_operation",
 }
+
+
+@lru_cache(maxsize=1)
+def _all_supported_tables() -> frozenset:
+    """Every table diffable/pushable by path: hand-authored core + derived."""
+    return frozenset(SUPPORTED_TABLES | set(_derived_folder_field_maps()))
+
 
 MAX_DIFF_LINES = 120
 # Context lines for the line diff embedded in a CONFLICT response (P1-1) — kept
@@ -408,7 +453,7 @@ def _is_download_root(path: Path) -> bool:
         return True
     for child in path.iterdir():
         if child.is_dir():
-            for table in SUPPORTED_TABLES:
+            for table in _all_supported_tables():
                 if (child / table / "_map.json").exists():
                     return True
     return False
@@ -438,7 +483,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         if file_field_map is None:
             raise ValueError(
                 f"File-based push doesn't cover '{table_name}' (file-path tables: "
-                f"{', '.join(sorted(FOLDER_TABLES | SINGLE_FILE_TABLES))}). This is a "
+                f"{', '.join(sorted(_all_supported_tables()))}). This is a "
                 f"file-path limit, NOT 'uneditable' — edit it by sys_id instead: "
                 f"manage_portal_component(action='update_code', table='{table_name}', "
                 f"sys_id=..., update_data={{...}})."
@@ -876,7 +921,7 @@ def _scan_download_root(
 
     components: List[Dict[str, Any]] = []
 
-    for table_name in sorted(SUPPORTED_TABLES):
+    for table_name in sorted(_all_supported_tables()):
         table_dirs = _find_table_dirs(root, table_name)
         for table_dir in table_dirs:
             map_data = _read_map_json(table_dir)
@@ -992,7 +1037,7 @@ def _component_field_files(table_dir: Path, name: str, table_name: str) -> Dict[
 def _enumerate_local_components(root: Path) -> Dict[Tuple[str, str], Dict[str, Path]]:
     """(table, name) -> {field: file path} for every downloaded component under root."""
     out: Dict[Tuple[str, str], Dict[str, Path]] = {}
-    for table_name in sorted(SUPPORTED_TABLES):
+    for table_name in sorted(_all_supported_tables()):
         for table_dir in _find_table_dirs(root, table_name):
             for name in _read_map_json(table_dir):
                 fields = _component_field_files(table_dir, name, table_name)

@@ -2325,3 +2325,55 @@ class TestCrossInstanceDeploy:
         mock_update.assert_called_once()
         pushed = mock_update.call_args.args[2]
         assert pushed.sys_id == "TEST-wid-99"  # target's own sys_id, not dev's wid-1
+
+
+class TestDerivedDiffPushCoverage:
+    """Batch 3: downloadable single-script tables are diffable/pushable by path,
+    derived from SOURCE_CONFIG (no hand-authored second list)."""
+
+    def test_ui_action_folder_resolves_for_push(self, download_root):
+        # A downloaded sys_ui_action (single 'script' field) must resolve to its
+        # component identity — previously rejected as 'File-based push doesn't cover'.
+        op_dir = download_root / "global" / "sys_ui_action" / "My UI Action"
+        op_dir.mkdir(parents=True)
+        (op_dir / "_metadata.json").write_text(
+            json.dumps({"sys_id": "uia-1", "name": "My UI Action"}), encoding="utf-8"
+        )
+        (op_dir / "script.js").write_text("gs.addInfoMessage('x');", encoding="utf-8")
+        resolved = _resolve_local_path(op_dir / "script.js")
+        assert resolved.table == "sys_ui_action"
+        assert resolved.sys_id == "uia-1"
+        assert "script" in resolved.fields
+
+    def test_derived_map_excludes_update_xml(self):
+        from servicenow_mcp.tools.sync_tools import _folder_layout_field_map
+
+        assert _folder_layout_field_map("sys_update_xml") is None
+
+    def test_hand_authored_tables_take_precedence(self):
+        from servicenow_mcp.tools.sync_tools import _folder_layout_field_map
+
+        # sys_script is folder-based with a condition file — the hand map wins
+        # over a naive derived {script.js: script}.
+        m = _folder_layout_field_map("sys_script")
+        assert m.get("condition.js") == "condition"
+
+    def test_all_downloadable_source_tables_are_supported(self):
+        # The push/diff surface must equal the downloadable-with-source set minus
+        # the deliberate excludes — no silent gap.
+        from servicenow_mcp.tools.source_tools import SOURCE_CONFIG
+        from servicenow_mcp.tools.sync_tools import _DIFF_PUSH_EXCLUDE_TABLES, _all_supported_tables
+
+        downloadable = {cfg["table"] for cfg in SOURCE_CONFIG.values() if cfg.get("source_fields")}
+        expected = downloadable - _DIFF_PUSH_EXCLUDE_TABLES
+        assert expected <= set(_all_supported_tables())
+
+    def test_derived_filenames_are_canonical(self):
+        # Every derived filename must match the canonical field_filename the
+        # downloader writes, or push can't find the file on disk.
+        from servicenow_mcp.tools.sync_tools import _derived_folder_field_maps
+        from servicenow_mcp.utils.source_layout import field_filename
+
+        for table, file_map in _derived_folder_field_maps().items():
+            for filename, field in file_map.items():
+                assert filename == field_filename(field), (table, filename, field)
