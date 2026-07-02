@@ -134,6 +134,130 @@ def _resolve_tls_impersonate_profile() -> Optional[str]:
     return raw
 
 
+# Request headers that carry credentials and MUST NOT be re-sent when a
+# redirect leaves the ServiceNow origin. requests strips Authorization on a
+# cross-host redirect, but NOT a manually-set Cookie / X-UserToken / custom key
+# header — and curl_cffi (libcurl) re-sends every custom header regardless of
+# host. Both leak without this. Lowercased for case-insensitive matching.
+_CROSS_ORIGIN_STRIP_HEADERS = frozenset({"cookie", "authorization", "x-usertoken", "x-csrf-token"})
+_MAX_MANUAL_REDIRECTS = 10
+
+
+def _same_origin(from_url: str, to_url: str) -> bool:
+    """True if *to_url* stays on the same scheme://host:port as *from_url*.
+
+    A relative Location (no scheme/netloc) is same-origin by definition. Default
+    ports are normalised so ``https://x`` and ``https://x:443`` compare equal.
+    """
+    a, b = urlparse(from_url), urlparse(to_url)
+    if not b.netloc:
+        return True
+    _default = {"https": 443, "http": 80}
+
+    def _key(p):
+        scheme = (p.scheme or "").lower()
+        host = (p.hostname or "").lower()
+        port = p.port or _default.get(scheme)
+        return (scheme, host, port)
+
+    return _key(a) == _key(b)
+
+
+def _strip_sensitive_headers(headers, extra_sensitive):
+    """Return a copy of *headers* with credential headers removed (case-insensitive)."""
+    if not headers:
+        return headers
+    blocked = _CROSS_ORIGIN_STRIP_HEADERS | extra_sensitive
+    return {k: v for k, v in dict(headers).items() if k.lower() not in blocked}
+
+
+class _SafeRedirectSession:
+    """Wraps an HTTP session so ``request()`` follows redirects MANUALLY and
+    strips credential headers on any hop that leaves the ServiceNow origin.
+
+    Why a wrapper and not ``allow_redirects=False`` at every call site: the
+    codebase inspects ``response.history`` to detect logout/session-death, so
+    redirects must still be followed and history preserved — just not with the
+    auth headers leaking cross-origin. Only ``request()`` is wrapped (the
+    authenticated API path); ``get``/``post`` (probe, OAuth token, login) are
+    delegated untouched. Healthy 200s never redirect, so normal traffic takes
+    the same single call as before — the manual loop only engages on the 3xx
+    (already session-dead) path this protects.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._extra_sensitive: set = set()
+
+    def __getattr__(self, name):
+        # Non-verb attributes (headers, cookies, close, impersonate, ...) delegate
+        # to the wrapped session unchanged.
+        return getattr(self._inner, name)
+
+    # HTTP verb helpers route through THIS wrapper's request() — exactly like
+    # requests.Session, whose .get/.post call self.request. Without them, verb
+    # calls would reach inner.request directly, bypassing the redirect safety
+    # (and, in tests, any patch of the wrapper's request).
+    def get(self, url, **kwargs):
+        kwargs.setdefault("allow_redirects", True)
+        return self.request("GET", url, **kwargs)
+
+    def options(self, url, **kwargs):
+        kwargs.setdefault("allow_redirects", True)
+        return self.request("OPTIONS", url, **kwargs)
+
+    def head(self, url, **kwargs):
+        kwargs.setdefault("allow_redirects", False)
+        return self.request("HEAD", url, **kwargs)
+
+    def post(self, url, **kwargs):
+        return self.request("POST", url, **kwargs)
+
+    def put(self, url, **kwargs):
+        return self.request("PUT", url, **kwargs)
+
+    def patch(self, url, **kwargs):
+        return self.request("PATCH", url, **kwargs)
+
+    def delete(self, url, **kwargs):
+        return self.request("DELETE", url, **kwargs)
+
+    def register_sensitive_header(self, name: str) -> None:
+        """Also strip *name* cross-origin (e.g. a custom API-key header)."""
+        if name:
+            self._extra_sensitive.add(name.lower())
+
+    def request(self, method, url, **kwargs):
+        follow = kwargs.pop("allow_redirects", True)
+        history = []
+        cur_method, cur_url = method, url
+        while True:
+            resp = self._inner.request(cur_method, cur_url, allow_redirects=False, **kwargs)
+            location = resp.headers.get("Location") if resp.headers else None
+            is_redirect = 300 <= resp.status_code < 400 and bool(location)
+            if not follow or not is_redirect or len(history) >= _MAX_MANUAL_REDIRECTS:
+                try:
+                    resp.history = history
+                except Exception:  # pragma: no cover — Response without settable history
+                    pass
+                return resp
+            history.append(resp)
+            next_url = urljoin(cur_url, location)
+            if not _same_origin(cur_url, next_url):
+                # THE FIX: never forward credentials to another origin.
+                kwargs["headers"] = _strip_sensitive_headers(
+                    kwargs.get("headers"), self._extra_sensitive
+                )
+                kwargs.pop("cookies", None)
+            # Redirect method semantics (mirrors requests): 303 and a non-idempotent
+            # 301/302 downgrade to GET and drop the body; 307/308 preserve.
+            if resp.status_code in (301, 302, 303) and cur_method.upper() not in ("GET", "HEAD"):
+                cur_method = "GET"
+                for body_key in ("data", "json", "files", "content"):
+                    kwargs.pop(body_key, None)
+            cur_url = next_url
+
+
 def _build_http_session():
     """Create the HTTP session for ServiceNow API calls.
 
@@ -201,7 +325,7 @@ def _build_http_session():
                     raw_env,
                     " (default applied: empty value → chrome120)" if not raw_env else "",
                 )
-                return session
+                return _SafeRedirectSession(session)
     else:
         logger.info(
             "HTTP session: stock requests (TLS impersonation explicitly "
@@ -236,7 +360,7 @@ def _build_http_session():
     )
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    return session
+    return _SafeRedirectSession(session)
 
 
 _PROFILE_LOCK_HINTS = (
@@ -875,6 +999,11 @@ class AuthManager:
         # Session (default; not a requests.Session subclass) which is API-
         # compatible for those methods — see _build_http_session's docstring.
         self._http_session: requests.Session = _build_http_session()
+        # An API-key custom header is also a credential — strip it cross-origin.
+        if config.type == AuthType.API_KEY and config.api_key:
+            register = getattr(self._http_session, "register_sensitive_header", None)
+            if callable(register):
+                register(config.api_key.header_name)
         self.token: Optional[str] = None
         self.token_type: Optional[str] = None
         self.token_expires_at: Optional[float] = None
