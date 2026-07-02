@@ -303,6 +303,61 @@ def _resolve_target(config: ServerConfig, auth_manager: AuthManager, target: str
     return {"candidates": candidates}
 
 
+# Checkout files are keyed by the caller-supplied flow_id; constrain it to a
+# plain identifier so it can never redirect the write/unlink path.
+_SAFE_FLOW_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+# Freshness baseline captured at checkout and re-checked at save so a stale
+# checkout cannot silently overwrite a newer remote edit (lost update). Stored
+# INSIDE the checkout JSON under this reserved key — it must be popped before
+# the payload is PUT back to the server.
+_CHECKOUT_META_KEY = "_mcp_checkout_meta"
+
+
+def _fetch_flow_baseline(
+    config: ServerConfig, auth_manager: AuthManager, flow_id: str
+) -> Dict[str, Any]:
+    """sys_hub_flow freshness fields (who/when/mod_count). Returns {} when the
+    lookup fails so callers fail-open, matching the guard philosophy elsewhere."""
+    rows = _table_lookup(
+        config,
+        auth_manager,
+        _FLOW_DEF_TABLE,
+        f"sys_id={flow_id}",
+        fields="sys_id,sys_updated_on,sys_mod_count,sys_updated_by",
+    )
+    if not rows:
+        return {}
+    row = rows[0]
+    return {
+        "sys_updated_on": row.get("sys_updated_on"),
+        "sys_mod_count": row.get("sys_mod_count"),
+        "sys_updated_by": row.get("sys_updated_by"),
+    }
+
+
+def _remote_change_since_checkout(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    flow_id: str,
+    baseline: Any,
+) -> Optional[Dict[str, Any]]:
+    """None = no conflict detected (or the check is impossible — fail-open:
+    old checkouts without a baseline and failed lookups never block a save).
+    Otherwise {checked_out, remote_now} describing the drift."""
+    if not isinstance(baseline, dict) or not baseline.get("sys_updated_on"):
+        return None
+    current = _fetch_flow_baseline(config, auth_manager, flow_id)
+    if not current.get("sys_updated_on"):
+        return None
+    unchanged = str(current.get("sys_updated_on")) == str(baseline.get("sys_updated_on")) and str(
+        current.get("sys_mod_count")
+    ) == str(baseline.get("sys_mod_count"))
+    if unchanged:
+        return None
+    return {"checked_out": baseline, "remote_now": current}
+
+
 def _checkout_path(flow_id: str) -> Path:
     return _CHECKOUT_DIR / f".sn_flow_edit_{flow_id}.json"
 
@@ -710,6 +765,10 @@ class ManageFlowEditParams(BaseModel):
         default=True,
         description="After save, re-read the flow and confirm the edits persisted (catches silent reverts). Safe default on.",
     )
+    force: bool = Field(
+        default=False,
+        description="Save even if the remote flow changed after checkout (skip the lost-update conflict check).",
+    )
     dry_run: bool = Field(
         default=False,
         description="Plan only: show what would be sent (endpoint/params/changed fields) without writing.",
@@ -726,6 +785,15 @@ def manage_flow_edit(
 
     action = params.action
     flow_id = params.flow_id
+
+    # Every action except 'read' (which accepts a NAME) takes a sys_id; reject
+    # anything that could redirect the checkout file path.
+    if action != "read" and not _SAFE_FLOW_ID.match(flow_id or ""):
+        return {
+            "success": False,
+            "error": "flow_id must be a plain sys_id (letters/digits/_/- only). "
+            "Use action='read' to resolve a flow by name first.",
+        }
 
     if action == "read":
         # One read entry point for the whole Workflow Studio set: resolve a NAME
@@ -783,8 +851,21 @@ def manage_flow_edit(
         if not flow_data.get("security", {}).get("can_write", False):
             return {
                 "success": False,
-                "error": "Flow is read-only or locked by another user (security.can_write=false)",
+                "error": "Flow is read-only for this session (security.can_write=false) — "
+                "the server refused edit access. Nothing was changed.",
+                "security": flow_data.get("security", {}),
+                "last_remote_update": _fetch_flow_baseline(config, auth_manager, flow_id) or None,
+                "hint": (
+                    "Common causes: the flow is open for editing in Workflow Studio "
+                    "(close that editor tab and retry — the edit lock lapses shortly "
+                    "after the tab closes), the session user lacks write ACL on this "
+                    "flow, or the flow belongs to a read-only/store application."
+                ),
             }
+        # Capture a freshness baseline so save can detect a remote edit made
+        # after this checkout (lost-update guard). Reserved key, stripped
+        # before the payload is ever PUT back.
+        flow_data[_CHECKOUT_META_KEY] = _fetch_flow_baseline(config, auth_manager, flow_id)
         _save_checkout(flow_id, flow_data)
         return {"success": True, "action": "checkout", "summary": render_flow_compact(flow_data)}
 
@@ -839,6 +920,10 @@ def manage_flow_edit(
             flow_data = _load_checkout(flow_id)
         except FileNotFoundError as e:
             return {"success": False, "error": str(e)}
+        # Never send the checkout bookkeeping back to the server. Popping only
+        # mutates the in-memory copy — the on-disk checkout keeps its baseline
+        # for retries after a blocked save.
+        baseline = flow_data.pop(_CHECKOUT_META_KEY, None)
         # The real UI scopes every flow-edit write with the flow's app sys_scope
         # (sysparm_transaction_scope). Without it the PUT only saves "properties"
         # and the structural edit silently reverts — the exact persist bug.
@@ -849,6 +934,14 @@ def manage_flow_edit(
                 "error": "Flow payload has no 'scope' — re-run checkout (the scope "
                 "field is required for save/publish transaction scoping).",
             }
+        # Lost-update guard: the PUT replaces the WHOLE flow, so a checkout
+        # taken before someone else's edit would wipe that edit. Blocks only on
+        # a confirmed remote change; fail-open when the check is impossible.
+        conflict = (
+            None
+            if params.force
+            else _remote_change_since_checkout(config, auth_manager, flow_id, baseline)
+        )
         url = f"{config.instance_url}{_PF_BASE}"
         if params.dry_run:
             return {
@@ -859,8 +952,23 @@ def manage_flow_edit(
                     "url": _PF_BASE,
                     "params": {"sysparm_transaction_scope": scope},
                     "then_publish": bool(params.publish),
+                    "remote_changed_since_checkout": bool(conflict),
+                    **({"remote_change": conflict} if conflict else {}),
                     "summary": render_flow_compact(flow_data),
                 },
+            }
+        if conflict:
+            return {
+                "success": False,
+                "error": "Flow changed on the server after this checkout — save blocked, "
+                "nothing was overwritten.",
+                "remote_change": conflict,
+                "checkout_preserved": True,
+                "hint": (
+                    "Re-run checkout and re-apply the edits on the fresh copy, or re-run "
+                    "save with force=true to overwrite deliberately. remote_now.sys_updated_by "
+                    "is informational only."
+                ),
             }
         # Mirror the UI: create a Save version row, then PUT the full flow.
         _create_version(auth_manager, config, flow_id, scope, "Save")
@@ -891,44 +999,49 @@ def manage_flow_edit(
             if err:
                 return {"success": False, "error": err}
 
-        if params.publish:
-            # Design-time saved; the recompile (publish) is editor-gated and not
-            # API-reachable — tell the caller to click Activate/Publish in the UI.
-            _checkout_path(flow_id).unlink(missing_ok=True)
-            resp = _manual_publish_response(config, flow_id)
-            resp["saved"] = True
-            resp["warning"] = (
-                "Saved to DESIGN-TIME. Publish (recompile) must be done in the UI — "
-                "open the flow and click Activate/Publish."
-            )
-            return resp
-
         # Safety: re-read and confirm our values actually persisted (catches the
-        # silent-revert failure mode) BEFORE we drop the checkout.
+        # silent-revert failure mode) BEFORE we drop the checkout. Runs for the
+        # publish path too — "saved" must never be reported unverified.
         verification: Optional[Dict[str, Any]] = None
         if params.verify:
             fresh = _try_processflow_api(config, auth_manager, flow_id)
             if fresh and not fresh.get("_error"):
                 verification = _verify_persisted(flow_data, fresh.get("result", fresh))
 
-        _checkout_path(flow_id).unlink(missing_ok=True)
-        base: Dict[str, Any] = {"success": True, "saved": True, "published": bool(params.publish)}
-        if verification is not None:
-            base["verified"] = verification["verified"]
-            if not verification["verified"]:
-                base["success"] = False
-                base["mismatches"] = verification["mismatches"]
-                base["warning"] = (
+        if verification is not None and not verification["verified"]:
+            # Keep the checkout: deleting it here would destroy the only copy of
+            # the staged edits in exactly the failure mode verify exists to catch.
+            return {
+                "success": False,
+                "saved": True,
+                "verified": False,
+                "mismatches": verification["mismatches"],
+                "checkout_preserved": True,
+                "warning": (
                     "VERIFY FAILED — the server did not keep some values we sent (they "
-                    "reverted). The edit is NOT reliably saved; inspect mismatches."
-                )
-                return base
+                    "reverted). The edit is NOT reliably saved; inspect mismatches. The "
+                    "checkout was kept on disk so you can adjust and retry save."
+                ),
+            }
+
+        _checkout_path(flow_id).unlink(missing_ok=True)
+
         if params.publish:
-            base["note"] = (
-                "Published — flow snapshot recompiled; the edit now appears in get_detail "
-                "and takes effect. publish does NOT activate an inactive flow."
+            # Design-time saved; the recompile (publish) is editor-gated and not
+            # API-reachable — tell the caller to click Activate/Publish in the UI.
+            resp = _manual_publish_response(config, flow_id)
+            resp["saved"] = True
+            if verification is not None:
+                resp["verified"] = True
+            resp["warning"] = (
+                "Saved to DESIGN-TIME. Publish (recompile) must be done in the UI — "
+                "open the flow and click Activate/Publish."
             )
-            return base
+            return resp
+
+        base: Dict[str, Any] = {"success": True, "saved": True, "published": False}
+        if verification is not None:
+            base["verified"] = True
         # Saved without publishing: the design-time model changed, but the
         # compiled snapshot that get_detail and the runtime read did NOT. This
         # is the #1 'edit looks lost' trap — surface it loudly instead of
@@ -949,9 +1062,21 @@ def manage_flow_edit(
             flow_data = _load_checkout(flow_id)
         except FileNotFoundError as e:
             return {"success": False, "error": str(e)}
+        baseline = flow_data.pop(_CHECKOUT_META_KEY, None)
         scope = _flow_scope(flow_data)
         if not scope:
             return {"success": False, "error": "Flow payload has no 'scope' — re-run checkout."}
+        if not params.force:
+            conflict = _remote_change_since_checkout(config, auth_manager, flow_id, baseline)
+            if conflict:
+                return {
+                    "success": False,
+                    "error": "Flow changed on the server after this checkout — property save "
+                    "blocked, nothing was overwritten.",
+                    "remote_change": conflict,
+                    "checkout_preserved": True,
+                    "hint": "Re-run checkout and re-apply, or re-run with force=true.",
+                }
         _create_version(auth_manager, config, flow_id, scope, "Save")
         response = None
         try:
@@ -1073,7 +1198,12 @@ def manage_flow_edit(
         if not node:
             return {"success": False, "error": f"Logic node not found: {params.node_id}"}
         encoded = _resolve_condition_value(params.value)
-        _set_input_value(node.get("inputs", []), "condition", encoded)
+        if not _set_input_value(node.get("inputs", []), "condition", encoded):
+            return {
+                "success": False,
+                "error": f"condition input not found on logic node {params.node_id} "
+                "(an Else branch has no condition to set).",
+            }
         if params.condition_label is not None:
             _set_input_value(node.get("inputs", []), "condition_name", params.condition_label)
             node["name"] = f"If: {params.condition_label}"
