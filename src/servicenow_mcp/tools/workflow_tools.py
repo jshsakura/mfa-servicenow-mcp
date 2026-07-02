@@ -272,7 +272,7 @@ def list_workflows(
         }
     except Exception as e:
         logger.error(f"Error listing workflows: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def get_workflow_details(
@@ -285,7 +285,7 @@ def get_workflow_details(
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
-        return {"error": "Workflow ID is required"}
+        return {"success": False, "error": "Workflow ID is required"}
 
     try:
         rows, _ = sn_query_page(
@@ -300,7 +300,7 @@ def get_workflow_details(
             fail_silently=False,
         )
         if not rows:
-            return {"error": f"Workflow {workflow_id} not found"}
+            return {"success": False, "error": f"Workflow {workflow_id} not found"}
 
         result: Dict[str, Any] = {"workflow": rows[0]}
 
@@ -316,7 +316,7 @@ def get_workflow_details(
         return result
     except Exception as e:
         logger.error(f"Error getting workflow details: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def _fetch_workflow_versions(
@@ -409,7 +409,7 @@ def create_workflow(
 
     # Validate required parameters
     if not params.get("name"):
-        return {"error": "Workflow name is required"}
+        return {"success": False, "error": "Workflow name is required"}
 
     # Prepare data for the API request
     data = {
@@ -448,7 +448,7 @@ def create_workflow(
         }
     except Exception as e:
         logger.error(f"Error creating workflow: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def update_workflow(
@@ -472,7 +472,7 @@ def update_workflow(
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
-        return {"error": "Workflow ID is required"}
+        return {"success": False, "error": "Workflow ID is required"}
 
     # Prepare data for the API request
     data = {}
@@ -494,7 +494,7 @@ def update_workflow(
         data.update(params["attributes"])
 
     if not data:
-        return {"error": "No update parameters provided"}
+        return {"success": False, "error": "No update parameters provided"}
 
     if params.get("dry_run"):
         return build_update_preview(
@@ -522,7 +522,7 @@ def update_workflow(
         }
     except Exception as e:
         logger.error(f"Error updating workflow: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def activate_workflow(
@@ -546,7 +546,7 @@ def activate_workflow(
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
-        return {"error": "Workflow ID is required"}
+        return {"success": False, "error": "Workflow ID is required"}
 
     # Prepare data for the API request
     data = {
@@ -579,7 +579,7 @@ def activate_workflow(
         }
     except Exception as e:
         logger.error(f"Error activating workflow: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def deactivate_workflow(
@@ -603,7 +603,7 @@ def deactivate_workflow(
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
-        return {"error": "Workflow ID is required"}
+        return {"success": False, "error": "Workflow ID is required"}
 
     # Prepare data for the API request
     data = {
@@ -636,7 +636,7 @@ def deactivate_workflow(
         }
     except Exception as e:
         logger.error(f"Error deactivating workflow: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def add_workflow_activity(
@@ -661,11 +661,11 @@ def add_workflow_activity(
     # Validate required parameters
     workflow_version_id = params.get("workflow_version_id")
     if not workflow_version_id:
-        return {"error": "Workflow version ID is required"}
+        return {"success": False, "error": "Workflow version ID is required"}
 
     activity_name = params.get("name")
     if not activity_name:
-        return {"error": "Activity name is required"}
+        return {"success": False, "error": "Activity name is required"}
 
     # Prepare data for the API request
     data = {
@@ -702,7 +702,7 @@ def add_workflow_activity(
         }
     except Exception as e:
         logger.error(f"Error adding workflow activity: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def update_workflow_activity(
@@ -726,7 +726,7 @@ def update_workflow_activity(
 
     activity_id = params.get("activity_id")
     if not activity_id:
-        return {"error": "Activity ID is required"}
+        return {"success": False, "error": "Activity ID is required"}
 
     # Prepare data for the API request
     data = {}
@@ -742,7 +742,7 @@ def update_workflow_activity(
         data.update(params["attributes"])
 
     if not data:
-        return {"error": "No update parameters provided"}
+        return {"success": False, "error": "No update parameters provided"}
 
     if params.get("dry_run"):
         return build_update_preview(
@@ -770,7 +770,7 @@ def update_workflow_activity(
         }
     except Exception as e:
         logger.error(f"Error updating workflow activity: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def delete_workflow_activity(
@@ -794,7 +794,7 @@ def delete_workflow_activity(
 
     activity_id = params.get("activity_id")
     if not activity_id:
-        return {"error": "Activity ID is required"}
+        return {"success": False, "error": "Activity ID is required"}
 
     if params.get("dry_run"):
         return build_delete_preview(
@@ -820,7 +820,7 @@ def delete_workflow_activity(
         }
     except Exception as e:
         logger.error(f"Error deleting workflow activity: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def _build_reorder_preview(
@@ -892,11 +892,11 @@ def reorder_workflow_activities(
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
-        return {"error": "Workflow ID is required"}
+        return {"success": False, "error": "Workflow ID is required"}
 
     activity_ids = params.get("activity_ids")
     if not activity_ids:
-        return {"error": "Activity IDs are required"}
+        return {"success": False, "error": "Activity IDs are required"}
 
     if params.get("dry_run"):
         return _build_reorder_preview(server_config, auth_manager, workflow_id, activity_ids)
@@ -950,7 +950,7 @@ def reorder_workflow_activities(
         }
     except Exception as e:
         logger.error(f"Unexpected error reordering workflow activities: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def delete_workflow(
@@ -974,7 +974,7 @@ def delete_workflow(
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
-        return {"error": "Workflow ID is required"}
+        return {"success": False, "error": "Workflow ID is required"}
 
     if params.get("dry_run"):
         return build_delete_preview(
@@ -1031,7 +1031,7 @@ def delete_workflow(
         }
     except Exception as e:
         logger.error(f"Error deleting workflow: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def list_workflow_versions(
@@ -1044,7 +1044,7 @@ def list_workflow_versions(
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
-        return {"error": "Workflow ID is required"}
+        return {"success": False, "error": "Workflow ID is required"}
 
     query = f"workflow={workflow_id}"
     if params.get("published_only"):
@@ -1071,7 +1071,7 @@ def list_workflow_versions(
         }
     except Exception as e:
         logger.error(f"Error listing workflow versions: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 def get_workflow_activities(
@@ -1084,7 +1084,7 @@ def get_workflow_activities(
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
-        return {"error": "Workflow ID is required"}
+        return {"success": False, "error": "Workflow ID is required"}
 
     try:
         result = _fetch_workflow_activities(
@@ -1094,7 +1094,7 @@ def get_workflow_activities(
         return result
     except Exception as e:
         logger.error(f"Error getting workflow activities: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
 
 
 # ---------------------------------------------------------------------------
