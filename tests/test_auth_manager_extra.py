@@ -225,9 +225,45 @@ class TestDefaultUserDataDir:
             patch.object(AuthManager, "_load_session_from_disk"),
         ):
             mgr = AuthManager(cfg, "https://test.service-now.com")
-        assert mgr._resolve_user_data_dir(cfg.browser) == str(custom)
-        # Session JSON sits next to the profile dir so co-running MCP hosts share it.
-        assert mgr._session_cache_path.startswith(str(custom.parent) + os.sep)
+        # A configured dir is a BASE: profile is host+user scoped beneath it, and
+        # the session JSON sits in the same base — same structure as the default.
+        resolved = mgr._resolve_user_data_dir(cfg.browser)
+        assert resolved == str(custom / "profile_test_service-now_com")
+        assert mgr._session_cache_path == str(custom / "session_test_service-now_com.json")
+
+    def test_shared_base_dir_isolates_by_host_and_user(self, tmp_path):
+        # The footgun killer: even with ONE shared user_data_dir, two instances
+        # (different hosts) and two users never share a Chromium profile.
+        shared = str(tmp_path / "shared")
+
+        def _mgr(url, user):
+            cfg = AuthConfig(
+                type=AuthType.BROWSER,
+                browser=BrowserAuthConfig(user_data_dir=shared, username=user),
+            )
+            with (
+                patch.object(AuthManager, "_ensure_playwright_ready"),
+                patch.object(AuthManager, "_load_session_from_disk"),
+            ):
+                return AuthManager(cfg, url)
+
+        dev = _mgr("https://dev.service-now.com", None)
+        test = _mgr("https://test.service-now.com", None)
+        same_host_other_user = _mgr("https://dev.service-now.com", "alice")
+
+        dev_profile = dev._resolve_user_data_dir(dev.config.browser)
+        test_profile = test._resolve_user_data_dir(test.config.browser)
+        alice_profile = same_host_other_user._resolve_user_data_dir(
+            same_host_other_user.config.browser
+        )
+        # All three distinct, all under the shared base.
+        assert dev_profile != test_profile != alice_profile
+        assert dev_profile != alice_profile
+        for p in (dev_profile, test_profile, alice_profile):
+            assert p.startswith(shared + os.sep)
+        # Sessions isolated too.
+        assert dev._session_cache_path != test._session_cache_path
+        assert dev._session_cache_path != same_host_other_user._session_cache_path
 
 
 class TestSaveSessionToDisk:

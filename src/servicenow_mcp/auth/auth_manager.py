@@ -1319,13 +1319,17 @@ class AuthManager:
         share this path, so a single login is reused across hosts.
 
         Override via ``SERVICENOW_BROWSER_USER_DATA_DIR`` for non-standard
-        layouts; the session JSON sits next to the configured profile dir.
+        layouts. The configured value is treated as a BASE directory that holds
+        BOTH ``session_<host>_<user>.json`` and ``profile_<host>_<user>/`` — same
+        structure as the default home dir. So a shared/global user_data_dir can
+        no longer collapse multiple instances (or users) onto one Chromium cookie
+        store: each instance+user still lands in its own profile subdir.
 
         Performs a one-time migration from the v1.12.4-1.12.6 location
         (``~/.servicenow_mcp/``) so users keep their existing sessions.
         """
         if self.config.browser and self.config.browser.user_data_dir:
-            cache_dir = os.path.dirname(os.path.abspath(self.config.browser.user_data_dir))
+            cache_dir = os.path.abspath(self.config.browser.user_data_dir)
         else:
             cache_dir = str(Path.home() / ".mfa_servicenow_mcp")
             legacy_dir = str(Path.home() / ".servicenow_mcp")
@@ -1380,8 +1384,15 @@ class AuthManager:
         return os.path.join(self._get_cache_dir(), f"profile_{self._get_instance_user_suffix()}")
 
     def _resolve_user_data_dir(self, browser_config: BrowserAuthConfig) -> str:
-        """Return the configured Playwright profile dir, or the per-instance default."""
-        return browser_config.user_data_dir or self._get_default_user_data_dir()
+        """Per-instance Playwright profile dir, ALWAYS scoped by host+user.
+
+        A configured ``user_data_dir`` is a BASE, not the literal profile — it is
+        folded into the cache dir by ``_get_cache_dir``, so the profile is
+        ``<base>/profile_<host>_<user>``. This keeps the profile keyed the same
+        way as the session JSON, so two instances (dev/test) or two users never
+        share one cookie store even under a shared/global user_data_dir.
+        """
+        return self._get_default_user_data_dir()
 
     def _instance_profile_label(self) -> str:
         """Short ``instance=<host> profile=<suffix>`` tag for auth messages.
