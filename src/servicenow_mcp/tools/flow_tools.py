@@ -47,6 +47,7 @@ _EDIT_ACTIONS = frozenset(
         "set_action_input",
         "set_trigger_condition",
         "set_branch_condition",
+        "add_branch",
         "set_property",
         "save",
         "save_properties",
@@ -68,6 +69,7 @@ _NEEDS_FLOW_ID = frozenset(
         "set_action_input",
         "set_trigger_condition",
         "set_branch_condition",
+        "add_branch",
         "set_property",
         "save",
         "save_properties",
@@ -85,11 +87,12 @@ _NEEDS_FLOW_ID = frozenset(
 class ManageFlowDesignerParams(BaseModel):
     """Unified Flow Designer tool — primarily read/inspect, with LIMITED edits.
 
-    Edit scope (important): edits are confined to EXISTING nodes' leaf values —
-    action inputs (set_action_input) and trigger/branch conditions
-    (set_trigger_condition / set_branch_condition), then save with publish=true.
-    NOT supported: changing the trigger TABLE, retyping/adding/removing action
-    nodes, or any other structural change — use the Flow Designer UI for those.
+    Edit scope: EXISTING nodes' leaf values — action inputs (set_action_input),
+    trigger/branch conditions (set_trigger_condition / set_branch_condition) —
+    AND one structural add, add_branch, which clones an existing branch subtree
+    as a new sibling with a fresh condition. Then save (publish via UI). NOT
+    supported: changing the trigger TABLE, retyping/deleting nodes, or building a
+    node from scratch — use the Flow Designer UI for those.
 
     Required per action:
       list:                  (none — all optional; flow_type=action|playbook|decision lists those tabs)
@@ -101,6 +104,7 @@ class ManageFlowDesignerParams(BaseModel):
       set_action_input:      flow_id, node_id, input_name, value
       set_trigger_condition: flow_id, value (node_id optional — first trigger if omitted)
       set_branch_condition:  flow_id, node_id, value
+      add_branch:            flow_id, node_id (branch to clone), value (new condition)
       save:                  flow_id
       discard:               flow_id
       edit_status:           flow_id (reads local checkout file)
@@ -120,6 +124,7 @@ class ManageFlowDesignerParams(BaseModel):
         "set_action_input",
         "set_trigger_condition",
         "set_branch_condition",
+        "add_branch",
         "set_property",
         "save",
         "save_properties",
@@ -132,7 +137,7 @@ class ManageFlowDesignerParams(BaseModel):
         "edit_status",
     ] = Field(
         ...,
-        description="Writes (checkout/set_*/save/publish/activate/deactivate/copy/update) need browser auth; rest are reads.",
+        description="Writes (checkout/set_*/add_branch/save/publish/activate/deactivate/copy/update) need browser auth; rest are reads.",
     )
 
     # ---- Common ----
@@ -259,6 +264,7 @@ class ManageFlowDesignerParams(BaseModel):
         "set_action_input": frozenset({"flow_id", "node_id", "input_name", "value"}),
         "set_trigger_condition": frozenset({"flow_id", "node_id", "value"}),
         "set_branch_condition": frozenset({"flow_id", "node_id", "value", "condition_label"}),
+        "add_branch": frozenset({"flow_id", "node_id", "value", "condition_label"}),
         "set_property": frozenset({"flow_id", "input_name", "value"}),
         "save": frozenset({"flow_id", "publish", "verify", "dry_run"}),
         "save_properties": frozenset({"flow_id"}),
@@ -310,6 +316,12 @@ class ManageFlowDesignerParams(BaseModel):
                 raise ValueError("set_branch_condition requires node_id")
             if self.value is None:
                 raise ValueError("set_branch_condition requires value")
+
+        if action == "add_branch":
+            if not self.node_id:
+                raise ValueError("add_branch requires node_id (existing branch to clone)")
+            if self.value is None:
+                raise ValueError("add_branch requires value (new branch condition)")
 
         if action == "set_trigger_condition":
             if self.value is None:
@@ -434,6 +446,7 @@ _EDIT_ACTION_MAP: Dict[str, str] = {
     "set_action_input": "set_action_input",
     "set_trigger_condition": "set_trigger_condition",
     "set_branch_condition": "set_branch_condition",
+    "add_branch": "add_branch",
     "set_property": "set_property",
     "save": "save",
     "save_properties": "save_properties",
@@ -452,6 +465,7 @@ _EditActionT = Literal[
     "set_action_input",
     "set_trigger_condition",
     "set_branch_condition",
+    "add_branch",
     "set_property",
     "save",
     "save_properties",
@@ -506,8 +520,8 @@ _DISPATCH = {
     name="manage_flow_designer",
     params=ManageFlowDesignerParams,
     description=(
-        "Flow Designer read/inspect. Edits LIMITED to action inputs + "
-        "trigger/branch conditions; no structural changes (use UI)."
+        "Flow Designer read/edit: action inputs, trigger/branch conditions, "
+        "add_branch (clone a branch). Publish via UI."
     ),
     serialization="json",
     return_type=dict,

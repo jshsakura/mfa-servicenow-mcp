@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -361,6 +362,147 @@ def _set_input_value(
     return False
 
 
+# --- Structural add (clone a branch subtree) -------------------------------
+# The flow tree is `parent`-linked exactly like the reader builds it: every
+# instance carries a `uiUniqueIdentifier` and points at its container via
+# `parent` (the parent's uiUniqueIdentifier); `order` sorts siblings; data
+# pills embed a node's uiUniqueIdentifier ({{<uid>.Record.field}}). So adding a
+# sibling branch = deep-clone an EXISTING branch subtree, mint fresh ids/uids,
+# remap every internal reference, and change only the condition. We never hand-
+# author a node — the clone inherits flowBlockId/definitionId/connectedTo from a
+# real, working sibling, which is what keeps the compiled flow valid.
+_INSTANCE_COLLECTIONS = ("actionInstances", "flowLogicInstances", "subFlowInstances")
+
+
+def _safe_order(value: Any) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _index_by_uid(flow_data: Dict[str, Any]) -> tuple:
+    """uiUniqueIdentifier -> node and -> collection name, across every instance
+    collection (actions/logic/subflows)."""
+    by_uid: Dict[str, Dict[str, Any]] = {}
+    coll_of: Dict[str, str] = {}
+    for coll in _INSTANCE_COLLECTIONS:
+        for n in flow_data.get(coll, []) or []:
+            uid = n.get("uiUniqueIdentifier")
+            if uid:
+                by_uid[uid] = n
+                coll_of[uid] = coll
+    return by_uid, coll_of
+
+
+def _collect_subtree_uids(by_uid: Dict[str, Dict[str, Any]], root_uid: str) -> List[str]:
+    """root_uid + every descendant reachable via parent==<uid> (BFS, root first)."""
+    ordered = [root_uid]
+    seen = {root_uid}
+    queue = [root_uid]
+    while queue:
+        cur = queue.pop(0)
+        for uid, n in by_uid.items():
+            if uid not in seen and (n.get("parent") or "") == cur:
+                seen.add(uid)
+                ordered.append(uid)
+                queue.append(uid)
+    return ordered
+
+
+def _remap_pills_in_node(node: Dict[str, Any], uid_map: Dict[str, str]) -> None:
+    """Rewrite data-pill references that point INTO the cloned subtree to the
+    clone's fresh uids. References to nodes outside the subtree (trigger record,
+    other branches) are left untouched."""
+    for inp in node.get("inputs", []) or []:
+        if not isinstance(inp, dict):
+            continue
+        for key in ("value", "displayValue"):
+            v = inp.get(key)
+            if isinstance(v, str) and v:
+                for old, new in uid_map.items():
+                    if old in v:
+                        v = v.replace(old, new)
+                inp[key] = v
+
+
+def _clone_branch(
+    flow_data: Dict[str, Any],
+    template_ref: str,
+    new_condition: str,
+    label: Optional[str],
+) -> tuple:
+    """Clone the branch subtree rooted at `template_ref` (a LOGIC node's
+    uiUniqueIdentifier OR instance id) as a new sibling, with a fresh condition.
+    Returns ({new_branch_uid, cloned_node_count, child_uids}, None) or
+    (None, error)."""
+    by_uid, coll_of = _index_by_uid(flow_data)
+    template_uid = template_ref
+    if template_uid not in by_uid:
+        # Allow the caller to pass the instance sys_id instead of the ui id.
+        for uid, n in by_uid.items():
+            if n.get("id") == template_ref:
+                template_uid = uid
+                break
+    if template_uid not in by_uid:
+        return None, f"Template branch not found: {template_ref}"
+    if coll_of[template_uid] != "flowLogicInstances":
+        return None, (
+            "add_branch template must be an existing LOGIC branch (an If/Else If "
+            "node). Clone an Else If to get an Else If, or the If to get a parallel If."
+        )
+
+    subtree = _collect_subtree_uids(by_uid, template_uid)
+    uid_map = {old: uuid.uuid4().hex for old in subtree}
+    id_map: Dict[str, str] = {}
+    for old in subtree:
+        oid = by_uid[old].get("id")
+        if oid:
+            id_map[oid] = uuid.uuid4().hex
+
+    base_order = max((_safe_order(n.get("order")) for n in by_uid.values()), default=0) + 1
+    template_parent = by_uid[template_uid].get("parent", "")
+
+    new_nodes: List[tuple] = []
+    for i, old in enumerate(subtree):
+        clone = json.loads(json.dumps(by_uid[old]))  # deep copy
+        clone["uiUniqueIdentifier"] = uid_map[old]
+        if clone.get("id") in id_map:
+            clone["id"] = id_map[clone["id"]]
+        # Root clone becomes a sibling of the template (same parent); descendants
+        # re-point at their cloned parent.
+        if old == template_uid:
+            clone["parent"] = template_parent
+        else:
+            src_parent = by_uid[old].get("parent")
+            clone["parent"] = uid_map.get(src_parent, src_parent)
+        ct = clone.get("connectedTo")
+        if isinstance(ct, str) and ct in uid_map:
+            clone["connectedTo"] = uid_map[ct]
+        clone["order"] = base_order + i
+        _remap_pills_in_node(clone, uid_map)
+        new_nodes.append((coll_of[old], clone))
+
+    root_clone = new_nodes[0][1]
+    _set_input_value(root_clone.get("inputs", []), "condition", new_condition)
+    if label is not None:
+        if not _set_input_value(root_clone.get("inputs", []), "condition_name", label):
+            root_clone.setdefault("inputs", []).append({"name": "condition_name", "value": label})
+        root_clone["name"] = f"If: {label}"
+
+    for coll, clone in new_nodes:
+        flow_data.setdefault(coll, []).append(clone)
+
+    return (
+        {
+            "new_branch_uid": uid_map[template_uid],
+            "cloned_node_count": len(subtree),
+            "child_uids": [uid_map[u] for u in subtree[1:]],
+        },
+        None,
+    )
+
+
 # ServiceNow encoded-query operators, longest/most-specific token first so e.g.
 # ">=" is matched before ">" and "ISNOTEMPTY" before "ISEMPTY". Mapped to the
 # human label the Flow Designer condition builder shows.
@@ -532,6 +674,7 @@ class ManageFlowEditParams(BaseModel):
         "set_action_input",
         "set_trigger_condition",
         "set_branch_condition",
+        "add_branch",
         "set_property",
         "save",
         "save_properties",
@@ -543,7 +686,7 @@ class ManageFlowEditParams(BaseModel):
         "status",
     ] = Field(
         ...,
-        description="read|checkout|read_action|set_action_input|set_trigger_condition|set_branch_condition|set_property|save|save_properties|publish(snapshot recompile)|activate|deactivate|copy(value=new name)|discard|status",
+        description="read|checkout|read_action|set_action_input|set_trigger_condition|set_branch_condition|add_branch(clone sibling branch)|set_property|save|save_properties|publish(snapshot recompile)|activate|deactivate|copy(value=new name)|discard|status",
     )
     flow_id: str = Field(
         ..., description="sys_id of flow/subflow/action; for action='read' a NAME or sys_id"
@@ -894,6 +1037,35 @@ def manage_flow_edit(
             "node_id": params.node_id,
             "input_name": params.input_name,
             "value": params.value,
+        }
+
+    if action == "add_branch":
+        if not params.node_id:
+            return {
+                "success": False,
+                "error": "add_branch requires node_id (the existing branch to clone as template).",
+            }
+        if params.value is None:
+            return {
+                "success": False,
+                "error": "add_branch requires value (the new branch condition).",
+            }
+        encoded = _resolve_condition_value(params.value)
+        result, err = _clone_branch(flow_data, params.node_id, encoded, params.condition_label)
+        if err:
+            return {"success": False, "error": err}
+        _save_checkout(flow_id, flow_data)
+        return {
+            "success": True,
+            "action": "add_branch",
+            "condition": encoded,
+            "condition_readable": _condition_to_text(encoded),
+            **(result or {}),
+            "note": (
+                "New sibling branch staged in checkout (cloned from template, ids remapped). "
+                "Adjust its child action inputs with set_action_input if needed, then run save. "
+                "Publish (snapshot recompile) is UI-gated — click Activate/Publish in Flow Designer."
+            ),
         }
 
     if action == "set_branch_condition":
