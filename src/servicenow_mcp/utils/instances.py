@@ -61,6 +61,33 @@ def build_instance_definition(alias: str, entry: dict[str, Any]) -> InstanceDefi
     )
 
 
+def resolve_auth_type(entry: dict[str, Any] | None, default_auth_type: str) -> str:
+    """Resolve an instance's auth type, honoring an explicit opt-out of browser.
+
+    Browser is the global default (headless), and instances that specify nothing
+    keep it. But an instance that brings its OWN ``username`` + ``password`` almost
+    always means "use these directly" — so it opts OUT of browser to ``basic`` (no
+    browser window, straight Table-API auth). This is the common "attach a temp
+    service account to prod for read-only checks" case: just add username/password,
+    no need to also spell out ``auth_type``.
+
+    Precedence:
+      1. explicit ``auth_type`` on the entry always wins (set ``"browser"`` to keep
+         browser even with creds present, or ``"oauth"``/``"api_key"`` as needed);
+      2. else, if the default is browser AND the entry carries both username and
+         password, use ``basic``;
+      3. else, the global default.
+    """
+    entry = entry or {}
+    explicit = entry.get("auth_type")
+    if explicit:
+        return str(explicit).strip().lower()
+    default = str(default_auth_type).strip().lower()
+    if default == "browser" and entry.get("username") and entry.get("password"):
+        return "basic"
+    return default
+
+
 def select_active_alias(
     entries: dict[str, dict[str, Any]],
     *,
