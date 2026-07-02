@@ -265,6 +265,14 @@ def parse_args():
         help="Disable HTTP DNS rebinding protection. Use only behind trusted network controls.",
         default=_env_bool("SERVICENOW_MCP_HTTP_DISABLE_DNS_REBINDING_PROTECTION", False),
     )
+    transport_group.add_argument(
+        "--http-auth-token",
+        help=(
+            "Bearer token required on every HTTP MCP request. Mandatory for a "
+            "non-loopback --http-host; optional (but enforced when set) on loopback."
+        ),
+        default=os.environ.get("SERVICENOW_MCP_HTTP_AUTH_TOKEN"),
+    )
 
     # Authentication
     auth_group = parser.add_argument_group("Authentication")
@@ -696,7 +704,11 @@ async def arun_http_server(server_instance, args):
     from starlette.responses import JSONResponse
     from starlette.routing import Mount, Route
 
+    from servicenow_mcp.utils.http_auth import is_authorized, resolve_http_auth_token
+
     path = args.http_path if str(args.http_path).startswith("/") else f"/{args.http_path}"
+    # Fail closed BEFORE binding: a non-loopback host with no token is refused.
+    auth_token = resolve_http_auth_token(args.http_host, getattr(args, "http_auth_token", None))
     allowed_hosts = _split_csv(args.http_allowed_hosts) or _default_http_allowed_hosts(
         args.http_host, args.http_port
     )
@@ -714,6 +726,18 @@ async def arun_http_server(server_instance, args):
 
     class StreamableHTTPApp:
         async def __call__(self, scope, receive, send):
+            # Bearer gate on the MCP surface only (never on /health). Constant-time
+            # compared. Non-HTTP scopes (lifespan) pass straight through.
+            if auth_token is not None and scope.get("type") == "http":
+                header_map = {k.decode("latin-1").lower(): v for k, v in scope.get("headers", [])}
+                auth_header = header_map.get("authorization", b"").decode("latin-1")
+                if not is_authorized(auth_header, auth_token):
+                    await JSONResponse(
+                        {"error": "unauthorized", "detail": "Bearer token required or invalid."},
+                        status_code=401,
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )(scope, receive, send)
+                    return
             await session_manager.handle_request(scope, receive, send)
 
     async def health(_request):
