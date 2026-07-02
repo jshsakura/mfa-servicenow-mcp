@@ -35,6 +35,7 @@ from servicenow_mcp.utils.instances import (
     build_instance_definition,
     coerce_bool,
     load_instance_config_env,
+    resolve_auth_type,
     safe_instance_url,
     select_active_alias,
 )
@@ -637,8 +638,19 @@ class ServiceNowMCP:
     def _auth_for_instance_entry(self, entry: Dict[str, Any]) -> AuthConfig:
         """Return auth config for a named instance, falling back to active auth."""
         base = self.config.auth
-        auth_type = str(entry.get("auth_type") or base.type.value).lower()
+        # Browser (headless) stays the default when the entry says nothing; but an
+        # entry carrying its own username+password opts out of browser → basic.
+        auth_type = resolve_auth_type(entry, base.type.value)
         parsed = AuthType(auth_type)
+        if (
+            not entry.get("auth_type")
+            and parsed == AuthType.BASIC
+            and str(base.type.value).lower() == "browser"
+        ):
+            logger.info(
+                "Instance auth: username+password present with no auth_type — using basic "
+                "(browser default overridden). Set auth_type='browser' to force browser login."
+            )
         if parsed == AuthType.BROWSER:
             base_browser = base.browser or BrowserAuthConfig()
             return AuthConfig(

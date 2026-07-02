@@ -58,6 +58,7 @@ from .utils.instances import (  # noqa: E402
     INSTANCE_CONFIG_ENV,
     build_instance_definition,
     load_instance_config_env,
+    resolve_auth_type,
     select_active_alias,
 )
 from .version import __version__  # noqa: E402
@@ -435,16 +436,25 @@ def create_config(args) -> ServerConfig:
                 "ServiceNow instance URL is required (--instance-url or SERVICENOW_INSTANCE_URL env var)"
             )
 
-    # Create authentication configuration based on args
-    auth_type_value = (
-        str(active_entry.raw.get("auth_type"))  # type: ignore[union-attr]
-        if active_entry and active_entry.raw and active_entry.raw.get("auth_type")
-        else args.auth_type
-    )
+    # Create authentication configuration based on args.
+    # Browser (headless) is the default; but an active instance that brings its
+    # own username+password opts out of browser → basic (no need to also set
+    # auth_type). Explicit auth_type on the entry always wins. Mirrors
+    # server._auth_for_instance_entry so active and named instances behave alike.
+    active_raw = active_entry.raw if active_entry and active_entry.raw else {}
+    auth_type_value = resolve_auth_type(active_raw, args.auth_type)
     auth_type = AuthType(auth_type_value.lower())
     # This will hold the final AuthConfig instance for ServerConfig
     final_auth_config: AuthConfig
-    active_raw = active_entry.raw if active_entry and active_entry.raw else {}
+    if (
+        not active_raw.get("auth_type")
+        and auth_type == AuthType.BASIC
+        and str(args.auth_type).lower() == "browser"
+    ):
+        logger.info(
+            "Active instance auth: username+password present with no auth_type — using basic "
+            "(browser default overridden). Set auth_type='browser' to force browser login."
+        )
 
     if auth_type == AuthType.BASIC:
         username = _pick_first_resolved(
