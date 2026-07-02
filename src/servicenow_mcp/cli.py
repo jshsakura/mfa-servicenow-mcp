@@ -372,13 +372,6 @@ def parse_args():
     )
 
     # Script execution API resource path
-    script_execution_group = parser.add_argument_group("Script Execution API")
-    script_execution_group.add_argument(
-        "--script-execution-api-resource-path",
-        help="Script execution API resource path",
-        default=os.environ.get("SCRIPT_EXECUTION_API_RESOURCE_PATH"),
-    )
-
     return parser.parse_args()
 
 
@@ -629,15 +622,6 @@ def create_config(args) -> ServerConfig:
         # Should not happen if choices are enforced by argparse
         raise ValueError(f"Unsupported authentication type: {args.auth_type}")
 
-    # Script execution path
-    script_execution_api_resource_path = args.script_execution_api_resource_path or os.getenv(
-        "SCRIPT_EXECUTION_API_RESOURCE_PATH"
-    )
-    if not script_execution_api_resource_path:
-        logger.warning(
-            "Script execution API resource path not set (--script-execution-api-resource-path or SCRIPT_EXECUTION_API_RESOURCE_PATH). ExecuteScriptInclude tool may fail."
-        )
-
     # Create the final ServerConfig
     # Ensure ServerConfig model expects 'auth' as a nested object
     return ServerConfig(
@@ -646,7 +630,6 @@ def create_config(args) -> ServerConfig:
         # Include other server config fields if they exist on ServerConfig model
         debug=args.debug,
         timeout=args.timeout,
-        script_execution_api_resource_path=script_execution_api_resource_path,
     )
 
 
