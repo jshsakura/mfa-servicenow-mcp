@@ -10,7 +10,11 @@ from typing import Any, ClassVar, Dict, List, Literal, Optional, Type, TypeVar
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools._preview import build_delete_preview, build_update_preview
+from servicenow_mcp.tools._preview import (
+    build_create_preview,
+    build_delete_preview,
+    build_update_preview,
+)
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
@@ -63,6 +67,10 @@ class CreateWorkflowParams(BaseModel):
     attributes: Optional[Dict[str, Any]] = Field(
         default=None, description="Additional attributes for the workflow"
     )
+    dry_run: bool = Field(
+        default=False,
+        description="Preview the record that would be created without executing.",
+    )
 
 
 class UpdateWorkflowParams(BaseModel):
@@ -86,12 +94,20 @@ class ActivateWorkflowParams(BaseModel):
     """Parameters for activating a workflow."""
 
     workflow_id: str = Field(..., description="Workflow ID or sys_id")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview the active-flag change without executing.",
+    )
 
 
 class DeactivateWorkflowParams(BaseModel):
     """Parameters for deactivating a workflow."""
 
     workflow_id: str = Field(..., description="Workflow ID or sys_id")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview the active-flag change without executing.",
+    )
 
 
 class AddWorkflowActivityParams(BaseModel):
@@ -105,6 +121,10 @@ class AddWorkflowActivityParams(BaseModel):
     )
     attributes: Optional[Dict[str, Any]] = Field(
         default=None, description="Additional attributes for the activity"
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Preview the activity that would be created without executing.",
     )
 
 
@@ -138,6 +158,10 @@ class ReorderWorkflowActivitiesParams(BaseModel):
 
     workflow_id: str = Field(..., description="Workflow ID or sys_id")
     activity_ids: List[str] = Field(..., description="List of activity IDs in the desired order")
+    dry_run: bool = Field(
+        default=False,
+        description="Preview planned order changes without executing.",
+    )
 
 
 class ListWorkflowVersionsParams(BaseModel):
@@ -401,6 +425,9 @@ def create_workflow(
         # Add any additional attributes
         data.update(params["attributes"])
 
+    if params.get("dry_run"):
+        return build_create_preview(table="wf_workflow", proposed=data)
+
     # Make the API request
     try:
         headers = auth_manager.get_headers()
@@ -522,6 +549,16 @@ def activate_workflow(
         "active": "true",
     }
 
+    if params.get("dry_run"):
+        return build_update_preview(
+            server_config,
+            auth_manager,
+            table="wf_workflow",
+            sys_id=workflow_id,
+            proposed=data,
+            identifier_fields=["name", "active"],
+        )
+
     # Make the API request
     try:
         headers = auth_manager.get_headers()
@@ -568,6 +605,16 @@ def deactivate_workflow(
     data = {
         "active": "false",
     }
+
+    if params.get("dry_run"):
+        return build_update_preview(
+            server_config,
+            auth_manager,
+            table="wf_workflow",
+            sys_id=workflow_id,
+            proposed=data,
+            identifier_fields=["name", "active"],
+        )
 
     # Make the API request
     try:
@@ -631,6 +678,9 @@ def add_workflow_activity(
     if params.get("attributes"):
         # Add any additional attributes
         data.update(params["attributes"])
+
+    if params.get("dry_run"):
+        return build_create_preview(table="wf_activity", proposed=data)
 
     # Make the API request
     try:
@@ -769,6 +819,54 @@ def delete_workflow_activity(
         return {"error": str(e)}
 
 
+def _build_reorder_preview(
+    server_config: ServerConfig,
+    auth_manager: AuthManager,
+    workflow_id: str,
+    activity_ids: List[str],
+) -> Dict[str, Any]:
+    """Dry-run preview for reorder_activities: the exact order PATCHes planned,
+    diffed against the current order of each activity."""
+    preview: Dict[str, Any] = {
+        "dry_run": True,
+        "operation": "reorder_activities",
+        "target": {"table": "wf_activity", "workflow_id": workflow_id},
+        "planned_updates": [],
+        "warnings": [],
+        "precision_notes": {
+            "count_source": "table_api",
+            "dependency_check": False,
+            "acl_checked": False,
+        },
+    }
+    current: Dict[str, Dict[str, Any]] = {}
+    try:
+        rows, _ = sn_query_page(
+            server_config,
+            auth_manager,
+            table="wf_activity",
+            query="sys_idIN" + ",".join(activity_ids),
+            fields="sys_id,name,order",
+            limit=len(activity_ids),
+            offset=0,
+            display_value=False,
+            no_count=True,
+        )
+        current = {str(row["sys_id"]): row for row in rows if row.get("sys_id")}
+    except Exception as exc:  # noqa: BLE001 — preview stays useful without the diff
+        preview["warnings"].append(f"current-order lookup failed: {exc}")
+    for i, activity_id in enumerate(activity_ids):
+        row = current.get(activity_id)
+        entry: Dict[str, Any] = {"activity_id": activity_id, "new_order": (i + 1) * 100}
+        if row:
+            entry["name"] = row.get("name")
+            entry["current_order"] = row.get("order")
+        elif current:
+            preview["warnings"].append(f"activity not found: {activity_id}")
+        preview["planned_updates"].append(entry)
+    return preview
+
+
 def reorder_workflow_activities(
     server_config: ServerConfig,
     auth_manager: AuthManager,
@@ -795,6 +893,9 @@ def reorder_workflow_activities(
     activity_ids = params.get("activity_ids")
     if not activity_ids:
         return {"error": "Activity IDs are required"}
+
+    if params.get("dry_run"):
+        return _build_reorder_preview(server_config, auth_manager, workflow_id, activity_ids)
 
     # Make the API requests to update the order of each activity
     try:
@@ -1167,7 +1268,7 @@ def manage_workflow(
         )
     if a == "create":
         assert params.name is not None
-        create_kwargs: Dict[str, Any] = {"name": params.name}
+        create_kwargs: Dict[str, Any] = {"name": params.name, "dry_run": params.dry_run}
         for f in ("description", "table", "active", "attributes"):
             v = getattr(params, f)
             if v is not None:
@@ -1186,10 +1287,18 @@ def manage_workflow(
         return update_workflow(config, auth_manager, update_kwargs)
     if a == "activate":
         assert params.workflow_id is not None
-        return activate_workflow(config, auth_manager, {"workflow_id": params.workflow_id})
+        return activate_workflow(
+            config,
+            auth_manager,
+            {"workflow_id": params.workflow_id, "dry_run": params.dry_run},
+        )
     if a == "deactivate":
         assert params.workflow_id is not None
-        return deactivate_workflow(config, auth_manager, {"workflow_id": params.workflow_id})
+        return deactivate_workflow(
+            config,
+            auth_manager,
+            {"workflow_id": params.workflow_id, "dry_run": params.dry_run},
+        )
     if a == "delete":
         assert params.workflow_id is not None
         return delete_workflow(
@@ -1205,6 +1314,7 @@ def manage_workflow(
             "workflow_version_id": params.workflow_version_id,
             "name": params.activity_name,
             "activity_type": params.activity_type,
+            "dry_run": params.dry_run,
         }
         if params.activity_description is not None:
             add_kwargs["description"] = params.activity_description
@@ -1237,5 +1347,9 @@ def manage_workflow(
     return reorder_workflow_activities(
         config,
         auth_manager,
-        {"workflow_id": params.workflow_id, "activity_ids": params.activity_ids},
+        {
+            "workflow_id": params.workflow_id,
+            "activity_ids": params.activity_ids,
+            "dry_run": params.dry_run,
+        },
     )
