@@ -160,7 +160,6 @@ class TestCreateConfig:
         args.password = "password"
         args.debug = False
         args.timeout = 30
-        args.script_execution_api_resource_path = None
         config = create_config(args)
         assert config.instance_url == "https://test.service-now.com"
         assert config.auth.type.value == "basic"
@@ -186,7 +185,6 @@ class TestCreateConfig:
         args.password = "password"
         args.debug = False
         args.timeout = 30
-        args.script_execution_api_resource_path = None
 
         config = create_config(args)
 
@@ -217,7 +215,6 @@ class TestCreateConfig:
         args.password = None
         args.debug = False
         args.timeout = 30
-        args.script_execution_api_resource_path = None
 
         config = create_config(args)
 
@@ -240,7 +237,6 @@ class TestCreateConfig:
         args.auth_type = "basic"
         args.username = None
         args.password = None
-        args.script_execution_api_resource_path = None
         with pytest.raises(ValueError, match="[Uu]sername"):
             create_config(args)
 
@@ -255,7 +251,6 @@ class TestCreateConfig:
         args.token_url = None
         args.debug = False
         args.timeout = 30
-        args.script_execution_api_resource_path = None
         config = create_config(args)
         assert config.auth.type.value == "oauth"
         assert config.auth.oauth is not None
@@ -282,7 +277,6 @@ class TestCreateConfig:
         args.api_key_header = "X-Custom-Header"
         args.debug = False
         args.timeout = 30
-        args.script_execution_api_resource_path = None
         config = create_config(args)
         assert config.auth.type.value == "api_key"
 
@@ -309,7 +303,6 @@ class TestCreateConfig:
         args.browser_session_ttl = 30
         args.debug = False
         args.timeout = 30
-        args.script_execution_api_resource_path = None
         config = create_config(args)
         assert config.auth.type.value == "browser"
 
@@ -332,7 +325,6 @@ class TestCreateConfig:
         args.browser_session_ttl = 30
         args.debug = False
         args.timeout = 30
-        args.script_execution_api_resource_path = None
 
         with patch.dict(os.environ, {"SERVICENOW_BROWSER_PROBE_PATH": ""}):
             config = create_config(args)
@@ -357,7 +349,6 @@ class TestCreateConfig:
         args.browser_session_ttl = 30
         args.debug = False
         args.timeout = 30
-        args.script_execution_api_resource_path = None
 
         with patch.dict(
             os.environ,
@@ -388,7 +379,6 @@ class TestCreateConfig:
         args.browser_session_ttl = 30
         args.debug = False
         args.timeout = 30
-        args.script_execution_api_resource_path = None
 
         config = create_config(args)
 
