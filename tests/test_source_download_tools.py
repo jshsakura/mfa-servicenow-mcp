@@ -2058,3 +2058,60 @@ class TestDownloadEolNormalization:
         raw = (scope_root / "sys_script_include" / "Foo" / "script.js").read_bytes()
         assert b"\r" not in raw  # no CRLF noise survives to disk
         assert raw == b"line1\nline2\n"
+
+
+class TestBulkDownloadRetry:
+    @patch("servicenow_mcp.tools.sn_api.time.sleep")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_transient_error_is_retried_not_fatal(
+        self, mock_query_all, mock_query_page, mock_sleep, config, auth, tmp_path
+    ):
+        # A single 503 mid-bulk-download must retry and complete, not abort
+        # the whole multi-record run (issue #63 batch 2).
+        import requests as _requests
+
+        resp = MagicMock()
+        resp.status_code = 503
+        err = _requests.exceptions.HTTPError(response=resp)
+        mock_query_all.side_effect = [err, _strip_source(_si_records())]
+        mock_query_page.side_effect = _page_side_effect_for(_si_records())
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        result = _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
+        )
+
+        assert result["type_results"]["script_include"]["count"] == len(_si_records())
+        assert not any("fetch failed" in w for w in result.get("warnings", []))
+        assert mock_query_all.call_count == 2  # failed once, retried once
+        assert mock_sleep.called  # backoff happened
+
+    @patch("servicenow_mcp.tools.sn_api.time.sleep")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_non_retryable_error_still_fails_fast(
+        self, mock_query_all, mock_sleep, config, auth, tmp_path
+    ):
+        # Non-transient errors keep the old fail-fast behavior (no retry storm).
+        mock_query_all.side_effect = Exception("ACL denied")
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+
+        result = _download_source_types(
+            config,
+            auth,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=scope_root,
+            root=tmp_path,
+        )
+
+        assert result["type_results"]["script_include"]["count"] == 0
+        assert any("fetch failed" in w for w in result["warnings"])
+        assert mock_query_all.call_count == 1  # no retry

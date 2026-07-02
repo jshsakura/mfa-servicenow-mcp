@@ -21,10 +21,10 @@ from pydantic import BaseModel, Field
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.sn_api import (
     _RETRY_MAX_ATTEMPTS,
-    _is_retryable,
     _retry_delay,
     apply_scope_namespace,
     sn_query_all,
+    sn_query_all_with_retry,
     sn_query_page,
 )
 from servicenow_mcp.tools.source_resume import (
@@ -1972,7 +1972,9 @@ def _download_dep_records(
     def _fetch_chunk(chunk: List[str]) -> List[Dict[str, Any]]:
         escaped = ",".join(_escape_query_fragment(n) for n in chunk)
         try:
-            return sn_query_all(
+            # Retry transient failures — a dropped chunk here silently loses
+            # dependencies from the local tree (looks complete, isn't).
+            return sn_query_all_with_retry(
                 config,
                 auth_manager,
                 table=table,
@@ -1986,7 +1988,7 @@ def _download_dep_records(
                 # does not stack chunk-level and page-level parallelism. A
                 # single chunk keeps the normal page fetch parallelism.
                 parallel=use_inner_page_parallel,
-                display_value=False,
+                query_all_fn=sn_query_all,
             )
         except Exception as exc:
             logger.warning("dep fetch %s chunk: %s", source_type, exc)
@@ -2492,39 +2494,24 @@ def _download_source_types(
 
         _last_exc: Optional[Exception] = None
         records: List[Dict[str, Any]] = []
-        for _attempt in range(_RETRY_MAX_ATTEMPTS + 1):
-            try:
-                records = sn_query_all(
-                    config,
-                    auth_manager,
-                    table=table,
-                    query=query,
-                    fields=",".join(all_fields),
-                    page_size=effective_page_size,
-                    max_records=max_per_type,
-                    display_value=False,
-                    fail_silently=False,
-                    # Serial paging — see reconcile call above. Per-type workers
-                    # run under the cap; the shared page pool stays unused here.
-                    parallel=False,
-                )
-                _last_exc = None
-                break
-            except Exception as exc:
-                _last_exc = exc
-                if _attempt < _RETRY_MAX_ATTEMPTS and _is_retryable(exc):
-                    _delay = _retry_delay(_attempt)
-                    logger.warning(
-                        "Transient error on %s (attempt %d/%d), retrying in %.1fs: %s",
-                        source_type,
-                        _attempt + 1,
-                        _RETRY_MAX_ATTEMPTS + 1,
-                        _delay,
-                        exc,
-                    )
-                    time.sleep(_delay)
-                else:
-                    break
+        try:
+            records = sn_query_all_with_retry(
+                config,
+                auth_manager,
+                table=table,
+                query=query,
+                fields=",".join(all_fields),
+                page_size=effective_page_size,
+                max_records=max_per_type,
+                display_value=False,
+                # Serial paging — see reconcile call above. Per-type workers
+                # run under the cap; the shared page pool stays unused here.
+                parallel=False,
+                # Module-local reference so test patches on this module apply.
+                query_all_fn=sn_query_all,
+            )
+        except Exception as exc:
+            _last_exc = exc
         if _last_exc is not None:
             logger.error("Failed to download %s: %s", source_type, _last_exc)
             # Auth failure → trip the shared flag so queued types abort instead
@@ -3042,7 +3029,7 @@ def _fetch_and_write_schema(
     for table_chunk in _chunked(sorted(table_names), 50):
         encoded_names = ",".join(table_chunk)
         try:
-            dict_rows = sn_query_all(
+            dict_rows = sn_query_all_with_retry(
                 config,
                 auth_manager,
                 table="sys_dictionary",
@@ -3051,6 +3038,7 @@ def _fetch_and_write_schema(
                 page_size=100,
                 max_records=5000,
                 display_value=True,
+                query_all_fn=sn_query_all,
             )
             table_fields: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
             for row in dict_rows:

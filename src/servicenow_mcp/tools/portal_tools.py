@@ -29,6 +29,7 @@ from .sn_api import (
     invalidate_query_cache,
     sn_query,
     sn_query_all,
+    sn_query_all_with_retry,
     sn_query_page,
 )
 
@@ -1486,7 +1487,23 @@ def _sn_query_all(
     max_records: int,
     fail_silently: bool = True,
 ) -> List[Dict[str, Any]]:
-    """Delegate to shared parallel-capable ``sn_query_all`` in sn_api."""
+    """Delegate to shared parallel-capable ``sn_query_all`` in sn_api.
+
+    fail_silently=False callers are bulk downloads that must be COMPLETE —
+    those get transient-error retry; fail_silently=True callers already
+    tolerate partial results, so plain delegation keeps their semantics.
+    """
+    if not fail_silently:
+        return sn_query_all_with_retry(
+            config,
+            auth_manager,
+            table=table,
+            query=query,
+            fields=fields,
+            page_size=page_size,
+            max_records=max_records,
+            query_all_fn=sn_query_all,
+        )
     return sn_query_all(
         config,
         auth_manager,
