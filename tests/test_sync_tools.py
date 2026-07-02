@@ -18,6 +18,7 @@ from servicenow_mcp.tools.sync_tools import (
     _read_sync_meta,
     _resolve_local_path,
     _resolve_origin_url,
+    _resolve_target_by_name,
     _reverse_lookup_map,
     _reverse_lookup_name,
     _scan_download_root,
@@ -325,6 +326,48 @@ class TestResolveLocalPath:
         )
         resolved = _resolve_local_path(op_dir / "operation_script.js")
         assert resolved.sys_id == "op-exact"  # _metadata wins, not the colliding _map
+
+    def test_qualified_folder_resolves_bare_remote_name_and_qualifier(self, download_root):
+        # A qualified folder ('updateSOSAP.end') keeps folder identity for local
+        # lookups but exposes the record's own name + parent qualifier for
+        # cross-instance target resolution.
+        op_dir = download_root / "global" / "sys_ws_operation" / "updateSOSAP.end"
+        op_dir.mkdir(parents=True)
+        (op_dir / "_metadata.json").write_text(
+            json.dumps(
+                {
+                    "sys_id": "op-real",
+                    "name": "end",
+                    "web_service_definition.name": "updateSOSAP",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (op_dir / "operation_script.js").write_text("x", encoding="utf-8")
+        resolved = _resolve_local_path(op_dir / "operation_script.js")
+        assert resolved.name == "updateSOSAP.end"  # local folder key (sync_meta/_map)
+        assert resolved.remote_name == "end"  # ServiceNow identity
+        assert resolved.qualifier == ("web_service_definition.name", "updateSOSAP")
+
+    def test_resolve_target_by_name_appends_qualifier_clause(self, mock_config, mock_auth):
+        # Without the parent qualifier, name=end is ambiguous on the target; the
+        # qualifier scopes it to the right web service.
+        captured = {}
+
+        def _fake_query(config, auth, params):
+            captured["query"] = params.query
+            return {"results": [{"sys_id": "target-end", "name": "end"}]}
+
+        with patch("servicenow_mcp.tools.sync_tools.sn_query", side_effect=_fake_query):
+            matches = _resolve_target_by_name(
+                mock_config,
+                mock_auth,
+                "sys_ws_operation",
+                "end",
+                ("web_service_definition.name", "updateSOSAP"),
+            )
+        assert captured["query"] == "name=end^web_service_definition.name=updateSOSAP"
+        assert matches == [{"sys_id": "target-end", "name": "end"}]
 
     def test_widget_json_sys_id_wins_over_colliding_map(self, download_root):
         # Portal/bulk download writes _widget.json (NOT _metadata.json) with a

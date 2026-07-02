@@ -286,12 +286,21 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
     "scripted_rest": {
         "table": "sys_ws_operation",
         "identifier_field": "name",
+        # Operation names are unique only WITHIN a parent web service, not across
+        # the scope. Two web services can each own an operation named 'end', so a
+        # bare-name folder silently collides (one body/sys_id overwrites the
+        # other). Qualify the folder by the parent web service's readable name so
+        # each operation lands in its own folder with its own sys_id.
+        "folder_qualifier_field": "web_service_definition.name",
         "summary_fields": [
             "sys_id",
             "name",
             "http_method",
             "active",
             "web_service_definition",
+            # Readable parent name (sys_id under display_value=False is useless as
+            # a folder qualifier and for cross-instance target resolution).
+            "web_service_definition.name",
             "sys_scope",
             "sys_scope.scope",
             "sys_updated_on",
@@ -2230,7 +2239,12 @@ def _record_identifier_and_folder(
       3. else the sys_id (last resort);
       4. strip the redundant leading '<scope>.' — the scope is already the
          parent directory, so the prefix only duplicated it;
-      5. sanitize to a filesystem-safe folder name.
+      5. if `folder_qualifier_field` is set (e.g. scripted_rest → parent web
+         service), prefix the FOLDER with '<qualifier>.' so records whose name is
+         unique only within a parent don't collide into one folder. The returned
+         display identifier stays the bare name — the qualifier changes only where
+         the record lands on disk, not its ServiceNow identity;
+      6. sanitize to a filesystem-safe folder name.
     Returns (display_identifier, folder_name).
     """
     sys_id = str(record.get("sys_id") or "")
@@ -2240,7 +2254,13 @@ def _record_identifier_and_folder(
         if folder_fields:
             name = "_".join(str(record[f]) for f in folder_fields if record.get(f))
     name = str(name or sys_id)
-    return name, _safe_filename(_strip_scope_prefix(name, scope))
+    folder_source = _strip_scope_prefix(name, scope)
+    qualifier_field = source_cfg.get("folder_qualifier_field")
+    if qualifier_field:
+        qualifier = str(record.get(qualifier_field) or "").strip()
+        if qualifier:
+            folder_source = f"{qualifier}.{folder_source}"
+    return name, _safe_filename(folder_source)
 
 
 def _record_scope_namespace(record: Dict[str, Any], fallback: str) -> str:
@@ -2540,6 +2560,13 @@ def _download_source_types(
         type_dir = scope_root / table
         name_map: Dict[str, str] = {}
         sync_meta: Dict[str, Dict[str, str]] = {}
+        # Silent-collision net: two records mapping to one folder means one body +
+        # sys_id silently overwrites the other (the download looks complete but is
+        # scrambled). folder_qualifier_field prevents this for known child tables
+        # (scripted_rest); this guard catches any OTHER table where a name isn't
+        # unique within the scope. First writer keeps the folder; the collision is
+        # surfaced loudly, never swallowed.
+        seen_safe_names: Dict[str, str] = {}
         # Prior on-disk watermarks. Used by the resume-skip branch to preserve a
         # record's existing sys_updated_on (never bump a skipped record to the
         # current remote value) and to flag local copies that went stale.
@@ -2555,6 +2582,16 @@ def _download_source_types(
         for record in records:
             sys_id = str(record.get("sys_id") or "")
             name, safe_name = _record_identifier_and_folder(record, source_cfg, scope)
+
+            prior_sys_id = seen_safe_names.get(safe_name)
+            if prior_sys_id and prior_sys_id != sys_id:
+                warnings.append(
+                    f"{source_type}: COLLISION — '{name}' (sys_id={sys_id}) maps to the same "
+                    f"folder '{safe_name}' as a different record (sys_id={prior_sys_id}). Only the "
+                    f"first is on disk; this one was NOT written. Download by sys_id to get it."
+                )
+                continue
+            seen_safe_names[safe_name] = sys_id
 
             metadata: Dict[str, Any] = {
                 "source_type": source_type,
