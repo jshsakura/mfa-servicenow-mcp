@@ -526,3 +526,21 @@ def test_instance_with_creds_opts_out_of_browser_to_basic(monkeypatch, tmp_path)
     assert server.instance_contexts["prod"]["auth_manager"].instance_url == (
         "https://prod.service-now.com"
     )
+
+
+def test_list_instances_shows_auth_type_and_user_per_profile(monkeypatch, tmp_path):
+    server = _build_browser_default_server(monkeypatch, tmp_path)
+
+    out = server._list_instances_impl()
+    by_alias = {i["alias"]: i for i in out["instances"]}
+
+    # dev/test: browser SSO, no configured user → labelled 'sso'.
+    assert by_alias["dev"]["auth_type"] == "browser"
+    assert by_alias["dev"]["user"] == "sso"
+    assert by_alias["test"]["auth_type"] == "browser"
+    # prod: brought creds → basic, and its exact configured user is shown.
+    assert by_alias["prod"]["auth_type"] == "basic"
+    assert by_alias["prod"]["user"] == "svc_prod"
+    # write permission per profile still surfaced.
+    assert by_alias["dev"]["allow_writes"] is True
+    assert by_alias["prod"]["allow_writes"] is False
