@@ -5,13 +5,20 @@ from servicenow_mcp.tools.sn_api import (
     _CACHE_TTL_SECONDS,
     GenericQueryParams,
     HealthCheckParams,
+    _authenticated_user,
     _cache_get,
     _cache_put,
     invalidate_query_cache,
     sn_health,
     sn_query,
 )
-from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig, ServerConfig
+from servicenow_mcp.utils.config import (
+    AuthConfig,
+    AuthType,
+    BasicAuthConfig,
+    BrowserAuthConfig,
+    ServerConfig,
+)
 
 
 def test_sn_query_uses_auth_manager_make_request():
@@ -252,3 +259,69 @@ def test_sn_health_treats_browser_probe_acl_failure_as_authenticated_warning():
     assert result["ok"] is True
     assert result["status_code"] == 403
     assert "warning" in result
+
+
+def _browser_cfg():
+    return ServerConfig(
+        instance_url="https://example.service-now.com",
+        auth=AuthConfig(type=AuthType.BROWSER, browser=BrowserAuthConfig()),
+    )
+
+
+def _basic_cfg(username="admin"):
+    return ServerConfig(
+        instance_url="https://example.service-now.com",
+        auth=AuthConfig(
+            type=AuthType.BASIC,
+            basic=BasicAuthConfig(username=username, password="pw"),
+        ),
+    )
+
+
+def test_authenticated_user_basic_from_config_no_network():
+    am = MagicMock()
+    assert _authenticated_user(_basic_cfg("svc_prod"), am, allow_live=False) == "svc_prod"
+    am.make_request.assert_not_called()  # identity is the configured user, no call
+
+
+def test_authenticated_user_browser_live_asks_current_user():
+    am = MagicMock()
+    resp = MagicMock()
+    resp.json.return_value = {"result": {"user_name": "alice"}}
+    am.make_request.return_value = resp
+    assert _authenticated_user(_browser_cfg(), am, allow_live=True) == "alice"
+    called_url = am.make_request.call_args[0][1]
+    assert called_url.endswith("/api/now/ui/user/current_user")
+
+
+def test_authenticated_user_browser_not_live_never_calls():
+    # A dead session must not trigger a re-login from a health check.
+    am = MagicMock()
+    assert _authenticated_user(_browser_cfg(), am, allow_live=False) is None
+    am.make_request.assert_not_called()
+
+
+def test_authenticated_user_browser_live_failure_is_best_effort():
+    am = MagicMock()
+    am.make_request.side_effect = RuntimeError("boom")
+    assert _authenticated_user(_browser_cfg(), am, allow_live=True) is None
+
+
+def test_sn_health_surfaces_browser_authenticated_user():
+    invalidate_query_cache()
+    config = _browser_cfg()
+    am = MagicMock()
+    probe = MagicMock()
+    probe.status_code = 200
+    probe.headers = {}
+    probe.url = "https://example.service-now.com/api/now/table/sys_user_preference"
+    probe.is_redirect = False
+    probe.json.return_value = {"result": [{"sys_id": "1"}]}
+    current = MagicMock()
+    current.json.return_value = {"result": {"user_name": "alice"}}
+    am.make_request.side_effect = [probe, current]
+
+    result = sn_health(config, am, HealthCheckParams())
+
+    assert result["ok"] is True
+    assert result["authenticated_user"] == "alice"
