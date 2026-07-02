@@ -1544,6 +1544,26 @@ class ServiceNowMCP:
             }
         }
 
+    @staticmethod
+    def _configured_identity(auth) -> tuple:
+        """(auth_type, configured user label) for a profile — NO network.
+
+        The user is whatever the config carries. Browser SSO usually has no
+        configured username (the identity lives in the IDP session), so it reads
+        as 'sso' here — sn_health surfaces the LIVE logged-in user for those.
+        """
+        auth_type = auth.type.value
+        user = None
+        if getattr(auth, "browser", None) and auth.browser.username:
+            user = auth.browser.username
+        elif getattr(auth, "basic", None) and auth.basic.username:
+            user = auth.basic.username
+        elif getattr(auth, "oauth", None) and auth.oauth.username:
+            user = auth.oauth.username
+        if not user and auth_type == "browser":
+            user = "sso"
+        return auth_type, user
+
     def _list_instances_impl(self) -> Dict[str, Any]:
         instances = []
         for alias, ctx in self.instance_contexts.items():
@@ -1560,11 +1580,16 @@ class ServiceNowMCP:
                     auth_status = session_status()
                 except Exception:
                     auth_status = "unknown"
+            auth_type, configured_user = self._configured_identity(ctx["config"].auth)
             instances.append(
                 {
                     "alias": alias,
                     "active": alias == self.active_instance_alias,
+                    # allow_writes = write permission for this profile (read is
+                    # always allowed); auth_type + user = how it's configured.
                     "allow_writes": definition.allow_writes,
+                    "auth_type": auth_type,
+                    "user": configured_user,
                     "auth_status": auth_status,
                     "host": safe_instance_url(definition.url),
                 }
