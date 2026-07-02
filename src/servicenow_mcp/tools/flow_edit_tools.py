@@ -5,6 +5,7 @@ import logging
 import re
 import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import urlparse
@@ -397,6 +398,32 @@ def _save_checkout(config: ServerConfig, flow_id: str, data: Dict[str, Any]) -> 
     _checkout_path(config, flow_id).write_text(json.dumps(data))
 
 
+def _mark_dirty(flow_data: Dict[str, Any]) -> None:
+    """Flag the checkout as carrying un-saved staged edits, so a later checkout
+    (this or another process) refuses to silently wipe them."""
+    meta = flow_data.get(_CHECKOUT_META_KEY)
+    if not isinstance(meta, dict):
+        meta = {}
+        flow_data[_CHECKOUT_META_KEY] = meta
+    meta["dirty"] = True
+
+
+def _existing_dirty_checkout(config: ServerConfig, flow_id: str) -> Optional[Dict[str, Any]]:
+    """{modified_at} when an existing checkout holds un-saved staged edits;
+    None otherwise (missing, clean, or unreadable — fail-open)."""
+    try:
+        path = _checkout_path(config, flow_id)
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text())
+        meta = data.get(_CHECKOUT_META_KEY)
+        if isinstance(meta, dict) and meta.get("dirty"):
+            return {"modified_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat()}
+    except Exception:  # noqa: BLE001 — a broken file must never block checkout
+        return None
+    return None
+
+
 def _resolve_condition_value(value: Any) -> str:
     """Accept a condition as EITHER a raw encoded query string
     ('state=6^priority=1') OR a human-friendly list of rows
@@ -576,14 +603,23 @@ def _clone_branch(
     for coll, clone in new_nodes:
         flow_data.setdefault(coll, []).append(clone)
 
-    return (
-        {
-            "new_branch_uid": uid_map[template_uid],
-            "cloned_node_count": len(subtree),
-            "child_uids": [uid_map[u] for u in subtree[1:]],
-        },
-        None,
-    )
+    result: Dict[str, Any] = {
+        "new_branch_uid": uid_map[template_uid],
+        "cloned_node_count": len(subtree),
+        "child_uids": [uid_map[u] for u in subtree[1:]],
+    }
+    # The remap covers inputs (pills) + parent/connectedTo — the places pills
+    # are known to live. Verify that assumption instead of trusting it: any
+    # template uid still present in the serialized clones sits in a field the
+    # remap does not cover (a cross-linked clone in the making).
+    serialized = json.dumps([clone for _, clone in new_nodes])
+    leftover = sorted(old for old in uid_map if old in serialized)
+    if leftover:
+        result["warnings"] = [
+            "Cloned nodes still reference template node ids outside the remapped "
+            f"fields: {leftover[:5]} — inspect these before save."
+        ]
+    return result, None
 
 
 # ServiceNow encoded-query operators, longest/most-specific token first so e.g.
@@ -814,7 +850,7 @@ class ManageFlowEditParams(BaseModel):
     )
     force: bool = Field(
         default=False,
-        description="Save even if the remote flow changed after checkout (skip the lost-update conflict check).",
+        description="save: skip the remote-change conflict check; checkout: overwrite un-saved staged edits.",
     )
     dry_run: bool = Field(
         default=False,
@@ -891,6 +927,19 @@ def manage_flow_edit(
         return {"success": False, "error": f"Could not resolve '{flow_id}' to a flow/action."}
 
     if action == "checkout":
+        # Refuse to wipe un-saved staged edits (this session's or another
+        # process's) — a clean checkout is overwritten freely.
+        if not params.force:
+            dirty = _existing_dirty_checkout(config, flow_id)
+            if dirty:
+                return {
+                    "success": False,
+                    "error": "An existing checkout for this flow holds un-saved staged "
+                    f"edits (modified {dirty['modified_at']}) — checkout blocked so they "
+                    "are not lost.",
+                    "hint": "Run action='status' to inspect them, then save or discard; "
+                    "or re-run checkout with force=true to overwrite them.",
+                }
         pf = _try_processflow_api(config, auth_manager, flow_id)
         if not pf or pf.get("_error"):
             return {"success": False, "error": (pf or {}).get("_error", "Failed to fetch flow")}
@@ -1012,13 +1061,11 @@ def manage_flow_edit(
                 "remote_change": conflict,
                 "checkout_preserved": True,
                 "hint": (
-                    "Re-run checkout and re-apply the edits on the fresh copy, or re-run "
-                    "save with force=true to overwrite deliberately. remote_now.sys_updated_by "
-                    "is informational only."
+                    "Re-run checkout with force=true to start from the fresh copy and "
+                    "re-apply the edits, or re-run save with force=true to overwrite "
+                    "deliberately. remote_now.sys_updated_by is informational only."
                 ),
             }
-        # Mirror the UI: create a Save version row, then PUT the full flow.
-        _create_version(auth_manager, config, flow_id, scope, "Save")
         response = None
         try:
             response = auth_manager.make_request(
@@ -1045,6 +1092,10 @@ def manage_flow_edit(
             err = outer.get("errorMessage")
             if err:
                 return {"success": False, "error": err}
+
+        # Version row only AFTER the PUT succeeded — creating it first left a
+        # ghost 'Save' history row whenever the PUT failed.
+        _create_version(auth_manager, config, flow_id, scope, "Save")
 
         # Safety: re-read and confirm our values actually persisted (catches the
         # silent-revert failure mode) BEFORE we drop the checkout. Runs for the
@@ -1122,9 +1173,9 @@ def manage_flow_edit(
                     "blocked, nothing was overwritten.",
                     "remote_change": conflict,
                     "checkout_preserved": True,
-                    "hint": "Re-run checkout and re-apply, or re-run with force=true.",
+                    "hint": "Re-run checkout with force=true and re-apply, or re-run "
+                    "save_properties with force=true.",
                 }
-        _create_version(auth_manager, config, flow_id, scope, "Save")
         response = None
         try:
             response = auth_manager.make_request(
@@ -1151,6 +1202,9 @@ def manage_flow_edit(
         outer = result.get("result", result)
         if isinstance(outer, dict) and outer.get("errorMessage"):
             return {"success": False, "error": outer["errorMessage"]}
+        # Version row only AFTER the PUT succeeded — creating it first left a
+        # ghost 'Save' history row whenever the PUT failed.
+        _create_version(auth_manager, config, flow_id, scope, "Save")
         # Verify exactly the properties set_property staged (recorded in the
         # checkout meta) — a silent revert here previously went unreported.
         staged = meta.get("staged_properties") if isinstance(meta, dict) else None
@@ -1216,9 +1270,8 @@ def manage_flow_edit(
         # Record WHICH properties were staged so save_properties can verify
         # exactly those after its PUT (blind whole-payload compare would
         # false-positive on server-normalized fields).
-        meta = flow_data.get(_CHECKOUT_META_KEY)
-        if isinstance(meta, dict):
-            meta.setdefault("staged_properties", {})[prop] = val
+        _mark_dirty(flow_data)
+        flow_data[_CHECKOUT_META_KEY].setdefault("staged_properties", {})[prop] = val
         _save_checkout(config, flow_id, flow_data)
         return {
             "success": True,
@@ -1241,6 +1294,7 @@ def manage_flow_edit(
                 "success": False,
                 "error": f"Input '{params.input_name}' not found on node {params.node_id}",
             }
+        _mark_dirty(flow_data)
         _save_checkout(config, flow_id, flow_data)
         return {
             "success": True,
@@ -1265,6 +1319,7 @@ def manage_flow_edit(
         result, err = _clone_branch(flow_data, params.node_id, encoded, params.condition_label)
         if err:
             return {"success": False, "error": err}
+        _mark_dirty(flow_data)
         _save_checkout(config, flow_id, flow_data)
         return {
             "success": True,
@@ -1293,6 +1348,7 @@ def manage_flow_edit(
         if params.condition_label is not None:
             _set_input_value(node.get("inputs", []), "condition_name", params.condition_label)
             node["name"] = f"If: {params.condition_label}"
+        _mark_dirty(flow_data)
         _save_checkout(config, flow_id, flow_data)
         return {
             "success": True,
@@ -1314,6 +1370,7 @@ def manage_flow_edit(
         encoded = _resolve_condition_value(params.value)
         if not _set_input_value(node.get("inputs", []), "condition", encoded):
             return {"success": False, "error": "condition input not found on trigger"}
+        _mark_dirty(flow_data)
         _save_checkout(config, flow_id, flow_data)
         return {
             "success": True,
