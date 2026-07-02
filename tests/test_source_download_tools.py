@@ -112,7 +112,8 @@ def _rest_records():
             "name": "Get Request Status",
             "http_method": "GET",
             "active": "true",
-            "web_service_definition": "RequestAPI",
+            "web_service_definition": "ws-req-1",
+            "web_service_definition.name": "RequestAPI",
             "sys_scope": "x_app",
             "sys_updated_on": "2026-04-01 16:00:00",
             "sys_updated_by": "admin",
@@ -795,10 +796,112 @@ class TestDownloadSourcesAPI:
         assert result["success"] is True
         assert result["source_types"]["scripted_rest"]["count"] == 1
 
-        rest_dir = tmp_path / "sys_ws_operation" / "Get_Request_Status"
+        # Folder is qualified by the parent web service so same-named operations
+        # across web services don't collide.
+        rest_dir = tmp_path / "sys_ws_operation" / "RequestAPI.Get_Request_Status"
         assert (rest_dir / "operation_script.js").exists()
         script = (rest_dir / "operation_script.js").read_text()
         assert "x_app_request" in script
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_same_named_operations_across_web_services_dont_collide(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        # Two web services each own an operation named 'end' — the exact
+        # same-name trap. Each must land in its OWN folder with its OWN sys_id.
+        ops = [
+            {
+                "sys_id": "op-a",
+                "name": "end",
+                "http_method": "POST",
+                "active": "true",
+                "web_service_definition": "ws-1",
+                "web_service_definition.name": "updateSOSAP",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-04-01 16:00:00",
+                "sys_updated_by": "admin",
+                "operation_script": "// updateSOSAP end body\n",
+            },
+            {
+                "sys_id": "op-b",
+                "name": "end",
+                "http_method": "POST",
+                "active": "true",
+                "web_service_definition": "ws-2",
+                "web_service_definition.name": "otherSvc",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-04-01 16:00:00",
+                "sys_updated_by": "admin",
+                "operation_script": "// otherSvc end body\n",
+            },
+        ]
+        mock_query_all.side_effect = [_strip_source(ops), []]
+        mock_query_page.side_effect = _page_side_effect_for(ops)
+
+        result = download_server_sources(
+            config,
+            auth,
+            DownloadSourcesParams(scope="x_app", output_dir=str(tmp_path), families=["api"]),
+        )
+
+        assert result["success"] is True
+        op_root = tmp_path / "sys_ws_operation"
+        a_dir = op_root / "updateSOSAP.end"
+        b_dir = op_root / "otherSvc.end"
+        # Both bodies present in distinct folders — nothing overwritten.
+        assert (a_dir / "operation_script.js").read_text() == "// updateSOSAP end body\n"
+        assert (b_dir / "operation_script.js").read_text() == "// otherSvc end body\n"
+        # Each folder carries its OWN sys_id (collision-proof push identity).
+        assert json.loads((a_dir / "_metadata.json").read_text())["sys_id"] == "op-a"
+        assert json.loads((b_dir / "_metadata.json").read_text())["sys_id"] == "op-b"
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_unqualified_name_collision_warns_and_keeps_first(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        # Net for tables with no folder qualifier: two records mapping to one
+        # folder must warn loudly and write only the first — never silently
+        # scramble bodies/sys_ids like the pre-fix scripted_rest bug did.
+        dups = [
+            {
+                "sys_id": "fix-a",
+                "name": "Dup Script",
+                "description": "first",
+                "active": "false",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-04-01 18:00:00",
+                "sys_updated_by": "admin",
+                "script": "// first\n",
+            },
+            {
+                "sys_id": "fix-b",
+                "name": "Dup Script",
+                "description": "second",
+                "active": "false",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-04-01 18:00:00",
+                "sys_updated_by": "admin",
+                "script": "// second\n",
+            },
+        ]
+        mock_query_all.side_effect = [_strip_source(dups), []]
+        mock_query_page.side_effect = _page_side_effect_for(dups)
+
+        result = download_server_sources(
+            config,
+            auth,
+            DownloadSourcesParams(scope="x_app", output_dir=str(tmp_path), families=["admin"]),
+        )
+
+        assert any(
+            "COLLISION" in w and "fix-b" in w for w in result.get("warnings", [])
+        ), result.get("warnings")
+        # First writer keeps the folder body untouched.
+        dup_dir = tmp_path / "sys_script_fix" / "Dup_Script"
+        assert (dup_dir / "script.js").read_text() == "// first\n"
+        assert json.loads((dup_dir / "_metadata.json").read_text())["sys_id"] == "fix-a"
 
 
 class TestDownloadSourcesSecurity:
@@ -1322,7 +1425,7 @@ class TestFieldExtensions:
             root=tmp_path,
         )
 
-        rest_dir = scope_root / "sys_ws_operation" / "Get_Request_Status"
+        rest_dir = scope_root / "sys_ws_operation" / "RequestAPI.Get_Request_Status"
         assert (rest_dir / "operation_script.js").exists()
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")

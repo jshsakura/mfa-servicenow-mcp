@@ -182,7 +182,16 @@ class PushLocalComponentParams(BaseModel):
 # Resolved component data structure
 # ---------------------------------------------------------------------------
 class _ResolvedComponent:
-    __slots__ = ("table", "sys_id", "name", "fields", "scope_root", "instance_url")
+    __slots__ = (
+        "table",
+        "sys_id",
+        "name",
+        "fields",
+        "scope_root",
+        "instance_url",
+        "remote_name",
+        "qualifier",
+    )
 
     def __init__(
         self,
@@ -192,13 +201,26 @@ class _ResolvedComponent:
         fields: Dict[str, Path],
         scope_root: Path,
         instance_url: str,
+        remote_name: Optional[str] = None,
+        qualifier: Optional[tuple] = None,
     ):
         self.table = table
         self.sys_id = sys_id
+        # `name` is the local folder key — used for _sync_meta.json / _map.json
+        # lookups, so it MUST stay equal to the on-disk folder name.
         self.name = name
         self.fields = fields  # field_name -> local file path
         self.scope_root = scope_root
         self.instance_url = instance_url
+        # ServiceNow identity for cross-instance target resolution. Differs from
+        # `name` when the folder was qualified (e.g. sys_ws_operation folder
+        # 'RequestAPI.Get_Request_Status' but the record's own name is 'Get
+        # Request Status'). Defaults to name for the common unqualified case.
+        self.remote_name = remote_name if remote_name is not None else name
+        # (field, value) that disambiguates remote_name among same-named records
+        # on the target — e.g. ('web_service_definition.name', 'RequestAPI'). None
+        # when the name alone is a unique target identity.
+        self.qualifier = qualifier
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +326,51 @@ def _read_metadata_sys_id(record_dir: Path) -> str:
     return ""
 
 
+# Tables whose folder was qualified by a parent (see source_tools
+# folder_qualifier_field). The value is the dot-walk field that both names the
+# parent AND disambiguates the record among same-named siblings on a target
+# instance. Mirror any folder_qualifier_field added there.
+_TARGET_QUALIFIER_FIELD: Dict[str, str] = {
+    "sys_ws_operation": "web_service_definition.name",
+}
+
+
+def _read_metadata_field(record_dir: Path, field: str) -> str:
+    """Read one field from a record folder's _metadata.json/_widget.json.
+
+    Used for the record's own ServiceNow `name` and parent qualifier — both stored
+    at download time (they are summary_fields). '' when absent."""
+    for fname in ("_metadata.json", "_widget.json"):
+        meta = record_dir / fname
+        if not meta.is_file():
+            continue
+        try:
+            data = json_fast.loads(meta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            val = str(data.get(field) or "").strip()
+            if val:
+                return val
+    return ""
+
+
+def _resolve_remote_identity(
+    record_dir: Path, table: str, folder_name: str
+) -> Tuple[str, Optional[tuple]]:
+    """The record's ServiceNow name + optional (field, value) qualifier for
+    cross-instance target lookup. Falls back to the folder name when metadata is
+    absent (legacy/unqualified folders keep working)."""
+    remote_name = _read_metadata_field(record_dir, "name") or folder_name
+    qualifier: Optional[tuple] = None
+    qfield = _TARGET_QUALIFIER_FIELD.get(table)
+    if qfield:
+        qvalue = _read_metadata_field(record_dir, qfield)
+        if qvalue:
+            qualifier = (qfield, qvalue)
+    return remote_name, qualifier
+
+
 def _read_map_json(table_dir: Path) -> Dict[str, str]:
     """Read _map.json from a table directory. Returns empty dict if missing."""
     path = table_dir / "_map.json"
@@ -387,6 +454,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         if not fields:
             raise ValueError(f"No editable source files found in {path}")
         scope_root = table_dir.parent
+        remote_name, qualifier = _resolve_remote_identity(path, table_name, folder_name)
         return _ResolvedComponent(
             table=table_name,
             sys_id=sys_id,
@@ -394,6 +462,8 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             fields=fields,
             scope_root=scope_root,
             instance_url=_resolve_origin_url(scope_root),
+            remote_name=remote_name,
+            qualifier=qualifier,
         )
 
     # Case 2: File
@@ -434,6 +504,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
         if not sys_id:
             raise ValueError(f"Component '{folder_name}' not found in {table_dir / '_map.json'}")
         scope_root = table_dir.parent
+        remote_name, qualifier = _resolve_remote_identity(parent, table_name, folder_name)
         return _ResolvedComponent(
             table=table_name,
             sys_id=sys_id,
@@ -441,6 +512,8 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             fields={field_name: path},
             scope_root=scope_root,
             instance_url=_resolve_origin_url(scope_root),
+            remote_name=remote_name,
+            qualifier=qualifier,
         )
 
     # Case 2b: Single file in a single-file table directory
@@ -511,21 +584,33 @@ def _reverse_lookup_name(map_data: Dict[str, str], safe_name: str) -> str | None
 
 
 def _resolve_target_by_name(
-    config: ServerConfig, auth_manager: AuthManager, table: str, name: str
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    name: str,
+    qualifier: Optional[tuple] = None,
 ) -> List[Dict[str, str]]:
     """Look up a record on the TARGET instance by its name — used for
     cross-instance deploy so we push to the target's OWN sys_id instead of the
     origin's (which may not exist / may be a different record on the target). The
     name is the stable identity across instances; returns all matches so the
-    caller can require exactly one (0 = not there, >1 = ambiguous)."""
+    caller can require exactly one (0 = not there, >1 = ambiguous).
+
+    `qualifier` is an optional (field, value) pair that disambiguates a name which
+    is unique only within a parent (e.g. a sys_ws_operation 'end' is unique only
+    within its web service). Without it, same-named children read as ambiguous."""
     safe_name = name.replace("^", "").replace("=", "")
+    query = f"name={safe_name}"
+    if qualifier:
+        qfield, qvalue = qualifier
+        query += f"^{qfield}={str(qvalue).replace('^', '').replace('=', '')}"
     try:
         resp = sn_query(
             config,
             auth_manager,
             GenericQueryParams(
                 table=table,
-                query=f"name={safe_name}",
+                query=query,
                 fields="sys_id,name",
                 limit=5,
                 offset=0,
@@ -1290,22 +1375,30 @@ def update_remote_from_local(
                 "target_instance": active,
                 "component": {"table": resolved.table, "name": resolved.name},
             }
-        matches = _resolve_target_by_name(config, auth_manager, resolved.table, resolved.name)
+        matches = _resolve_target_by_name(
+            config, auth_manager, resolved.table, resolved.remote_name, resolved.qualifier
+        )
+        # A qualifier that scopes the record to its parent (e.g. web service) —
+        # shown in messages so the operator sees WHICH 'end' this is.
+        qual_hint = (
+            f" ({resolved.qualifier[0]}={resolved.qualifier[1]})" if resolved.qualifier else ""
+        )
         if not matches:
             return {
                 "error": "TARGET_NOT_FOUND",
                 "message": (
-                    f"No '{resolved.name}' record found on '{active}' ({resolved.table}). "
-                    f"Cross-instance deploy updates an existing record only — it never creates."
+                    f"No '{resolved.remote_name}'{qual_hint} record found on '{active}' "
+                    f"({resolved.table}). Cross-instance deploy updates an existing record only "
+                    f"— it never creates."
                 ),
-                "component": {"table": resolved.table, "name": resolved.name},
+                "component": {"table": resolved.table, "name": resolved.remote_name},
             }
         if len(matches) > 1:
             return {
                 "error": "TARGET_AMBIGUOUS",
                 "message": (
-                    f"{len(matches)} records named '{resolved.name}' on '{active}' "
-                    f"({resolved.table}) — can't pick the deploy target unambiguously."
+                    f"{len(matches)} records named '{resolved.remote_name}'{qual_hint} on "
+                    f"'{active}' ({resolved.table}) — can't pick the deploy target unambiguously."
                 ),
                 "candidates": [{"sys_id": m.get("sys_id"), "name": m.get("name")} for m in matches],
             }
@@ -1317,6 +1410,8 @@ def update_remote_from_local(
             resolved.fields,
             resolved.scope_root,
             active,
+            remote_name=resolved.remote_name,
+            qualifier=resolved.qualifier,
         )
         cross_instance_deploy = True
     else:
