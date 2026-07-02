@@ -497,6 +497,9 @@ class TestDeleteWorkflow(unittest.TestCase):
     def test_success(self):
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
+        # The live-path guard counts active wf_context first; report zero so
+        # the DELETE proceeds.
+        resp.json.return_value = {"result": {"stats": {"count": "0"}}}
         self.auth.make_request.return_value = resp
         result = delete_workflow(self.config, self.auth, {"workflow_id": "wf1"})
         self.assertIn("deleted successfully", result["message"])
