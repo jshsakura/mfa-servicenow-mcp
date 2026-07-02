@@ -285,6 +285,9 @@ def test_authenticated_user_basic_from_config_no_network():
 
 
 def test_authenticated_user_browser_live_asks_current_user():
+    import servicenow_mcp.tools.sn_api as api
+
+    api._LIVE_USER_CACHE.clear()
     am = MagicMock()
     resp = MagicMock()
     resp.json.return_value = {"result": {"user_name": "alice"}}
@@ -302,13 +305,19 @@ def test_authenticated_user_browser_not_live_never_calls():
 
 
 def test_authenticated_user_browser_live_failure_is_best_effort():
+    import servicenow_mcp.tools.sn_api as api
+
+    api._LIVE_USER_CACHE.clear()
     am = MagicMock()
     am.make_request.side_effect = RuntimeError("boom")
     assert _authenticated_user(_browser_cfg(), am, allow_live=True) is None
 
 
 def test_sn_health_surfaces_browser_authenticated_user():
+    import servicenow_mcp.tools.sn_api as api
+
     invalidate_query_cache()
+    api._LIVE_USER_CACHE.clear()
     config = _browser_cfg()
     am = MagicMock()
     probe = MagicMock()
@@ -325,3 +334,71 @@ def test_sn_health_surfaces_browser_authenticated_user():
 
     assert result["ok"] is True
     assert result["authenticated_user"] == "alice"
+
+
+def _browser_cfg_for(url):
+    return ServerConfig(
+        instance_url=url,
+        auth=AuthConfig(type=AuthType.BROWSER, browser=BrowserAuthConfig()),
+    )
+
+
+def test_resolve_live_username_caches_within_ttl():
+    import servicenow_mcp.tools.sn_api as api
+
+    api._LIVE_USER_CACHE.clear()
+    cfg = _browser_cfg_for("https://cache.service-now.com")
+    am = MagicMock()
+    resp = MagicMock()
+    resp.json.return_value = {"result": {"user_name": "alice"}}
+    am.make_request.return_value = resp
+
+    assert api.resolve_live_username(cfg, am) == "alice"
+    assert api.resolve_live_username(cfg, am) == "alice"
+    assert am.make_request.call_count == 1  # second call served from cache
+
+
+def test_resolve_live_username_refetches_after_ttl(monkeypatch):
+    import servicenow_mcp.tools.sn_api as api
+
+    api._LIVE_USER_CACHE.clear()
+    cfg = _browser_cfg_for("https://ttl.service-now.com")
+    am = MagicMock()
+    first = MagicMock()
+    first.json.return_value = {"result": {"user_name": "alice"}}
+    second = MagicMock()
+    second.json.return_value = {"result": {"user_name": "bob"}}
+    am.make_request.side_effect = [first, second]
+
+    t = {"now": 1000.0}
+    monkeypatch.setattr(api.time, "monotonic", lambda: t["now"])
+    assert api.resolve_live_username(cfg, am) == "alice"
+    t["now"] += api._LIVE_USER_TTL_SECONDS + 1  # expire
+    assert api.resolve_live_username(cfg, am) == "bob"  # user switch reflected
+    assert am.make_request.call_count == 2
+
+
+def test_resolve_live_username_failure_returns_empty_uncached():
+    import servicenow_mcp.tools.sn_api as api
+
+    api._LIVE_USER_CACHE.clear()
+    cfg = _browser_cfg_for("https://fail.service-now.com")
+    am = MagicMock()
+    am.make_request.side_effect = RuntimeError("down")
+    assert api.resolve_live_username(cfg, am) == ""
+    assert "https://fail.service-now.com" not in api._LIVE_USER_CACHE
+
+
+def test_sync_resolve_current_user_delegates_to_shared():
+    # sync_tools keeps its symbol but must route through the shared helper.
+    import servicenow_mcp.tools.sn_api as api
+    from servicenow_mcp.tools.sync_tools import _resolve_current_user
+
+    api._LIVE_USER_CACHE.clear()
+    cfg = _browser_cfg_for("https://deleg.service-now.com")
+    am = MagicMock()
+    resp = MagicMock()
+    resp.json.return_value = {"result": {"user_name": "carol"}}
+    am.make_request.return_value = resp
+    assert _resolve_current_user(cfg, am) == "carol"
+    assert api._LIVE_USER_CACHE["https://deleg.service-now.com"][0] == "carol"

@@ -24,7 +24,7 @@ from .portal_tools import (
     update_portal_component,
 )
 from .push_safety import assess_push_risk, describe_attribution
-from .sn_api import GenericQueryParams, sn_query
+from .sn_api import GenericQueryParams, resolve_live_username, sn_query
 
 logger = logging.getLogger(__name__)
 
@@ -657,37 +657,11 @@ def _push_actor_username(config: ServerConfig, auth_manager: AuthManager) -> str
     ).strip()
 
 
-# Live current-user, cached per instance. Successes only (a transient failure
-# retries next push instead of permanently hedging).
-_CURRENT_USER_CACHE: Dict[str, str] = {}
-
-
 def _resolve_current_user(config: ServerConfig, auth_manager: AuthManager) -> str:
-    """Ask the live session who it is: GET /api/now/ui/user/current_user.
-
-    A valid session always knows its user (it's how the UI greets you), so an
-    SSO/browser login with no configured username is still identifiable — we just
-    ask the server. Cheap, cached. '' on any failure → caller hedges, never
-    falsely accuses.
-    """
-    base = config.instance_url.rstrip("/")
-    cached = _CURRENT_USER_CACHE.get(base)
-    if cached:
-        return cached
-    name = ""
-    try:
-        response = auth_manager.make_request(
-            "GET", f"{base}/api/now/ui/user/current_user", timeout=config.timeout
-        )
-        payload = response.json() if hasattr(response, "json") else {}
-        result = payload.get("result", payload) if isinstance(payload, dict) else {}
-        if isinstance(result, dict):
-            name = str(result.get("user_name") or result.get("name") or "").strip()
-    except Exception as exc:  # noqa: BLE001 - identity is best-effort
-        logger.debug("current_user lookup failed: %s", exc)
-    if name:
-        _CURRENT_USER_CACHE[base] = name
-    return name
+    """Live current-user for push attribution. Thin wrapper over the shared,
+    TTL-cached ``resolve_live_username`` (see sn_api) so push attribution and
+    sn_health identity can't drift in parse/cache/error semantics."""
+    return resolve_live_username(config, auth_manager)
 
 
 def _resolve_push_actor(config: ServerConfig, auth_manager: AuthManager) -> tuple:
