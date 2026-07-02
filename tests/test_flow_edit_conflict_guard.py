@@ -177,7 +177,7 @@ def test_checkout_captures_baseline_in_checkout_file():
     saved = {}
     with patch(
         "servicenow_mcp.tools.flow_edit_tools._save_checkout",
-        side_effect=lambda fid, data: saved.update(data),
+        side_effect=lambda cfg, fid, data: saved.update(data),
     ):
         result = manage_flow_edit(
             _cfg(), auth, ManageFlowEditParams(action="checkout", flow_id=FLOW_ID)

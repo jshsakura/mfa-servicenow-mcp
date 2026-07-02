@@ -605,6 +605,45 @@ def test_g8_registry_allows_my_own_edit() -> None:
         )
 
 
+def test_g8_registry_blocks_manage_workflow_update_activity_other_user() -> None:
+    """Secondary registry: activity-level edits target wf_activity and must be
+    audited too — a blind overwrite of another user's activity edit was the gap."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=(
+            {
+                "sys_updated_by": "alice@example.com",
+                "sys_updated_on": _utc_iso_minus_min(2),
+            },
+            None,
+        ),
+    ):
+        with pytest.raises(PolicyViolation, match=r"(?s)\[G8\].*alice"):
+            run_post_confirm_guards(
+                _SERVER,
+                "manage_workflow",
+                {"action": "update_activity", "activity_id": "act-1", "activity_name": "x"},
+            )
+
+
+def test_g8_registry_secondary_targets_wf_activity_table() -> None:
+    captured = {}
+
+    def _fake_fetch(ctx, table, query):
+        captured["table"] = table
+        captured["query"] = query
+        return None, None  # fail-open; we only inspect the query
+
+    with patch("servicenow_mcp.policies.write_guards._fetch_record_audit", _fake_fetch):
+        run_post_confirm_guards(
+            _SERVER,
+            "manage_workflow",
+            {"action": "delete_activity", "activity_id": "act-9"},
+        )
+    assert captured["table"] == "wf_activity"
+    assert captured["query"] == "sys_id=act-9"
+
+
 def test_g8_registry_skips_create_action() -> None:
     """Create makes a new record — nothing to clash with; no audit fetch."""
     with patch("servicenow_mcp.policies.write_guards._fetch_record_audit") as mocked_fetch:

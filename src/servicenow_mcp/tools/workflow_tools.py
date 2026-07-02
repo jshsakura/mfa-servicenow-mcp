@@ -198,6 +198,10 @@ class DeleteWorkflowParams(BaseModel):
         default=False,
         description="Preview deletion scope without executing.",
     )
+    force: bool = Field(
+        default=False,
+        description="Delete even if running workflow contexts reference this workflow.",
+    )
 
 
 def _unwrap_params(params: Any, param_class: Type[T]) -> Dict[str, Any]:
@@ -931,8 +935,16 @@ def reorder_workflow_activities(
                 )
 
         invalidate_query_cache(table="wf_activity")
+        failed = [r for r in results if not r.get("success")]
         return {
-            "message": "Activities reordered",
+            "success": not failed,
+            "message": (
+                "Activities reordered"
+                if not failed
+                else f"Reorder INCOMPLETE — {len(failed)} of {len(results)} activity "
+                "updates failed; order values are now inconsistent. Inspect results "
+                "and re-run reorder_activities to repair."
+            ),
             "workflow_id": workflow_id,
             "results": results,
         }
@@ -981,6 +993,28 @@ def delete_workflow(
                 {"table": "wf_context", "field": "workflow", "label": "running_contexts"},
             ],
         )
+
+    # The dry-run preview surfaces running contexts; enforce it on the live
+    # delete too — deleting a workflow out from under active contexts orphans
+    # them. Fail-open when the count can't run (no read access, transient error).
+    if not params.get("force"):
+        try:
+            active_contexts = sn_count(
+                server_config,
+                auth_manager,
+                table="wf_context",
+                query=f"workflow={workflow_id}^active=true",
+            )
+        except Exception:  # noqa: BLE001
+            active_contexts = None
+        if active_contexts:
+            return {
+                "error": f"{active_contexts} active workflow context(s) are still running "
+                "against this workflow — delete blocked, nothing was deleted.",
+                "active_contexts": active_contexts,
+                "hint": "Run with dry_run=true to see the full dependency scope; "
+                "pass force=true to delete anyway.",
+            }
 
     # Make the API request
     try:
@@ -1135,6 +1169,10 @@ class ManageWorkflowParams(BaseModel):
     activity_ids: Optional[List[str]] = Field(default=None)
 
     dry_run: bool = Field(default=False)
+    force: bool = Field(
+        default=False,
+        description="delete: proceed even with running workflow contexts",
+    )
 
     _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
         "list": frozenset({"limit", "offset", "query", "count_only", "active"}),
@@ -1147,7 +1185,7 @@ class ManageWorkflowParams(BaseModel):
         ),
         "activate": frozenset({"workflow_id", "dry_run"}),
         "deactivate": frozenset({"workflow_id", "dry_run"}),
-        "delete": frozenset({"workflow_id", "dry_run"}),
+        "delete": frozenset({"workflow_id", "dry_run", "force"}),
         "add_activity": frozenset(
             {
                 "workflow_version_id",
@@ -1304,7 +1342,11 @@ def manage_workflow(
         return delete_workflow(
             config,
             auth_manager,
-            {"workflow_id": params.workflow_id, "dry_run": params.dry_run},
+            {
+                "workflow_id": params.workflow_id,
+                "dry_run": params.dry_run,
+                "force": params.force,
+            },
         )
     if a == "add_activity":
         assert params.workflow_version_id is not None

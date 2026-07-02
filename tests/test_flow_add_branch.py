@@ -115,7 +115,7 @@ def test_add_branch_stages_into_checkout_and_encodes_condition():
     to the checkout file (staged, not pushed)."""
     saved = {}
 
-    def _fake_save(flow_id, data):
+    def _fake_save(config, flow_id, data):
         saved["flow_id"] = flow_id
         saved["data"] = data
 

@@ -7,6 +7,7 @@ import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
@@ -64,6 +65,11 @@ def _create_version(
     """Best-effort version row the UI creates around a save/publish. Not fatal
     if it fails — the PUT/snapshot is what actually persists; this just mirrors
     the UI so version history stays consistent."""
+    if not _is_browser_auth(config):
+        # Defense in depth: session-only endpoint; the tool entry gate is the
+        # real barrier, this keeps a future direct caller honest.
+        logger.warning("create_version skipped for %s — requires browser auth", flow_id)
+        return
     try:
         auth_manager.make_request(
             "POST",
@@ -136,6 +142,11 @@ def _copy_flow(
     makes. The server remaps every instance sys_id and snapshots; we just POST
     name+scope. Returns {success, new_flow_id, new_name} ({new_flow_id} is the
     server-assigned sys_id from result.data)."""
+    if not _is_browser_auth(config):
+        return {
+            "success": False,
+            "error": "Flow copy uses the session-only processflow API — browser auth required.",
+        }
     if not scope:
         rows = _table_lookup(
             config, auth_manager, _FLOW_DEF_TABLE, f"sys_id={source_id}", fields="sys_id,sys_scope"
@@ -207,6 +218,11 @@ def _toggle_active(
     recompile. Captured 1:1: GET /flow/{id}/activate|deactivate then
     create_version 'Activate'|'Deactivate'."""
     verb = "activate" if activate else "deactivate"
+    if not _is_browser_auth(config):
+        return {
+            "success": False,
+            "error": f"Flow {verb} uses the session-only processflow API — browser auth required.",
+        }
     try:
         resp = auth_manager.make_request(
             "GET",
@@ -358,19 +374,27 @@ def _remote_change_since_checkout(
     return {"checked_out": baseline, "remote_now": current}
 
 
-def _checkout_path(flow_id: str) -> Path:
-    return _CHECKOUT_DIR / f".sn_flow_edit_{flow_id}.json"
+def _instance_tag(config: ServerConfig) -> str:
+    """Filesystem-safe tag of the instance host. Checkout files MUST be scoped
+    per instance: dev/test clones share sys_ids, so an un-scoped checkout taken
+    on one instance could be saved onto its clone."""
+    host = urlparse(config.instance_url).netloc or config.instance_url
+    return re.sub(r"[^A-Za-z0-9.-]", "_", host)
 
 
-def _load_checkout(flow_id: str) -> Dict[str, Any]:
-    path = _checkout_path(flow_id)
+def _checkout_path(config: ServerConfig, flow_id: str) -> Path:
+    return _CHECKOUT_DIR / f".sn_flow_edit_{_instance_tag(config)}_{flow_id}.json"
+
+
+def _load_checkout(config: ServerConfig, flow_id: str) -> Dict[str, Any]:
+    path = _checkout_path(config, flow_id)
     if not path.exists():
-        raise FileNotFoundError(f"No checkout for {flow_id}. Run checkout first.")
+        raise FileNotFoundError(f"No checkout for {flow_id} on this instance. Run checkout first.")
     return json.loads(path.read_text())
 
 
-def _save_checkout(flow_id: str, data: Dict[str, Any]) -> None:
-    _checkout_path(flow_id).write_text(json.dumps(data))
+def _save_checkout(config: ServerConfig, flow_id: str, data: Dict[str, Any]) -> None:
+    _checkout_path(config, flow_id).write_text(json.dumps(data))
 
 
 def _resolve_condition_value(value: Any) -> str:
@@ -539,7 +563,11 @@ def _clone_branch(
         new_nodes.append((coll_of[old], clone))
 
     root_clone = new_nodes[0][1]
-    _set_input_value(root_clone.get("inputs", []), "condition", new_condition)
+    if not _set_input_value(root_clone.get("inputs", []), "condition", new_condition):
+        return None, (
+            "Template branch has no 'condition' input (an Else branch carries no "
+            "condition) — clone an If / Else If branch instead."
+        )
     if label is not None:
         if not _set_input_value(root_clone.get("inputs", []), "condition_name", label):
             root_clone.setdefault("inputs", []).append({"name": "condition_name", "value": label})
@@ -627,10 +655,17 @@ def _collect_input_values(flow_data: Dict[str, Any]) -> Dict[tuple, Any]:
     return out
 
 
+def _count_live_nodes(flow_data: Dict[str, Any], coll: str) -> int:
+    return sum(1 for n in flow_data.get(coll, []) or [] if not n.get("deleted"))
+
+
 def _verify_persisted(intended: Dict[str, Any], fresh: Dict[str, Any]) -> Dict[str, Any]:
     """Compare the input values we PUT against a fresh read. Returns
     {verified: bool, mismatches: [...]} — a mismatch means the server did NOT
-    keep our value (the silent-revert failure mode)."""
+    keep our value (the silent-revert failure mode). Structural edits
+    (add_branch) are verified by per-collection node COUNT, not by id — the
+    server may re-key client-minted instance ids on save, so an id comparison
+    would false-positive."""
     want = _collect_input_values(intended)
     got = _collect_input_values(fresh)
     mismatches = []
@@ -642,6 +677,18 @@ def _verify_persisted(intended: Dict[str, Any], fresh: Dict[str, Any]) -> Dict[s
                     "input": key[1],
                     "expected": val,
                     "actual": got.get(key),
+                }
+            )
+    for coll in ("actionInstances", "flowLogicInstances", "subFlowInstances"):
+        want_n = _count_live_nodes(intended, coll)
+        got_n = _count_live_nodes(fresh, coll)
+        if got_n < want_n:
+            mismatches.append(
+                {
+                    "node_id": None,
+                    "input": None,
+                    "expected": f"{want_n} nodes in {coll}",
+                    "actual": f"{got_n} nodes (structural edit reverted)",
                 }
             )
     return {"verified": not mismatches, "mismatches": mismatches[:20]}
@@ -866,7 +913,7 @@ def manage_flow_edit(
         # after this checkout (lost-update guard). Reserved key, stripped
         # before the payload is ever PUT back.
         flow_data[_CHECKOUT_META_KEY] = _fetch_flow_baseline(config, auth_manager, flow_id)
-        _save_checkout(flow_id, flow_data)
+        _save_checkout(config, flow_id, flow_data)
         return {"success": True, "action": "checkout", "summary": render_flow_compact(flow_data)}
 
     if action == "read_action":
@@ -906,18 +953,18 @@ def manage_flow_edit(
 
     if action == "status":
         try:
-            flow_data = _load_checkout(flow_id)
+            flow_data = _load_checkout(config, flow_id)
             return {"success": True, "action": "status", "summary": render_flow_compact(flow_data)}
         except FileNotFoundError as e:
             return {"success": False, "error": str(e)}
 
     if action == "discard":
-        _checkout_path(flow_id).unlink(missing_ok=True)
+        _checkout_path(config, flow_id).unlink(missing_ok=True)
         return {"success": True, "action": "discard", "flow_id": flow_id}
 
     if action == "save":
         try:
-            flow_data = _load_checkout(flow_id)
+            flow_data = _load_checkout(config, flow_id)
         except FileNotFoundError as e:
             return {"success": False, "error": str(e)}
         # Never send the checkout bookkeeping back to the server. Popping only
@@ -1024,7 +1071,7 @@ def manage_flow_edit(
                 ),
             }
 
-        _checkout_path(flow_id).unlink(missing_ok=True)
+        _checkout_path(config, flow_id).unlink(missing_ok=True)
 
         if params.publish:
             # Design-time saved; the recompile (publish) is editor-gated and not
@@ -1059,15 +1106,15 @@ def manage_flow_edit(
         # that flag tells the server to persist only the property fields. This is
         # exactly what the "Flow properties" dialog's Update button sends.
         try:
-            flow_data = _load_checkout(flow_id)
+            flow_data = _load_checkout(config, flow_id)
         except FileNotFoundError as e:
             return {"success": False, "error": str(e)}
-        baseline = flow_data.pop(_CHECKOUT_META_KEY, None)
+        meta = flow_data.pop(_CHECKOUT_META_KEY, None)
         scope = _flow_scope(flow_data)
         if not scope:
             return {"success": False, "error": "Flow payload has no 'scope' — re-run checkout."}
         if not params.force:
-            conflict = _remote_change_since_checkout(config, auth_manager, flow_id, baseline)
+            conflict = _remote_change_since_checkout(config, auth_manager, flow_id, meta)
             if conflict:
                 return {
                     "success": False,
@@ -1104,18 +1151,51 @@ def manage_flow_edit(
         outer = result.get("result", result)
         if isinstance(outer, dict) and outer.get("errorMessage"):
             return {"success": False, "error": outer["errorMessage"]}
-        _checkout_path(flow_id).unlink(missing_ok=True)
-        return {
+        # Verify exactly the properties set_property staged (recorded in the
+        # checkout meta) — a silent revert here previously went unreported.
+        staged = meta.get("staged_properties") if isinstance(meta, dict) else None
+        props_verification: Optional[Dict[str, Any]] = None
+        if params.verify and staged:
+            fresh = _try_processflow_api(config, auth_manager, flow_id)
+            if fresh and not fresh.get("_error"):
+                fresh_data = fresh.get("result", fresh)
+                prop_mismatches = [
+                    {"property": k, "expected": v, "actual": fresh_data.get(k)}
+                    for k, v in staged.items()
+                    if fresh_data.get(k) != v
+                ]
+                props_verification = {
+                    "verified": not prop_mismatches,
+                    "mismatches": prop_mismatches,
+                }
+        if props_verification is not None and not props_verification["verified"]:
+            return {
+                "success": False,
+                "action": "save_properties",
+                "saved": True,
+                "verified": False,
+                "mismatches": props_verification["mismatches"],
+                "checkout_preserved": True,
+                "warning": (
+                    "VERIFY FAILED — the server did not keep some property values we "
+                    "sent. The checkout was kept on disk so you can adjust and retry."
+                ),
+            }
+        _checkout_path(config, flow_id).unlink(missing_ok=True)
+        base_props: Dict[str, Any] = {
             "success": True,
             "action": "save_properties",
             "saved_properties": {
                 k: flow_data.get(k) for k in _FLOW_PROPERTY_NAMES if k in flow_data
             },
         }
+        if props_verification is not None:
+            base_props["verified"] = True
+        return base_props
 
     # Patch operations require a checkout
     try:
-        flow_data = _load_checkout(flow_id)
+        flow_data = _load_checkout(config, flow_id)
     except FileNotFoundError as e:
         return {"success": False, "error": str(e)}
 
@@ -1133,7 +1213,13 @@ def manage_flow_edit(
         else:
             val = raw if raw is not None else ""
         flow_data[prop] = val
-        _save_checkout(flow_id, flow_data)
+        # Record WHICH properties were staged so save_properties can verify
+        # exactly those after its PUT (blind whole-payload compare would
+        # false-positive on server-normalized fields).
+        meta = flow_data.get(_CHECKOUT_META_KEY)
+        if isinstance(meta, dict):
+            meta.setdefault("staged_properties", {})[prop] = val
+        _save_checkout(config, flow_id, flow_data)
         return {
             "success": True,
             "action": "set_property",
@@ -1155,7 +1241,7 @@ def manage_flow_edit(
                 "success": False,
                 "error": f"Input '{params.input_name}' not found on node {params.node_id}",
             }
-        _save_checkout(flow_id, flow_data)
+        _save_checkout(config, flow_id, flow_data)
         return {
             "success": True,
             "action": action,
@@ -1179,7 +1265,7 @@ def manage_flow_edit(
         result, err = _clone_branch(flow_data, params.node_id, encoded, params.condition_label)
         if err:
             return {"success": False, "error": err}
-        _save_checkout(flow_id, flow_data)
+        _save_checkout(config, flow_id, flow_data)
         return {
             "success": True,
             "action": "add_branch",
@@ -1207,7 +1293,7 @@ def manage_flow_edit(
         if params.condition_label is not None:
             _set_input_value(node.get("inputs", []), "condition_name", params.condition_label)
             node["name"] = f"If: {params.condition_label}"
-        _save_checkout(flow_id, flow_data)
+        _save_checkout(config, flow_id, flow_data)
         return {
             "success": True,
             "action": action,
@@ -1228,7 +1314,7 @@ def manage_flow_edit(
         encoded = _resolve_condition_value(params.value)
         if not _set_input_value(node.get("inputs", []), "condition", encoded):
             return {"success": False, "error": "condition input not found on trigger"}
-        _save_checkout(flow_id, flow_data)
+        _save_checkout(config, flow_id, flow_data)
         return {
             "success": True,
             "action": action,
