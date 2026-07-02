@@ -69,6 +69,19 @@ def _fetch_target(
     return rows[0] if rows else None
 
 
+def build_create_preview(*, table: str, proposed: Mapping[str, Any]) -> Dict[str, Any]:
+    """Scope-disclosure preview for a create operation: the exact record that
+    would be POSTed. No network calls — there is no existing target to fetch."""
+    return {
+        "dry_run": True,
+        "operation": "create",
+        "target": {"table": table},
+        "proposed_record": dict(proposed),
+        "warnings": [],
+        "precision_notes": _empty_precision_notes(),
+    }
+
+
 def build_delete_preview(
     config: ServerConfig,
     auth_manager: AuthManager,
