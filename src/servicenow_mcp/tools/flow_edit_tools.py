@@ -5,6 +5,7 @@ import logging
 import re
 import tempfile
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
@@ -824,7 +825,7 @@ class ManageFlowEditParams(BaseModel):
         "status",
     ] = Field(
         ...,
-        description="read|checkout|read_action|set_action_input|set_trigger_condition|set_branch_condition|add_branch(clone sibling branch)|set_property|save|save_properties|publish(snapshot recompile)|activate|deactivate|copy(value=new name)|discard|status",
+        description="Op to run. Hints: add_branch clones a sibling branch; publish recompiles the snapshot; copy takes the new name in `value`.",
     )
     flow_id: str = Field(
         ..., description="sys_id of flow/subflow/action; for action='read' a NAME or sys_id"
@@ -1094,17 +1095,22 @@ def manage_flow_edit(
                 return {"success": False, "error": err}
 
         # Version row only AFTER the PUT succeeded — creating it first left a
-        # ghost 'Save' history row whenever the PUT failed.
-        _create_version(auth_manager, config, flow_id, scope, "Save")
-
-        # Safety: re-read and confirm our values actually persisted (catches the
-        # silent-revert failure mode) BEFORE we drop the checkout. Runs for the
-        # publish path too — "saved" must never be reported unverified.
+        # ghost 'Save' history row whenever the PUT failed. It is best-effort
+        # (swallows its own errors) and its result is never read, so when we
+        # also re-read for verify we run the two independent post-PUT calls
+        # concurrently — one round-trip of wall-clock instead of two.
         verification: Optional[Dict[str, Any]] = None
         if params.verify:
-            fresh = _try_processflow_api(config, auth_manager, flow_id)
+            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="flow-save") as ex:
+                version_future = ex.submit(
+                    _create_version, auth_manager, config, flow_id, scope, "Save"
+                )
+                fresh = _try_processflow_api(config, auth_manager, flow_id)
+                version_future.result()  # best-effort; never raises (see _create_version)
             if fresh and not fresh.get("_error"):
                 verification = _verify_persisted(flow_data, fresh.get("result", fresh))
+        else:
+            _create_version(auth_manager, config, flow_id, scope, "Save")
 
         if verification is not None and not verification["verified"]:
             # Keep the checkout: deleting it here would destroy the only copy of

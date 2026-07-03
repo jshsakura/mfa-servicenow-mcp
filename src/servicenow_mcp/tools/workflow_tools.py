@@ -5,6 +5,7 @@ This module provides tools for viewing and managing workflows in ServiceNow.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Type, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
@@ -20,6 +21,10 @@ from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
+
+# Concurrent activity-order PATCHes per reorder — capped to stay within SN rate
+# limits (mirrors sn_api._MAX_PARALLEL_PAGES).
+_REORDER_MAX_PARALLEL = 4
 
 # Type variable for Pydantic models
 T = TypeVar("T", bound=BaseModel)
@@ -901,38 +906,30 @@ def reorder_workflow_activities(
     if params.get("dry_run"):
         return _build_reorder_preview(server_config, auth_manager, workflow_id, activity_ids)
 
-    # Make the API requests to update the order of each activity
+    # Each activity's order is an independent PATCH — run them concurrently so a
+    # 12-step reorder is ~1 round-trip of wall-clock, not 12 sequential ones.
+    # Order is independent per record, so parallel writes are safe.
     try:
         headers = auth_manager.get_headers()
-        results = []
 
-        for i, activity_id in enumerate(activity_ids):
-            # Calculate the new order value (100, 200, 300, etc.)
-            new_order = (i + 1) * 100
-
+        def _patch_one(i: int, activity_id: str) -> Dict[str, Any]:
+            new_order = (i + 1) * 100  # 100, 200, 300, …
             url = f"{server_config.instance_url}/api/now/table/wf_activity/{activity_id}"
-            data = {"order": new_order}
-
             try:
-                response = auth_manager.make_request("PATCH", url, headers=headers, json=data)
-                response.raise_for_status()
-
-                results.append(
-                    {
-                        "activity_id": activity_id,
-                        "new_order": new_order,
-                        "success": True,
-                    }
+                response = auth_manager.make_request(
+                    "PATCH", url, headers=headers, json={"order": new_order}
                 )
+                response.raise_for_status()
+                return {"activity_id": activity_id, "new_order": new_order, "success": True}
             except Exception as e:
                 logger.error(f"Error updating activity order: {e}")
-                results.append(
-                    {
-                        "activity_id": activity_id,
-                        "error": str(e),
-                        "success": False,
-                    }
-                )
+                return {"activity_id": activity_id, "error": str(e), "success": False}
+
+        max_workers = min(_REORDER_MAX_PARALLEL, len(activity_ids))
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="wf-reorder") as ex:
+            # executor.map preserves input order, so results stay aligned to
+            # activity_ids for the per-item report.
+            results = list(ex.map(lambda p: _patch_one(*p), enumerate(activity_ids)))
 
         invalidate_query_cache(table="wf_activity")
         failed = [r for r in results if not r.get("success")]
