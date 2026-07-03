@@ -70,5 +70,4 @@ TOOL_MODULE_INDEX = {
     "submit_change_for_approval": "change_tools",
     "trace_portal_route_targets": "portal_tools",
     "update_remote_from_local": "sync_tools",
-    "workspace_brief": "workspace_tools",
 }
