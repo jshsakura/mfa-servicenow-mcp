@@ -29,6 +29,10 @@ Tool definitions are sent to the LLM on every request. Every character costs tok
 Source downloads write full bodies to disk; only summaries return to context.
 Picking the wrong tool wastes round-trips and tokens. Default decision tree:
 
+0. **Session start / before risky work** → `workspace_brief` — one call for
+   identity, your unpushed edits, unresolved `.remote` conflicts, and whether
+   each downloaded tree needs a refresh (live check, no bodies).
+
 1. **Reading one widget/SI body** → `get_widget_bundle` (widget only) or
    `get_portal_component_code` with `fetch_complete=True`. Do NOT loop on
    `script_offset` unless the field is genuinely >12KB and you only need a slice.
