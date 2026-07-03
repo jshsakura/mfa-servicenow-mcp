@@ -3289,32 +3289,13 @@ class AuthManager:
             except Exception as exc:
                 logger.warning("Failed to remove session cache file: %s", exc)
 
-    def make_request(
-        self,
-        method: str,
-        url: str,
-        max_retries: int = 1,
-        **kwargs,
-    ) -> requests.Response:
-        """
-        Make an authenticated HTTP request with automatic retry on 401
-        and transient network errors (ConnectionError, Timeout).
+    def _enforce_self_heal_circuit(self, method: str, url: str) -> None:
+        """Self-heal circuit breaker guard (extracted from make_request).
 
-        For Browser Auth, 401 responses trigger session invalidation and
-        re-authentication before retry.
-
-        Args:
-            method: HTTP method (GET, POST, PATCH, PUT, DELETE).
-            url: Request URL.
-            max_retries: Maximum number of retries on 401 (default: 1).
-            **kwargs: Additional arguments passed to requests.request().
-
-        Returns:
-            requests.Response: The HTTP response.
-
-        Raises:
-            requests.RequestException: If the request fails after all retries.
-        """
+        A cohesive prologue: either returns (let the request proceed) or
+        raises SELF_HEAL_CIRCUIT_OPEN. Single entry / single exit-or-raise —
+        no state is threaded back to the caller, so lifting it out is
+        behavior-preserving. Pinned by test_browser_grace_period.py."""
         # v1.12.0: fail fast when the self-heal circuit is open. Without
         # this guard, every retry from source_tools / sn_api parallel page
         # fetch / etc. would still try to send (and fail), pumping
@@ -3416,6 +3397,38 @@ class AuthManager:
                         ),
                     )
                 )
+
+    def make_request(
+        self,
+        method: str,
+        url: str,
+        max_retries: int = 1,
+        **kwargs,
+    ) -> requests.Response:
+        """
+        Make an authenticated HTTP request with automatic retry on 401
+        and transient network errors (ConnectionError, Timeout).
+
+        For Browser Auth, 401 responses trigger session invalidation and
+        re-authentication before retry.
+
+        Args:
+            method: HTTP method (GET, POST, PATCH, PUT, DELETE).
+            url: Request URL.
+            max_retries: Maximum number of retries on 401 (default: 1).
+            **kwargs: Additional arguments passed to requests.request().
+
+        Returns:
+            requests.Response: The HTTP response.
+
+        Raises:
+            requests.RequestException: If the request fails after all retries.
+        """
+        # v1.12.0/v1.12.1: self-heal circuit breaker — fail fast (with a
+        # throttled escape probe) when the server rejects every session.
+        # Raises SELF_HEAL_CIRCUIT_OPEN if the circuit is open and the
+        # escape probe does not recover the session.
+        self._enforce_self_heal_circuit(method, url)
 
         # Get auth headers
         headers = kwargs.pop("headers", {})
