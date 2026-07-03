@@ -107,6 +107,55 @@ class TestOfflineHalf:
         assert "note" in result
 
 
+class TestHealthIntegration:
+    """Unfinished local work must surface NATURALLY on the session's usual
+    first call (sn_health) — nobody has to remember a separate tool."""
+
+    def test_snapshot_reports_edits_and_conflicts(self, workspace, monkeypatch):
+        from servicenow_mcp.tools.sn_api import _workspace_snapshot
+
+        script = workspace / "test" / "x_app" / "sp_widget" / "my-widget" / "script.js"
+        script.write_text("var x = 1; // my edit", encoding="utf-8")
+        remote_sidecar_path_for(script).write_text("var x = 2;", encoding="utf-8")
+        monkeypatch.chdir(workspace.parent)
+
+        snap = _workspace_snapshot()
+        assert snap["unpushed_local_edits"] == 1
+        assert snap["unresolved_conflicts"] == 1
+        assert "workspace_brief" in snap["next"]
+
+    def test_snapshot_silent_when_clean(self, workspace, monkeypatch):
+        from servicenow_mcp.tools.sn_api import _workspace_snapshot
+
+        monkeypatch.chdir(workspace.parent)
+        assert _workspace_snapshot() == {}
+
+    def test_snapshot_silent_when_no_temp(self, tmp_path, monkeypatch):
+        from servicenow_mcp.tools.sn_api import _workspace_snapshot
+
+        monkeypatch.chdir(tmp_path)
+        assert _workspace_snapshot() == {}
+
+    @patch("servicenow_mcp.tools.sn_api._workspace_snapshot")
+    @patch("servicenow_mcp.tools.sn_api._authenticated_user")
+    @patch("servicenow_mcp.tools.sn_api._auth_identity_fields")
+    @patch("servicenow_mcp.tools.sn_api._chromium_health_fields")
+    @patch("servicenow_mcp.tools.sn_api._sn_health_impl")
+    def test_sn_health_carries_workspace_summary(
+        self, mock_impl, mock_chromium, mock_identity, mock_user, mock_snap, mock_config, mock_auth
+    ):
+        from servicenow_mcp.tools.sn_api import HealthCheckParams, sn_health
+
+        mock_impl.return_value = {"ok": True}
+        mock_chromium.return_value = {}
+        mock_identity.return_value = {}
+        mock_user.return_value = None
+        mock_snap.return_value = {"unpushed_local_edits": 2}
+
+        result = sn_health(mock_config, mock_auth, HealthCheckParams())
+        assert result["workspace"] == {"unpushed_local_edits": 2}
+
+
 class TestLiveHalf:
     @patch("servicenow_mcp.tools.workspace_tools.resolve_live_username")
     @patch("servicenow_mcp.tools.workspace_tools.sn_query_page")
