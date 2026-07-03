@@ -2315,6 +2315,19 @@ class TestAutoInstallChromium:
         mock_thread.assert_not_called()
         assert mgr._browser_setup_error == "original remediation"
 
+    def test_install_thread_is_daemon(self, monkeypatch):
+        """The install thread MUST be a daemon: a non-daemon thread would
+        block interpreter shutdown mid-download and hang the MCP process."""
+        mgr = _make_browser_manager()
+        mgr._browser_setup_error = "missing"
+        monkeypatch.delenv("SERVICENOW_AUTO_INSTALL_CHROMIUM", raising=False)
+
+        with patch("servicenow_mcp.auth.auth_manager.threading.Thread") as mock_thread:
+            mgr._start_background_chromium_install()
+
+        assert mock_thread.call_args.kwargs.get("daemon") is True
+        mock_thread.return_value.start.assert_called_once()
+
     def test_success_clears_flag(self, monkeypatch):
         mgr = _make_browser_manager()
         mgr._browser_setup_error = "missing"
