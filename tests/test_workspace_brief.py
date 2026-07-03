@@ -136,6 +136,23 @@ class TestHealthIntegration:
         monkeypatch.chdir(tmp_path)
         assert _workspace_snapshot() == {}
 
+    def test_snapshot_survives_unreadable_tree(self, workspace, monkeypatch):
+        """A permission-denied tree must degrade to silence — the health check
+        itself must never fail because ./temp is unreadable."""
+        import os
+
+        from servicenow_mcp.tools.sn_api import _workspace_snapshot
+
+        if os.geteuid() == 0:
+            pytest.skip("root ignores file permissions")
+        tree = workspace / "test" / "x_app"
+        monkeypatch.chdir(workspace.parent)
+        tree.chmod(0o000)
+        try:
+            assert _workspace_snapshot() == {}
+        finally:
+            tree.chmod(0o755)  # restore so pytest tmp cleanup works
+
     @patch("servicenow_mcp.tools.sn_api._workspace_snapshot")
     @patch("servicenow_mcp.tools.sn_api._authenticated_user")
     @patch("servicenow_mcp.tools.sn_api._auth_identity_fields")
