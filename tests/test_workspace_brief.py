@@ -1,12 +1,12 @@
-"""Tests for workspace_brief (session situational awareness).
+"""Tests for the automatic workspace surfacing (sn_health integration).
 
-Pinned invariants:
-- Offline half (your edits, conflict sidecars, baseline coverage) is pure disk
-  reads — include_remote=False must touch no network path.
-- Refresh judgment is LIVE (server count query above the local watermark),
-  never a local-only guess; a missing watermark reports as unchecked, not clean.
-- Trees downloaded from a different instance are never refresh-checked against
-  the active one.
+There is deliberately NO workspace tool: automation the LLM must remember to
+invoke is not automation. Pinned invariants:
+- sn_health carries a `workspace` summary of unfinished local work (unpushed
+  edits, unresolved '.remote' conflicts) — pure disk reads, no network.
+- Silent when clean, silent when nothing was ever downloaded — zero noise for
+  users who never touch local sources.
+- A broken/unreadable temp tree can never fail the health check.
 """
 
 import json
@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from servicenow_mcp.tools.workspace_tools import WorkspaceBriefParams, workspace_brief
+from servicenow_mcp.tools.workspace_tools import _discover_trees, _scan_tree_local
 from servicenow_mcp.utils.baseline import remote_sidecar_path_for, write_baseline_for
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -67,44 +67,32 @@ def workspace(tmp_path):
     return tmp_path / "temp"
 
 
-class TestOfflineHalf:
-    def test_clean_tree_reports_protected_and_no_edits(self, mock_config, mock_auth, workspace):
-        result = workspace_brief(
-            mock_config,
-            mock_auth,
-            WorkspaceBriefParams(root=str(workspace), include_remote=False),
-        )
-        tree = result["trees"][0]
-        assert tree["scope"] == "x_app"
-        assert tree["components"] == 1
-        assert tree["baseline_protected"] == "1/1"
-        assert "your_edits" not in tree
-        assert "refresh" not in tree  # offline mode: no live judgment at all
-        assert "user" not in result["identity"]
+class TestTreeScan:
+    def test_clean_tree(self, workspace):
+        trees = _discover_trees(workspace, 10)
+        assert len(trees) == 1
+        local = _scan_tree_local(trees[0])
+        assert local["components"] == 1
+        assert local["baseline_protected"] == 1
+        assert local["your_edits"] == []
+        assert local["unresolved_conflicts"] == []
 
-    def test_detects_your_edits_and_conflict_sidecar(self, mock_config, mock_auth, workspace):
+    def test_detects_edits_and_sidecars(self, workspace):
         script = workspace / "test" / "x_app" / "sp_widget" / "my-widget" / "script.js"
         script.write_text("var x = 1; // my edit", encoding="utf-8")
         remote_sidecar_path_for(script).write_text("var x = 2;", encoding="utf-8")
 
-        result = workspace_brief(
-            mock_config,
-            mock_auth,
-            WorkspaceBriefParams(root=str(workspace), include_remote=False),
-        )
-        tree = result["trees"][0]
-        assert tree["your_edits"] == ["sp_widget/my-widget:script.js"]
-        assert tree["unresolved_conflicts"] == ["sp_widget/my-widget (script.remote.js)"]
-        assert any("merge" in step for step in result["next_steps"])
+        local = _scan_tree_local(workspace / "test" / "x_app")
+        assert local["your_edits"] == ["sp_widget/my-widget:script.js"]
+        assert local["unresolved_conflicts"] == ["sp_widget/my-widget (script.remote.js)"]
 
-    def test_missing_root_notes_nothing_downloaded(self, mock_config, mock_auth, tmp_path):
-        result = workspace_brief(
-            mock_config,
-            mock_auth,
-            WorkspaceBriefParams(root=str(tmp_path / "nowhere"), include_remote=False),
-        )
-        assert result["trees"] == []
-        assert "note" in result
+    def test_legacy_tree_counts_as_unprotected(self, workspace):
+        import shutil
+
+        shutil.rmtree(workspace / "test" / "x_app" / "sp_widget" / "my-widget" / "_baseline")
+        local = _scan_tree_local(workspace / "test" / "x_app")
+        assert local["baseline_protected"] == 0
+        assert local["your_edits"] == []  # no baseline -> cannot claim edits
 
 
 class TestHealthIntegration:
@@ -122,7 +110,7 @@ class TestHealthIntegration:
         snap = _workspace_snapshot()
         assert snap["unpushed_local_edits"] == 1
         assert snap["unresolved_conflicts"] == 1
-        assert "workspace_brief" in snap["next"]
+        assert "diff_local_component" in snap["next"]
 
     def test_snapshot_silent_when_clean(self, workspace, monkeypatch):
         from servicenow_mcp.tools.sn_api import _workspace_snapshot
@@ -172,50 +160,9 @@ class TestHealthIntegration:
         result = sn_health(mock_config, mock_auth, HealthCheckParams())
         assert result["workspace"] == {"unpushed_local_edits": 2}
 
+    def test_workspace_brief_tool_is_not_registered(self):
+        """Automation the LLM must remember to invoke is not automation —
+        the tool was removed on purpose; the data rides sn_health instead."""
+        from servicenow_mcp.utils.registry import discover_tools
 
-class TestLiveHalf:
-    @patch("servicenow_mcp.tools.workspace_tools.resolve_live_username")
-    @patch("servicenow_mcp.tools.workspace_tools.sn_query_page")
-    def test_refresh_needed_is_a_live_judgment(
-        self, mock_page, mock_user, mock_config, mock_auth, workspace
-    ):
-        mock_user.return_value = "admin"
-        mock_page.return_value = ([{"sys_updated_on": "2025-02-01 00:00:00"}], 3)
-
-        result = workspace_brief(mock_config, mock_auth, WorkspaceBriefParams(root=str(workspace)))
-        refresh = result["trees"][0]["refresh"]
-        assert refresh["needed"] is True
-        assert refresh["changed_records"] == 3
-        assert refresh["newest_remote"] == "2025-02-01 00:00:00"
-        assert "incremental=True" in refresh["how"]
-        assert any("3 record(s) changed" in step for step in result["next_steps"])
-        # The judgment came from a server query above the local watermark.
-        query = mock_page.call_args[1]["query"]
-        assert "sys_updated_on>2025-01-10 10:00:00" in query
-        assert result["identity"]["user"] == "admin"
-
-    @patch("servicenow_mcp.tools.workspace_tools.resolve_live_username")
-    @patch("servicenow_mcp.tools.workspace_tools.sn_query_page")
-    def test_up_to_date_tree(self, mock_page, mock_user, mock_config, mock_auth, workspace):
-        mock_user.return_value = "admin"
-        mock_page.return_value = ([], 0)
-
-        result = workspace_brief(mock_config, mock_auth, WorkspaceBriefParams(root=str(workspace)))
-        assert result["trees"][0]["refresh"]["needed"] is False
-        assert "next_steps" not in result
-
-    @patch("servicenow_mcp.tools.workspace_tools.resolve_live_username")
-    @patch("servicenow_mcp.tools.workspace_tools.sn_query_page")
-    def test_other_instance_tree_is_never_checked_against_active(
-        self, mock_page, mock_user, mock_config, mock_auth, workspace
-    ):
-        mock_user.return_value = "admin"
-        (workspace / "test" / "_settings.json").write_text(
-            json.dumps({"name": "dev", "url": "https://dev.service-now.com", "g_ck": ""}),
-            encoding="utf-8",
-        )
-        result = workspace_brief(mock_config, mock_auth, WorkspaceBriefParams(root=str(workspace)))
-        tree = result["trees"][0]
-        assert tree["other_instance"] == "https://dev.service-now.com"
-        assert "refresh" not in tree
-        mock_page.assert_not_called()
+        assert "workspace_brief" not in discover_tools()

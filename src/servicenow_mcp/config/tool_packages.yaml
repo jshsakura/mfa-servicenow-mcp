@@ -87,8 +87,6 @@ standard:
   - download_attachment
   # Local Sync (Read)
   - diff_local_component
-  # Session situational brief — identity, local edits/conflicts, refresh need
-  - workspace_brief
 
 # --- Portal Developer: portal + flow designer + custom app writes ---
 portal_developer:
