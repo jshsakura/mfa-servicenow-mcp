@@ -320,3 +320,159 @@ class TestDiffThreeWay:
             mock_config, mock_auth, DiffLocalComponentParams(path=str(script))
         )
         assert "three_way" not in result
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_diff_always_echoes_remote_state(self, mock_fetch, mock_config, mock_auth, widget_root):
+        # An all-'unchanged' diff must still show the server's last-edit info,
+        # so "no local/remote delta" is never read as "the server never moved".
+        script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        mock_fetch.return_value = {**self._remote("var x = 1;"), "sys_mod_count": "165"}
+
+        result = diff_local_component(
+            mock_config, mock_auth, DiffLocalComponentParams(path=str(script))
+        )
+        assert result["remote"]["updated_on"] == "2025-01-12 10:00:00"
+        assert result["remote"]["updated_by"] == "alice"
+        assert result["remote"]["mod_count"] == "165"
+
+
+# ---------------------------------------------------------------------------
+# Verdict mode: token-lean status-only verification (no diff bodies)
+# ---------------------------------------------------------------------------
+class TestVerdictMode:
+    def _remote(self, script, mod_count="7"):
+        return {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": script,
+            "sys_updated_on": "2025-01-12 10:00:00",
+            "sys_updated_by": "alice",
+            "sys_created_by": "alice",
+            "sys_mod_count": mod_count,
+        }
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_component_verdict_local_ahead_has_no_bodies(
+        self, mock_fetch, mock_config, mock_auth, widget_root
+    ):
+        script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        write_baseline_for(script, "var x = 0;")  # local edit vs unmoved server
+        mock_fetch.return_value = self._remote("var x = 0;")
+
+        result = diff_local_component(
+            mock_config, mock_auth, DiffLocalComponentParams(path=str(script), verdict=True)
+        )
+        assert result["mode"] == "verdict"
+        assert result["verdict"] == "local_ahead"
+        assert result["fields"]["script"]["state"] == "local_ahead"
+        assert result["fields"]["script"]["changed_lines"] > 0
+        assert result["remote"]["mod_count"] == "7"
+        assert "diffs" not in result  # never diff bodies in verdict mode
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_component_verdict_identical(self, mock_fetch, mock_config, mock_auth, widget_root):
+        script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        write_baseline_for(script, "var x = 1;")
+        mock_fetch.return_value = self._remote("var x = 1;")
+
+        result = diff_local_component(
+            mock_config, mock_auth, DiffLocalComponentParams(path=str(script), verdict=True)
+        )
+        assert result["verdict"] == "identical"
+        assert "fields" not in result
+        # P5: even 'identical' carries the server's last-edit evidence.
+        assert result["remote"]["updated_by"] == "alice"
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_directory_verdict_scan_remote_ahead(
+        self, mock_query, mock_config, mock_auth, widget_root
+    ):
+        script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        write_baseline_for(script, "var x = 1;")  # clean local
+        mock_query.return_value = {
+            "results": [self._remote("var x = 2; // server moved", mod_count="9")]
+        }
+
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(widget_root / "global"), verdict=True),
+        )
+        assert result["mode"] == "verdict"
+        assert result["components_checked"] == 1
+        assert result["in_sync"] == 0
+        row = result["needs_attention"][0]
+        assert row["verdict"] == "remote_ahead"
+        assert row["fields"]["script"]["state"] == "remote_ahead"
+        assert row["remote"]["mod_count"] == "9"
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_directory_verdict_scan_all_in_sync(
+        self, mock_query, mock_config, mock_auth, widget_root
+    ):
+        mock_query.return_value = {"results": [self._remote("var x = 1;")]}
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(widget_root / "global"), verdict=True),
+        )
+        assert result["components_checked"] == 1
+        assert result["in_sync"] == 1
+        assert result["needs_attention"] == []
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_table_dir_path_scans_directly(self, mock_query, mock_config, mock_auth, widget_root):
+        mock_query.return_value = {"results": [self._remote("var x = 1;")]}
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(widget_root / "global" / "sp_widget"), verdict=True),
+        )
+        assert result["components_checked"] == 1
+        assert result["in_sync"] == 1
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_directory_verdict_flags_missing_remote(
+        self, mock_query, mock_config, mock_auth, widget_root
+    ):
+        mock_query.return_value = {"results": []}
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(widget_root / "global"), verdict=True),
+        )
+        assert result["needs_attention"][0]["verdict"] == "missing_remote"
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_directory_verdict_skips_other_instance_trees(
+        self, mock_query, mock_config, mock_auth, widget_root
+    ):
+        (widget_root / "_settings.json").write_text(
+            json.dumps({"name": "dev", "url": "https://dev.service-now.com", "g_ck": ""}),
+            encoding="utf-8",
+        )
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(widget_root / "global"), verdict=True),
+        )
+        assert result["components_checked"] == 0
+        assert result["skipped_other_instance"][0]["origin"] == "https://dev.service-now.com"
+        assert "compare_instances" in result["skipped_hint"]
+        mock_query.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Registry binding regression: a helper inserted between @register_tool and its
+# function once hijacked the registration (v1.18.28) — pin name == callable.
+# ---------------------------------------------------------------------------
+class TestRegistryBinding:
+    def test_every_registered_tool_binds_its_own_function(self):
+        from servicenow_mcp.utils.registry import discover_tools
+
+        mismatches = {
+            name: func.__name__
+            for name, (func, *_rest) in discover_tools().items()
+            if func.__name__ != name
+        }
+        assert mismatches == {}
