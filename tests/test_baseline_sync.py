@@ -463,6 +463,104 @@ class TestVerdictMode:
 
 
 # ---------------------------------------------------------------------------
+# Force-CAS: force=true approves overwriting exactly the version the caller
+# reviewed. No local backup (ServiceNow's sys_update_version history covers
+# recovery) — the guarantee is that an UNSEEN edit can never be force-crushed.
+# ---------------------------------------------------------------------------
+class TestForceCAS:
+    def _drifted_remote(self, updated_on="2025-01-12 10:00:00"):
+        return {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 0; // someone else's edit",
+            "sys_updated_on": updated_on,
+            "sys_updated_by": "alice",
+            "sys_created_by": "alice",
+            "sys_scope": "global",
+        }
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_conflict_hint_names_cas_param_with_exact_version(
+        self, mock_fetch, mock_config, mock_auth, widget_root
+    ):
+        mock_fetch.return_value = self._drifted_remote()
+        script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(script))
+        )
+        assert result["error"] in ("CONFLICT", "CONFLICT_OTHER_USER")
+        assert "confirm_overwrite_updated_on='2025-01-12 10:00:00'" in result["message"]
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_force_with_matching_confirm_pushes(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, widget_root
+    ):
+        mock_fetch.side_effect = [
+            self._drifted_remote(),
+            {"sys_id": "wid-1", "sys_updated_on": "2025-01-12 11:00:00"},
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
+        script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(script),
+                force=True,
+                confirm_overwrite_updated_on="2025-01-12 10:00:00",
+            ),
+        )
+        assert result["success"] is True
+        mock_update.assert_called_once()
+
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_force_with_stale_confirm_reblocks(
+        self, mock_fetch, mock_update, mock_config, mock_auth, widget_root
+    ):
+        # The server moved AGAIN after the review the caller approved.
+        mock_fetch.return_value = self._drifted_remote(updated_on="2025-01-12 12:34:56")
+        script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(script),
+                force=True,
+                confirm_overwrite_updated_on="2025-01-12 10:00:00",
+            ),
+        )
+        assert result["error"] == "FORCE_CONFIRM_STALE"
+        assert "2025-01-12 12:34:56" in result["message"]
+        assert result["diffs"], "stale-confirm block must carry the fresh diff"
+        mock_update.assert_not_called()
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_force_without_confirm_still_works(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, widget_root
+    ):
+        # Back-compat escape hatch: bare force=true keeps working.
+        mock_fetch.side_effect = [
+            self._drifted_remote(),
+            {"sys_id": "wid-1", "sys_updated_on": "2025-01-12 11:00:00"},
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
+        script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(script), force=True)
+        )
+        assert result["success"] is True
+
+
+# ---------------------------------------------------------------------------
 # Registry binding regression: a helper inserted between @register_tool and its
 # function once hijacked the registration (v1.18.28) — pin name == callable.
 # ---------------------------------------------------------------------------

@@ -229,6 +229,10 @@ class PushLocalComponentParams(BaseModel):
         default=False,
         description="Override a conflict (remote changed since download) and push anyway.",
     )
+    confirm_overwrite_updated_on: Optional[str] = Field(
+        default=None,
+        description="With force: the remote sys_updated_on you reviewed; re-blocks if it moved.",
+    )
     cross_instance_deploy: bool = Field(
         default=False,
         description="Deploy to a DIFFERENT instance than origin; target re-resolved by name.",
@@ -1841,6 +1845,33 @@ def update_remote_from_local(
     # your update set" bug). Unconfirmed-but-drifted still blocks as CONFLICT.
     confirmed_other = risk["other_user"]
 
+    # Force-CAS: force approves overwriting exactly the version the caller
+    # REVIEWED. If the server moved again between review and push, the approval
+    # is stale — re-block with fresh info instead of overwriting an unseen edit.
+    # ServiceNow's own sys_update_version history covers recovery of the
+    # overwritten body, so no local backup is taken.
+    if params.force and params.confirm_overwrite_updated_on:
+        if params.confirm_overwrite_updated_on != remote_updated_on:
+            by = f" by {remote_updated_by}" if remote_updated_by else ""
+            return {
+                "error": "FORCE_CONFIRM_STALE",
+                "message": (
+                    f"You approved overwriting the version of {params.confirm_overwrite_updated_on}, "
+                    f"but the server is now at {remote_updated_on}{by} — it changed again after "
+                    f"your review. Look at the fresh diff below, then re-push with "
+                    f"confirm_overwrite_updated_on='{remote_updated_on}' if you still mean it."
+                ),
+                "risk": risk,
+                "remote_updated_by": remote_updated_by,
+                "remote_updated_on": remote_updated_on,
+                "component": {
+                    "table": resolved.table,
+                    "sys_id": resolved.sys_id,
+                    "name": resolved.name,
+                },
+                "diffs": _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT),
+            }
+
     if drifted:
         if not params.force:
             component_info = {
@@ -1870,7 +1901,10 @@ def update_remote_from_local(
                 )
             message = (
                 f"{risk['message']} (server: {remote_updated_on}, your copy: {local_updated_on})."
-                f"{live_note} Use force=true to push, or re-download to get the latest first."
+                f"{live_note} To overwrite exactly this reviewed version, push again with "
+                f"force=true confirm_overwrite_updated_on='{remote_updated_on}' (re-blocks if "
+                f"the server moves again; the overwritten body stays recoverable in the "
+                f"server's version history). Or re-download to take the latest instead."
             )
             return {
                 "error": error_code,
