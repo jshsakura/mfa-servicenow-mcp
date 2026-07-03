@@ -1867,6 +1867,26 @@ class ServiceNowMCP:
             existing = getattr(self.mcp_server, "instructions", None) or ""
             self.mcp_server.instructions = f"{existing}\n\n{sync_flow}" if existing else sync_flow
 
+        # Situational brief: this steer must reach CONSUMING sessions (users'
+        # work folders), which never load this repo's CLAUDE.md — MCP
+        # `instructions` is the only channel that does. Deliberately
+        # SITUATIONAL, not a session-start ritual: not every user has broad
+        # read access or a local-source workflow (service desk, limited ACLs),
+        # and plain live queries don't need it. Gated to packages that expose
+        # the tool.
+        if "workspace_brief" in self.enabled_tool_names:
+            brief_hint = (
+                "workspace_brief: when the task involves locally downloaded sources — "
+                "resuming earlier edits, preparing a push, or deciding whether to "
+                "re-download — call it first: one cheap call reports who/where you are "
+                "connected, unpushed local edits, unresolved '.remote' conflict sidecars, "
+                "and which trees need a refresh (live-checked). NOT needed for plain live "
+                "queries or ticket work; with no downloads it just reports an empty "
+                "workspace."
+            )
+            existing = getattr(self.mcp_server, "instructions", None) or ""
+            self.mcp_server.instructions = f"{existing}\n\n{brief_hint}" if existing else brief_hint
+
         # After a local download+audit, the relationship graphs live on disk.
         # Tell the LLM so it answers relationship questions by reading those
         # files instead of re-querying the instance with the live resolvers.
