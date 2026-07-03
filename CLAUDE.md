@@ -62,13 +62,21 @@ curl_cffi itself regresses on an instance. Semantics live in
 
 ## auth_manager.py is FROZEN — bug fixes only
 
-Exempt from the file-size rule; its behavior is coupled to real servers, real
-browsers, and timing that mock tests cannot fully verify — refactors here break
-in production, not in CI (probe-path saga: 8 patch versions; headless-first:
+The FROZEN scope is the **`AuthManager` class core** (the browser/network/timing-
+coupled methods — especially `_login_with_browser_sync`, `make_request`,
+`get_headers`). Its behavior is coupled to real servers, real browsers, and
+timing that mock tests cannot fully verify — refactors here break in production,
+not in CI (probe-path saga: 8 patch versions; headless-first:
 shipped→broken→reverted→re-shipped).
 
-- **Do NOT refactor, split, reorder, or "clean up" this file.** Structural change
-  only on explicit maintainer request, gated on the invariant tests below.
+Stateless module-level helpers (cookie parsing, URL/response predicates, log
+redaction, HTTP-session factory, DOM helpers) were extracted to sibling modules
+(`_http_session.py`, `_cookies.py`, `_url_predicates.py`, `_response_predicates.py`,
+`_diagnostics.py`, `_browser_dom.py`) in v1.18.25 and re-exported byte-identically;
+those are normal code under the usual rules. The freeze is about the coupled class.
+
+- **Do NOT refactor, split, reorder, or "clean up" the AuthManager class.** Structural
+  change only on explicit maintainer request, gated on the invariant tests below.
 - Bug fixes = minimal diffs. If a change breaks one of these tests, the change
   is wrong — fix the change, not the test.
 - Adding NEW invariant-pinning tests is always welcome; that is the sanctioned
