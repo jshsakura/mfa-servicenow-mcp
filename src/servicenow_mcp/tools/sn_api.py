@@ -1118,7 +1118,10 @@ def _workspace_snapshot() -> Dict[str, Any]:
             out["unpushed_local_edits"] = edits
         if conflicts:
             out["unresolved_conflicts"] = conflicts
-        out["next"] = "Call workspace_brief for per-tree details (edits, conflicts, refresh need)."
+        out["next"] = (
+            "Details: diff_local_component(path='<tree root>', verdict=True) — "
+            "per-component verdicts vs the live server, no bodies."
+        )
         return out
     except Exception as exc:  # noqa: BLE001 — a broken temp tree must not fail health
         logger.warning("sn_health: workspace snapshot skipped: %s", exc)

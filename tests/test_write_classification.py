@@ -103,8 +103,6 @@ _READ_ONLY_TOOL_SNAPSHOT = frozenset(
         "sn_resolve_url",
         "sn_schema",
         "trace_portal_route_targets",
-        # Session brief: disk reads + timestamp count queries only.
-        "workspace_brief",
     }
 )
 

@@ -29,11 +29,11 @@ Tool definitions are sent to the LLM on every request. Every character costs tok
 Source downloads write full bodies to disk; only summaries return to context.
 Picking the wrong tool wastes round-trips and tokens. Default decision tree:
 
-0. **Resuming local-source work / before a push** → `workspace_brief` — one
-   call for identity, unpushed edits, unresolved `.remote` conflicts, and
-   per-tree refresh need (live check, no bodies). Situational, not a ritual:
-   plain live queries and ticket work don't need it, and local-first is NOT
-   the default for users without broad read access.
+0. **Unfinished local work surfaces automatically** — `sn_health` carries a
+   `workspace` summary (unpushed edits, unresolved `.remote` conflicts) when
+   any exist; silent otherwise. There is deliberately NO separate brief tool:
+   automation the LLM must remember to invoke is not automation. Drill down
+   with `diff_local_component(path=<tree>, verdict=True)`.
 
 1. **Reading one widget/SI body** → `get_widget_bundle` (widget only) or
    `get_portal_component_code` with `fetch_complete=True`. Do NOT loop on
