@@ -41,6 +41,11 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
 4. **Already downloaded before** → `diff_local_component(path=...)` first.
    Re-download only if diff reports drift, or if `_manifest.json` is missing.
 5. **Push back to ServiceNow** → `diff_local_component` → `update_remote_from_local`.
+6. **Re-download is content-aware (3-way, `utils/baseline.py`)**: locally
+   edited files are never overwritten — a true conflict saves the server copy
+   as `<field>.remote.<ext>` next to yours. Merge into the main file, push;
+   the sidecar auto-clears. NEVER edit or push `_baseline/` or `*.remote.*`
+   files — they are internal comparison artifacts (push rejects them).
 
 Standard download root: `temp/<instance>/<scope>/_manifest.json`. Treat its
 presence as "already fetched"; check `downloaded_at` for freshness.
