@@ -314,6 +314,50 @@ def test_g3_fails_open_on_missing_audit_data() -> None:
         )
 
 
+def test_g3_fail_closed_blocks_when_audit_read_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opt-in fail-closed: a FAILED audit read (None, None) blocks the write."""
+    monkeypatch.setenv("SERVICENOW_WRITE_GUARDS_FAIL", "closed")
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=(None, None),  # request itself raised → both None
+    ):
+        with pytest.raises(PolicyViolation, match=r"could not verify"):
+            run_post_confirm_guards(
+                _SERVER,
+                "sn_write",
+                {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+            )
+
+
+def test_g3_fail_closed_still_passes_when_record_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail-closed is scoped to READ failure: a successful read with no matching
+    row (record None but server_now set) has nothing to conflict with — passes."""
+    monkeypatch.setenv("SERVICENOW_WRITE_GUARDS_FAIL", "closed")
+    server_now = datetime.now(timezone.utc)
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=(None, server_now),  # read succeeded, record just absent
+    ):
+        run_post_confirm_guards(
+            _SERVER,
+            "sn_write",
+            {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+        )
+
+
+def test_g3_default_fail_open_unaffected_by_read_failure() -> None:
+    """Without the opt-in, a failed audit read still passes (default availability)."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=(None, None),
+    ):
+        run_post_confirm_guards(
+            _SERVER,
+            "sn_write",
+            {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}},
+        )
+
+
 def test_g3_custom_window_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Window configurable via env var."""
     monkeypatch.setenv("SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN", "60")

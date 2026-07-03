@@ -163,6 +163,16 @@ ENV_CONCURRENT_WINDOW_MIN = "SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN"
 ENV_CONCURRENT_GUARD = "SERVICENOW_CONCURRENT_EDIT_GUARD"  # disables G3+G8 only
 DEFAULT_CONCURRENT_WINDOW_MIN = 10
 
+# Opt-in fail-CLOSED for the concurrent-edit guard. Default is fail-open: if the
+# pre-write audit read cannot run (network error, ACL denial, 5xx), the guard
+# lets the write through rather than blocking a legitimate write on missing data.
+# Security-sensitive callers can flip this to "closed" so a guard that *could not
+# verify* blocks instead of silently passing — trading availability for the
+# guarantee that a lost-update check never silently no-ops. Scoped to the
+# read-FAILED case only; a read that succeeds and finds no conflict still passes.
+ENV_WRITE_GUARDS_FAIL = "SERVICENOW_WRITE_GUARDS_FAIL"  # "closed" ⇒ fail-closed
+_FAIL_CLOSED_VALUES = ("closed", "close", "strict", "1", "true", "yes")
+
 # G6 — tables that must only be written via scaffold tools.
 FLOW_DESIGNER_INTERNAL_TABLES = frozenset(
     {
@@ -330,6 +340,12 @@ def _concurrent_guard_enabled() -> bool:
     """Targeted off-switch for concurrent-edit detection (G3 + G8), leaving the
     flow-designer (G6) and publish (G7) guards intact."""
     return os.getenv(ENV_CONCURRENT_GUARD, "on").lower() not in ("off", "false", "0", "no")
+
+
+def _fail_closed() -> bool:
+    """True when the operator opted the concurrent-edit guard into fail-CLOSED —
+    an audit read that could not run blocks the write instead of passing."""
+    return os.getenv(ENV_WRITE_GUARDS_FAIL, "").strip().lower() in _FAIL_CLOSED_VALUES
 
 
 def _is_read_only(tool_name: str, arguments: Dict[str, Any]) -> bool:
@@ -521,7 +537,21 @@ def _check_concurrent_edit(
     confirmed clash. `label` (e.g. "incident/INC001") is for the message only."""
     target, server_now = _fetch_record_audit(ctx, table, query)
     if target is None:
-        return  # fail-open if audit fetch fails
+        # Distinguish "read FAILED" from "record legitimately absent":
+        # _fetch_record_audit returns (None, None) only when the request itself
+        # raised; a successful read with no matching row still parses the Date
+        # header, so server_now is set. Fail-closed applies ONLY to the former —
+        # a genuine record-not-found has nothing to conflict with.
+        if server_now is None and _fail_closed():
+            raise PolicyViolation(
+                guard,
+                f"Concurrent-edit guard could not verify {label}: the pre-write "
+                f"audit read failed (network, ACL, or 5xx). Fail-closed mode "
+                f"({ENV_WRITE_GUARDS_FAIL}=closed) blocks rather than risk a "
+                f"silent lost update. Retry, or set {ENV_WRITE_GUARDS_FAIL} back "
+                f"to its default (fail-open) if this instance denies audit reads.",
+            )
+        return  # fail-open (default): audit fetch failed or record absent
 
     other = (target.get("sys_updated_by") or "").strip()
     me = (_current_username(ctx.server) or "").strip()
