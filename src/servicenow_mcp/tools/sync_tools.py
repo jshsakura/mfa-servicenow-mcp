@@ -212,6 +212,10 @@ class DiffLocalComponentParams(BaseModel):
         default=None,
         description="2nd download root to diff against instead of remote (dev-vs-test, no network).",
     )
+    verdict: bool = Field(
+        default=False,
+        description="Status-only: verdict + changed-line counts, no diff bodies; dirs scan all.",
+    )
 
 
 class PushLocalComponentParams(BaseModel):
@@ -1197,16 +1201,6 @@ def _diff_against_compare_to(path: Path, compare_to: Path, context_lines: int) -
     return _diff_local_component_vs_root(path, compare_to, context_lines)
 
 
-# ---------------------------------------------------------------------------
-# Tool 1: diff_local_component
-# ---------------------------------------------------------------------------
-@register_tool(
-    "diff_local_component",
-    params=DiffLocalComponentParams,
-    description="Diff local edits vs remote (or vs a 2nd download root via compare_to, e.g. dev-vs-test).",
-    serialization="raw_dict",
-    return_type=dict,
-)
 def _baseline_three_way(
     resolved: "_ResolvedComponent", remote_record: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -1256,6 +1250,218 @@ def _baseline_three_way(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Verdict mode: token-lean live verification. The remote BODY is fetched and
+# compared inside the MCP (network only) — the LLM context receives verdicts
+# and line counts, never source text. Verdicts (baseline-attributed):
+#   identical | local_ahead (your edits) | remote_ahead (server moved) |
+#   diverged (both) | changed_no_baseline (differs, legacy tree — can't
+#   attribute) | missing_remote
+# ---------------------------------------------------------------------------
+_VERDICT_ATTENTION_CAP = 200
+
+
+def _count_changed_lines(left: str, right: str) -> int:
+    """Lines added+removed between two bodies (n=0 unified diff)."""
+    changed = 0
+    for line in difflib.unified_diff(left.splitlines(), right.splitlines(), lineterm="", n=0):
+        if line.startswith(("+", "-")) and not line.startswith(("+++", "---")):
+            changed += 1
+    return changed
+
+
+def _field_state(local: str, baseline: Optional[str], remote: str) -> str:
+    local_n = _normalize_for_compare(local)
+    remote_n = _normalize_for_compare(remote)
+    if local_n == remote_n:
+        return "in_sync"
+    if baseline is None:
+        return "changed_no_baseline"
+    baseline_n = _normalize_for_compare(baseline)
+    if baseline_n == local_n:
+        return "remote_ahead"
+    if baseline_n == remote_n:
+        return "local_ahead"
+    return "diverged"
+
+
+def _aggregate_verdict(states: Set[str]) -> str:
+    """Component verdict from its non-in_sync field states."""
+    if not states:
+        return "identical"
+    if "diverged" in states or {"local_ahead", "remote_ahead"} <= states:
+        return "diverged"
+    if "changed_no_baseline" in states:
+        return "changed_no_baseline"
+    return next(iter(states))
+
+
+def _remote_record_state(record: Dict[str, Any]) -> Dict[str, str]:
+    """Server-side edit evidence — echoed on EVERY result so 'unchanged' can
+    never be mistaken for 'nothing happened on the server'."""
+    return {
+        "updated_on": str(record.get("sys_updated_on") or ""),
+        "updated_by": _display_str(record.get("sys_updated_by")),
+        "mod_count": str(record.get("sys_mod_count") or ""),
+    }
+
+
+def _component_field_verdicts(
+    fields: Dict[str, Path], remote_record: Dict[str, Any]
+) -> Tuple[Dict[str, Any], Set[str], List[str]]:
+    """(non-in_sync field rows, their states, conflict sidecars on disk)."""
+    field_rows: Dict[str, Any] = {}
+    states: Set[str] = set()
+    sidecars: List[str] = []
+    for field_name, fpath in sorted(fields.items()):
+        if not fpath.exists():
+            continue
+        try:
+            local = fpath.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        remote_text = str(remote_record.get(field_name) or "")
+        state = _field_state(local, read_baseline_for(fpath), remote_text)
+        sidecar = remote_sidecar_path_for(fpath)
+        if sidecar.exists():
+            sidecars.append(sidecar.name)
+        if state == "in_sync":
+            continue
+        states.add(state)
+        field_rows[field_name] = {
+            "state": state,
+            "changed_lines": _count_changed_lines(local, remote_text),
+        }
+    return field_rows, states, sidecars
+
+
+def _table_source_fields(table_name: str) -> List[str]:
+    """Union of field names this table stores on disk (folder + flat layouts)."""
+    fields: Set[str] = set((_folder_layout_field_map(table_name) or {}).values())
+    fields.update(TABLE_FILE_FIELD_MAP.get(table_name, {}).values())
+    return sorted(fields)
+
+
+def _batch_fetch_records(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    sys_ids: List[str],
+    fields: List[str],
+) -> Dict[str, Dict[str, Any]]:
+    """Batch-fetch full field bodies for many sys_ids (chunked, raw values)."""
+    if not sys_ids:
+        return {}
+    field_list = ",".join(
+        dict.fromkeys(["sys_id", *fields, "sys_updated_on", "sys_updated_by", "sys_mod_count"])
+    )
+    out: Dict[str, Dict[str, Any]] = {}
+    for i in range(0, len(sys_ids), 50):
+        chunk = sys_ids[i : i + 50]
+        params = GenericQueryParams(
+            table=table,
+            query=f"sys_idIN{','.join(chunk)}",
+            fields=field_list,
+            limit=len(chunk),
+            offset=0,
+            display_value=False,
+        )
+        response = sn_query(config, auth_manager, params)
+        for row in response.get("results") or []:
+            sid = str(row.get("sys_id") or "")
+            if sid:
+                out[sid] = row
+    return out
+
+
+def _verdict_scan(config: ServerConfig, auth_manager: AuthManager, root: Path) -> Dict[str, Any]:
+    """Batch verdict for every component under *root* (download root, scope
+    root, or table dir). Bodies are compared in the MCP; only verdicts return."""
+    attention: List[Dict[str, Any]] = []
+    checked = 0
+    in_sync = 0
+    skipped_origin: List[Dict[str, str]] = []
+    for table_name in sorted(_all_supported_tables()):
+        table_dirs = _find_table_dirs(root, table_name)
+        # The path may BE a table dir (.../sys_script_include) — scan it directly.
+        if root.name == table_name and (root / "_map.json").exists() and root not in table_dirs:
+            table_dirs.append(root)
+        for table_dir in table_dirs:
+            map_data = _read_map_json(table_dir)
+            if not map_data:
+                continue
+            origin = _resolve_origin_url(table_dir)
+            if origin and origin.rstrip("/") != config.instance_url.rstrip("/"):
+                skipped_origin.append(
+                    {"table": table_name, "path": str(table_dir), "origin": origin}
+                )
+                continue
+            remote_by_id = _batch_fetch_records(
+                config,
+                auth_manager,
+                table_name,
+                sorted({str(sid) for sid in map_data.values() if sid}),
+                _table_source_fields(table_name),
+            )
+            for name in sorted(map_data):
+                sys_id = str(map_data.get(name) or "")
+                fields = _component_field_files(table_dir, name, table_name)
+                if not fields:
+                    continue
+                checked += 1
+                remote_record = remote_by_id.get(sys_id)
+                if remote_record is None:
+                    attention.append(
+                        {"table": table_name, "name": name, "verdict": "missing_remote"}
+                    )
+                    continue
+                field_rows, states, sidecars = _component_field_verdicts(fields, remote_record)
+                if not field_rows:
+                    in_sync += 1
+                    continue
+                row: Dict[str, Any] = {
+                    "table": table_name,
+                    "name": name,
+                    "verdict": _aggregate_verdict(states),
+                    "fields": field_rows,
+                    "remote": _remote_record_state(remote_record),
+                }
+                if sidecars:
+                    row["conflict_sidecars"] = sidecars
+                attention.append(row)
+    result: Dict[str, Any] = {
+        "mode": "verdict",
+        "root": str(root),
+        "components_checked": checked,
+        "in_sync": in_sync,
+        "needs_attention": attention[:_VERDICT_ATTENTION_CAP],
+    }
+    if len(attention) > _VERDICT_ATTENTION_CAP:
+        result["truncated"] = (
+            f"{len(attention) - _VERDICT_ATTENTION_CAP} more component(s) need attention — "
+            f"narrow the path (scope or table dir) to see the rest."
+        )
+    if skipped_origin:
+        result["skipped_other_instance"] = skipped_origin
+        result["skipped_hint"] = (
+            "These trees were downloaded from a DIFFERENT instance than the active one — "
+            "verdicts against the wrong server would be misleading. Route the call with "
+            "instance=<alias> (see list_instances), or compare across instances with "
+            "compare_instances."
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Tool 1: diff_local_component
+# ---------------------------------------------------------------------------
+@register_tool(
+    "diff_local_component",
+    params=DiffLocalComponentParams,
+    description="Diff local edits vs remote, or vs a 2nd root (compare_to); verdict=True for status-only.",
+    serialization="raw_dict",
+    return_type=dict,
+)
 def diff_local_component(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1271,6 +1477,15 @@ def diff_local_component(
     if params.compare_to:
         compare_to = Path(params.compare_to).expanduser().resolve()
         return _diff_against_compare_to(path, compare_to, params.context_lines)
+
+    # Verdict mode on a directory: batch-verify every component under it
+    # (download root, scope root, or table dir). A record folder falls through
+    # to the single-component verdict below.
+    if params.verdict and path.is_dir():
+        try:
+            _resolve_local_path(path)
+        except ValueError:
+            return _verdict_scan(config, auth_manager, path)
 
     # Directory mode: if this is a download root, scan all components
     if path.is_dir() and _is_download_root(path):
@@ -1291,6 +1506,7 @@ def diff_local_component(
         "sys_updated_on",
         "sys_updated_by",
         "sys_created_by",
+        "sys_mod_count",
     ]
     try:
         remote_record = _fetch_portal_component_record(
@@ -1322,6 +1538,37 @@ def diff_local_component(
             f"downloaded — review before pushing."
         )
 
+    # 3-way separation (baseline-aware): tells YOUR edits apart from the
+    # SERVER's changes so a mixed diff never has to be untangled by eye.
+    three_way = _baseline_three_way(resolved, remote_record)
+
+    # Verdict mode: status + line counts only, never diff bodies.
+    if params.verdict:
+        field_rows, states, sidecars = _component_field_verdicts(resolved.fields, remote_record)
+        vres: Dict[str, Any] = {
+            "mode": "verdict",
+            "component": {
+                "table": resolved.table,
+                "sys_id": resolved.sys_id,
+                "name": resolved.name,
+            },
+            "verdict": _aggregate_verdict(states),
+            "remote": _remote_record_state(remote_record),
+        }
+        if field_rows:
+            vres["fields"] = field_rows
+        if sidecars:
+            vres["conflict_sidecars"] = sidecars
+        if three_way:
+            vres["three_way"] = three_way
+        if conflict_warning:
+            vres["conflict_warning"] = conflict_warning
+        if attribution["attribution"] != "consistent":
+            vres["attribution"] = attribution
+        if not resolved.instance_url:
+            vres["origin_unverified"] = _ORIGIN_UNVERIFIED_MSG
+        return vres
+
     diffs = _compute_field_diffs(resolved, remote_record, params.context_lines)
 
     result: Dict[str, Any] = {
@@ -1333,10 +1580,11 @@ def diff_local_component(
         },
         "conflict_warning": conflict_warning,
         "diffs": diffs,
+        # Server-side edit evidence on EVERY diff — an all-'unchanged' result
+        # must never read as "the server never moved" (it may mean a deploy
+        # updated both sides; three_way/attribution carry the rest).
+        "remote": _remote_record_state(remote_record),
     }
-    # 3-way separation (baseline-aware): tells YOUR edits apart from the
-    # SERVER's changes so a mixed diff never has to be untangled by eye.
-    three_way = _baseline_three_way(resolved, remote_record)
     if three_way:
         result["three_way"] = three_way
     # Surface attribution only when it's NOT plain-consistent — token-lean: a

@@ -40,6 +40,9 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
    `download_server_sources(families=[...])` (SIs/BRs/UI/api/security/admin).
 4. **Already downloaded before** → `diff_local_component(path=...)` first.
    Re-download only if diff reports drift, or if `_manifest.json` is missing.
+   For "is any of this stale?" over a folder/scope, use `verdict=True` —
+   per-component verdicts + line counts, zero source bodies in context.
+   Cross-instance comparison → `compare_instances` (live, both sides).
 5. **Push back to ServiceNow** → `diff_local_component` → `update_remote_from_local`.
 6. **Re-download is content-aware (3-way, `utils/baseline.py`)**: locally
    edited files are never overwritten — a true conflict saves the server copy
