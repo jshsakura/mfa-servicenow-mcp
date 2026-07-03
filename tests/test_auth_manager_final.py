@@ -1237,6 +1237,179 @@ class TestLoginWithBrowserSync:
         call_kwargs = launch_call.call_args
         assert call_kwargs.kwargs.get("headless") is False
 
+    # ------------------------------------------------------------------
+    # Invariant-pinning tests (auth_manager.py is FROZEN — see CLAUDE.md).
+    # Each test nails one branch that history shows breaks in production,
+    # not in CI: cooldown-clock restore on every headless bail path, and
+    # "every raise path closes the browser window" (no leaked windows).
+    # ------------------------------------------------------------------
+
+    def test_headless_timeout_restores_cooldown_clock_and_closes_window(self):
+        """Invariant: the headless-timeout bail path must restore
+        _last_login_started_at (else the wrapper's immediate visible fallback
+        is refused by LOGIN_COOLDOWN — the v1.15.10 trap) AND close the
+        context so no invisible browser leaks."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=2, headless=True, session_ttl_minutes=30)
+        sentinel = 12345.0  # old timestamp → cooldown gate passes
+        mgr._last_login_started_at = sentinel
+
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        mock_page.url = "https://example.service-now.com/login.do"  # never confirms
+        # Valid remembered cookie on a non-instance domain → gate passes,
+        # but no instance cookies → the wait loop runs out its budget.
+        mock_context.cookies.return_value = [
+            {
+                "name": "glide_mfa_remembered_browser",
+                "value": "remembered",
+                "domain": "other.com",
+                "expires": time.time() + 86400,
+            }
+        ]
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                with patch.object(AuthManager, "MAX_HEADLESS_LOGIN_WAIT_BUDGET_MS", 50):
+                    with pytest.raises(ValueError, match="headless mode"):
+                        mgr._login_with_browser_sync(browser_cfg)
+
+        assert mgr._last_login_started_at == sentinel
+        assert mock_context.close.called
+
+    def test_gate_reject_closes_window_and_never_navigates(self):
+        """Invariant: the cookie-gate MFA_REQUIRED bail fires BEFORE any
+        navigation (no login.do submission burned) and closes the context."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10, headless=False, session_ttl_minutes=30)
+
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks(cookies=[])
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                with pytest.raises(ValueError, match="MFA_REQUIRED"):
+                    mgr._login_with_browser_sync(browser_cfg)
+
+        mock_page.goto.assert_not_called()
+        assert mock_context.close.called
+
+    def test_mfa_fast_detect_closes_window(self):
+        """Invariant: the headless MFA fast-detect bail closes the context
+        (clock restore is pinned by test_headless_mfa_page_fast_detect_restores_clock)."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10, headless=False, session_ttl_minutes=30)
+
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        mock_page.url = "https://example.service-now.com/validate_multifactor_auth_code.do"
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                with pytest.raises(ValueError, match="MFA_REQUIRED"):
+                    mgr._login_with_browser_sync(browser_cfg)
+
+        assert mock_context.close.called
+
+    def test_page_closed_during_wait_raises_and_closes_window(self):
+        """Invariant: user closing the page mid-poll raises a closed-marker
+        message (matched by the user-close marker list) AND still closes the
+        context — no half-dead window left behind.
+
+        Note the inner 'Browser was closed before login completed' raise is
+        itself caught by the poll except (its text contains 'closed') and
+        re-raised as 'Target page, context or browser has been closed' — both
+        carry user-close markers, so the wrapper classification is identical.
+        Pin the ACTUAL surfaced message."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10, headless=True, session_ttl_minutes=30)
+
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        mock_page.is_closed.return_value = True
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                with pytest.raises(ValueError, match="has been closed"):
+                    mgr._login_with_browser_sync(browser_cfg)
+
+        assert mock_context.close.called
+
+    def test_poll_target_closed_error_raises_and_closes_window(self):
+        """Invariant: a closed-target/connection error while polling maps to
+        the 'Target page, context or browser has been closed' message and
+        closes the context."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10, headless=True, session_ttl_minutes=30)
+
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        mock_page.is_closed.side_effect = Exception("TargetClosedError: target closed")
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                with pytest.raises(ValueError, match="has been closed"):
+                    mgr._login_with_browser_sync(browser_cfg)
+
+        assert mock_context.close.called
+
+    def test_no_instance_scoped_cookies_raises_and_closes_window(self):
+        """Invariant: login confirmed but no instance-scoped secure cookies
+        captured → raise AND close the window (raise path at the capture
+        stage must not leak the context)."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10, headless=True, session_ttl_minutes=30)
+
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch.object(mgr, "_build_instance_cookie_header", return_value=""):
+                with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                    with pytest.raises(ValueError, match="No instance-scoped secure cookies"):
+                        mgr._login_with_browser_sync(browser_cfg)
+
+        assert mock_context.close.called
+
+    def test_no_cookies_captured_raises_and_closes_window(self):
+        """Invariant: login confirmed (stable ticks) but the context yields
+        zero cookies at capture → raise AND close the window. Uses
+        force_interactive to skip the cookie gate (which would otherwise
+        reject the empty jar first)."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=2, headless=True, session_ttl_minutes=30)
+
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks(cookies=[])
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                with pytest.raises(ValueError, match="no cookies were captured"):
+                    mgr._login_with_browser_sync(browser_cfg, force_interactive=True)
+
+        assert mock_context.close.called
+
     def test_login_interactive_stable_main_ui_no_longer_confirms_login(self):
         """Interactive mode now also requires a successful probe before confirmation."""
         mgr = _make_browser_manager()
