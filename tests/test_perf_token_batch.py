@@ -8,7 +8,13 @@ import time
 from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools.flow_designer_tools import _SCRIPT_STUB_MIN_CHARS, render_flow_compact
+from servicenow_mcp.tools.flow_designer_tools import (
+    _SCRIPT_STUB_MIN_CHARS,
+    GetFlowDetailsParams,
+    _compact_triggers,
+    get_flow_details,
+    render_flow_compact,
+)
 from servicenow_mcp.tools.flow_edit_tools import ManageFlowEditParams, manage_flow_edit
 from servicenow_mcp.tools.workflow_tools import reorder_workflow_activities
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig, ServerConfig
@@ -107,6 +113,79 @@ def test_checkout_path_stubs_scripts(tmp_path, monkeypatch):
     assert result["success"] is True
     assert _BIG_SCRIPT not in result["summary"]["tree"]
     assert "«script:" in result["summary"]["tree"]
+
+
+# ---------------------------------------------------------------------------
+# T2 — trigger compaction (raw trigger rows -> {id,type,table,condition})
+# ---------------------------------------------------------------------------
+
+_RAW_TRIGGER = {
+    "id": "trg1",
+    "type": "RECORD",
+    "sys_class_name": "sys_hub_trigger_instance",
+    "some_verbose_field": "x" * 500,
+    "inputs": [
+        {"name": "table", "value": "incident", "displayValue": "Incident"},
+        {"name": "condition", "value": "active=true"},
+        {"name": "noise", "value": "y" * 500},
+    ],
+}
+
+
+def test_compact_triggers_keeps_only_essential_fields():
+    out = _compact_triggers([_RAW_TRIGGER])
+    assert out == [
+        {"id": "trg1", "type": "RECORD", "table": "Incident", "condition": "active is true"}
+    ]
+    # the 500-char noise fields are gone
+    assert "noise" not in str(out)
+    assert "some_verbose_field" not in str(out)
+
+
+def test_render_flow_compact_uses_compacted_triggers():
+    flow = _flow_with_script()
+    flow["triggerInstances"] = [_RAW_TRIGGER]
+    out = render_flow_compact(flow)
+    assert out["triggers"] == [
+        {"id": "trg1", "type": "RECORD", "table": "Incident", "condition": "active is true"}
+    ]
+
+
+def test_get_detail_compacts_triggers_by_default_raw_when_summary_off():
+    def _mr(method, url, **kwargs):
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"result": {"id": "flow1", "name": "F", "triggerInstances": []}}
+        return resp
+
+    auth = MagicMock(spec=AuthManager)
+    auth.make_request = MagicMock(side_effect=_mr)
+
+    with patch(
+        "servicenow_mcp.tools.flow_designer_tools._build_processflow_detail",
+        return_value={"triggers": [_RAW_TRIGGER], "actions": []},
+    ):
+        compact = get_flow_details(
+            _browser_cfg(),
+            auth,
+            GetFlowDetailsParams(flow_id="flow1", include_triggers=True, include_structure=False),
+        )
+        raw = get_flow_details(
+            _browser_cfg(),
+            auth,
+            GetFlowDetailsParams(
+                flow_id="flow1",
+                include_triggers=True,
+                include_structure=False,
+                summary_format=False,
+            ),
+        )
+
+    assert compact["triggers"] == [
+        {"id": "trg1", "type": "RECORD", "table": "Incident", "condition": "active is true"}
+    ]
+    # summary_format=False keeps the full raw trigger row (escape hatch)
+    assert raw["triggers"][0]["some_verbose_field"] == "x" * 500
 
 
 # ---------------------------------------------------------------------------

@@ -640,6 +640,31 @@ def _flow_instance_label(node: Dict[str, Any]) -> str:
     return node.get("displayText") or node.get("label") or node.get("name", "")
 
 
+def _compact_triggers(
+    trigger_instances: List[Dict[str, Any]], label_map: Optional[Dict[str, str]] = None
+) -> List[Dict[str, Any]]:
+    """Compact a flow's raw trigger instances to {id, type, table, condition}.
+    A raw trigger instance is a big row of inputs + metadata; the caller almost
+    always wants only which table it watches and its decoded condition."""
+    out: List[Dict[str, Any]] = []
+    for t in trigger_instances or []:
+        inputs = t.get("inputs", []) or []
+        table = next(
+            (i.get("displayValue") or i.get("value") for i in inputs if i.get("name") == "table"),
+            "",
+        )
+        raw_cond = next((i.get("value") for i in inputs if i.get("name") == "condition"), "")
+        out.append(
+            {
+                "id": t.get("id"),
+                "type": t.get("type", ""),
+                "table": table,
+                "condition": _condition_to_text(raw_cond or "", label_map),
+            }
+        )
+    return out
+
+
 def _build_label_map(flow_data: Dict[str, Any]) -> Dict[str, str]:
     """uiUniqueIdentifier -> canvas label, so '{{<uiUID>.Record.field}}' pills
     resolve to the producing step's name instead of a raw uuid."""
@@ -853,22 +878,7 @@ def render_flow_compact(flow_data: Dict[str, Any], include_scripts: bool = False
     save; only this returned view is compacted.
     """
     label_map = _build_label_map(flow_data)
-    triggers = []
-    for t in flow_data.get("triggerInstances", []) or []:
-        inputs = t.get("inputs", []) or []
-        table = next(
-            (i.get("displayValue") or i.get("value") for i in inputs if i.get("name") == "table"),
-            "",
-        )
-        raw_cond = next((i.get("value") for i in inputs if i.get("name") == "condition"), "")
-        triggers.append(
-            {
-                "id": t.get("id"),
-                "type": t.get("type", ""),
-                "table": table,
-                "condition": _condition_to_text(raw_cond or "", label_map),
-            }
-        )
+    triggers = _compact_triggers(flow_data.get("triggerInstances", []) or [], label_map)
 
     def _count(coll: str) -> int:
         return sum(1 for n in flow_data.get(coll, []) or [] if not n.get("deleted"))
@@ -1665,7 +1675,12 @@ def get_flow_details(
                         _build_flow_summary(detail) if params.summary_format else detail
                     )
                 if params.include_triggers:
-                    result["triggers"] = detail["triggers"]
+                    # Compact by default; summary_format=False keeps the raw rows.
+                    result["triggers"] = (
+                        _compact_triggers(detail["triggers"], _build_label_map(pf_data))
+                        if params.summary_format
+                        else detail["triggers"]
+                    )
                 if params.include_executions_summary:
                     result["executions_summary"] = _fetch_execution_summary(
                         config, auth_manager, flow_id
