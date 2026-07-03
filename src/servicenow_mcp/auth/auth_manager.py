@@ -2464,24 +2464,13 @@ class AuthManager:
             return False
         return False
 
-    def _login_with_browser_sync(
-        self, browser_config: BrowserAuthConfig, force_interactive: bool = False
-    ) -> None:
-        instance_url = self.instance_url
-        if not instance_url:
-            raise ValueError("Instance URL is required for browser authentication")
+    def _enforce_login_circuit(self) -> None:
+        """Circuit-breaker guard at browser-login entry (extracted).
 
-        # v1.12.0: the v1.11.49 profile-cookie pre-probe was REMOVED.
-        # Field report: it sometimes adopted an incomplete cookie set
-        # (missing JSESSIONID and BIGipServer*) that passed the
-        # sys_user_preference probe but caused parallel API calls to be
-        # routed to random load-balancer backends where the session did
-        # not exist, producing a wave of 401s. Pre-v1.11.49 callers had
-        # been depending on a clean login.do flow that yields a full
-        # cookie jar, and the field user confirmed that earlier
-        # behaviour was working fine. Helper retained in the file in
-        # case a future caller wants to opt back in deliberately.
-
+        Cohesive prologue — returns to allow the login, or raises
+        SELF_HEAL_CIRCUIT_OPEN. Runs BEFORE any window opens, so no
+        window-close path is involved. Mirror of _enforce_self_heal_circuit
+        on the request side. Pinned by test_browser_grace_period.py."""
         # v1.11.48: circuit breaker enforcement at login entry.
         # Once the breaker is open (≥ threshold consecutive 302→logouts),
         # opening another browser window just produces another rejected
@@ -2509,6 +2498,26 @@ class AuthManager:
                 "status on the ServiceNow instance, or restart MCP to reset."
                 % self._consecutive_self_heal_count
             )
+
+    def _login_with_browser_sync(
+        self, browser_config: BrowserAuthConfig, force_interactive: bool = False
+    ) -> None:
+        instance_url = self.instance_url
+        if not instance_url:
+            raise ValueError("Instance URL is required for browser authentication")
+
+        # v1.12.0: the v1.11.49 profile-cookie pre-probe was REMOVED.
+        # Field report: it sometimes adopted an incomplete cookie set
+        # (missing JSESSIONID and BIGipServer*) that passed the
+        # sys_user_preference probe but caused parallel API calls to be
+        # routed to random load-balancer backends where the session did
+        # not exist, producing a wave of 401s. Pre-v1.11.49 callers had
+        # been depending on a clean login.do flow that yields a full
+        # cookie jar, and the field user confirmed that earlier
+        # behaviour was working fine. Helper retained in the file in
+        # case a future caller wants to opt back in deliberately.
+
+        self._enforce_login_circuit()
 
         # v1.12.0: minimum interval between login attempts (safe zone).
         # Server-side abuse detection flags accounts that submit login.do
