@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
+from ..utils.baseline import ACTION_CONFLICT, ACTION_KEPT_DIRTY, ACTION_REFRESHED, sync_field_file
 from ..utils.config import ServerConfig
 from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file
 from ..utils.progress import emit_progress
@@ -2958,6 +2959,29 @@ def download_portal_sources(
     instance_name = _get_instance_name(config)
     g_ck = str(getattr(auth_manager, "_browser_session_token", "") or "")
 
+    # Content-aware source writes (3-way via utils/baseline.py): a local file
+    # carrying YOUR edits is never silently overwritten — kept as-is when the
+    # server is unmoved, kept + '<field>.remote' sidecar on a true conflict.
+    # Components left out-of-sync keep their PRIOR sync watermark so a later
+    # push still flags the conflict. Legacy trees (no _baseline/) keep the
+    # historical overwrite behavior and get baselines seeded.
+    conflict_files: List[str] = []
+    kept_edit_files: List[str] = []
+    refreshed_files: List[str] = []
+    out_of_sync_keys: Set[Tuple[str, str]] = set()
+
+    def _sync_source_file(table: str, meta_key: str, fpath: Path, content: str) -> None:
+        action = sync_field_file(fpath, content, legacy_overwrite=True)
+        label = f"{table}/{fpath.parent.name}/{fpath.name}"
+        if action == ACTION_CONFLICT:
+            conflict_files.append(label)
+            out_of_sync_keys.add((table, meta_key))
+        elif action == ACTION_KEPT_DIRTY:
+            kept_edit_files.append(label)
+            out_of_sync_keys.add((table, meta_key))
+        elif action == ACTION_REFRESHED:
+            refreshed_files.append(label)
+
     _write_json_file(
         root / "_settings.json",
         {
@@ -3068,17 +3092,31 @@ def download_portal_sources(
         _write_json_file(widget_dir / "_widget.json", metadata)
 
         if params.include_widget_template:
-            _write_text_file(widget_dir / "template.html", str(widget.get("template") or ""))
+            _sync_source_file(
+                "sp_widget",
+                widget_id,
+                widget_dir / "template.html",
+                str(widget.get("template") or ""),
+            )
         if params.include_widget_server_script:
-            _write_text_file(widget_dir / "script.js", str(widget.get("script") or ""))
+            _sync_source_file(
+                "sp_widget", widget_id, widget_dir / "script.js", str(widget.get("script") or "")
+            )
         if params.include_widget_client_script:
-            _write_text_file(
-                widget_dir / "client_script.js", str(widget.get("client_script") or "")
+            _sync_source_file(
+                "sp_widget",
+                widget_id,
+                widget_dir / "client_script.js",
+                str(widget.get("client_script") or ""),
             )
         if params.include_widget_link_script:
-            _write_text_file(widget_dir / "link.js", str(widget.get("link") or ""))
+            _sync_source_file(
+                "sp_widget", widget_id, widget_dir / "link.js", str(widget.get("link") or "")
+            )
         if params.include_widget_css:
-            _write_text_file(widget_dir / "css.scss", str(widget.get("css") or ""))
+            _sync_source_file(
+                "sp_widget", widget_id, widget_dir / "css.scss", str(widget.get("css") or "")
+            )
 
         option_schema_raw = widget.get("option_schema") or ""
         if str(option_schema_raw).strip() == "":
@@ -3127,7 +3165,9 @@ def download_portal_sources(
     _widget_sync_meta: Dict[str, Dict[str, str]] = {}
     for widget in widgets:
         _wid = str(widget.get("id") or widget.get("name") or widget.get("sys_id") or "")
-        if _wid:
+        # Out-of-sync widgets (kept local edits / conflicts) keep their PRIOR
+        # watermark so a later push still flags the conflict.
+        if _wid and ("sp_widget", _wid) not in out_of_sync_keys:
             _widget_sync_meta[_wid] = {
                 "sys_id": str(widget.get("sys_id") or ""),
                 "sys_updated_on": str(widget.get("sys_updated_on") or ""),
@@ -3225,17 +3265,20 @@ def download_portal_sources(
                     # Folder layout (<table>/<name>/script.js) — same as the
                     # generic downloader and what the uploader reads. See
                     # source_layout for why this must not be a flat file.
-                    _write_text_file(
+                    _sync_source_file(
+                        "sp_angular_provider",
+                        name,
                         scope_root / "sp_angular_provider" / file_name / field_filename("script"),
                         script,
                     )
                 if name:
                     provider_map[name] = sys_id
-                    _provider_sync_meta[name] = {
-                        "sys_id": sys_id,
-                        "sys_updated_on": str(provider.get("sys_updated_on") or ""),
-                        "downloaded_at": _now_iso,
-                    }
+                    if ("sp_angular_provider", name) not in out_of_sync_keys:
+                        _provider_sync_meta[name] = {
+                            "sys_id": sys_id,
+                            "sys_updated_on": str(provider.get("sys_updated_on") or ""),
+                            "downloaded_at": _now_iso,
+                        }
                 if sys_id:
                     provider_name_by_sys_id[sys_id] = name or sys_id
                 exported_providers.append({"name": name, "sys_id": sys_id})
@@ -3363,16 +3406,19 @@ def download_portal_sources(
             file_name = _safe_name(name)
             # Folder layout (<table>/<name>/script.js) — match the generic
             # downloader and the uploader. See source_layout.
-            _write_text_file(
+            _sync_source_file(
+                "sys_script_include",
+                name,
                 scope_root / "sys_script_include" / file_name / field_filename("script"),
                 str(row.get("script") or ""),
             )
             si_map[name] = sys_id
-            _si_sync_meta[name] = {
-                "sys_id": sys_id,
-                "sys_updated_on": str(row.get("sys_updated_on") or ""),
-                "downloaded_at": _now_iso,
-            }
+            if ("sys_script_include", name) not in out_of_sync_keys:
+                _si_sync_meta[name] = {
+                    "sys_id": sys_id,
+                    "sys_updated_on": str(row.get("sys_updated_on") or ""),
+                    "downloaded_at": _now_iso,
+                }
             exported_script_includes.append(
                 {
                     "name": name,
@@ -3423,6 +3469,30 @@ def download_portal_sources(
                     "(deletion candidates — not removed automatically): "
                     + ", ".join(deleted_widget_candidates[:20])
                 )
+
+    if conflict_files:
+        shown = ", ".join(conflict_files[:10])
+        more = "" if len(conflict_files) <= 10 else f" (+{len(conflict_files) - 10} more)"
+        warnings.append(
+            f"CONFLICT — {len(conflict_files)} file(s) have BOTH your local edits and newer "
+            f"server changes. Your files were kept; the server's version was saved next to each "
+            f"as '<field>.remote.<ext>'. Merge, then push (or delete the sidecar to discard the "
+            f"server's change): {shown}{more}"
+        )
+    if kept_edit_files:
+        shown = ", ".join(kept_edit_files[:10])
+        more = "" if len(kept_edit_files) <= 10 else f" (+{len(kept_edit_files) - 10} more)"
+        warnings.append(
+            f"kept your local edits on {len(kept_edit_files)} file(s) (server copy unchanged "
+            f"since your last download/push): {shown}{more}"
+        )
+    if refreshed_files:
+        shown = ", ".join(refreshed_files[:10])
+        more = "" if len(refreshed_files) <= 10 else f" (+{len(refreshed_files) - 10} more)"
+        warnings.append(
+            f"auto-refreshed {len(refreshed_files)} local file(s) you had not edited but the "
+            f"server had updated: {shown}{more}"
+        )
 
     if incremental_active:
         warnings.append(

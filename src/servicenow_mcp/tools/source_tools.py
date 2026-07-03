@@ -34,6 +34,17 @@ from servicenow_mcp.tools.source_resume import (
     save_stage,
 )
 from servicenow_mcp.utils.atomic_io import atomic_write_text
+from servicenow_mcp.utils.baseline import (
+    ACTION_BLANK_REMOTE_KEPT,
+    ACTION_CONFLICT,
+    ACTION_LEGACY_KEPT,
+    ACTION_REFRESHED,
+    IN_SYNC_ACTIONS,
+    is_baseline_artifact,
+    read_baseline_for,
+    sync_field_file,
+    write_baseline_for,
+)
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.download_map import (
     map_sys_ids,
@@ -1784,6 +1795,9 @@ def _scan_scope_dep_refs(scope_root: Path) -> Dict[str, Set[str]]:
         # Skip _deps folder to avoid re-scanning fetched deps
         if "_deps" in src_file.parts:
             continue
+        # Skip baseline snapshots / conflict sidecars (would double-count refs)
+        if is_baseline_artifact(src_file):
+            continue
         if src_file.suffix.lower() not in {".js", ".html", ".xml"}:
             continue
         try:
@@ -2316,6 +2330,36 @@ def _resolve_scope_root(
     return root, scope_root
 
 
+def _fetch_record_fields(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    sys_id: str,
+    fields: List[str],
+    source_type: str,
+    rname: str,
+    warnings: List[str],
+) -> Dict[str, str]:
+    """One targeted fetch of specific fields for one record (bulk body came back blank)."""
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=f"sys_id={sys_id}",
+            fields=",".join(fields),
+            limit=1,
+            offset=0,
+            display_value=False,
+            no_count=True,
+        )
+        if rows:
+            return {sf: rows[0][sf] for sf in fields if isinstance(rows[0].get(sf), str)}
+    except Exception as exc:
+        warnings.append(f"{source_type}/{rname}: field fetch failed — {exc}")
+    return {}
+
+
 def _retry_empty_source(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -2328,27 +2372,16 @@ def _retry_empty_source(
     """Fetch source for a single record that came back empty in batch. Returns file count."""
     rid, rname, rdir = record
     fetched = 0
-    try:
-        rows, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=table,
-            query=f"sys_id={rid}",
-            fields=",".join(source_fields),
-            limit=1,
-            offset=0,
-            display_value=False,
-            no_count=True,
-        )
-        if rows:
-            for sf in source_fields:
-                content = rows[0].get(sf)
-                if content and isinstance(content, str) and content.strip():
-                    ext = _FIELD_EXTENSIONS.get(sf, ".txt")
-                    _dl_write_file(rdir / f"{sf}{ext}", content)
-                    fetched += 1
-    except Exception as exc:
-        warnings.append(f"{source_type}/{rname}: retry failed — {exc}")
+    contents = _fetch_record_fields(
+        config, auth_manager, table, rid, source_fields, source_type, rname, warnings
+    )
+    for sf, content in contents.items():
+        if content and content.strip():
+            ext = _FIELD_EXTENSIONS.get(sf, ".txt")
+            fpath = rdir / f"{sf}{ext}"
+            _dl_write_file(fpath, content)
+            write_baseline_for(fpath, content)
+            fetched += 1
     return fetched
 
 
@@ -2562,6 +2595,11 @@ def _download_source_types(
         # Records whose resume-skip preserved existing files but had to backfill
         # one or more source-field files a prior download left missing.
         backfilled_records: List[str] = []
+        # 3-way outcomes (baseline-aware): clean local files the server had
+        # updated (auto-refreshed) and true conflicts (local edits AND server
+        # moved — kept local, server copy saved as a .remote sidecar).
+        refreshed_records: List[str] = []
+        conflict_records: List[Dict[str, str]] = []
         now_iso = datetime.now(timezone.utc).isoformat()
         type_file_count = 0
         retry_records: List[tuple] = []
@@ -2592,20 +2630,18 @@ def _download_source_types(
 
             record_dir = type_dir / safe_name
 
-            # Resume: a record downloaded in a previous run keeps its local files
-            # (which may hold the user's own edits) instead of being re-written.
-            # Disabled under incremental — a returned record changed, so its
-            # stale local file must be overwritten, not preserved.
-            #
-            # The skip is PER FIELD, not all-or-nothing: a prior run may have
-            # written some source fields but not others (interrupted download, or
-            # a field that was empty then and has content now). Existing files are
-            # preserved; MISSING ones are backfilled from the batch content already
-            # in hand — no extra API call. Without this, one present field (e.g.
-            # template) marked the whole record "already downloaded" and a
-            # genuinely-missing field (e.g. client_script) never landed: a silent
-            # "success" with the file not actually on disk.
-            if source_cfg["source_fields"] and not incremental:
+            # A record already on disk is reconciled PER FIELD against the batch
+            # content in hand (no extra API call) using the pristine baseline as
+            # the common ancestor (utils/baseline.py):
+            #   - untouched local + server moved  -> auto-refreshed
+            #   - your edits + server unmoved     -> kept
+            #   - your edits + server moved       -> kept, server copy saved as
+            #     a <field>.remote sidecar (never a silent overwrite/loss)
+            # Legacy trees (no _baseline/) keep the historical behavior: preserve
+            # under resume, overwrite under incremental. Missing field files
+            # (interrupted prior download) are backfilled from batch content, or
+            # one targeted fetch when the batch body came back blank.
+            if source_cfg["source_fields"]:
                 field_paths = {
                     sf: record_dir / f"{sf}{_FIELD_EXTENSIONS.get(sf, '.txt')}"
                     for sf in source_cfg["source_fields"]
@@ -2613,20 +2649,48 @@ def _download_source_types(
                 present = {sf for sf, p in field_paths.items() if p.exists()}
                 if present:
                     name_map[safe_name] = sys_id
-                    # Backfill only the MISSING field files; never clobber an
-                    # existing local file. Prefer the batch content already in
-                    # hand (no API call); for any field the batch left blank
-                    # (some instances return empty source in bulk), do ONE
-                    # targeted page fetch restricted to the missing fields so
-                    # existing files stay untouched.
+                    actions: Dict[str, str] = {}
                     backfilled = 0
                     still_missing: List[str] = []
+                    remote_updated = str(record.get("sys_updated_on") or "")
+                    prior_updated = str(prior_meta.get(safe_name, {}).get("sys_updated_on") or "")
+                    remote_moved = bool(
+                        prior_updated and remote_updated and remote_updated > prior_updated
+                    )
                     for sf in source_cfg["source_fields"]:
-                        if sf in present:
-                            continue
                         content = record.get(sf)
-                        if content and isinstance(content, str) and content.strip():
-                            _dl_write_file(field_paths[sf], content)
+                        content_str = content if isinstance(content, str) else ""
+                        if sf in present:
+                            if (
+                                not content_str.strip()
+                                and sys_id
+                                and (incremental or remote_moved)
+                                and read_baseline_for(field_paths[sf]) is not None
+                            ):
+                                # The record changed on the server but the bulk
+                                # body came back blank (spurious on some
+                                # instances) — fetch the real body once so the
+                                # 3-way decision sees actual content. Bounded to
+                                # records whose watermark actually moved.
+                                content_str = _fetch_record_fields(
+                                    config,
+                                    auth_manager,
+                                    table,
+                                    sys_id,
+                                    [sf],
+                                    source_type,
+                                    name,
+                                    warnings,
+                                ).get(sf, "")
+                            actions[sf] = sync_field_file(
+                                field_paths[sf],
+                                content_str,
+                                legacy_overwrite=incremental,
+                                blank_remote_is_unknown=True,
+                            )
+                        elif content_str.strip():
+                            _dl_write_file(field_paths[sf], content_str)
+                            write_baseline_for(field_paths[sf], content_str)
                             backfilled += 1
                         else:
                             still_missing.append(sf)
@@ -2642,21 +2706,61 @@ def _download_source_types(
                         )
                     if backfilled:
                         backfilled_records.append(name)
-                    # Resume-skip watermark rule (unchanged): the preserved local
-                    # files may be older than the remote, so DON'T bump the sync
-                    # watermark — leave the key out of sync_meta so merge_map_file
-                    # keeps the prior entry and a later push can flag the conflict.
-                    remote_updated = str(record.get("sys_updated_on") or "")
-                    prior_updated = str(prior_meta.get(safe_name, {}).get("sys_updated_on") or "")
-                    if prior_updated and remote_updated and remote_updated > prior_updated:
-                        stale_skipped.append(
+
+                    refreshed = [sf for sf, a in actions.items() if a == ACTION_REFRESHED]
+                    conflicted = [sf for sf, a in actions.items() if a == ACTION_CONFLICT]
+                    if refreshed:
+                        refreshed_records.append(name)
+                    if conflicted:
+                        conflict_records.append(
                             {
                                 "name": name,
                                 "sys_id": sys_id,
-                                "local_sys_updated_on": prior_updated,
+                                "fields": ", ".join(sorted(conflicted)),
                                 "remote_sys_updated_on": remote_updated,
+                                "remote_sys_updated_by": str(record.get("sys_updated_by") or ""),
                             }
                         )
+
+                    if all(a in IN_SYNC_ACTIONS for a in actions.values()):
+                        # Every on-disk field provably equals the current remote
+                        # body -> safe to bump the watermark and refresh metadata.
+                        _dl_write_json(record_dir / "_metadata.json", metadata)
+                        sync_meta[safe_name] = {
+                            "sys_id": sys_id,
+                            "name": name,
+                            "sys_updated_on": remote_updated,
+                            "sys_updated_by": str(record.get("sys_updated_by") or ""),
+                            "downloaded_at": now_iso,
+                        }
+                        manifest_entries.append(
+                            {
+                                "source_type": source_type,
+                                "table": table,
+                                "sys_id": sys_id,
+                                "name": name,
+                                "path": str(record_dir.relative_to(root)),
+                            }
+                        )
+                    else:
+                        # Watermark rule: some local file may be older than (or
+                        # divergent from) the remote — DON'T bump. merge_map_file
+                        # keeps the prior entry so a later push flags the conflict.
+                        # Timestamp-based stale evidence covers the cases where
+                        # content couldn't be compared (legacy tree, blank body).
+                        if any(
+                            a in (ACTION_LEGACY_KEPT, ACTION_BLANK_REMOTE_KEPT)
+                            for a in actions.values()
+                        ):
+                            if remote_moved:
+                                stale_skipped.append(
+                                    {
+                                        "name": name,
+                                        "sys_id": sys_id,
+                                        "local_sys_updated_on": prior_updated,
+                                        "remote_sys_updated_on": remote_updated,
+                                    }
+                                )
                     type_file_count += len(present) + backfilled
                     continue
 
@@ -2670,7 +2774,9 @@ def _download_source_types(
                     continue
                 has_source = True
                 ext = _FIELD_EXTENSIONS.get(source_field, ".txt")
-                _dl_write_file(record_dir / f"{source_field}{ext}", content)
+                fpath = record_dir / f"{source_field}{ext}"
+                _dl_write_file(fpath, content)
+                write_baseline_for(fpath, content)
                 type_file_count += 1
 
             # Queue for individual retry if batch returned empty source
@@ -2725,15 +2831,35 @@ def _download_source_types(
             writer=_dl_write_json,
             label=f"source_{source_type}_sync_meta",
         )
+        if conflict_records:
+            details = "; ".join(
+                f"{c['name']} [{c['fields']}] (server edited by {c['remote_sys_updated_by'] or '?'}"
+                f" at {c['remote_sys_updated_on'] or '?'})"
+                for c in conflict_records[:10]
+            )
+            more = "" if len(conflict_records) <= 10 else f" (+{len(conflict_records) - 10} more)"
+            warnings.append(
+                f"{source_type}: CONFLICT — {len(conflict_records)} record(s) have BOTH your local "
+                f"edits and newer server changes. Your files were kept; the server's version was "
+                f"saved next to each as '<field>.remote.<ext>'. Merge, then push (or delete the "
+                f"sidecar to discard the server's change): {details}{more}"
+            )
+        if refreshed_records:
+            names = ", ".join(refreshed_records[:10])
+            more = "" if len(refreshed_records) <= 10 else f" (+{len(refreshed_records) - 10} more)"
+            warnings.append(
+                f"{source_type}: auto-refreshed {len(refreshed_records)} local record(s) you had "
+                f"not edited but the server had updated: {names}{more}"
+            )
         if stale_skipped:
             names = ", ".join(s["name"] for s in stale_skipped[:10])
             more = "" if len(stale_skipped) <= 10 else f" (+{len(stale_skipped) - 10} more)"
             warnings.append(
                 f"{source_type}: {len(stale_skipped)} local file(s) are OLDER than the server — "
-                f"the remote changed after your download, but resume kept your local copy. Nothing "
-                f"was overwritten (the sync watermark was preserved, so a push will flag the "
-                f"conflict). Re-download with incremental=true to pull the server's version: "
-                f"{names}{more}"
+                f"the remote changed after your download, but resume kept your local copy (no "
+                f"baseline snapshot exists to tell your edits from stale content). Nothing was "
+                f"overwritten; the sync watermark was preserved, so a push will flag the conflict. "
+                f"Re-download with incremental=true to pull the server's version: {names}{more}"
             )
 
         if backfilled_records:
@@ -2996,6 +3122,8 @@ def _scan_tables_from_source_root(source_root: Path) -> Set[str]:
     tables: Set[str] = set()
     for root in [source_root, *dep_scope_roots(source_root)]:
         for js_file in root.rglob("*.js"):
+            if is_baseline_artifact(js_file):
+                continue
             try:
                 script_text = js_file.read_text(encoding="utf-8")
                 tables.update(

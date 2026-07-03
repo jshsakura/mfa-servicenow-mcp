@@ -15,6 +15,13 @@ from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
+from ..utils.baseline import (
+    cleanup_remote_sidecar,
+    is_baseline_artifact,
+    read_baseline_for,
+    remote_sidecar_path_for,
+    write_baseline_for,
+)
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
 from .portal_tools import (
@@ -473,6 +480,16 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
       .../sp_ng_template/<name>.template.html     -> (sp_ng_template, template)
     """
     path = path.expanduser().resolve()
+
+    # Hard stop for internal 3-way artifacts: pushing a baseline snapshot or a
+    # .remote conflict sidecar would upload the WRONG body under the component's
+    # identity — exactly the "stale source pushed" accident this layer prevents.
+    if is_baseline_artifact(path):
+        raise ValueError(
+            f"'{path.name}' is a baseline snapshot or '.remote' conflict sidecar — an internal "
+            f"comparison artifact, not the component. Edit and push the main field file next to "
+            f"it; the sidecar is the server's version saved during a conflict for manual merge."
+        )
 
     # Case 1: Directory -> a record folder (<table>/<name>/) in either a
     # folder-based table or a single-file table downloaded in folder layout.
@@ -1190,6 +1207,55 @@ def _diff_against_compare_to(path: Path, compare_to: Path, context_lines: int) -
     serialization="raw_dict",
     return_type=dict,
 )
+def _baseline_three_way(
+    resolved: "_ResolvedComponent", remote_record: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Separate YOUR local edits from the SERVER's changes using the pristine
+    baseline recorded at download/push time. Empty dict when no baseline exists
+    (legacy tree) or nothing diverged. Field names only — token-lean."""
+    yours: List[str] = []
+    theirs: List[str] = []
+    both_applied: List[str] = []
+    diverged: List[str] = []
+    sidecars: List[str] = []
+    for field_name, fpath in sorted(resolved.fields.items()):
+        baseline = read_baseline_for(fpath)
+        if baseline is None or not fpath.exists():
+            continue
+        try:
+            local = fpath.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        local_n = _normalize_for_compare(local)
+        baseline_n = _normalize_for_compare(baseline)
+        remote_n = _normalize_for_compare(str(remote_record.get(field_name) or ""))
+        if local_n == baseline_n and remote_n == baseline_n:
+            continue
+        if local_n != baseline_n and remote_n == baseline_n:
+            yours.append(field_name)
+        elif local_n == baseline_n:
+            theirs.append(field_name)
+        elif local_n == remote_n:
+            both_applied.append(field_name)
+        else:
+            diverged.append(field_name)
+        sidecar = remote_sidecar_path_for(fpath)
+        if sidecar.exists():
+            sidecars.append(sidecar.name)
+    out: Dict[str, Any] = {}
+    if yours:
+        out["your_local_edits"] = yours
+    if theirs:
+        out["server_changed_local_untouched"] = theirs
+    if both_applied:
+        out["local_already_matches_new_server"] = both_applied
+    if diverged:
+        out["diverged_both_changed"] = diverged
+    if sidecars:
+        out["conflict_sidecars_on_disk"] = sidecars
+    return out
+
+
 def diff_local_component(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1268,6 +1334,11 @@ def diff_local_component(
         "conflict_warning": conflict_warning,
         "diffs": diffs,
     }
+    # 3-way separation (baseline-aware): tells YOUR edits apart from the
+    # SERVER's changes so a mixed diff never has to be untangled by eye.
+    three_way = _baseline_three_way(resolved, remote_record)
+    if three_way:
+        result["three_way"] = three_way
     # Surface attribution only when it's NOT plain-consistent — token-lean: a
     # clean record adds nothing, a handoff/shared one shows the evidence.
     if attribution["attribution"] != "consistent":
@@ -1742,6 +1813,16 @@ def update_remote_from_local(
         _write_sync_meta(table_dir, full_sync_meta)
     except Exception as e:
         logger.warning("Failed to update _sync_meta.json after push: %s", e)
+
+    # The pushed local content is the new common ancestor for 3-way download
+    # decisions; a leftover .remote conflict sidecar is resolved by this push.
+    try:
+        for field_name, fpath in resolved.fields.items():
+            if field_name in update_data and fpath.exists():
+                write_baseline_for(fpath, fpath.read_text(encoding="utf-8"))
+                cleanup_remote_sidecar(fpath)
+    except (OSError, UnicodeDecodeError) as e:
+        logger.warning("Failed to refresh baseline snapshots after push: %s", e)
 
     # 6. Enrich result (reached only on a confirmed successful push)
     result["success"] = True

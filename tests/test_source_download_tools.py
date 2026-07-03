@@ -1522,11 +1522,12 @@ class TestEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# Resume-skip must not poison the sync watermark (local-first safety).
-# When a re-download skips an existing local file, the recorded watermark must
-# stay at the local content's capture time — never bump to the current remote
-# value, which would hide that someone else changed the record and let a later
-# push silently revert it.
+# Re-download must never let a stale local body reach the server NOR destroy
+# local edits (3-way via the _baseline snapshot, utils/baseline.py):
+#   - clean local + server moved  -> auto-refresh (watermark bumps: honest)
+#   - local edits + server moved  -> keep local, save .remote sidecar, and
+#     PRESERVE the watermark so a later push still flags the conflict
+#   - legacy tree (no _baseline/) -> historical resume-skip + stale warning
 # ---------------------------------------------------------------------------
 
 
@@ -1543,31 +1544,79 @@ class TestResumeSkipWatermark:
             root=tmp_path,
         )
 
+    def _redownload_with_remote_change(self, config, auth, scope_root, tmp_path, mqa, mqp):
+        recs2 = _si_records()
+        recs2[0]["sys_updated_on"] = "2026-05-01 09:00:00"
+        recs2[0]["script"] = "var CommitHelper = 'REMOTE_CHANGED';"
+        return self._download(config, auth, recs2, scope_root, tmp_path, mqa, mqp)
+
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
-    def test_skip_preserves_watermark_and_flags_stale(self, mqp, mqa, config, auth, tmp_path):
+    def test_clean_local_auto_refreshes_on_remote_change(self, mqp, mqa, config, auth, tmp_path):
         scope_root = tmp_path / "test" / "x_app"
         scope_root.mkdir(parents=True)
         si_dir = scope_root / "sys_script_include"
 
-        # First download at T0.
+        # First download at T0 seeds the baseline snapshot.
         self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
-        meta0 = json.loads((si_dir / "_sync_meta.json").read_text())
-        assert meta0["CommitHelper"]["sys_updated_on"] == "2026-04-01 12:00:00"
+        assert (si_dir / "CommitHelper" / "_baseline" / "script.js").exists()
 
-        # Someone edits CommitHelper remotely at T1 (> T0) and changes its body.
-        recs2 = _si_records()
-        recs2[0]["sys_updated_on"] = "2026-05-01 09:00:00"
-        recs2[0]["script"] = "var CommitHelper = 'REMOTE_CHANGED';"
-        result = self._download(config, auth, recs2, scope_root, tmp_path, mqa, mqp)
+        # Someone edits CommitHelper remotely at T1; local copy was NOT edited.
+        result = self._redownload_with_remote_change(config, auth, scope_root, tmp_path, mqa, mqp)
 
-        # Watermark for the skipped record stays at T0 — NOT bumped to T1.
+        # Clean local -> auto-refreshed to the server's version; watermark bumps.
+        local_script = (si_dir / "CommitHelper" / "script.js").read_text()
+        assert "REMOTE_CHANGED" in local_script
+        baseline = (si_dir / "CommitHelper" / "_baseline" / "script.js").read_text()
+        assert "REMOTE_CHANGED" in baseline
+        meta1 = json.loads((si_dir / "_sync_meta.json").read_text())
+        assert meta1["CommitHelper"]["sys_updated_on"] == "2026-05-01 09:00:00"
+        assert any("auto-refreshed" in w and "CommitHelper" in w for w in result["warnings"])
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_local_edits_kept_with_sidecar_and_watermark_preserved(
+        self, mqp, mqa, config, auth, tmp_path
+    ):
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+        si_dir = scope_root / "sys_script_include"
+
+        self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
+        # The user edits the local copy...
+        local_file = si_dir / "CommitHelper" / "script.js"
+        local_file.write_text("var CommitHelper = 'MY_LOCAL_EDIT';", encoding="utf-8")
+        # ...and someone ELSE edits the same record remotely.
+        result = self._redownload_with_remote_change(config, auth, scope_root, tmp_path, mqa, mqp)
+
+        # Local edits are NEVER overwritten; the server's version lands as a sidecar.
+        assert "MY_LOCAL_EDIT" in local_file.read_text()
+        sidecar = si_dir / "CommitHelper" / "script.remote.js"
+        assert "REMOTE_CHANGED" in sidecar.read_text()
+        # Watermark stays at T0 — bumping it would blind the push conflict gate.
         meta1 = json.loads((si_dir / "_sync_meta.json").read_text())
         assert meta1["CommitHelper"]["sys_updated_on"] == "2026-04-01 12:00:00"
-        # Resume kept the local copy (did not pull the remote change).
+        assert any("CONFLICT" in w and "CommitHelper" in w for w in result["warnings"])
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_legacy_tree_keeps_local_and_flags_stale(self, mqp, mqa, config, auth, tmp_path):
+        scope_root = tmp_path / "test" / "x_app"
+        scope_root.mkdir(parents=True)
+        si_dir = scope_root / "sys_script_include"
+
+        self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
+        # Simulate a pre-baseline tree: drop the snapshots.
+        import shutil
+
+        shutil.rmtree(si_dir / "CommitHelper" / "_baseline")
+        result = self._redownload_with_remote_change(config, auth, scope_root, tmp_path, mqa, mqp)
+
+        # Historical behavior: keep local, preserve watermark, surface the drift.
         local_script = (si_dir / "CommitHelper" / "script.js").read_text()
         assert "REMOTE_CHANGED" not in local_script
-        # The drift is surfaced so the user knows to refresh.
+        meta1 = json.loads((si_dir / "_sync_meta.json").read_text())
+        assert meta1["CommitHelper"]["sys_updated_on"] == "2026-04-01 12:00:00"
         assert any("OLDER than the server" in w and "CommitHelper" in w for w in result["warnings"])
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
@@ -1580,6 +1629,7 @@ class TestResumeSkipWatermark:
         # Re-download with identical timestamps → resume-skip, but nothing stale.
         result = self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
         assert not any("OLDER than the server" in w for w in result["warnings"])
+        assert not any("CONFLICT" in w for w in result["warnings"])
 
 
 # ---------------------------------------------------------------------------
