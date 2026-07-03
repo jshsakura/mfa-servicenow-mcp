@@ -137,7 +137,7 @@ Then restart the client. The first browser tool call opens a window for Okta/Ent
 - **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
 - **Attachment download** (`download_attachment`) — fetch a record's attachment file(s) (xlsx, PDF, Word, …) to local disk by attachment sys_id or by parent `table`+`record`; resolves a record's attachments automatically and writes bytes to disk so the LLM reads them from `saved_path`
 - **Dry-run preview** on every write tool (`dry_run=True`) — returns field-level diff, dependency counts, and precision notes before any side effect. Uses read-only APIs, works under all auth modes.
-- Safe write confirmation with `confirm='approve'`
+- Write intent gate: every mutation requires an explicit `confirm='approve'` (accidental-write guardrail, not an adversarial boundary — see [Safety Policy](#safety-policy))
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
 - Transient network error retry with backoff
 - Tool packages for core, standard, service desk, portal developers, and platform developers — `full` available for advanced users (see [warning](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/TOOL_PACKAGES.md))
@@ -611,7 +611,7 @@ uvx --with playwright playwright install chromium
 
 ## Safety Policy
 
-All mutating tools are protected by explicit confirmation.
+All mutating tools require an explicit `confirm='approve'` argument.
 
 Rules:
 1. Mutating tools with prefixes such as `create_`, `update_`, `delete_`, `remove_`, `add_`, `move_`, `activate_`, `deactivate_`, `commit_`, `publish_`, `submit_`, `approve_`, `reject_`, `resolve_`, `reorder_`, and `execute_` require confirmation.
@@ -620,13 +620,25 @@ Rules:
 
 This policy applies regardless of the selected tool package.
 
+> **What this gate is — and is not.** The server enforces `confirm='approve'`
+> before any write, but the argument is supplied by the **same LLM** that issued
+> the call. So the gate is an **intent checkpoint that stops accidental or
+> ambiguous mutations** — it forces a deliberate, auditable "yes" and a preview
+> hint. It is **not** a defense against a determined or prompt-injected agent,
+> which can simply include `confirm='approve'`. Treat it as guardrails, not a
+> security boundary: review what a tool will do before approving, run against a
+> **least-privilege** ServiceNow account, and do not rely on confirmation alone
+> in adversarial settings. For high-stakes automation, add out-of-band approval.
+
 ### Write Guards
 
 Beyond the confirm gate, every write runs through deterministic guards that block unsafe writes *before* they reach ServiceNow. The concurrent-edit and duplicate-create checks run **after** the confirm gate, so an unconfirmed write never touches the network. Each guard fails **open** on a denied/failed pre-read — it never blocks a legitimate write just because it couldn't look first. The intent is simple: **you should never be able to silently clobber a teammate's change** — if someone else touched the record, the write stops and tells you, rather than overwriting and moving on.
 
+> **Fail-open vs fail-closed.** The default (fail-open) favors availability: if the pre-write audit read cannot run (network error, ACL denial, 5xx), the write proceeds. That means the concurrent-edit guard can silently no-op exactly when the instance is unreachable. Security-sensitive deployments can set `SERVICENOW_WRITE_GUARDS_FAIL=closed` so a guard that **could not verify** blocks instead — trading availability for the guarantee that a lost-update check never silently passes. Scoped to genuine read *failures*; a successful read that finds no conflict still proceeds.
+
 | Guard | Protects against | Override / toggle |
 |---|---|---|
-| Concurrent edit (G3/G8) | Blindly overwriting a record a **different user** edited within the last 10 min. Covers `sn_write`, `manage_portal_component`, and the `manage_*` update tools — including `manage_script_include`, `manage_flow_designer`, `manage_workflow`, `manage_kb_article`, `manage_portal_layout`, and `manage_widget_dependency`. Decided by a **live remote read** of `sys_updated_by`/`sys_updated_on` — never the local copy. | `SERVICENOW_CONCURRENT_EDIT_GUARD=off`; window via `SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN` (default `10`) |
+| Concurrent edit (G3/G8) | Blindly overwriting a record a **different user** edited within the last 10 min. Covers `sn_write`, `manage_portal_component`, and the `manage_*` update tools — including `manage_script_include`, `manage_flow_designer`, `manage_workflow`, `manage_kb_article`, `manage_portal_layout`, and `manage_widget_dependency`. Decided by a **live remote read** of `sys_updated_by`/`sys_updated_on` — never the local copy. | `SERVICENOW_CONCURRENT_EDIT_GUARD=off`; window via `SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN` (default `10`); fail-closed via `SERVICENOW_WRITE_GUARDS_FAIL=closed` |
 | Source push drift (baseline + update-set HOLD) | Pushing edited source back with `update_remote_from_local` adds two checks the time-window can't catch: a **time-independent** compare of the remote's current `sys_updated_on` against the value recorded at download (catches an overwrite hours or **days** later), and a live check for the record being **held in another user's uncommitted update set**. | `force=true` to push past a detected drift |
 | Duplicate create (G9) | Silently creating a second record with a name that already exists, on tables ServiceNow does not make unique (`sys_update_set`, `wf_workflow`, `sys_user_group`, `sys_user`). | pass `allow_duplicate='true'` to create anyway |
 | Flow Designer raw write (G6) | Raw `sn_write` to `sys_hub_*` tables that corrupt flow snapshots — forces `manage_flow_designer`. | — |
