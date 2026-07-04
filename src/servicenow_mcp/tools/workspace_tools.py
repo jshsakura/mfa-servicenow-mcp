@@ -12,7 +12,7 @@ Everything here is pure disk reads: no network, no ServiceNow ACL dependency.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ..utils.baseline import read_baseline_for, remote_sidecar_path_for
 from .sync_tools import (
@@ -54,8 +54,14 @@ def _discover_trees(root: Path, max_trees: int) -> List[Path]:
     return trees[:max_trees]
 
 
-def _scan_tree_local(tree: Path) -> Dict[str, Any]:
-    """Offline state of one tree: your edits, conflict sidecars, baseline coverage."""
+def _scan_tree_local(tree: Path, component_budget: Optional[int] = None) -> Dict[str, Any]:
+    """Offline state of one tree: your edits, conflict sidecars, baseline coverage.
+
+    ``component_budget`` caps how many components are content-checked (speed
+    guard for advisory surfaces like the health snapshot — the push gates
+    re-verify live at upload time, so stopping early never hides a conflict
+    where it matters).
+    """
     dirty: List[str] = []
     sidecars: List[str] = []
     components = 0
@@ -63,6 +69,13 @@ def _scan_tree_local(tree: Path) -> Dict[str, Any]:
     for table_name in sorted(_all_supported_tables()):
         for table_dir in _find_table_dirs(tree, table_name):
             for name in sorted(_read_map_json(table_dir)):
+                if component_budget is not None and components >= component_budget:
+                    return {
+                        "components": components,
+                        "baseline_protected": with_baseline,
+                        "your_edits": dirty,
+                        "unresolved_conflicts": sidecars,
+                    }
                 fields = _component_field_files(table_dir, name, table_name)
                 if not fields:
                     continue

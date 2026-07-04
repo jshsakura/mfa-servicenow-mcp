@@ -60,6 +60,7 @@ from servicenow_mcp.utils.source_layout import (
     field_extension,
     normalize_source_eol,
 )
+from servicenow_mcp.utils.workspace_roots import record_download_root
 
 logger = logging.getLogger(__name__)
 
@@ -2327,6 +2328,9 @@ def _resolve_scope_root(
         scope_root = Path.cwd() / "temp" / instance_name / scope_name
     root = scope_root.parent
     scope_root.mkdir(parents=True, exist_ok=True)
+    # Remember where downloads actually land (default OR caller's output_dir)
+    # so offline surfaces look at the user's real roots, not an assumed ./temp.
+    record_download_root(scope_root)
     return root, scope_root
 
 

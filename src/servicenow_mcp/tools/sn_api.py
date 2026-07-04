@@ -1089,28 +1089,52 @@ def sn_health(
     return result
 
 
-def _workspace_snapshot() -> Dict[str, Any]:
-    """Offline glance at ./temp so unfinished local work surfaces NATURALLY on
-    the session's usual first call (sn_health) — no hint-following required.
+# Hard work ceiling for the health snapshot: at most this many components are
+# content-checked per call. Advisory surface only — the push gates re-verify
+# live at upload time, so an early stop can never hide a real conflict there.
+_WORKSPACE_SCAN_BUDGET = 500
 
-    Disk reads only (no network), capped, silent when there is nothing to say,
-    and never allowed to break the health check itself.
+
+def _workspace_snapshot() -> Dict[str, Any]:
+    """Offline glance at the user's REAL download roots so unfinished local
+    work surfaces NATURALLY on the session's usual first call (sn_health).
+
+    Roots come from the auto-registry the download tools maintain (covers any
+    output_dir), with ./temp as fallback for pre-registry trees. Disk reads
+    only (no network), bounded by _WORKSPACE_SCAN_BUDGET, silent when there is
+    nothing to say, and never allowed to break the health check itself.
     """
     try:
         # Lazy import: workspace_tools imports from this module.
         from servicenow_mcp.tools.workspace_tools import _discover_trees, _scan_tree_local
+        from servicenow_mcp.utils.workspace_roots import known_download_roots
 
-        root = Path.cwd() / "temp"
-        if not root.exists():
+        roots = list(known_download_roots())
+        default_root = Path.cwd() / "temp"
+        if default_root.exists():
+            roots.append(default_root)
+        if not roots:
             return {}
         edits = 0
         conflicts = 0
         trees = 0
-        for tree in _discover_trees(root, 10):
-            local = _scan_tree_local(tree)
-            trees += 1
-            edits += len(local["your_edits"])
-            conflicts += len(local["unresolved_conflicts"])
+        budget = _WORKSPACE_SCAN_BUDGET
+        seen_trees: set = set()
+        for root in roots:
+            if budget <= 0 or trees >= 10:
+                break
+            for tree in _discover_trees(root, 10 - trees):
+                key = str(tree)
+                if key in seen_trees:
+                    continue
+                seen_trees.add(key)
+                local = _scan_tree_local(tree, component_budget=budget)
+                budget -= local["components"]
+                trees += 1
+                edits += len(local["your_edits"])
+                conflicts += len(local["unresolved_conflicts"])
+                if budget <= 0:
+                    break
         if not edits and not conflicts:
             return {}
         out: Dict[str, Any] = {"downloaded_trees": trees}

@@ -23,6 +23,7 @@ from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_fil
 from ..utils.progress import emit_progress
 from ..utils.registry import register_tool
 from ..utils.source_layout import field_filename, normalize_source_eol
+from ..utils.workspace_roots import record_download_root
 from .sn_api import (
     GenericQueryParams,
     _get_page_executor,
@@ -2937,6 +2938,9 @@ def download_portal_sources(
         scope_root = root / scope_name
     root.mkdir(parents=True, exist_ok=True)
     scope_root.mkdir(parents=True, exist_ok=True)
+    # Remember where downloads actually land (default OR caller's output_dir)
+    # so offline surfaces look at the user's real roots, not an assumed ./temp.
+    record_download_root(scope_root)
     max_widgets = _clamp_download_widget_limit(params.max_widgets)
     targeted_widget_export = bool(params.widget_ids)
     include_linked_script_includes = (
