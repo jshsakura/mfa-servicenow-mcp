@@ -166,3 +166,56 @@ class TestHealthIntegration:
         from servicenow_mcp.utils.registry import discover_tools
 
         assert "workspace_brief" not in discover_tools()
+
+
+class TestDownloadRootRegistry:
+    """temp/ is not the law: downloads auto-record their real roots so the
+    snapshot follows the user's personal layout with zero configuration."""
+
+    def test_record_and_list_roundtrip(self, tmp_path):
+        from servicenow_mcp.utils.workspace_roots import known_download_roots, record_download_root
+
+        root = tmp_path / "my" / "custom" / "place"
+        root.mkdir(parents=True)
+        record_download_root(root)
+        assert root.resolve() in known_download_roots()
+
+    def test_nonexistent_roots_are_pruned_on_read(self, tmp_path):
+        from servicenow_mcp.utils.workspace_roots import known_download_roots, record_download_root
+
+        gone = tmp_path / "was-here"
+        gone.mkdir()
+        record_download_root(gone)
+        gone.rmdir()
+        assert known_download_roots() == []
+
+    def test_snapshot_follows_recorded_custom_root(self, workspace, tmp_path, monkeypatch):
+        """A tree downloaded to a custom output_dir (recorded automatically)
+        surfaces in the health snapshot even when cwd has no ./temp at all."""
+        from servicenow_mcp.tools.sn_api import _workspace_snapshot
+        from servicenow_mcp.utils.workspace_roots import record_download_root
+
+        tree = workspace / "test" / "x_app"
+        script = tree / "sp_widget" / "my-widget" / "script.js"
+        script.write_text("var x = 1; // my edit", encoding="utf-8")
+        record_download_root(tree)
+
+        elsewhere = tmp_path / "unrelated-cwd"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        snap = _workspace_snapshot()
+        assert snap["unpushed_local_edits"] == 1
+
+    def test_download_resolver_records_root(self, tmp_path, mock_config):
+        from servicenow_mcp.tools.source_tools import _resolve_scope_root
+        from servicenow_mcp.utils.workspace_roots import known_download_roots
+
+        custom = tmp_path / "elsewhere" / "x_app"
+        _resolve_scope_root(mock_config, "x_app", str(custom))
+        assert custom.resolve() in known_download_roots()
+
+    def test_scan_component_budget_stops_early(self, workspace):
+        local = _scan_tree_local(workspace / "test" / "x_app", component_budget=0)
+        assert local["components"] == 0
+        assert local["your_edits"] == []
