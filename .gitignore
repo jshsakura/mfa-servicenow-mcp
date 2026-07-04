@@ -95,3 +95,9 @@ website/.cache/
 scripts/_cap/
 scripts/processflow_capture.json
 scripts/live_result.json
+
+# Downloaded instance sources (customer code/scopes/sys_ids — NEVER commit).
+# download_app_sources / download_portal_sources default to ./temp when run
+# with the repo as cwd; one `git add -A` after a real download would push
+# customer data to this PUBLIC repo without this guard.
+temp/
