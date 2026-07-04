@@ -44,6 +44,15 @@ def _isolate_workspace_roots(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace_roots, "_state_file", lambda: state)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_write_journal(tmp_path, monkeypatch):
+    """Redirect the write journal to a per-test dir — confirmed-write tests
+    must never append to the REAL ~/.mfa_servicenow_mcp/write_journal/."""
+    from servicenow_mcp.utils import write_journal
+
+    monkeypatch.setattr(write_journal, "_journal_dir", lambda: tmp_path / "_write_journal")
+
+
 # ---------------------------------------------------------------------------
 # Reusable fixtures
 # ---------------------------------------------------------------------------

@@ -44,6 +44,7 @@ from servicenow_mcp.utils.instances import (
 from servicenow_mcp.utils.progress import use_progress_emitter
 from servicenow_mcp.utils.response_budget import enforce_response_budget, get_response_budget
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
+from servicenow_mcp.utils.write_journal import record_write
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,24 @@ PROGRESS_STREAMING_TOOLS = frozenset(
 # Deprecated tool name -> current name. Routed at call time but NOT advertised in
 # list_tools, so an old name keeps working without cluttering the tool surface.
 _DEPRECATED_TOOL_ALIASES = {"download_sources": "download_server_sources"}
+
+
+def _journal_username(config: ServerConfig) -> str:
+    """Best-effort identity for the write journal — config-derived only.
+
+    Never a network lookup: journaling must add zero latency to a write. For
+    browser/SSO auth without a configured username this stays empty; the
+    journal's instance+timestamp still anchor the event to the session logs.
+    """
+    auth = config.auth
+    auth_type = getattr(auth.type, "value", str(auth.type))
+    if auth_type == "basic" and auth.basic:
+        return auth.basic.username or ""
+    if auth_type == "oauth" and auth.oauth:
+        return auth.oauth.username or ""
+    if auth_type == "browser" and auth.browser:
+        return auth.browser.username or ""
+    return ""
 
 
 def _should_stream_progress(name: str, progress_token: Optional[Union[str, int]]) -> bool:
@@ -948,6 +967,16 @@ class ServiceNowMCP:
         return tool_name.startswith(MUTATING_TOOL_PREFIXES) or tool_name in MUTATING_TOOL_NAMES
 
     @staticmethod
+    def _result_outcome(result: Any) -> str:
+        """Journal outcome from a tool result: honor explicit success/error keys."""
+        if isinstance(result, dict):
+            if result.get("error"):
+                return "rejected"
+            if result.get("success") is False:
+                return "rejected"
+        return "success"
+
+    @staticmethod
     def _tool_requires_confirmation(tool_name: str) -> bool:
         return ServiceNowMCP._is_blocked_mutating_tool(tool_name)
 
@@ -1390,9 +1419,31 @@ class ServiceNowMCP:
                 name, impl_func, call_config, call_auth_manager, params
             )
             logger.debug(f"Raw result type from tool '{name}': {type(result)}")
+            # Local write journal (append-only, ~/.mfa_servicenow_mcp/write_journal):
+            # guards prevent accidents, the journal PROVES what happened. Only
+            # confirmed writes are recorded; best-effort, never blocks the call.
+            if requires_confirmation:
+                record_write(
+                    call_config.instance_url,
+                    _journal_username(call_config),
+                    name,
+                    arguments,
+                    outcome=self._result_outcome(result),
+                    target_alias=target_alias,
+                )
         except Exception as e:
             logger.error(f"Error executing tool '{name}': {e}", exc_info=True)
             error_str = str(e)
+            if requires_confirmation:
+                record_write(
+                    call_config.instance_url,
+                    _journal_username(call_config),
+                    name,
+                    arguments,
+                    outcome="error",
+                    error=error_str,
+                    target_alias=target_alias,
+                )
             # Detect auth-related failures and provide actionable guidance to the LLM
             is_auth_error = any(
                 marker in error_str.lower()
