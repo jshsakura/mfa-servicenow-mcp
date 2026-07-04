@@ -6,10 +6,12 @@ with conflict detection.
 
 import difflib
 import logging
+import time
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+from urllib.parse import urlencode
 
 from pydantic import BaseModel, Field
 
@@ -32,6 +34,7 @@ from .portal_tools import (
 )
 from .push_safety import assess_push_risk, describe_attribution
 from .sn_api import GenericQueryParams, resolve_live_username, sn_query
+from .sn_batch import batch_get
 
 logger = logging.getLogger(__name__)
 
@@ -891,20 +894,30 @@ def _batch_fetch_updated_on(
     """
     if not sys_ids:
         return {}
+    chunks = [sys_ids[i : i + 100] for i in range(0, len(sys_ids), 100)]
+    # Batch API first: all chunks in ONE round trip; per-chunk fallback below.
+    batch = batch_get(
+        config,
+        auth_manager,
+        [(str(i), _table_chunk_url(table, chunk, [])) for i, chunk in enumerate(chunks)],
+    )
     result: Dict[str, Dict[str, str]] = {}
-    for i in range(0, len(sys_ids), 100):
-        chunk = sys_ids[i : i + 100]
-        query = f"sys_idIN{','.join(chunk)}"
-        params = GenericQueryParams(
-            table=table,
-            query=query,
-            fields="sys_id,sys_updated_on,sys_updated_by",
-            limit=len(chunk),
-            offset=0,
-            display_value=False,
-        )
-        response = sn_query(config, auth_manager, params)
-        for row in response.get("results") or []:
+    for i, chunk in enumerate(chunks):
+        served = (batch or {}).get(str(i))
+        rows: Optional[List[Dict[str, Any]]] = None
+        if served and served.get("status_code") == 200 and isinstance(served.get("body"), dict):
+            rows = served["body"].get("result")
+        if rows is None:
+            params = GenericQueryParams(
+                table=table,
+                query=f"sys_idIN{','.join(chunk)}",
+                fields="sys_id,sys_updated_on,sys_updated_by",
+                limit=len(chunk),
+                offset=0,
+                display_value=False,
+            )
+            rows = sn_query(config, auth_manager, params).get("results") or []
+        for row in rows:
             sid = str(row.get("sys_id") or "")
             if sid:
                 result[sid] = {
@@ -1346,45 +1359,61 @@ def _table_source_fields(table_name: str) -> List[str]:
     return sorted(fields)
 
 
-def _batch_fetch_records(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    table: str,
-    sys_ids: List[str],
-    fields: List[str],
-) -> Dict[str, Dict[str, Any]]:
-    """Batch-fetch full field bodies for many sys_ids (chunked, raw values)."""
-    if not sys_ids:
-        return {}
+def _table_chunk_url(table: str, chunk: List[str], fields: List[str]) -> str:
+    """Relative Table-API GET url for one sys_idIN chunk (Batch API sub-request)."""
     field_list = ",".join(
         dict.fromkeys(["sys_id", *fields, "sys_updated_on", "sys_updated_by", "sys_mod_count"])
     )
-    out: Dict[str, Dict[str, Any]] = {}
-    for i in range(0, len(sys_ids), 50):
-        chunk = sys_ids[i : i + 50]
-        params = GenericQueryParams(
-            table=table,
-            query=f"sys_idIN{','.join(chunk)}",
-            fields=field_list,
-            limit=len(chunk),
-            offset=0,
-            display_value=False,
-        )
-        response = sn_query(config, auth_manager, params)
-        for row in response.get("results") or []:
-            sid = str(row.get("sys_id") or "")
-            if sid:
-                out[sid] = row
-    return out
+    query = urlencode(
+        {
+            "sysparm_query": f"sys_idIN{','.join(chunk)}",
+            "sysparm_fields": field_list,
+            "sysparm_limit": str(len(chunk)),
+            "sysparm_display_value": "false",
+            "sysparm_exclude_reference_link": "true",
+        }
+    )
+    return f"/api/now/table/{table}?{query}"
+
+
+def _fetch_records_chunk(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    chunk: List[str],
+    fields: List[str],
+) -> List[Dict[str, Any]]:
+    """Single-chunk direct fetch (fallback path when the Batch API is out)."""
+    field_list = ",".join(
+        dict.fromkeys(["sys_id", *fields, "sys_updated_on", "sys_updated_by", "sys_mod_count"])
+    )
+    params = GenericQueryParams(
+        table=table,
+        query=f"sys_idIN{','.join(chunk)}",
+        fields=field_list,
+        limit=len(chunk),
+        offset=0,
+        display_value=False,
+    )
+    return sn_query(config, auth_manager, params).get("results") or []
 
 
 def _verdict_scan(config: ServerConfig, auth_manager: AuthManager, root: Path) -> Dict[str, Any]:
     """Batch verdict for every component under *root* (download root, scope
-    root, or table dir). Bodies are compared in the MCP; only verdicts return."""
+    root, or table dir). Bodies are compared in the MCP; only verdicts return.
+
+    Remote fetches for ALL tables are fused into ONE HTTP round trip via the
+    Batch API when the instance supports it; otherwise each chunk falls back
+    to a direct query — same results, old latency.
+    """
+    started = time.perf_counter()
     attention: List[Dict[str, Any]] = []
     checked = 0
     in_sync = 0
     skipped_origin: List[Dict[str, str]] = []
+
+    # Pass 1: collect scannable (table, dir, map) work items — no network.
+    work: List[Tuple[str, Path, Dict[str, str]]] = []
     for table_name in sorted(_all_supported_tables()):
         table_dirs = _find_table_dirs(root, table_name)
         # The path may BE a table dir (.../sys_script_include) — scan it directly.
@@ -1400,45 +1429,82 @@ def _verdict_scan(config: ServerConfig, auth_manager: AuthManager, root: Path) -
                     {"table": table_name, "path": str(table_dir), "origin": origin}
                 )
                 continue
-            remote_by_id = _batch_fetch_records(
-                config,
-                auth_manager,
-                table_name,
-                sorted({str(sid) for sid in map_data.values() if sid}),
-                _table_source_fields(table_name),
+            work.append((table_name, table_dir, map_data))
+
+    # Pass 2: fetch every table's records — Batch API first (1 round trip for
+    # the WHOLE scan), per-chunk direct queries only for what it didn't serve.
+    http_requests = 0
+    chunk_specs: List[Tuple[str, int, List[str]]] = []  # (rid, work_idx, chunk)
+    for idx, (_table_name, _table_dir, map_data) in enumerate(work):
+        ids = sorted({str(sid) for sid in map_data.values() if sid})
+        for j in range(0, len(ids), 50):
+            chunk_specs.append((str(len(chunk_specs)), idx, ids[j : j + 50]))
+    batch_result = None
+    if chunk_specs:
+        batch_result = batch_get(
+            config,
+            auth_manager,
+            [
+                (rid, _table_chunk_url(work[idx][0], chunk, _table_source_fields(work[idx][0])))
+                for rid, idx, chunk in chunk_specs
+            ],
+        )
+        if batch_result is not None:
+            http_requests += 1
+    remote_by_work: Dict[int, Dict[str, Dict[str, Any]]] = {i: {} for i in range(len(work))}
+    for rid, idx, chunk in chunk_specs:
+        served = (batch_result or {}).get(rid)
+        rows: Optional[List[Dict[str, Any]]] = None
+        if served and served.get("status_code") == 200 and isinstance(served.get("body"), dict):
+            rows = served["body"].get("result")
+        if rows is None:
+            table_name = work[idx][0]
+            rows = _fetch_records_chunk(
+                config, auth_manager, table_name, chunk, _table_source_fields(table_name)
             )
-            for name in sorted(map_data):
-                sys_id = str(map_data.get(name) or "")
-                fields = _component_field_files(table_dir, name, table_name)
-                if not fields:
-                    continue
-                checked += 1
-                remote_record = remote_by_id.get(sys_id)
-                if remote_record is None:
-                    attention.append(
-                        {"table": table_name, "name": name, "verdict": "missing_remote"}
-                    )
-                    continue
-                field_rows, states, sidecars = _component_field_verdicts(fields, remote_record)
-                if not field_rows:
-                    in_sync += 1
-                    continue
-                row: Dict[str, Any] = {
-                    "table": table_name,
-                    "name": name,
-                    "verdict": _aggregate_verdict(states),
-                    "fields": field_rows,
-                    "remote": _remote_record_state(remote_record),
-                }
-                if sidecars:
-                    row["conflict_sidecars"] = sidecars
-                attention.append(row)
+            http_requests += 1
+        for rec in rows or []:
+            sid = str(rec.get("sys_id") or "")
+            if sid:
+                remote_by_work[idx][sid] = rec
+
+    # Pass 3: verdicts (pure local content comparison).
+    for idx, (table_name, table_dir, map_data) in enumerate(work):
+        remote_by_id = remote_by_work[idx]
+        for name in sorted(map_data):
+            sys_id = str(map_data.get(name) or "")
+            fields = _component_field_files(table_dir, name, table_name)
+            if not fields:
+                continue
+            checked += 1
+            remote_record = remote_by_id.get(sys_id)
+            if remote_record is None:
+                attention.append({"table": table_name, "name": name, "verdict": "missing_remote"})
+                continue
+            field_rows, states, sidecars = _component_field_verdicts(fields, remote_record)
+            if not field_rows:
+                in_sync += 1
+                continue
+            row: Dict[str, Any] = {
+                "table": table_name,
+                "name": name,
+                "verdict": _aggregate_verdict(states),
+                "fields": field_rows,
+                "remote": _remote_record_state(remote_record),
+            }
+            if sidecars:
+                row["conflict_sidecars"] = sidecars
+            attention.append(row)
     result: Dict[str, Any] = {
         "mode": "verdict",
         "root": str(root),
         "components_checked": checked,
         "in_sync": in_sync,
         "needs_attention": attention[:_VERDICT_ATTENTION_CAP],
+        # Speed evidence: how long the scan took and how many HTTP round trips
+        # it cost (1 = the whole scan rode a single Batch API call).
+        "took_ms": int((time.perf_counter() - started) * 1000),
+        "http_requests": http_requests,
     }
     if len(attention) > _VERDICT_ATTENTION_CAP:
         result["truncated"] = (
