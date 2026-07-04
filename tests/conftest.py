@@ -26,6 +26,20 @@ def _reset_query_cache():
     invalidate_query_cache()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_workspace_roots(tmp_path, monkeypatch):
+    """Redirect the download-root auto-registry to a per-test file.
+
+    Download tests exercise _resolve_scope_root / download_portal_sources,
+    which record roots — without this they would write to the REAL user state
+    (~/.mfa_servicenow_mcp/download_roots.json) and leak tmp paths into it.
+    """
+    from servicenow_mcp.utils import workspace_roots
+
+    state = tmp_path / "_workspace_roots_state" / "download_roots.json"
+    monkeypatch.setattr(workspace_roots, "_state_file", lambda: state)
+
+
 # ---------------------------------------------------------------------------
 # Reusable fixtures
 # ---------------------------------------------------------------------------
