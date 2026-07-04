@@ -805,6 +805,10 @@ def sn_batch(
 
 class HealthCheckParams(BaseModel):
     timeout: int = Field(default=15, description="Request timeout in seconds")
+    deep: bool = Field(
+        default=False,
+        description="Also probe undocumented APIs (flow/session tools) for upgrade breakage.",
+    )
 
 
 class GenericQueryParams(BaseModel):
@@ -1086,7 +1090,88 @@ def sn_health(
     workspace = _workspace_snapshot()
     if workspace:
         result["workspace"] = workspace
+    if params.deep:
+        result["deep_probes"] = _deep_api_probes(config, auth_manager)
     return result
+
+
+def _deep_api_probes(config: ServerConfig, auth_manager: AuthManager) -> Dict[str, Any]:
+    """Upgrade-breakage early warning: exercise the UNDOCUMENTED APIs the flow
+    and session tools depend on, exactly the way those tools call them.
+
+    ServiceNow upgrades have silently changed these shapes before (dev-clone
+    401 storm, Yokohama processflow wrapper) and the breakage only surfaced in
+    live use. This read-only probe surfaces it in a health check instead.
+    Browser-auth only (the APIs themselves are session-gated); never raises.
+    """
+    if config.auth.type.value != "browser":
+        return {
+            "skipped": (
+                "Undocumented-API probes need browser auth; basic/oauth sessions never call "
+                "these endpoints, so there is nothing to break."
+            )
+        }
+    probes: Dict[str, Any] = {}
+
+    # concoursepicker (manage_session_context): current-app shape must parse.
+    try:
+        from servicenow_mcp.tools.session_context_tools import _APP_ENDPOINT, _get_current_raw
+
+        parsed, dbg = _get_current_raw(config, auth_manager, _APP_ENDPOINT)
+        status = dbg.get("status")
+        probes["concoursepicker"] = {
+            "ok": status == 200 and bool(parsed.get("sys_id")),
+            "status": status,
+        }
+        if status == 200 and not parsed.get("sys_id"):
+            probes["concoursepicker"]["note"] = (
+                "Endpoint answered but the 'current' shape did not parse — a ServiceNow "
+                "upgrade may have changed it; manage_session_context is likely broken."
+            )
+    except Exception as exc:  # noqa: BLE001 — a probe can never fail the health check
+        probes["concoursepicker"] = {"ok": False, "error": str(exc)[:200]}
+
+    # processflow (flow read/edit): fetch one real flow through the same path
+    # the tools use. No flows in the instance -> nothing to probe.
+    try:
+        rows, _total = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_hub_flow",
+            query="ORDERBYDESCsys_updated_on",
+            fields="sys_id",
+            limit=1,
+            offset=0,
+            display_value=False,
+            no_count=True,
+        )
+        if not rows:
+            probes["processflow"] = {"ok": True, "note": "no flows to probe"}
+        else:
+            flow_id = str(rows[0].get("sys_id") or "")
+            url = f"{config.instance_url}/api/now/processflow/flow/{flow_id}"
+            response = auth_manager.make_request(
+                "GET", url, headers={"x-transaction-source": "Interface=Web"}
+            )
+            body = response.json() if response.status_code == 200 else {}
+            outer = body.get("result") if isinstance(body.get("result"), dict) else body
+            has_flow_shape = isinstance(outer, dict) and (
+                isinstance(outer.get("data"), dict) or "name" in outer or "actions" in outer
+            )
+            err = isinstance(outer, dict) and bool(outer.get("errorMessage"))
+            probes["processflow"] = {
+                "ok": response.status_code == 200 and has_flow_shape and not err,
+                "status": response.status_code,
+            }
+            if response.status_code == 200 and (err or not has_flow_shape):
+                probes["processflow"]["note"] = (
+                    "Endpoint answered but the flow payload shape is unexpected — a "
+                    "ServiceNow upgrade may have changed it; flow read/edit tools may break."
+                )
+    except Exception as exc:  # noqa: BLE001
+        probes["processflow"] = {"ok": False, "error": str(exc)[:200]}
+
+    return probes
 
 
 # Hard work ceiling for the health snapshot: at most this many components are
