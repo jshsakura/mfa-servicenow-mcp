@@ -20,10 +20,14 @@ from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, S
 
 @pytest.fixture(autouse=True)
 def _reset_query_cache():
-    """Clear the sn_api query cache before and after every test."""
+    """Clear sn_api query cache + Batch API availability verdicts between tests."""
+    from servicenow_mcp.tools.sn_batch import reset_batch_support_cache
+
     invalidate_query_cache()
+    reset_batch_support_cache()
     yield
     invalidate_query_cache()
+    reset_batch_support_cache()
 
 
 @pytest.fixture(autouse=True)
