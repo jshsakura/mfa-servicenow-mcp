@@ -673,19 +673,11 @@ class ServiceNowMCP:
     def _auth_for_instance_entry(self, entry: Dict[str, Any]) -> AuthConfig:
         """Return auth config for a named instance, falling back to active auth."""
         base = self.config.auth
-        # Browser (headless) stays the default when the entry says nothing; but an
-        # entry carrying its own username+password opts out of browser → basic.
+        # Browser stays the default when the entry says nothing. Per-profile
+        # username/password select WHO (prefill + declared owner for G10),
+        # never the auth type — only an explicit auth_type changes it.
         auth_type = resolve_auth_type(entry, base.type.value)
         parsed = AuthType(auth_type)
-        if (
-            not entry.get("auth_type")
-            and parsed == AuthType.BASIC
-            and str(base.type.value).lower() == "browser"
-        ):
-            logger.info(
-                "Instance auth: username+password present with no auth_type — using basic "
-                "(browser default overridden). Set auth_type='browser' to force browser login."
-            )
         if parsed == AuthType.BROWSER:
             base_browser = base.browser or BrowserAuthConfig()
             return AuthConfig(
@@ -693,8 +685,20 @@ class ServiceNowMCP:
                 browser=BrowserAuthConfig(
                     # required=False: browser creds/URLs are optional prefill —
                     # one stale ${ENV} must not disable a working SSO instance.
-                    username=_entry_cred(entry, "username", base_browser.username, required=False),
-                    password=_entry_cred(entry, "password", base_browser.password, required=False),
+                    # Inheritance: entry → active browser config → global env,
+                    # so a profile with nothing follows the global identity.
+                    username=_entry_cred(
+                        entry,
+                        "username",
+                        base_browser.username or os.getenv("SERVICENOW_USERNAME"),
+                        required=False,
+                    ),
+                    password=_entry_cred(
+                        entry,
+                        "password",
+                        base_browser.password or os.getenv("SERVICENOW_PASSWORD"),
+                        required=False,
+                    ),
                     login_url=_entry_cred(
                         entry, "login_url", base_browser.login_url, required=False
                     ),
@@ -711,10 +715,25 @@ class ServiceNowMCP:
             )
         if parsed == AuthType.BASIC:
             base_basic = base.basic
-            username = _entry_cred(entry, "username", base_basic.username if base_basic else None)
-            password = _entry_cred(entry, "password", base_basic.password if base_basic else None)
+            # Inheritance chain: entry → active config → global env. A profile
+            # that writes nothing follows the globals; only when NO level
+            # supplies credentials is basic auth truly unusable.
+            username = _entry_cred(
+                entry,
+                "username",
+                (base_basic.username if base_basic else None) or os.getenv("SERVICENOW_USERNAME"),
+            )
+            password = _entry_cred(
+                entry,
+                "password",
+                (base_basic.password if base_basic else None) or os.getenv("SERVICENOW_PASSWORD"),
+            )
             if not username or not password:
-                raise ValueError("Named basic-auth instance requires username and password")
+                raise ValueError(
+                    "Named basic-auth instance requires username and password "
+                    "(set them on the entry, the active config, or "
+                    "SERVICENOW_USERNAME/SERVICENOW_PASSWORD)"
+                )
             return AuthConfig(
                 type=parsed,
                 basic=BasicAuthConfig(username=str(username), password=str(password)),
