@@ -712,6 +712,62 @@ def _g9_duplicate_create(ctx: WriteGuardContext) -> None:
     )
 
 
+def _g10_session_identity(ctx: WriteGuardContext) -> None:
+    """G10 — the live session user must match the profile's declared owner.
+
+    Multi-user setups run each instance under a known person (declared via the
+    browser auth ``username``). Browser SSO sessions are adopted from a shared
+    per-instance disk cache, so after a reconnect the live session can silently
+    belong to a DIFFERENT user — every write would then be recorded under that
+    user and captured into THEIR active update set. One identity read (TTL-
+    cached, ~free); only runs for browser auth with a declared username.
+
+    Fail-open on an unresolvable identity (transient blip — the write itself
+    would 401 on a truly dead session); SERVICENOW_WRITE_GUARDS_FAIL=closed
+    blocks instead.
+    """
+    try:
+        auth = ctx.server.config.auth
+        if auth.type.value != "browser" or not auth.browser:
+            return
+        declared = str(auth.browser.username or "").strip()
+    except Exception:
+        return
+    if not declared:
+        return
+
+    from servicenow_mcp.tools.sn_api import resolve_live_username
+
+    try:
+        actual = str(resolve_live_username(ctx.server.config, ctx.server.auth_manager) or "")
+    except Exception:
+        actual = ""
+    actual = actual.strip()
+
+    if not actual:
+        if _fail_closed():
+            raise PolicyViolation(
+                "G10",
+                f"Could not verify who this session is logged in as, and "
+                f"{ENV_WRITE_GUARDS_FAIL}=closed blocks unverified writes. This "
+                f"instance is declared for user '{declared}'. Run sn_health, "
+                f"re-login if needed, then retry.",
+            )
+        return
+
+    if actual.lower() == declared.lower():
+        return
+
+    raise PolicyViolation(
+        "G10",
+        f"Blocked: this session is logged in as '{actual}', but this instance is "
+        f"declared for user '{declared}'. The write would be recorded as "
+        f"'{actual}' and captured into their active update set. Log in again as "
+        f"'{declared}' (or correct the declared username in the instance config), "
+        f"then retry.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Update-set awareness (NON-blocking)
 # ---------------------------------------------------------------------------
@@ -870,6 +926,8 @@ def run_post_confirm_guards(server: Any, tool_name: str, arguments: Dict[str, An
     """Post-confirm network guards. Each makes ONE live remote read, so they run
     AFTER the confirm gate — an unconfirmed write is rejected first and never
     reaches the network. Covers:
+      • G10 — session identity: block writes when the live session user differs
+        from the profile's declared owner (browser auth with username set).
       • G3/G8 — concurrent edit: block overwriting a DIFFERENT user's recent edit
         on an update/delete (creates pass through).
       • G9 — duplicate create: block creating a same-name record where that is a
@@ -881,6 +939,9 @@ def run_post_confirm_guards(server: Any, tool_name: str, arguments: Dict[str, An
         return
 
     ctx = WriteGuardContext(server, tool_name, arguments)
+    # Identity first: with the wrong user logged in, the concurrent-edit and
+    # duplicate reads below would themselves run (and reason) as that user.
+    _g10_session_identity(ctx)
     _g3_concurrent_edit(ctx)
     _g8_generic_concurrent_edit(ctx)
     _g8_registry_concurrent_edit(ctx)

@@ -1087,6 +1087,21 @@ def sn_health(
     user = _authenticated_user(config, auth_manager, allow_live=session_ok)
     if user:
         result["authenticated_user"] = user
+    # Declared-owner check: multi-user setups pin WHO each instance profile
+    # belongs to via the browser auth username. A reconnect can adopt another
+    # user's session — surface the mismatch here, and G10 blocks writes on it.
+    declared = ""
+    if config.auth.type.value == "browser" and config.auth.browser:
+        declared = str(config.auth.browser.username or "").strip()
+    if declared:
+        result["declared_user"] = declared
+        if user and str(user).strip().lower() != declared.lower():
+            result["identity_mismatch"] = True
+            result.setdefault("warnings", []).append(
+                f"Session is logged in as '{user}', but this instance is declared "
+                f"for user '{declared}'. Writes are blocked (G10) until you log in "
+                f"again as '{declared}'."
+            )
     workspace = _workspace_snapshot()
     if workspace:
         result["workspace"] = workspace
