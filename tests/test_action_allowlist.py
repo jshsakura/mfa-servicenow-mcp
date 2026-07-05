@@ -196,23 +196,38 @@ class TestServerPackageLoading:
 
 
 class TestOfflineAnalysisInstruction:
-    """The local-graph reuse hint is surfaced via MCP instructions, gated to
-    packages that expose audit_local_sources."""
+    """Persona split: local-first steering belongs to source-EDITING packages
+    only. Analysis packages keep the download tools but get a live-first
+    identity line instead of offline advertising."""
 
-    def test_standard_advertises_offline_reuse(self):
+    def test_standard_is_live_first_not_offline_steered(self):
+        # standard can still download (tools present) but is never nudged to:
+        # no offline-graph advertising, and an explicit live-first line.
         s = _server_with_package("standard")
+        s.start()
+        instructions = getattr(s.mcp_server, "instructions", "") or ""
+        assert "_graph.json" not in instructions
+        assert "Live-first" in instructions
+        assert "never a prerequisite" in instructions
+
+    def test_portal_developer_advertises_offline_reuse(self):
+        # Source-editing package → offline reuse hint + sync flow, and no
+        # live-first line (local-first is legitimate there).
+        s = _server_with_package("portal_developer")
         s.start()
         instructions = getattr(s.mcp_server, "instructions", "") or ""
         assert "_graph.json" in instructions
         assert "_page_graph.json" in instructions
         assert "read the files directly" in instructions
+        assert "Live-first" not in instructions
 
     def test_core_has_no_offline_hint(self):
-        # core has no audit_local_sources → no offline reuse hint.
+        # core has no audit_local_sources → neither steer applies.
         s = _server_with_package("core")
         s.start()
         instructions = getattr(s.mcp_server, "instructions", "") or ""
         assert "_graph.json" not in instructions
+        assert "Live-first" not in instructions
 
 
 class TestSchemaEmittedToLlm:
