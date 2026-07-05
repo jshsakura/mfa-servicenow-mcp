@@ -1943,13 +1943,31 @@ class ServiceNowMCP:
         # appears ONLY when unfinished local work actually exists, and the
         # push/diff gates re-check the live remote at upload time anyway.
 
+        # Persona split (the tool's identity is a FAST LIVE ANALYZER first):
+        # local-first guidance is the privilege of packages that can EDIT
+        # sources (update_remote_from_local present — portal/platform
+        # developer). Analysis-only packages (standard, service_desk) keep the
+        # download tools available but get zero steering toward them: an
+        # incident-handling session must never be nudged into bulk downloads
+        # to answer a live question.
+        can_edit_sources = "update_remote_from_local" in self.enabled_tool_names
+        if "audit_local_sources" in self.enabled_tool_names and not can_edit_sources:
+            live_first = (
+                "Live-first: answer questions with live queries (sn_query, "
+                "sn_aggregate, sn_discover, targeted reads). Source downloads "
+                "(download_app_sources / download_portal_sources) are optional for "
+                "deep offline analysis — never a prerequisite for answering."
+            )
+            existing = getattr(self.mcp_server, "instructions", None) or ""
+            self.mcp_server.instructions = f"{existing}\n\n{live_first}" if existing else live_first
+
         # After a local download+audit, the relationship graphs live on disk.
         # Tell the LLM so it answers relationship questions by reading those
         # files instead of re-querying the instance with the live resolvers.
-        # Gated to packages that expose the audit tool. Non-prescriptive: live
-        # resolvers stay valid when no local dump exists (not everyone downloads
-        # first), this just makes the offline option discoverable.
-        if "audit_local_sources" in self.enabled_tool_names:
+        # Gated to source-EDITING packages (see persona split above); for
+        # analysis-only packages the same graphs still work when present, but
+        # we do not advertise them as a standing instruction.
+        if "audit_local_sources" in self.enabled_tool_names and can_edit_sources:
             offline_hint = (
                 "Local analysis reuse: once download_app_sources + audit_local_sources "
                 "have run, relationship data is on disk under the scope root — "
