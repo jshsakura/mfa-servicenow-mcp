@@ -1,3 +1,9 @@
+# check=skip=SecretsUsedInArgOrEnv
+# ^ False positive: SERVICENOW_AUTH_TYPE is a MODE SELECTOR (basic/api_key/
+#   browser), not a credential — the name merely contains "AUTH". Actual
+#   secrets (SERVICENOW_API_KEY etc.) are never baked into the image; they
+#   arrive at runtime via `docker run -e ...` (see usage block below).
+
 # ServiceNow MCP Server - Production Dockerfile
 # Multi-stage build with security best practices
 # stdio transport only — MCP clients connect over stdin/stdout, not HTTP.
