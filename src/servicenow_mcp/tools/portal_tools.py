@@ -925,7 +925,10 @@ def _fetch_linked_script_include_rows(
                 ]
             )
 
-        query_parts = ["(" + "^OR".join(candidate_clauses) + ")"]
+        # Encoded queries have no parenthesis grouping — "(name=x" parses as an
+        # invalid field and silently corrupts the first/last OR clauses.
+        # `a^ORb^ORc^scope=X` already means (a OR b OR c) AND scope=X.
+        query_parts = ["^OR".join(candidate_clauses)]
         if scope:
             query_parts.append(f"sys_scope.scope={_escape_query(scope)}")
         if updated_by:
@@ -960,10 +963,16 @@ def _fetch_targeted_widget_rows(
     widget_base_query: str,
     widget_fields: str,
     page_size: int,
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Fetch exactly the requested widgets. Returns (rows, unmatched_tokens).
+
+    Only rows that match a requested token (sys_id/id/name) are returned —
+    a malformed or leniently-parsed server-side query must never turn into
+    "downloaded 20 arbitrary scope widgets" masquerading as the targeted set.
+    """
     normalized_tokens = _dedupe_preserve_order_strings(widget_tokens)
     if not normalized_tokens:
-        return []
+        return [], []
 
     rows_by_sys_id: Dict[str, Dict[str, Any]] = {}
     token_matches: Dict[str, List[str]] = {token: [] for token in normalized_tokens}
@@ -980,7 +989,11 @@ def _fetch_targeted_widget_rows(
                 ]
             )
 
-        query = "(" + "^OR".join(clauses) + ")"
+        # No parentheses: encoded queries don't support grouping — "(sys_id=X"
+        # parses as an invalid field and, on instances that ignore invalid
+        # conditions, collapses the OR-group into "match everything".
+        # `a^ORb^ORc^scope=X` already binds as (a OR b OR c) AND scope=X.
+        query = "^OR".join(clauses)
         if widget_base_query:
             query += f"^{widget_base_query}"
 
@@ -1023,11 +1036,66 @@ def _fetch_targeted_widget_rows(
             ordered_rows.append(matched_row)
             seen_sys_ids.add(sys_id)
 
-    for sys_id, row in rows_by_sys_id.items():
-        if sys_id not in seen_sys_ids:
-            ordered_rows.append(row)
+    # Rows matching NO requested token are dropped, not appended: they can only
+    # be query-parser noise, and passing them through silently replaces the
+    # user's targeted set with arbitrary scope widgets.
+    unmatched_tokens = [token for token in normalized_tokens if not token_matches.get(token)]
+    return ordered_rows, unmatched_tokens
 
-    return ordered_rows
+
+def _locate_missing_widget_tokens(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    missing_tokens: List[str],
+    requested_scope: str | None,
+    page_size: int,
+) -> List[str]:
+    """Explain targeted widget_ids that matched nothing — never a silent drop.
+
+    With a scope filter active, a light no-filter probe distinguishes
+    "lives in another scope" (actionable retry command) from "absent on this
+    instance" (wrong sys_id, or a session connected to a different instance).
+    """
+    located: Dict[str, str] = {}
+    still_missing = list(missing_tokens)
+    if requested_scope:
+        try:
+            probe_rows, still_missing = _fetch_targeted_widget_rows(
+                config,
+                auth_manager,
+                widget_tokens=missing_tokens,
+                widget_base_query="",
+                widget_fields="sys_id,name,id,sys_scope.scope",
+                page_size=page_size,
+            )
+            for row in probe_rows:
+                actual_scope = str(row.get("sys_scope.scope") or "") or "(unknown)"
+                row_keys = {
+                    str(row.get("sys_id") or ""),
+                    str(row.get("id") or ""),
+                    str(row.get("name") or ""),
+                }
+                for token in missing_tokens:
+                    if token in row_keys and token not in located:
+                        located[token] = actual_scope
+        except Exception:
+            still_missing = list(missing_tokens)
+
+    messages: List[str] = []
+    for token, actual_scope in located.items():
+        messages.append(
+            f"NOT DOWNLOADED — widget '{token}' exists on this instance but lives in scope "
+            f"'{actual_scope}', not '{requested_scope}'. Re-run: "
+            f"download_portal_sources(scope='{actual_scope}', widget_ids=['{token}'])"
+        )
+    for token in still_missing:
+        messages.append(
+            f"NOT FOUND — widget '{token}' matched no sys_id/id/name on "
+            f"{config.instance_url}. Verify the value, and verify this session is "
+            f"connected to the intended instance."
+        )
+    return messages
 
 
 def _download_widget_fields(
@@ -3016,9 +3084,10 @@ def download_portal_sources(
     )
 
     widgets: List[Dict[str, Any]] = []
+    missing_widget_tokens: List[str] = []
     try:
         if params.widget_ids:
-            widgets = _fetch_targeted_widget_rows(
+            widgets, missing_widget_tokens = _fetch_targeted_widget_rows(
                 config,
                 auth_manager,
                 widget_tokens=params.widget_ids,
@@ -3044,6 +3113,17 @@ def download_portal_sources(
             "summary": {"widgets": 0, "angular_providers": 0, "script_includes": 0},
             "warnings": warnings,
         }
+
+    if missing_widget_tokens:
+        warnings.extend(
+            _locate_missing_widget_tokens(
+                config,
+                auth_manager,
+                missing_tokens=missing_widget_tokens,
+                requested_scope=params.scope,
+                page_size=params.page_size,
+            )
+        )
 
     # Completeness guard: a full-scope fetch returning exactly max_widgets means
     # the scope holds at least that many and some were left behind. Surface it —
@@ -3521,6 +3601,8 @@ def download_portal_sources(
         "script_include_map_path": str(scope_root / "sys_script_include" / "_map.json"),
         "safety_notice": "Exports structured source files only; no destructive remote operations are performed.",
     }
+    if targeted_widget_export:
+        result["missing_widget_ids"] = missing_widget_tokens
     if scope_resolution:
         result["scope_resolution"] = scope_resolution
     return result
