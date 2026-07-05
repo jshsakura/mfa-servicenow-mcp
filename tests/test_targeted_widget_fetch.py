@@ -156,3 +156,88 @@ def test_locate_missing_without_scope_skips_probe(mock_query, mock_config, mock_
 
     mock_query.assert_not_called()
     assert len(messages) == 1 and "NOT FOUND" in messages[0]
+
+
+class TestWrongInstanceLocalTreeHint:
+    """Offline anti-wander: a token absent on the current instance but present
+    in ANOTHER instance's downloaded tree gets a WRONG INSTANCE hint instead of
+    a bare NOT FOUND — zero network (a live sibling probe could pop a login
+    window from inside a download)."""
+
+    def _make_tree(self, tmp_path, instance, scope, widget_map):
+        import json
+
+        scope_root = tmp_path / instance / scope
+        (scope_root / "sp_widget").mkdir(parents=True)
+        (scope_root / "sp_widget" / "_map.json").write_text(json.dumps(widget_map))
+        return scope_root
+
+    def test_token_in_other_instance_tree_gets_hint(self, tmp_path, monkeypatch):
+        from servicenow_mcp.tools import portal_tools
+
+        other_root = self._make_tree(tmp_path, "devinst", "x_app", {"so-widget": SYS_ID_B})
+        monkeypatch.setattr(portal_tools, "known_download_roots", lambda: [other_root])
+
+        messages, hinted = portal_tools._locate_tokens_in_other_local_trees(
+            [SYS_ID_B, "ghost"], current_instance_name="prodinst"
+        )
+
+        assert hinted == {SYS_ID_B}
+        assert len(messages) == 1
+        assert "WRONG INSTANCE?" in messages[0]
+        assert "devinst" in messages[0] and SYS_ID_B in messages[0]
+
+    def test_same_instance_tree_is_skipped(self, tmp_path, monkeypatch):
+        from servicenow_mcp.tools import portal_tools
+
+        own_root = self._make_tree(tmp_path, "prodinst", "x_app", {"so-widget": SYS_ID_B})
+        monkeypatch.setattr(portal_tools, "known_download_roots", lambda: [own_root])
+
+        messages, hinted = portal_tools._locate_tokens_in_other_local_trees(
+            [SYS_ID_B], current_instance_name="prodinst"
+        )
+
+        assert messages == [] and hinted == set()
+
+    def test_missing_or_corrupt_map_yields_no_hint(self, tmp_path, monkeypatch):
+        from servicenow_mcp.tools import portal_tools
+
+        bare_root = tmp_path / "devinst" / "x_app"
+        bare_root.mkdir(parents=True)  # no _map.json at all
+        corrupt_root = tmp_path / "devinst2" / "x_app"
+        (corrupt_root / "sp_widget").mkdir(parents=True)
+        (corrupt_root / "sp_widget" / "_map.json").write_text("not json{{")
+        monkeypatch.setattr(portal_tools, "known_download_roots", lambda: [bare_root, corrupt_root])
+
+        messages, hinted = portal_tools._locate_tokens_in_other_local_trees(
+            [SYS_ID_B], current_instance_name="prodinst"
+        )
+
+        assert messages == [] and hinted == set()
+
+    def test_hinted_token_replaces_bare_not_found(self, tmp_path, monkeypatch):
+        # End-to-end through _locate_missing_widget_tokens: the hinted token
+        # must NOT also produce the generic NOT FOUND line.
+        from unittest.mock import patch as _patch
+
+        from servicenow_mcp.tools import portal_tools
+
+        other_root = self._make_tree(tmp_path, "devinst", "x_app", {"vo": SYS_ID_B})
+        monkeypatch.setattr(portal_tools, "known_download_roots", lambda: [other_root])
+
+        config = ServerConfig(
+            instance_url="https://prodinst.service-now.com",
+            auth={"type": "basic", "basic": {"username": "u", "password": "p"}},
+        )
+        with _patch.object(portal_tools, "_sn_query_all", return_value=[]):
+            messages = portal_tools._locate_missing_widget_tokens(
+                config,
+                None,
+                missing_tokens=[SYS_ID_B],
+                requested_scope="x_app",
+                page_size=50,
+            )
+
+        assert len(messages) == 1
+        assert "WRONG INSTANCE?" in messages[0]
+        assert not any("NOT FOUND" in m for m in messages)
