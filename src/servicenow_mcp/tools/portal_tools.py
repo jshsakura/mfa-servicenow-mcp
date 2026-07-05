@@ -23,7 +23,7 @@ from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_fil
 from ..utils.progress import emit_progress
 from ..utils.registry import register_tool
 from ..utils.source_layout import field_filename, normalize_source_eol
-from ..utils.workspace_roots import record_download_root
+from ..utils.workspace_roots import known_download_roots, record_download_root
 from .sn_api import (
     GenericQueryParams,
     _get_page_executor,
@@ -1089,13 +1089,74 @@ def _locate_missing_widget_tokens(
             f"'{actual_scope}', not '{requested_scope}'. Re-run: "
             f"download_portal_sources(scope='{actual_scope}', widget_ids=['{token}'])"
         )
+    # Wrong-instance detection, offline: a token absent HERE but present in
+    # another instance's previously downloaded tree almost always means the
+    # session/target is pointed at the wrong instance (the multi-session trap).
+    # Local scan only — a live probe of sibling instances could trigger their
+    # login flow (browser window) from inside a download, which is worse than
+    # the miss it explains.
+    hint_messages, hinted_tokens = _locate_tokens_in_other_local_trees(
+        still_missing, current_instance_name=_get_instance_name(config)
+    )
+    messages.extend(hint_messages)
     for token in still_missing:
+        if token in hinted_tokens:
+            continue
         messages.append(
             f"NOT FOUND — widget '{token}' matched no sys_id/id/name on "
             f"{config.instance_url}. Verify the value, and verify this session is "
             f"connected to the intended instance."
         )
     return messages
+
+
+# Bound the offline wrong-instance scan: newest N recorded roots is plenty —
+# roots are LRU-recorded per download and stale trees only add noise.
+_LOCAL_TREE_HINT_MAX_ROOTS = 20
+
+
+def _locate_tokens_in_other_local_trees(
+    missing_tokens: List[str], *, current_instance_name: str
+) -> Tuple[List[str], Set[str]]:
+    """Offline hint for tokens missing on the current instance.
+
+    Scans previously downloaded ``sp_widget/_map.json`` files (id → sys_id) of
+    OTHER instances' trees. Zero network. Returns (messages, hinted_tokens);
+    best-effort — any read problem just yields fewer hints, never an error.
+    """
+    messages: List[str] = []
+    hinted: Set[str] = set()
+    if not missing_tokens:
+        return messages, hinted
+    remaining = set(missing_tokens)
+    for scope_root in known_download_roots()[:_LOCAL_TREE_HINT_MAX_ROOTS]:
+        if not remaining:
+            break
+        instance_name = scope_root.parent.name
+        if instance_name == current_instance_name:
+            continue
+        try:
+            widget_map = json_fast.loads(
+                (scope_root / "sp_widget" / "_map.json").read_text(encoding="utf-8")
+            )
+        except Exception:  # noqa: BLE001 — absent/corrupt map = no hint from this tree
+            continue
+        if not isinstance(widget_map, dict):
+            continue
+        known_ids = {str(k) for k in widget_map}
+        known_sys_ids = {str(v) for v in widget_map.values()}
+        for token in sorted(remaining):
+            if token in known_ids or token in known_sys_ids:
+                remaining.discard(token)
+                hinted.add(token)
+                messages.append(
+                    f"WRONG INSTANCE? — widget '{token}' is not on THIS instance "
+                    f"('{current_instance_name}') but exists in the local download tree of "
+                    f"instance '{instance_name}' ({scope_root}). If that instance was "
+                    f"intended, re-run the download with instance='{instance_name}' "
+                    f"(or its configured alias)."
+                )
+    return messages, hinted
 
 
 def _download_widget_fields(
