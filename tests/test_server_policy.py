@@ -477,12 +477,23 @@ def test_compare_instances_reports_changed_and_missing(monkeypatch: pytest.Monke
     assert result["changed"][0]["key"] == "x_app.A"
 
 
-def _build_browser_default_server(monkeypatch, tmp_path, *, entries=None, active="dev"):
+def _build_browser_default_server(
+    monkeypatch, tmp_path, *, entries=None, active="dev", keep_global_cred_env=False
+):
     """Multi-instance server on the global browser default.
 
     Default topology: dev/test bare (browser SSO) + prod with its own basic
     creds. Pass ``entries`` to vary the instance map — the ONE fixture for all
-    env-reference / broken-entry scenarios; don't re-inline this setup."""
+    env-reference / broken-entry scenarios; don't re-inline this setup.
+
+    Global credential env is CLEARED by default: profiles legitimately inherit
+    SERVICENOW_USERNAME/PASSWORD (v1.18.41), so ambient values — CI exports
+    test_user/test_password — would leak into every bare profile and make
+    these assertions environment-dependent. Inheritance tests opt in with
+    ``keep_global_cred_env=True`` and set the env themselves."""
+    if not keep_global_cred_env:
+        monkeypatch.delenv("SERVICENOW_USERNAME", raising=False)
+        monkeypatch.delenv("SERVICENOW_PASSWORD", raising=False)
     if entries is None:
         entries = {
             "dev": {"url": "https://dev.service-now.com", "allow_writes": True},
@@ -546,6 +557,26 @@ def test_list_instances_shows_auth_type_and_user_per_profile(monkeypatch, tmp_pa
     # write permission per profile still surfaced.
     assert by_alias["dev"]["allow_writes"] is True
     assert by_alias["prod"]["allow_writes"] is False
+
+
+def test_list_instances_shows_global_env_user_when_inherited(monkeypatch, tmp_path):
+    # With global creds in the env (the v1.18.41 inheritance), bare browser
+    # profiles carry that identity — and list_instances shows it instead of
+    # 'sso'. This is the exact shape CI runs under (test_user exported).
+    server = _build_browser_default_server(monkeypatch, tmp_path)
+    monkeypatch.setenv("SERVICENOW_USERNAME", "global_a")
+    monkeypatch.setenv("SERVICENOW_PASSWORD", "global_pw")
+    server_inherited = _build_browser_default_server(
+        monkeypatch, tmp_path, keep_global_cred_env=True
+    )
+
+    bare = {i["alias"]: i for i in server._list_instances_impl()["instances"]}
+    inherited = {i["alias"]: i for i in server_inherited._list_instances_impl()["instances"]}
+
+    assert bare["dev"]["user"] == "sso"
+    assert inherited["dev"]["user"] == "global_a"
+    # A profile with its own creds is unaffected by the globals.
+    assert inherited["prod"]["user"] == "svc_prod"
 
 
 def test_scaffold_page_treated_as_write_by_dispatch(monkeypatch, tmp_path):
