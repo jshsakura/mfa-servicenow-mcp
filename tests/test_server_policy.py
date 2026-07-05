@@ -509,7 +509,10 @@ def _build_browser_default_server(monkeypatch, tmp_path, *, entries=None, active
     )
 
 
-def test_instance_with_creds_opts_out_of_browser_to_basic(monkeypatch, tmp_path):
+def test_instance_with_creds_stays_browser_creds_pick_who(monkeypatch, tmp_path):
+    # Per-profile creds select WHO (prefill + declared owner for G10), never
+    # the auth type: prod with bare username+password stays on the browser
+    # default — the old silent basic downgrade broke MFA/SSO instances.
     from servicenow_mcp.utils.config import AuthType
 
     server = _build_browser_default_server(monkeypatch, tmp_path)
@@ -517,12 +520,10 @@ def test_instance_with_creds_opts_out_of_browser_to_basic(monkeypatch, tmp_path)
     # Bare instances keep the global browser (headless) default.
     assert server.instance_contexts["dev"]["config"].auth.type == AuthType.BROWSER
     assert server.instance_contexts["test"]["config"].auth.type == AuthType.BROWSER
-    # prod brought its own username+password → basic (no browser), and those
-    # exact creds are used, not the global.
     prod_auth = server.instance_contexts["prod"]["config"].auth
-    assert prod_auth.type == AuthType.BASIC
-    assert prod_auth.basic.username == "svc_prod"
-    assert prod_auth.basic.password == "pw"
+    assert prod_auth.type == AuthType.BROWSER
+    assert prod_auth.browser.username == "svc_prod"
+    assert prod_auth.browser.password == "pw"
     # prod's own auth_manager targets prod with those creds.
     assert server.instance_contexts["prod"]["auth_manager"].instance_url == (
         "https://prod.service-now.com"
@@ -539,8 +540,8 @@ def test_list_instances_shows_auth_type_and_user_per_profile(monkeypatch, tmp_pa
     assert by_alias["dev"]["auth_type"] == "browser"
     assert by_alias["dev"]["user"] == "sso"
     assert by_alias["test"]["auth_type"] == "browser"
-    # prod: brought creds → basic, and its exact configured user is shown.
-    assert by_alias["prod"]["auth_type"] == "basic"
+    # prod: creds declare the profile owner; auth stays browser.
+    assert by_alias["prod"]["auth_type"] == "browser"
     assert by_alias["prod"]["user"] == "svc_prod"
     # write permission per profile still surfaced.
     assert by_alias["dev"]["allow_writes"] is True
@@ -577,7 +578,11 @@ def test_instance_entry_env_reference_resolved_for_credentials(monkeypatch, tmp_
     server = _build_browser_default_server(
         monkeypatch,
         tmp_path,
-        entries=_entries_with_prod({"username": "svc_prod", "password": "${TEST_SN_PROD_PW}"}),
+        # Explicit basic: the strict (required) credential path. Bare creds
+        # without auth_type stay browser, where creds are optional prefill.
+        entries=_entries_with_prod(
+            {"auth_type": "basic", "username": "svc_prod", "password": "${TEST_SN_PROD_PW}"}
+        ),
     )
 
     prod_auth = server.instance_contexts["prod"]["config"].auth
@@ -592,7 +597,9 @@ def test_broken_instance_entry_does_not_kill_startup(monkeypatch, tmp_path):
     server = _build_browser_default_server(
         monkeypatch,
         tmp_path,
-        entries=_entries_with_prod({"username": "svc_prod", "password": "${NOPE_UNSET_PW}"}),
+        entries=_entries_with_prod(
+            {"auth_type": "basic", "username": "svc_prod", "password": "${NOPE_UNSET_PW}"}
+        ),
     )
 
     # dev still fully usable.
@@ -616,7 +623,9 @@ def test_partial_env_reference_is_rejected_not_used_literally(monkeypatch, tmp_p
     server = _build_browser_default_server(
         monkeypatch,
         tmp_path,
-        entries=_entries_with_prod({"username": "svc_prod", "password": "${VAULT}_prod"}),
+        entries=_entries_with_prod(
+            {"auth_type": "basic", "username": "svc_prod", "password": "${VAULT}_prod"}
+        ),
     )
     prod = next(i for i in server._list_instances_impl()["instances"] if i["alias"] == "prod")
     assert prod["auth_status"] == "config_error"

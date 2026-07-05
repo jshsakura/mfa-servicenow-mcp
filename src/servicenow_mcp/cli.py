@@ -280,7 +280,7 @@ def parse_args():
         "--auth-type",
         choices=["basic", "oauth", "api_key", "browser"],
         help="Authentication type",
-        default=os.environ.get("SERVICENOW_AUTH_TYPE", "basic"),
+        default=os.environ.get("SERVICENOW_AUTH_TYPE", "browser"),
     )
 
     # Basic auth
@@ -424,24 +424,15 @@ def create_config(args) -> ServerConfig:
             )
 
     # Create authentication configuration based on args.
-    # Browser (headless) is the default; but an active instance that brings its
-    # own username+password opts out of browser → basic (no need to also set
-    # auth_type). Explicit auth_type on the entry always wins. Mirrors
+    # Browser (headless) is the default. Per-profile username/password select
+    # WHO (prefill + declared owner), never the auth type — an explicit
+    # auth_type on the entry is the only way to change it. Mirrors
     # server._auth_for_instance_entry so active and named instances behave alike.
     active_raw = active_entry.raw if active_entry and active_entry.raw else {}
     auth_type_value = resolve_auth_type(active_raw, args.auth_type)
     auth_type = AuthType(auth_type_value.lower())
     # This will hold the final AuthConfig instance for ServerConfig
     final_auth_config: AuthConfig
-    if (
-        not active_raw.get("auth_type")
-        and auth_type == AuthType.BASIC
-        and str(args.auth_type).lower() == "browser"
-    ):
-        logger.info(
-            "Active instance auth: username+password present with no auth_type — using basic "
-            "(browser default overridden). Set auth_type='browser' to force browser login."
-        )
 
     if auth_type == AuthType.BASIC:
         username = _pick_first_resolved(
