@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -134,16 +135,29 @@ class AuthManager:
     different authentication methods.
     """
 
-    def __init__(self, config: AuthConfig, instance_url: Optional[str] = None):
+    def __init__(
+        self,
+        config: AuthConfig,
+        instance_url: Optional[str] = None,
+        profile_label: Optional[str] = None,
+    ):
         """
         Initialize the authentication manager.
 
         Args:
             config: Authentication configuration.
             instance_url: ServiceNow instance URL.
+            profile_label: The instance-config profile/alias this manager serves.
+                When set, it becomes the session-cache identity unit: each declared
+                profile gets its OWN session file/Chromium profile even when two
+                profiles share a host and/or account, and a profile with no declared
+                username no longer collapses onto the bare-host key (the multi-user
+                session-mixing root cause, issue #64). None ⇒ legacy standalone
+                keying (host [+ declared username]).
         """
         self.config = config
         self.instance_url = instance_url
+        self._profile_label = profile_label
         self.logger = logger
         # Annotated requests.Session for static analysis: it lets mypy resolve
         # the .request()/.headers/.cookies call sites across this file to the
@@ -666,15 +680,26 @@ class AuthManager:
         return cache_dir
 
     def _get_instance_user_suffix(self) -> str:
-        """Return the ``{instance}{_user}`` suffix used in cache filenames.
+        """Return the suffix used in session/profile cache filenames.
 
-        Replace ``@`` with ``_at_`` before ``.`` so usernames like
-        ``alice@corp.com`` and ``alice.corp.com`` produce distinct suffixes
-        (previously both collapsed to ``alice_corp_com``).
+        When a ``profile_label`` is set (multi-instance config), the PROFILE is
+        the identity unit: the key is ``{profile}_{host}`` so each declared
+        profile gets its own session even if two profiles share a host and/or
+        account, and a profile with no declared username never collapses onto
+        the bare-host key (issue #64). ``{host}`` is retained as a guard against
+        profile-name reuse across configs.
+
+        Legacy standalone (no profile_label): key by ``{host}{_user}`` — a
+        single config is a single identity, so host-scoped reuse is correct.
+        ``@`` becomes ``_at_`` before ``.`` so ``alice@corp.com`` and
+        ``alice.corp.com`` produce distinct suffixes (not both ``alice_corp_com``).
         """
         instance_id = "default"
         if self.instance_url:
             instance_id = (urlparse(self.instance_url).hostname or "default").replace(".", "_")
+        if self._profile_label:
+            safe_profile = re.sub(r"[^A-Za-z0-9_-]", "_", self._profile_label.strip())
+            return f"{safe_profile}_{instance_id}"
         username = ""
         raw_user: Optional[str] = None
         if self.config.browser and self.config.browser.username:
