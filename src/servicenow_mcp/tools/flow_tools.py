@@ -521,7 +521,8 @@ _DISPATCH = {
     params=ManageFlowDesignerParams,
     description=(
         "Flow Designer read/edit: action inputs, trigger/branch conditions, "
-        "add_branch (clone a branch). Publish via UI."
+        "add_branch (clone a branch). Publish via action='publish' (needs "
+        "confirm + confirm_publish)."
     ),
     serialization="json",
     return_type=dict,

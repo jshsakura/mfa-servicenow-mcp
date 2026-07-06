@@ -49,7 +49,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -203,14 +203,21 @@ CONFIRM_PUBLISH_VALUE = "approve"
 
 # tool_name → publish-class trigger condition. None=always publish-class.
 # Otherwise dict of arg matches (all must match).
-_PUBLISH_CLASS_TOOLS: Dict[str, Optional[Dict[str, Any]]] = {
+_PUBLISH_CLASS_TOOLS: Dict[str, Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]] = {
     "publish_changeset": None,
     "commit_changeset": None,
     "update_remote_from_local": None,
     "approve_change": None,
     "submit_change_for_approval": None,
     "manage_changeset": {"action": ("publish", "commit")},
-    "manage_flow_designer": {"action": ("save",), "publish": True},
+    # A list means OR: publish-class if ANY match-dict matches. Flow Designer
+    # publishes two ways — save-then-publish (action='save', publish=True) AND
+    # the direct action='publish' snapshot recompile — both must demand the
+    # extra confirm_publish approval, so both are listed.
+    "manage_flow_designer": [
+        {"action": ("save",), "publish": True},
+        {"action": ("publish",)},
+    ],
 }
 
 
@@ -221,6 +228,11 @@ _PREVIEW_HINTS: Dict[str, str] = {
     "update_remote_from_local": (
         "Preview first with diff_local_component(path=...): it shows the exact line "
         "diff, whether the remote drifted, and who last edited it — then retry."
+    ),
+    "manage_flow_designer": (
+        "Preview first with action='get_detail' (what will be recompiled) and check "
+        "the current application/update set — then retry publish with "
+        "confirm='approve' AND confirm_publish='approve'."
     ),
 }
 
@@ -362,23 +374,31 @@ def _is_read_only(tool_name: str, arguments: Dict[str, Any]) -> bool:
     return True
 
 
+def _matches_publish_cond(cond: Dict[str, Any], arguments: Dict[str, Any]) -> bool:
+    """True when every (key, expected) in *cond* matches *arguments* (AND).
+    A tuple expected value matches membership; a scalar matches equality."""
+    for key, expected in cond.items():
+        actual = arguments.get(key)
+        if isinstance(expected, tuple):
+            if actual not in expected:
+                return False
+        elif actual != expected:
+            return False
+    return True
+
+
 def _is_publish_class(tool_name: str, arguments: Dict[str, Any]) -> bool:
     cond = _PUBLISH_CLASS_TOOLS.get(tool_name, "__nope__")
     if cond == "__nope__":
         return False
     if cond is None:
         return True
-    if not isinstance(cond, dict):
-        return False
-    for key, expected in cond.items():
-        actual = arguments.get(key)
-        if isinstance(expected, tuple):
-            if actual not in expected:
-                return False
-        else:
-            if actual != expected:
-                return False
-    return True
+    # A list of match-dicts is OR: publish-class if ANY matches.
+    if isinstance(cond, list):
+        return any(_matches_publish_cond(c, arguments) for c in cond)
+    if isinstance(cond, dict):
+        return _matches_publish_cond(cond, arguments)
+    return False
 
 
 def _current_username(server: Any) -> Optional[str]:
