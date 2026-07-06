@@ -61,15 +61,10 @@ def _publish_auth(read_status, upsert_status, snapshot_resp=None):
         if method == "GET" and url.endswith("/api/now/processflow/flow/f1"):
             # editor re-read: the snapshot body source
             return _ok({"result": {"data": {"id": "f1", "name": "Test Flow"}}})
-        if url.endswith("/api/now/ui/concoursepicker/current"):
-            return _ok(
-                {
-                    "result": {
-                        "currentUpdateSet": {"name": "My Update Set", "sysId": "us1"},
-                        "currentApplication": {"name": "My App", "sysId": "scope1"},
-                    }
-                }
-            )
+        if url.endswith("/api/now/ui/concoursepicker/application"):
+            return _ok({"result": {"current": {"sysId": "scope1", "name": "My App"}}})
+        if url.endswith("/api/now/ui/concoursepicker/updateset"):
+            return _ok({"result": {"current": {"sysId": "us1", "name": "My Update Set"}}})
         if "/snapshot" in url:
             if isinstance(snapshot_resp, Exception):
                 raise snapshot_resp
@@ -95,28 +90,28 @@ def _writes(calls):
     return out
 
 
-def test_publish_without_confirm_returns_plan_and_writes_nothing():
-    # The confirm gate: no confirm=true → a read-only preview (plan + where the
-    # change would be recorded) and ZERO writes — no lock upsert, no snapshot.
+def test_publish_executes_when_called_approval_is_a_guard_concern():
+    # The tool no longer carries its own confirm gate — approval is enforced
+    # deterministically by the server confirm + G7 guards BEFORE the tool body
+    # runs (see test_write_guards). So reaching manage_flow_edit(action='publish')
+    # means it executes: lock acquired + snapshot posted.
     auth, calls = _publish_auth(
         _safe_edit_status(canUserEdit=False, currentEditor=None),
         _safe_edit_status(canUserEdit=True, currentEditor=None),
     )
     with patch("servicenow_mcp.tools.flow_edit_tools._table_lookup", return_value=_FLOW_ROW):
         r = manage_flow_edit(_cfg(), auth, ManageFlowEditParams(action="publish", flow_id="f1"))
-    assert r["success"] is False
-    assert r["confirmation_required"] is True and r["experimental"] is True
-    assert r["plan"]["flow_id"] == "f1"
+    assert r["success"] is True and r["published"] is True
+    # session_context records WHERE it landed (post-publish visibility).
     ctx = r["session_context"]
     assert ctx["current_update_set"] == "My Update Set"
-    assert ctx["current_editor"] is None
     assert "scope_mismatch_warning" not in ctx  # app scope matches the flow's
-    assert _writes(calls) == []
+    assert any("/snapshot" in u for _, u, _ in calls)
 
 
-def test_publish_preview_flags_update_set_scope_mismatch():
-    # The 'recorded in the wrong update set' fear: preview must warn when the
-    # session's current application is NOT the flow's scope.
+def test_publish_response_flags_update_set_scope_mismatch():
+    # The 'recorded in the wrong update set' fear: the response must warn when
+    # the session's current application is NOT the flow's scope.
     auth, calls = _publish_auth(
         _safe_edit_status(canUserEdit=False, currentEditor=None),
         _safe_edit_status(canUserEdit=True, currentEditor=None),
@@ -124,32 +119,33 @@ def test_publish_preview_flags_update_set_scope_mismatch():
     other_scope_row = [dict(_FLOW_ROW[0], sys_scope="other_scope")]
     with patch("servicenow_mcp.tools.flow_edit_tools._table_lookup", return_value=other_scope_row):
         r = manage_flow_edit(_cfg(), auth, ManageFlowEditParams(action="publish", flow_id="f1"))
-    assert r["confirmation_required"] is True
+    assert r["published"] is True
     assert "scope_mismatch_warning" in r["session_context"]
-    assert _writes(calls) == []
 
 
-def test_publish_confirmed_acquires_safe_edit_lock_then_snapshots():
-    # Verified order (confirm=true): safeEdit read → safeEdit upsert(canUserEdit)
-    # → flow re-read → POST /snapshot with the flow model as body →
-    # create_version 'Activate/Publish'. Pin the sequence, scope param, and body.
+def test_publish_acquires_safe_edit_lock_then_snapshots():
+    # Verified order: safeEdit read → safeEdit upsert(canUserEdit) → flow re-read
+    # → POST /snapshot with the flow model as body → create_version
+    # 'Activate/Publish'. Pin the sequence, scope param, and body.
     auth, calls = _publish_auth(
         _safe_edit_status(canUserEdit=False, currentEditor=None),
         _safe_edit_status(canUserEdit=True, currentEditor=None, clientFlowStale=None),
     )
     with patch("servicenow_mcp.tools.flow_edit_tools._table_lookup", return_value=_FLOW_ROW):
-        r = manage_flow_edit(
-            _cfg(), auth, ManageFlowEditParams(action="publish", flow_id="f1", confirm=True)
-        )
+        r = manage_flow_edit(_cfg(), auth, ManageFlowEditParams(action="publish", flow_id="f1"))
     assert r["success"] is True and r["published"] is True
     urls = [u for _, u, _ in calls]
     snap = next(i for i, u in enumerate(urls) if "/snapshot" in u)
     gql = [i for i, u in enumerate(urls) if u.endswith("/api/now/graphql")]
-    assert len(gql) == 2 and max(gql) < snap  # lock fully acquired BEFORE snapshot
+    # The lock is fully acquired (read + upsert) BEFORE the snapshot. The
+    # post-publish session_context does one more safeEdit READ, so ignore any
+    # GraphQL call after the snapshot.
+    gql_before = [i for i in gql if i < snap]
+    assert len(gql_before) == 2
     assert calls[snap][2]["params"] == {"sysparm_transaction_scope": "scope1"}
     # the snapshot body IS the flow model — a bodyless snapshot 500s
     assert calls[snap][2]["json"]["id"] == "f1"
-    upsert_q = calls[gql[1]][2]["json"]["query"]
+    upsert_q = calls[gql_before[1]][2]["json"]["query"]
     assert '"f1"' in upsert_q and '"2026-06-30 10:18:44"' in upsert_q
     assert any("create_version" in u for u in urls[snap + 1 :])
 
@@ -166,7 +162,7 @@ def test_publish_blocked_when_someone_else_is_editing_no_takeover():
             r = manage_flow_edit(
                 _cfg(),
                 auth,
-                ManageFlowEditParams(action="publish", flow_id="f1", confirm=True, **extra),
+                ManageFlowEditParams(action="publish", flow_id="f1", **extra),
             )
         assert r["success"] is False and r["current_editor"] == "other.user"
         assert _writes(calls) == []
@@ -180,9 +176,7 @@ def test_publish_aborts_when_lock_reports_stale_flow():
         _safe_edit_status(canUserEdit=True, currentEditor=None, clientFlowStale=True),
     )
     with patch("servicenow_mcp.tools.flow_edit_tools._table_lookup", return_value=_FLOW_ROW):
-        r = manage_flow_edit(
-            _cfg(), auth, ManageFlowEditParams(action="publish", flow_id="f1", confirm=True)
-        )
+        r = manage_flow_edit(_cfg(), auth, ManageFlowEditParams(action="publish", flow_id="f1"))
     assert r["success"] is False and r["manual_publish_required"] is True
     assert not any("/snapshot" in u for _, u, _ in calls)
 
@@ -196,9 +190,7 @@ def test_publish_falls_back_to_ui_guidance_on_snapshot_failure():
         snapshot_resp=RuntimeError("HTTP Error 500: Server Error"),
     )
     with patch("servicenow_mcp.tools.flow_edit_tools._table_lookup", return_value=_FLOW_ROW):
-        r = manage_flow_edit(
-            _cfg(), auth, ManageFlowEditParams(action="publish", flow_id="f1", confirm=True)
-        )
+        r = manage_flow_edit(_cfg(), auth, ManageFlowEditParams(action="publish", flow_id="f1"))
     assert r["success"] is False
     assert r["manual_publish_required"] is True
     assert r["ui_url"].endswith("/now/wsd/flow-designer/f1")
@@ -212,9 +204,7 @@ def test_publish_falls_back_when_lock_not_granted():
         _safe_edit_status(canUserEdit=False, currentEditor=None),
     )
     with patch("servicenow_mcp.tools.flow_edit_tools._table_lookup", return_value=_FLOW_ROW):
-        r = manage_flow_edit(
-            _cfg(), auth, ManageFlowEditParams(action="publish", flow_id="f1", confirm=True)
-        )
+        r = manage_flow_edit(_cfg(), auth, ManageFlowEditParams(action="publish", flow_id="f1"))
     assert r["success"] is False and r["manual_publish_required"] is True
     assert not any("/snapshot" in u for _, u, _ in calls)
 

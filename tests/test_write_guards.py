@@ -94,6 +94,11 @@ def test_is_read_only(tool: str, args: Dict[str, Any], expected_read_only: bool)
         ("manage_flow_designer", {"action": "save", "publish": True}, True),
         ("manage_flow_designer", {"action": "save", "publish": False}, False),
         ("manage_flow_designer", {"action": "save"}, False),
+        # Direct action='publish' (snapshot recompile) is also publish-class —
+        # the OR-list matcher covers it so it demands confirm_publish='approve'.
+        ("manage_flow_designer", {"action": "publish"}, True),
+        ("manage_flow_designer", {"action": "activate"}, False),
+        ("manage_flow_designer", {"action": "deactivate"}, False),
         ("sn_query", {}, False),
         ("sn_write", {}, False),
     ],
