@@ -91,6 +91,47 @@ def _create_version(
 
 _PF_API_BASE = "/api/now/processflow"
 _PF_ACTION_BASE = f"{_PF_API_BASE}/action/action_types"
+_GRAPHQL_ENDPOINT = "/api/now/graphql"
+
+# The SPA holds a "safe edit" lock (GraphQL snFlowDesigner.safeEdit) for the
+# whole editing session; /snapshot only compiles against the working copy that
+# lock creates. Captured 1:1 on 2026-06-30: read → upsert(canUserEdit:true) →
+# POST /snapshot 200. lastUpdated is the flow's UTC sys_updated_on.
+_SAFE_EDIT_READ_Q = """{
+  global { snFlowDesigner {
+    safeEdit(safeEditInput: {read: "%s"}) {
+      status { canUserEdit currentEditor }
+    }
+  } }
+}"""
+_SAFE_EDIT_UPSERT_Q = """mutation {
+  global { snFlowDesigner {
+    safeEdit(safeEditInput: {upsert: {flowId: "%s", lastUpdated: "%s"}}) {
+      status { canUserEdit currentEditor clientFlowStale }
+    }
+  } }
+}"""
+
+
+def _safe_edit(auth_manager: AuthManager, config: ServerConfig, query: str) -> Dict[str, Any]:
+    """Run one safeEdit GraphQL op and return its status dict. Raises on
+    transport error; returns {} when the response shape is unexpected."""
+    resp = auth_manager.make_request(
+        "POST",
+        f"{config.instance_url}{_GRAPHQL_ENDPOINT}",
+        headers=_pf_write_headers(config),
+        json={"query": query, "variables": {}},
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if not isinstance(body, dict):
+        return {}
+    node = body.get("data") or {}
+    for key in ("global", "snFlowDesigner", "safeEdit", "status"):
+        node = node.get(key) if isinstance(node, dict) else None
+        if node is None:
+            return {}
+    return node if isinstance(node, dict) else {}
 
 
 def _pf_get_json(auth_manager: AuthManager, url: str) -> Dict[str, Any]:
@@ -189,28 +230,187 @@ def _copy_flow(
     }
 
 
-def _manual_publish_response(config: ServerConfig, flow_id: str) -> Dict[str, Any]:
-    """Publish (snapshot recompile) is NOT programmatically reachable. Proven
-    exhaustively (see FLOW_TOOL_NETWORK_BASELINE.md): the recompile is gated
-    behind the interactive Workflow Studio editor — every API path (curl_cffi
-    POST /snapshot, with/without edit-flow GET priming, and even a
-    cookie-injected headless browser fetch) fast-fails 500 in ~20-280ms because
-    the server-side 'working copy' is only created when a human enters edit mode
-    in the SPA. So publish is the one manual step: open the flow and click
-    Activate / Publish. Everything else (read/edit/save/copy/activate-toggle) is
-    automated."""
-    return {
+def _manual_publish_response(
+    config: ServerConfig, flow_id: str, attempt: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Fallback when the API publish path fails: point at the UI button.
+    `attempt` carries what the automated path saw (safeEdit status, snapshot
+    response body) so the failure reason is visible instead of a bare 400/500."""
+    out = {
         "success": False,
         "published": False,
         "manual_publish_required": True,
         "ui_url": f"{config.instance_url}/now/wsd/flow-designer/{flow_id}",
         "message": (
-            "Snapshot recompile (publish) is gated behind the interactive Flow "
-            "Designer editor and cannot be done via API. Open the flow in "
-            "Workflow Studio and click Activate/Publish. (Design-time changes are "
-            "already saved; this only recompiles the runtime snapshot.)"
+            "API publish (safeEdit lock + snapshot recompile) failed — open the "
+            "flow in Workflow Studio and click Activate/Publish. (Design-time "
+            "changes are already saved; this only recompiles the runtime snapshot.)"
         ),
     }
+    if attempt:
+        out["publish_attempt"] = attempt
+    return out
+
+
+def _publish_session_context(
+    config: ServerConfig, auth_manager: AuthManager, flow_id: str, scope: str
+) -> Dict[str, Any]:
+    """Read-only picture of what a publish would touch: who holds the edit
+    lock, and which application/update set THIS session records changes into
+    (the #1 'recorded in the wrong update set' fear). Every lookup is
+    best-effort — a failed read becomes an explicit 'unknown', never a guess."""
+    ctx: Dict[str, Any] = {"current_editor": "unknown", "current_update_set": "unknown"}
+    try:
+        status = _safe_edit(auth_manager, config, _SAFE_EDIT_READ_Q % flow_id)
+        ctx["current_editor"] = status.get("currentEditor")
+    except Exception as e:  # noqa: BLE001
+        ctx["current_editor_error"] = str(e)
+    try:
+        resp = auth_manager.make_request(
+            "GET",
+            f"{config.instance_url}/api/now/ui/concoursepicker/current",
+            headers=_PF_HEADERS,
+        )
+        resp.raise_for_status()
+        cur = resp.json().get("result", {})
+        upd = cur.get("currentUpdateSet") or {}
+        app = cur.get("currentApplication") or {}
+        ctx["current_update_set"] = upd.get("name")
+        ctx["current_application"] = {"name": app.get("name"), "scope_sys_id": app.get("sysId")}
+        if app.get("sysId") and app.get("sysId") != scope:
+            ctx["scope_mismatch_warning"] = (
+                "The session's current application differs from this flow's scope — "
+                "the publish may be recorded under an unexpected application/update set. "
+                "Switch the application in the UI picker first."
+            )
+    except Exception as e:  # noqa: BLE001
+        ctx["update_set_error"] = str(e)
+    return ctx
+
+
+def _publish_confirmation_required(
+    config: ServerConfig, auth_manager: AuthManager, flow_id: str, scope: str
+) -> Dict[str, Any]:
+    """confirm=false response: a read-only preview of the publish, never a
+    write. The LLM must show this to the human and only re-call with
+    confirm=true after an explicit yes."""
+    return {
+        "success": False,
+        "published": False,
+        "confirmation_required": True,
+        "experimental": True,
+        "plan": {
+            "what": "Acquire the Flow Designer edit lock (safeEdit), then recompile the "
+            "runtime snapshot (POST /flow/{id}/snapshot) — same as the UI Publish button.",
+            "flow_id": flow_id,
+            "transaction_scope": scope,
+        },
+        "session_context": _publish_session_context(config, auth_manager, flow_id, scope),
+        "message": (
+            "API publish is EXPERIMENTAL and recompiles the runtime flow. Show the user "
+            "this plan and session_context (especially current_update_set / any "
+            "scope_mismatch_warning) and ask for approval. Re-run with confirm=true ONLY "
+            "after the user explicitly approves. Alternative: publish manually in the UI at "
+            f"{config.instance_url}/now/wsd/flow-designer/{flow_id}"
+        ),
+    }
+
+
+def _snapshot_publish(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    flow_id: str,
+    scope: str,
+    confirm: bool = False,
+) -> Dict[str, Any]:
+    """Publish (snapshot recompile) the way the UI does — captured 2026-06-30,
+    live-verified over curl_cffi 2026-07-06: acquire the safeEdit GraphQL lock,
+    then POST /flow/{id}/snapshot with the FULL flow model as the body. The UI
+    gzips that body (content-encoding: gzip), which made it look empty in
+    captures — the bare-body 500s that stalled every earlier attempt were the
+    server failing to find a flow in the payload ({} → "Flow id cannot be null
+    or empty").
+
+    EXPERIMENTAL + deliberately paranoid: without confirm=true nothing is
+    written (a read-only preview comes back for the human to approve). With
+    confirm=true, ANY risk signal — someone else holds the edit lock, the
+    lock is stale, the lock is refused — aborts to manual-UI guidance. There
+    is NO force/takeover path on purpose."""
+    if not _is_browser_auth(config):
+        return {
+            "success": False,
+            "error": "Flow publish uses the session-only processflow API — browser auth required.",
+        }
+    if not confirm:
+        return _publish_confirmation_required(config, auth_manager, flow_id, scope)
+    attempt: Dict[str, Any] = {}
+
+    # 1. safeEdit lock. read = who holds it; upsert = acquire for this session.
+    try:
+        status = _safe_edit(auth_manager, config, _SAFE_EDIT_READ_Q % flow_id)
+        editor = status.get("currentEditor")
+        attempt["safe_edit_read"] = status
+        if editor:
+            return {
+                "success": False,
+                "published": False,
+                "error": f"Flow is being edited by '{editor}' — publish blocked so their "
+                "working copy is not clobbered. There is deliberately no takeover: wait "
+                "for them to close the editor (the lock lapses shortly after), or publish "
+                "manually in the UI.",
+                "current_editor": editor,
+            }
+        last_updated = _fetch_flow_baseline(config, auth_manager, flow_id).get("sys_updated_on")
+        if not last_updated:
+            return _manual_publish_response(
+                config, flow_id, {"error": "could not read sys_updated_on for safeEdit upsert"}
+            )
+        status = _safe_edit(auth_manager, config, _SAFE_EDIT_UPSERT_Q % (flow_id, last_updated))
+        attempt["safe_edit_upsert"] = status
+        if not status.get("canUserEdit") or status.get("clientFlowStale"):
+            # Lock refused, or the server says our view of the flow is stale —
+            # either way: do NOT compile, hand it to the human.
+            return _manual_publish_response(config, flow_id, attempt)
+    except Exception as e:  # noqa: BLE001
+        attempt["safe_edit_error"] = str(e)
+        return _manual_publish_response(config, flow_id, attempt)
+
+    # 2. Snapshot recompile. The body must be the server's CURRENT flow model —
+    #    re-read it fresh so a preceding save is included.
+    try:
+        flow_payload = _pf_get_json(auth_manager, f"{config.instance_url}{_PF_BASE}/{flow_id}")
+    except Exception as e:  # noqa: BLE001
+        attempt["snapshot_error"] = f"re-read of flow model for snapshot body failed: {e}"
+        return _manual_publish_response(config, flow_id, attempt)
+    if not flow_payload.get("id"):
+        attempt["snapshot_error"] = "flow model re-read returned no id — cannot build snapshot body"
+        return _manual_publish_response(config, flow_id, attempt)
+    resp = None
+    try:
+        resp = auth_manager.make_request(
+            "POST",
+            f"{config.instance_url}{_PF_BASE}/{flow_id}/snapshot",
+            params={"sysparm_transaction_scope": scope},
+            headers=_pf_write_headers(config),
+            json=flow_payload,
+        )
+        resp.raise_for_status()
+        outer = resp.json().get("result", {})
+        err = outer.get("errorMessage") if isinstance(outer, dict) else None
+        if err:
+            attempt["snapshot_error"] = err
+            return _manual_publish_response(config, flow_id, attempt)
+    except Exception as e:  # noqa: BLE001
+        attempt["snapshot_error"] = str(e)
+        if resp is not None:
+            try:
+                attempt["snapshot_response_body"] = resp.text[:2000]
+            except Exception:  # noqa: BLE001
+                pass
+        return _manual_publish_response(config, flow_id, attempt)
+
+    _create_version(auth_manager, config, flow_id, scope, "Activate/Publish")
+    return {"success": True, "action": "publish", "published": True}
 
 
 def _toggle_active(
@@ -845,6 +1045,10 @@ class ManageFlowEditParams(BaseModel):
         default=False,
         description="Publish (recompile snapshot) after save. Required for the edit to appear in get_detail / take effect; publish != active.",
     )
+    confirm: bool = Field(
+        default=False,
+        description="Publish gate: true ONLY after the user approved the returned publish plan.",
+    )
     verify: bool = Field(
         default=True,
         description="After save, re-read the flow and confirm the edits persisted (catches silent reverts). Safe default on.",
@@ -985,13 +1189,8 @@ def manage_flow_edit(
         new_name = params.value or f"Copy of {flow_id}"
         return _copy_flow(config, auth_manager, flow_id, new_name)
 
-    if action == "publish":
-        # Recompile is editor-gated, not API-reachable — return UI guidance.
-        return _manual_publish_response(config, flow_id)
-
-    if action in ("activate", "deactivate"):
-        # Toggle an ALREADY-published flow (GET /activate|/deactivate). Resolve
-        # the flow's app scope for the transaction-scope param.
+    if action in ("publish", "activate", "deactivate"):
+        # All three need the flow's app scope for the transaction-scope param.
         rows = _table_lookup(
             config, auth_manager, _FLOW_DEF_TABLE, f"sys_id={flow_id}", fields="sys_id,sys_scope"
         )
@@ -999,6 +1198,8 @@ def manage_flow_edit(
         scope = raw_scope.get("value") if isinstance(raw_scope, dict) else raw_scope
         if not scope:
             return {"success": False, "error": f"Could not resolve scope for flow {flow_id}."}
+        if action == "publish":
+            return _snapshot_publish(config, auth_manager, flow_id, scope, confirm=params.confirm)
         return _toggle_active(config, auth_manager, flow_id, scope, activate=(action == "activate"))
 
     if action == "status":
@@ -1131,16 +1332,25 @@ def manage_flow_edit(
         _checkout_path(config, flow_id).unlink(missing_ok=True)
 
         if params.publish:
-            # Design-time saved; the recompile (publish) is editor-gated and not
-            # API-reachable — tell the caller to click Activate/Publish in the UI.
-            resp = _manual_publish_response(config, flow_id)
+            # Recompile via safeEdit lock + /snapshot (the UI's real sequence).
+            # The lock upsert needs the flow's CURRENT sys_updated_on — the PUT
+            # above just changed it, so _snapshot_publish re-reads it itself.
+            # Gated on confirm: without it the save STILL happened, but the
+            # recompile comes back as a plan for the user to approve.
+            resp = _snapshot_publish(config, auth_manager, flow_id, scope, confirm=params.confirm)
             resp["saved"] = True
             if verification is not None:
                 resp["verified"] = True
-            resp["warning"] = (
-                "Saved to DESIGN-TIME. Publish (recompile) must be done in the UI — "
-                "open the flow and click Activate/Publish."
-            )
+            if resp.get("confirmation_required"):
+                resp["warning"] = (
+                    "Saved to DESIGN-TIME. Publish needs user approval — show the plan, "
+                    "then re-run action='publish' with confirm=true if approved."
+                )
+            elif not resp.get("published"):
+                resp["warning"] = (
+                    "Saved to DESIGN-TIME but publish (snapshot recompile) FAILED — "
+                    "the edit will not take effect until published."
+                )
             return resp
 
         base: Dict[str, Any] = {"success": True, "saved": True, "published": False}
@@ -1335,8 +1545,8 @@ def manage_flow_edit(
             **(result or {}),
             "note": (
                 "New sibling branch staged in checkout (cloned from template, ids remapped). "
-                "Adjust its child action inputs with set_action_input if needed, then run save. "
-                "Publish (snapshot recompile) is UI-gated — click Activate/Publish in Flow Designer."
+                "Adjust its child action inputs with set_action_input if needed, then run save "
+                "with publish=true (or action='publish') so the snapshot recompiles."
             ),
         }
 
