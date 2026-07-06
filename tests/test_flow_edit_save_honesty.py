@@ -55,14 +55,15 @@ def test_save_without_publish_warns_design_time_only():
     assert "publish=true" in result["warning"]
 
 
-def test_save_with_publish_saves_and_redirects_to_ui():
-    # save(publish=true) persists design-time, then reports that publish itself
-    # must be done in the UI (recompile is editor-gated, not API-reachable).
+def test_save_with_publish_saves_then_requires_confirmation():
+    # save(publish=true) persists design-time, but the recompile is gated on
+    # explicit user approval: without confirm=true it returns the publish plan
+    # (confirmation_required) instead of silently recompiling the runtime.
     result = _save(True, MagicMock(return_value=_ok_response()))
     assert result["saved"] is True
     assert result["published"] is False
-    assert result["manual_publish_required"] is True
-    assert result["ui_url"].endswith("/now/wsd/flow-designer/f1")
+    assert result["confirmation_required"] is True
+    assert "warning" in result and "user approval" in result["warning"]
 
 
 def test_save_put_uses_scope_param_no_snapshot():
