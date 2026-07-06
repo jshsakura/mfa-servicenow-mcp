@@ -1186,6 +1186,35 @@ class TestLoginWithBrowserSync:
             elapsed_ms=5_000, use_headless=False, on_auth_flow_page=True, **common
         )
 
+    def test_visible_window_mid_auth_covers_external_sso_idp(self):
+        """#67-3 invariant: the past-budget extension covers a visible window on
+        an EXTERNAL SSO IdP host (Okta/Azure), not just ServiceNow *.do login
+        URLs — else IdP-MFA windows are ripped away at budget on federated
+        instances. A foreign host counts as mid-auth; the instance host and an
+        empty host do not."""
+        from servicenow_mcp.auth.auth_manager import _visible_window_mid_auth
+
+        inst = "acme.service-now.com"
+        # ServiceNow login URL always counts (regardless of host).
+        assert _visible_window_mid_auth(on_login_url=True, current_host=inst, instance_host=inst)
+        # External IdP host, no ServiceNow login URL → still mid-auth.
+        assert _visible_window_mid_auth(
+            on_login_url=False, current_host="login.microsoftonline.com", instance_host=inst
+        )
+        assert _visible_window_mid_auth(
+            on_login_url=False, current_host="acme.okta.com", instance_host=inst
+        )
+        # Back on the instance host, not a login URL → authenticated, no extend.
+        assert not _visible_window_mid_auth(
+            on_login_url=False, current_host=inst, instance_host=inst
+        )
+        # Empty/unknown host (about:blank) must NOT hold the loop open.
+        assert not _visible_window_mid_auth(on_login_url=False, current_host="", instance_host=inst)
+        # Case-insensitive host comparison.
+        assert not _visible_window_mid_auth(
+            on_login_url=False, current_host=inst.upper(), instance_host=inst
+        )
+
     def test_visible_mfa_entry_extends_past_budget_then_confirms(self):
         """v1.18.45 invariant: a visible window on the MFA challenge page is
         NOT closed when wait_budget_ms expires — the user is typing a TOTP
