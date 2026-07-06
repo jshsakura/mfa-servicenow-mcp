@@ -16,6 +16,20 @@ ACTIVE_INSTANCE_ENV = "SERVICENOW_ACTIVE_INSTANCE"
 _ENV_REF_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
+_PLACEHOLDER_MARKERS = ("replace_with", "your_username", "your_password", "changeme")
+
+
+def looks_like_unfilled_placeholder(value: Any) -> bool:
+    """True when *value* is an un-substituted config-template placeholder
+    (e.g. ``REPLACE_WITH_PROD_USERNAME``). Such a value is never a real
+    credential — callers fail fast instead of logging in / creating a browser
+    profile named after the placeholder."""
+    if not isinstance(value, str):
+        return False
+    lowered = value.strip().lower()
+    return any(marker in lowered for marker in _PLACEHOLDER_MARKERS)
+
+
 def has_env_reference(value: Any) -> bool:
     """True when *value* textually contains a ``${`` env-reference marker.
 

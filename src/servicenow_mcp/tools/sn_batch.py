@@ -110,6 +110,14 @@ def batch_get(
                 body = json_fast.loads(base64.b64decode(raw))
             except (ValueError, TypeError) as exc:
                 logger.warning("batch_get: sub-request %s body unparsable: %s", rid, exc)
+                # Decode the raw body (usually an HTML error page) and log a
+                # snippet at DEBUG so the cause (login bounce, 5xx, WAF block)
+                # is identifiable from the log alone, without leaking it at WARN.
+                try:
+                    decoded = base64.b64decode(raw).decode("utf-8", "replace")
+                    logger.debug("batch_get: sub-request %s raw body[:200]=%r", rid, decoded[:200])
+                except Exception:  # noqa: BLE001 — diagnostics must never raise
+                    pass
         headers = {
             str(h.get("name") or "").lower(): str(h.get("value") or "")
             for h in (item.get("headers") or [])

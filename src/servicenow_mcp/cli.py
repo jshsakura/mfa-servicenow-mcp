@@ -88,6 +88,22 @@ def _instance_host_slug() -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", host)
 
 
+def _is_broken_pipe_group(exc: BaseException) -> bool:
+    """True when *exc* is (or an ExceptionGroup entirely composed of) a broken
+    pipe / connection reset — the client dropping stdio, i.e. a clean shutdown.
+
+    anyio raises an ExceptionGroup when a task group unwinds; a pipe close on
+    the transport surfaces there. We only treat it as clean when EVERY leaf is a
+    pipe error — a real crash mixed in must still be reported.
+    """
+    if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
+        return True
+    inner = getattr(exc, "exceptions", None)
+    if inner:
+        return all(_is_broken_pipe_group(e) for e in inner)
+    return False
+
+
 def configure_logging(force: bool = False) -> None:
     """Configure root logging (stderr + optional rotating LOG_FILE).
 
@@ -137,7 +153,12 @@ def configure_logging(force: bool = False) -> None:
     # basicConfig would silently drop our RotatingFileHandler (the
     # v1.12.8/v1.12.9 symptom). Reset and re-attach explicitly so we don't
     # depend on import-order luck.
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    # Include the PID: multiple MCP processes (multi-session, several instances)
+    # can share one log file, and without a per-line PID their interleaved lines
+    # are impossible to separate. Cheap, one field.
+    formatter = logging.Formatter(
+        "%(asctime)s - pid=%(process)d - %(name)s - %(levelname)s - %(message)s"
+    )
     root_logger.setLevel(logging.INFO)
     for existing_handler in list(root_logger.handlers):
         root_logger.removeHandler(existing_handler)
@@ -909,7 +930,20 @@ def main():
         logger.error(f"Configuration or runtime error: {e}")
         sys.exit(1)
 
+    except (BrokenPipeError, ConnectionResetError) as e:
+        # The client (e.g. a closing Claude session) dropped the stdio pipe
+        # first — normal shutdown, not a server fault. In multi-session use this
+        # fires on every session close; logging it as ERROR + traceback is noise.
+        logger.info("Client disconnected (%s) — shutting down.", type(e).__name__)
+        sys.exit(0)
+
     except Exception as e:
+        # anyio wraps concurrent task failures in an ExceptionGroup; a pipe close
+        # can surface there too. Treat an all-broken-pipe group as a clean
+        # client disconnect rather than an unexpected crash.
+        if _is_broken_pipe_group(e):
+            logger.info("Client disconnected (pipe closed) — shutting down.")
+            sys.exit(0)
         logger.exception(f"Unexpected error starting or running server: {e}")
         sys.exit(1)
 

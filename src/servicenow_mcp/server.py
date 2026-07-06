@@ -36,6 +36,7 @@ from servicenow_mcp.utils.instances import (
     coerce_bool,
     has_env_reference,
     load_instance_config_env,
+    looks_like_unfilled_placeholder,
     resolve_auth_type,
     resolve_env_reference,
     safe_instance_url,
@@ -129,6 +130,22 @@ def _entry_cred(entry: Dict[str, Any], key: str, fallback: Any, *, required: boo
         return raw
     resolved = resolve_env_reference(raw)
     if resolved is not None and not has_env_reference(resolved):
+        # An un-substituted template placeholder (e.g. REPLACE_WITH_PROD_USERNAME)
+        # is never a real value: fail fast instead of logging in / creating a
+        # browser profile named after the placeholder (observed 2026-07-02).
+        if looks_like_unfilled_placeholder(resolved):
+            if not required:
+                logger.warning(
+                    "Instance config %s=%r is an un-substituted template placeholder; "
+                    "ignoring this optional field.",
+                    key,
+                    raw,
+                )
+                return None
+            raise ValueError(
+                f"Instance config {key}='{raw}' is an un-substituted template placeholder. "
+                "Replace it with the real value (or set the referenced environment variable)."
+            )
         return resolved
     if not required:
         logger.warning(
