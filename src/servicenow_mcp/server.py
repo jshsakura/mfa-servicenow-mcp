@@ -557,7 +557,6 @@ class ServiceNowMCP:
         else:
             self.config = config
 
-        self.auth_manager = AuthManager(self.config.auth, self.config.instance_url)
         self.mcp_server: Server = FastMCP("ServiceNow")  # Use low-level Server
         self.name = "ServiceNow"
         self.instance_entries = load_instance_config_env(os.getenv(INSTANCE_CONFIG_ENV))
@@ -565,6 +564,15 @@ class ServiceNowMCP:
             self.instance_entries,
             active_alias=os.getenv(ACTIVE_INSTANCE_ENV),
             legacy_instance_url=os.getenv("SERVICENOW_INSTANCE_URL"),
+        )
+        # Key the base (active-instance) auth manager by its profile alias so it
+        # shares ONE session file with that alias's instance-context manager and
+        # is isolated from other profiles — even when profiles share a host or
+        # account (issue #64). None for legacy single-instance (host-keyed).
+        self.auth_manager = AuthManager(
+            self.config.auth,
+            self.config.instance_url,
+            profile_label=self.active_instance_alias,
         )
         self.instance_contexts: Dict[str, Dict[str, Any]] = self._build_instance_contexts()
         self.active_instance_meta = self._active_instance_meta()
@@ -673,7 +681,9 @@ class ServiceNowMCP:
                     "alias": alias,
                     "definition": definition,
                     "config": config,
-                    "auth_manager": AuthManager(config.auth, config.instance_url),
+                    "auth_manager": AuthManager(
+                        config.auth, config.instance_url, profile_label=alias
+                    ),
                 }
             except Exception as exc:  # noqa: BLE001 — isolate per-entry failures
                 # Broad on purpose (one broken peer must never kill startup), but
