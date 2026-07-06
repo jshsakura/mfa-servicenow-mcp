@@ -720,3 +720,42 @@ def test_broken_active_instance_fails_closed(monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="read-only"):
         asyncio.run(server._call_tool_impl("update_foo", {"confirm": "approve"}))
     assert seen == {}
+
+
+def test_flow_publish_reachable_end_to_end_via_guards(monkeypatch, tmp_path):
+    # Pins issue #66: manage_flow_designer(action='publish') was UNREACHABLE —
+    # the tool-local confirm collided with the stripped server confirm field, so
+    # it looped on 'confirmation_required' forever. Now approval is deterministic:
+    # server confirm='approve' + G7 confirm_publish='approve' → the tool runs.
+    server = _build_multi_server(monkeypatch, tmp_path)
+    seen = _register_recorder(server, "manage_flow_designer")
+
+    # With BOTH approvals the publish call reaches the tool body.
+    asyncio.run(
+        server._call_tool_impl(
+            "manage_flow_designer",
+            {
+                "action": "publish",
+                "flow_id": "f1",
+                "confirm": "approve",
+                "confirm_publish": "approve",
+            },
+        )
+    )
+    assert seen.get("instance_url") == "https://dev.service-now.com"
+
+
+def test_flow_publish_blocked_without_confirm_publish(monkeypatch, tmp_path):
+    # G7 covers action='publish': confirm alone is not enough, the publish-class
+    # extra gate must fire so publish can't run on a bare confirm='approve'.
+    server = _build_multi_server(monkeypatch, tmp_path)
+    seen = _register_recorder(server, "manage_flow_designer")
+
+    with pytest.raises(ValueError, match="G7"):
+        asyncio.run(
+            server._call_tool_impl(
+                "manage_flow_designer",
+                {"action": "publish", "flow_id": "f1", "confirm": "approve"},
+            )
+        )
+    assert seen == {}

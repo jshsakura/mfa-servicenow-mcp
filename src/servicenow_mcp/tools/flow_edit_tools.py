@@ -265,19 +265,23 @@ def _publish_session_context(
         ctx["current_editor"] = status.get("currentEditor")
     except Exception as e:  # noqa: BLE001
         ctx["current_editor_error"] = str(e)
+    # Read the current application + update set via the session_context helpers,
+    # which attach the Referer/Origin headers /api/now/ui enforces (without them
+    # the GET reads an empty selection on hardened instances) and parse the
+    # shape-tolerant concoursepicker body (bare-string current, nested flags).
     try:
-        resp = auth_manager.make_request(
-            "GET",
-            f"{config.instance_url}/api/now/ui/concoursepicker/current",
-            headers=_PF_HEADERS,
+        from servicenow_mcp.tools.session_context_tools import (
+            _APP_ENDPOINT,
+            _UPDATESET_ENDPOINT,
+            _get_current,
         )
-        resp.raise_for_status()
-        cur = resp.json().get("result", {})
-        upd = cur.get("currentUpdateSet") or {}
-        app = cur.get("currentApplication") or {}
-        ctx["current_update_set"] = upd.get("name")
-        ctx["current_application"] = {"name": app.get("name"), "scope_sys_id": app.get("sysId")}
-        if app.get("sysId") and app.get("sysId") != scope:
+
+        app = _get_current(config, auth_manager, _APP_ENDPOINT)
+        update_set = _get_current(config, auth_manager, _UPDATESET_ENDPOINT)
+        ctx["current_update_set"] = update_set.get("name") or None
+        app_sys_id = app.get("sys_id") or ""
+        ctx["current_application"] = {"name": app.get("name") or None, "scope_sys_id": app_sys_id}
+        if app_sys_id and app_sys_id != scope:
             ctx["scope_mismatch_warning"] = (
                 "The session's current application differs from this flow's scope — "
                 "the publish may be recorded under an unexpected application/update set. "
@@ -288,32 +292,21 @@ def _publish_session_context(
     return ctx
 
 
-def _publish_confirmation_required(
-    config: ServerConfig, auth_manager: AuthManager, flow_id: str, scope: str
-) -> Dict[str, Any]:
-    """confirm=false response: a read-only preview of the publish, never a
-    write. The LLM must show this to the human and only re-call with
-    confirm=true after an explicit yes."""
-    return {
-        "success": False,
-        "published": False,
-        "confirmation_required": True,
-        "experimental": True,
-        "plan": {
-            "what": "Acquire the Flow Designer edit lock (safeEdit), then recompile the "
-            "runtime snapshot (POST /flow/{id}/snapshot) — same as the UI Publish button.",
-            "flow_id": flow_id,
-            "transaction_scope": scope,
-        },
-        "session_context": _publish_session_context(config, auth_manager, flow_id, scope),
-        "message": (
-            "API publish is EXPERIMENTAL and recompiles the runtime flow. Show the user "
-            "this plan and session_context (especially current_update_set / any "
-            "scope_mismatch_warning) and ask for approval. Re-run with confirm=true ONLY "
-            "after the user explicitly approves. Alternative: publish manually in the UI at "
-            f"{config.instance_url}/now/wsd/flow-designer/{flow_id}"
-        ),
-    }
+def _editor_is_current_user(config: ServerConfig, auth_manager: AuthManager, editor: str) -> bool:
+    """True when the safeEdit lock is held by THIS session's own user (a stale
+    self-lock from a prior edit), so a re-publish is not blocked by our own
+    lock. Compares case-insensitively against the live user_name; on any
+    ambiguity returns False so a foreign lock is never mistaken for ours."""
+    try:
+        from servicenow_mcp.tools.sn_api import resolve_live_username
+
+        me = str(resolve_live_username(config, auth_manager) or "").strip().lower()
+    except Exception:  # noqa: BLE001
+        me = ""
+    if not me:
+        return False
+    ed = editor.strip().lower()
+    return ed == me
 
 
 def _snapshot_publish(
@@ -321,7 +314,6 @@ def _snapshot_publish(
     auth_manager: AuthManager,
     flow_id: str,
     scope: str,
-    confirm: bool = False,
 ) -> Dict[str, Any]:
     """Publish (snapshot recompile) the way the UI does — captured 2026-06-30,
     live-verified over curl_cffi 2026-07-06: acquire the safeEdit GraphQL lock,
@@ -331,18 +323,18 @@ def _snapshot_publish(
     server failing to find a flow in the payload ({} → "Flow id cannot be null
     or empty").
 
-    EXPERIMENTAL + deliberately paranoid: without confirm=true nothing is
-    written (a read-only preview comes back for the human to approve). With
-    confirm=true, ANY risk signal — someone else holds the edit lock, the
-    lock is stale, the lock is refused — aborts to manual-UI guidance. There
-    is NO force/takeover path on purpose."""
+    Approval is enforced BEFORE this runs by the deterministic write guards
+    (server confirm='approve' + G7 confirm_publish='approve') — not by an
+    LLM-supplied tool arg. Reaching this body means the human approved, so it
+    executes. Still deliberately paranoid at execution: a FOREIGN edit lock,
+    a stale lock, or a refused lock aborts to manual-UI guidance. There is NO
+    force/takeover path on purpose — but the session's OWN stale lock does not
+    block a re-publish."""
     if not _is_browser_auth(config):
         return {
             "success": False,
             "error": "Flow publish uses the session-only processflow API — browser auth required.",
         }
-    if not confirm:
-        return _publish_confirmation_required(config, auth_manager, flow_id, scope)
     attempt: Dict[str, Any] = {}
 
     # 1. safeEdit lock. read = who holds it; upsert = acquire for this session.
@@ -350,7 +342,7 @@ def _snapshot_publish(
         status = _safe_edit(auth_manager, config, _SAFE_EDIT_READ_Q % flow_id)
         editor = status.get("currentEditor")
         attempt["safe_edit_read"] = status
-        if editor:
+        if editor and not _editor_is_current_user(config, auth_manager, str(editor)):
             return {
                 "success": False,
                 "published": False,
@@ -395,7 +387,14 @@ def _snapshot_publish(
             json=flow_payload,
         )
         resp.raise_for_status()
-        outer = resp.json().get("result", {})
+        # A 2xx with an empty or non-JSON body is SUCCESS, not failure: the
+        # recompile was accepted (some instances answer 200/202 with no content).
+        # Only a parseable body carrying an explicit errorMessage aborts.
+        try:
+            payload = resp.json()
+        except Exception:  # noqa: BLE001 — empty/non-JSON 2xx body
+            payload = {}
+        outer = payload.get("result", {}) if isinstance(payload, dict) else {}
         err = outer.get("errorMessage") if isinstance(outer, dict) else None
         if err:
             attempt["snapshot_error"] = err
@@ -410,7 +409,14 @@ def _snapshot_publish(
         return _manual_publish_response(config, flow_id, attempt)
 
     _create_version(auth_manager, config, flow_id, scope, "Activate/Publish")
-    return {"success": True, "action": "publish", "published": True}
+    # Record WHERE it landed (current update set / application) so a publish
+    # captured under an unexpected update set is visible after the fact.
+    return {
+        "success": True,
+        "action": "publish",
+        "published": True,
+        "session_context": _publish_session_context(config, auth_manager, flow_id, scope),
+    }
 
 
 def _toggle_active(
@@ -1045,10 +1051,6 @@ class ManageFlowEditParams(BaseModel):
         default=False,
         description="Publish (recompile snapshot) after save. Required for the edit to appear in get_detail / take effect; publish != active.",
     )
-    confirm: bool = Field(
-        default=False,
-        description="Publish gate: true ONLY after the user approved the returned publish plan.",
-    )
     verify: bool = Field(
         default=True,
         description="After save, re-read the flow and confirm the edits persisted (catches silent reverts). Safe default on.",
@@ -1199,7 +1201,7 @@ def manage_flow_edit(
         if not scope:
             return {"success": False, "error": f"Could not resolve scope for flow {flow_id}."}
         if action == "publish":
-            return _snapshot_publish(config, auth_manager, flow_id, scope, confirm=params.confirm)
+            return _snapshot_publish(config, auth_manager, flow_id, scope)
         return _toggle_active(config, auth_manager, flow_id, scope, activate=(action == "activate"))
 
     if action == "status":
@@ -1335,18 +1337,13 @@ def manage_flow_edit(
             # Recompile via safeEdit lock + /snapshot (the UI's real sequence).
             # The lock upsert needs the flow's CURRENT sys_updated_on — the PUT
             # above just changed it, so _snapshot_publish re-reads it itself.
-            # Gated on confirm: without it the save STILL happened, but the
-            # recompile comes back as a plan for the user to approve.
-            resp = _snapshot_publish(config, auth_manager, flow_id, scope, confirm=params.confirm)
+            # Approval was already enforced deterministically by the G7 guard
+            # (this whole save+publish call demands confirm_publish='approve').
+            resp = _snapshot_publish(config, auth_manager, flow_id, scope)
             resp["saved"] = True
             if verification is not None:
                 resp["verified"] = True
-            if resp.get("confirmation_required"):
-                resp["warning"] = (
-                    "Saved to DESIGN-TIME. Publish needs user approval — show the plan, "
-                    "then re-run action='publish' with confirm=true if approved."
-                )
-            elif not resp.get("published"):
+            if not resp.get("published"):
                 resp["warning"] = (
                     "Saved to DESIGN-TIME but publish (snapshot recompile) FAILED — "
                     "the edit will not take effect until published."

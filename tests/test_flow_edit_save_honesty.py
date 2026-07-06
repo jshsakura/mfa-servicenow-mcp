@@ -55,15 +55,18 @@ def test_save_without_publish_warns_design_time_only():
     assert "publish=true" in result["warning"]
 
 
-def test_save_with_publish_saves_then_requires_confirmation():
-    # save(publish=true) persists design-time, but the recompile is gated on
-    # explicit user approval: without confirm=true it returns the publish plan
-    # (confirmation_required) instead of silently recompiling the runtime.
+def test_save_with_publish_reports_failed_recompile_honestly():
+    # save(publish=true) persists design-time AND attempts the recompile —
+    # approval is enforced deterministically by the G7 guard before the tool
+    # runs, NOT by a tool-local confirm. When the recompile can't complete
+    # (here the minimal mock yields no sys_updated_on for the safeEdit upsert),
+    # the response must stay honest: saved=True but published=False with a
+    # clear warning — never a bare success, never a dead confirmation loop.
     result = _save(True, MagicMock(return_value=_ok_response()))
     assert result["saved"] is True
     assert result["published"] is False
-    assert result["confirmation_required"] is True
-    assert "warning" in result and "user approval" in result["warning"]
+    assert "confirmation_required" not in result
+    assert "warning" in result and "FAILED" in result["warning"]
 
 
 def test_save_put_uses_scope_param_no_snapshot():
@@ -75,7 +78,9 @@ def test_save_put_uses_scope_param_no_snapshot():
         calls.append((method, url, kwargs.get("params")))
         return _ok_response()
 
-    result = _save(True, MagicMock(side_effect=_mr))
+    # publish=False isolates the SAVE step: its PUT must use the scope param and
+    # never snapshot/publish (the recompile is the separate publish step).
+    result = _save(False, MagicMock(side_effect=_mr))
     assert result["saved"] is True
     put = [c for c in calls if c[0] == "PUT"]
     assert put and put[0][2] == {"sysparm_transaction_scope": "scope_sys_id"}
