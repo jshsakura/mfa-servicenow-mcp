@@ -74,6 +74,7 @@ from ._url_predicates import (  # noqa: F401
     _is_mfa_challenge_url,
     _login_poll_should_keep_waiting,
     _looks_like_user_close,
+    _visible_window_mid_auth,
 )
 
 logger = logging.getLogger(__name__)
@@ -1236,10 +1237,15 @@ class AuthManager:
 
     def _start_keepalive(self) -> None:
         """No-op stub retained for backward-compat with tests that mock this
-        method. v1.12.4 removed the keep-alive thread entirely: REST API pings
-        don't reset the server-side idle timer on most ServiceNow instances,
-        so the thread burned resources without keeping sessions alive. Session
-        expiry now recovers via 401 detection in make_request → re-login.
+        method.
+
+        History note: v1.12.4 removed an EARLIER keep-alive thread, believing
+        REST pings didn't reset the server idle timer. 2026-07-05 field logs
+        showed the opposite — the inactivity timeout IS sliding and authenticated
+        requests DO reset it — so a session keep-alive was reintroduced in
+        v1.18.45, but as a separate opt-in daemon (``auth/_keepalive.py`` /
+        ``SessionKeepalive``), NOT via this stub. This stub stays a no-op; 401
+        detection in make_request → re-login remains the recovery path.
         """
         return
 
@@ -2879,6 +2885,7 @@ class AuthManager:
             # the server actually rejects on the first real call.
             POST_AUTH_COOKIE_MARKERS = ("glide_user_session", "glide_session_store")
             on_auth_flow_page = False
+            visible_mid_auth = False
             auth_page_extension_logged = False
             while True:
                 elapsed_ms = (time.time() - start) * 1000
@@ -2886,7 +2893,7 @@ class AuthManager:
                     elapsed_ms=elapsed_ms,
                     wait_budget_ms=wait_budget_ms,
                     use_headless=use_headless,
-                    on_auth_flow_page=on_auth_flow_page,
+                    on_auth_flow_page=visible_mid_auth,
                     hard_cap_ms=self.VISIBLE_AUTH_PAGE_HARD_CAP_MS,
                 ):
                     break
@@ -2918,6 +2925,16 @@ class AuthManager:
 
                 current_host = (urlparse(current_url).hostname or "").lower()
                 on_auth_flow_page = _is_login_page_url(current_url)
+                # Extend the wait for a visible window that is either on a
+                # ServiceNow login/MFA page OR on an external SSO IdP host
+                # (foreign host, not the instance) — both mean a human is still
+                # authenticating. Keeps on_auth_flow_page's own meaning intact
+                # (used by the success gate below); only the extension widens.
+                visible_mid_auth = _visible_window_mid_auth(
+                    on_login_url=on_auth_flow_page,
+                    current_host=current_host,
+                    instance_host=instance_host,
+                )
 
                 # Headless can't satisfy an MFA/TOTP challenge — no human to
                 # type the code into an invisible window. The instant the

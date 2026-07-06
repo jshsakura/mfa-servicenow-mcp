@@ -13,8 +13,12 @@ re-opening a browser window.
 Policy guarantees (pinned by tests/test_session_keepalive.py):
 
 - NEVER opens a browser window or triggers a login. On a rejected ping it
-  logs and goes quiet; the next real tool call owns recovery via the normal
-  self-heal path.
+  logs and truly pauses — no further pings until the next real tool call
+  (which owns recovery via the normal self-heal path) or a sibling-session
+  adoption from disk; a dead session is never re-probed on the interval.
+- Before each ping it adopts a sibling process's rotated/re-authed session
+  from disk, so a shared session cache stays warm from whichever process is
+  live — never pings a stale in-memory cookie.
 - Only pings while there was real tool activity within the idle horizon
   (default 6 h) — an abandoned workstation must not hold a server session
   open indefinitely.
@@ -75,6 +79,12 @@ class SessionKeepalive:
         self._thread_lock = threading.Lock()
         self._stop = threading.Event()
         self._last_activity_at: float = 0.0
+        # Set to the activity watermark at which a probe was REJECTED. While it
+        # equals _last_activity_at (no new real tool call since), the session is
+        # known dead and we stop re-probing it — a dead session only recovers on
+        # a real call's self-heal, so spaced 401s would be pure waste (and a
+        # 401-storm risk on lockout-monitoring instances). None = not suppressed.
+        self._dead_since_activity: Optional[float] = None
 
     def record_activity(self) -> None:
         """Called (indirectly) from the request path on every authenticated
@@ -88,6 +98,9 @@ class SessionKeepalive:
         with self._thread_lock:
             if self._thread is not None and self._thread.is_alive():
                 return
+            # Clear a prior stop() so a restarted thread doesn't exit on its
+            # first wait() — otherwise stop() would permanently kill keepalive.
+            self._stop.clear()
             self._thread = threading.Thread(
                 target=self._run,
                 name="sn-session-keepalive",
@@ -119,11 +132,30 @@ class SessionKeepalive:
         if not _keepalive_enabled():
             return True
         browser_config = getattr(manager.config, "browser", None)
-        if browser_config is None or not manager._browser_cookie_header:
+        if browser_config is None:
+            return True
+        # Adopt a sibling process's rotated/re-authed session from disk BEFORE
+        # probing — otherwise, in the multi-process setup this feature targets,
+        # we'd ping a stale in-memory cookie and 401 forever while a live
+        # session sits on disk (the normal request path adopts in get_headers).
+        # A fresh adoption also clears a prior dead-session suppression: the new
+        # session deserves a probe.
+        try:
+            if manager._maybe_adopt_sibling_session_update():
+                self._dead_since_activity = None
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Session keepalive sibling-adoption check failed (ignored): %s", exc)
+        if not manager._browser_cookie_header:
             return True
         now = time.time()
         if (now - self._last_activity_at) > _keepalive_max_idle_s():
             return True  # user walked away — let the server session lapse
+        # Known dead since the last real activity, and no new tool call has run
+        # (which would have self-healed) — don't re-probe a corpse.
+        if self._dead_since_activity is not None and self._dead_since_activity == (
+            self._last_activity_at
+        ):
+            return True
         last_validated = manager._browser_last_validated_at
         if last_validated and (now - last_validated) < _keepalive_interval_s() * 0.5:
             return True  # foreground traffic is already keeping it alive
@@ -140,15 +172,18 @@ class SessionKeepalive:
             # from_keepalive=True: slide the TTL but do NOT touch the
             # activity clock — otherwise keepalive feeds itself forever.
             manager._mark_browser_session_recently_valid(from_keepalive=True)
+            self._dead_since_activity = None
             logger.debug("Session keepalive ping OK (status=%s)", response.status_code)
         else:
-            # Session died server-side. Do nothing beyond logging: opening a
-            # browser from a background thread would pop MFA windows at the
-            # user unprompted. The next real tool call runs the normal
-            # self-heal / re-login flow.
+            # Session died server-side. Suppress further pings until the next
+            # real tool call (which owns self-heal / re-login) or a sibling
+            # session adoption — re-probing a dead session every interval is
+            # pure waste and risks a 401-storm on lockout-monitoring instances.
+            # NEVER open a browser here: that would pop MFA windows unprompted.
+            self._dead_since_activity = self._last_activity_at
             logger.info(
-                "Session keepalive rejected (status=%s) — pausing; the next "
-                "tool call will re-authenticate via the normal flow.",
+                "Session keepalive rejected (status=%s) — pausing pings until the "
+                "next tool call re-authenticates via the normal flow.",
                 getattr(response, "status_code", "?"),
             )
         return True
