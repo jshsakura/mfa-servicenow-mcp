@@ -14,7 +14,6 @@ from servicenow_mcp.tools.sn_api import (
     _safe_json,
     apply_payload_safety,
     sn_aggregate,
-    sn_batch,
     sn_count,
     sn_discover,
     sn_health,
@@ -384,74 +383,6 @@ class TestSnCount:
 
 
 # ---------------------------------------------------------------------------
-# sn_batch
-# ---------------------------------------------------------------------------
-
-
-class TestSnBatch:
-    def test_empty_requests(self):
-        config = _make_config()
-        auth = MagicMock()
-        assert sn_batch(config, auth, requests=[]) == {}
-
-    def test_successful_batch(self):
-        config = _make_config()
-        auth = MagicMock()
-        resp = _mock_response(
-            {
-                "serviced_requests": [
-                    {"id": "req1", "body": {"result": "ok"}, "status_code": 200},
-                    {"id": "req2", "body": {"result": "ok2"}, "status_code": 200},
-                ]
-            }
-        )
-        auth.make_request.return_value = resp
-        result = sn_batch(
-            config,
-            auth,
-            requests=[
-                {"id": "req1", "method": "GET", "url": "/api/now/table/incident"},
-                {"id": "req2", "method": "GET", "url": "/api/now/table/task"},
-            ],
-        )
-        assert "req1" in result
-        assert "req2" in result
-
-    def test_batch_sub_request_error(self):
-        config = _make_config()
-        auth = MagicMock()
-        resp = _mock_response(
-            {
-                "serviced_requests": [
-                    {"id": "req1", "body": {}, "status_code": 404},
-                ]
-            }
-        )
-        auth.make_request.return_value = resp
-        result = sn_batch(
-            config,
-            auth,
-            requests=[{"id": "req1", "method": "GET", "url": "/api/now/table/x"}],
-        )
-        assert "error" in result["req1"]
-
-    def test_batch_exception(self):
-        config = _make_config()
-        auth = MagicMock()
-        auth.make_request.side_effect = Exception("connection failed")
-        result = sn_batch(
-            config,
-            auth,
-            requests=[{"id": "req1", "method": "GET", "url": "/api/now/table/x"}],
-        )
-        assert "error" in result["req1"]
-
-
-# ---------------------------------------------------------------------------
-# sn_aggregate
-# ---------------------------------------------------------------------------
-
-
 class TestSnAggregate:
     def test_count_aggregate(self):
         config = _make_config()

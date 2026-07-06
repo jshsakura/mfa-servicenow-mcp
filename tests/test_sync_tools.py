@@ -573,12 +573,14 @@ class TestDiffLocalComponent:
         assert "carol" in result["conflict_warning"]
         assert result["remote_updated_by"] == "carol"
 
-    @patch("servicenow_mcp.tools.sync_tools._batch_fetch_updated_on")
+    @patch("servicenow_mcp.tools.sync_tools._batch_fetch_updated_on_multi")
     def test_diff_directory_mode_scan(self, mock_batch, mock_config, mock_auth, download_root):
+        # Scan mode fuses ALL tables' timestamp reads into ONE multi call
+        # (issue #68 item 1) — pin that it is called exactly once.
         mock_batch.return_value = {
-            "wid-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
-            "prov-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
-            "si-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
+            "sp_widget": {"wid-1": {"on": "2025-01-10 10:00:00", "by": "alice"}},
+            "sp_angular_provider": {"prov-1": {"on": "2025-01-10 10:00:00", "by": "alice"}},
+            "sys_script_include": {"si-1": {"on": "2025-01-10 10:00:00", "by": "alice"}},
         }
 
         result = diff_local_component(
@@ -588,15 +590,16 @@ class TestDiffLocalComponent:
         assert result["mode"] == "scan"
         assert result["summary"]["total"] >= 3
         assert "components" in result
+        mock_batch.assert_called_once()  # whole scan = one fused fetch
 
-    @patch("servicenow_mcp.tools.sync_tools._batch_fetch_updated_on")
+    @patch("servicenow_mcp.tools.sync_tools._batch_fetch_updated_on_multi")
     def test_diff_directory_mode_detects_remote_newer(
         self, mock_batch, mock_config, mock_auth, download_root
     ):
         mock_batch.return_value = {
-            "wid-1": {"on": "2025-01-20 12:00:00", "by": "bob"},  # newer than download
-            "prov-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
-            "si-1": {"on": "2025-01-10 10:00:00", "by": "alice"},
+            "sp_widget": {"wid-1": {"on": "2025-01-20 12:00:00", "by": "bob"}},  # newer
+            "sp_angular_provider": {"prov-1": {"on": "2025-01-10 10:00:00", "by": "alice"}},
+            "sys_script_include": {"si-1": {"on": "2025-01-10 10:00:00", "by": "alice"}},
         }
 
         result = diff_local_component(
