@@ -183,6 +183,22 @@ def _page_side_effect_for(full_records):
     return _side_effect
 
 
+def _query_all_side_effect_for(records_by_table):
+    """Build a table-keyed sn_query_all side_effect.
+
+    Source types download in a ThreadPoolExecutor (submit + as_completed), so
+    a positional side_effect LIST is consumed in thread-scheduling order — a
+    long-standing order-dependent flake (records randomly land on the wrong
+    type). Key on the `table` kwarg instead so each type deterministically
+    receives its own records; unlisted tables get [].
+    """
+
+    def _side_effect(*args, **kwargs):
+        return list(records_by_table.get(kwargs.get("table", ""), []))
+
+    return _side_effect
+
+
 def _dict_records():
     return [
         {
@@ -547,7 +563,9 @@ class TestDownloadSourceTypes:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     def test_multiple_source_types(self, mock_query_page, mock_query_all, config, auth, tmp_path):
-        mock_query_all.side_effect = [_strip_source(_br_records()), [], []]
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"sys_script": _strip_source(_br_records())}
+        )
         mock_query_page.return_value = ([], None)
         scope_root = tmp_path / "test" / "x_app"
         scope_root.mkdir(parents=True)
@@ -697,7 +715,9 @@ class TestDownloadSourcesServerScripts:
     def test_downloads_br_and_client_scripts(
         self, mock_query_page, mock_query_all, config, auth, tmp_path
     ):
-        mock_query_all.side_effect = [_strip_source(_br_records()), [], []]
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"sys_script": _strip_source(_br_records())}
+        )
         mock_query_page.side_effect = _page_side_effect_for(_br_records())
         result = download_server_sources(
             config,
@@ -722,7 +742,9 @@ class TestDownloadSourcesUIComponents:
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
     def test_downloads_all_ui_types(self, mock_query_page, mock_query_all, config, auth, tmp_path):
-        mock_query_all.side_effect = [_strip_source(_ui_action_records()), [], [], []]
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"sys_ui_action": _strip_source(_ui_action_records())}
+        )
         mock_query_page.side_effect = _page_side_effect_for(_ui_action_records())
         result = download_server_sources(
             config,
@@ -756,7 +778,9 @@ class TestDownloadSourcesUIComponents:
                 "processing_script": "gs.log('processed');",
             }
         ]
-        mock_query_all.side_effect = [[], [], _strip_source(ui_page_full), []]
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"sys_ui_page": _strip_source(ui_page_full)}
+        )
         mock_query_page.side_effect = _page_side_effect_for(ui_page_full)
         download_server_sources(
             config,
@@ -781,7 +805,9 @@ class TestDownloadSourcesAPI:
     def test_downloads_rest_and_processor(
         self, mock_query_page, mock_query_all, config, auth, tmp_path
     ):
-        mock_query_all.side_effect = [_strip_source(_rest_records()), []]
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"sys_ws_operation": _strip_source(_rest_records())}
+        )
         mock_query_page.side_effect = _page_side_effect_for(_rest_records())
         result = download_server_sources(
             config,
@@ -836,7 +862,9 @@ class TestDownloadSourcesAPI:
                 "operation_script": "// otherSvc end body\n",
             },
         ]
-        mock_query_all.side_effect = [_strip_source(ops), []]
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"sys_ws_operation": _strip_source(ops)}
+        )
         mock_query_page.side_effect = _page_side_effect_for(ops)
 
         result = download_server_sources(
@@ -886,7 +914,9 @@ class TestDownloadSourcesAPI:
                 "script": "// second\n",
             },
         ]
-        mock_query_all.side_effect = [_strip_source(dups), []]
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"sys_script_fix": _strip_source(dups)}
+        )
         mock_query_page.side_effect = _page_side_effect_for(dups)
 
         result = download_server_sources(
@@ -953,7 +983,9 @@ class TestDownloadSourcesAdmin:
     def test_downloads_all_admin_types(
         self, mock_query_page, mock_query_all, config, auth, tmp_path
     ):
-        mock_query_all.side_effect = [_strip_source(_fix_script_records()), [], [], [], []]
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"sys_script_fix": _strip_source(_fix_script_records())}
+        )
         mock_query_page.side_effect = _page_side_effect_for(_fix_script_records())
         result = download_server_sources(
             config,
@@ -975,7 +1007,9 @@ class TestDownloadSourcesAdmin:
         self, mock_query_page, mock_query_all, config, auth, tmp_path
     ):
         # script_includes (1 type) + api (2 types) = 3 source-type queries in one call.
-        mock_query_all.side_effect = [_strip_source(_si_records()), [], []]
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"sys_script_include": _strip_source(_si_records())}
+        )
         mock_query_page.side_effect = _page_side_effect_for(_si_records())
         result = download_server_sources(
             config,
@@ -1195,7 +1229,9 @@ class TestDownloadAppSources:
     def test_orchestrator_writes_manifest(
         self, mock_query_page, mock_query_all, mock_scan, mock_schema, config, auth, tmp_path
     ):
-        mock_query_all.side_effect = [_strip_source(_si_records())] + [[] for _ in range(20)]
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"sys_script_include": _strip_source(_si_records())}
+        )
         mock_query_page.side_effect = _page_side_effect_for(_si_records())
         mock_scan.return_value = {"x_app_request"}
         mock_schema.return_value = ({"x_app_request": 3}, [])
