@@ -1032,6 +1032,63 @@ class TestGetSessionCachePath:
             mgr_dot = AuthManager(cfg_dot, "https://inst.service-now.com")
         assert mgr_at._get_session_cache_path() != mgr_dot._get_session_cache_path()
 
+    def test_profile_label_scopes_the_session_path(self):
+        # #64: the profile alias is the identity unit. Two profiles on the SAME
+        # host + SAME account must get DISTINCT session files, and a profile with
+        # NO declared username must NOT collapse onto the bare-host key.
+        cfg_no_user = AuthConfig(
+            type=AuthType.BROWSER, browser=BrowserAuthConfig(timeout_seconds=10)
+        )
+        with (
+            patch.object(AuthManager, "_ensure_playwright_ready"),
+            patch.object(AuthManager, "_load_session_from_disk"),
+        ):
+            dev = AuthManager(cfg_no_user, "https://inst.service-now.com", profile_label="dev")
+            test = AuthManager(cfg_no_user, "https://inst.service-now.com", profile_label="test")
+            bare = AuthManager(cfg_no_user, "https://inst.service-now.com")
+
+        dev_path = dev._get_session_cache_path()
+        test_path = test._get_session_cache_path()
+        bare_path = bare._get_session_cache_path()
+        # Same host + same (no) account, different profile → different files.
+        assert dev_path != test_path
+        assert "dev_inst_service-now_com" in dev_path
+        assert "test_inst_service-now_com" in test_path
+        # The undeclared-username profile does NOT collapse to the bare-host key.
+        assert dev_path != bare_path
+
+    def test_same_account_two_profiles_do_not_share_session(self):
+        # Domain and account may coincide across profiles; the profile still
+        # decides the session, so they never share one file.
+        cfg = AuthConfig(
+            type=AuthType.BROWSER,
+            browser=BrowserAuthConfig(username="svc@corp.com", timeout_seconds=10),
+        )
+        with (
+            patch.object(AuthManager, "_ensure_playwright_ready"),
+            patch.object(AuthManager, "_load_session_from_disk"),
+        ):
+            a = AuthManager(cfg, "https://inst.service-now.com", profile_label="prod-a")
+            b = AuthManager(cfg, "https://inst.service-now.com", profile_label="prod-b")
+        assert a._get_session_cache_path() != b._get_session_cache_path()
+        assert a._get_default_user_data_dir() != b._get_default_user_data_dir()
+
+    def test_no_profile_label_keeps_legacy_host_user_key(self):
+        # Standalone (no profile): a single config is a single identity, so the
+        # host[+user] key is unchanged — host-scoped reuse stays correct.
+        cfg = AuthConfig(
+            type=AuthType.BROWSER,
+            browser=BrowserAuthConfig(username="alice@corp.com", timeout_seconds=10),
+        )
+        with (
+            patch.object(AuthManager, "_ensure_playwright_ready"),
+            patch.object(AuthManager, "_load_session_from_disk"),
+        ):
+            mgr = AuthManager(cfg, "https://inst.service-now.com")
+        path = mgr._get_session_cache_path()
+        assert "inst_service-now_com" in path
+        assert "alice_at_corp_com" in path
+
     def test_legacy_cache_dir_is_migrated_on_first_access(self, tmp_path):
         # Users on v1.12.4-v1.12.6 keep sessions under ``~/.servicenow_mcp/``.
         # The rename to ``~/.mfa_servicenow_mcp/`` (v1.12.7+) must move the
