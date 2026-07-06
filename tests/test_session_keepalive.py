@@ -178,6 +178,114 @@ class TestTick:
         assert keepalive._tick() is False
 
 
+class TestSiblingAdoption:
+    def test_tick_adopts_sibling_session_before_probing(self):
+        # #67-1: a sibling process rotated the on-disk session; _tick must adopt
+        # it (refresh the in-memory cookie) BEFORE probing, not ping a stale one.
+        mgr = _make_manager()
+        mgr._browser_cookie_header = "JSESSIONID=stale"
+        mgr._browser_last_validated_at = time.time() - 3600
+        keepalive = mgr._session_keepalive
+        keepalive._last_activity_at = time.time()
+
+        order = []
+
+        def _adopt():
+            order.append("adopt")
+            mgr._browser_cookie_header = "JSESSIONID=fresh"
+            return True
+
+        with (
+            patch.object(mgr, "_maybe_adopt_sibling_session_update", side_effect=_adopt),
+            patch.object(
+                mgr,
+                "_probe_browser_api_with_cookie",
+                side_effect=lambda cookie, **kw: order.append(("probe", cookie))
+                or _probe_response(200),
+            ),
+        ):
+            assert keepalive._tick() is True
+
+        assert order[0] == "adopt"
+        assert order[1] == ("probe", "JSESSIONID=fresh")  # probed the fresh cookie
+
+    def test_adoption_clears_dead_suppression(self):
+        # A previously-dead session becomes probeable again once a sibling
+        # adoption brings a fresh cookie, even without new local tool activity.
+        mgr = _make_manager()
+        mgr._browser_cookie_header = "JSESSIONID=abc"
+        mgr._browser_last_validated_at = time.time() - 3600
+        keepalive = mgr._session_keepalive
+        keepalive._last_activity_at = time.time()  # recent, within idle horizon
+        keepalive._dead_since_activity = keepalive._last_activity_at  # suppressed
+
+        with (
+            patch.object(mgr, "_maybe_adopt_sibling_session_update", return_value=True),
+            patch.object(
+                mgr, "_probe_browser_api_with_cookie", return_value=_probe_response(200)
+            ) as probe,
+        ):
+            assert keepalive._tick() is True
+        probe.assert_called_once()
+        assert keepalive._dead_since_activity is None
+
+
+class TestDeadSessionSuppression:
+    def _mgr_due_for_ping(self):
+        mgr = _make_manager()
+        mgr._browser_cookie_header = "JSESSIONID=abc"
+        mgr._browser_last_validated_at = time.time() - 3600  # stale → ping due
+        keepalive = mgr._session_keepalive
+        keepalive._last_activity_at = time.time()
+        return mgr, keepalive
+
+    def test_rejected_ping_suppresses_further_pings(self):
+        # #67-2: after a 401, the daemon must NOT re-probe the dead session every
+        # interval — it pauses until real activity (or adoption) resumes.
+        mgr, keepalive = self._mgr_due_for_ping()
+        with patch.object(
+            mgr, "_probe_browser_api_with_cookie", return_value=_probe_response(401)
+        ) as probe:
+            assert keepalive._tick() is True  # first tick probes, gets 401
+            assert keepalive._tick() is True  # second tick: suppressed
+            assert keepalive._tick() is True  # still suppressed
+        assert probe.call_count == 1
+        assert keepalive._dead_since_activity == keepalive._last_activity_at
+
+    def test_new_activity_resumes_pinging_after_death(self):
+        mgr, keepalive = self._mgr_due_for_ping()
+        with patch.object(
+            mgr, "_probe_browser_api_with_cookie", return_value=_probe_response(401)
+        ) as probe:
+            assert keepalive._tick() is True  # 401 → suppressed
+            assert keepalive._tick() is True  # suppressed (no probe)
+            assert probe.call_count == 1
+        # A real tool call self-heals and advances the activity watermark.
+        keepalive.record_activity()
+        mgr._browser_last_validated_at = time.time() - 3600  # due again
+        with patch.object(
+            mgr, "_probe_browser_api_with_cookie", return_value=_probe_response(200)
+        ) as probe2:
+            assert keepalive._tick() is True
+        probe2.assert_called_once()  # suppression lifted by new activity
+
+
+class TestStopRestart:
+    def test_stop_then_ensure_started_clears_stop_event(self, monkeypatch):
+        # #67-6: stop() must not permanently kill keepalive — a later
+        # ensure_started() clears the stop flag so the new thread survives its
+        # first wait().
+        monkeypatch.delenv("SERVICENOW_SESSION_KEEPALIVE", raising=False)
+        mgr = _make_manager()
+        keepalive = mgr._session_keepalive
+        keepalive.stop()
+        assert keepalive._stop.is_set()
+        keepalive.ensure_started()
+        assert not keepalive._stop.is_set()
+        assert keepalive._thread is not None and keepalive._thread.is_alive()
+        keepalive.stop()  # clean up the daemon
+
+
 class TestMfaDetectedDiagnostics:
     def test_mfa_detected_event_reports_remembered_cookie_state(self):
         """v1.18.45: the mfa_detected auth event carries whether a live
