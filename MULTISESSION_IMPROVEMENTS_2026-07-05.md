@@ -100,10 +100,18 @@ disconnected"로 다운그레이드.
 - ✅ `test_workflow_tools_coverage.py::test_partial_failure` — 병렬 reorder의
   공유 `side_effect` 리스트가 스레드 순서로 소비되어 순서 의존 실패. URL 키잉으로
   결정적으로 수정(v1.18.45).
-- ⬜ `tests/test_source_download_tools.py` — 파일 전체 실행 시 실행마다 다른
-  테스트가 실패(`test_ui_page_multi_field_export`,
-  `test_unqualified_name_collision_warns_and_keeps_first` 등). 클린 트리에서도
-  재현되는 기존 순서 의존 flaky. 원인 미조사.
+- ✅ `tests/test_source_download_tools.py` — 같은 원인(병렬 다운로드 +
+  positional `side_effect` 리스트, 스레드 순서로 소비). 테이블 키
+  `_query_all_side_effect_for()`로 수정(v1.18.45, 4edd2e4). 풀런 절반 확률
+  실패 → 2회 연속 그린. 교훈: ThreadPoolExecutor 뒤의 mock에는 positional
+  리스트 금지, 키 기반 함수로.
+
+## P3-7. get_metadata_source 이름 조회 미스에 후보 제안 없음 (7/6 재스윕 발견)
+
+BR 이름을 언더스코어 형태(예: `My_Rule_Name` 등 여러 건, 실제 이름은 공백
+포함일 가능성)로 연속 조회 → 전부 "Source not found"만 반환, LLM이 이름 포맷을
+추측하며 라운드트립 여러 번 낭비. → 정확 일치 실패 시 대소문자 무시 + 언더스코어↔공백
+치환 + CONTAINS 폴백으로 후보(이름+sys_id) 목록을 에러 메시지에 실어 보내기.
 
 ## P3-6. batch_get 서브요청 body 파싱 실패 2건
 
