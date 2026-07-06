@@ -653,7 +653,8 @@ class TestDiffLocalComponent:
             wrong_config, mock_auth, DiffLocalComponentParams(path=str(download_root))
         )
         assert "error" in result
-        assert "mismatch" in result["error"].lower()
+        # Leads with the actionable retry (issue #65/P2-1).
+        assert "instance=<alias>" in result["error"]
 
     # --- compare_to: local-vs-local (dev-vs-test), no network ---
     def test_compare_to_roots_summary(self, mock_config, mock_auth, download_root, tmp_path):
@@ -1884,7 +1885,8 @@ class TestExtendedSyncCoverage:
             wrong_config, mock_auth, DiffLocalComponentParams(path=str(path))
         )
         assert "error" in result
-        assert "mismatch" in result["error"].lower()
+        # Leads with the actionable retry (issue #65/P2-1).
+        assert "instance=<alias>" in result["error"]
 
     # --- Lines 556-557: diff_local_component - fetch error ---
     @patch(
@@ -2095,7 +2097,7 @@ class TestOriginProvenance:
         resolved = _resolve_local_path(si / "MyUtil.script.js")
         assert resolved.instance_url == "https://prod.service-now.com"
 
-        with pytest.raises(ValueError, match="Instance mismatch"):
+        with pytest.raises(ValueError, match="Retry this call with instance=<alias>"):
             _validate_instance_url(resolved, self._cfg("https://dev.service-now.com"))
 
     def test_manifest_only_same_instance_passes(self, tmp_path):
@@ -2136,7 +2138,8 @@ class TestOriginProvenance:
             json.dumps({"instance": "https://prod.service-now.com"}), encoding="utf-8"
         )
         result = _scan_download_root(self._cfg("https://dev.service-now.com"), MagicMock(), root)
-        assert "Instance mismatch" in result.get("error", "")
+        # Leads with the actionable retry (issue #65/P2-1), names the origin.
+        assert result.get("error", "").startswith("Retry this diff with instance=<alias>")
         assert "prod.service-now.com" in result["error"]
 
 
