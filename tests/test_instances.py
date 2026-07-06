@@ -148,3 +148,38 @@ class TestAuthForInstanceEntryInheritance:
 
         with pytest.raises(ValueError, match="username and password"):
             build({"url": "https://x.example.com", "auth_type": "basic"})
+
+
+class TestPlaceholderCredential:
+    def test_detects_unfilled_placeholders(self):
+        from servicenow_mcp.utils.instances import looks_like_unfilled_placeholder
+
+        assert looks_like_unfilled_placeholder("REPLACE_WITH_PROD_USERNAME") is True
+        assert looks_like_unfilled_placeholder("replace_with_password") is True
+        assert looks_like_unfilled_placeholder("your_username") is True
+        assert looks_like_unfilled_placeholder("changeme") is True
+        assert looks_like_unfilled_placeholder("real.user@corp.com") is False
+        assert looks_like_unfilled_placeholder("") is False
+        assert looks_like_unfilled_placeholder(None) is False
+
+    def test_explicit_basic_placeholder_username_raises(self, monkeypatch):
+        # #65/P3-2: an un-substituted template placeholder must fail fast, not
+        # log in / create a profile named after the placeholder.
+        import pytest
+
+        from servicenow_mcp.server import _entry_cred
+
+        with pytest.raises(ValueError, match="placeholder"):
+            _entry_cred({"username": "REPLACE_WITH_PROD_USERNAME"}, "username", None, required=True)
+
+    def test_optional_browser_placeholder_is_dropped(self):
+        # Browser SSO creds are optional prefill: a placeholder there is warned
+        # and dropped (returns None), never used to create a profile.
+        from servicenow_mcp.server import _entry_cred
+
+        assert (
+            _entry_cred(
+                {"password": "REPLACE_WITH_PROD_PASSWORD"}, "password", None, required=False
+            )
+            is None
+        )

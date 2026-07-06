@@ -762,6 +762,78 @@ def _build_lookup_query(config: Dict[str, Any], source_id: str) -> str:
     return "^OR".join(f"{field}={safe_source_id}" for field in config["lookup_fields"])
 
 
+# Cap the fuzzy candidate probe so a mistyped name can't scan a huge table.
+_CANDIDATE_LOOKUP_LIMIT = 10
+
+
+def _name_variants(source_id: str) -> List[str]:
+    """De-duplicated name forms to try on an exact-match miss: the original plus
+    underscore↔space swaps (LLMs guess ``My_Rule`` when the record is named
+    ``My Rule`` and vice-versa). ServiceNow's LIKE is case-insensitive, so no
+    case variants are needed."""
+    variants = [source_id, source_id.replace("_", " "), source_id.replace(" ", "_")]
+    seen: set = set()
+    out: List[str] = []
+    for v in variants:
+        if v and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+def _lookup_candidates(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    source_cfg: Dict[str, Any],
+    source_id: str,
+) -> List[Dict[str, Any]]:
+    """Best-effort fuzzy candidates for an exact-match miss: CONTAINS (LIKE) on
+    the name-ish lookup fields, across underscore/space variants. Returns a small
+    ``[{name, sys_id, identifier}]`` list for the error message; never raises."""
+    name_fields = [f for f in source_cfg["lookup_fields"] if f != "sys_id"]
+    if not name_fields:
+        return []
+    clauses: List[str] = []
+    for variant in _name_variants(source_id):
+        safe = _escape_query_value(variant)
+        clauses.extend(f"{field}LIKE{safe}" for field in name_fields)
+    query = "^OR".join(clauses)
+    identifier_field = source_cfg["identifier_field"]
+    fields = _dedupe_preserve(["sys_id", "name", identifier_field])
+    try:
+        rows = _make_request(
+            config,
+            auth_manager,
+            table=source_cfg["table"],
+            query=query,
+            fields=fields,
+            limit=_CANDIDATE_LOOKUP_LIMIT,
+        )
+    except Exception as exc:  # noqa: BLE001 — suggestions are best-effort
+        logger.debug("candidate lookup failed for %s: %s", source_cfg["table"], exc)
+        return []
+    candidates: List[Dict[str, Any]] = []
+    for row in rows:
+        candidates.append(
+            {
+                "name": row.get("name"),
+                "sys_id": row.get("sys_id"),
+                "identifier": row.get(identifier_field) or row.get("name"),
+            }
+        )
+    return candidates
+
+
+def _dedupe_preserve(items: List[str]) -> List[str]:
+    seen: set = set()
+    out: List[str] = []
+    for i in items:
+        if i and i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
 def _escape_query_fragment(value: str) -> str:
     return str(value).replace("^", "^^").replace("=", r"\=").replace("@", r"\@")
 
@@ -1241,10 +1313,18 @@ def get_metadata_source(
         }
 
     if not records:
-        return {
+        candidates = _lookup_candidates(config, auth_manager, source_cfg, params.source_id)
+        not_found: Dict[str, Any] = {
             "success": False,
             "message": f"Source not found for type '{source_type}' and id '{params.source_id}'",
         }
+        if candidates:
+            not_found["candidates"] = candidates
+            not_found["message"] += (
+                f". {len(candidates)} similar name(s) found (case/underscore-insensitive) — "
+                "retry with one of the candidate names or its sys_id."
+            )
+        return not_found
 
     record = records[0]
     metadata = {

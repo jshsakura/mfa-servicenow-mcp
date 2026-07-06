@@ -247,6 +247,36 @@ def test_get_metadata_source_returns_error_when_not_found():
     assert "not found" in result["message"].lower()
 
 
+def test_get_metadata_source_suggests_candidates_on_name_miss():
+    # #65/P3-7: an underscore-form name that misses exact match returns fuzzy
+    # candidates (name + sys_id) instead of a bare 'not found', so the caller
+    # doesn't burn round-trips guessing the format.
+    config = _build_config()
+    auth_manager = MagicMock()
+
+    exact_miss = _response([], total_count=0)
+    candidate_hit = _response(
+        [
+            {"sys_id": "si-9", "name": "My Rule Name", "api_name": "x_app.MyRuleName"},
+        ],
+        total_count=1,
+    )
+    # First call = exact lookup (empty); second = the fuzzy candidate probe.
+    auth_manager.make_request.side_effect = [exact_miss, candidate_hit]
+
+    result = get_metadata_source(
+        config,
+        auth_manager,
+        GetMetadataSourceParams(source_type="script_include", source_id="My_Rule_Name"),
+    )
+
+    assert result["success"] is False
+    assert result["candidates"] == [
+        {"name": "My Rule Name", "sys_id": "si-9", "identifier": "x_app.MyRuleName"}
+    ]
+    assert "similar name" in result["message"]
+
+
 def test_search_server_code_supports_business_rule():
     config = _build_config()
     auth_manager = MagicMock()
