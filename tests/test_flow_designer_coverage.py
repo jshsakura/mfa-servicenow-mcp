@@ -966,23 +966,34 @@ class TestFetchExecutionSummary(unittest.TestCase):
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_count")
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_count_by_group")
     @patch("servicenow_mcp.tools.flow_designer_tools._get_snapshot_id")
-    def test_with_snapshot(self, mock_snap, mock_count, mock_qp):
+    def test_with_snapshot(self, mock_snap, mock_group, mock_count, mock_qp):
+        # Fused shape (#68 item 3): ONE group_by=state call yields the per-state
+        # counts and the total; error_like keeps its own count.
         mock_snap.return_value = "snap1"
-        mock_count.return_value = 10
+        mock_group.return_value = {"Complete": 7, "Error": 3}
+        mock_count.return_value = 2  # error_like only
         mock_qp.return_value = ([{"sys_id": "ctx1"}], 1)
 
         result = _fetch_execution_summary(self.config, self.auth_manager, "flow1")
         self.assertIn("counts", result)
         self.assertIn("recent", result)
         self.assertEqual(result["counts"]["total"], 10)
+        self.assertEqual(result["counts"]["complete"], 7)
+        self.assertEqual(result["counts"]["error"], 3)
+        self.assertEqual(result["counts"]["error_like"], 2)
+        mock_group.assert_called_once()
+        mock_count.assert_called_once()  # 7 counts -> 1 group + 1 error_like
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_count")
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_count_by_group")
     @patch("servicenow_mcp.tools.flow_designer_tools._get_snapshot_id")
-    def test_without_snapshot(self, mock_snap, mock_count, mock_qp):
+    def test_without_snapshot(self, mock_snap, mock_group, mock_count, mock_qp):
         mock_snap.return_value = None
-        mock_count.return_value = 5
+        mock_group.return_value = {"Complete": 5}
+        mock_count.return_value = 0
         mock_qp.return_value = ([], 0)
 
         result = _fetch_execution_summary(self.config, self.auth_manager, "flow1")
@@ -990,15 +1001,36 @@ class TestFetchExecutionSummary(unittest.TestCase):
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_count")
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_count_by_group")
     @patch("servicenow_mcp.tools.flow_designer_tools._get_snapshot_id")
-    def test_snapshot_same_as_flow_id(self, mock_snap, mock_count, mock_qp):
+    def test_snapshot_same_as_flow_id(self, mock_snap, mock_group, mock_count, mock_qp):
         """Snapshot ID same as flow_id → should not duplicate."""
         mock_snap.return_value = "flow1"
-        mock_count.return_value = 3
+        mock_group.return_value = {"Complete": 3}
+        mock_count.return_value = 0
         mock_qp.return_value = ([], 0)
 
         result = _fetch_execution_summary(self.config, self.auth_manager, "flow1")
         self.assertEqual(result["counts"]["total"], 3)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_count")
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_count_by_group")
+    @patch("servicenow_mcp.tools.flow_designer_tools._get_snapshot_id")
+    def test_group_call_failure_falls_back_to_per_state_counts(
+        self, mock_snap, mock_group, mock_count, mock_qp
+    ):
+        # Fail-safe: grouped aggregate unavailable (None) -> historical
+        # per-state counting still produces the full shape.
+        mock_snap.return_value = None
+        mock_group.return_value = None
+        mock_count.return_value = 4
+        mock_qp.return_value = ([], 0)
+
+        result = _fetch_execution_summary(self.config, self.auth_manager, "flow1")
+        self.assertEqual(result["counts"]["total"], 4)
+        self.assertEqual(result["counts"]["complete"], 4)
+        self.assertEqual(mock_count.call_count, 7)  # total + 5 states + error_like
 
 
 class TestFetchFlowTriggers(unittest.TestCase):

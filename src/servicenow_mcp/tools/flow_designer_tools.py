@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import AuthType, ServerConfig
 
-from .sn_api import invalidate_query_cache, sn_count, sn_query_page
+from .sn_api import invalidate_query_cache, sn_count, sn_count_by_group, sn_query_page
 
 logger = logging.getLogger(__name__)
 
@@ -1324,23 +1324,32 @@ def _fetch_execution_summary(
         flow_refs.append(snapshot_id)
     flow_query = "^OR".join(f"flow={ref}" for ref in flow_refs)
 
-    counts = {
-        "total": sn_count(config, auth_manager, FLOW_CONTEXT_TABLE, flow_query),
-        "error_like": sn_count(
-            config,
-            auth_manager,
-            FLOW_CONTEXT_TABLE,
-            f"({flow_query})^stateINError,Cancelled^ORerror_messageISNOTEMPTY",
-        ),
-    }
-    for state in ["Complete", "Error", "Cancelled", "Waiting", "In Progress"]:
-        key = state.lower().replace(" ", "_")
-        counts[key] = sn_count(
-            config,
-            auth_manager,
-            FLOW_CONTEXT_TABLE,
-            f"({flow_query})^state={state}",
-        )
+    # ONE group_by=state aggregate replaces total + 5 per-state counts (6 round
+    # trips → 1; issue #68 item 3). error_like keeps its own count: its OR on
+    # error_message is not derivable from the state grouping. Fallback to the
+    # historical per-state counting when the grouped call fails.
+    states = ["Complete", "Error", "Cancelled", "Waiting", "In Progress"]
+    grouped = sn_count_by_group(config, auth_manager, FLOW_CONTEXT_TABLE, flow_query, "state")
+    counts: Dict[str, Any] = {}
+    if grouped is not None:
+        counts["total"] = sum(grouped.values())
+        for state in states:
+            counts[state.lower().replace(" ", "_")] = grouped.get(state, 0)
+    else:
+        counts["total"] = sn_count(config, auth_manager, FLOW_CONTEXT_TABLE, flow_query)
+        for state in states:
+            counts[state.lower().replace(" ", "_")] = sn_count(
+                config,
+                auth_manager,
+                FLOW_CONTEXT_TABLE,
+                f"({flow_query})^state={state}",
+            )
+    counts["error_like"] = sn_count(
+        config,
+        auth_manager,
+        FLOW_CONTEXT_TABLE,
+        f"({flow_query})^stateINError,Cancelled^ORerror_messageISNOTEMPTY",
+    )
 
     recent, _ = sn_query_page(
         config,
@@ -2669,24 +2678,34 @@ def _read_action_steps(
         orderby="order",
     )
 
+    step_sys_ids = [str(s.get("sys_id") or "") for s in step_rows if s.get("sys_id")]
+    # ONE round trip for every step's variables (was one query per step — the
+    # N+1 that made read_action S+1 round trips; issue #68 item 2). document_key
+    # IN-list scopes to this action's steps; the per-step limit of 100 becomes a
+    # shared cap sized to the step count.
+    vars_by_step: Dict[str, List[Dict[str, str]]] = {}
+    if step_sys_ids:
+        var_rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=VARIABLE_VALUE_TABLE,
+            query=(f"document={STEP_INSTANCE_TABLE}^document_keyIN" + ",".join(step_sys_ids)),
+            fields="document_key,variable,value",
+            limit=100 * len(step_sys_ids),
+            offset=0,
+        )
+        for r in var_rows:
+            key = str(r.get("document_key") or "")
+            vars_by_step.setdefault(key, []).append(
+                {"variable": str(r.get("variable") or ""), "value": str(r.get("value") or "")}
+            )
+
     steps: List[Dict[str, Any]] = []
     for step in step_rows:
         step_sys_id = str(step.get("sys_id") or "")
         if not step_sys_id:
             continue
-        var_rows, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=VARIABLE_VALUE_TABLE,
-            query=f"document={STEP_INSTANCE_TABLE}^document_key={step_sys_id}",
-            fields="variable,value",
-            limit=100,
-            offset=0,
-        )
-        variables = [
-            {"variable": str(r.get("variable") or ""), "value": str(r.get("value") or "")}
-            for r in var_rows
-        ]
+        variables = vars_by_step.get(step_sys_id, [])
         action_ref = str(step.get("action") or "")
         is_live = action_ref == def_sys_id
         steps.append(

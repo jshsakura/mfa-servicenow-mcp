@@ -893,18 +893,35 @@ def _batch_fetch_updated_on(
     Returns {sys_id: {"on": <timestamp>, "by": <user_name>}}. The "by" surfaces
     who last changed the remote — directly useful when a diff reports drift.
     """
-    if not sys_ids:
+    return _batch_fetch_updated_on_multi(config, auth_manager, {table: sys_ids}).get(table, {})
+
+
+def _batch_fetch_updated_on_multi(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    ids_by_table: Dict[str, List[str]],
+) -> Dict[str, Dict[str, Dict[str, str]]]:
+    """Timestamps/attribution for MANY tables' sys_ids in ONE round trip.
+
+    Returns {table: {sys_id: {"on":…, "by":…}}}. Every table's sys_idIN chunks
+    ride one batch POST (the _verdict_scan recipe — issue #68 item 1: the
+    default directory scan used to pay one batch per table dir); a chunk the
+    batch did not service falls back to a direct query, never a half state.
+    """
+    specs: List[Tuple[str, str]] = []
+    chunk_index: Dict[str, Tuple[str, List[str]]] = {}
+    for table, sys_ids in ids_by_table.items():
+        chunks = [sys_ids[i : i + 100] for i in range(0, len(sys_ids), 100)]
+        for i, chunk in enumerate(chunks):
+            rid = f"{table}:{i}"
+            chunk_index[rid] = (table, chunk)
+            specs.append((rid, _table_chunk_url(table, chunk, [])))
+    if not specs:
         return {}
-    chunks = [sys_ids[i : i + 100] for i in range(0, len(sys_ids), 100)]
-    # Batch API first: all chunks in ONE round trip; per-chunk fallback below.
-    batch = batch_get(
-        config,
-        auth_manager,
-        [(str(i), _table_chunk_url(table, chunk, [])) for i, chunk in enumerate(chunks)],
-    )
-    result: Dict[str, Dict[str, str]] = {}
-    for i, chunk in enumerate(chunks):
-        served = (batch or {}).get(str(i))
+    batch = batch_get(config, auth_manager, specs)
+    result: Dict[str, Dict[str, Dict[str, str]]] = {}
+    for rid, (table, chunk) in chunk_index.items():
+        served = (batch or {}).get(rid)
         rows: Optional[List[Dict[str, Any]]] = None
         if served and served.get("status_code") == 200 and isinstance(served.get("body"), dict):
             rows = served["body"].get("result")
@@ -918,10 +935,11 @@ def _batch_fetch_updated_on(
                 display_value=False,
             )
             rows = sn_query(config, auth_manager, params).get("results") or []
+        per_table = result.setdefault(table, {})
         for row in rows:
             sid = str(row.get("sys_id") or "")
             if sid:
-                result[sid] = {
+                per_table[sid] = {
                     "on": str(row.get("sys_updated_on") or ""),
                     "by": _display_str(row.get("sys_updated_by")),
                 }
@@ -963,84 +981,92 @@ def _scan_download_root(
 
     components: List[Dict[str, Any]] = []
 
+    # Collect → fuse → judge (the _verdict_scan shape): gather every table
+    # dir's ids first, fetch ALL tables' timestamps in one batch round trip,
+    # then judge per component. Previously each (table, dir) paid its own
+    # batch call — T round trips for a T-table scope (issue #68 item 1).
+    dir_entries: List[Tuple[str, Path, Dict[str, str], Dict[str, Dict[str, str]]]] = []
+    ids_by_table: Dict[str, List[str]] = {}
     for table_name in sorted(_all_supported_tables()):
-        table_dirs = _find_table_dirs(root, table_name)
-        for table_dir in table_dirs:
+        for table_dir in _find_table_dirs(root, table_name):
             map_data = _read_map_json(table_dir)
-            sync_meta = _read_sync_meta(table_dir)
             if not map_data:
                 continue
+            dir_entries.append((table_name, table_dir, map_data, _read_sync_meta(table_dir)))
+            seen = ids_by_table.setdefault(table_name, [])
+            seen.extend(sid for sid in map_data.values() if sid not in seen)
 
-            all_sys_ids = list(map_data.values())
-            remote_meta = _batch_fetch_updated_on(config, auth_manager, table_name, all_sys_ids)
+    remote_by_table = _batch_fetch_updated_on_multi(config, auth_manager, ids_by_table)
 
-            for name, sys_id in map_data.items():
-                meta = sync_meta.get(name, {})
-                local_updated_on = meta.get("sys_updated_on", "")
-                downloaded_at = meta.get("downloaded_at", "")
-                rmeta = remote_meta.get(sys_id, {})
-                remote_updated_on = rmeta.get("on", "")
-                remote_updated_by = rmeta.get("by", "")
-                has_sync_meta = bool(local_updated_on)
+    for table_name, table_dir, map_data, sync_meta in dir_entries:
+        remote_meta = remote_by_table.get(table_name, {})
+        for name, sys_id in map_data.items():
+            meta = sync_meta.get(name, {})
+            local_updated_on = meta.get("sys_updated_on", "")
+            downloaded_at = meta.get("downloaded_at", "")
+            rmeta = remote_meta.get(sys_id, {})
+            remote_updated_on = rmeta.get("on", "")
+            remote_updated_by = rmeta.get("by", "")
+            has_sync_meta = bool(local_updated_on)
 
-                # Folder layout (<table>/<name>/<field>.<ext>) is what the
-                # downloaders write for every table, so check it first. Single-
-                # file tables also accept the historical flat "<name>.<suffix>".
-                safe = _safe_name(name)
-                folder = table_dir / safe
-                folder_map = _folder_layout_field_map(table_name) or {}
-                local_files = [str(folder / fn) for fn in folder_map if (folder / fn).exists()]
-                if not local_files and table_name in SINGLE_FILE_TABLES:
-                    flat_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
-                    for suffix_pattern in flat_map:
-                        if suffix_pattern.startswith("."):
-                            fpath = table_dir / f"{safe}{suffix_pattern}"
-                            if fpath.exists():
-                                local_files.append(str(fpath))
+            # Folder layout (<table>/<name>/<field>.<ext>) is what the
+            # downloaders write for every table, so check it first. Single-
+            # file tables also accept the historical flat "<name>.<suffix>".
+            safe = _safe_name(name)
+            folder = table_dir / safe
+            folder_map = _folder_layout_field_map(table_name) or {}
+            local_files = [str(folder / fn) for fn in folder_map if (folder / fn).exists()]
+            if not local_files and table_name in SINGLE_FILE_TABLES:
+                flat_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
+                for suffix_pattern in flat_map:
+                    if suffix_pattern.startswith("."):
+                        fpath = table_dir / f"{safe}{suffix_pattern}"
+                        if fpath.exists():
+                            local_files.append(str(fpath))
 
-                if not local_files:
-                    continue
+            if not local_files:
+                continue
 
-                local_modified = False
-                if downloaded_at:
-                    try:
-                        dl_time = datetime.fromisoformat(downloaded_at.replace("Z", "+00:00"))
-                        for fp in local_files:
-                            mtime = datetime.fromtimestamp(Path(fp).stat().st_mtime, tz=UTC)
-                            if mtime > dl_time:
-                                local_modified = True
-                                break
-                    except (ValueError, OSError):
-                        pass
+            local_modified = False
+            if downloaded_at:
+                try:
+                    dl_time = datetime.fromisoformat(downloaded_at.replace("Z", "+00:00"))
+                    for fp in local_files:
+                        mtime = datetime.fromtimestamp(Path(fp).stat().st_mtime, tz=UTC)
+                        if mtime > dl_time:
+                            local_modified = True
+                            break
+                except (ValueError, OSError):
+                    pass
 
-                remote_newer = (
-                    has_sync_meta and remote_updated_on and remote_updated_on > local_updated_on
-                )
+            remote_newer = (
+                has_sync_meta and remote_updated_on and remote_updated_on > local_updated_on
+            )
 
-                if remote_newer and local_modified:
-                    status = "conflict"
-                elif remote_newer:
-                    status = "remote_newer"
-                elif local_modified:
-                    status = "local_modified"
-                elif not has_sync_meta:
-                    status = "unknown"
-                else:
-                    status = "unchanged"
+            if remote_newer and local_modified:
+                status = "conflict"
+            elif remote_newer:
+                status = "remote_newer"
+            elif local_modified:
+                status = "local_modified"
+            elif not has_sync_meta:
+                status = "unknown"
+            else:
+                status = "unchanged"
 
-                component = {
-                    "name": name,
-                    "table": table_name,
-                    "sys_id": sys_id,
-                    "status": status,
-                    "local_files": sorted(local_files),
-                    "remote_updated_on": remote_updated_on,
-                    "local_updated_on": local_updated_on,
-                }
-                # Surface who last changed the remote only on drift (token economy).
-                if remote_updated_by and status in ("conflict", "remote_newer"):
-                    component["remote_updated_by"] = remote_updated_by
-                components.append(component)
+            component = {
+                "name": name,
+                "table": table_name,
+                "sys_id": sys_id,
+                "status": status,
+                "local_files": sorted(local_files),
+                "remote_updated_on": remote_updated_on,
+                "local_updated_on": local_updated_on,
+            }
+            # Surface who last changed the remote only on drift (token economy).
+            if remote_updated_by and status in ("conflict", "remote_newer"):
+                component["remote_updated_by"] = remote_updated_by
+            components.append(component)
 
     status_counts: Dict[str, int] = {}
     for c in components:

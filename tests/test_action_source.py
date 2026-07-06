@@ -76,7 +76,16 @@ def test_resolve_by_sys_id_returns_script(cfg, auth):
                 ],
                 1,
             ),  # step instances
-            ([{"variable": SCRIPT_STEP_VAR_SYSID, "value": SCRIPT_BODY}], 1),  # vars
+            (
+                [
+                    {
+                        "document_key": "step1",
+                        "variable": SCRIPT_STEP_VAR_SYSID,
+                        "value": SCRIPT_BODY,
+                    }
+                ],
+                1,
+            ),  # vars
         ]
         result = get_action_source(cfg, auth, GetActionSourceParams(action_ref=ACTION_SID))
 
@@ -130,7 +139,13 @@ def test_fallback_to_longest_value_when_no_script_var(cfg, auth):
                 ],
                 1,
             ),
-            ([{"variable": "other", "value": long_val}, {"variable": "v2", "value": "short"}], 1),
+            (
+                [
+                    {"document_key": "step1", "variable": "other", "value": long_val},
+                    {"document_key": "step1", "variable": "v2", "value": "short"},
+                ],
+                1,
+            ),
         ]
         result = get_action_source(cfg, auth, GetActionSourceParams(action_ref=ACTION_SID))
 
@@ -153,7 +168,16 @@ def test_live_script_present_marks_running_source_live(cfg, auth):
                 ],
                 1,
             ),
-            ([{"variable": SCRIPT_STEP_VAR_SYSID, "value": SCRIPT_BODY}], 1),
+            (
+                [
+                    {
+                        "document_key": "step1",
+                        "variable": SCRIPT_STEP_VAR_SYSID,
+                        "value": SCRIPT_BODY,
+                    }
+                ],
+                1,
+            ),
         ]
         result = get_action_source(cfg, auth, GetActionSourceParams(action_ref=ACTION_SID))
 
@@ -185,7 +209,10 @@ def test_empty_live_script_auto_recovers_from_snapshot(cfg, auth):
                 ],
                 1,
             ),
-            ([{"variable": SCRIPT_STEP_VAR_SYSID, "value": ""}], 1),  # empty body
+            (
+                [{"document_key": "live_step", "variable": SCRIPT_STEP_VAR_SYSID, "value": ""}],
+                1,
+            ),  # empty body
             # auto-fallback: snapshot step carries the real running script
             (
                 [
@@ -199,7 +226,16 @@ def test_empty_live_script_auto_recovers_from_snapshot(cfg, auth):
                 ],
                 1,
             ),
-            ([{"variable": SCRIPT_STEP_VAR_SYSID, "value": SCRIPT_BODY}], 1),
+            (
+                [
+                    {
+                        "document_key": "snap_step",
+                        "variable": SCRIPT_STEP_VAR_SYSID,
+                        "value": SCRIPT_BODY,
+                    }
+                ],
+                1,
+            ),
         ]
         result = get_action_source(cfg, auth, GetActionSourceParams(action_ref=ACTION_SID))
 
@@ -232,7 +268,7 @@ def test_no_fallback_when_no_snapshot_exists(cfg, auth):
                 ],
                 1,
             ),
-            ([{"variable": SCRIPT_STEP_VAR_SYSID, "value": ""}], 1),
+            ([{"document_key": "live_step", "variable": SCRIPT_STEP_VAR_SYSID, "value": ""}], 1),
         ]
         result = get_action_source(cfg, auth, GetActionSourceParams(action_ref=ACTION_SID))
 
@@ -258,7 +294,16 @@ def test_router_routes_get_action_source(cfg, auth):
                 ],
                 1,
             ),
-            ([{"variable": SCRIPT_STEP_VAR_SYSID, "value": SCRIPT_BODY}], 1),
+            (
+                [
+                    {
+                        "document_key": "step1",
+                        "variable": SCRIPT_STEP_VAR_SYSID,
+                        "value": SCRIPT_BODY,
+                    }
+                ],
+                1,
+            ),
         ]
         result = manage_flow_designer(
             cfg, auth, ManageFlowDesignerParams(action="get_action_source", action_ref=ACTION_SID)

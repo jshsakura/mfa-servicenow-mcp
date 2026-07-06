@@ -730,77 +730,40 @@ def sn_count(
         return 0
 
 
-# ---------------------------------------------------------------------------
-# Batch API — combine multiple queries into a single HTTP roundtrip
-# ---------------------------------------------------------------------------
-
-SN_BATCH_MAX_REQUESTS = 150  # ServiceNow batch endpoint limit
-
-
-def sn_batch(
+def sn_count_by_group(
     config: ServerConfig,
     auth_manager: AuthManager,
-    *,
-    requests: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    """Send multiple REST sub-requests in a single ``/api/now/batch`` call.
+    table: str,
+    query: str,
+    group_by: str,
+) -> Optional[Dict[str, int]]:
+    """Per-group record counts in ONE Aggregate API call (sysparm_group_by).
 
-    Each item in *requests* must have ``id``, ``method``, and ``url`` keys.
-    Returns a dict keyed by request ``id`` → response body.
-
-    Automatically chunks into multiple batch calls when the list exceeds
-    ``SN_BATCH_MAX_REQUESTS``.
-    """
-    if not requests:
-        return {}
-
-    results: Dict[str, Any] = {}
-
-    # Chunk into SN_BATCH_MAX_REQUESTS-sized batches
-    for i in range(0, len(requests), SN_BATCH_MAX_REQUESTS):
-        chunk = requests[i : i + SN_BATCH_MAX_REQUESTS]
-        payload = {
-            "rest_requests": [
-                {
-                    "id": r["id"],
-                    "method": r.get("method", "GET"),
-                    "url": r["url"],
-                    "headers": [{"name": "Accept", "value": "application/json"}],
-                }
-                for r in chunk
-            ]
-        }
-
-        url = f"{config.instance_url}/api/now/batch"
-        try:
-            response = auth_manager.make_request(
-                "POST",
-                url,
-                json=payload,
-                timeout=config.request_timeout,
-            )
-            raw = getattr(response, "content", None)
-            data = (
-                json_fast.loads(raw) if isinstance(raw, (bytes, str)) and raw else response.json()
-            )
-
-            for sub in data.get("serviced_requests", []):
-                req_id = sub.get("id", "")
-                body = sub.get("body", {})
-                status = sub.get("status_code", 0)
-                if status >= 400:
-                    # Preserve error info
-                    if not body.get("error"):
-                        body["error"] = {
-                            "message": f"Batch sub-request failed with status {status}"
-                        }
-                results[req_id] = body
-        except Exception as exc:
-            logger.warning("Batch API call failed: %s", exc)
-            for r in chunk:
-                results[r["id"]] = {"error": {"message": str(exc)}}
-
-    return results
+    Replaces N per-value ``sn_count`` round trips with one. Returns
+    ``{group_value: count}`` — the total is ``sum(values())``. ``None`` on any
+    failure so callers can fall back to per-value counting."""
+    url = f"{config.instance_url}/api/now/stats/{table}"
+    params: Dict[str, str] = {"sysparm_count": "true", "sysparm_group_by": group_by}
+    if query:
+        params["sysparm_query"] = query
+    try:
+        resp = auth_manager.make_request("GET", url, params=params, timeout=config.timeout)
+        rows = (resp.json() if hasattr(resp, "json") else {}).get("result") or []
+        counts: Dict[str, int] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            stats = row.get("stats") or {}
+            group_fields = row.get("groupby_fields") or []
+            value = ""
+            for gf in group_fields:
+                if isinstance(gf, dict) and gf.get("field") == group_by:
+                    value = str(gf.get("value") or "")
+                    break
+            counts[value] = counts.get(value, 0) + int(stats.get("count", 0))
+        return counts
+    except Exception:  # noqa: BLE001 — caller falls back to per-value counts
+        return None
 
 
 class HealthCheckParams(BaseModel):
