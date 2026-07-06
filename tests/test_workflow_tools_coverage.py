@@ -460,12 +460,23 @@ class TestReorderWorkflowActivitiesEdgeCases(unittest.TestCase):
         self.assertEqual(result["error"], "Activity IDs are required")
 
     def test_partial_failure(self):
-        """Cover lines 939-941: individual activity reorder failure."""
+        """Cover lines 939-941: individual activity reorder failure.
+
+        The reorder PATCHes run in a ThreadPoolExecutor, so a positional
+        side_effect list is consumed in thread-scheduling order — flaky.
+        Key the failure to the a2 URL instead so it deterministically lands
+        on results[1] regardless of dispatch order.
+        """
         ok_resp = MagicMock()
         ok_resp.json.return_value = {"result": {}}
         ok_resp.raise_for_status = MagicMock()
 
-        self.auth.make_request.side_effect = [ok_resp, Exception("Fail"), ok_resp]
+        def _mock_request(method, url, **kwargs):
+            if url.endswith("/a2"):
+                raise Exception("Fail")
+            return ok_resp
+
+        self.auth.make_request.side_effect = _mock_request
         result = reorder_workflow_activities(
             self.config,
             self.auth,

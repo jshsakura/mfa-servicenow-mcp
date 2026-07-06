@@ -1140,7 +1140,10 @@ class TestLoginWithBrowserSync:
 
         # Non-headless wait budget is normally 60 s minimum (MFA entry
         # needs human time). Drop it to 50 ms for the test so we don't
-        # sit through a real minute on every CI run.
+        # sit through a real minute on every CI run. The page sits on
+        # login.do (an auth-flow page), so also drop the auth-page hard
+        # cap — otherwise the extension keeps the loop alive for its
+        # full real-time span.
         mock_spw = MagicMock(return_value=mock_sync)
         with patch.dict(
             "sys.modules",
@@ -1148,6 +1151,121 @@ class TestLoginWithBrowserSync:
         ):
             with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
                 with patch.object(AuthManager, "MIN_VISIBLE_LOGIN_WAIT_BUDGET_MS", 50):
+                    with patch.object(AuthManager, "VISIBLE_AUTH_PAGE_HARD_CAP_MS", 60):
+                        with pytest.raises(
+                            ValueError,
+                            match="Timed out waiting for manual browser login",
+                        ):
+                            mgr._login_with_browser_sync(browser_cfg, force_interactive=True)
+
+    def test_poll_helper_extends_only_visible_auth_page(self):
+        """v1.18.45 invariant: past-budget waiting is allowed ONLY for a
+        visible window still on a login/MFA page, and only until the hard
+        cap. Headless never extends."""
+        from servicenow_mcp.auth.auth_manager import _login_poll_should_keep_waiting
+
+        common = dict(wait_budget_ms=1_000, hard_cap_ms=5_000)
+        # Within budget: always keep waiting.
+        assert _login_poll_should_keep_waiting(
+            elapsed_ms=500, use_headless=True, on_auth_flow_page=False, **common
+        )
+        # Past budget, visible, on MFA page: extend.
+        assert _login_poll_should_keep_waiting(
+            elapsed_ms=2_000, use_headless=False, on_auth_flow_page=True, **common
+        )
+        # Past budget, headless: never extend, even on an MFA page.
+        assert not _login_poll_should_keep_waiting(
+            elapsed_ms=2_000, use_headless=True, on_auth_flow_page=True, **common
+        )
+        # Past budget, visible, but NOT on an auth page: no extension.
+        assert not _login_poll_should_keep_waiting(
+            elapsed_ms=2_000, use_headless=False, on_auth_flow_page=False, **common
+        )
+        # Hard cap reached: stop even mid-MFA.
+        assert not _login_poll_should_keep_waiting(
+            elapsed_ms=5_000, use_headless=False, on_auth_flow_page=True, **common
+        )
+
+    def test_visible_mfa_entry_extends_past_budget_then_confirms(self):
+        """v1.18.45 invariant: a visible window on the MFA challenge page is
+        NOT closed when wait_budget_ms expires — the user is typing a TOTP
+        code (2026-07-05 field logs: poll.timeout on
+        validate_multifactor_auth_code.do killed the window mid-entry). The
+        loop keeps polling and the login confirms once the user completes."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=2, headless=False, session_ttl_minutes=30)
+
+        cookies = [
+            {"name": "JSESSIONID", "value": "abc123", "domain": "example.service-now.com"},
+            {"name": "glide_user_session", "value": "s1", "domain": "example.service-now.com"},
+        ]
+        mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks(
+            cookies=cookies
+        )
+        # First reads: user still on the MFA page, well past the 2 s budget
+        # (the fake clock below advances 1 s per poll sleep). Then the user
+        # submits the code and lands on the dashboard.
+        url_reads = {"n": 0}
+
+        def _url_read():
+            url_reads["n"] += 1
+            if url_reads["n"] <= 5:
+                return "https://example.service-now.com/validate_multifactor_auth_code.do"
+            return "https://example.service-now.com/now/nav/ui/home"
+
+        type(mock_page).url = PropertyMock(side_effect=_url_read)
+
+        clock = {"t": 1_000_000.0}
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=mock_probe):
+                with patch.object(mgr, "_save_session_to_disk"):
+                    with patch(
+                        "servicenow_mcp.auth.auth_manager.time.time",
+                        side_effect=lambda: clock["t"],
+                    ):
+                        with patch(
+                            "servicenow_mcp.auth.auth_manager.time.sleep",
+                            side_effect=lambda s: clock.__setitem__(
+                                "t", clock["t"] + max(float(s), 1.0)
+                            ),
+                        ):
+                            mgr._login_with_browser_sync(browser_cfg, force_interactive=True)
+
+        # Login confirmed even though the MFA page outlived the budget.
+        assert mgr._browser_cookie_header is not None
+        assert "JSESSIONID=abc123" in mgr._browser_cookie_header
+        assert url_reads["n"] > 5  # loop really survived past the MFA reads
+
+    def test_visible_auth_page_extension_hard_cap_still_times_out(self):
+        """v1.18.45 invariant: the auth-page extension is bounded — a window
+        abandoned on the MFA page still times out at
+        VISIBLE_AUTH_PAGE_HARD_CAP_MS (and rides the existing walk-away
+        cooldown path via the timeout error marker)."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(timeout_seconds=2, headless=False, session_ttl_minutes=30)
+
+        mock_sync, mock_page, mock_context, _ = self._make_playwright_mocks()
+        mock_page.url = "https://example.service-now.com/validate_multifactor_auth_code.do"
+        mock_context.cookies.return_value = []
+
+        clock = {"t": 1_000_000.0}
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch(
+                "servicenow_mcp.auth.auth_manager.time.time",
+                side_effect=lambda: clock["t"],
+            ):
+                with patch(
+                    "servicenow_mcp.auth.auth_manager.time.sleep",
+                    side_effect=lambda s: clock.__setitem__("t", clock["t"] + max(float(s), 1.0)),
+                ):
                     with pytest.raises(
                         ValueError,
                         match="Timed out waiting for manual browser login",
