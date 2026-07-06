@@ -762,14 +762,15 @@ def _validate_instance_url(resolved: _ResolvedComponent, config: ServerConfig) -
     ):
         origin = resolved.instance_url.rstrip("/")
         active = config.instance_url.rstrip("/")
+        # Lead with the fix: the observed failure mode is the LLM re-issuing the
+        # same call ~12× because the actionable hint was buried mid-message. The
+        # FIRST sentence must be the exact retry.
         raise ValueError(
-            f"Instance mismatch: this local component is from '{origin}', but the active "
-            f"instance is '{active}' — operating against the active one targets the WRONG "
-            f"instance, so it's blocked. The local file records its origin, so route the "
-            f"call to it (alias for '{origin}' — see list_instances): for a read/diff pass "
-            f"instance=<alias>; for a push pass instance=<alias> confirm_instance=<alias> "
-            f"confirm='approve' (scope is aligned automatically). Do NOT edit config or "
-            f"re-download just to change the target."
+            f"Retry this call with instance=<alias> — the alias for '{origin}' "
+            f"(run list_instances to find it). For a push, add confirm_instance=<alias> "
+            f"confirm='approve'. Reason: this local component is from '{origin}' but the "
+            f"active instance is '{active}', so the active one is the WRONG target and is "
+            f"blocked. Do NOT edit config or re-download to change the target."
         )
 
 
@@ -950,10 +951,13 @@ def _scan_download_root(
     """Scan a download root directory and return change summary for all components."""
     origin_url = _resolve_origin_url(root)
     if origin_url and origin_url.rstrip("/") != config.instance_url.rstrip("/"):
+        # Lead with the fix (read-only diff): the LLM otherwise retries the same
+        # call repeatedly. First sentence = the exact retry.
         return {
             "error": (
-                f"Instance mismatch: directory is from '{origin_url}' "
-                f"but current connection is '{config.instance_url}'"
+                f"Retry this diff with instance=<alias> — the alias for '{origin_url}' "
+                f"(run list_instances to find it). Reason: this directory is from "
+                f"'{origin_url}' but the current connection is '{config.instance_url}'."
             )
         }
 
