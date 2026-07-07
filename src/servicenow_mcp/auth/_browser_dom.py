@@ -48,6 +48,62 @@ _PROFILE_LOCK_HINTS = (
     "process already exists",
 )
 
+# How long to wait for a sibling process to release the Chromium profile
+# before launching on it. Headless cookie probes hold the profile for 2-5s;
+# 8s covers a slow probe without stalling a real login noticeably.
+_SINGLETON_WAIT_S = 8.0
+_SINGLETON_POLL_S = 0.25
+
+
+def _singleton_holder_pid(user_data_dir: str) -> Optional[int]:
+    """PID currently holding the profile's Chromium SingletonLock, else None.
+
+    Chromium writes SingletonLock as a symlink to ``<hostname>-<pid>``. A live
+    pid means a sibling MCP process (another tab's probe or login window) has
+    the profile open — launching now would make one of the two die within ~2s.
+    A dead pid is a stale lock from a crash; Chromium recovers from that on
+    its own, so it counts as free.
+    """
+    lock_path = os.path.join(user_data_dir, "SingletonLock")
+    try:
+        target = os.readlink(lock_path)
+    except OSError:
+        return None  # no lock — profile free
+    try:
+        pid = int(target.rsplit("-", 1)[-1])
+    except ValueError:
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None  # dead holder — stale lock
+    except OSError:
+        pass  # e.g. PermissionError: pid exists but isn't ours — still busy
+    return pid
+
+
+def _wait_for_profile_singleton(user_data_dir: str) -> None:
+    """Poll until the profile's SingletonLock clears or the wait budget ends."""
+    holder = _singleton_holder_pid(user_data_dir)
+    if holder is None:
+        return
+    logger.info(
+        "Chromium profile is held by PID %s (a sibling MCP process is probing "
+        "or logging in) — waiting up to %.0fs for it to release before launching.",
+        holder,
+        _SINGLETON_WAIT_S,
+    )
+    deadline = time.time() + _SINGLETON_WAIT_S
+    while time.time() < deadline:
+        time.sleep(_SINGLETON_POLL_S)
+        if _singleton_holder_pid(user_data_dir) is None:
+            return
+    logger.info(
+        "Profile still held after %.0fs — launching anyway (retry logic below "
+        "handles a residual lock).",
+        _SINGLETON_WAIT_S,
+    )
+
 
 def _launch_persistent_with_retry(chromium, user_data_dir: str, *, headless: bool):
     """Launch a persistent Chromium context, retrying briefly if the profile
@@ -67,6 +123,10 @@ def _launch_persistent_with_retry(chromium, user_data_dir: str, *, headless: boo
     launch_kwargs: dict = {"headless": headless}
     if debug:
         launch_kwargs["args"] = ["--auto-open-devtools-for-tabs"]
+
+    # A sibling tab (possibly an older-version server without the probe lock)
+    # may hold the profile right now — wait briefly instead of racing it.
+    _wait_for_profile_singleton(user_data_dir)
 
     attempts = 5
     backoff = 1.5
