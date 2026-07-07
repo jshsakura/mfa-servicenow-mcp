@@ -31,7 +31,22 @@ from servicenow_mcp.policies.write_guards import (
 
 
 class _MockAuth:
-    username = "dev.user@example.com"
+    """Mirrors the REAL AuthConfig shape: username lives on the NESTED per-type
+    config (auth.basic.username), never on AuthConfig itself. The old flat
+    `auth.username` mock hid a bug where _current_username read an attribute
+    the real Pydantic model doesn't have — every self-edit blocked as G3/G8."""
+
+    username = "dev.user@example.com"  # canonical test identity constant
+
+    class _Type:
+        value = "basic"
+
+    class _Basic:
+        username = "dev.user@example.com"
+        password = "pw"
+
+    type = _Type()
+    basic = _Basic()
 
 
 class _MockConfig:
@@ -931,3 +946,98 @@ class TestFetchRecordAuditPlumbing:
         record, server_now = _fetch_record_audit(ctx, "incident", "sys_id=abc")
         assert record is None
         assert server_now == datetime(2026, 6, 8, 12, 0, 0, tzinfo=timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# G3/G8 identity resolution (v1.19.1 regression pins)
+# ---------------------------------------------------------------------------
+# The pre-v1.19.1 _current_username read `config.auth.username` — an attribute
+# the REAL Pydantic AuthConfig has never had (usernames live on the nested
+# auth.basic / auth.oauth / auth.browser configs). The flat mock above used to
+# hide that, so the same-user exemption was dead code in production: every
+# post-push retouch inside the window blocked on your OWN edit, with no
+# bypass. These tests build REAL config models so a getattr-shaped regression
+# cannot pass CI again.
+
+from servicenow_mcp.utils.config import (  # noqa: E402
+    ApiKeyConfig,
+    AuthConfig,
+    AuthType,
+    BasicAuthConfig,
+    BrowserAuthConfig,
+    ServerConfig,
+)
+
+
+def _real_server(auth: AuthConfig):
+    config = ServerConfig(instance_url="https://x.service-now.com", auth=auth)
+    return SimpleNamespace(config=config, auth_manager=SimpleNamespace())
+
+
+def _audit(user: str, minutes_ago: int):
+    return patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=(
+            {"sys_updated_by": user, "sys_updated_on": _utc_iso_minus_min(minutes_ago)},
+            None,
+        ),
+    )
+
+
+_UPDATE_ARGS = {"table": "incident", "action": "update", "sys_id": "xyz", "fields": {}}
+
+
+def test_same_user_exemption_with_real_basic_authconfig() -> None:
+    """REAL Pydantic config (not a permissive mock): my own 3-min-old edit must
+    never block. Fails on the old getattr(config.auth, 'username') code."""
+    server = _real_server(
+        AuthConfig(type=AuthType.BASIC, basic=BasicAuthConfig(username="me.user", password="pw"))
+    )
+    with _audit("me.user", 3):
+        run_post_confirm_guards(server, "sn_write", dict(_UPDATE_ARGS))
+
+
+def test_other_user_still_blocks_with_real_basic_authconfig() -> None:
+    """The exemption must not overshoot: a confirmed other-user clash blocks."""
+    server = _real_server(
+        AuthConfig(type=AuthType.BASIC, basic=BasicAuthConfig(username="me.user", password="pw"))
+    )
+    with _audit("alice", 3):
+        with pytest.raises(PolicyViolation, match=r"(?s)\[G3\].*alice"):
+            run_post_confirm_guards(server, "sn_write", dict(_UPDATE_ARGS))
+
+
+def test_browser_auth_same_user_resolved_from_live_session() -> None:
+    """Browser auth has no config username the server stamps — identity must
+    come from the live session (resolve_live_username), the same source G10
+    uses. sys_updated_by == live user ⇒ my own work ⇒ no block."""
+    server = _real_server(
+        AuthConfig(type=AuthType.BROWSER, browser=BrowserAuthConfig(username="live.user"))
+    )
+    with patch(
+        "servicenow_mcp.tools.sn_api.resolve_live_username", return_value="live.user"
+    ) as live:
+        with _audit("live.user", 2):
+            run_post_confirm_guards(server, "sn_write", dict(_UPDATE_ARGS))
+        assert live.called
+
+
+def test_same_user_match_is_case_insensitive() -> None:
+    """ServiceNow user_name casing can differ from the configured one."""
+    server = _real_server(
+        AuthConfig(
+            type=AuthType.BASIC,
+            basic=BasicAuthConfig(username="Dev.User@Example.com", password="pw"),
+        )
+    )
+    with _audit("dev.user@example.com", 3):
+        run_post_confirm_guards(server, "sn_write", dict(_UPDATE_ARGS))
+
+
+def test_unknown_own_identity_fails_open() -> None:
+    """api_key auth carries no user identity. The guard may only block a
+    CONFIRMED clash with someone else — unknown self is uncertainty, and this
+    guard fails open on uncertainty (module contract)."""
+    server = _real_server(AuthConfig(type=AuthType.API_KEY, api_key=ApiKeyConfig(api_key="k")))
+    with _audit("alice", 3):
+        run_post_confirm_guards(server, "sn_write", dict(_UPDATE_ARGS))

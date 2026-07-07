@@ -600,7 +600,7 @@ PORTAL_COMPONENT_EDITABLE_FIELDS: Dict[str, Set[str]] = {
     "sp_angular_provider": {"script"},
     "sys_script_include": {"script"},
     "sys_script": {"script", "condition"},
-    "sp_header_footer": {"template", "css"},
+    "sp_header_footer": {"template", "script", "client_script", "link", "css"},
     "sp_css": {"css"},
     "sp_ng_template": {"template"},
     "sys_ui_page": {"html", "client_script", "processing_script"},

@@ -56,10 +56,9 @@ TABLE_FILE_FIELD_MAP: Dict[str, Dict[str, str]] = {
     # Business Rules are folder-based: behaviour lives across script + condition,
     # so a single-file model can't round-trip the condition the way SIs can.
     "sys_script": {"script.js": "script", "condition.js": "condition"},
-    "sp_header_footer": {
-        "template.html": "template",
-        "css.scss": "css",
-    },
+    # Headers/footers ARE widgets schema-wise (same five code fields) — the old
+    # template+css-only map forced server-script edits through raw field writes.
+    "sp_header_footer": WIDGET_FILE_FIELD_MAP,
     "sp_css": {".css.scss": "css"},
     "sp_ng_template": {".template.html": "template"},
     "sys_ui_page": {

@@ -104,6 +104,22 @@ def _is_broken_pipe_group(exc: BaseException) -> bool:
     return False
 
 
+_LOG_RETENTION_DAYS = 7
+
+
+def _sweep_stale_process_logs(log_dir: str, slug: str) -> None:
+    """Delete per-process log files (and their rotated siblings) older than the
+    retention window. A live process keeps its file's mtime fresh, so age alone
+    is a safe liveness proxy — no PID probing, portable everywhere."""
+    cutoff = time.time() - _LOG_RETENTION_DAYS * 86400
+    for path in Path(log_dir).glob(f"servicenow-mcp_{slug}.*.log*"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            pass
+
+
 def configure_logging(force: bool = False) -> None:
     """Configure root logging (stderr + optional rotating LOG_FILE).
 
@@ -117,7 +133,12 @@ def configure_logging(force: bool = False) -> None:
     to let users manage log paths via shell redirect). When LOG_FILE is set, also
     write there with rotation so a runaway session can't fill the disk. If
     LOG_FILE points to a directory (or ends with a separator), auto-append a
-    host-tagged filename so concurrent instances don't interleave into one file.
+    host+PID-tagged filename: the PID makes each process the sole owner of its
+    file, because concurrent processes rotating ONE shared file race each other
+    (independent RotatingFileHandlers rename the file under the others' feet —
+    observed as 20-50KB shards with overlapping time ranges and ~1h of history
+    surviving instead of maxBytes*backupCount). Stale per-PID files are swept
+    by age on startup. Grep across processes with servicenow-mcp_<host>.*.log*.
     """
     root_logger = logging.getLogger()
     if root_logger.handlers and not force:
@@ -128,13 +149,17 @@ def configure_logging(force: bool = False) -> None:
     if log_file_path:
         try:
             log_file_path = os.path.expanduser(log_file_path)
+            slug = None
             if os.path.isdir(log_file_path) or log_file_path.endswith(os.sep):
+                slug = _instance_host_slug()
                 log_file_path = os.path.join(
-                    log_file_path, f"servicenow-mcp_{_instance_host_slug()}.log"
+                    log_file_path, f"servicenow-mcp_{slug}.{os.getpid()}.log"
                 )
             log_dir = os.path.dirname(log_file_path)
             if log_dir:
                 os.makedirs(log_dir, exist_ok=True)
+            if slug and log_dir:
+                _sweep_stale_process_logs(log_dir, slug)
             handlers.append(
                 logging.handlers.RotatingFileHandler(
                     log_file_path,
