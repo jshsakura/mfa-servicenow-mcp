@@ -551,8 +551,8 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_updated_on",
             "sys_updated_by",
         ],
-        "source_fields": ["template", "css"],
-        "search_fields": ["name", "template", "css"],
+        "source_fields": ["template", "script", "client_script", "link", "css"],
+        "search_fields": ["name", "template", "script", "client_script", "css"],
         "lookup_fields": ["sys_id", "name"],
     },
     "sp_css": {

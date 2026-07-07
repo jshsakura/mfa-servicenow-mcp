@@ -2383,3 +2383,38 @@ class TestDerivedDiffPushCoverage:
         for table, file_map in _derived_folder_field_maps().items():
             for filename, field in file_map.items():
                 assert filename == field_filename(field), (table, filename, field)
+
+
+# ---------------------------------------------------------------------------
+# sp_header_footer ↔ sp_widget field parity (v1.19.1)
+# ---------------------------------------------------------------------------
+# Headers/footers share sp_widget's five code fields. The old template+css-only
+# maps made server script/client_script/link invisible to download/diff/push,
+# forcing raw by-sys_id field writes. Pin parity in all three gates.
+
+
+def test_header_footer_sync_map_is_widget_parity() -> None:
+    from servicenow_mcp.tools.sync_tools import TABLE_FILE_FIELD_MAP, WIDGET_FILE_FIELD_MAP
+
+    assert TABLE_FILE_FIELD_MAP["sp_header_footer"] == WIDGET_FILE_FIELD_MAP
+
+
+def test_header_footer_editable_fields_are_widget_parity() -> None:
+    from servicenow_mcp.tools.portal_tools import PORTAL_COMPONENT_EDITABLE_FIELDS
+
+    assert (
+        PORTAL_COMPONENT_EDITABLE_FIELDS["sp_header_footer"]
+        == PORTAL_COMPONENT_EDITABLE_FIELDS["sp_widget"]
+    )
+
+
+def test_header_footer_download_fetches_all_code_fields() -> None:
+    from servicenow_mcp.tools.source_tools import SOURCE_CONFIG
+
+    assert set(SOURCE_CONFIG["sp_header_footer"]["source_fields"]) == {
+        "template",
+        "script",
+        "client_script",
+        "link",
+        "css",
+    }

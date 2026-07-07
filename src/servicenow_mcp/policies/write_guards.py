@@ -402,11 +402,16 @@ def _is_publish_class(tool_name: str, arguments: Dict[str, Any]) -> bool:
 
 
 def _current_username(server: Any) -> Optional[str]:
-    """Best-effort: return the auth user's user_name."""
+    """Best-effort: return the auth user's user_name.
+
+    Must resolve the SAME identity ServiceNow stamps into sys_updated_by, or the
+    G3/G8 same-user exemption never matches and every post-push retouch inside
+    the window blocks on your own edit. basic/oauth read the configured
+    username (no network); browser asks the live session (TTL-cached)."""
     try:
-        return getattr(server.config.auth, "username", None) or getattr(
-            server.auth_manager, "username", None
-        )
+        from servicenow_mcp.tools.sn_api import _authenticated_user
+
+        return _authenticated_user(server.config, server.auth_manager, allow_live=True)
     except Exception:
         return None
 
@@ -575,8 +580,11 @@ def _check_concurrent_edit(
 
     other = (target.get("sys_updated_by") or "").strip()
     me = (_current_username(ctx.server) or "").strip()
-    if not other or other == me:
-        return  # same user (or unknown) — never block your own work
+    if not other or not me or other.lower() == me.lower():
+        # Same user — never block your own work. Unknown identity (either side)
+        # is uncertainty, and this guard fails open on uncertainty: it may only
+        # block a CONFIRMED clash with someone else.
+        return
 
     # server_now is ServiceNow's clock from the same response — drift-proof.
     elapsed = _elapsed_minutes(target.get("sys_updated_on"), now=server_now)

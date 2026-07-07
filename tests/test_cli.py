@@ -677,3 +677,44 @@ class TestConfigureLogging:
             assert any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers)
         finally:
             self._restore(root, saved_handlers, saved_level)
+
+    def test_log_file_directory_gets_per_pid_filename(self, tmp_path):
+        # Multiple processes rotating ONE shared file race each other (shards +
+        # lost history). Directory-style LOG_FILE must yield a per-PID file.
+        root = logging.getLogger()
+        saved_handlers, saved_level = list(root.handlers), root.level
+        try:
+            with patch.dict(
+                os.environ,
+                {"LOG_FILE": str(tmp_path) + os.sep, "SERVICENOW_INSTANCE_URL": ""},
+                clear=False,
+            ):
+                configure_logging(force=True)
+            rotating = [
+                h for h in root.handlers if isinstance(h, logging.handlers.RotatingFileHandler)
+            ]
+            assert rotating, "directory LOG_FILE must still attach a rotating handler"
+            assert rotating[0].baseFilename.endswith(f"servicenow-mcp_default.{os.getpid()}.log")
+        finally:
+            self._restore(root, saved_handlers, saved_level)
+
+    def test_stale_process_logs_swept_fresh_kept(self, tmp_path):
+        import time
+
+        from servicenow_mcp.cli import _LOG_RETENTION_DAYS, _sweep_stale_process_logs
+
+        stale = tmp_path / "servicenow-mcp_default.99999.log"
+        stale_rotated = tmp_path / "servicenow-mcp_default.99999.log.2"
+        fresh = tmp_path / "servicenow-mcp_default.11111.log"
+        other_slug = tmp_path / "servicenow-mcp_otherhost.99999.log"
+        for f in (stale, stale_rotated, fresh, other_slug):
+            f.write_text("x")
+        old = time.time() - (_LOG_RETENTION_DAYS + 1) * 86400
+        for f in (stale, stale_rotated, other_slug):
+            os.utime(f, (old, old))
+
+        _sweep_stale_process_logs(str(tmp_path), "default")
+
+        assert not stale.exists() and not stale_rotated.exists()
+        assert fresh.exists(), "files inside the retention window must survive"
+        assert other_slug.exists(), "sweep must stay scoped to its own instance slug"
