@@ -195,6 +195,23 @@ def _retry_delay(attempt: int) -> float:
     return min(_RETRY_BASE_DELAY_S * (2**attempt), _RETRY_MAX_DELAY_S)
 
 
+# AuthManager signals auth failures as ValueError with these stable marker
+# strings (pinned by its invariant tests). They must NEVER be silenced into an
+# empty result set — "0 rows" and "not logged in" are different answers, and
+# conflating them sends the LLM (and the user) hunting for records that were
+# simply invisible (issue: flow list returned success/0 during a login storm).
+_AUTH_ERROR_MARKERS = (
+    "NOT authenticated",
+    "LOGIN_CANCELLED_BY_USER",
+    "LOGIN_COOLDOWN",
+)
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    msg = str(exc)
+    return any(marker in msg for marker in _AUTH_ERROR_MARKERS)
+
+
 # ---------------------------------------------------------------------------
 # Lightweight TTL cache for repeated identical queries within a session.
 # Entries expire after _CACHE_TTL_SECONDS to prevent stale reads.
@@ -389,8 +406,8 @@ def sn_query_page(
         result = (rows, int(total) if total else None)
         _cache_put(ck, result, ttl=_ttl_for_table(table))
         return result
-    except Exception:
-        if not fail_silently:
+    except Exception as exc:
+        if not fail_silently or _is_auth_error(exc):
             raise
         return [], None
 
@@ -726,7 +743,9 @@ def sn_count(
         result = data.get("result", {})
         stats = result.get("stats", result)
         return int(stats.get("count", 0))
-    except Exception:
+    except Exception as exc:
+        if _is_auth_error(exc):
+            raise
         return 0
 
 

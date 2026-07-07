@@ -402,3 +402,59 @@ def test_sync_resolve_current_user_delegates_to_shared():
     am.make_request.return_value = resp
     assert _resolve_current_user(cfg, am) == "carol"
     assert api._LIVE_USER_CACHE["https://deleg.service-now.com"][0] == "carol"
+
+
+# ---------------------------------------------------------------------------
+# Auth failures must never be silenced into empty results (flow-list 0-rows bug):
+# fail_silently=True may swallow transient/network errors, but "not logged in"
+# and "0 rows" are different answers — auth errors always propagate.
+# ---------------------------------------------------------------------------
+
+_AUTH_ERROR_MESSAGES = [
+    "Browser session expired — NOT authenticated for instance=x profile=y.",
+    "LOGIN_CANCELLED_BY_USER (instance=x profile=y): window closed.",
+    "LOGIN_COOLDOWN: previous browser login attempted 5.0s ago.",
+]
+
+
+def test_sn_query_page_raises_auth_errors_even_when_fail_silently():
+    import pytest
+
+    from servicenow_mcp.tools.sn_api import sn_query_page
+
+    invalidate_query_cache()
+    cfg = _browser_cfg_for("https://authfail.service-now.com")
+    for msg in _AUTH_ERROR_MESSAGES:
+        am = MagicMock()
+        am.make_request.side_effect = ValueError(msg)
+        with pytest.raises(ValueError, match="NOT authenticated|LOGIN_"):
+            sn_query_page(cfg, am, table="incident", query="", fields="sys_id", limit=1, offset=0)
+
+
+def test_sn_query_page_still_silences_non_auth_errors():
+    from servicenow_mcp.tools.sn_api import sn_query_page
+
+    invalidate_query_cache()
+    cfg = _browser_cfg_for("https://neterr.service-now.com")
+    am = MagicMock()
+    am.make_request.side_effect = RuntimeError("connection reset")
+    rows, total = sn_query_page(
+        cfg, am, table="incident", query="", fields="sys_id", limit=1, offset=0
+    )
+    assert rows == [] and total is None
+
+
+def test_sn_count_raises_auth_errors_but_returns_zero_otherwise():
+    import pytest
+
+    from servicenow_mcp.tools.sn_api import sn_count
+
+    cfg = _browser_cfg_for("https://countfail.service-now.com")
+    am = MagicMock()
+    am.make_request.side_effect = ValueError(_AUTH_ERROR_MESSAGES[0])
+    with pytest.raises(ValueError, match="NOT authenticated"):
+        sn_count(cfg, am, "incident")
+
+    am_net = MagicMock()
+    am_net.make_request.side_effect = RuntimeError("timeout")
+    assert sn_count(cfg, am_net, "incident") == 0
