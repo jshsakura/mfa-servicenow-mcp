@@ -1952,6 +1952,27 @@ class AuthManager:
         return response
 
     def _try_restore_browser_session(self, browser_config: BrowserAuthConfig) -> bool:
+        # v1.19.2: never launch a Chromium probe while another process holds the
+        # cross-process login lock. The profile is deliberately SHARED across
+        # terminal tabs (one MFA login, every tab reuses it) — but Chromium's
+        # profile singleton means a headless probe colliding with a sibling's
+        # visible login window kills that window in ~2s, which the login flow
+        # misreads as "user closed the window" and starts a cooldown storm
+        # (multisession login-storm incident, 2026-07-07). Skipping the probe is
+        # safe: callers fall through to the post-restore disk check /
+        # _wait_for_other_login and adopt the sibling's fresh session from disk.
+        if not self._acquire_login_lock():
+            logger.info(
+                "Skipping browser profile probe — another process is logging in "
+                "or probing this profile (login lock held)."
+            )
+            return False
+        try:
+            return self._try_restore_browser_session_unlocked(browser_config)
+        finally:
+            self._release_login_lock()
+
+    def _try_restore_browser_session_unlocked(self, browser_config: BrowserAuthConfig) -> bool:
         if not self.instance_url:
             return False
         instance_url = self.instance_url
