@@ -6,6 +6,12 @@ language: a folder per record, one file per source field —
 
     <table>/<name>/<field><ext>     e.g. sp_angular_provider/mySvc/script.js
 
+Types whose name is unique only within a parent (``folder_qualifier_field`` in
+SOURCE_CONFIG — business rules, notifications, scripted REST operations) nest one
+level deeper, ``<table>/<qualifier>/<name>/<field><ext>``. Depth is therefore NOT
+part of the contract: a reader resolves a record's table from its _metadata.json,
+never by counting directories up from the file.
+
 Historically each module hardcoded its own filenames, so the two download paths
 drifted: providers were written flat by one and as a folder by the other, and
 ``client_script``/``processing_script`` got different extensions on each side.

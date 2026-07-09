@@ -209,6 +209,10 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
     "business_rule": {
         "table": "sys_script",
         "identifier_field": "name",
+        # A BR name is unique only WITHIN its table, not across the scope: one app
+        # routinely carries the same rule name (e.g. 'Set defaults') on several
+        # tables. Qualify the folder by `collection` so each lands on its own.
+        "folder_qualifier_field": "collection",
         "summary_fields": [
             "sys_id",
             "name",
@@ -227,6 +231,11 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
     "client_script": {
         "table": "sys_script_client",
         "identifier_field": "name",
+        # Like business_rule: a client script name is unique only within the table
+        # it runs on. Its qualifier field is literally named 'table' — see the
+        # 'source_table' note in the metadata writer for why that does NOT
+        # confuse the pusher.
+        "folder_qualifier_field": "table",
         "summary_fields": [
             "sys_id",
             "name",
@@ -246,6 +255,10 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
     "ui_action": {
         "table": "sys_ui_action",
         "identifier_field": "name",
+        # Same as client_script: 'Save' exists on many tables. Unlike the others,
+        # `table` does not fully disambiguate — one table can carry two actions of
+        # the same name — so the sys_id suffix still catches the residue.
+        "folder_qualifier_field": "table",
         "summary_fields": [
             "sys_id",
             "name",
@@ -459,6 +472,8 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
     "email_notification": {
         "table": "sysevent_email_action",
         "identifier_field": "name",
+        # Same as business_rule: notification names repeat across target tables.
+        "folder_qualifier_field": "collection",
         "summary_fields": [
             "sys_id",
             "name",
@@ -2122,6 +2137,7 @@ def _download_dep_records(
         metadata: Dict[str, Any] = {
             "source_type": source_type,
             "table": table,
+            "source_table": table,
             "sys_id": sys_id,
             "is_dependency": True,
             "scope_namespace": ns,
@@ -2307,6 +2323,12 @@ def _safe_filename(value: str) -> str:
     return safe.strip("._") or "unnamed"
 
 
+# Qualifier segment for a record whose qualifier field is empty (e.g. a
+# notification with no target table). Leading '_' is unreachable from
+# _safe_filename, which strips it — so a real qualifier can never land here.
+_UNQUALIFIED_SEGMENT = "_unqualified"
+
+
 def _strip_scope_prefix(identifier: str, scope: str) -> str:
     """Drop a redundant leading '<scope>.' from a record identifier.
 
@@ -2336,13 +2358,18 @@ def _record_identifier_and_folder(
       3. else the sys_id (last resort);
       4. strip the redundant leading '<scope>.' — the scope is already the
          parent directory, so the prefix only duplicated it;
-      5. if `folder_qualifier_field` is set (e.g. scripted_rest → parent web
-         service), prefix the FOLDER with '<qualifier>.' so records whose name is
-         unique only within a parent don't collide into one folder. The returned
+      5. if `folder_qualifier_field` is set (e.g. business_rule → its table,
+         scripted_rest → parent web service), NEST the record under a
+         '<qualifier>/' directory so records whose name is unique only within a
+         parent don't collide into one folder. A blank qualifier still nests, under
+         `_UNQUALIFIED_SEGMENT`, so depth never varies within a type. The returned
          display identifier stays the bare name — the qualifier changes only where
          the record lands on disk, not its ServiceNow identity;
-      6. sanitize to a filesystem-safe folder name.
-    Returns (display_identifier, folder_name).
+      6. sanitize each path segment to a filesystem-safe name.
+    Returns (display_identifier, folder_path) where folder_path is a POSIX
+    RELATIVE PATH under the table dir — one segment normally, two when qualified.
+    Readers must not assume a fixed depth: resolve a record's table from its
+    _metadata.json, never from its parent directory's name.
     """
     sys_id = str(record.get("sys_id") or "")
     name = record.get(source_cfg["identifier_field"]) or record.get("name")
@@ -2351,13 +2378,18 @@ def _record_identifier_and_folder(
         if folder_fields:
             name = "_".join(str(record[f]) for f in folder_fields if record.get(f))
     name = str(name or sys_id)
-    folder_source = _strip_scope_prefix(name, scope)
+    segments = [_safe_filename(_strip_scope_prefix(name, scope))]
     qualifier_field = source_cfg.get("folder_qualifier_field")
     if qualifier_field:
+        # Depth is uniform WITHIN a type. A blank qualifier would otherwise drop
+        # the record one level up, next to the qualifier directories, so `ls
+        # <table>/` would mix records with groups — and a reader eyeballing the
+        # tree could not tell which it was looking at.
         qualifier = str(record.get(qualifier_field) or "").strip()
-        if qualifier:
-            folder_source = f"{qualifier}.{folder_source}"
-    return name, _safe_filename(folder_source)
+        segments.insert(0, _safe_filename(qualifier) if qualifier else _UNQUALIFIED_SEGMENT)
+    # POSIX separator, always — this string is also a _map.json / _sync_meta.json
+    # key, and a backslash would make those files platform-dependent.
+    return name, "/".join(segments)
 
 
 def _record_scope_namespace(record: Dict[str, Any], fallback: str) -> str:
@@ -2664,12 +2696,22 @@ def _download_source_types(
         type_dir = scope_root / table
         name_map: Dict[str, str] = {}
         sync_meta: Dict[str, Dict[str, str]] = {}
-        # Silent-collision net: two records mapping to one folder means one body +
-        # sys_id silently overwrites the other (the download looks complete but is
-        # scrambled). folder_qualifier_field prevents this for known child tables
-        # (scripted_rest); this guard catches any OTHER table where a name isn't
-        # unique within the scope. First writer keeps the folder; the collision is
-        # surfaced loudly, never swallowed.
+        # Collision net: two records mapping to one folder means one body + sys_id
+        # silently overwrites the other (the download looks complete but is
+        # scrambled). folder_qualifier_field prevents this for tables whose name is
+        # unique only within a parent (scripted_rest, business_rule,
+        # email_notification); the pre-pass below catches any OTHER table where a
+        # name still isn't unique, and every record is written — never dropped.
+        #
+        # Suffixing must not depend on iteration order: if the "loser" of a pair
+        # took the suffix, a reordered result set would flip which folder gets it
+        # and churn the tree on every download. So a duplicate name suffixes ALL
+        # of its members, making the folder a pure function of the record.
+        dup_sys_ids: Dict[str, Set[str]] = {}
+        for record in records:
+            _, cand = _record_identifier_and_folder(record, source_cfg, scope)
+            dup_sys_ids.setdefault(cand, set()).add(str(record.get("sys_id") or ""))
+        ambiguous = {n for n, ids in dup_sys_ids.items() if len(ids) > 1}
         seen_safe_names: Dict[str, str] = {}
         # Prior on-disk watermarks. Used by the resume-skip branch to preserve a
         # record's existing sys_updated_on (never bump a skipped record to the
@@ -2692,19 +2734,34 @@ def _download_source_types(
             sys_id = str(record.get("sys_id") or "")
             name, safe_name = _record_identifier_and_folder(record, source_cfg, scope)
 
+            if safe_name in ambiguous:
+                safe_name = f"{safe_name}.{sys_id[:8]}"
+                warnings.append(
+                    f"{source_type}: '{name}' is not unique in this scope; wrote it to "
+                    f"folder '{safe_name}' (sys_id-suffixed). Consider a "
+                    f"folder_qualifier_field for {table} to give it a readable folder."
+                )
             prior_sys_id = seen_safe_names.get(safe_name)
             if prior_sys_id and prior_sys_id != sys_id:
+                # Unreachable short of an 8-hex-prefix clash. Suffix the full sys_id
+                # rather than drop the record: uniqueness is guaranteed by sys_id.
+                safe_name = f"{safe_name}.{sys_id}"
                 warnings.append(
-                    f"{source_type}: COLLISION — '{name}' (sys_id={sys_id}) maps to the same "
-                    f"folder '{safe_name}' as a different record (sys_id={prior_sys_id}). Only the "
-                    f"first is on disk; this one was NOT written. Download by sys_id to get it."
+                    f"{source_type}: COLLISION — '{name}' (sys_id={sys_id}) still collided with "
+                    f"sys_id={prior_sys_id}; wrote it to folder '{safe_name}'."
                 )
-                continue
             seen_safe_names[safe_name] = sys_id
 
+            # 'source_table' is the table this record LIVES IN. It duplicates
+            # 'table' because 'table' is not safe to read back: several types
+            # (client_script, ui_action) carry a summary field literally named
+            # 'table' holding the table they TARGET, and the loop below overwrites
+            # the key with it. The pusher resolves a record's identity from
+            # 'source_table', which no summary field can shadow.
             metadata: Dict[str, Any] = {
                 "source_type": source_type,
                 "table": table,
+                "source_table": table,
                 "sys_id": sys_id,
             }
             for sf in source_cfg["summary_fields"]:
@@ -3928,6 +3985,10 @@ def download_app_sources(
             "total_records": sum(r.get("count", 0) for r in all_type_results.values()),
             "total_files": all_files,
             "schema": schema_summary,
+            # Persist warnings on disk, not just in the tool response: a caller that
+            # never sees the response (or reads the tree days later) must still be
+            # able to tell an incomplete/renamed download from a clean one.
+            "warnings": all_warnings,
             "entries": all_manifest_entries,
         },
     )
