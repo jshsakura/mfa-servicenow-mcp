@@ -98,10 +98,30 @@ def read_baseline_for(file_path: Path) -> Optional[str]:
         return None
 
 
+def _ensure_baseline_dir_ignored(baseline_dir: Path) -> None:
+    """Drop a self-ignoring ``.gitignore`` into a ``_baseline/`` directory.
+
+    A single ``*`` ignores every snapshot AND the ``.gitignore`` itself, so a
+    download tree that lives inside a git repo never floods ``git status`` with
+    baseline artifacts — and no new tracked file appears either. Placement is
+    root-agnostic: git honours the rule wherever ``.git`` sits above it.
+    """
+    gitignore = baseline_dir / ".gitignore"
+    if gitignore.exists():
+        return
+    try:
+        atomic_write_text(gitignore, "# ServiceNow MCP baseline snapshots — never commit\n*\n")
+    except OSError as exc:
+        logger.warning(
+            "baseline: failed to write %s: %s — status may show snapshots", gitignore, exc
+        )
+
+
 def write_baseline_for(file_path: Path, content: str) -> None:
     """Record *content* as the new common ancestor for a field file."""
     bpath = baseline_path_for(file_path)
     bpath.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_baseline_dir_ignored(bpath.parent)
     atomic_write_text(bpath, normalize_source_eol(content))
 
 
