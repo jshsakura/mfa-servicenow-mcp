@@ -96,6 +96,31 @@ scripts/_cap/
 scripts/processflow_capture.json
 scripts/live_result.json
 
+# Local probe/login scripts. They hardcode one real instance host + an operator
+# login and drive a browser session against it, so they are reproduction aids for
+# a single box, not shippable tooling. Their captures are already ignored above.
+# A new probe belongs here too — grep the repo before adding one to scripts/.
+scripts/auto_capture.py
+scripts/capture_flow_publish.py
+scripts/live_publish_probe.py
+scripts/login_and_capture.py
+scripts/probe_safe_edit_publish.py
+scripts/seed_login.py
+
+# Investigation write-ups kept beside the code while a fix is in flight. They
+# quote real record names / instance behavior; the durable conclusions belong in
+# commit messages, CLAUDE.md or docs/, not in a root-level scratch file.
+FLOW_DESIGNER_CREATE_PLAN.md
+FLOW_PUBLISH_DEBUG.md
+FLOW_TOOL_NETWORK_BASELINE.md
+MULTISESSION_IMPROVEMENTS_*.md
+
+# 3-way sync internals (baseline snapshots + conflict sidecars) — internal
+# artifacts, and they carry instance source bodies even outside temp/
+_baseline/
+*.remote.*
+*.remote
+
 # Downloaded instance sources (customer code/scopes/sys_ids — NEVER commit).
 # download_app_sources / download_portal_sources default to ./temp when run
 # with the repo as cwd; one `git add -A` after a real download would push
