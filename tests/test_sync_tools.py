@@ -2418,3 +2418,97 @@ def test_header_footer_download_fetches_all_code_fields() -> None:
         "link",
         "css",
     }
+
+
+class TestQualifiedFolderResolution:
+    """Qualified types nest as <table>/<qualifier>/<name>/, so the pusher must read
+    the table from _metadata.json instead of counting directories."""
+
+    @staticmethod
+    def _write_record(record_dir, table, sys_id, name, **extra):
+        record_dir.mkdir(parents=True)
+        (record_dir / "script.js").write_text("gs.info('x');", encoding="utf-8")
+        (record_dir / "_metadata.json").write_text(
+            json.dumps({"table": table, "sys_id": sys_id, "name": name, **extra}),
+            encoding="utf-8",
+        )
+
+    def test_nested_record_dir_resolves_table_and_relative_name(self, tmp_path):
+        rec = tmp_path / "x_app" / "sys_script" / "x_app_request" / "MyRule"
+        self._write_record(rec, "sys_script", "br-1", "MyRule", collection="x_app_request")
+
+        resolved = _resolve_local_path(rec)
+
+        assert resolved.table == "sys_script"
+        assert resolved.sys_id == "br-1"
+        # name doubles as the _map.json / _sync_meta.json key -> POSIX relpath.
+        assert resolved.name == "x_app_request/MyRule"
+        assert resolved.remote_name == "MyRule"
+        assert resolved.qualifier == ("collection", "x_app_request")
+        assert set(resolved.fields) == {"script"}
+
+    def test_nested_field_file_resolves_same_identity(self, tmp_path):
+        rec = tmp_path / "x_app" / "sys_script" / "x_app_request" / "MyRule"
+        self._write_record(rec, "sys_script", "br-1", "MyRule", collection="x_app_request")
+
+        resolved = _resolve_local_path(rec / "script.js")
+
+        assert (resolved.table, resolved.sys_id) == ("sys_script", "br-1")
+        assert resolved.name == "x_app_request/MyRule"
+        assert set(resolved.fields) == {"script"}
+
+    def test_qualifier_that_shadows_a_real_table_does_not_hijack_the_push(self, tmp_path):
+        # A business rule ON sys_script_include nests under a directory named for a
+        # REAL source table. Parent-name resolution would push it as a script
+        # include — wrong table, wrong record. Metadata must win.
+        rec = tmp_path / "x_app" / "sys_script" / "sys_script_include" / "GuardRule"
+        self._write_record(rec, "sys_script", "br-9", "GuardRule", collection="sys_script_include")
+
+        for target in (rec, rec / "script.js"):
+            resolved = _resolve_local_path(target)
+            assert resolved.table == "sys_script", target
+            assert resolved.sys_id == "br-9", target
+
+    def test_shadowed_table_field_does_not_misroute_a_client_script(self, tmp_path):
+        # client_script's qualifier field is literally named 'table' and holds the
+        # table it RUNS ON, so _metadata.json['table'] is 'incident', not
+        # 'sys_script_client'. Resolving on it would push the script as an
+        # incident record. 'source_table' is the un-shadowable key.
+        rec = tmp_path / "x_app" / "sys_script_client" / "incident" / "SetDefaultState"
+        rec.mkdir(parents=True)
+        (rec / "script.js").write_text("function onLoad() {}", encoding="utf-8")
+        (rec / "_metadata.json").write_text(
+            json.dumps(
+                {
+                    "source_type": "client_script",
+                    "table": "incident",  # the shadowing summary field
+                    "source_table": "sys_script_client",
+                    "sys_id": "cs-1",
+                    "name": "SetDefaultState",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        for target in (rec, rec / "script.js"):
+            resolved = _resolve_local_path(target)
+            assert resolved.table == "sys_script_client", target
+            assert resolved.sys_id == "cs-1", target
+            assert resolved.name == "incident/SetDefaultState", target
+
+    def test_legacy_flat_record_without_metadata_still_resolves(self, tmp_path):
+        # Trees downloaded before nesting have no _metadata.json; the historical
+        # parent-name heuristic must keep working for them.
+        table_dir = tmp_path / "x_app" / "sys_script"
+        rec = table_dir / "OldRule"
+        rec.mkdir(parents=True)
+        (rec / "script.js").write_text("gs.info('x');", encoding="utf-8")
+        (table_dir / "_map.json").write_text(json.dumps({"OldRule": "br-2"}), encoding="utf-8")
+
+        resolved = _resolve_local_path(rec)
+
+        assert (resolved.table, resolved.sys_id, resolved.name) == (
+            "sys_script",
+            "br-2",
+            "OldRule",
+        )

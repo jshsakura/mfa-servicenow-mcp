@@ -376,7 +376,9 @@ class TestDownloadSourceTypes:
 
         # Files landed under each type's own table dir.
         assert (scope_root / "sys_script_include" / "CommitHelper" / "script.js").exists()
-        assert (scope_root / "sys_script" / "Validate_Before_Insert" / "script.js").exists()
+        assert (
+            scope_root / "sys_script" / "x_app_request" / "Validate_Before_Insert" / "script.js"
+        ).exists()
 
         # Merge is deterministic: type_results follows input order.
         assert list(result["type_results"].keys()) == ["script_include", "business_rule"]
@@ -824,7 +826,7 @@ class TestDownloadSourcesAPI:
 
         # Folder is qualified by the parent web service so same-named operations
         # across web services don't collide.
-        rest_dir = tmp_path / "sys_ws_operation" / "RequestAPI.Get_Request_Status"
+        rest_dir = tmp_path / "sys_ws_operation" / "RequestAPI" / "Get_Request_Status"
         assert (rest_dir / "operation_script.js").exists()
         script = (rest_dir / "operation_script.js").read_text()
         assert "x_app_request" in script
@@ -875,8 +877,8 @@ class TestDownloadSourcesAPI:
 
         assert result["success"] is True
         op_root = tmp_path / "sys_ws_operation"
-        a_dir = op_root / "updateSOSAP.end"
-        b_dir = op_root / "otherSvc.end"
+        a_dir = op_root / "updateSOSAP" / "end"
+        b_dir = op_root / "otherSvc" / "end"
         # Both bodies present in distinct folders — nothing overwritten.
         assert (a_dir / "operation_script.js").read_text() == "// updateSOSAP end body\n"
         assert (b_dir / "operation_script.js").read_text() == "// otherSvc end body\n"
@@ -886,12 +888,14 @@ class TestDownloadSourcesAPI:
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")
-    def test_unqualified_name_collision_warns_and_keeps_first(
+    def test_unqualified_name_collision_suffixes_both_and_warns(
         self, mock_query_page, mock_query_all, config, auth, tmp_path
     ):
         # Net for tables with no folder qualifier: two records mapping to one
-        # folder must warn loudly and write only the first — never silently
-        # scramble bodies/sys_ids like the pre-fix scripted_rest bug did.
+        # folder must BOTH land on disk, sys_id-suffixed, and warn. Dropping the
+        # loser (the pre-fix behavior) made the tree look complete while silently
+        # missing records. Suffixing every member of a duplicate group also keeps
+        # the folder a pure function of the record, not of result-set order.
         dups = [
             {
                 "sys_id": "fix-a",
@@ -926,12 +930,52 @@ class TestDownloadSourcesAPI:
         )
 
         assert any(
-            "COLLISION" in w and "fix-b" in w for w in result.get("warnings", [])
+            "not unique" in w and "Dup_Script" in w for w in result.get("warnings", [])
         ), result.get("warnings")
-        # First writer keeps the folder body untouched.
-        dup_dir = tmp_path / "sys_script_fix" / "Dup_Script"
-        assert (dup_dir / "script.js").read_text() == "// first\n"
-        assert json.loads((dup_dir / "_metadata.json").read_text())["sys_id"] == "fix-a"
+        # Neither record is dropped: each keeps its own body and its own sys_id,
+        # and the bare colliding folder is never created.
+        assert not (tmp_path / "sys_script_fix" / "Dup_Script").exists()
+        for sys_id, body in (("fix-a", "// first\n"), ("fix-b", "// second\n")):
+            dup_dir = tmp_path / "sys_script_fix" / f"Dup_Script.{sys_id}"
+            assert (dup_dir / "script.js").read_text() == body
+            assert json.loads((dup_dir / "_metadata.json").read_text())["sys_id"] == sys_id
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_collision_folders_are_independent_of_record_order(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        # A reordered result set must not flip which record owns which folder,
+        # or every download would churn the tree.
+        def _dup(sys_id, body):
+            return {
+                "sys_id": sys_id,
+                "name": "Dup Script",
+                "active": "false",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-04-01 18:00:00",
+                "sys_updated_by": "admin",
+                "script": body,
+            }
+
+        seen = []
+        for order in (
+            [_dup("fix-a", "// a\n"), _dup("fix-b", "// b\n")],
+            [_dup("fix-b", "// b\n"), _dup("fix-a", "// a\n")],
+        ):
+            out = tmp_path / f"run{len(seen)}"
+            mock_query_all.side_effect = _query_all_side_effect_for(
+                {"sys_script_fix": _strip_source(order)}
+            )
+            mock_query_page.side_effect = _page_side_effect_for(order)
+            download_server_sources(
+                config,
+                auth,
+                DownloadSourcesParams(scope="x_app", output_dir=str(out), families=["admin"]),
+            )
+            seen.append(sorted(p.name for p in (out / "sys_script_fix").iterdir() if p.is_dir()))
+
+        assert seen[0] == seen[1] == ["Dup_Script.fix-a", "Dup_Script.fix-b"]
 
 
 class TestDownloadSourcesSecurity:
@@ -1439,7 +1483,7 @@ class TestFieldExtensions:
             root=tmp_path,
         )
 
-        br_dir = scope_root / "sys_script" / "Validate_Before_Insert"
+        br_dir = scope_root / "sys_script" / "x_app_request" / "Validate_Before_Insert"
         assert (br_dir / "script.js").exists()
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
@@ -1461,7 +1505,7 @@ class TestFieldExtensions:
             root=tmp_path,
         )
 
-        rest_dir = scope_root / "sys_ws_operation" / "RequestAPI.Get_Request_Status"
+        rest_dir = scope_root / "sys_ws_operation" / "RequestAPI" / "Get_Request_Status"
         assert (rest_dir / "operation_script.js").exists()
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
@@ -2201,3 +2245,24 @@ class TestBulkDownloadRetry:
         assert result["type_results"]["script_include"]["count"] == 0
         assert any("fetch failed" in w for w in result["warnings"])
         assert mock_query_all.call_count == 1  # no retry
+
+
+def test_qualified_type_keeps_uniform_depth_when_qualifier_is_blank():
+    """A qualified type must never mix depths: a record with an empty qualifier
+    (a notification with no target table) still nests, under a reserved segment.
+    Otherwise `ls <table>/` shows records and qualifier groups side by side."""
+    from servicenow_mcp.tools.source_tools import SOURCE_CONFIG, _record_identifier_and_folder
+
+    cfg = SOURCE_CONFIG["email_notification"]
+    _, qualified = _record_identifier_and_folder(
+        {"sys_id": "n-1", "name": "Escalated", "collection": "incident"}, cfg, "x_app"
+    )
+    _, blank = _record_identifier_and_folder(
+        {"sys_id": "n-2", "name": "Orphan", "collection": ""}, cfg, "x_app"
+    )
+    _, nameless = _record_identifier_and_folder({"sys_id": "n-3"}, cfg, "x_app")
+
+    assert qualified == "incident/Escalated"
+    assert blank == "_unqualified/Orphan"
+    assert nameless == "_unqualified/n-3"
+    assert len({p.count("/") for p in (qualified, blank, nameless)}) == 1
