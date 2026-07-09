@@ -429,6 +429,48 @@ def _read_metadata_field(record_dir: Path, field: str) -> str:
     return ""
 
 
+def _safe_rel_path(name: str) -> str:
+    """Sanitize a record's folder path SEGMENT BY SEGMENT.
+
+    A qualified record's folder is a relative path ('<qualifier>/<name>'), so
+    running _safe_name over the whole string would fold its separator into an
+    underscore and point at a directory that does not exist. Plain names are
+    unaffected, so this is a safe drop-in for the historical single-segment call.
+    """
+    return "/".join(_safe_name(seg) for seg in name.split("/") if seg)
+
+
+def _resolve_table_dir(record_dir: Path) -> Optional[Tuple[str, Path]]:
+    """(table, table_dir) for a record folder, read from its own _metadata.json.
+
+    Deriving the table from ``record_dir.parent.name`` assumed a fixed depth
+    (<table>/<name>/), which broke the moment a qualified type nested its records
+    (<table>/<qualifier>/<name>/): the parent is then the QUALIFIER, and a push
+    either rejected the record or — when a qualifier happened to share a real
+    table's name (a business rule on 'sys_script_include') — resolved the WRONG
+    table. The record's metadata carries its own table, so depth stops mattering.
+
+    Reads 'source_table', NOT 'table': client_script and ui_action carry a summary
+    field named 'table' (the table they TARGET), which overwrites 'table' in the
+    metadata. Trusting it would resolve a client script into its target table's
+    directory. Legacy trees predate 'source_table', so 'table' remains the
+    fallback — harmless there, because a shadowed value never matches an ancestor.
+
+    Walks up to the nearest ancestor named for that table. Returns None when the
+    metadata is absent (legacy trees) or the ancestor is missing, so callers can
+    fall back to the historical parent-name heuristic.
+    """
+    table = _read_metadata_field(record_dir, "source_table") or _read_metadata_field(
+        record_dir, "table"
+    )
+    if not table:
+        return None
+    for ancestor in record_dir.parents:
+        if ancestor.name == table:
+            return table, ancestor
+    return None
+
+
 def _resolve_remote_identity(
     record_dir: Path, table: str, folder_name: str
 ) -> Tuple[str, Optional[tuple]]:
@@ -484,6 +526,12 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
       .../sp_angular_provider/<name>/script.js    -> (sp_angular_provider, script)
       .../sys_script_include/<name>/script.js     -> (sys_script_include, script)
 
+    Qualified types nest one level deeper (<table>/<qualifier>/<name>/<file>), so
+    the table is read from the record's _metadata.json — never from the parent
+    directory's name. See _resolve_table_dir.
+      .../sys_script/<collection>/<name>/script.js          -> (sys_script, script)
+      .../sys_ws_operation/<web_service>/<name>/...         -> (sys_ws_operation, ...)
+
     Flat layout (legacy single-file, still accepted for back-compat):
       .../sp_angular_provider/<name>.script.js    -> (sp_angular_provider, script)
       .../sp_css/<name>.css.scss                  -> (sp_css, css)
@@ -504,8 +552,12 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
     # Case 1: Directory -> a record folder (<table>/<name>/) in either a
     # folder-based table or a single-file table downloaded in folder layout.
     if path.is_dir():
-        table_dir = path.parent
-        table_name = table_dir.name
+        resolved_dir = _resolve_table_dir(path)
+        if resolved_dir is not None:
+            table_name, table_dir = resolved_dir
+        else:
+            table_dir = path.parent
+            table_name = table_dir.name
         file_field_map = _folder_layout_field_map(table_name)
         if file_field_map is None:
             raise ValueError(
@@ -515,7 +567,7 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
                 f"manage_portal_component(action='update_code', table='{table_name}', "
                 f"sys_id=..., update_data={{...}})."
             )
-        folder_name = path.name
+        folder_name = path.relative_to(table_dir).as_posix()
         map_data = _read_map_json(table_dir)
         # Prefer this record's own sys_id from _metadata.json (collision-proof);
         # _map.json keys are original names; folder names are _safe_name(original),
@@ -561,10 +613,14 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
     # tables AND single-file tables downloaded in folder layout.
     #   e.g. .../sp_widget/<folder>/script.js
     #   e.g. .../sp_angular_provider/<name>/script.js   (folder layout)
-    if _folder_layout_field_map(grandparent.name) is not None:
-        table_name = grandparent.name
-        folder_name = parent.name
-        table_dir = grandparent
+    resolved_dir = _resolve_table_dir(parent)
+    if resolved_dir is not None and _folder_layout_field_map(resolved_dir[0]) is None:
+        resolved_dir = None  # metadata names a table we cannot push by path
+    if resolved_dir is None and _folder_layout_field_map(grandparent.name) is not None:
+        resolved_dir = (grandparent.name, grandparent)
+    if resolved_dir is not None:
+        table_name, table_dir = resolved_dir
+        folder_name = parent.relative_to(table_dir).as_posix()
         filename = path.name
         file_field_map = _folder_layout_field_map(table_name) or {}
         _field_name_opt = file_field_map.get(filename)
@@ -652,17 +708,17 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
 
 
 def _reverse_lookup_map(map_data: Dict[str, str], safe_name: str) -> str | None:
-    """Find sys_id by matching _safe_name(key) == safe_name."""
+    """Find sys_id by matching _safe_rel_path(key) == safe_name."""
     for key, sys_id in map_data.items():
-        if _safe_name(key) == safe_name or key == safe_name:
+        if _safe_rel_path(key) == safe_name or key == safe_name:
             return sys_id
     return None
 
 
 def _reverse_lookup_name(map_data: Dict[str, str], safe_name: str) -> str | None:
-    """Find original name key by matching _safe_name(key) == safe_name."""
+    """Find original name key by matching _safe_rel_path(key) == safe_name."""
     for key in map_data:
-        if _safe_name(key) == safe_name or key == safe_name:
+        if _safe_rel_path(key) == safe_name or key == safe_name:
             return key
     return None
 
@@ -1008,10 +1064,11 @@ def _scan_download_root(
             remote_updated_by = rmeta.get("by", "")
             has_sync_meta = bool(local_updated_on)
 
-            # Folder layout (<table>/<name>/<field>.<ext>) is what the
-            # downloaders write for every table, so check it first. Single-
-            # file tables also accept the historical flat "<name>.<suffix>".
-            safe = _safe_name(name)
+            # Folder layout (<table>/<name>/<field>.<ext>, or
+            # <table>/<qualifier>/<name>/<field>.<ext> for qualified types) is
+            # what the downloaders write for every table, so check it first.
+            # Single-file tables also accept the historical flat "<name>.<suffix>".
+            safe = _safe_rel_path(name)
             folder = table_dir / safe
             folder_map = _folder_layout_field_map(table_name) or {}
             local_files = [str(folder / fn) for fn in folder_map if (folder / fn).exists()]
@@ -1084,7 +1141,7 @@ def _scan_download_root(
 def _component_field_files(table_dir: Path, name: str, table_name: str) -> Dict[str, Path]:
     """field_name -> on-disk file for one downloaded component. Local-only, no network."""
     fields: Dict[str, Path] = {}
-    safe = _safe_name(name)
+    safe = _safe_rel_path(name)
     folder = table_dir / safe
     folder_map = _folder_layout_field_map(table_name) or {}
     for filename, field_name in folder_map.items():
