@@ -122,7 +122,7 @@ If the server starts and a browser window opens for login, you're ready to confi
 
 > **Project-local recommended**: Use project-scoped config so each project can connect to a different ServiceNow instance.
 
-> **Single active instance by design**: ordinary tools route to one active ServiceNow instance only. This intentionally avoids request-time write switching, which can cause accidental writes to production when moving between dev/test/prod.
+> **Deliberate write targeting**: ordinary tools route to the active instance (`SERVICENOW_ACTIVE_INSTANCE`). Writing to a *different* configured instance is possible but never silent — it requires naming the target and approving it on that same call (see [Multi-Instance Mode](#multi-instance-mode-comparison--guarded-single-call-writes)), so moving between dev/test/prod cannot cause an accidental production write.
 
 ---
 
@@ -138,30 +138,24 @@ The MCP endpoint is `http://127.0.0.1:8000/mcp`; `/health` returns a lightweight
 
 ---
 
-## Read-Only Data Comparison Mode
+## Multi-Instance Mode (comparison + guarded single-call writes)
 
-For dev/test drift analysis, you can configure named instances with `SERVICENOW_INSTANCE_CONFIG`. This mode is intentionally limited to data comparison:
+Configure named instances (e.g. `dev` / `test` / `prod` aliases) with `SERVICENOW_INSTANCE_CONFIG` so one session can both compare across environments AND deploy to a chosen one — without switching the active instance or restarting the server. Route a single call with the `instance=<alias>` argument:
 
-- Ordinary tools still route only to `SERVICENOW_ACTIVE_INSTANCE`.
-- Write-capable tools do not expose an instance selector.
-- `compare_instances` is read-only and compares records across aliases.
-- `list_instances` only reports configured aliases.
-- Configure comparison aliases with read-only packages and `allow_writes=false`.
-- Do not use this mode for write work across environments.
+- **Read-only** calls route freely: `instance=test` reads `test` while `dev` stays active.
+- **Writes** to a non-active instance are allowed but never silent. The one call must *name the target and approve it* — `instance=test confirm_instance=test confirm=approve` — and the target must have `allow_writes=true`. Only that one write is routed there; the active instance is restored immediately after. A target/confirm mismatch or a read-only target is refused with an explicit message, so a dev/test/prod mix-up cannot land on the wrong instance.
+- **The write is verified on the target.** The result echoes `target_instance` and a `landed` verdict: the tool re-reads the pushed fields on the target and returns `WRITE_NOT_LANDED` if the content did not persist (e.g. an `sp_*` Service Portal field silently dropped). "Success" means the content is confirmed present on the intended instance — not merely that the request returned 200.
+- `compare_instances` compares records across aliases (read-only); `list_instances` reports the configured aliases and each one's write flag.
+- Keep `prod` at `allow_writes=false` unless you deliberately intend production writes — then a forgotten flag can never enable one.
+
+> For promoting MANY records (especially Service Portal / scoped tables), prefer an Update Set — commit on the source, retrieve + commit on the target in the UI — over per-record cross-instance writes; it bypasses the per-table/SP ACLs that single Table-API writes hit.
 
 ```bash
 SERVICENOW_ACTIVE_INSTANCE=dev
 SERVICENOW_INSTANCE_CONFIG='{
-  "dev": {
-    "url": "https://acme-dev.service-now.com",
-    "tool_package": "standard",
-    "allow_writes": false
-  },
-  "test": {
-    "url": "https://acme-test.service-now.com",
-    "tool_package": "standard",
-    "allow_writes": false
-  }
+  "dev":  { "url": "https://acme-dev.service-now.com",  "auth_type": "browser", "allow_writes": true },
+  "test": { "url": "https://acme-test.service-now.com", "auth_type": "browser", "allow_writes": true },
+  "prod": { "url": "https://acme-prod.service-now.com", "auth_type": "browser", "allow_writes": false }
 }'
 ```
 

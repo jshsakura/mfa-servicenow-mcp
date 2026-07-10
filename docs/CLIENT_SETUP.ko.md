@@ -124,7 +124,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 > **프로젝트 로컬 설정을 권장합니다**: 프로젝트 단위로 설정하면 각 프로젝트가 서로 다른 ServiceNow 인스턴스에 연결할 수 있습니다.
 
-> **단일 active 인스턴스 설계**: 일반 도구는 하나의 active ServiceNow 인스턴스에만 라우팅됩니다. dev/test/prod 사이를 오갈 때 운영에 잘못 쓰는 사고를 막기 위해 요청 시점의 쓰기 대상 전환은 의도적으로 피합니다.
+> **의도적 쓰기 타깃팅**: 일반 도구는 active 인스턴스(`SERVICENOW_ACTIVE_INSTANCE`)로 라우팅됩니다. *다른* 설정된 인스턴스로 쓰는 것도 가능하지만 절대 조용히 되지 않습니다 — 같은 호출에서 타깃을 명시하고 승인해야 합니다([멀티 인스턴스 모드](#멀티-인스턴스-모드-비교--가드된-단일-호출-쓰기) 참고). 그래서 dev/test/prod를 오가도 운영에 잘못 쓰는 사고가 나지 않습니다.
 
 ---
 
@@ -140,30 +140,24 @@ MCP 엔드포인트는 `http://127.0.0.1:8000/mcp`이고, `/health`는 가벼운
 
 ---
 
-## 읽기 전용 데이터 비교 모드
+## 멀티 인스턴스 모드 (비교 + 가드된 단일 호출 쓰기)
 
-dev/test drift 분석이 필요할 때 `SERVICENOW_INSTANCE_CONFIG`로 named instance를 설정할 수 있습니다. 이 모드는 의도적으로 데이터 비교 용도로만 제한됩니다.
+`SERVICENOW_INSTANCE_CONFIG`로 named instance(예: `dev` / `test` / `prod` alias)를 설정하면, 한 세션에서 환경 간 비교도 하고 **원하는 인스턴스로 배포**도 할 수 있습니다 — active 인스턴스를 바꾸거나 서버를 재시작할 필요 없이. 단일 호출에 `instance=<alias>` 인자를 넘겨 라우팅합니다.
 
-- 일반 도구는 여전히 `SERVICENOW_ACTIVE_INSTANCE`로만 라우팅됩니다.
-- 쓰기 가능한 도구에는 인스턴스 선택 파라미터가 없습니다.
-- `compare_instances`는 alias 간 레코드를 read-only로 비교합니다.
-- `list_instances`는 설정된 alias만 보여줍니다.
-- 비교 alias는 read-only 패키지와 `allow_writes=false`로 설정하세요.
-- 이 모드를 환경 간 쓰기 작업에 사용하지 마세요.
+- **읽기 전용** 호출은 자유롭게 라우팅됩니다: `instance=test`면 active가 `dev`여도 `test`를 읽습니다.
+- **비활성 인스턴스로의 쓰기**는 허용되지만 절대 조용히 안 됩니다. 그 한 호출에서 *타깃을 명시하고 승인*해야 합니다 — `instance=test confirm_instance=test confirm=approve` — 그리고 타깃이 `allow_writes=true`여야 합니다. 딱 그 한 번의 쓰기만 라우팅되고, 직후 active가 복원됩니다. 타깃/confirm 불일치나 read-only 타깃은 명시적 메시지로 거부되므로, dev/test/prod가 섞여도 엉뚱한 인스턴스에 안 씁니다.
+- **쓰기는 타깃에서 검증됩니다.** 결과에 `target_instance`와 `landed` 판정이 실립니다: 툴이 푸시한 필드를 타깃에서 재조회해, 내용이 안 남았으면(예: `sp_*` Service Portal 필드 silent drop) `WRITE_NOT_LANDED`를 반환합니다. "성공"은 요청이 200을 받은 게 아니라 **의도한 인스턴스에 내용이 실제로 있음이 확인**됐다는 뜻입니다.
+- `compare_instances`는 alias 간 레코드를 read-only로 비교하고, `list_instances`는 설정된 alias와 각자의 쓰기 플래그를 보여줍니다.
+- `prod`는 의도적으로 운영 쓰기를 하려는 게 아니면 `allow_writes=false`로 두세요 — 그러면 플래그를 깜빡해도 운영 쓰기가 절대 열리지 않습니다.
+
+> **다수** 레코드 승격(특히 Service Portal / scoped 테이블)은 레코드별 cross-instance 쓰기보다 Update Set을 쓰세요 — 소스에서 commit, 타깃 UI에서 retrieve + commit. 단일 Table-API 쓰기가 걸리는 per-table/SP ACL을 우회합니다.
 
 ```bash
 SERVICENOW_ACTIVE_INSTANCE=dev
 SERVICENOW_INSTANCE_CONFIG='{
-  "dev": {
-    "url": "https://acme-dev.service-now.com",
-    "tool_package": "standard",
-    "allow_writes": false
-  },
-  "test": {
-    "url": "https://acme-test.service-now.com",
-    "tool_package": "standard",
-    "allow_writes": false
-  }
+  "dev":  { "url": "https://acme-dev.service-now.com",  "auth_type": "browser", "allow_writes": true },
+  "test": { "url": "https://acme-test.service-now.com", "auth_type": "browser", "allow_writes": true },
+  "prod": { "url": "https://acme-prod.service-now.com", "auth_type": "browser", "allow_writes": false }
 }'
 ```
 

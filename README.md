@@ -358,7 +358,7 @@ The examples above are single-instance — that stays the default. To switch bet
 }
 ```
 
-`SERVICENOW_ACTIVE_INSTANCE` is the instance writes hit; read tools can still peek at the others with `instance="test"`. Full rules (write gating, comparison, `${ENV}`): [Read-Only Data Comparison Mode](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md#read-only-data-comparison-mode).
+`SERVICENOW_ACTIVE_INSTANCE` is where writes default; read tools peek at the others with `instance="test"`, and a single write can be routed to a non-active instance with `instance="test" confirm_instance="test" confirm="approve"` (guarded, and verified after it lands). Full rules (write routing, gating, comparison, `${ENV}`): [Multi-Instance Mode](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md#multi-instance-mode-comparison--guarded-single-call-writes).
 
 ---
 
@@ -464,11 +464,11 @@ Read-only (safe defaults):
 | `platform_developer` | 43 | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
 | `full` | 57 | ⚠️ **Most advanced** — all write tools across all domains at once |
 
-Each server process is intentionally bound to one active ServiceNow instance for ordinary tools. For safety, there is no per-request write routing across instances.
+Each server process binds to one active ServiceNow instance for ordinary tools. A write to a *different* configured instance is possible per call, but only through an explicit, guarded acknowledgement (below) — never a silent switch.
 
-### Read-Only Data Comparison Mode
+### Multi-Instance Mode (comparison + guarded single-call writes)
 
-When you need to compare development and test data, you can opt into named instances with `SERVICENOW_INSTANCE_CONFIG`. `SERVICENOW_ACTIVE_INSTANCE` is still required.
+When you need to compare dev/test/prod or deploy to a chosen one, opt into named instances with `SERVICENOW_INSTANCE_CONFIG`. `SERVICENOW_ACTIVE_INSTANCE` is still required.
 
 Two things are global, one is per-instance:
 
@@ -478,10 +478,10 @@ Two things are global, one is per-instance:
 
 Other rules:
 
-- Write-capable tools always use the active instance and do not accept an instance selector.
-- **Read tools accept an `instance` argument** to run a single read against a non-active instance — e.g. `sn_query(instance="test", table="incident", ...)` or `sn_health(instance="test")` while `dev` stays active. Every read tool in your package exposes it (enum of configured aliases); write tools don't. This is how you peek at another instance's data without restarting.
-- `list_instances` reports configured aliases plus the active one. `compare_instances` performs read-only table comparisons across aliases.
-- Switching the *active* (write) instance requires restarting the MCP client — it is read once at server startup, not refreshed live.
+- **Read tools accept an `instance` argument** to run a single read against a non-active instance — e.g. `sn_query(instance="test", table="incident", ...)` or `sn_health(instance="test")` while `dev` stays active. Every read tool in your package exposes it in its schema (enum of configured aliases). This is how you peek at another instance's data without restarting.
+- **A single write can be routed to a non-active instance**, but never silently. Pass `instance="test" confirm_instance="test" confirm="approve"` (target named twice — as intent and acknowledgement) and the target must have `allow_writes=true`. Only that one write goes there; the active instance is restored immediately after. A target/confirm mismatch or a read-only target is refused with an explicit message, so a dev/test/prod mix-up cannot land on the wrong instance. The write is then re-read on the target and reported as `landed` (or `WRITE_NOT_LANDED`), with `target_instance` echoed — "success" means the content is confirmed present on the intended instance, not just a 200.
+- `list_instances` reports configured aliases plus the active one and each one's write flag. `compare_instances` performs read-only table comparisons across aliases.
+- Switching the *default* active instance requires restarting the MCP client — it is read once at server startup, not refreshed live. (Per-call `instance=` routing above does not need a restart.)
 
 Example — shared global login, per-instance write gating:
 
@@ -492,7 +492,8 @@ export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
   "dev":  { "url": "https://acme-dev.service-now.com",  "allow_writes": true },
-  "test": { "url": "https://acme-test.service-now.com", "allow_writes": false }
+  "test": { "url": "https://acme-test.service-now.com", "allow_writes": true },
+  "prod": { "url": "https://acme-prod.service-now.com", "allow_writes": false }
 }'
 ```
 
@@ -502,7 +503,7 @@ To give an instance its own login instead, add the fields to that alias (a `${EN
 "prod": { "url": "https://acme.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
-Use `compare_instances` for dev/test drift checks. Use separate project/client configs for actual work against a different instance.
+Use `compare_instances` for dev/test drift checks. For promoting MANY records (especially Service Portal / scoped tables), prefer an Update Set (commit on source, retrieve + commit on target in the UI) over per-record cross-instance writes — it bypasses the per-table/SP ACLs that single Table-API writes hit.
 
 If a tool is not available in your current package, the server tells you which package includes it.
 
