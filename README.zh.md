@@ -358,7 +358,7 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 }
 ```
 
-`SERVICENOW_ACTIVE_INSTANCE` 是写入操作命中的实例；读取工具仍可通过 `instance="test"` 窥视其他实例。完整规则（写入门控、比较、`${ENV}`）：[只读数据比较模式](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md#read-only-data-comparison-mode)。
+`SERVICENOW_ACTIVE_INSTANCE` 是写入操作的默认目标；读取工具可通过 `instance="test"` 窥视其他实例，而单次写入也可通过 `instance="test" confirm_instance="test" confirm="approve"` 路由到非活动实例（受保护，且在写入落地后进行验证）。完整规则（写入路由、门控、比较、`${ENV}`）：[多实例模式](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.zh.md#多实例模式比较--受保护的单次调用写入)。
 
 ---
 
@@ -464,11 +464,11 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 | `platform_developer` | 43 | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
 | `full` | 57 | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
 
-对于普通工具，每个服务器进程都有意绑定到一个活动的 ServiceNow 实例。出于安全考虑，不存在跨实例的逐请求写入路由。
+对于普通工具，每个服务器进程都绑定到一个活动的 ServiceNow 实例。向*另一个*已配置实例的写入可以逐调用完成，但只能通过显式、受保护的确认（见下文）——绝不会静默切换。
 
-### 只读数据比较模式
+### 多实例模式（比较 + 受保护的单次调用写入）
 
-当你需要比较开发和测试数据时，可以通过 `SERVICENOW_INSTANCE_CONFIG` 选择启用命名实例。仍需要 `SERVICENOW_ACTIVE_INSTANCE`。
+当你需要比较 dev/test/prod 或部署到选定的实例时，可以通过 `SERVICENOW_INSTANCE_CONFIG` 选择启用命名实例。仍需要 `SERVICENOW_ACTIVE_INSTANCE`。
 
 两样东西是全局的，一样是逐实例的：
 
@@ -478,10 +478,10 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 其他规则：
 
-- 具备写入能力的工具始终使用活动实例，且不接受实例选择器。
-- **读取工具接受 `instance` 参数**，以针对非活动实例运行单次读取——例如在 `dev` 保持活动时执行 `sn_query(instance="test", table="incident", ...)` 或 `sn_health(instance="test")`。你工具包中的每个读取工具都暴露它（已配置别名的枚举）；写入工具则不暴露。这就是你在不重启的情况下窥视另一个实例数据的方式。
-- `list_instances` 报告已配置的别名以及活动的别名。`compare_instances` 跨别名执行只读表比较。
-- 切换*活动*（写入）实例需要重启 MCP 客户端——它在服务器启动时被读取一次，不会实时刷新。
+- **读取工具接受 `instance` 参数**，以针对非活动实例运行单次读取——例如在 `dev` 保持活动时执行 `sn_query(instance="test", table="incident", ...)` 或 `sn_health(instance="test")`。你工具包中的每个读取工具都在其 schema 中暴露它（已配置别名的枚举）。这就是你在不重启的情况下窥视另一个实例数据的方式。
+- **单次写入也可以路由到非活动实例**，但绝不会静默进行。传入 `instance="test" confirm_instance="test" confirm="approve"`（目标被命名两次——作为意图和确认），且目标必须设有 `allow_writes=true`。只有那一次写入会被路由到那里；紧接着活动实例即被恢复。目标/confirm 不匹配或只读目标会以明确消息被拒绝，因此 dev/test/prod 混淆不会落到错误的实例上。随后会在目标实例上重新读取该写入并报告为 `landed`（或 `WRITE_NOT_LANDED`），并回显 `target_instance`——"成功"意味着内容已确认存在于目标实例上，而不仅仅是返回了 200。
+- `list_instances` 报告已配置的别名、活动的别名以及各自的写入标志。`compare_instances` 跨别名执行只读表比较。
+- 切换*默认*活动实例需要重启 MCP 客户端——它在服务器启动时被读取一次，不会实时刷新。（上述逐调用的 `instance=` 路由无需重启。）
 
 示例——共享的全局登录、逐实例的写入门控：
 
@@ -492,7 +492,8 @@ export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
   "dev":  { "url": "https://acme-dev.service-now.com",  "allow_writes": true },
-  "test": { "url": "https://acme-test.service-now.com", "allow_writes": false }
+  "test": { "url": "https://acme-test.service-now.com", "allow_writes": true },
+  "prod": { "url": "https://acme-prod.service-now.com", "allow_writes": false }
 }'
 ```
 
@@ -502,7 +503,7 @@ export SERVICENOW_INSTANCE_CONFIG='{
 "prod": { "url": "https://acme.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
-使用 `compare_instances` 进行 dev/test 漂移检查。针对不同实例的实际工作，请使用独立的项目/客户端配置。
+使用 `compare_instances` 进行 dev/test 漂移检查。对于**批量**记录的推广（尤其是 Service Portal / scoped 表），相比逐记录的跨实例写入，更推荐使用 Update Set（在源实例 commit，在目标 UI 中 retrieve + commit）——它可以绕过单次 Table-API 写入会碰到的 per-table/SP ACL。
 
 如果某个工具在你当前的工具包中不可用，服务器会告诉你哪个工具包包含它。
 

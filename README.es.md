@@ -358,7 +358,7 @@ Los ejemplos de arriba son de instancia única — eso sigue siendo el valor por
 }
 ```
 
-`SERVICENOW_ACTIVE_INSTANCE` es la instancia que reciben las escrituras; las herramientas de lectura aún pueden echar un vistazo a las demás con `instance="test"`. Reglas completas (control de escritura, comparación, `${ENV}`): [Modo de comparación de datos de solo lectura](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md#read-only-data-comparison-mode).
+`SERVICENOW_ACTIVE_INSTANCE` es el destino por defecto de las escrituras; las herramientas de lectura echan un vistazo a las demás con `instance="test"`, y una sola escritura puede enrutarse a una instancia no activa con `instance="test" confirm_instance="test" confirm="approve"` (con guarda, y verificada tras aplicarse). Reglas completas (enrutamiento de escritura, control, comparación, `${ENV}`): [Modo Multi-Instancia](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.es.md#modo-multi-instancia-comparación--escrituras-guardadas-de-una-sola-llamada).
 
 ---
 
@@ -464,11 +464,11 @@ Solo lectura (valores predeterminados seguros):
 | `platform_developer` | 43 | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
 | `full` | 57 | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
 
-Cada proceso de servidor está intencionadamente vinculado a una instancia de ServiceNow activa para las herramientas ordinarias. Por seguridad, no hay enrutamiento de escritura por solicitud entre instancias.
+Cada proceso de servidor se vincula a una instancia de ServiceNow activa para las herramientas ordinarias. Una escritura hacia una instancia configurada *distinta* es posible por llamada, pero solo mediante un reconocimiento explícito y guardado (abajo) — nunca un cambio silencioso.
 
-### Modo de comparación de datos de solo lectura
+### Modo Multi-Instancia (comparación + escrituras guardadas de una sola llamada)
 
-Cuando necesites comparar datos de desarrollo y de test, puedes optar por instancias con nombre con `SERVICENOW_INSTANCE_CONFIG`. `SERVICENOW_ACTIVE_INSTANCE` sigue siendo obligatorio.
+Cuando necesites comparar dev/test/prod o desplegar en una de ellas, opta por instancias con nombre con `SERVICENOW_INSTANCE_CONFIG`. `SERVICENOW_ACTIVE_INSTANCE` sigue siendo obligatorio.
 
 Dos cosas son globales, una es por instancia:
 
@@ -478,10 +478,10 @@ Dos cosas son globales, una es por instancia:
 
 Otras reglas:
 
-- Las herramientas con capacidad de escritura siempre usan la instancia activa y no aceptan un selector de instancia.
-- **Las herramientas de lectura aceptan un argumento `instance`** para ejecutar una sola lectura contra una instancia no activa — p. ej. `sn_query(instance="test", table="incident", ...)` o `sn_health(instance="test")` mientras `dev` permanece activa. Cada herramienta de lectura de tu paquete lo expone (enum de los alias configurados); las herramientas de escritura no. Así es como echas un vistazo a los datos de otra instancia sin reiniciar.
-- `list_instances` informa de los alias configurados más el activo. `compare_instances` realiza comparaciones de tablas de solo lectura entre alias.
-- Cambiar la instancia *activa* (de escritura) requiere reiniciar el cliente MCP — se lee una vez al arrancar el servidor, no se refresca en vivo.
+- **Las herramientas de lectura aceptan un argumento `instance`** para ejecutar una sola lectura contra una instancia no activa — p. ej. `sn_query(instance="test", table="incident", ...)` o `sn_health(instance="test")` mientras `dev` permanece activa. Cada herramienta de lectura de tu paquete lo expone en su esquema (enum de los alias configurados). Así es como echas un vistazo a los datos de otra instancia sin reiniciar.
+- **Una sola escritura puede enrutarse a una instancia no activa**, pero nunca de forma silenciosa. Pasa `instance="test" confirm_instance="test" confirm="approve"` (el destino nombrado dos veces — como intención y como reconocimiento) y el destino debe tener `allow_writes=true`. Solo esa escritura se enruta allí; la instancia activa se restaura inmediatamente después. Un desajuste entre destino/confirm o un destino de solo lectura se rechaza con un mensaje explícito, de modo que una confusión entre dev/test/prod no puede acabar en la instancia equivocada. Luego la escritura se vuelve a leer en el destino y se informa como `landed` (o `WRITE_NOT_LANDED`), con `target_instance` incluido — «éxito» significa que se ha confirmado que el contenido está presente en la instancia prevista, no solo un 200.
+- `list_instances` informa de los alias configurados más el activo y el indicador de escritura de cada uno. `compare_instances` realiza comparaciones de tablas de solo lectura entre alias.
+- Cambiar la instancia activa *por defecto* requiere reiniciar el cliente MCP — se lee una vez al arrancar el servidor, no se refresca en vivo. (El enrutamiento por llamada con `instance=` de arriba no necesita reinicio.)
 
 Ejemplo — inicio de sesión global compartido, control de escritura por instancia:
 
@@ -492,7 +492,8 @@ export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
   "dev":  { "url": "https://acme-dev.service-now.com",  "allow_writes": true },
-  "test": { "url": "https://acme-test.service-now.com", "allow_writes": false }
+  "test": { "url": "https://acme-test.service-now.com", "allow_writes": true },
+  "prod": { "url": "https://acme-prod.service-now.com", "allow_writes": false }
 }'
 ```
 
@@ -502,7 +503,7 @@ Para darle a una instancia su propio inicio de sesión en su lugar, añade los c
 "prod": { "url": "https://acme.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
-Usa `compare_instances` para comprobaciones de drift entre dev/test. Usa configuraciones separadas de proyecto/cliente para el trabajo real contra una instancia diferente.
+Usa `compare_instances` para comprobaciones de drift entre dev/test. Para promover MUCHOS registros (especialmente tablas de Service Portal / scoped), prefiere un Update Set (commit en el origen, retrieve + commit en el destino desde la UI) antes que escrituras cross-instance registro por registro — así evita los ACL por tabla/SP que sí bloquean una sola escritura de la Table API.
 
 Si una herramienta no está disponible en tu paquete actual, el servidor te indica qué paquete la incluye.
 

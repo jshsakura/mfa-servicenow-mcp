@@ -190,7 +190,7 @@ Example comparison:
 }
 ```
 
-Use separate project/client configs for actual work against another instance.
+For a single write against a non-active instance, use the guarded `instance=<alias> confirm_instance=<alias> confirm=approve` routing above. For promoting MANY records, prefer an Update Set over per-record cross-instance writes.
 
 ---
 
