@@ -122,7 +122,7 @@ Si el servidor arranca y se abre una ventana del navegador para iniciar sesión,
 
 > **Recomendado a nivel de proyecto**: Usa configuración con alcance de proyecto para que cada proyecto pueda conectarse a una instancia de ServiceNow diferente.
 
-> **Una sola instancia activa por diseño**: las herramientas ordinarias se enrutan a una única instancia activa de ServiceNow. Esto evita intencionadamente el cambio de escritura en tiempo de solicitud, que puede provocar escrituras accidentales en producción al moverse entre dev/test/prod.
+> **Escritura con destino deliberado**: las herramientas ordinarias se enrutan a la instancia activa (`SERVICENOW_ACTIVE_INSTANCE`). Escribir en una instancia configurada *distinta* es posible pero nunca silencioso — requiere nombrar el destino y aprobarlo en esa misma llamada (ver [Modo Multi-Instancia](#modo-multi-instancia-comparación--escrituras-guardadas-de-una-sola-llamada)), de modo que moverse entre dev/test/prod no puede provocar una escritura accidental en producción.
 
 ---
 
@@ -138,30 +138,24 @@ El endpoint MCP es `http://127.0.0.1:8000/mcp`; `/health` devuelve una respuesta
 
 ---
 
-## Modo de comparación de datos de solo lectura
+## Modo Multi-Instancia (comparación + escrituras guardadas de una sola llamada)
 
-Para el análisis de desviaciones (drift) entre dev/test, puedes configurar instancias con nombre mediante `SERVICENOW_INSTANCE_CONFIG`. Este modo está intencionadamente limitado a la comparación de datos:
+Configura instancias con nombre (p. ej. alias `dev` / `test` / `prod`) mediante `SERVICENOW_INSTANCE_CONFIG` para que una misma sesión pueda tanto comparar entre entornos COMO desplegar en uno elegido — sin cambiar la instancia activa ni reiniciar el servidor. Enruta una sola llamada con el argumento `instance=<alias>`:
 
-- Las herramientas ordinarias siguen enrutándose solo a `SERVICENOW_ACTIVE_INSTANCE`.
-- Las herramientas con capacidad de escritura no exponen un selector de instancia.
-- `compare_instances` es de solo lectura y compara registros entre alias.
-- `list_instances` solo informa de los alias configurados.
-- Configura los alias de comparación con paquetes de solo lectura y `allow_writes=false`.
-- No uses este modo para trabajos de escritura entre entornos.
+- Las llamadas **de solo lectura** se enrutan libremente: `instance=test` lee `test` mientras `dev` permanece activa.
+- Las **escrituras** hacia una instancia no activa están permitidas pero nunca son silenciosas. Esa única llamada debe *nombrar el destino y aprobarlo* — `instance=test confirm_instance=test confirm=approve` — y el destino debe tener `allow_writes=true`. Solo esa escritura se enruta allí; la instancia activa se restaura inmediatamente después. Un desajuste entre destino/confirm o un destino de solo lectura se rechaza con un mensaje explícito, de modo que una confusión entre dev/test/prod no puede acabar en la instancia equivocada.
+- **La escritura se verifica en el destino.** El resultado incluye `target_instance` y un veredicto `landed`: la herramienta vuelve a leer los campos empujados en el destino y devuelve `WRITE_NOT_LANDED` si el contenido no persistió (p. ej. un campo `sp_*` de Service Portal descartado en silencio). «Éxito» significa que se ha confirmado que el contenido está presente en la instancia prevista — no solo que la petición devolvió un 200.
+- `compare_instances` compara registros entre alias (de solo lectura); `list_instances` informa de los alias configurados y el indicador de escritura de cada uno.
+- Mantén `prod` en `allow_writes=false` a menos que pretendas deliberadamente escribir en producción — así un indicador olvidado nunca podrá habilitar una.
+
+> Para promover MUCHOS registros (especialmente tablas de Service Portal / scoped), prefiere un Update Set — commit en el origen, retrieve + commit en el destino desde la UI — antes que escrituras cross-instance registro por registro; así evita los ACL por tabla/SP que sí bloquean una sola escritura de la Table API.
 
 ```bash
 SERVICENOW_ACTIVE_INSTANCE=dev
 SERVICENOW_INSTANCE_CONFIG='{
-  "dev": {
-    "url": "https://acme-dev.service-now.com",
-    "tool_package": "standard",
-    "allow_writes": false
-  },
-  "test": {
-    "url": "https://acme-test.service-now.com",
-    "tool_package": "standard",
-    "allow_writes": false
-  }
+  "dev":  { "url": "https://acme-dev.service-now.com",  "auth_type": "browser", "allow_writes": true },
+  "test": { "url": "https://acme-test.service-now.com", "auth_type": "browser", "allow_writes": true },
+  "prod": { "url": "https://acme-prod.service-now.com", "auth_type": "browser", "allow_writes": false }
 }'
 ```
 
@@ -196,7 +190,7 @@ Ejemplo de comparación:
 }
 ```
 
-Usa configuraciones de proyecto/cliente separadas para el trabajo real contra otra instancia.
+Para una sola escritura contra una instancia no activa, usa el enrutamiento protegido `instance=<alias> confirm_instance=<alias> confirm=approve` de arriba. Para promover MUCHOS registros, prefiere un Update Set en lugar de escrituras entre instancias registro por registro.
 
 ---
 
