@@ -783,9 +783,10 @@ class TestUpdateRemoteFromLocal:
                 "script": "var x = 0;",  # different from local "var x = 1;"
                 "sys_updated_on": "2025-01-10 10:00:00",
             },
-            # Second call: fetch after update for sync_meta
+            # Second call: post-write re-read for landing verification + sync_meta
             {
                 "sys_id": "wid-1",
+                "script": "var x = 1;",  # matches local → landing confirmed
                 "sys_updated_on": "2025-01-10 11:00:00",
             },
         ]
@@ -801,6 +802,72 @@ class TestUpdateRemoteFromLocal:
         assert "snapshot" not in result["local_sync"]
         assert result["success"] is True
         mock_update.assert_called_once()
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_silent_non_landing_reported_not_success(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
+    ):
+        # THE trust bug: the Table API returns no error, but the post-write re-read
+        # shows the field did NOT persist (sp_* silent drop). A 200 + bumped
+        # mod_count is NOT proof of landing — the tool must report success:False
+        # and must NOT poison _sync_meta (which would hide the non-landing forever).
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 0;",  # differs from local "var x = 1;" → something to push
+                "sys_updated_on": "2025-01-10 10:00:00",
+            },
+            # post-write re-read: the write was accepted but the field STILL reads
+            # the old value → it silently did not land.
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 0;",  # unchanged → NOT landed
+                "sys_updated_on": "2025-01-10 11:00:00",
+            },
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
+
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert result["success"] is False
+        assert result["landed"] is False
+        assert result["error"] == "WRITE_NOT_LANDED"
+        assert result["fields_not_landed"] == ["script"]
+        assert result["target_instance"] == "https://test.service-now.com"
+        mock_write_meta.assert_not_called()  # baseline NOT poisoned
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_success_echoes_target_instance_and_landed(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
+    ):
+        # A confirmed push echoes WHERE it landed (multi-instance safety) and that
+        # the content was verified present.
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 0;",
+                "sys_updated_on": "2025-01-10 10:00:00",
+            },
+            {"sys_id": "wid-1", "script": "var x = 1;", "sys_updated_on": "2025-01-10 11:00:00"},
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
+
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+        assert result["success"] is True
+        assert result["landed"] is True
+        assert result["target_instance"] == "https://test.service-now.com"
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_push_conflict_includes_risk_naming_other_user(
@@ -848,7 +915,11 @@ class TestUpdateRemoteFromLocal:
                 "sys_updated_by": "alice",
                 "sys_scope": "global",
             },
-            {"sys_id": "si-1", "sys_updated_on": "2025-01-12 11:00:00"},
+            {
+                "sys_id": "si-1",
+                "script": "var gr = new GlideRecord('task');",  # landed = local
+                "sys_updated_on": "2025-01-12 11:00:00",
+            },
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "si-1"}
 
@@ -1095,7 +1166,11 @@ class TestUpdateRemoteFromLocal:
                 "condition": "current.state.changesTo('4')",  # differs from local
                 "sys_updated_on": "2025-01-10 10:00:00",
             },
-            {"sys_id": "br-1", "sys_updated_on": "2025-01-10 11:00:00"},
+            {
+                "sys_id": "br-1",
+                "condition": "current.state.changesTo('3')",  # landed = local
+                "sys_updated_on": "2025-01-10 11:00:00",
+            },
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "br-1"}
 
@@ -1395,7 +1470,11 @@ class TestUpdateRemoteFromLocal:
                 "script": "var x = 99;",
                 "sys_updated_on": "2025-01-15 12:00:00",  # newer
             },
-            {"sys_id": "wid-1", "sys_updated_on": "2025-01-15 13:00:00"},
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 1;",  # landed = local
+                "sys_updated_on": "2025-01-15 13:00:00",
+            },
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
 
@@ -1445,7 +1524,12 @@ class TestUpdateRemoteFromLocal:
                 "css": ".a{}",
                 "sys_updated_on": "2025-01-10 10:00:00",
             },
-            {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 11:00:00"},
+            {
+                "sys_id": "wid-1",
+                "template": "<div>hello</div>",  # landed = local
+                "script": "var x = 1;",  # landed = local
+                "sys_updated_on": "2025-01-10 11:00:00",
+            },
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
 
@@ -2031,7 +2115,11 @@ class TestExtendedSyncCoverage:
                 "script": "var x = 0;",
                 "sys_updated_on": "2025-01-10 10:00:00",
             },
-            {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 11:00:00"},
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 1;",  # landed = local
+                "sys_updated_on": "2025-01-10 11:00:00",
+            },
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
         path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
@@ -2189,7 +2277,11 @@ class TestPushConflictGate:
         # un-forced call surfaces it), force=true overrides a coworker's edit too.
         mock_fetch.side_effect = [
             self._remote(updated_by="coworker@corp.com"),
-            {"sys_id": "wid-1", "sys_updated_on": "2025-01-12 10:00:00"},  # post-update meta
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 1;",  # landed = local
+                "sys_updated_on": "2025-01-12 10:00:00",
+            },  # post-update meta
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
         result = update_remote_from_local(
@@ -2223,7 +2315,11 @@ class TestPushConflictGate:
     ):
         mock_fetch.side_effect = [
             self._remote(updated_by="admin"),
-            {"sys_id": "wid-1", "sys_updated_on": "2025-01-12 10:00:00"},
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 1;",  # landed = local
+                "sys_updated_on": "2025-01-12 10:00:00",
+            },
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
         result = update_remote_from_local(
@@ -2317,7 +2413,11 @@ class TestCrossInstanceDeploy:
                 "sys_updated_on": "2025-01-12 09:00:00",  # newer than dev baseline — but
                 "sys_updated_by": "whoever",  # drift gate is skipped for cross-instance
             },
-            {"sys_id": "TEST-wid-99", "sys_updated_on": "2025-01-12 10:00:00"},
+            {
+                "sys_id": "TEST-wid-99",
+                "script": "var x = 1;",  # landed = local on the target instance
+                "sys_updated_on": "2025-01-12 10:00:00",
+            },
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "TEST-wid-99"}
         result = update_remote_from_local(

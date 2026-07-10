@@ -2216,6 +2216,7 @@ def update_remote_from_local(
             "success": False,
             "error": result.get("error", "Push rejected by ServiceNow."),
             "status": status,
+            "target_instance": active,
             "component": {
                 "table": resolved.table,
                 "sys_id": resolved.sys_id,
@@ -2231,12 +2232,55 @@ def update_remote_from_local(
             response["record_hold"] = record_hold
         return response
 
-    # 5. Update _sync_meta.json with new remote timestamp
+    # 5. Post-write LANDING VERIFICATION. A non-error return from the Table API
+    #    does NOT prove the field content persisted: sp_* Service Portal tables can
+    #    accept the write, return success, yet silently drop a script field
+    #    (source-context / protection-policy checks that differ per instance —
+    #    "works on dev, silently no-ops on test"). sys_mod_count bumping is NOT
+    #    proof the content landed. So we re-read the ACTUAL pushed fields and
+    #    recompute the same diff that decided the push: if any field we just pushed
+    #    still differs from local, the write did not land — report success:false
+    #    LOUDLY and do NOT poison _sync_meta/baseline (a poisoned baseline makes the
+    #    next diff falsely say "no drift", hiding the non-landing forever).
+    verify_fields = list(update_data.keys()) + ["sys_updated_on"]
+    fresh_remote: Optional[Dict[str, Any]] = None
     try:
-        updated_record = _fetch_portal_component_record(
-            config, auth_manager, resolved.table, resolved.sys_id, ["sys_updated_on"]
+        fresh_remote = _fetch_portal_component_record(
+            config, auth_manager, resolved.table, resolved.sys_id, verify_fields
         )
-        new_updated_on = str(updated_record.get("sys_updated_on") or "")
+    except ValueError as e:
+        logger.warning("Post-write landing verification could not re-read record: %s", e)
+
+    if fresh_remote is not None:
+        still_diff, _, _ = _build_update_data_and_magnitude(resolved, fresh_remote)
+        not_landed = [f for f in update_data if f in still_diff]
+        if not_landed:
+            return {
+                "success": False,
+                "landed": False,
+                "error": "WRITE_NOT_LANDED",
+                "message": (
+                    f"ServiceNow accepted the write (no HTTP error) but {len(not_landed)} "
+                    f"field(s) did NOT persist on '{active}': {', '.join(not_landed)}. This is the "
+                    f"silent non-landing sp_* Service Portal tables exhibit when a write is "
+                    f"accepted but a protection / source-context check drops the field content — "
+                    f"sys_mod_count may have bumped anyway, which is NOT proof of landing. Local "
+                    f"files and _sync_meta are UNCHANGED. Edit this record in the SP Designer UI on "
+                    f"'{active}', or promote via an Update Set instead of a per-record Table-API write."
+                ),
+                "target_instance": active,
+                "fields_not_landed": not_landed,
+                "component": {
+                    "table": resolved.table,
+                    "sys_id": resolved.sys_id,
+                    "name": resolved.name,
+                },
+                "sync_meta_updated": False,
+            }
+
+    # 5b. Landing confirmed (or unverifiable) → record the new baseline timestamp.
+    try:
+        new_updated_on = str((fresh_remote or {}).get("sys_updated_on") or "")
         now_iso = datetime.now(UTC).isoformat()
         full_sync_meta = _read_sync_meta(table_dir)
         full_sync_meta[resolved.name] = {
@@ -2258,8 +2302,15 @@ def update_remote_from_local(
     except (OSError, UnicodeDecodeError) as e:
         logger.warning("Failed to refresh baseline snapshots after push: %s", e)
 
-    # 6. Enrich result (reached only on a confirmed successful push)
+    # 6. Enrich result (reached only on a confirmed successful push). target_instance
+    #    is echoed at top level so the operator/LLM SEES which instance actually
+    #    received the write — the whole point of the multi-instance safety story is
+    #    that "where did it land" must never be implicit. landed reflects whether the
+    #    post-write re-read confirmed the content (True) or could not be verified
+    #    (re-read failed → "unverified"), never a bare optimistic success.
     result["success"] = True
+    result["landed"] = True if fresh_remote is not None else "unverified"
+    result["target_instance"] = active
     result["risk"] = risk
     result["local_sync"] = {
         "pushed_from": str(path),

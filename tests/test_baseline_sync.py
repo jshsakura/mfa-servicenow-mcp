@@ -276,7 +276,11 @@ class TestPushRefreshesBaseline:
                 "script": "var x = 0;",
                 "sys_updated_on": "2025-01-10 10:00:00",
             },
-            {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 11:00:00"},
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 1;",  # landed = local
+                "sys_updated_on": "2025-01-10 11:00:00",
+            },
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
 
@@ -525,7 +529,11 @@ class TestForceCAS:
     ):
         mock_fetch.side_effect = [
             self._drifted_remote(),
-            {"sys_id": "wid-1", "sys_updated_on": "2025-01-12 11:00:00"},
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 1;",  # landed = local
+                "sys_updated_on": "2025-01-12 11:00:00",
+            },
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
         script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
@@ -574,7 +582,11 @@ class TestForceCAS:
         # Back-compat escape hatch: bare force=true keeps working.
         mock_fetch.side_effect = [
             self._drifted_remote(),
-            {"sys_id": "wid-1", "sys_updated_on": "2025-01-12 11:00:00"},
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 1;",  # landed = local
+                "sys_updated_on": "2025-01-12 11:00:00",
+            },
         ]
         mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
         script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
