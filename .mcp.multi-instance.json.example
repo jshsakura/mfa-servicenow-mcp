@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "servicenow-mcp": {
+      "command": "uvx",
+      "args": [
+        "--with",
+        "playwright",
+        "--from",
+        "mfa-servicenow-mcp",
+        "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "you@example.com",
+
+        "SERVICENOW_INSTANCE_CONFIG": "{\"dev\":{\"url\":\"https://YOUR_DEV.service-now.com\",\"auth_type\":\"browser\",\"allow_writes\":true},\"test\":{\"url\":\"https://YOUR_TEST.service-now.com\",\"auth_type\":\"browser\",\"allow_writes\":true},\"prod\":{\"url\":\"https://YOUR_PROD.service-now.com\",\"auth_type\":\"browser\",\"allow_writes\":false}}",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+
+        "LOG_FILE": "~/.mfa_servicenow_mcp/",
+        "MCP_TOOL_PACKAGE": "full"
+      }
+    }
+  }
+}

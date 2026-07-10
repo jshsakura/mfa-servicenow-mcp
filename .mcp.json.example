@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "servicenow-mcp": {
+      "command": "uvx",
+      "args": [
+        "--with",
+        "playwright",
+        "--from",
+        "mfa-servicenow-mcp",
+        "servicenow-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://YOUR_INSTANCE.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "SERVICENOW_BROWSER_HEADLESS": "false",
+        "SERVICENOW_USERNAME": "you@example.com",
+        "SERVICENOW_PASSWORD": "REPLACE_ME",
+        "LOG_FILE": "~/.mfa_servicenow_mcp/",
+        "MCP_TOOL_PACKAGE": "full"
+      }
+    }
+  }
+}
