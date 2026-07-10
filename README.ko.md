@@ -353,7 +353,7 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 }
 ```
 
-`SERVICENOW_ACTIVE_INSTANCE`가 쓰기가 닿는 인스턴스이고, 읽기 도구는 `instance="test"`로 다른 인스턴스를 들여다볼 수 있습니다. 전체 규칙(쓰기 게이트·비교·`${ENV}`): [읽기 전용 데이터 비교 모드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md#읽기-전용-데이터-비교-모드).
+`SERVICENOW_ACTIVE_INSTANCE`가 쓰기 기본 대상이고, 읽기 도구는 `instance="test"`로 다른 인스턴스를 들여다봅니다. 비-active 인스턴스로의 단일 쓰기는 `instance="test" confirm_instance="test" confirm="approve"`로 라우팅할 수 있습니다(가드 + 반영 후 검증). 전체 규칙(쓰기 라우팅·게이트·비교·`${ENV}`): [멀티 인스턴스 모드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md#멀티-인스턴스-모드-비교--가드된-단일-호출-쓰기).
 
 ---
 
@@ -459,11 +459,11 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 | `platform_developer` | 45 | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
 | `full` | 59 | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
 
-일반 도구는 서버 프로세스 하나당 하나의 active ServiceNow 인스턴스에만 연결됩니다. 안전을 위해 요청별 쓰기 라우팅으로 인스턴스를 오가는 방식은 지원하지 않습니다.
+일반 도구는 서버 프로세스 하나당 하나의 active ServiceNow 인스턴스에 연결됩니다. *다른* 설정된 인스턴스로의 쓰기는 호출별로 가능하지만, 명시적이고 가드된 승인(아래)을 통해서만 — 절대 조용히 전환되지 않습니다.
 
-### 읽기 전용 데이터 비교 모드
+### 멀티 인스턴스 모드 (비교 + 가드된 단일 호출 쓰기)
 
-개발/테스트 데이터 차이를 비교해야 할 때 `SERVICENOW_INSTANCE_CONFIG`로 named instance를 설정할 수 있습니다. `SERVICENOW_ACTIVE_INSTANCE`는 여전히 필요합니다.
+dev/test/prod를 비교하거나 원하는 곳에 배포해야 할 때 `SERVICENOW_INSTANCE_CONFIG`로 named instance를 설정합니다. `SERVICENOW_ACTIVE_INSTANCE`는 여전히 필요합니다.
 
 글로벌 두 개, 인스턴스별 하나로 정리됩니다:
 
@@ -473,10 +473,10 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 그 외 규칙:
 
-- 쓰기 도구는 항상 active 인스턴스만 사용하고 인스턴스 선택 파라미터가 없습니다.
-- **읽기 도구는 `instance` 인자를 받습니다** — 비-active 인스턴스를 한 번만 조회할 때 사용. 예: `dev`가 active인 채로 `sn_query(instance="test", table="incident", ...)`, `sn_health(instance="test")`. 패키지 안의 모든 읽기 도구에 노출됩니다(설정된 alias enum). 쓰기 도구엔 없음. **재시작 없이 다른 인스턴스 데이터를 들여다보는 방법이 이겁니다.**
-- `list_instances`는 설정된 alias와 active를 보여줍니다. `compare_instances`는 alias 간 테이블을 read-only로 비교합니다.
-- *active*(쓰기) 인스턴스 전환은 MCP 클라이언트 재시작 필요 — 서버 시작 시 한 번 읽고 런타임에 다시 안 읽습니다.
+- **읽기 도구는 `instance` 인자를 받습니다** — 비-active 인스턴스를 한 번만 조회할 때 사용. 예: `dev`가 active인 채로 `sn_query(instance="test", table="incident", ...)`, `sn_health(instance="test")`. 패키지 안의 모든 읽기 도구 스키마에 노출됩니다(설정된 alias enum). **재시작 없이 다른 인스턴스 데이터를 들여다보는 방법이 이겁니다.**
+- **비-active 인스턴스로의 단일 쓰기도 라우팅 가능**하지만 절대 조용히 안 됩니다. `instance="test" confirm_instance="test" confirm="approve"`(타깃을 의도+승인으로 두 번 명시)를 넘기고, 타깃이 `allow_writes=true`여야 합니다. 딱 그 한 번만 라우팅되고 직후 active가 복원됩니다. 타깃/confirm 불일치나 read-only 타깃은 명시적으로 거부되므로 dev/test/prod가 섞여도 엉뚱한 인스턴스에 안 씁니다. 이후 타깃에서 재조회해 `landed`(또는 `WRITE_NOT_LANDED`)로 보고하고 `target_instance`를 실어줍니다 — "성공"은 200이 아니라 **의도한 인스턴스에 내용이 실제로 있음**이 확인됐다는 뜻.
+- `list_instances`는 설정된 alias·active·각자 쓰기 플래그를 보여줍니다. `compare_instances`는 alias 간 테이블을 read-only로 비교합니다.
+- *기본* active 인스턴스 전환은 MCP 클라이언트 재시작 필요 — 서버 시작 시 한 번 읽습니다. (위의 호출별 `instance=` 라우팅은 재시작 불필요.)
 
 예시 — 글로벌 공용 로그인 + 인스턴스별 쓰기 게이트:
 
@@ -487,7 +487,8 @@ export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
   "dev":  { "url": "https://acme-dev.service-now.com",  "allow_writes": true },
-  "test": { "url": "https://acme-test.service-now.com", "allow_writes": false }
+  "test": { "url": "https://acme-test.service-now.com", "allow_writes": true },
+  "prod": { "url": "https://acme-prod.service-now.com", "allow_writes": false }
 }'
 ```
 
@@ -497,7 +498,7 @@ export SERVICENOW_INSTANCE_CONFIG='{
 "prod": { "url": "https://acme.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
-dev/test drift 확인에는 `compare_instances`를 사용하세요. 다른 인스턴스에 실제 작업을 해야 한다면 프로젝트/클라이언트 설정을 분리하는 방식을 권장합니다.
+dev/test drift 확인에는 `compare_instances`를 사용하세요. **다수** 레코드 승격(특히 Service Portal / scoped 테이블)은 레코드별 cross-instance 쓰기보다 Update Set(소스 commit → 타깃 UI에서 retrieve + commit)을 권장합니다 — 단일 Table-API 쓰기가 걸리는 per-table/SP ACL을 우회합니다.
 
 현재 패키지에 없는 도구를 호출하면, 어느 패키지에서 사용 가능한지 안내합니다.
 
