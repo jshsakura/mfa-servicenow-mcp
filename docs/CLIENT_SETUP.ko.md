@@ -192,7 +192,7 @@ MCP 클라이언트 `env` 블록에서 인스턴스별 자격증명 (alias마다
 }
 ```
 
-다른 인스턴스에 실제 작업을 해야 한다면 프로젝트/클라이언트 설정을 분리하세요.
+비-active 인스턴스로의 단일 쓰기는 위의 가드된 `instance=<alias> confirm_instance=<alias> confirm=approve` 라우팅을 쓰세요. **다수** 레코드 승격은 레코드별 cross-instance 쓰기보다 Update Set을 권장합니다.
 
 ---
 

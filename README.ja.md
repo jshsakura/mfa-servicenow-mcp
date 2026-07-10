@@ -358,7 +358,7 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 }
 ```
 
-`SERVICENOW_ACTIVE_INSTANCE` は書き込みが向かうインスタンスです。読み取りツールは `instance="test"` で他のインスタンスを覗くことができます。完全なルール（書き込みのゲーティング、比較、`${ENV}`）: [Read-Only Data Comparison Mode](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md#read-only-data-comparison-mode)。
+`SERVICENOW_ACTIVE_INSTANCE` は書き込みのデフォルト先です。読み取りツールは `instance="test"` で他のインスタンスを覗け、単一の書き込みは `instance="test" confirm_instance="test" confirm="approve"` で非アクティブなインスタンスにルーティングできます（ガード付きで、反映後に検証されます）。完全なルール（書き込みルーティング、ゲーティング、比較、`${ENV}`）: [マルチインスタンスモード](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ja.md#マルチインスタンスモード比較--ガード付き単一呼び出し書き込み)。
 
 ---
 
@@ -464,11 +464,11 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 | `platform_developer` | 43 | ⚠️ standard + ワークフロー、Flow Designer、UI policy、インシデント/変更、スクリプトの書き込み |
 | `full` | 57 | ⚠️ **最も高度** — すべてのドメインにまたがるすべての書き込みツールを一度に |
 
-各サーバープロセスは、通常のツールに対しては意図的に 1 つのアクティブな ServiceNow インスタンスにバインドされます。安全のため、インスタンスをまたいだリクエストごとの書き込みルーティングはありません。
+各サーバープロセスは、通常のツールに対しては 1 つのアクティブな ServiceNow インスタンスにバインドされます。*別の* 設定済みインスタンスへの書き込みは呼び出しごとに可能ですが、明示的でガード付きの承認（下記）を通じてのみ行われます — 決して黙って切り替わることはありません。
 
-### Read-Only Data Comparison Mode
+### マルチインスタンスモード（比較 + ガード付き単一呼び出し書き込み）
 
-開発データとテストデータを比較する必要がある場合、`SERVICENOW_INSTANCE_CONFIG` で名前付きインスタンスをオプトインできます。`SERVICENOW_ACTIVE_INSTANCE` は引き続き必須です。
+dev/test/prod を比較したり、選んだインスタンスにデプロイしたりする必要がある場合、`SERVICENOW_INSTANCE_CONFIG` で名前付きインスタンスをオプトインします。`SERVICENOW_ACTIVE_INSTANCE` は引き続き必須です。
 
 2 つはグローバル、1 つはインスタンスごとです:
 
@@ -478,10 +478,10 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 
 その他のルール:
 
-- 書き込み可能なツールは常にアクティブなインスタンスを使用し、インスタンスセレクターを受け付けません。
-- **読み取りツールは `instance` 引数を受け付け**、非アクティブなインスタンスに対して 1 回の読み取りを実行します — 例: `dev` がアクティブなまま `sn_query(instance="test", table="incident", ...)` や `sn_health(instance="test")`。パッケージ内のすべての読み取りツールがこれを公開します（設定済みエイリアスの列挙）。書き込みツールは公開しません。これが、再起動せずに別のインスタンスのデータを覗く方法です。
-- `list_instances` は設定済みエイリアスとアクティブなものを報告します。`compare_instances` はエイリアスをまたいだ読み取り専用のテーブル比較を実行します。
-- *アクティブな*（書き込み）インスタンスの切り替えには MCP クライアントの再起動が必要です — サーバー起動時に一度読み込まれ、ライブでは更新されません。
+- **読み取りツールは `instance` 引数を受け付け**、非アクティブなインスタンスに対して 1 回の読み取りを実行します — 例: `dev` がアクティブなまま `sn_query(instance="test", table="incident", ...)` や `sn_health(instance="test")`。パッケージ内のすべての読み取りツールがそのスキーマでこれを公開します（設定済みエイリアスの列挙）。これが、再起動せずに別のインスタンスのデータを覗く方法です。
+- **単一の書き込みも非アクティブなインスタンスにルーティングできます**が、決して黙ってではありません。`instance="test" confirm_instance="test" confirm="approve"`（意図と承認としてターゲットを 2 回指定）を渡し、ターゲットが `allow_writes=true` である必要があります。その 1 回の書き込みだけがそこへ向かい、直後にアクティブなインスタンスが復元されます。ターゲット/confirm の不一致や読み取り専用ターゲットは明示的なメッセージで拒否されるため、dev/test/prod が入り混じっても誤ったインスタンスに書き込まれることはありません。その後、ターゲット上で書き込みを再読み取りし、`landed`（または `WRITE_NOT_LANDED`）として報告し、`target_instance` をエコーします — 「成功」とは 200 が返ったことではなく、**意図したインスタンスに内容が実在することが確認された**という意味です。
+- `list_instances` は設定済みエイリアスとアクティブなもの、そして各インスタンスの書き込みフラグを報告します。`compare_instances` はエイリアスをまたいだ読み取り専用のテーブル比較を実行します。
+- *デフォルトの* アクティブなインスタンスの切り替えには MCP クライアントの再起動が必要です — サーバー起動時に一度読み込まれ、ライブでは更新されません。（上記の呼び出しごとの `instance=` ルーティングには再起動は不要です。）
 
 例 — 共有グローバルログイン、インスタンスごとの書き込みゲーティング:
 
@@ -492,7 +492,8 @@ export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
   "dev":  { "url": "https://acme-dev.service-now.com",  "allow_writes": true },
-  "test": { "url": "https://acme-test.service-now.com", "allow_writes": false }
+  "test": { "url": "https://acme-test.service-now.com", "allow_writes": true },
+  "prod": { "url": "https://acme-prod.service-now.com", "allow_writes": false }
 }'
 ```
 
@@ -502,7 +503,7 @@ export SERVICENOW_INSTANCE_CONFIG='{
 "prod": { "url": "https://acme.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
-dev/test のドリフトチェックには `compare_instances` を使用してください。別のインスタンスに対する実作業には、別々のプロジェクト/クライアント設定を使用してください。
+dev/test のドリフトチェックには `compare_instances` を使用してください。**多数の** レコードを昇格させる場合（特に Service Portal / scoped テーブル）は、レコードごとのインスタンス横断書き込みよりも Update Set（ソースで commit → ターゲットの UI で retrieve + commit）を推奨します — 単一の Table-API 書き込みが引っかかる per-table/SP ACL を回避できます。
 
 現在のパッケージでツールが利用できない場合、サーバーはどのパッケージにそれが含まれているかを教えてくれます。
 

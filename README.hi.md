@@ -358,7 +358,7 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 }
 ```
 
-`SERVICENOW_ACTIVE_INSTANCE` वह इंस्टेंस है जिस पर writes लगते हैं; read टूल अभी भी `instance="test"` के साथ अन्य में झाँक सकते हैं। पूर्ण नियम (write gating, तुलना, `${ENV}`): [Read-Only Data Comparison Mode](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md#read-only-data-comparison-mode)।
+`SERVICENOW_ACTIVE_INSTANCE` वह इंस्टेंस है जहाँ writes डिफ़ॉल्ट रूप से जाते हैं; read टूल `instance="test"` के साथ अन्य में झाँक सकते हैं, और `instance="test" confirm_instance="test" confirm="approve"` के साथ एक single write को किसी non-active इंस्टेंस पर route किया जा सकता है (गार्डेड, और land होने के बाद सत्यापित)। पूर्ण नियम (write routing, gating, तुलना, `${ENV}`): [Multi-Instance Mode](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md#multi-instance-mode-comparison--guarded-single-call-writes)।
 
 ---
 
@@ -464,11 +464,11 @@ Read-only (सुरक्षित डिफ़ॉल्ट):
 | `platform_developer` | 43 | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
 | `full` | 57 | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
 
-प्रत्येक सर्वर प्रक्रिया जानबूझकर सामान्य टूल के लिए एक सक्रिय ServiceNow instance से बंधी होती है। सुरक्षा के लिए, instances के पार कोई प्रति-अनुरोध write routing नहीं है।
+प्रत्येक सर्वर प्रक्रिया सामान्य टूल के लिए एक सक्रिय ServiceNow instance से बंधती है। किसी *भिन्न* कॉन्फ़िगर किए गए instance पर write प्रति-कॉल संभव है, लेकिन केवल एक स्पष्ट, गार्डेड स्वीकृति (नीचे) के माध्यम से — कभी कोई चुपचाप स्विच नहीं।
 
-### Read-Only Data Comparison Mode
+### Multi-Instance Mode (comparison + guarded single-call writes)
 
-जब आपको development और test डेटा की तुलना करने की आवश्यकता हो, तो आप `SERVICENOW_INSTANCE_CONFIG` के साथ named instances में opt in कर सकते हैं। `SERVICENOW_ACTIVE_INSTANCE` अभी भी आवश्यक है।
+जब आपको dev/test/prod की तुलना करनी हो या किसी चुने हुए instance पर deploy करना हो, तो `SERVICENOW_INSTANCE_CONFIG` के साथ named instances में opt in करें। `SERVICENOW_ACTIVE_INSTANCE` अभी भी आवश्यक है।
 
 दो चीज़ें global हैं, एक प्रति-instance है:
 
@@ -478,10 +478,10 @@ Read-only (सुरक्षित डिफ़ॉल्ट):
 
 अन्य नियम:
 
-- Write-capable टूल हमेशा सक्रिय instance का उपयोग करते हैं और instance selector स्वीकार नहीं करते।
-- **Read टूल एक `instance` argument स्वीकार करते हैं** ताकि किसी non-active instance के विरुद्ध एकल read चलाया जा सके — जैसे `sn_query(instance="test", table="incident", ...)` या `sn_health(instance="test")` जबकि `dev` सक्रिय रहता है। आपके पैकेज में हर read टूल इसे एक्सपोज़ करता है (कॉन्फ़िगर किए गए aliases का enum); write टूल नहीं करते। यही तरीका है जिससे आप पुनः आरंभ किए बिना किसी अन्य instance के डेटा में झाँकते हैं।
-- `list_instances` कॉन्फ़िगर किए गए aliases के साथ-साथ सक्रिय वाले की रिपोर्ट करता है। `compare_instances` aliases के पार read-only तालिका तुलना करता है।
-- *सक्रिय* (write) instance को स्विच करने के लिए MCP क्लाइंट को पुनः आरंभ करने की आवश्यकता होती है — इसे सर्वर स्टार्टअप पर एक बार पढ़ा जाता है, लाइव refresh नहीं किया जाता।
+- **Read टूल एक `instance` argument स्वीकार करते हैं** ताकि किसी non-active instance के विरुद्ध एकल read चलाया जा सके — जैसे `sn_query(instance="test", table="incident", ...)` या `sn_health(instance="test")` जबकि `dev` सक्रिय रहता है। आपके पैकेज में हर read टूल इसे अपने schema में एक्सपोज़ करता है (कॉन्फ़िगर किए गए aliases का enum)। यही तरीका है जिससे आप पुनः आरंभ किए बिना किसी अन्य instance के डेटा में झाँकते हैं।
+- **किसी non-active instance पर एक single write भी route की जा सकती है**, लेकिन कभी चुपचाप नहीं। `instance="test" confirm_instance="test" confirm="approve"` पास करें (टार्गेट को दो बार नामित करें — इरादे और स्वीकृति दोनों के रूप में) और टार्गेट के पास `allow_writes=true` होना चाहिए। केवल वही एक write वहाँ जाती है; सक्रिय instance तुरंत बाद बहाल हो जाता है। टार्गेट/confirm बेमेल या read-only टार्गेट को एक स्पष्ट संदेश के साथ अस्वीकार कर दिया जाता है, इसलिए dev/test/prod का घालमेल गलत instance पर नहीं लग सकता। फिर write को टार्गेट पर फिर से पढ़ा जाता है और `landed` (या `WRITE_NOT_LANDED`) के रूप में रिपोर्ट किया जाता है, साथ `target_instance` echo होता है — "success" का अर्थ है कि सामग्री इच्छित instance पर मौजूद होने की पुष्टि हुई, न कि केवल 200 मिला।
+- `list_instances` कॉन्फ़िगर किए गए aliases के साथ-साथ सक्रिय वाले और प्रत्येक का write flag रिपोर्ट करता है। `compare_instances` aliases के पार read-only तालिका तुलना करता है।
+- *डिफ़ॉल्ट* सक्रिय instance को स्विच करने के लिए MCP क्लाइंट को पुनः आरंभ करने की आवश्यकता होती है — इसे सर्वर स्टार्टअप पर एक बार पढ़ा जाता है, लाइव refresh नहीं किया जाता। (ऊपर दी गई प्रति-कॉल `instance=` routing को पुनः आरंभ की आवश्यकता नहीं।)
 
 उदाहरण — साझा global लॉगिन, प्रति-instance write gating:
 
@@ -492,7 +492,8 @@ export SERVICENOW_PASSWORD='...'
 export SERVICENOW_ACTIVE_INSTANCE=dev
 export SERVICENOW_INSTANCE_CONFIG='{
   "dev":  { "url": "https://acme-dev.service-now.com",  "allow_writes": true },
-  "test": { "url": "https://acme-test.service-now.com", "allow_writes": false }
+  "test": { "url": "https://acme-test.service-now.com", "allow_writes": true },
+  "prod": { "url": "https://acme-prod.service-now.com", "allow_writes": false }
 }'
 ```
 
@@ -502,7 +503,7 @@ export SERVICENOW_INSTANCE_CONFIG='{
 "prod": { "url": "https://acme.service-now.com", "username": "prod_user", "password": "${SERVICENOW_PROD_PASSWORD}" }
 ```
 
-dev/test drift जाँच के लिए `compare_instances` का उपयोग करें। किसी भिन्न instance के विरुद्ध वास्तविक कार्य के लिए अलग project/client कॉन्फ़िग का उपयोग करें।
+dev/test drift जाँच के लिए `compare_instances` का उपयोग करें। **बहुत सारे** रिकॉर्ड्स को promote करने के लिए (विशेषकर Service Portal / scoped तालिकाएँ), प्रति-रिकॉर्ड cross-instance writes के बजाय एक Update Set को प्राथमिकता दें (source पर commit, target UI में retrieve + commit) — यह उन per-table/SP ACLs को bypass करता है जिनसे single Table-API writes टकराती हैं।
 
 यदि आपके वर्तमान पैकेज में कोई टूल उपलब्ध नहीं है, तो सर्वर आपको बताता है कि कौन सा पैकेज इसे शामिल करता है।
 
