@@ -1168,7 +1168,20 @@ def _download_widget_fields(
     include_widget_css: bool,
     include_linked_script_includes: bool,
 ) -> str:
-    fields = ["sys_id", "name", "id", "sys_scope", "option_schema", "demo_data", "sys_updated_on"]
+    # sys_updated_by rides along (1 field, no extra call): it becomes the baseline
+    # OWNER in _sync_meta, which is what a later diff compares the current editor
+    # against. Without it every record's recorded owner is empty, so "who moved
+    # this since my download" has no answer to give.
+    fields = [
+        "sys_id",
+        "name",
+        "id",
+        "sys_scope",
+        "option_schema",
+        "demo_data",
+        "sys_updated_on",
+        "sys_updated_by",
+    ]
     if include_widget_template:
         fields.append("template")
     if include_widget_server_script or include_linked_script_includes:
@@ -3316,6 +3329,7 @@ def download_portal_sources(
             _widget_sync_meta[_wid] = {
                 "sys_id": str(widget.get("sys_id") or ""),
                 "sys_updated_on": str(widget.get("sys_updated_on") or ""),
+                "sys_updated_by": str(widget.get("sys_updated_by") or ""),
                 "downloaded_at": _now_iso,
             }
     merge_map_file(
@@ -3387,7 +3401,7 @@ def download_portal_sources(
                 auth_manager,
                 table=ANGULAR_PROVIDER_TABLE,
                 query=f"sys_idIN{','.join(m2m_ids)}",
-                fields="sys_id,name,type,sys_scope,sys_updated_on",
+                fields="sys_id,name,type,sys_scope,sys_updated_on,sys_updated_by",
                 page_size=100,
                 max_records=1000,
             )
@@ -3422,6 +3436,7 @@ def download_portal_sources(
                         _provider_sync_meta[name] = {
                             "sys_id": sys_id,
                             "sys_updated_on": str(provider.get("sys_updated_on") or ""),
+                            "sys_updated_by": str(provider.get("sys_updated_by") or ""),
                             "downloaded_at": _now_iso,
                         }
                 if sys_id:
@@ -3562,6 +3577,7 @@ def download_portal_sources(
                 _si_sync_meta[name] = {
                     "sys_id": sys_id,
                     "sys_updated_on": str(row.get("sys_updated_on") or ""),
+                    "sys_updated_by": str(row.get("sys_updated_by") or ""),
                     "downloaded_at": _now_iso,
                 }
             exported_script_includes.append(
