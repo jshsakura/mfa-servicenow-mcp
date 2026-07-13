@@ -506,6 +506,33 @@ def _write_sync_meta(table_dir: Path, meta: Dict[str, Dict[str, str]]) -> None:
     path.write_text(json_fast.dumps(meta), encoding="utf-8")
 
 
+def _record_sync_meta(
+    table_dir: Path, name: str, sys_id: str, updated_on: str, updated_by: str
+) -> None:
+    """Record one component's in-sync watermark: WHEN the server was last known
+    good AND WHO last touched it.
+
+    ``sys_updated_by`` is not decoration — it is the baseline owner the next diff
+    compares the current editor against. Omitting it leaves the previous owner
+    standing, so your own completed push reads as someone taking the record over.
+    Only call this when the local copy provably equals the remote body.
+    """
+    meta = _read_sync_meta(table_dir)
+    # Immutable update: build a new mapping rather than mutating the loaded one.
+    _write_sync_meta(
+        table_dir,
+        {
+            **meta,
+            name: {
+                "sys_id": sys_id,
+                "sys_updated_on": updated_on,
+                "sys_updated_by": updated_by,
+                "downloaded_at": datetime.now(UTC).isoformat(),
+            },
+        },
+    )
+
+
 def _is_download_root(path: Path) -> bool:
     """Check if path looks like a download root (has _settings.json or scope subdirs with tables)."""
     if (path / "_settings.json").exists():
@@ -1304,6 +1331,67 @@ def _diff_against_compare_to(path: Path, compare_to: Path, context_lines: int) -
     return _diff_local_component_vs_root(path, compare_to, context_lines)
 
 
+def _server_moved_fields(
+    resolved: "_ResolvedComponent", remote_record: Dict[str, Any]
+) -> Tuple[List[str], bool]:
+    """CONTENT truth for the conflict gate: which fields the SERVER actually
+    changed since your last download/push. Returns (moved_fields, verifiable).
+
+    ``sys_updated_on`` is only a HINT. It also bumps for YOUR OWN push, a re-save,
+    or an edit to an unrelated field on the same record — so a timestamp-only gate
+    reports "someone changed this" on a perfectly clean round-trip, which is the
+    false alarm this replaces (editing the same file twice in one session tripped
+    it every time). The pristine ``_baseline/`` snapshot holds exactly what the
+    server had at your last download or successful push, so hashing the remote
+    BODY against it answers the real question: is there a server-side change you
+    have not seen?
+
+    This is a CONTENT check, not a trust check — being the last editor never
+    excuses the comparison; identity only shapes the wording afterwards.
+
+    ``verifiable`` is False when no field has a baseline (legacy tree downloaded
+    before baselines existed). The caller MUST then fall back to the timestamp —
+    never to a silent "no conflict".
+    """
+    moved: List[str] = []
+    verifiable = False
+    for field_name, fpath in sorted(resolved.fields.items()):
+        baseline = read_baseline_for(fpath)
+        if baseline is None:
+            continue
+        verifiable = True
+        remote_content = _normalize_for_compare(str(remote_record.get(field_name) or ""))
+        if remote_content != _normalize_for_compare(baseline):
+            moved.append(field_name)
+    return moved, verifiable
+
+
+def _assess_server_drift(
+    resolved: "_ResolvedComponent",
+    remote_record: Dict[str, Any],
+    local_updated_on: str,
+    remote_updated_on: str,
+) -> Dict[str, Any]:
+    """Did the server move? Content decides; the timestamp is the fallback.
+
+    Returns {drifted, moved_fields, verifiable, timestamp_moved, timestamp_only}.
+    ``timestamp_only`` — the stamp advanced but every body still matches your
+    baseline — is the benign case: a stale watermark, not a conflict.
+    """
+    timestamp_moved = bool(
+        local_updated_on and remote_updated_on and remote_updated_on > local_updated_on
+    )
+    moved_fields, verifiable = _server_moved_fields(resolved, remote_record)
+    drifted = bool(moved_fields) if verifiable else timestamp_moved
+    return {
+        "drifted": drifted,
+        "moved_fields": moved_fields,
+        "verifiable": verifiable,
+        "timestamp_moved": timestamp_moved,
+        "timestamp_only": timestamp_moved and verifiable and not moved_fields,
+    }
+
+
 def _baseline_three_way(
     resolved: "_ResolvedComponent", remote_record: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -1678,20 +1766,43 @@ def diff_local_component(
     remote_updated_on = str(remote_record.get("sys_updated_on") or "")
     # sys_updated_by is a string (user_name) field — readable as-is.
     remote_updated_by = _display_str(remote_record.get("sys_updated_by"))
+    me, me_confirmed = _resolve_push_actor(config, auth_manager)
     # Free attribution corroboration (same fetch + local baseline) so a handoff /
     # spoofed editor is visible at REVIEW time, before any push. No extra API.
+    # 'me' is passed so YOUR OWN edit is never reported as an ownership handoff.
     attribution = describe_attribution(
         baseline_by=meta.get("sys_updated_by", ""),
         current_by=remote_updated_by,
         created_by=_display_str(remote_record.get("sys_created_by")),
+        me=me,
+        me_confirmed=me_confirmed,
     )
+    # Content decides, the timestamp only hints — a bump with identical bodies
+    # (your own push, a re-save) is a stale watermark, not "someone edited it".
+    drift = _assess_server_drift(resolved, remote_record, local_updated_on, remote_updated_on)
     conflict_warning = None
-    if local_updated_on and remote_updated_on and remote_updated_on > local_updated_on:
-        by = f" by {remote_updated_by}" if remote_updated_by else ""
+    if drift["drifted"]:
+        if attribution["self_edit"]:
+            who = "You changed this on the server"
+        elif remote_updated_by:
+            who = f"{remote_updated_by} changed this on the server"
+        else:
+            who = "This changed on the server"
+        fields = ", ".join(drift["moved_fields"]) if drift["moved_fields"] else "unverified"
         conflict_warning = (
-            f"Changed on the server at {remote_updated_on}{by}, after your download "
-            f"(your copy is from {local_updated_on}). Someone edited it since you "
-            f"downloaded — review before pushing."
+            f"{who} at {remote_updated_on}, after your download (your local copy is from "
+            f"{local_updated_on}; changed on the server: {fields}). Nothing has been "
+            f"overwritten — review the diff before pushing."
+        )
+
+    # The stamp moved but every body still matches your baseline — say so plainly
+    # instead of leaving a bare timestamp gap the reader has to interpret as a
+    # conflict. (Typical cause: your own push, or an edit to a non-source field.)
+    stale_watermark = None
+    if drift["timestamp_only"]:
+        stale_watermark = (
+            f"The record's sys_updated_on moved to {remote_updated_on}, but every source body "
+            f"is byte-identical to your baseline — no server-side source change. Not a conflict."
         )
 
     # 3-way separation (baseline-aware): tells YOUR edits apart from the
@@ -1719,6 +1830,8 @@ def diff_local_component(
             vres["three_way"] = three_way
         if conflict_warning:
             vres["conflict_warning"] = conflict_warning
+        if stale_watermark:
+            vres["stale_watermark"] = stale_watermark
         if attribution["attribution"] != "consistent":
             vres["attribution"] = attribution
         if not resolved.instance_url:
@@ -1743,6 +1856,8 @@ def diff_local_component(
     }
     if three_way:
         result["three_way"] = three_way
+    if stale_watermark:
+        result["stale_watermark"] = stale_watermark
     # Surface attribution only when it's NOT plain-consistent — token-lean: a
     # clean record adds nothing, a handoff/shared one shows the evidence.
     if attribution["attribution"] != "consistent":
@@ -1947,15 +2062,19 @@ def update_remote_from_local(
     # actual write goes through update_portal_component, which warns and lets the
     # SERVER decide. A genuine rejection surfaces there as a 403 with guidance.
 
-    # 2. Baseline-drift verification gate — TIME-INDEPENDENT. Compares the remote's
-    #    CURRENT sys_updated_on against the value recorded in _sync_meta at
-    #    download, so it surfaces an overwrite whether it happened 3 minutes or 3
-    #    DAYS after your download (the 10-min concurrent-edit window can't). The
-    #    point is VERIFICATION, not a hard block: it stops a blind push by showing
-    #    WHO changed it and WHEN, so force=true is a deliberate "yes, overwrite
-    #    that" — never silent. force overrides either case; CONFLICT_OTHER_USER
-    #    just makes "this is someone else's edit" loud. (Pushing to the wrong
-    #    INSTANCE is the separate, hard _validate_instance_url block above.)
+    # 2. Baseline-drift verification gate — CONTENT-FIRST and TIME-INDEPENDENT.
+    #    The question is "did the SERVER BODY move since my baseline", and only the
+    #    pristine `_baseline/` snapshot can answer it: sys_updated_on also bumps for
+    #    my own push, a re-save, or an edit to an unrelated field, and gating on the
+    #    stamp alone turned a normal edit->push->edit-again round-trip into a fake
+    #    "someone changed this" every time. So we hash the remote bodies against the
+    #    baseline; the stamp is only the fallback when no baseline exists (legacy
+    #    tree) — never a silent pass. Being the last editor yourself does NOT skip
+    #    the comparison; it only changes the wording (see assess_push_risk).
+    #    The point is VERIFICATION, not a hard block: it stops a blind push by
+    #    showing WHAT moved, WHO moved it and WHEN, so force=true is a deliberate
+    #    "yes, overwrite that" — never silent. (Pushing to the wrong INSTANCE is the
+    #    separate, hard _validate_instance_url block above.)
     table_dir = resolved.scope_root / resolved.table
     sync_meta = _read_sync_meta(table_dir)
     meta = sync_meta.get(resolved.name, {})
@@ -1967,12 +2086,11 @@ def update_remote_from_local(
     # than guess — only a genuine resolution failure leaves identity unconfirmed.
     me, me_confirmed = _resolve_push_actor(config, auth_manager)
 
-    # The baseline lives in _sync_meta from the ORIGIN download, so it's only
-    # meaningful for a same-instance round-trip. For a cross-instance deploy the
-    # target was re-resolved by name (already verified), so skip the drift gate.
-    drifted = not cross_instance_deploy and bool(
-        local_updated_on and remote_updated_on and remote_updated_on > local_updated_on
-    )
+    # The baseline lives in _sync_meta / _baseline from the ORIGIN download, so it
+    # is only meaningful for a same-instance round-trip. For a cross-instance deploy
+    # the target was re-resolved by name (already verified), so skip the drift gate.
+    drift = _assess_server_drift(resolved, remote_record, local_updated_on, remote_updated_on)
+    drifted = not cross_instance_deploy and drift["drifted"]
 
     # Local-only magnitude + deterministic risk score. Built BEFORE the gate so a
     # blocked push and a forced push both surface the same "what you're about to
@@ -2067,6 +2185,10 @@ def update_remote_from_local(
                 "local_downloaded_on": local_updated_on,
                 "record_hold": live_hold,
                 "component": component_info,
+                # WHICH bodies the server actually moved (content-verified), so the
+                # block is never a bare timestamp assertion the caller must trust.
+                "server_changed_fields": drift["moved_fields"],
+                "drift_verified_by": "content" if drift["verifiable"] else "timestamp",
                 # P1-1: the line-level diff of what THIS push would overwrite, from
                 # the already-fetched remote_record (no extra round-trip). Lets the
                 # caller decide force=true vs re-download without re-diffing.
@@ -2084,7 +2206,7 @@ def update_remote_from_local(
 
     # 3. update_data was built above (with the magnitude used for risk scoring).
     if not update_data:
-        return {
+        result_nc: Dict[str, Any] = {
             "message": "No changes to push — local files match remote.",
             "component": {
                 "table": resolved.table,
@@ -2092,6 +2214,16 @@ def update_remote_from_local(
                 "name": resolved.name,
             },
         }
+        # The watermark lagged while the bodies never diverged (a stamp bump from
+        # your own push / an unrelated field). Local provably equals remote here —
+        # update_data is empty — so advancing it is safe and stops the phantom
+        # "changed on the server" from resurfacing on every later diff.
+        if drift["timestamp_only"] and not cross_instance_deploy:
+            _record_sync_meta(
+                table_dir, resolved.name, resolved.sys_id, remote_updated_on, remote_updated_by
+            )
+            result_nc["stale_watermark_refreshed"] = remote_updated_on
+        return result_nc
 
     # 3b. Align the session scope to the component's scope BEFORE writing. A REST
     # write to a scoped record is rejected (403 cross-scope) when the session's
@@ -2242,7 +2374,9 @@ def update_remote_from_local(
     #    still differs from local, the write did not land — report success:false
     #    LOUDLY and do NOT poison _sync_meta/baseline (a poisoned baseline makes the
     #    next diff falsely say "no drift", hiding the non-landing forever).
-    verify_fields = list(update_data.keys()) + ["sys_updated_on"]
+    #    sys_updated_by rides this same re-read at no extra cost — it becomes the
+    #    baseline OWNER recorded in step 5b.
+    verify_fields = list(update_data.keys()) + ["sys_updated_on", "sys_updated_by"]
     fresh_remote: Optional[Dict[str, Any]] = None
     try:
         fresh_remote = _fetch_portal_component_record(
@@ -2278,17 +2412,19 @@ def update_remote_from_local(
                 "sync_meta_updated": False,
             }
 
-    # 5b. Landing confirmed (or unverifiable) → record the new baseline timestamp.
+    # 5b. Landing confirmed (or unverifiable) → record the new baseline watermark:
+    #     the timestamp AND the editor. Dropping sys_updated_by here is what made a
+    #     settled push re-litigate itself: the next diff compared the current editor
+    #     (you) against a baseline owner still holding the ORIGINAL author's name,
+    #     and reported an "ownership change" for the edit you had just made.
     try:
-        new_updated_on = str((fresh_remote or {}).get("sys_updated_on") or "")
-        now_iso = datetime.now(UTC).isoformat()
-        full_sync_meta = _read_sync_meta(table_dir)
-        full_sync_meta[resolved.name] = {
-            "sys_id": resolved.sys_id,
-            "sys_updated_on": new_updated_on,
-            "downloaded_at": now_iso,
-        }
-        _write_sync_meta(table_dir, full_sync_meta)
+        _record_sync_meta(
+            table_dir,
+            resolved.name,
+            resolved.sys_id,
+            str((fresh_remote or {}).get("sys_updated_on") or ""),
+            _display_str((fresh_remote or {}).get("sys_updated_by")) or me,
+        )
     except Exception as e:
         logger.warning("Failed to update _sync_meta.json after push: %s", e)
 

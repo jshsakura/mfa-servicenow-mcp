@@ -2612,3 +2612,189 @@ class TestQualifiedFolderResolution:
             "br-2",
             "OldRule",
         )
+
+
+class TestContentFirstDriftGate:
+    """The gate answers "did the SERVER BODY move since my baseline?" by hashing
+    content against the pristine _baseline/ snapshot — NOT by comparing
+    sys_updated_on.
+
+    The bug this pins: a stamp also bumps for your own push, a re-save, or an edit
+    to an unrelated field on the record. Gating on the stamp turned the ordinary
+    edit -> push -> edit-again loop (same file, same session) into a fake
+    "someone changed this on the server, pushing is risky" every single time. The
+    timestamp survives only as the fallback for legacy trees with no baseline —
+    never as a silent pass.
+    """
+
+    @staticmethod
+    def _seed_baseline(widget_dir, **field_bodies):
+        """Record what the server had at the last download/push."""
+        from servicenow_mcp.utils.baseline import write_baseline_for
+
+        for filename, body in field_bodies.items():
+            write_baseline_for(widget_dir / filename, body)
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_timestamp_bump_with_identical_body_is_not_a_conflict(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
+    ):
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        # The server body still equals my baseline; only the stamp advanced (my own
+        # earlier push). Local carries my new edit and must push through cleanly.
+        self._seed_baseline(widget_dir, **{"script.js": "var x = 1;"})
+        (widget_dir / "script.js").write_text("var x = 2;", encoding="utf-8")
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 1;",
+                "sys_updated_on": "2025-01-15 12:00:00",  # newer than _sync_meta
+                "sys_updated_by": "admin",
+                "sys_created_by": "admin",
+                "sys_scope": "global",
+            },
+            # Post-write landing verification re-read: the body I pushed is there.
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 2;",
+                "sys_updated_on": "2025-01-15 13:00:00",
+                "sys_updated_by": "admin",
+            },
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        assert "error" not in result
+        assert result["risk"]["level"] == "none"
+        mock_update.assert_called_once()
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_real_body_change_still_blocks_even_when_stamp_looks_old(
+        self, mock_fetch, mock_config, mock_auth, download_root
+    ):
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        self._seed_baseline(widget_dir, **{"script.js": "var x = 1;"})
+        (widget_dir / "script.js").write_text("var x = 2;", encoding="utf-8")
+        # Stamp is NOT newer than the download watermark, but the body diverged
+        # from the baseline: the server really moved. Content wins over the clock.
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 999; // someone else",
+            "sys_updated_on": "2025-01-10 10:00:00",
+            "sys_updated_by": "bob",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+        }
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        assert result["error"] in ("CONFLICT", "CONFLICT_OTHER_USER")
+        assert result["server_changed_fields"] == ["script"]
+        assert result["drift_verified_by"] == "content"
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_legacy_tree_without_baseline_falls_back_to_timestamp(
+        self, mock_fetch, mock_config, mock_auth, download_root
+    ):
+        # No _baseline/ (downloaded before baselines existed) → we cannot verify
+        # content, so the stamp must still block. Never a silent pass.
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        (widget_dir / "script.js").write_text("var x = 2;", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 99;",
+            "sys_updated_on": "2025-01-15 12:00:00",
+            "sys_updated_by": "bob",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+        }
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        assert result["error"] in ("CONFLICT", "CONFLICT_OTHER_USER")
+        assert result["drift_verified_by"] == "timestamp"
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_diff_reports_stale_watermark_instead_of_phantom_conflict(
+        self, mock_fetch, mock_config, mock_auth, download_root
+    ):
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        self._seed_baseline(widget_dir, **{"script.js": "var x = 1;"})
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 1;",
+            "sys_updated_on": "2025-01-15 12:00:00",
+            "sys_updated_by": "admin",
+            "sys_created_by": "admin",
+        }
+
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        assert result["conflict_warning"] is None
+        assert "no server-side source change" in result["stale_watermark"]
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_records_editor_so_next_diff_has_a_real_baseline_owner(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
+    ):
+        # Dropping sys_updated_by here is what made a settled push re-litigate
+        # itself: the next diff compared the current editor (me) against a
+        # baseline owner still holding the ORIGINAL author's name.
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        (widget_dir / "script.js").write_text("var x = 2;", encoding="utf-8")
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 1;",
+                "sys_updated_on": "2025-01-10 10:00:00",
+                "sys_updated_by": "admin",
+                "sys_created_by": "admin",
+                "sys_scope": "global",
+            },
+            # Landing verification re-read: the pushed body persisted, and the
+            # editor rides along on the SAME fetch (no extra call) to become the
+            # baseline owner.
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 2;",
+                "sys_updated_on": "2025-01-16 09:00:00",
+                "sys_updated_by": "admin",
+            },
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
+
+        update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        written = mock_write_meta.call_args[0][1]
+        assert written["my-widget"]["sys_updated_by"] == "admin"
+        assert written["my-widget"]["sys_updated_on"] == "2025-01-16 09:00:00"

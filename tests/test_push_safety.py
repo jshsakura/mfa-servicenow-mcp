@@ -185,3 +185,73 @@ class TestAssessPushRisk:
         )
         assert isinstance(r["message"], str) and r["message"]
         assert isinstance(r["factors"], list) and r["factors"]
+
+
+class TestOwnEditIsNotAnAlarm:
+    """The regression this class exists for: you edit a widget, push it, edit it
+    again in the SAME session — and the tool warned that 'someone' had changed the
+    record and the push was risky. That 'someone' was you. Being the last editor
+    must never, by itself, produce a warning; only an UNSEEN server-side change can.
+    """
+
+    def test_my_own_edit_is_not_an_ownership_handoff(self):
+        # Downloaded when 'admin' was the last editor; I have since edited it.
+        # Old behaviour: "Ownership changed ... verify before trusting it".
+        a = describe_attribution(baseline_by="admin", current_by="me", created_by="admin", me="me")
+        assert a["ownership_changed"] is False
+        assert a["self_edit"] is True
+        assert a["attribution"] == "self"
+
+    def test_editing_someone_elses_record_is_not_shared_noise(self):
+        # Created by 'admin', last changed by me — the normal state of every record
+        # I maintain. It must not surface as a 'shared record' flag.
+        a = describe_attribution(baseline_by="me", current_by="me", created_by="admin", me="me")
+        assert a["shared"] is False
+        assert a["attribution"] == "self"
+
+    def test_unconfirmed_identity_cannot_claim_self(self):
+        # Never mute the alarm on an unverified 'that was probably me'.
+        a = describe_attribution(
+            baseline_by="admin", current_by="me", created_by="admin", me="me", me_confirmed=False
+        )
+        assert a["self_edit"] is False
+        assert a["ownership_changed"] is True
+
+    def test_real_handoff_still_flags_when_editor_is_not_me(self):
+        a = describe_attribution(baseline_by="admin", current_by="bob", created_by="admin", me="me")
+        assert a["ownership_changed"] is True
+        assert a["attribution"] == "ownership_changed"
+
+    def test_no_drift_large_own_edit_is_not_a_warning(self):
+        # An 80% rewrite I just wrote, with the server untouched since my baseline.
+        # There is nothing unseen to destroy — magnitude is not risk.
+        r = assess_push_risk(
+            me="me",
+            remote_updated_by="me",
+            drifted=False,
+            changed_lines=320,
+            total_lines=400,
+            baseline_by="admin",
+            created_by="admin",
+        )
+        assert r["level"] == "none"
+        assert r["self_edit"] is True
+        assert r["ownership_changed"] is False
+        assert "safe to push" in r["message"].lower()
+
+    def test_self_drift_names_me_and_does_not_accuse(self):
+        # The server DID move and the mover was me (e.g. I edited it in the UI after
+        # downloading). Still a real lost-update risk — but it must say so as mine.
+        r = assess_push_risk(
+            me="me",
+            remote_updated_by="me",
+            drifted=True,
+            changed_lines=5,
+            total_lines=400,
+            baseline_by="admin",
+            created_by="admin",
+        )
+        assert r["other_user"] is False
+        assert r["self_edit"] is True
+        assert r["level"] == "low"
+        assert "your own" in r["message"].lower()
