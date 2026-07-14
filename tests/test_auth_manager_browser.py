@@ -614,7 +614,7 @@ class TestCrossProcessSessionSync:
         cache_path = str(tmp_path / "session.json")
         manager._session_cache_path = cache_path
         # Anchor mtime in the past so the test write registers as newer.
-        manager._session_disk_mtime = 0.0
+        manager._session_disk_mtime_ns = 0
 
         _write_session_cache(
             cache_path,
@@ -629,7 +629,7 @@ class TestCrossProcessSessionSync:
         assert manager._browser_session_token == "SIBLING_ROTATED"
         # mtime watermark should advance so subsequent calls don't re-parse
         # the same unchanged file.
-        assert manager._session_disk_mtime > 0.0
+        assert manager._session_disk_mtime_ns > 0
 
     def test_maybe_adopt_skips_when_mtime_unchanged(self, tmp_path):
         manager = _make_browser_manager()
@@ -637,8 +637,8 @@ class TestCrossProcessSessionSync:
         manager._session_cache_path = cache_path
 
         _write_session_cache(cache_path, "OLD=COOKIE", time.time() + 1800)
-        # Pretend we've already seen this exact mtime (and the 0.5s tolerance).
-        manager._session_disk_mtime = os.path.getmtime(cache_path) + 1.0
+        # Pretend we've already seen a version at least as new as this one.
+        manager._session_disk_mtime_ns = os.stat(cache_path).st_mtime_ns + 1_000_000_000
 
         with patch.object(
             manager, "_reload_session_from_disk", wraps=manager._reload_session_from_disk
@@ -673,7 +673,7 @@ class TestCrossProcessSessionSync:
         manager = _make_browser_manager()
         cache_path = str(tmp_path / "session.json")
         manager._session_cache_path = cache_path
-        manager._session_disk_mtime = 0.0
+        manager._session_disk_mtime_ns = 0
         # Force the session to look valid so get_headers takes the fast path.
         manager._browser_last_validated_at = time.time()
 
