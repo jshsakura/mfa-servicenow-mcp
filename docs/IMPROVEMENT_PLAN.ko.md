@@ -5,7 +5,9 @@
 > **대상 버전**: `v1.18.23` · **작성일**: 2026-07-03 · **저장소**: `jshsakura/mfa-servicenow-mcp` (공개 OSS, Apache-2.0)
 >
 > 원본 검토 4건(`AGY_SECURITY_AND_IMPROVEMENT_PLAN.md`, `docs/AUDIT_REPORT.ko.md`, `adversarial_review.md`,
-> `docs/ADVERSARIAL_REVIEW.ko.md`)의 내용은 본 문서로 통합됨. 개별 지적의 코드 라인 근거는 검증 완료.
+> `docs/ADVERSARIAL_REVIEW.ko.md`)의 내용은 본 문서로 통합된 뒤 원본은 삭제됨 — **이 문서가 유일한 기록**이다.
+> 개별 지적의 코드 라인 근거는 검증 완료. 재검토 요청이 들어오면 먼저 2절(반영하지 않음)을 볼 것:
+> PID 재사용 교착·평문 세션·모듈 분할은 **이미 검증 후 기각**된 주장이라 재탕이 잦다.
 
 ---
 
@@ -108,6 +110,40 @@
 | **AR-5** "테스트 201개 skip/xfail" | ❌ grep 아티팩트(20배 과장) | 실제 pytest skip/xfail 마커는 **10개**. "skip" 문자열 203회 중 ~192개는 `resume-skip` 워터마크 등 **기능 코드**. 논지는 맞으나 증거가 허위. |
 | **AR-6** 동결 = 부채 상환 거부 | ⚠️ 의견 | "좋은 설계는 8번 안 짠다"는 glib — 8판은 설계결함이 아니라 인스턴스별 ACL 상이라는 실서버 발견. 순수함수 추출 제안은 GM-3에서 이미 부분 수용. FROZEN 정책은 유지. |
 | **AR-7** 65툴 = 공격표면 / undoability 게이트 | ⚪ 저우선 유효 | delete/publish 계열 추가 인가는 아이디어로 기록. 현재 read-only 기본 + G7 이중확인이 최고 폭발반경은 이미 커버. |
+
+---
+
+## 2-A. 리뷰 4건이 전부 놓친 실제 결함 (v1.19.10 수정 완료)
+
+외부 검토들이 `os.kill(pid, 0)`을 보고 **PID 재사용**(교과서적 함정)을 지적하는 동안,
+같은 줄에 있던 **훨씬 심각한 결함**은 4건 모두 놓쳤다. 리뷰의 가치는 "지적 개수"가 아니라
+"코드를 실제로 읽었는가"에 있다는 증거로 남긴다.
+
+### [FIX-1] `os.kill(pid, 0)`은 Windows에서 **대상 프로세스를 죽인다** — 치명
+
+CPython `os.kill()` 문서: *"The Windows kill() only supports CTRL_C_EVENT and
+CTRL_BREAK_EVENT; **any other value will cause the process to be unconditionally
+killed by the TerminateProcess API**."* 즉 시그널 `0`은 Windows에서 프로브가 아니라 **강제 종료**다.
+
+- **터진 자리**: startup sweep(`_cleanup_stale_sibling_files`)이 **모든 락 파일**에 대해 이 검사를 수행.
+  → Windows에서 두 번째 MCP 호스트가 부팅하면 **첫 번째 호스트의 로그인 프로세스를 죽이고**,
+  `os.kill`이 성공 반환하니 락은 "살아있음"으로 판정 → 자기도 로그인 거부("다른 터미널에서 로그인 진행 중").
+  Windows는 Claude Desktop 주력 플랫폼이므로 실사용 경로.
+- **수정**: `auth/_process.py::_is_pid_alive` — OpenProcess + GetExitCodeProcess(Windows) / `os.kill`(POSIX).
+  절대 시그널을 보내지 않음. 호출부 3곳(`_acquire_login_lock`, `_is_lock_file_stale`,
+  `_browser_dom._singleton_holder_pid`) 전부 교체.
+- **재발 방지**: `test_auth_process_display.py::TestNoRawOsKillInAuthLayer` — auth 계층 소스에
+  `os.kill(` 문자열이 재등장하면 CI 실패.
+
+### [FIX-2] 디스플레이 없는 호스트에서 "보이는 브라우저" 폴백 — R8/AGY-3의 **결론만 틀린 진짜 갭**
+
+리뷰들은 "즉각 Hang"이라 했고 그건 틀렸다(Chromium이 X 없으면 raise, 대기도 5분 하드캡).
+하지만 **DISPLAY/WAYLAND_DISPLAY 체크가 코드에 0건**인 것은 사실이었다.
+
+- MFA 폴백은 사람이 TOTP를 칠 **보이는 창**이 목적인데, 헤드리스 리눅스엔 칠 사람이 없다.
+- **수정**: `auth/_display.py::_visible_browser_unavailable_reason` (리눅스 한정 — macOS/Windows는 항상 윈도우 서버 존재).
+  폴백 직전 조기 차단 + `SERVICENOW_AUTH_TYPE=basic|oauth|api_key`를 **행동 지시로** 제시.
+- 잃는 능력 0: 디스플레이가 있으면 폴백은 그대로 동작한다(테스트로 고정).
 
 ---
 
