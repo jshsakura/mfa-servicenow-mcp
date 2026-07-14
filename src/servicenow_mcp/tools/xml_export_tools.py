@@ -103,7 +103,11 @@ def _resolve_names(params: ExportRecordXmlParams) -> tuple[List[str], Optional[s
             names.append(f"{table}_{sid}")
     # De-dup, preserve order.
     seen: set[str] = set()
-    ordered = [n for n in names if not (n in seen or seen.add(n))]
+    ordered: list[str] = []
+    for n in names:
+        if n not in seen:
+            seen.add(n)
+            ordered.append(n)
     if not ordered:
         return [], "Provide table+sys_ids or names — nothing to export."
     bad = [n for n in ordered if not _NAME_RE.match(n)]
