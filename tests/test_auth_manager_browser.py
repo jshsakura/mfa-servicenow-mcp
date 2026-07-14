@@ -693,14 +693,18 @@ class TestCrossProcessSessionSync:
 
 
 class TestSelfHealCounterIsPerProcess:
-    """Pins the documented R3 gap (see WEB_LOGIN_FAILURE_ANALYSIS.md):
-    `_consecutive_self_heal_count` is in-memory only and NOT persisted via
-    `_save_session_to_disk`, so a sibling MCP host that's deep into the
-    self-heal escalation ladder leaks no signal to other hosts.
+    """`_consecutive_self_heal_count` is per-process by design, not by accident.
 
-    This test documents the current behavior. If someone later adds disk
-    persistence for the counter (resolving R3), this test will fail and the
-    catalog entry should be updated accordingly.
+    It is in-memory only and NOT persisted via `_save_session_to_disk`, so a
+    sibling MCP host deep into the self-heal escalation ladder leaks no signal
+    to other hosts. That is deliberate: the cross-process login lock already
+    serializes auth recovery one host at a time, so a shared counter buys little
+    — while a shared *open* circuit would let one wedged host lock out every
+    other terminal.
+
+    This test documents the current behavior. If someone later persists the
+    counter to disk, this test will fail — which is the point: that change needs
+    a deliberate decision, not a drive-by.
     """
 
     def test_self_heal_counter_does_not_round_trip_through_disk(self, tmp_path):

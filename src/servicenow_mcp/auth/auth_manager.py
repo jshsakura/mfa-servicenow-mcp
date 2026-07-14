@@ -44,6 +44,7 @@ from ._diagnostics import (  # noqa: F401
     _format_response_diagnostic,
     _redact_value,
 )
+from ._display import _visible_browser_unavailable_reason  # noqa: F401
 from ._http_session import (  # noqa: F401
     _CROSS_ORIGIN_STRIP_HEADERS,
     _MAX_MANUAL_REDIRECTS,
@@ -60,6 +61,7 @@ from ._http_session import (  # noqa: F401
     _strip_sensitive_headers,
 )
 from ._keepalive import SessionKeepalive
+from ._process import _is_pid_alive  # noqa: F401
 from ._response_predicates import (  # noqa: F401
     _STALE_PROFILE_COOKIE_NAMES,
     _extract_bigip_routing_hint,
@@ -416,6 +418,11 @@ class AuthManager:
     # an abandoned window can hold that call open.
     VISIBLE_AUTH_PAGE_HARD_CAP_MS: int = 300_000  # 5 min — TOTP entry ceiling
 
+    # Cross-process login lock: how old a lock may get before any process may
+    # collect it, regardless of whether its holder's pid still looks alive.
+    # This is the backstop against pid reuse — see `_acquire_login_lock`.
+    LOGIN_LOCK_STALE_AFTER_SECONDS: float = 300.0
+
     @classmethod
     def _compute_login_wait_budget_ms(
         cls, timeout_ms: int, *, use_headless: bool, debug_mode: bool
@@ -769,7 +776,11 @@ class AuthManager:
 
         Returns True if we got the lock (no other process is logging in).
         Returns False if another process already holds the lock.
-        Stale locks (PID dead or older than 5 minutes) are automatically cleaned up.
+        Stale locks (holder dead, or lock older than
+        ``LOGIN_LOCK_STALE_AFTER_SECONDS``) are automatically cleaned up. The
+        age check runs FIRST and is what makes a PID-reuse deadlock impossible:
+        even if an unrelated process inherits a crashed holder's pid and the
+        liveness probe says "alive", the lock still expires on age.
         """
         if os.path.exists(self._login_lock_path):
             try:
@@ -777,13 +788,9 @@ class AuthManager:
                     lock_data = json.load(f)
                 lock_pid = lock_data.get("pid")
                 lock_time = lock_data.get("timestamp", 0)
-                # Stale lock: process dead or lock older than 5 minutes
-                stale = (time.time() - lock_time) > 300
+                stale = (time.time() - lock_time) > self.LOGIN_LOCK_STALE_AFTER_SECONDS
                 if not stale and lock_pid:
-                    try:
-                        os.kill(lock_pid, 0)  # Check if PID is alive
-                    except OSError:
-                        stale = True  # Process is dead
+                    stale = not _is_pid_alive(lock_pid)
                 if not stale:
                     logger.info(
                         "Login lock held by PID %s (age %.0fs) — "
@@ -1005,11 +1012,7 @@ class AuthManager:
         lock_pid = data.get("pid")
         if not isinstance(lock_pid, int) or lock_pid <= 0:
             return True
-        try:
-            os.kill(lock_pid, 0)
-        except OSError:
-            return True
-        return False
+        return not _is_pid_alive(lock_pid)
 
     @staticmethod
     def _is_session_file_expired(path: str, now: float) -> bool:
@@ -2360,6 +2363,14 @@ class AuthManager:
                 headless_timeout or mfa_required
             )
             if should_fallback_to_interactive:
+                # A visible window is the whole point of the fallback — a human
+                # has to type the TOTP. On a display-less host there is nobody
+                # to type it, so launching Chromium visibly just burns the login
+                # budget and dies on a missing X server. Say what to do instead.
+                no_display = _visible_browser_unavailable_reason()
+                if no_display:
+                    logger.error("Cannot fall back to a visible login: %s", no_display)
+                    raise ValueError(no_display) from exc
                 if mfa_required:
                     logger.info(
                         "Headless login attempt detected MFA requirement "

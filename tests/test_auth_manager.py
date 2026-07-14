@@ -2440,6 +2440,23 @@ class TestAutoInstallChromium:
 
 
 class TestLoginWithBrowser:
+    """The headless-bail → visible-login escalation.
+
+    Every test here presumes a host that can actually SHOW a browser window —
+    that was implicit until v1.19.9, when the escalation started refusing to
+    open a window nobody could see (display-less Linux). CI is exactly such a
+    host, so the precondition is now declared rather than assumed. The refusal
+    itself is pinned in test_auth_process_display.py.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _host_has_a_display(self):
+        with patch(
+            "servicenow_mcp.auth.auth_manager._visible_browser_unavailable_reason",
+            return_value=None,
+        ):
+            yield
+
     def test_fallback_to_interactive_on_timeout(self):
         mgr = _make_browser_manager()
         browser_cfg = BrowserAuthConfig(timeout_seconds=10)

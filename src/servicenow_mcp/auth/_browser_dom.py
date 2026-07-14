@@ -10,6 +10,8 @@ import os
 import time
 from typing import Optional
 
+from ._process import _is_pid_alive
+
 logger = logging.getLogger("servicenow_mcp.auth.auth_manager")
 
 
@@ -73,12 +75,8 @@ def _singleton_holder_pid(user_data_dir: str) -> Optional[int]:
         pid = int(target.rsplit("-", 1)[-1])
     except ValueError:
         return None
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+    if not _is_pid_alive(pid):
         return None  # dead holder — stale lock
-    except OSError:
-        pass  # e.g. PermissionError: pid exists but isn't ours — still busy
     return pid
 
 
