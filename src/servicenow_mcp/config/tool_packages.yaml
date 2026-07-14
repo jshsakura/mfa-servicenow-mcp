@@ -85,6 +85,8 @@ standard:
   - query_local_graph
   # Attachments (Read) — download a record's attachment file(s) to local disk
   - download_attachment
+  # XML export (Read) — importable <unload> XML to disk (current sys_update_version)
+  - export_record_xml
   # Local Sync (Read)
   - diff_local_component
 
