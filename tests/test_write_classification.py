@@ -76,6 +76,7 @@ _READ_ONLY_TOOL_SNAPSHOT = frozenset(
         "download_portal_sources",
         "download_server_sources",
         "download_table_schema",
+        "export_record_xml",
         "extract_table_dependencies",
         "get_developer_changes",
         "get_developer_daily_summary",
