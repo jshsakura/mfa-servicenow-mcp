@@ -1557,19 +1557,21 @@ def _fetch_records_chunk(
     chunk: List[str],
     fields: List[str],
 ) -> List[Dict[str, Any]]:
-    """Single-chunk direct fetch (fallback path when the Batch API is out)."""
-    field_list = ",".join(
-        dict.fromkeys(["sys_id", *fields, "sys_updated_on", "sys_updated_by", "sys_mod_count"])
-    )
-    params = GenericQueryParams(
-        table=table,
-        query=f"sys_idIN{','.join(chunk)}",
-        fields=field_list,
-        limit=len(chunk),
-        offset=0,
-        display_value=False,
-    )
-    return sn_query(config, auth_manager, params).get("results") or []
+    """Single-chunk direct fetch (fallback path when the Batch API is out).
+
+    Raw GET, NOT sn_query: the verdict scan compares source BODIES, so a field
+    >50k chars must not be clipped by sn_query's truncate_results (a context-
+    budget safeguard). The primary Batch API path already reads raw/untruncated;
+    this fallback must match it or a >50KB body would falsely verdict as drifted.
+    """
+    url = f"{config.instance_url.rstrip('/')}{_table_chunk_url(table, chunk, fields)}"
+    headers = auth_manager.get_headers()
+    resp = auth_manager.make_request("GET", url, headers=headers)
+    if resp.status_code >= 400:
+        raise ValueError(
+            f"Failed to fetch {table} chunk: HTTP {resp.status_code} — {resp.text[:200]}"
+        )
+    return resp.json().get("result") or []
 
 
 def _verdict_scan(config: ServerConfig, auth_manager: AuthManager, root: Path) -> Dict[str, Any]:
@@ -1633,9 +1635,15 @@ def _verdict_scan(config: ServerConfig, auth_manager: AuthManager, root: Path) -
             rows = served["body"].get("result")
         if rows is None:
             table_name = work[idx][0]
-            rows = _fetch_records_chunk(
-                config, auth_manager, table_name, chunk, _table_source_fields(table_name)
-            )
+            try:
+                rows = _fetch_records_chunk(
+                    config, auth_manager, table_name, chunk, _table_source_fields(table_name)
+                )
+            except (ValueError, OSError) as exc:
+                # A failed fallback chunk must not abort the whole scan — its
+                # records simply go unresolved and surface as 'missing_remote'.
+                logger.warning("verdict scan: chunk fetch failed for %s: %s", table_name, exc)
+                rows = []
             http_requests += 1
         for rec in rows or []:
             sid = str(rec.get("sys_id") or "")
@@ -2050,8 +2058,14 @@ def update_remote_from_local(
         "sys_scope",
     ]
     try:
+        # full=True: raw untruncated GET. The default sn_query path clips any
+        # field >50k chars (truncate_results), so a long body (e.g. a >50KB
+        # widget client_script) would come back capped and compare against the
+        # FULL local copy as a bogus "~100% replacement" conflict — the exact
+        # asymmetry that made diff (full=True) and push disagree on the same
+        # record. The comparison read MUST be untruncated, like diff_local_component.
         remote_record = _fetch_portal_component_record(
-            config, auth_manager, resolved.table, resolved.sys_id, all_fields
+            config, auth_manager, resolved.table, resolved.sys_id, all_fields, full=True
         )
     except ValueError as e:
         return {"error": str(e)}
@@ -2379,8 +2393,11 @@ def update_remote_from_local(
     verify_fields = list(update_data.keys()) + ["sys_updated_on", "sys_updated_by"]
     fresh_remote: Optional[Dict[str, Any]] = None
     try:
+        # full=True: same untruncated read as the pre-push gate — a >50k field
+        # clipped by sn_query would still differ from the full local copy after a
+        # perfect push and raise a false WRITE_NOT_LANDED.
         fresh_remote = _fetch_portal_component_record(
-            config, auth_manager, resolved.table, resolved.sys_id, verify_fields
+            config, auth_manager, resolved.table, resolved.sys_id, verify_fields, full=True
         )
     except ValueError as e:
         logger.warning("Post-write landing verification could not re-read record: %s", e)

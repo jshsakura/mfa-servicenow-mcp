@@ -162,24 +162,37 @@ class TestVerdictScanFusion:
     ):
         from servicenow_mcp.tools.sync_tools import DiffLocalComponentParams, diff_local_component
 
+        # Batch API POST is unavailable (404) → the scan falls back to a per-chunk
+        # DIRECT GET. That fallback reads RAW/untruncated (make_request), NOT via
+        # sn_query, so a >50k body is never clipped by truncate_results.
+        get_rows = [
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 1;",
+                "sys_updated_on": "2025-01-10 10:00:00",
+                "sys_updated_by": "admin",
+                "sys_mod_count": "1",
+            }
+        ]
+
+        def _side(method, url, **kwargs):
+            resp = MagicMock()
+            if method == "GET":  # per-chunk fallback fetch
+                resp.status_code = 200
+                resp.json.return_value = {"result": get_rows}
+            else:  # Batch API POST → unavailable
+                resp.status_code = 404
+                resp.text = "no batch api"
+            return resp
+
         auth = MagicMock()
-        auth.make_request.return_value = MagicMock(status_code=404)  # no Batch API
-        mock_query.return_value = {
-            "results": [
-                {
-                    "sys_id": "wid-1",
-                    "script": "var x = 1;",
-                    "sys_updated_on": "2025-01-10 10:00:00",
-                    "sys_updated_by": "admin",
-                    "sys_mod_count": "1",
-                }
-            ]
-        }
+        auth.make_request.side_effect = _side
         result = diff_local_component(
             mock_config,
             auth,
             DiffLocalComponentParams(path=str(widget_root / "global"), verdict=True),
         )
         assert result["in_sync"] == 1
-        assert result["http_requests"] == 1  # one fallback chunk query
-        mock_query.assert_called_once()
+        assert result["http_requests"] == 1  # one fallback chunk GET
+        mock_query.assert_not_called()  # fallback no longer routes through sn_query
+        assert any(c.args and c.args[0] == "GET" for c in auth.make_request.call_args_list)
