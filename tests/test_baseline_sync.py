@@ -368,6 +368,27 @@ class TestDiffThreeWay:
 # ---------------------------------------------------------------------------
 # Verdict mode: token-lean status-only verification (no diff bodies)
 # ---------------------------------------------------------------------------
+def _verdict_chunk_make_request(rows):
+    """make_request side_effect for the verdict scan's per-chunk fallback.
+
+    The Batch API POST is forced to fail (500) so the scan falls back to the
+    per-chunk direct GET, which now reads RAW/untruncated (a >50k body must not
+    be clipped by sn_query's truncate_results). The GET returns the given rows.
+    """
+
+    def _side(method, url, **kwargs):
+        resp = MagicMock()
+        if method == "GET":
+            resp.status_code = 200
+            resp.json.return_value = {"result": list(rows)}
+        else:  # Batch API POST → force per-chunk fallback
+            resp.status_code = 500
+            resp.text = "batch disabled in test"
+        return resp
+
+    return _side
+
+
 class TestVerdictMode:
     def _remote(self, script, mod_count="7"):
         return {
@@ -418,9 +439,9 @@ class TestVerdictMode:
     ):
         script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
         write_baseline_for(script, "var x = 1;")  # clean local
-        mock_query.return_value = {
-            "results": [self._remote("var x = 2; // server moved", mod_count="9")]
-        }
+        mock_auth.make_request.side_effect = _verdict_chunk_make_request(
+            [self._remote("var x = 2; // server moved", mod_count="9")]
+        )
 
         result = diff_local_component(
             mock_config,
@@ -439,7 +460,9 @@ class TestVerdictMode:
     def test_directory_verdict_scan_all_in_sync(
         self, mock_query, mock_config, mock_auth, widget_root
     ):
-        mock_query.return_value = {"results": [self._remote("var x = 1;")]}
+        mock_auth.make_request.side_effect = _verdict_chunk_make_request(
+            [self._remote("var x = 1;")]
+        )
         result = diff_local_component(
             mock_config,
             mock_auth,
@@ -451,7 +474,9 @@ class TestVerdictMode:
 
     @patch("servicenow_mcp.tools.sync_tools.sn_query")
     def test_table_dir_path_scans_directly(self, mock_query, mock_config, mock_auth, widget_root):
-        mock_query.return_value = {"results": [self._remote("var x = 1;")]}
+        mock_auth.make_request.side_effect = _verdict_chunk_make_request(
+            [self._remote("var x = 1;")]
+        )
         result = diff_local_component(
             mock_config,
             mock_auth,
@@ -464,7 +489,7 @@ class TestVerdictMode:
     def test_directory_verdict_flags_missing_remote(
         self, mock_query, mock_config, mock_auth, widget_root
     ):
-        mock_query.return_value = {"results": []}
+        mock_auth.make_request.side_effect = _verdict_chunk_make_request([])
         result = diff_local_component(
             mock_config,
             mock_auth,
