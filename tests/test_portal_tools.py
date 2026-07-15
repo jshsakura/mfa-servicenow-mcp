@@ -220,16 +220,13 @@ def test_get_portal_component_code_minified_fallback(mock_sn_query, mock_config,
 def test_analyze_portal_component_update_returns_risk_summary(
     mock_sn_query, mock_config, mock_auth_manager
 ):
-    mock_sn_query.return_value = {
-        "success": True,
-        "results": [
-            {
-                "sys_id": "sys-1",
-                "name": "Benefits Widget",
-                "client_script": "function run(){return true;}",
-            }
-        ],
-    }
+    mock_auth_manager.make_request.side_effect = _make_request_get(
+        {
+            "sys_id": "sys-1",
+            "name": "Benefits Widget",
+            "client_script": "function run(){return true;}",
+        }
+    )
 
     result = analyze_portal_component_update(
         mock_config,
@@ -256,7 +253,7 @@ def test_analyze_portal_component_update_matches_fixture_contract(
     update_data = _load_portal_edit_fixture("widget_update_data.json")
     expected = _load_portal_edit_fixture("expected_analyze.json")
 
-    mock_sn_query.return_value = {"success": True, "results": [before_record]}
+    mock_auth_manager.make_request.side_effect = _make_request_get(before_record)
 
     result = analyze_portal_component_update(
         mock_config,
@@ -275,16 +272,13 @@ def test_analyze_portal_component_update_matches_fixture_contract(
 def test_preview_portal_component_update_returns_bounded_diff(
     mock_sn_query, mock_config, mock_auth_manager
 ):
-    mock_sn_query.return_value = {
-        "success": True,
-        "results": [
-            {
-                "sys_id": "sys-1",
-                "name": "Benefits Widget",
-                "template": "<div>{{data.old}}</div>",
-            }
-        ],
-    }
+    mock_auth_manager.make_request.side_effect = _make_request_get(
+        {
+            "sys_id": "sys-1",
+            "name": "Benefits Widget",
+            "template": "<div>{{data.old}}</div>",
+        }
+    )
 
     result = preview_portal_component_update(
         mock_config,
@@ -310,7 +304,7 @@ def test_preview_portal_component_update_matches_fixture_contract(
     update_data = _load_portal_edit_fixture("widget_update_data.json")
     expected = _load_portal_edit_fixture("expected_preview.json")
 
-    mock_sn_query.return_value = {"success": True, "results": [before_record]}
+    mock_auth_manager.make_request.side_effect = _make_request_get(before_record)
 
     result = preview_portal_component_update(
         mock_config,
@@ -323,6 +317,23 @@ def test_preview_portal_component_update_matches_fixture_contract(
     )
 
     assert result == expected
+
+
+def _make_request_get(record):
+    """make_request side_effect for READ-only tools (analyze/preview).
+
+    The current record is read with full=True (raw direct GET) so a >50k field is
+    compared/diffed untruncated — the same reason update/validation reads use it.
+    """
+
+    def _side(method, url, **kwargs):
+        resp = MagicMock()
+        resp.status_code = 200
+        if method == "GET":
+            resp.json.return_value = {"result": record}
+        return resp
+
+    return _side
 
 
 def _make_request_patch_then_validate(after_record):

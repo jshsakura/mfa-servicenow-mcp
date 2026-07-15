@@ -2020,12 +2020,16 @@ def analyze_portal_component_update(
     normalized_update_data = _validate_portal_component_update_data(
         normalized_table, params.update_data
     )
+    # full=True: change summaries (lengths, line counts, changed?) compare against
+    # the CURRENT body — the default path clips >50k fields (truncate_results) and
+    # would report a false "changed" + wrong delta for a >50KB field.
     current_record = _fetch_portal_component_record(
         config,
         auth_manager,
         normalized_table,
         params.sys_id,
         list(normalized_update_data.keys()),
+        full=True,
     )
 
     field_summaries = [
@@ -2080,12 +2084,17 @@ def preview_portal_component_update(
     normalized_update_data = _validate_portal_component_update_data(
         normalized_table, params.update_data
     )
+    # full=True: the diff/length preview compares against the CURRENT body, so it
+    # must be untruncated. The default path clips >50k fields (truncate_results) —
+    # a context safeguard that would make a >50KB field's before/after diff bogus.
+    # Display bounding still happens below (_summarize_text_preview / bounded diff).
     current_record = _fetch_portal_component_record(
         config,
         auth_manager,
         normalized_table,
         params.sys_id,
         list(normalized_update_data.keys()),
+        full=True,
     )
 
     preview_items: List[Dict[str, Any]] = []

@@ -869,6 +869,40 @@ class TestUpdateRemoteFromLocal:
         assert result["landed"] is True
         assert result["target_instance"] == "https://test.service-now.com"
 
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_reads_remote_untruncated_full_true(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
+    ):
+        # INVARIANT: push must read the remote body via full=True (raw untruncated
+        # GET), exactly like diff_local_component. The default sn_query path clips
+        # any field >50k chars (truncate_results) — a CONTEXT-budget safeguard that
+        # has no business inside an internal Python comparison. If it leaks in, a
+        # >50KB widget client_script comes back capped and compares against the FULL
+        # local copy as a bogus "~100% replacement" conflict / false WRITE_NOT_LANDED.
+        # Both reads (pre-push gate AND post-push landing verify) must be untruncated.
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 0;",
+                "sys_updated_on": "2025-01-10 10:00:00",
+            },
+            {"sys_id": "wid-1", "script": "var x = 1;", "sys_updated_on": "2025-01-10 11:00:00"},
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
+
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        update_remote_from_local(mock_config, mock_auth, PushLocalComponentParams(path=str(path)))
+
+        assert mock_fetch.call_count >= 2
+        for call in mock_fetch.call_args_list:
+            assert call.kwargs.get("full") is True, (
+                "push must fetch the remote with full=True — a truncated sn_query "
+                "read corrupts the local-vs-remote comparison for >50KB fields"
+            )
+
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_push_conflict_includes_risk_naming_other_user(
         self, mock_fetch, mock_config, mock_auth, download_root
