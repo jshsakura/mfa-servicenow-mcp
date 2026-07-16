@@ -72,6 +72,7 @@ class ServerConfig(BaseModel):
     debug: bool = False
     timeout: int = 30
     connect_timeout: int = 10
+    server_name: str = "ServiceNow"
 
     @property
     def api_url(self) -> str:
