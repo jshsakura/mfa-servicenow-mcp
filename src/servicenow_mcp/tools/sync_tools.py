@@ -2367,6 +2367,24 @@ def update_remote_from_local(
                 "Remote rejected the write. Local files and _sync_meta are UNCHANGED; "
                 "resolve the error and retry."
             )
+        # Single, unambiguous next step so the CALLER never has to infer one from
+        # prose (and never loops on a retry/close-the-update-set dead end). This is
+        # the deterministic signal; `hint` carries the human-readable detail.
+        if is_acl:
+            ui_name = "SP Designer" if resolved.table.startswith("sp_") else "record form (Studio)"
+            blocked_reason = "target_write_acl_denied"
+            recommended_action = (
+                f"Edit '{resolved.name}' directly in the {active} UI ({ui_name}), then re-run "
+                f"diff_local_component to verify. Do NOT retry this Table-API push and do NOT wait "
+                f"on any user's update set — neither changes this ACL result. Only a role/ACL fix "
+                f"on '{active}' (or the UI edit) will land it."
+            )
+        else:
+            blocked_reason = "target_rejected_write"
+            recommended_action = (
+                "Resolve the server error above, then re-push. Local files are UNCHANGED. Do NOT "
+                "blind-retry the same payload."
+            )
         response: Dict[str, Any] = {
             "success": False,
             "error": result.get("error", "Push rejected by ServiceNow."),
@@ -2379,6 +2397,8 @@ def update_remote_from_local(
             },
             "fields_attempted": list(update_data.keys()),
             "sync_meta_updated": False,
+            "blocked_reason": blocked_reason,
+            "recommended_action": recommended_action,
             "hint": hint,
         }
         if active_sets:
