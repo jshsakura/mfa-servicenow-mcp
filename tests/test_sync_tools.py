@@ -1365,6 +1365,13 @@ class TestUpdateRemoteFromLocal:
         assert "gwang.choi" in hint
         assert "not a confirmed cause" in hint
         assert "does not by itself lock" in hint
+        # Deterministic next step: a single action, and an explicit "do not chase
+        # the update set / do not blind-retry" so the caller cannot loop on a dead end.
+        assert result["blocked_reason"] == "target_write_acl_denied"
+        action = result["recommended_action"].lower()
+        assert "do not wait on any user's update set" in action
+        assert "do not retry this table-api push" in action
+        assert "ui" in action
         mock_write_meta.assert_not_called()
 
     @patch("servicenow_mcp.tools.sync_tools.sn_query")
