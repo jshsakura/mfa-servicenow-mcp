@@ -269,6 +269,15 @@ def parse_args():
         help="Request timeout in seconds",
         default=int(os.environ.get("SERVICENOW_TIMEOUT", "30")),
     )
+    parser.add_argument(
+        "--server-name",
+        help=(
+            "MCP server name reported to the client (default: ServiceNow). Set a distinct "
+            "value per instance (e.g. servicenow-dev / servicenow-stg / servicenow-prd) so "
+            "multiple connections get stable, non-colliding tool namespaces."
+        ),
+        default=os.environ.get("SERVICENOW_MCP_SERVER_NAME", "ServiceNow"),
+    )
 
     # MCP transport
     transport_group = parser.add_argument_group("MCP Transport")
@@ -675,6 +684,7 @@ def create_config(args) -> ServerConfig:
         # Include other server config fields if they exist on ServerConfig model
         debug=args.debug,
         timeout=args.timeout,
+        server_name=args.server_name,
     )
 
 
