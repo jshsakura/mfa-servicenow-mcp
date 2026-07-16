@@ -1360,8 +1360,11 @@ class TestUpdateRemoteFromLocal:
         assert result["record_hold"]["held_by"] == "gwang.choi"
         assert result["record_hold"]["update_set"] == "GwangSung Choi"
         hint = result["hint"].lower()
+        # The hold is surfaced as CONTEXT, never asserted as the 403's cause — an
+        # open update set does not lock a record against a Table-API write.
         assert "gwang.choi" in hint
-        assert "not a problem with your current update set" in hint
+        assert "not a confirmed cause" in hint
+        assert "does not by itself lock" in hint
         mock_write_meta.assert_not_called()
 
     @patch("servicenow_mcp.tools.sync_tools.sn_query")
@@ -1412,7 +1415,11 @@ class TestUpdateRemoteFromLocal:
 
         assert result["success"] is False
         assert "record_hold" not in result
-        assert "no other user is holding this record" in result["hint"].lower()
+        # No live hold → the hint must NOT name/ blame another user, and must point
+        # at the real likely cause (Service Portal protection) instead.
+        hint = result["hint"].lower()
+        assert "gwang.choi" not in hint
+        assert "service portal" in hint
 
     @patch("servicenow_mcp.tools.sync_tools.sn_query")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
