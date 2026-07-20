@@ -126,3 +126,6 @@ _baseline/
 # with the repo as cwd; one `git add -A` after a real download would push
 # customer data to this PUBLIC repo without this guard.
 temp/
+
+# Local planning docs (/plan skill output) — not part of the package
+plan/
