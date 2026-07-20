@@ -2,7 +2,7 @@
 
 各 MCP クライアントの詳細なセットアップ。すべてのクライアントは同じ MCP サーバーを使用します — 設定フォーマットだけが異なります。
 
-> **ここから始めてください:** すべてのプラットフォームで `uvx` が標準のインストール方法です。`uvx` が動作しない場合 — 原因はたいてい Windows の Smart App Control です — `pip` にフォールバックしてください。PyPI そのものに到達できない場合は、リリース zip/exe のセクションを使用してください。
+> **ここから始めてください:** すべてのプラットフォームで `uvx` が標準のインストール方法です。`uvx` が動作しない場合 — 原因はたいてい Windows の Smart App Control です — `pip` にフォールバックしてください。インストール経路はこの 2 つです。
 
 ---
 
@@ -46,6 +46,10 @@ python -m playwright install chromium
 
 > macOS/Linux における pip の唯一の注意点は、Homebrew やディストリビューション付属の Python が [PEP 668](https://peps.python.org/pep-0668/) によりグローバルインストールを拒否すること（`externally-managed-environment`）です。python.org のインストーラーを使うか、素直に uvx のままにしてください。
 
+**PyPI そのものに到達できない場合** — 社内ネットワークがパッケージインデックスをブロックしているケース — は、どちらの経路でもパッケージを取得できません。情報システム部門に `pypi.org` と `files.pythonhosted.org` の許可を依頼するか、社内インデックスにミラーしてもらい `pip install --index-url` で指定してください。
+
+> Windows ユーザー: ステップごとの詳細とプロキシ/ウイルス対策に関する注意は [Windows インストールガイド](WINDOWS_INSTALL.md) を参照してください。
+
 ### 3. サーバーを MCP クライアント設定に追加する
 
 クライアントの設定ファイルにエントリを追加します（インストーラーコマンドは不要）。**`env` ブロックはどの方法でインストールしても同一です** — 上で選んだ方法によって変わるのは `command`/`args` だけです:
@@ -54,7 +58,6 @@ python -m playwright install chromium
 |---|---|---|
 | uvx（標準） | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
 | pip（uvx がブロックされる場合） | `python` | `["-m","servicenow_mcp"]` |
-| リリース exe | 実行ファイルの絶対パス | `[]` |
 
 以下のクライアントごとの例はすべて uvx 形式で記載しています。pip の場合は、この 2 つのキーだけ差し替え、それ以外はそのままにしてください。
 
@@ -74,53 +77,6 @@ python -m playwright install chromium
 ```
 
 クライアントごとのファイルパスとフォーマット（Codex TOML など）は下記にあります。設定後はクライアントを再起動してください。
-
-### ローカルインストール（リリース zip/exe）
-
-PyPI そのものがブロックされていて、`uvx` も `pip` もパッケージに到達できない場合に使用します。リリース zip は単一の PyInstaller ビルド実行ファイルです — **インストーラースクリプト不要、Python 不要、システムキャッシュを汚しません**。実行ファイルは、自身の隣にある `ms-playwright/` ディレクトリを自動検出します。
-
-**1. ダウンロード。** 実行ファイルは [最新リリース](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest) から、任意の Chromium バンドル（ネットワークが Playwright の Chromium ダウンロードもブロックしている場合のみ）は長期保持されている [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) リリースから取得します。
-
-| プラットフォーム | 必須（最新リリース） | Chromium ダウンロードがブロックされている場合に追加（chromium-bundle リリース） |
-|----------|---------------------------|----------------------------------------------------------------|
-| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64.zip` |
-| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>.zip` |
-| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64.zip` |
-
-**2. 配置する。** ユーザーが管理する任意の安定したディレクトリに配置します。**両方の zip を先に展開してください** — `.zip` ファイルを実行ファイルの隣に残さないでください。Chromium zip を展開したフォルダは、名前が `ms-play` で始まり `chromium-*` サブディレクトリを含んでいればよいだけです:
-
-```
-~/apps/servicenow-mcp/                                  (任意のディレクトリ)
-├── servicenow-mcp                                      ← プラットフォーム zip から（Windows では .exe）
-└── ms-playwright-chromium-linux-x64-<ver>/             ← デフォルトの展開名で動作
-    └── chromium-1185/
-        └── …
-```
-
-（よりすっきりした名前にしたい場合は `ms-playwright/` にリネームできます — どちらでも動作します。）起動時、実行ファイルは隣接する `ms-play*` ディレクトリを glob で探し、その中に `chromium-*` サブディレクトリを見つけると、現在のプロセスに限り `PLAYWRIGHT_BROWSERS_PATH` 経由で Playwright をそこへ向けます。システムの Playwright キャッシュには**触れず**、MCP クライアント設定も**変更せず**、ディスク上のどこにも**書き込みません**。
-
-**3. 検証してから、MCP クライアントを接続する:**
-
-```bash
-# macOS / Linux
-~/apps/servicenow-mcp/servicenow-mcp --version
-
-# Windows PowerShell
-& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
-```
-
-下記の [設定ガイド](#設定ガイド) の MCP 設定スニペットをクライアントの設定ファイルに貼り付け、`command` を実行ファイルの絶対パスに、`args` を `[]` に設定します。`env` ブロックは uvx セットアップと同じです — `command`/`args` だけが変わります。Chromium を実行ファイルの隣以外の場所に置いた場合は、`env` ブロックに `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` を追加してください。
-
-Chromium zip をスキップし、Playwright の自動ダウンロードがブロックされている場合は、Python のあるマシンでディレクトリを事前準備します:
-
-```bash
-pip install playwright
-PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m playwright install chromium
-```
-
-自動検出は追加設定なしでそれを拾います。
-
-> Windows ユーザー: ステップごとの詳細とプロキシ/ウイルス対策に関する注意は [Windows インストールガイド](WINDOWS_INSTALL.md) を参照してください。
 
 ### クイックテスト
 

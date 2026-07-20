@@ -1,9 +1,10 @@
 # Windows Installation Guide
 
-`uvx` is the default on Windows, same as everywhere else. Two Windows-specific things can push you off it:
+`uvx` is the default on Windows, same as everywhere else. There is one Windows-specific thing that can push you off it:
 
 - **Smart App Control blocks `uvx`** → switch to **pip** (Step 1b). This is by far the most common Windows breakage, and it usually shows up abruptly right after a Windows update.
-- **PyPI itself is unreachable** (corporate network) → the release zip/exe (Step 2), as a last resort.
+
+If **PyPI itself is unreachable** — a corporate network that blocks the package index — neither path can fetch anything. Ask IT to allowlist `pypi.org` and `files.pythonhosted.org`, or to mirror the package on an internal index you can point at with `pip install --index-url`.
 
 ---
 
@@ -100,7 +101,7 @@ python -m servicenow_mcp --version
 
 ### Client config on the pip path
 
-Only `command` and `args` change. **The `env` block is identical to the uvx form** — copy any config in Step 4 and swap the top two lines:
+Only `command` and `args` change. **The `env` block is identical to the uvx form** — copy any config in Step 2 and swap the top two lines:
 
 ```json
 {
@@ -123,80 +124,7 @@ For Codex's TOML, the equivalent is `command = "python"` / `args = ["-m", "servi
 
 ---
 
-## Step 2: Release zip/exe install
-
-Use this as a **last resort, when PyPI itself is unreachable** — a corporate network that blocks the package index outright, so neither `uvx` nor `pip` can fetch anything.
-
-> **This is not the fix for Smart App Control.** The bundled executable is PyInstaller-built and **also unsigned**, so SAC blocks it for the same reason it blocks uvx. If SAC is your problem, go back to [Step 1b](#step-1b-smart-app-control-blocks-uvx--install-with-pip) and use pip.
-
-Download `servicenow-mcp-windows-x64-<version>.zip` from GitHub Releases. It contains a single PyInstaller-built `servicenow-mcp.exe` plus `LICENSE`. No installer script is needed — the executable handles Chromium discovery itself. Pick a stable folder you control (e.g. `C:\Users\you\apps\servicenow-mcp\`), extract `servicenow-mcp.exe` into it, and — if you have the Chromium zip — **extract it up front** into the same folder. Don't leave the `.zip` lying around. The extracted folder name can stay as Windows produced it or be renamed to `ms-playwright\`; the executable globs for any sibling `ms-play*` directory at startup:
-
-```
-C:\Users\you\apps\servicenow-mcp\
-├── servicenow-mcp.exe
-└── ms-playwright-chromium-windows-x64-<ver>\   (default extracted name works)
-    └── chromium-1185\
-        └── …
-```
-
-At startup the executable looks for any sibling `ms-play*\chromium-*` directory and points Playwright at it via `PLAYWRIGHT_BROWSERS_PATH` for the current process only. It does not touch the system standard Playwright cache (`%LOCALAPPDATA%\ms-playwright`), does not modify any MCP client config, and does not write anywhere on disk.
-
-Then paste this into your client config file (Claude Code / Claude Desktop example):
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional MFA login pre-fill. If you put Chromium somewhere other than the sibling `ms-playwright\` directory, add `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"` to the `env` block. Snippets for Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Antigravity / Zed live in the [Client Setup Guide](CLIENT_SETUP.md).
-
-This keeps `uvx` out of runtime entirely.
-
-If Chromium isn't bundled and downloads are allowed, install Python 3.10+ from <https://www.python.org/downloads/>, then run:
-
-```powershell
-py -m pip install playwright
-$env:PLAYWRIGHT_BROWSERS_PATH = "$HOME\apps\servicenow-mcp\ms-playwright"
-py -m playwright install chromium
-```
-
-If the Playwright browser download is blocked too, download `ms-playwright-chromium-windows-x64.zip` from the chromium-bundle release (https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) and extract its contents to:
-
-```text
-%LOCALAPPDATA%\ms-playwright
-```
-
-Playwright browser docs: <https://playwright.dev/python/docs/browsers>
-
----
-
-## Step 3: Build release assets
-
-Maintainers build the release zip on Windows:
-
-```powershell
-py scripts\build_desktop_release.py --browser-zip
-```
-
-This creates the executable zip and the optional Playwright Chromium cache zip for blocked networks.
-
----
-
-## Step 4: Configure Your MCP Client
+## Step 2: Configure Your MCP Client
 
 Copy the configuration for your MCP client below.
 Replace `your-instance` with your actual ServiceNow instance address.
@@ -345,7 +273,7 @@ Config file location: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
 
 ---
 
-## Step 5: Install Skills (Optional)
+## Step 3: Install Skills (Optional)
 
 Skills are AI execution blueprints — verified pipelines with safety gates that turn raw MCP tools into reliable workflows. 4 skills across 3 categories.
 
@@ -390,7 +318,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 ---
 
-## Step 6: Verify
+## Step 4: Verify
 
 1. **Fully quit and restart** your MCP client (close the tray icon too).
 2. The browser window opens on the first tool call (not on server start).
@@ -477,7 +405,6 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 uvx --with playwright playwright install chromium   # uvx
 python -m playwright install chromium               # pip
 ```
-→ If browser download is blocked, use `ms-playwright-chromium-windows-x64.zip` from the chromium-bundle release and extract it to `%LOCALAPPDATA%\ms-playwright`.
 
 ### "MCP server won't connect"
 → Check config file syntax:

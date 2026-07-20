@@ -1,9 +1,10 @@
 # Guía de instalación en Windows
 
-`uvx` es la opción predeterminada en Windows, igual que en el resto de plataformas. Hay dos situaciones propias de Windows que pueden obligarte a abandonarlo:
+`uvx` es la opción predeterminada en Windows, igual que en el resto de plataformas. Hay una situación propia de Windows que puede obligarte a abandonarlo:
 
 - **Smart App Control bloquea `uvx`** → cambia a **pip** (Paso 1b). Es con diferencia el fallo más habitual en Windows, y suele aparecer de golpe justo después de una actualización de Windows.
-- **PyPI es inaccesible** (red corporativa) → el zip/exe de la versión (Paso 2), como último recurso.
+
+Si **PyPI es inaccesible** —una red corporativa que bloquea el índice de paquetes por completo—, ninguna de las dos vías podrá descargar nada. Pide a tu departamento de IT que ponga `pypi.org` y `files.pythonhosted.org` en la lista de permitidos, o que replique el paquete en un índice interno al que puedas apuntar con `pip install --index-url`.
 
 ---
 
@@ -100,7 +101,7 @@ python -m servicenow_mcp --version
 
 ### Configuración del cliente en la vía de pip
 
-Solo cambian `command` y `args`. **El bloque `env` es idéntico al de la forma con uvx**: copia cualquier configuración del Paso 4 y sustituye las dos primeras líneas:
+Solo cambian `command` y `args`. **El bloque `env` es idéntico al de la forma con uvx**: copia cualquier configuración del Paso 2 y sustituye las dos primeras líneas:
 
 ```json
 {
@@ -123,80 +124,7 @@ Para el TOML de Codex, el equivalente es `command = "python"` / `args = ["-m", "
 
 ---
 
-## Paso 2: Instalación con el zip/exe de la versión
-
-Usa esto como **último recurso, cuando PyPI sea inaccesible**: una red corporativa que bloquea directamente el índice de paquetes, de modo que ni `uvx` ni `pip` pueden descargar nada.
-
-> **Esta no es la solución para Smart App Control.** El ejecutable incluido está compilado con PyInstaller y **tampoco está firmado**, así que SAC lo bloquea por la misma razón por la que bloquea uvx. Si tu problema es SAC, vuelve al [Paso 1b](#paso-1b-smart-app-control-bloquea-uvx--instala-con-pip) y usa pip.
-
-Descarga `servicenow-mcp-windows-x64-<version>.zip` desde GitHub Releases. Contiene un único `servicenow-mcp.exe` compilado con PyInstaller más `LICENSE`. No se necesita ningún script de instalación: el ejecutable gestiona por sí mismo el descubrimiento de Chromium. Elige una carpeta estable que controles (por ejemplo `C:\Users\you\apps\servicenow-mcp\`), extrae `servicenow-mcp.exe` en ella y, si tienes el zip de Chromium, **extráelo de antemano** en la misma carpeta. No dejes el `.zip` por ahí. El nombre de la carpeta extraída puede mantenerse tal como lo produjo Windows o renombrarse a `ms-playwright\`; el ejecutable busca con glob cualquier directorio hermano `ms-play*` al iniciarse:
-
-```
-C:\Users\you\apps\servicenow-mcp\
-├── servicenow-mcp.exe
-└── ms-playwright-chromium-windows-x64-<ver>\   (el nombre extraído predeterminado funciona)
-    └── chromium-1185\
-        └── …
-```
-
-Al iniciarse, el ejecutable busca cualquier directorio hermano `ms-play*\chromium-*` y apunta Playwright hacia él mediante `PLAYWRIGHT_BROWSERS_PATH` solo para el proceso actual. No toca la caché estándar de Playwright del sistema (`%LOCALAPPDATA%\ms-playwright`), no modifica ninguna configuración de cliente MCP y no escribe en ningún lugar del disco.
-
-Luego pega esto en el archivo de configuración de tu cliente (ejemplo de Claude Code / Claude Desktop):
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` son un pre-rellenado opcional del inicio de sesión MFA. Si colocas Chromium en algún lugar distinto del directorio hermano `ms-playwright\`, añade `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"` al bloque `env`. Los fragmentos para Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Antigravity / Zed están en la [Guía de configuración de clientes](CLIENT_SETUP.md).
-
-Esto mantiene `uvx` completamente fuera del tiempo de ejecución.
-
-Si Chromium no viene incluido y las descargas están permitidas, instala Python 3.10+ desde <https://www.python.org/downloads/> y luego ejecuta:
-
-```powershell
-py -m pip install playwright
-$env:PLAYWRIGHT_BROWSERS_PATH = "$HOME\apps\servicenow-mcp\ms-playwright"
-py -m playwright install chromium
-```
-
-Si la descarga del navegador de Playwright también está bloqueada, descarga `ms-playwright-chromium-windows-x64.zip` desde la versión chromium-bundle (https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) y extrae su contenido en:
-
-```text
-%LOCALAPPDATA%\ms-playwright
-```
-
-Documentación de los navegadores de Playwright: <https://playwright.dev/python/docs/browsers>
-
----
-
-## Paso 3: Compilar los artefactos de la versión
-
-Los mantenedores compilan el zip de la versión en Windows:
-
-```powershell
-py scripts\build_desktop_release.py --browser-zip
-```
-
-Esto crea el zip del ejecutable y el zip opcional de la caché de Chromium de Playwright para redes bloqueadas.
-
----
-
-## Paso 4: Configura tu cliente MCP
+## Paso 2: Configura tu cliente MCP
 
 Copia la configuración para tu cliente MCP que aparece a continuación.
 Reemplaza `your-instance` por la dirección real de tu instancia de ServiceNow.
@@ -345,7 +273,7 @@ Ubicación del archivo de configuración: `%USERPROFILE%\.gemini\antigravity\mcp
 
 ---
 
-## Paso 5: Instalar Skills (opcional)
+## Paso 3: Instalar Skills (opcional)
 
 Las Skills son planos de ejecución de IA: canalizaciones verificadas con controles de seguridad que convierten las herramientas MCP en bruto en flujos de trabajo fiables. 4 skills en 3 categorías.
 
@@ -390,7 +318,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 ---
 
-## Paso 6: Verificar
+## Paso 4: Verificar
 
 1. **Cierra por completo y reinicia** tu cliente MCP (cierra también el icono de la bandeja).
 2. La ventana del navegador se abre en la primera llamada a una herramienta (no al iniciar el servidor).
@@ -477,7 +405,6 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 uvx --with playwright playwright install chromium   # uvx
 python -m playwright install chromium               # pip
 ```
-→ Si la descarga del navegador está bloqueada, usa `ms-playwright-chromium-windows-x64.zip` de la versión chromium-bundle y extráelo en `%LOCALAPPDATA%\ms-playwright`.
 
 ### "MCP server won't connect"
 → Comprueba la sintaxis del archivo de configuración:
