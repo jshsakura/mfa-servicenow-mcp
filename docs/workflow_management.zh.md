@@ -3,7 +3,7 @@
 本文档涵盖 MCP 服务器暴露的两个工作流引擎：
 
 1. **旧版 Workflow**（`wf_workflow`）—— 由下方的 `manage_workflow` 操作路由器驱动。
-2. **Flow Designer**（`sys_hub_flow`）—— 带操作分派的统一 `manage_flow_designer` 工具。standard 包暴露读取操作（`list` / `get_detail` / `get_executions` / `compare`）；更高的包解锁写入（`update` / `checkout` / `set_*` / `save` / `discard`）。Action/SubFlow/Playbook 表记录在 [Flow Designer 表对照](#flow-designer-table-map)中。
+2. **Flow Designer**（`sys_hub_flow`）—— 带操作分派的统一 `manage_flow_designer` 工具。standard 包暴露读取操作（`list` / `get_detail` / `get_executions` / `compare`）；更高的包解锁写入（`update` / `checkout` / `set_*` / `save` / `discard`）。Action/SubFlow/Playbook 表记录在 [Flow Designer 表对照](#flow-designer-表对照)中。
 
 如果你不确定某个流程使用哪个引擎，从 `manage_flow_designer(action="list")`（现代实例）开始，并回退到 `manage_workflow(action="list")` 以查找旧版 `wf_workflow` 记录。
 

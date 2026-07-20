@@ -1,6 +1,9 @@
 # Windows インストールガイド
 
-デフォルトでは `uvx` を使用してください。エンドポイントセキュリティ/Zscaler が `uvx` やパッケージのダウンロードをブロックする場合は、下記のリリース zip/exe のセクションを使用してください。
+Windows でも他の環境と同じく `uvx` がデフォルトです。ただし Windows 固有の事情が 2 つあり、これに当たった場合は別の方法に切り替える必要があります:
+
+- **Smart App Control が `uvx` をブロックする** → **pip**（ステップ 1b）に切り替えます。Windows で起きるトラブルとしては圧倒的にこれが多く、たいていは Windows Update の直後に何の前触れもなく発生します。
+- **PyPI 自体に到達できない**（社内ネットワーク） → 最終手段としてリリース zip/exe（ステップ 2）を使います。
 
 ---
 
@@ -33,11 +36,100 @@ uvx --with playwright playwright install chromium
 
 `uvx` は標準の Playwright キャッシュ内に一致する Chromium が既にあれば再利用します。Chromium がない場合は、まず上記のインストールコマンドを実行してください。
 
+**更新:** `uvx` はダウンロード済みのバージョンをキャッシュして使い続けるため、新しいリリースを取り込むには明示的な操作が必要です:
+
+```powershell
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
+uvx --with playwright playwright install chromium
+```
+
+---
+
+## ステップ 1b: Smart App Control が uvx をブロックする場合は pip でインストールする
+
+### 症状
+
+`uvx` が有用なエラーを一切出さずに動かなくなります。MCP クライアントは「サーバーの起動に失敗した」と報告し、PowerShell では「管理者によってブロックされました」「システムポリシーによりブロックされました」といったメッセージが出ます。設定は何も変えていません。これは **Windows Update の直後** に始まることが非常に多く、そのためランチャーではなくサーバー側が壊れたように見えてしまいます。
+
+### 原因
+
+[Smart App Control](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0)（SAC）は、**署名済み、または安全性が確認済み**の実行ファイルだけを実行させる Windows 11 の機能です。`uvx` は恒久的にインストールされたプログラムを実行するのではなく、**実行のたびに署名のない一時実行ファイルを新しく展開して**起動します。これはまさに SAC が防ぐために存在する挙動そのものなので、毎回ブロックされます。リトライしても `uv` を再インストールしても変わりません — 仕様上、ファイルは実行のたびに新規かつ未署名だからです。
+
+SAC は新しい Windows 11 マシンでは評価モードで動作しており、後から**自動的にオン**に切り替わることがあります。何か月も問題なく動いていたマシンで、ある日突然この現象が起きるのはこのためです。
+
+確認方法: **Windows セキュリティ → アプリとブラウザーの制御 → スマート アプリ コントロールの設定**。
+
+> **これを回避するために Smart App Control をオフにしないでください。** オフにする操作は **一方通行** です — 一度無効にすると、Windows は二度と有効に戻させてくれません。元に戻すには **Windows の再インストール** が必要です。パッケージランチャーひとつのために OS のセキュリティを恒久的に下げるのは割に合いません。代わりに pip を使ってください。SAC をオンにしたまま問題を完全に解決できます。
+
+### pip での導入手順
+
+pip でインストールした場合、サーバーは **署名済み** の Python インタープリタが実行する通常の Python ファイルになるため、SAC が問題視する要素がなくなります。
+
+[python.org のインストーラー](https://www.python.org/downloads/) から Python **3.10 以降** をインストールしてください。このビルドは署名済みで、そのまま SAC を通過します。（Microsoft Store 版の Python でも動作します。）インストール時に **「Add python.exe to PATH」** にチェックを入れてください。その後:
+
+```powershell
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+**更新:**
+
+```powershell
+pip install --upgrade mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+Chromium は上記のように先にインストールしておいてください。最初のツール呼び出しまで先送りすると、約 150 MB のダウンロードが MCP クライアントのハンドシェイクのタイムアウトと競合し、`connection closed` として表面化します。
+
+### 必ずモジュールとして起動し、コンソールスクリプトは使わない
+
+pip は Scripts フォルダに `servicenow-mcp.exe` というシムも配置します。**このシムは pip がマシン上で生成する未署名の `.exe` なので、uvx とまったく同じ理由で SAC にブロックされます。** モジュールを直接呼び出して、シムを完全に迂回してください:
+
+| 使わないコマンド | 代わりに使うコマンド |
+|---|---|
+| `servicenow-mcp` | `python -m servicenow_mcp` |
+| `servicenow-mcp setup` | `python -m servicenow_mcp setup` |
+| `servicenow-mcp --version` | `python -m servicenow_mcp --version` |
+| `servicenow-mcp-skills claude` | `python -m servicenow_mcp.setup_skills claude` |
+
+インストールの確認:
+
+```powershell
+python -m servicenow_mcp --version
+```
+
+### pip 版でのクライアント設定
+
+変更が必要なのは `command` と `args` だけです。**`env` ブロックは uvx 版とまったく同じ**なので、ステップ 4 の設定をそのままコピーして、先頭の 2 行だけ差し替えてください:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "python",
+      "args": ["-m", "servicenow_mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
+```
+
+Codex の TOML では `command = "python"` / `args = ["-m", "servicenow_mcp"]` が同等の記述です。
+
+> MCP クライアントが `python` を見つけられない場合は、絶対パスを指定してください（例: `C:/Users/you/AppData/Local/Programs/Python/Python312/python.exe`）。MCP クライアントはシェルの PATH を必ずしも引き継ぎません。
+
 ---
 
 ## ステップ 2: リリース zip/exe インストール
 
-`uvx` がブロックされている場合に使用します。GitHub Releases から `servicenow-mcp-windows-x64-<version>.zip` をダウンロードします。これには PyInstaller でビルドされた単一の `servicenow-mcp.exe` と `LICENSE` が含まれます。インストーラースクリプトは不要です — 実行ファイルが Chromium の検出を自身で行います。管理する安定したフォルダ（例: `C:\Users\you\apps\servicenow-mcp\`）を選び、`servicenow-mcp.exe` をそこに展開し、Chromium zip がある場合は **先に展開** して同じフォルダに入れます。`.zip` を放置しないでください。展開したフォルダ名は Windows が生成したままでも `ms-playwright\` にリネームしてもかまいません。実行ファイルは起動時に隣接する `ms-play*` ディレクトリを glob で探します:
+**PyPI 自体に到達できない場合の最終手段**として使用します — パッケージインデックスを丸ごと遮断する社内ネットワークなどで、`uvx` も `pip` も何も取得できないケースです。
+
+> **これは Smart App Control の対処法ではありません。** 同梱の実行ファイルは PyInstaller でビルドされており、**こちらも未署名**なので、uvx と同じ理由で SAC にブロックされます。SAC が原因の場合は [ステップ 1b](#ステップ-1b-smart-app-control-が-uvx-をブロックする場合は-pip-でインストールする) に戻って pip を使ってください。
+
+GitHub Releases から `servicenow-mcp-windows-x64-<version>.zip` をダウンロードします。これには PyInstaller でビルドされた単一の `servicenow-mcp.exe` と `LICENSE` が含まれます。インストーラースクリプトは不要です — 実行ファイルが Chromium の検出を自身で行います。管理する安定したフォルダ（例: `C:\Users\you\apps\servicenow-mcp\`）を選び、`servicenow-mcp.exe` をそこに展開し、Chromium zip がある場合は **先に展開** して同じフォルダに入れます。`.zip` を放置しないでください。展開したフォルダ名は Windows が生成したままでも `ms-playwright\` にリネームしてもかまいません。実行ファイルは起動時に隣接する `ms-play*` ディレクトリを glob で探します:
 
 ```
 C:\Users\you\apps\servicenow-mcp\
@@ -74,7 +166,7 @@ C:\Users\you\apps\servicenow-mcp\
 
 これにより `uvx` をランタイムから完全に排除できます。
 
-Chromium がバンドルされておらず、ダウンロードが許可されている場合は、<https://www.python.org/downloads/> から Python をインストールしてから次を実行します:
+Chromium がバンドルされておらず、ダウンロードが許可されている場合は、<https://www.python.org/downloads/> から Python 3.10 以降をインストールしてから次を実行します:
 
 ```powershell
 py -m pip install playwright
@@ -108,6 +200,8 @@ py scripts\build_desktop_release.py --browser-zip
 
 下記からお使いの MCP クライアント用の設定をコピーします。
 `your-instance` を実際の ServiceNow インスタンスアドレスに置き換えてください。
+
+> 以下の例はデフォルトの `uvx` インストールを前提としています。**pip 版（ステップ 1b）では、`command` を `python` に、`args` を `["-m", "servicenow_mcp"]` に置き換えてください** — 後続の `--instance-url` / `--auth-type` などのフラグはそのまま残し、`env` ブロックも記載どおりのままにします。
 
 ### Claude Desktop
 
@@ -269,6 +363,14 @@ servicenow-mcp-skills opencode
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 ```
 
+> **pip 版（ステップ 1b）ではモジュールとして呼び出してください** — `servicenow-mcp-skills` も、Smart App Control にブロックされる pip 生成の未署名 `.exe` シムです:
+>
+> ```powershell
+> python -m servicenow_mcp.setup_skills claude
+> python -m servicenow_mcp.setup_skills codex
+> python -m servicenow_mcp.setup_skills opencode
+> ```
+
 | クライアント | インストールパス | 自動検出 |
 |--------|-------------|----------------|
 | Claude Code | `.claude\commands\servicenow\` | 次回起動時に `/servicenow` スラッシュコマンドが表示される |
@@ -359,14 +461,21 @@ TOML クライアント（Codex）— `args` 配列の中に追加します:
 $env:Path += ";$env:USERPROFILE\.local\bin"
 ```
 
+### uvx は見つかるのに何も起動しない / 「blocked by your administrator」 / Windows Update 後に壊れた
+→ これはインストールの破損ではなく **Smart App Control** です。uvx は実行のたびに未署名の一時実行ファイルを展開するため、SAC がその実行を拒否します。[ステップ 1b](#ステップ-1b-smart-app-control-が-uvx-をブロックする場合は-pip-でインストールする) の pip 版に切り替えてください。SAC を無効化してはいけません — 一方通行の操作で、元に戻すには Windows の再インストールが必要になります。
+
+### pip インストールは成功したのに `servicenow-mcp` が起動しない
+→ pip が生成した `servicenow-mcp.exe` シムを実行しています。これは未署名で、uvx と同様に SAC にブロックされます。代わりにモジュールを呼び出してください: `python -m servicenow_mcp`。MCP クライアント設定も `"command": "python"`、`"args": ["-m", "servicenow_mcp"]` に更新してください。
+
 ### 「Python is not installed」
-→ `uv` は Python 3.11+ を自動的にダウンロードします。手動インストールは不要です。
-システムの Python と競合する場合は、`uv` をアンインストールして再インストールしてください。
+→ **uvx** 版では `uv` が Python 3.11+ を自動的にダウンロードするため、手動インストールは不要です。システムの Python と競合する場合は、`uv` をアンインストールして再インストールしてください。
+→ **pip** 版では Python は自分で用意します。[python.org のインストーラー](https://www.python.org/downloads/) から 3.10 以降をインストールし（署名済みなので Smart App Control を通過します）、**「Add python.exe to PATH」** にチェックを入れてください。Microsoft Store 版の Python でも動作します。
 
 ### 「Browser won't open」
 → MCP 起動前に Chromium がインストールされている必要があります:
 ```powershell
-uvx --with playwright playwright install chromium
+uvx --with playwright playwright install chromium   # uvx
+python -m playwright install chromium               # pip
 ```
 → ブラウザのダウンロードがブロックされている場合は、chromium-bundle リリースの `ms-playwright-chromium-windows-x64.zip` を使用し、`%LOCALAPPDATA%\ms-playwright` に展開してください。
 
@@ -392,7 +501,16 @@ Remove-Item "$env:USERPROFILE\.servicenow_mcp\session_*.json"
 ### バージョン更新
 `uvx` は最後にダウンロードしたキャッシュ済みバージョンを再利用します。実行のたびに新しいリリースへ自動的に更新する**わけではありません**。最新の公開バージョンをキャッシュに取り込むには:
 ```powershell
-uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
+uvx --with playwright playwright install chromium
 ```
 
-リフレッシュ後、MCP クライアントを完全に再起動して、新しいキャッシュ済みバージョンを起動させてください。
+pip 版の場合:
+```powershell
+pip install --upgrade mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+いずれの場合も Chromium を同時に更新します。新しい Playwright は新しい Chromium ビルドを前提とするためです。
+
+リフレッシュ後、MCP クライアントを完全に再起動して、新しいバージョンを起動させてください。

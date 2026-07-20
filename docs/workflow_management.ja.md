@@ -3,7 +3,7 @@
 このドキュメントは、MCP サーバーが公開する 2 つのワークフローエンジンを取り上げます:
 
 1. **レガシーワークフロー**（`wf_workflow`）— 下記の `manage_workflow` アクションルーターで駆動されます。
-2. **Flow Designer**（`sys_hub_flow`）— アクションディスパッチを備えた統合 `manage_flow_designer` ツール。standard パッケージは読み取りアクション（`list` / `get_detail` / `get_executions` / `compare`）を公開し、上位パッケージは書き込み（`update` / `checkout` / `set_*` / `save` / `discard`）をアンロックします。Action/SubFlow/Playbook のテーブルは [Flow Designer テーブルマップ](#flow-designer-table-map) に記載されています。
+2. **Flow Designer**（`sys_hub_flow`）— アクションディスパッチを備えた統合 `manage_flow_designer` ツール。standard パッケージは読み取りアクション（`list` / `get_detail` / `get_executions` / `compare`）を公開し、上位パッケージは書き込み（`update` / `checkout` / `set_*` / `save` / `discard`）をアンロックします。Action/SubFlow/Playbook のテーブルは [Flow Designer テーブルマップ](#flow-designer-テーブルマップ) に記載されています。
 
 プロセスがどちらのエンジンを使うか分からない場合は、まず `manage_flow_designer(action="list")`（モダンなインスタンス）から始め、レガシーの `wf_workflow` レコードには `manage_workflow(action="list")` にフォールバックしてください。
 

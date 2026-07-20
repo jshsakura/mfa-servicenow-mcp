@@ -2,7 +2,7 @@
 
 Detailed setup for each MCP client. All clients use the same MCP server — only the config format differs.
 
-> **Recommended first:** use the `uvx` setup command below. If `uvx` is blocked by corporate security tooling, use the release zip/exe section.
+> **Start here:** `uvx` is the default install on every platform. If `uvx` won't run — Windows Smart App Control is the usual reason — fall back to `pip`. If PyPI itself is unreachable, use the release zip/exe section.
 
 ---
 
@@ -33,9 +33,30 @@ uvx --with playwright playwright install chromium                               
 
 The first command pre-fetches and verifies the server in the exact `--with playwright` env the client uses, so the first start is instant. The second downloads Chromium; `uvx` reuses a matching Chromium already in the standard cache.
 
+#### If uvx is blocked — `pip`
+
+Windows [Smart App Control](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0) stops `uvx` from running at all: uvx unpacks an unsigned temporary executable on every run, and SAC blocks it. If uvx stopped working right after a Windows update, this is almost certainly why. Install with pip instead:
+
+```powershell
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+A Python from the [python.org installer](https://www.python.org/downloads/) (signed, 3.10+) passes SAC as-is. Start the server with `python -m servicenow_mcp` — **not** the `servicenow-mcp` console script, which is an unsigned `.exe` shim pip generates and SAC blocks too.
+
+> On macOS/Linux the one pip caveat is that Homebrew and distro Pythons refuse global installs under [PEP 668](https://peps.python.org/pep-0668/) (`externally-managed-environment`). Use the python.org installer, or just stay on uvx.
+
 ### 3. Add the server to your MCP client config
 
-Add an entry to your client's config file (no installer command needed):
+Add an entry to your client's config file (no installer command needed). **The `env` block is identical no matter how you installed** — only `command`/`args` follow the path you picked above:
+
+| Install | `command` | `args` |
+|---|---|---|
+| uvx (default) | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
+| pip (uvx blocked) | `python` | `["-m","servicenow_mcp"]` |
+| release exe | absolute path to the executable | `[]` |
+
+Every per-client example below shows the uvx form. On pip, swap those two keys and leave everything else untouched.
 
 ```json
 {
@@ -56,7 +77,7 @@ Per-client file paths and formats (Codex TOML, etc.) are below; restart the clie
 
 ### Local install (release zip/exe)
 
-Use this when `uvx` or PyPI is blocked. The release zip is a single PyInstaller-built executable — **no installer script, no Python required, no system-cache pollution**. The executable auto-detects a `ms-playwright/` directory sitting next to itself.
+Use this when PyPI itself is blocked, so neither `uvx` nor `pip` can reach the package. The release zip is a single PyInstaller-built executable — **no installer script, no Python required, no system-cache pollution**. The executable auto-detects a `ms-playwright/` directory sitting next to itself.
 
 **1. Download.** Executable from the [latest release](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest); the optional Chromium bundle (only if the network also blocks Playwright's Chromium download) from the long-lived [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) release.
 
@@ -88,7 +109,7 @@ Use this when `uvx` or PyPI is blocked. The release zip is a single PyInstaller-
 & "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
 ```
 
-Paste the MCP config snippet from the [Configuration Guide](#configuration-guide) below into your client's config file, setting `command` to the absolute path of your executable. The `env` block is the same as the uvx setup — only `command` changes. If you put Chromium somewhere other than next to the executable, add `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` to the `env` block.
+Paste the MCP config snippet from the [Configuration Guide](#configuration-guide) below into your client's config file, setting `command` to the absolute path of your executable and `args` to `[]`. The `env` block is the same as the uvx setup — only `command`/`args` change. If you put Chromium somewhere other than next to the executable, add `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` to the `env` block.
 
 If you skipped the Chromium zip and Playwright's auto-download is blocked, pre-stage the directory on a machine with Python:
 
@@ -107,6 +128,12 @@ Verify the server starts before configuring your client:
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"
+
+# pip install: replace the first line with
+python -m servicenow_mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"
@@ -132,6 +159,7 @@ The default transport is `stdio`. For remote MCP clients or a local HTTP bridge,
 
 ```bash
 servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
+# pip install: python -m servicenow_mcp --transport http --http-host 127.0.0.1 --http-port 8000
 ```
 
 The MCP endpoint is `http://127.0.0.1:8000/mcp`; `/health` returns a lightweight status response. Keep the default loopback host unless the server is behind trusted network controls.
@@ -166,7 +194,7 @@ Per-instance credentials, in an MCP client `env` block (each alias can carry its
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["mfa-servicenow-mcp@latest"],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
         "MCP_TOOL_PACKAGE": "standard",
         "SERVICENOW_ACTIVE_INSTANCE": "dev",
@@ -191,6 +219,42 @@ Example comparison:
 ```
 
 For a single write against a non-active instance, use the guarded `instance=<alias> confirm_instance=<alias> confirm=approve` routing above. For promoting MANY records, prefer an Update Set over per-record cross-instance writes.
+
+---
+
+## Naming multiple server entries (`--server-name`)
+
+This is a different topology from the multi-instance mode above. Multi-instance = **one** connection that can reach several instances. This section = **several separate connections**, one process per instance, each pinned to its own instance — worth it only when you want dev/stg/prd visibly split apart in the client UI.
+
+The catch: every entry advertises itself as `ServiceNow` by default, so the client disambiguates them by load order — `mcp_servicenow`, `mcp_servicenow2`, `mcp_servicenow3`. That numbering can shift between restarts, which makes it **untrustworthy for telling which connection is production.** Give each one a name with `--server-name`:
+
+```json
+{
+  "mcpServers": {
+    "snow-dev": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-dev"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme-dev.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    },
+    "snow-prd": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-prd"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+Tool names are then pinned to `mcp_snow-dev_*` / `mcp_snow-prd_*`. `SERVICENOW_MCP_SERVER_NAME` does the same thing as an env var, and the flag wins if both are set. Unset, the name stays `ServiceNow`, so existing configs keep working.
+
+**Prefer profiles when you can.** For moving between instances inside one connection, [Multi-Instance Mode](#multi-instance-mode-comparison--guarded-single-call-writes) is the recommended approach: only it gives you `compare_instances`, a single shared browser login, and the per-alias `allow_writes` gate. Separate processes get none of that — each one only knows its own instance, logs in on its own, and the tool package is the only thing standing between you and a production write.
 
 ---
 
