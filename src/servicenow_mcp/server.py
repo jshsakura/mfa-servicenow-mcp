@@ -557,8 +557,8 @@ class ServiceNowMCP:
         else:
             self.config = config
 
-        self.mcp_server: Server = FastMCP("ServiceNow")  # Use low-level Server
-        self.name = "ServiceNow"
+        self.mcp_server: Server = FastMCP(self.config.server_name)  # Use low-level Server
+        self.name = self.config.server_name
         self.instance_entries = load_instance_config_env(os.getenv(INSTANCE_CONFIG_ENV))
         self.active_instance_alias = select_active_alias(
             self.instance_entries,
