@@ -354,9 +354,26 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 
 > `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD`는 선택 — MFA 로그인 폼을 미리 채웁니다. Windows에서는 시스템 환경변수로 설정하세요.
 
-#### 한 클라이언트에서 여러 인스턴스 (dev / test / prod)
+#### 여러 인스턴스 (dev / test / prod) — 두 가지 방식
 
-위 예시는 단일 인스턴스 — 그게 기본입니다. 한 클라이언트에서 여러 인스턴스를 오가려면 `SERVICENOW_INSTANCE_CONFIG`(alias → 설정)에 나열하고 `SERVICENOW_ACTIVE_INSTANCE`로 활성 인스턴스를 고르세요. alias마다 **자체 자격증명**(`username` / `password` / `auth_type` / `api_key`)을 가질 수 있고, `${ENV}` 참조로 비밀번호를 JSON 밖에 둘 수 있습니다. 기존 단일 인스턴스 `SERVICENOW_INSTANCE_URL` 방식도 폴백으로 그대로 동작합니다.
+위 예시는 단일 인스턴스 — 그게 기본입니다. 인스턴스가 둘 이상이면 방식이 두 갈래이고, **먼저 어느 쪽인지 정하세요:**
+
+| | **A. 프로필** (권장) | **B. 멀티 프로세스** |
+|---|---|---|
+| 서버 프로세스 | 1개 | 인스턴스마다 1개 |
+| 클라이언트에 보이는 연결 | 1개 | 3개 |
+| 인스턴스 선택 | 호출 시 `instance="test"` | 프로세스에 고정 |
+| 인스턴스 간 비교 | **가능** (`compare_instances`) | 불가 — 프로세스가 서로 모름 |
+| 브라우저 로그인 | 세션 공유 | 프로세스마다 별도 로그인 |
+| 쓰기 통제 | alias별 `allow_writes` | 프로세스별 설정 |
+
+**대부분 A입니다.** 쓰기 안전성은 A에서 이미 해결됩니다 — prod alias에 `allow_writes`를 빼면 읽기 전용이 되고, 비-active 인스턴스 쓰기는 `confirm_instance` 게이트를 통과해야 합니다. 게다가 A만 인스턴스 간 비교가 되고 로그인도 한 번만 하면 됩니다.
+
+**B는 클라이언트 UI에서 연결이 눈에 보이게 갈라져야 할 때만** 고르세요. 툴 이름 자체가 `mcp_snow-prd_*`로 찍히니 사람이 화면에서 즉시 구분합니다. 대신 로그인 3번, 비교 불가, 설정 3벌입니다. 자세한 설정은 [여러 연결을 구분하기](#여러-연결을-구분하기---server-name).
+
+##### A. 프로필
+
+한 클라이언트에서 여러 인스턴스를 오가려면 `SERVICENOW_INSTANCE_CONFIG`(alias → 설정)에 나열하고 `SERVICENOW_ACTIVE_INSTANCE`로 활성 인스턴스를 고르세요. alias마다 **자체 자격증명**(`username` / `password` / `auth_type` / `api_key`)을 가질 수 있고, `${ENV}` 참조로 비밀번호를 JSON 밖에 둘 수 있습니다. 기존 단일 인스턴스 `SERVICENOW_INSTANCE_URL` 방식도 폴백으로 그대로 동작합니다.
 
 ```json
 {
@@ -375,6 +392,40 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 ```
 
 `SERVICENOW_ACTIVE_INSTANCE`가 쓰기 기본 대상이고, 읽기 도구는 `instance="test"`로 다른 인스턴스를 들여다봅니다. 비-active 인스턴스로의 단일 쓰기는 `instance="test" confirm_instance="test" confirm="approve"`로 라우팅할 수 있습니다(가드 + 반영 후 검증). 전체 규칙(쓰기 라우팅·게이트·비교·`${ENV}`): [멀티 인스턴스 모드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md#멀티-인스턴스-모드-비교--가드된-단일-호출-쓰기).
+
+##### B. 멀티 프로세스
+
+연결을 클라이언트 화면에서 갈라 보고 싶을 때만 쓰세요. 항목마다 **인스턴스 하나를 고정**하고 `--server-name`으로 이름을 줍니다:
+
+```json
+{
+  "mcpServers": {
+    "snow-dev": {
+      "command": "python",
+      "args": ["-m", "servicenow_mcp", "--server-name", "snow-dev"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme-dev.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    },
+    "snow-prd": {
+      "command": "python",
+      "args": ["-m", "servicenow_mcp", "--server-name", "snow-prd"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+툴 이름이 `mcp_snow-dev_*` / `mcp_snow-prd_*`로 고정됩니다. `--server-name`을 빼면 둘 다 `ServiceNow`로 광고돼서 클라이언트가 로드 순서로 번호를 붙이고(`mcp_servicenow`, `mcp_servicenow2`), 그 번호는 재시작마다 바뀔 수 있습니다 — 어느 게 운영인지 신뢰할 수 없게 됩니다.
+
+운영 연결을 읽기 전용으로 두려면 `MCP_TOOL_PACKAGE`를 읽기 전용 패키지로 주세요. A와 달리 여기서는 `allow_writes` alias 게이트가 없으므로, **쓰기 차단은 도구 패키지 선택으로만 이뤄집니다.**
+
+> 로그인은 프로세스마다 따로 뜹니다. `compare_instances` 같은 인스턴스 간 도구도 못 씁니다 — 각 프로세스가 자기 인스턴스만 알기 때문입니다. 그게 아쉬우면 A로 가세요.
 
 ---
 
