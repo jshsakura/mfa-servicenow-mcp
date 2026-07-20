@@ -20,6 +20,7 @@ from servicenow_mcp.cli import (
     main,
     parse_args,
 )
+from servicenow_mcp.version import __version__
 
 # ---------------------------------------------------------------------------
 # _resolve_env_reference
@@ -718,3 +719,40 @@ class TestConfigureLogging:
         assert not stale.exists() and not stale_rotated.exists()
         assert fresh.exists(), "files inside the retention window must survive"
         assert other_slug.exists(), "sweep must stay scoped to its own instance slug"
+
+
+class TestModuleEntryPoint:
+    """`python -m servicenow_mcp` is the documented pip invocation.
+
+    It exists so installs can skip the pip-generated console-script .exe
+    shim, which unsigned-binary policies (Windows Smart App Control) block.
+    Pinned as a subprocess so it exercises the real interpreter path.
+    """
+
+    def test_python_dash_m_runs(self):
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-m", "servicenow_mcp", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert __version__ in result.stdout
+
+    def test_matches_console_script_version(self):
+        """The two entry points must never report different versions."""
+        import subprocess
+        import sys
+
+        via_module = subprocess.run(
+            [sys.executable, "-m", "servicenow_mcp", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        assert via_module.stdout.split()[-1] == __version__
