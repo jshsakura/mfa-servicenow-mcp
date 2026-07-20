@@ -97,6 +97,10 @@ Add the server to your client's config file. **The `env` block is identical no m
 
 Only two env vars are required; `MCP_TOOL_PACKAGE` defaults to `standard`, so leave it out unless you need a different package.
 
+#### Single instance
+
+If you only use one instance, this is all you need.
+
 **Claude Code** — `.mcp.json` (project root) / `~/.claude.json` (global):
 
 ```json
@@ -157,7 +161,25 @@ Other clients (Cursor, VS Code, Antigravity, Zed, …) and full env options (aut
 
 Then restart the client. The first browser tool call opens a window for Okta/Entra ID/SAML/MFA login. Sessions persist — no re-login every time.
 
-> **More than one instance (dev / test / prod)?** Stop here and read [Multiple instances — two approaches](#multiple-instances-dev--test--prod--two-approaches) first. Deciding between profiles and separate processes up front is easier than reworking it later.
+#### Multiple instances (dev / test / prod)
+
+If you work across dev / test / prod, **don't stand up several servers.** Changing only `env` lets a single connection handle all of them:
+
+```json
+      "env": {
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"prod\": { \"url\": \"https://acme.service-now.com\", \"auth_type\": \"browser\" } }"
+      }
+```
+
+All that changes is an alias list taking the place of `SERVICENOW_INSTANCE_URL`; `command`/`args` stay the same. What you get:
+
+- **Production is protected by default** — an alias without `allow_writes` is read-only. In the example above, `prod` cannot be written to at all.
+- **Query another instance without restarting** — pass `instance` to a read tool, as in `sn_query(instance="prod", ...)`.
+- **Compare across instances** — `compare_instances` puts the same component from dev and prod side by side.
+- **One login** — the browser session is shared across aliases.
+
+The full rules (write routing, gates, `${ENV}` references) live in [Multiple instances — two approaches](#profiles-vs-multi-process). Only reach for **B. Multi-process** there if the connections have to look separate in your client's UI.
 
 > Prefer an AI to do it? Paste into Claude Code / Cursor / Codex / etc.:
 > `Install and configure mfa-servicenow-mcp following https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md`
@@ -382,7 +404,7 @@ Copy-paste configs for each client: **[Client Setup Guide](https://github.com/js
 
 > `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional — they prefill the MFA login form. On Windows, set these as system environment variables.
 
-#### Multiple instances (dev / test / prod) — two approaches
+#### Profiles vs. multi-process
 
 The examples above are single-instance — that stays the default. With more than one instance there are two ways to go, and it's worth **picking one before you configure anything:**
 

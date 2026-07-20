@@ -97,6 +97,10 @@ Añade el servidor al archivo de configuración de tu cliente. **El bloque `env`
 
 Solo se requieren dos variables de entorno; `MCP_TOOL_PACKAGE` tiene el valor por defecto `standard`, así que omítelo a menos que necesites un paquete diferente.
 
+#### Una sola instancia
+
+Si solo usas una instancia, con esto ya está todo.
+
 **Claude Code** — `.mcp.json` (raíz del proyecto) / `~/.claude.json` (global):
 
 ```json
@@ -157,7 +161,25 @@ Otros clientes (Cursor, VS Code, Antigravity, Zed, …) y las opciones completas
 
 Luego reinicia el cliente. La primera llamada a una herramienta de navegador abre una ventana para el inicio de sesión con Okta/Entra ID/SAML/MFA. Las sesiones persisten — sin tener que volver a iniciar sesión cada vez.
 
-> **¿Más de una instancia (dev / test / prod)?** Párate aquí y lee antes [Múltiples instancias — dos enfoques](#múltiples-instancias-dev--test--prod--dos-enfoques). Decidir de entrada entre perfiles y procesos separados sale más barato que rehacerlo después.
+#### Múltiples instancias (dev / test / prod)
+
+Si trabajas con dev / test / prod, **no levantes varios servidores.** Cambiando solo `env`, una única conexión puede con todas:
+
+```json
+      "env": {
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"prod\": { \"url\": \"https://acme.service-now.com\", \"auth_type\": \"browser\" } }"
+      }
+```
+
+Lo único que cambia es que una lista de alias ocupa el lugar de `SERVICENOW_INSTANCE_URL`; `command`/`args` siguen igual. Con esto:
+
+- **Producción queda protegida por defecto** — un alias sin `allow_writes` es de solo lectura. En el ejemplo de arriba, en `prod` no se puede escribir en absoluto.
+- **Consulta otra instancia sin reiniciar** — pasa `instance` a una herramienta de lectura, como en `sn_query(instance="prod", ...)`.
+- **Compara entre instancias** — `compare_instances` enfrenta el mismo componente de dev y de prod.
+- **Un solo inicio de sesión** — la sesión del navegador se comparte entre alias.
+
+Las reglas completas (enrutado de escrituras, guardas, referencias `${ENV}`) están en [Múltiples instancias — dos enfoques](#perfiles-vs-multiproceso). Solo recurre allí a **B. Multiproceso** si necesitas que las conexiones se vean separadas en la interfaz de tu cliente.
 
 > ¿Prefieres que lo haga una IA? Pega esto en Claude Code / Cursor / Codex / etc.:
 > `Install and configure mfa-servicenow-mcp following https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md`
@@ -382,7 +404,7 @@ Configuraciones de copiar y pegar para cada cliente: **[Guía de configuración 
 
 > `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` son opcionales — pre-rellenan el formulario de inicio de sesión MFA. En Windows, establécelas como variables de entorno del sistema.
 
-#### Múltiples instancias (dev / test / prod) — dos enfoques
+#### Perfiles vs. multiproceso
 
 Los ejemplos de arriba son de instancia única — eso sigue siendo el valor por defecto. Con más de una instancia hay dos caminos posibles, y conviene **elegir uno antes de configurar nada:**
 

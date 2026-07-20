@@ -56,13 +56,14 @@ Store the result as `$CLIENT`.
 
 ### Step 1 — Install the runtime
 
-There are three install methods. **Try them strictly in this order and stop at the first one that works:**
+There are two install methods. **Try them in this order and stop at the first one that works:**
 
 1. **uvx** — the default. Use it unless it is actually blocked.
 2. **pip** — the fallback when uvx cannot execute (Windows Smart App Control).
-3. **Release zip/exe** — last resort, only when PyPI itself is unreachable.
 
-Store the winner as `$INSTALL_METHOD` (`uvx`, `pip`, or `zip`). **Every later step branches on this value**, so do not skip recording it.
+Store the winner as `$INSTALL_METHOD` (`uvx` or `pip`). **Every later step branches on this value**, so do not skip recording it.
+
+If neither works, PyPI itself is likely unreachable. **Stop and tell the user** — do not improvise a workaround. Point them at [the offline install guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/WINDOWS_INSTALL.md).
 
 **1.1 — uvx (default, try first)**
 
@@ -110,17 +111,6 @@ Set `$INSTALL_METHOD=pip`.
 
 > On macOS/Linux, Homebrew and distro-packaged Pythons refuse global pip installs under [PEP 668](https://peps.python.org/pep-0668/) (`externally-managed-environment`). Use a python.org Python, or a virtualenv, or simply stay on uvx — pip is a Windows-driven fallback, not a general recommendation.
 
-**1.3 — Release zip/exe (last resort)**
-
-Use this **only when PyPI itself is unreachable** (corporate network blocks the package index outright), so neither 1.1 nor 1.2 can download anything. Do not jump here just because uvx was blocked — that case is 1.2.
-
-- Download `servicenow-mcp-<platform>-<version>.zip` from GitHub Releases. There is no installer script — the zip contains the PyInstaller-built executable only.
-- Extract the executable into any stable folder the user controls (e.g. `~/apps/servicenow-mcp/`).
-- If the browser download is blocked too, download `ms-playwright-chromium-<platform>-<version>.zip` from the same release and extract it to a sibling folder named `ms-playwright/` — the executable auto-detects that layout at startup and sets `PLAYWRIGHT_BROWSERS_PATH` to it for its own process.
-- The MCP client `command` becomes the absolute path of that executable and `args` becomes `[]`. The env block is identical to the uvx setup.
-
-Set `$INSTALL_METHOD=zip`.
-
 ### Step 2 — Install Playwright Chromium (MANDATORY, do NOT skip)
 
 > Hard dependency. Skipping this is the #1 reason setups fail in the field.
@@ -148,17 +138,16 @@ If 2.1 found nothing, install Chromium using the same execution style as `$INSTA
   python -m playwright install chromium
   ```
   (Step 1.2 already ran this. Run it again only if 2.1 found nothing.)
-- **`$INSTALL_METHOD=zip`:** there is nothing to download — the `ms-playwright/` folder extracted next to the executable in Step 1.3 *is* the Chromium install. Verify that folder exists instead of running a command.
 
 This downloads ~150 MB the first time. On a slow link it can take several minutes — that is normal. Do not abort early. Show the user a progress message ("Downloading Chromium for ServiceNow MFA login — this can take a few minutes on slow networks…") so they understand the wait.
 
-If the install command is blocked rather than merely slow, do not improvise here — go back to Step 1 and move down the ordered list (uvx → pip → zip/exe), then return.
+If the install command is blocked rather than merely slow, do not improvise here — go back to Step 1 and move down the ordered list (uvx → pip), then return.
 
 **2.3 — Verify and stop on failure**
 
 Re-run the check from 2.1. If the binary is still missing, **STOP the setup** and report the failure to the user with the exact command output. Common causes:
 
-- Corporate policy blocking package or browser downloads; move down the Step 1 list (uvx → pip → zip/exe)
+- Corporate policy blocking package or browser downloads; move down the Step 1 list (uvx → pip)
 - Windows Smart App Control blocking the unsigned executable uvx unpacks; switch to the pip path (Step 1.2)
 - Antivirus quarantining the Chromium archive
 - Disk full
@@ -238,16 +227,6 @@ python -m servicenow_mcp setup "$CLIENT" `
   --browser-headless "$HEADLESS"
 ```
 
-```bash
-# $INSTALL_METHOD=zip — run the extracted executable, and point it at the bundled browsers
-/absolute/path/to/servicenow-mcp setup "$CLIENT" \
-  --instance-url "$INSTANCE_URL" \
-  --auth-type "$AUTH_TYPE" \
-  --tool-package "$TOOL_PACKAGE" \
-  --browser-headless "$HEADLESS" \
-  --server-command "/absolute/path/to/servicenow-mcp" \
-  --playwright-browsers-path "/absolute/path/to/ms-playwright"
-```
 
 Add flags only when needed:
 
@@ -280,7 +259,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp setup claude-code
   --skip-skills
 ```
 
-**If `$INSTALL_METHOD=pip`, you MUST correct `command`/`args` afterwards.** The installer always writes the uvx form, and it has no flag that produces the pip form (`--server-command` sets `command` but forces `args` to `[]`, which is right for the zip/exe path and wrong for pip). So run the installer, then open the config file it reported and change exactly these two keys — **leave the `env` block completely untouched, it is identical for every install method:**
+**If `$INSTALL_METHOD=pip`, you MUST correct `command`/`args` afterwards.** The installer always writes the uvx form, and it has no flag that produces the pip form (`--server-command` sets `command` but forces `args` to `[]`, which is wrong for pip). So run the installer, then open the config file it reported and change exactly these two keys — **leave the `env` block completely untouched, it is identical for every install method:**
 
 ```json
       "command": "python",
@@ -302,7 +281,6 @@ For reference, the two valid `command`/`args` pairs are:
 |---|---|---|
 | `uvx` | `uvx` | `["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"]` |
 | `pip` | `python` | `["-m", "servicenow_mcp"]` |
-| `zip` | absolute path to the executable | `[]` |
 
 ### Step 5 — Verify installation
 
@@ -329,7 +307,7 @@ Do **not** attempt to call ServiceNow MCP tools in the current session after set
 
 - **Never hardcode credentials** in config files without asking. If the user skips credentials, omit them entirely from the config.
 - The installer merges into existing config files. Do not hand-roll config merges unless recovery is needed — the `command`/`args` correction for the pip path (Step 4) is the sole exception.
-- **The `env` block never depends on the install method.** Only `command`/`args` change between uvx, pip, and zip/exe. If you find yourself changing env vars because of how the server was installed, you have made a mistake.
+- **The `env` block never depends on the install method.** Only `command`/`args` change between uvx and pip. If you find yourself changing env vars because of how the server was installed, you have made a mistake.
 - **If the user has more than one instance (dev / test / prod):** the recommended setup is still a *single* server entry using profiles — list the instances in `SERVICENOW_INSTANCE_CONFIG` (alias → settings) and pick the default with `SERVICENOW_ACTIVE_INSTANCE`. One process, one login, and cross-instance comparison works. Do not reach for multiple entries by default.
   Only if the user explicitly wants the connections shown **separately in the client UI**, register one entry per instance and give each its own name with `--server-name` (env: `SERVICENOW_MCP_SERVER_NAME`, default `ServiceNow`), so tool namespaces stay stable as `mcp_snow-dev_*` / `mcp_snow-prd_*`. Without it every entry advertises itself as `ServiceNow` and the client disambiguates by load order (`mcp_servicenow`, `mcp_servicenow2`), which can shift between restarts — meaning nobody can tell which connection is production. The installer has no `--server-name` flag, so add these extra entries by hand:
   ```json
