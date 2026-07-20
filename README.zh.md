@@ -97,6 +97,10 @@ python -m playwright install chromium
 
 仅需两个环境变量；`MCP_TOOL_PACKAGE` 默认为 `standard`，因此除非你需要不同的工具包，否则可省略。
 
+#### 单个实例
+
+如果你只用一个实例，到这里就够了。
+
 **Claude Code** — `.mcp.json`（项目根目录）/ `~/.claude.json`（全局）：
 
 ```json
@@ -157,7 +161,25 @@ SERVICENOW_AUTH_TYPE = "browser"
 
 然后重启客户端。首次浏览器工具调用会打开一个窗口用于 Okta/Entra ID/SAML/MFA 登录。会话会持久保存——无需每次都重新登录。
 
-> **有多个实例（dev / test / prod）？** 请先停在这里，读一读[多个实例——两种方式](#多个实例dev--test--prod两种方式)。提前决定用配置档还是分进程，比事后返工要轻松得多。
+#### 多个实例（dev / test / prod）
+
+如果你同时要用 dev / test / prod，**不要起多个服务器。** 只改 `env`，一个连接就能全部管起来：
+
+```json
+      "env": {
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"prod\": { \"url\": \"https://acme.service-now.com\", \"auth_type\": \"browser\" } }"
+      }
+```
+
+这只是把 alias 列表放到了 `SERVICENOW_INSTANCE_URL` 的位置，`command`/`args` 保持不变。这样一来：
+
+- **生产环境默认受保护** —— 没有给 `allow_writes` 的 alias 是只读的。上面例子里的 `prod` 根本写不进去。
+- **无需重启即可查询另一个实例** —— 给读取类工具传 `instance` 即可，例如 `sn_query(instance="prod", ...)`。
+- **跨实例比较** —— 用 `compare_instances` 直接对照 dev 和 prod 上的同一个组件。
+- **只登录一次** —— 浏览器会话在各 alias 之间共享。
+
+完整规则（写入路由、防护门、`${ENV}` 引用）见[多个实例——两种方式](#配置档-vs-多进程)。只有当你必须在客户端界面上把连接从视觉上分开时，才去看那里的 **B. 多进程**。
 
 > 希望让 AI 来完成？将以下内容粘贴到 Claude Code / Cursor / Codex 等：
 > `Install and configure mfa-servicenow-mcp following https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md`
@@ -382,7 +404,7 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 
 > `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` 是可选的——它们会预填充 MFA 登录表单。在 Windows 上，将它们设置为系统环境变量。
 
-#### 多个实例（dev / test / prod）——两种方式
+#### 配置档 vs 多进程
 
 上面的示例是单实例的——这仍是默认设置。当实例不止一个时有两条路可走，而且值得**在动手配置之前先选定一条**：
 

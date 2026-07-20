@@ -97,6 +97,10 @@ Chromium को **पहले से** install करना दोनों ह
 
 नीचे दिए गए उदाहरण uvx वाले हैं। केवल दो env vars आवश्यक हैं; `MCP_TOOL_PACKAGE` डिफ़ॉल्ट रूप से `standard` होता है, इसलिए जब तक आपको कोई भिन्न पैकेज न चाहिए, इसे छोड़ दें।
 
+#### एकल इंस्टेंस
+
+यदि आप केवल एक ही इंस्टेंस इस्तेमाल करते हैं, तो इतना ही काफ़ी है।
+
 **Claude Code** — `.mcp.json` (project root) / `~/.claude.json` (global):
 
 ```json
@@ -157,7 +161,25 @@ SERVICENOW_AUTH_TYPE = "browser"
 
 फिर क्लाइंट को पुनः आरंभ करें। पहला ब्राउज़र टूल कॉल Okta/Entra ID/SAML/MFA लॉगिन के लिए एक विंडो खोलता है। सत्र बने रहते हैं — हर बार पुनः-लॉगिन की ज़रूरत नहीं।
 
-> **एक से ज़्यादा इंस्टेंस (dev / test / prod) हैं?** यहीं रुकें और पहले [कई इंस्टेंस — दो तरीके](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.hi.md#कई-इंस्टेंस-dev--test--prod--दो-तरीके) पढ़ लें। प्रोफ़ाइल और अलग-अलग प्रक्रियाओं में से किसे चुनना है, यह पहले तय कर लेना बाद में सब कुछ दोबारा करने से आसान है।
+#### कई इंस्टेंस (dev / test / prod)
+
+यदि आप dev / test / prod साथ-साथ चलाते हैं, तो **कई सर्वर मत खड़े कीजिए।** सिर्फ़ `env` बदलने से एक ही कनेक्शन इन सबको संभाल लेता है:
+
+```json
+      "env": {
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"prod\": { \"url\": \"https://acme.service-now.com\", \"auth_type\": \"browser\" } }"
+      }
+```
+
+बदलता सिर्फ़ इतना है कि `SERVICENOW_INSTANCE_URL` की जगह alias की सूची आ जाती है; `command`/`args` वैसे ही रहते हैं। इससे:
+
+- **प्रोडक्शन डिफ़ॉल्ट रूप से सुरक्षित** — जिस alias को `allow_writes` नहीं दिया, वह read-only है। ऊपर के उदाहरण में `prod` पर लिखा ही नहीं जा सकता।
+- **बिना रीस्टार्ट दूसरे इंस्टेंस से पूछताछ** — पढ़ने वाले टूल को `instance` दे दें, जैसे `sn_query(instance="prod", ...)`।
+- **इंस्टेंस के बीच तुलना** — `compare_instances` से dev और prod के एक ही कंपोनेंट को आमने-सामने रखें।
+- **लॉगिन एक बार** — ब्राउज़र सत्र सभी alias में साझा रहता है।
+
+पूरे नियम (write routing, गेट, `${ENV}` संदर्भ) [कई इंस्टेंस — दो तरीके](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.hi.md#प्रोफ़ाइल-बनाम-मल्टी-प्रोसेस) में हैं। वहाँ का **B. मल्टी-प्रोसेस** केवल तभी देखें जब क्लाइंट के UI में कनेक्शन दिखने में अलग-अलग होने ज़रूरी हों।
 
 > क्या आप चाहते हैं कि कोई AI इसे करे? Claude Code / Cursor / Codex / आदि में पेस्ट करें:
 > `Install and configure mfa-servicenow-mcp following https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md`
@@ -382,7 +404,7 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 
 > `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` वैकल्पिक हैं — ये MFA लॉगिन फ़ॉर्म को prefill करते हैं। Windows पर, इन्हें सिस्टम environment variables के रूप में सेट करें।
 
-#### कई इंस्टेंस (dev / test / prod) — दो तरीके
+#### प्रोफ़ाइल बनाम मल्टी-प्रोसेस
 
 ऊपर दिए गए उदाहरण single-instance हैं — यही डिफ़ॉल्ट रहता है। एक से ज़्यादा इंस्टेंस होने पर दो रास्ते हैं, और **कुछ भी कॉन्फ़िगर करने से पहले इनमें से एक चुन लेना बेहतर है:**
 

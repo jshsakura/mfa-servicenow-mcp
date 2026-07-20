@@ -97,6 +97,10 @@ python -m playwright install chromium
 
 必須の環境変数は 2 つだけです。`MCP_TOOL_PACKAGE` はデフォルトで `standard` になるため、別のパッケージが必要でない限り省略してください。
 
+#### 単一インスタンス
+
+インスタンスが 1 つだけなら、これで完了です。
+
 **Claude Code** — `.mcp.json`（プロジェクトルート）/ `~/.claude.json`（グローバル）:
 
 ```json
@@ -157,7 +161,25 @@ SERVICENOW_AUTH_TYPE = "browser"
 
 その後、クライアントを再起動してください。最初のブラウザツール呼び出しで、Okta/Entra ID/SAML/MFA ログイン用のウィンドウが開きます。セッションは永続化されます — 毎回再ログインする必要はありません。
 
-> **インスタンスが 2 つ以上（dev / test / prod）ありますか？** ここで一度止まって、[複数のインスタンス（dev / test / prod）— 2 つのアプローチ](#複数のインスタンスdev--test--prod-2-つのアプローチ) を先に読んでください。プロファイルで行くかプロセスを分けるかを先に決めておくほうが、後からやり直すより楽です。
+#### マルチインスタンス（dev / test / prod）
+
+dev / test / prod をまとめて扱うなら、**サーバーを複数立ち上げないでください。** `env` を変えるだけで、1 つの接続からすべて操作できます:
+
+```json
+      "env": {
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"prod\": { \"url\": \"https://acme.service-now.com\", \"auth_type\": \"browser\" } }"
+      }
+```
+
+`SERVICENOW_INSTANCE_URL` の位置に alias のリストが入るだけで、`command` / `args` はそのままです。これにより:
+
+- **本番の保護がデフォルト** — `allow_writes` を与えていない alias は読み取り専用です。上の例の `prod` には一切書き込めません。
+- **再起動なしで別インスタンスを参照** — `sn_query(instance="prod", ...)` のように、読み取り系ツールに `instance` を渡すだけです。
+- **インスタンス間の比較** — `compare_instances` で dev と prod の同じコンポーネントを直接突き合わせられます。
+- **ログインは 1 回** — ブラウザセッションを alias 間で共有します。
+
+完全なルール（書き込みルーティング、ゲート、`${ENV}` 参照）は [複数のインスタンス（dev / test / prod）— 2 つのアプローチ](#プロファイル-vs-マルチプロセス) にあります。クライアントの画面上で接続を見た目から分けたい場合にだけ、そこの **B. マルチプロセス** を参照してください。
 
 > AI に任せたいですか？ Claude Code / Cursor / Codex などに以下を貼り付けてください:
 > `Install and configure mfa-servicenow-mcp following https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md`
@@ -382,7 +404,7 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 
 > `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` は任意です — MFA ログインフォームを事前入力します。Windows では、これらをシステム環境変数として設定してください。
 
-#### 複数のインスタンス（dev / test / prod）— 2 つのアプローチ
+#### プロファイル vs マルチプロセス
 
 上記の例は単一インスタンスです — それがデフォルトのままです。インスタンスが 2 つ以上ある場合は進め方が 2 通りあり、**設定を書き始める前にどちらかを決めておく価値があります:**
 
