@@ -2,7 +2,7 @@
 
 각 MCP 클라이언트별 상세 설정 가이드입니다. 모든 클라이언트는 동일한 MCP 서버를 사용하며, 설정 형식만 다릅니다.
 
-> **먼저 권장하는 방법:** 아래 `uvx` setup 명령을 사용하세요. 회사 보안툴이 `uvx`를 막는 환경이면 릴리즈 zip/exe 섹션을 사용하세요.
+> **여기서 시작하세요:** 모든 플랫폼에서 기본 설치는 `uvx`입니다. `uvx`가 아예 실행되지 않는다면 — 대개 Windows Smart App Control이 원인입니다 — `pip`으로 넘어가세요. PyPI 자체에 접속이 안 되는 환경이면 릴리즈 zip/exe 섹션을 사용하세요.
 
 ---
 
@@ -33,9 +33,30 @@ uvx --with playwright playwright install chromium                               
 
 첫 명령은 클라이언트가 쓰는 것과 같은 `--with playwright` env에 서버를 미리 받아 검증하므로 첫 시작이 즉시 뜹니다. 둘째 명령은 Chromium을 받습니다(같은 revision이 표준 캐시에 있으면 재다운로드 안 함).
 
+#### uvx가 막힐 때 — `pip`
+
+Windows [Smart App Control](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0)은 `uvx` 실행 자체를 막습니다: uvx는 실행할 때마다 서명 없는 임시 실행 파일을 풀어놓는데, SAC가 이걸 차단하기 때문입니다. Windows 업데이트 직후 uvx가 안 되기 시작했다면 십중팔구 이 문제입니다. 대신 pip으로 설치하세요:
+
+```powershell
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+[python.org 인스톨러](https://www.python.org/downloads/)로 설치한 Python(서명됨, 3.10+)은 그대로 SAC를 통과합니다. 서버는 `python -m servicenow_mcp`로 실행하세요 — `servicenow-mcp` 콘솔 스크립트는 **쓰지 마세요**. pip이 만들어 주는 서명 없는 `.exe` shim이라 이것도 SAC가 막습니다.
+
+> macOS/Linux에서 pip을 쓸 때 걸리는 건 하나뿐입니다. Homebrew나 배포판 기본 Python은 [PEP 668](https://peps.python.org/pep-0668/) 때문에 전역 설치를 거부합니다(`externally-managed-environment`). python.org 인스톨러를 쓰거나, 그냥 uvx를 유지하세요.
+
 ### 3. MCP 클라이언트 설정에 서버 추가
 
-클라이언트 설정파일에 엔트리를 추가하세요 (별도 installer 명령 불필요):
+클라이언트 설정파일에 엔트리를 추가하세요 (별도 installer 명령 불필요). **어떤 방식으로 설치했든 `env` 블록은 동일합니다** — 위에서 고른 경로에 따라 `command`/`args`만 달라집니다:
+
+| 설치 방식 | `command` | `args` |
+|---|---|---|
+| uvx (기본) | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
+| pip (uvx 차단 시) | `python` | `["-m","servicenow_mcp"]` |
+| 릴리즈 exe | 실행 파일 절대 경로 | `[]` |
+
+아래 클라이언트별 예시는 전부 uvx 형태입니다. pip으로 설치했다면 이 두 키만 바꾸고 나머지는 그대로 두세요.
 
 ```json
 {
@@ -56,7 +77,7 @@ uvx --with playwright playwright install chromium                               
 
 ### 로컬 설치 (릴리즈 zip/exe)
 
-`uvx`나 PyPI 접속이 막히는 사내망에서 사용하는 경로입니다. 릴리즈 zip은 **PyInstaller로 빌드된 단일 실행 파일** — 설치 스크립트 없음, Python 불필요, 시스템 캐시 오염 없음. 실행 파일이 자기 옆 `ms-playwright/` 폴더를 자동으로 인식합니다.
+PyPI 자체가 막혀서 `uvx`도 `pip`도 패키지를 받아올 수 없을 때 쓰는 경로입니다. 릴리즈 zip은 **PyInstaller로 빌드된 단일 실행 파일** — 설치 스크립트 없음, Python 불필요, 시스템 캐시 오염 없음. 실행 파일이 자기 옆 `ms-playwright/` 폴더를 자동으로 인식합니다.
 
 **1. [GitHub Releases](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest)에서 다운로드:**
 
@@ -90,7 +111,7 @@ uvx --with playwright playwright install chromium                               
 & "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
 ```
 
-아래 [설정 가이드](#설정-가이드)의 MCP 스니펫을 본인 클라이언트 설정 파일에 붙여넣고, `command`를 실행 파일 절대 경로로 지정하세요. `env` 블록은 uvx 설정과 동일 — `command`만 다릅니다. Chromium을 실행 파일 옆이 *아닌* 다른 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"`를 추가하세요.
+아래 [설정 가이드](#설정-가이드)의 MCP 스니펫을 본인 클라이언트 설정 파일에 붙여넣고, `command`를 실행 파일 절대 경로로, `args`를 `[]`로 지정하세요. `env` 블록은 uvx 설정과 동일 — `command`/`args`만 다릅니다. Chromium을 실행 파일 옆이 *아닌* 다른 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"`를 추가하세요.
 
 Chromium zip을 받지 못했고 사내 망에서 Playwright 자동 다운로드도 막힌다면 Python이 가능한 PC에서 같은 구조로 디렉토리를 만들어 두세요:
 
@@ -109,6 +130,12 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"
+
+# pip 설치: 첫 줄을 아래로 교체
+python -m servicenow_mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"
@@ -134,6 +161,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ```bash
 servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
+# pip 설치: python -m servicenow_mcp --transport http --http-host 127.0.0.1 --http-port 8000
 ```
 
 MCP 엔드포인트는 `http://127.0.0.1:8000/mcp`이고, `/health`는 가벼운 상태 응답을 반환합니다. 신뢰된 네트워크 제어 뒤에 둔 경우가 아니라면 기본 loopback 호스트를 유지하세요.
@@ -168,7 +196,7 @@ MCP 클라이언트 `env` 블록에서 인스턴스별 자격증명 (alias마다
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["mfa-servicenow-mcp@latest"],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
         "MCP_TOOL_PACKAGE": "standard",
         "SERVICENOW_ACTIVE_INSTANCE": "dev",
@@ -193,6 +221,42 @@ MCP 클라이언트 `env` 블록에서 인스턴스별 자격증명 (alias마다
 ```
 
 비-active 인스턴스로의 단일 쓰기는 위의 가드된 `instance=<alias> confirm_instance=<alias> confirm=approve` 라우팅을 쓰세요. **다수** 레코드 승격은 레코드별 cross-instance 쓰기보다 Update Set을 권장합니다.
+
+---
+
+## 서버 엔트리 여러 개에 이름 붙이기 (`--server-name`)
+
+위의 멀티 인스턴스 모드와는 구성 자체가 다릅니다. 멀티 인스턴스는 **하나의** 연결로 여러 인스턴스를 오가는 방식이고, 이 섹션은 **연결을 여러 개** 두는 방식입니다 — 인스턴스마다 프로세스 하나, 각각 자기 인스턴스에 고정됩니다. 클라이언트 UI에서 dev/stg/prd를 눈에 띄게 갈라놓고 싶을 때만 의미가 있습니다.
+
+문제는 이겁니다. 모든 엔트리가 기본적으로 자신을 `ServiceNow`라고 알리기 때문에, 클라이언트는 로드 순서로 구분합니다 — `mcp_servicenow`, `mcp_servicenow2`, `mcp_servicenow3`. 이 번호는 재시작할 때마다 바뀔 수 있어서 **어느 연결이 운영인지 판단하는 근거로 삼을 수 없습니다.** `--server-name`으로 각각에 이름을 주세요:
+
+```json
+{
+  "mcpServers": {
+    "snow-dev": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-dev"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme-dev.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    },
+    "snow-prd": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-prd"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+그러면 도구 이름이 `mcp_snow-dev_*` / `mcp_snow-prd_*`로 고정됩니다. 환경변수 `SERVICENOW_MCP_SERVER_NAME`도 같은 역할을 하며, 둘 다 설정되면 플래그가 우선합니다. 아무것도 지정하지 않으면 이름은 `ServiceNow` 그대로라 기존 설정은 계속 동작합니다.
+
+**가능하면 프로파일 방식을 쓰세요.** 하나의 연결 안에서 인스턴스를 오가는 용도라면 [멀티 인스턴스 모드](#멀티-인스턴스-모드-비교--가드된-단일-호출-쓰기)가 권장 경로입니다: `compare_instances`, 브라우저 로그인 공유, alias별 `allow_writes` 가드는 이쪽에서만 얻을 수 있습니다. 프로세스를 나누면 이 중 어느 것도 못 씁니다 — 각 프로세스는 자기 인스턴스만 알고, 로그인도 따로 하며, 운영 쓰기를 막아주는 건 툴 패키지 설정 하나뿐입니다.
 
 ---
 

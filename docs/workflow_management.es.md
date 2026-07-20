@@ -3,7 +3,7 @@
 Este documento cubre dos motores de workflow expuestos por el servidor MCP:
 
 1. **Workflow heredado** (`wf_workflow`) — controlado por el enrutador de acciones `manage_workflow` que se describe a continuación.
-2. **Flow Designer** (`sys_hub_flow`) — herramienta unificada `manage_flow_designer` con despacho de acciones. El paquete estándar expone acciones de lectura (`list` / `get_detail` / `get_executions` / `compare`); los paquetes superiores desbloquean escrituras (`update` / `checkout` / `set_*` / `save` / `discard`). Las tablas de Action/SubFlow/Playbook están documentadas en el [mapa de tablas de Flow Designer](#flow-designer-table-map).
+2. **Flow Designer** (`sys_hub_flow`) — herramienta unificada `manage_flow_designer` con despacho de acciones. El paquete estándar expone acciones de lectura (`list` / `get_detail` / `get_executions` / `compare`); los paquetes superiores desbloquean escrituras (`update` / `checkout` / `set_*` / `save` / `discard`). Las tablas de Action/SubFlow/Playbook están documentadas en el [mapa de tablas de Flow Designer](#mapa-de-tablas-de-flow-designer).
 
 Si no estás seguro de qué motor usa un proceso, comienza con `manage_flow_designer(action="list")` (instancias modernas) y recurre a `manage_workflow(action="list")` para los registros heredados `wf_workflow`.
 

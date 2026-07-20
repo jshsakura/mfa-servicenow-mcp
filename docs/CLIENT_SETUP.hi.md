@@ -2,7 +2,7 @@
 
 प्रत्येक MCP क्लाइंट के लिए विस्तृत सेटअप। सभी क्लाइंट एक ही MCP सर्वर का उपयोग करते हैं — केवल कॉन्फ़िग प्रारूप भिन्न होता है।
 
-> **पहले अनुशंसित:** नीचे दिए गए `uvx` सेटअप कमांड का उपयोग करें। यदि `uvx` को कॉर्पोरेट सुरक्षा टूलिंग द्वारा अवरुद्ध किया गया हो, तो release zip/exe अनुभाग का उपयोग करें।
+> **यहाँ से शुरू करें:** हर प्लेटफ़ॉर्म पर डिफ़ॉल्ट इंस्टॉल `uvx` है। यदि `uvx` चल ही न पाए — आमतौर पर इसका कारण Windows Smart App Control होता है — तो `pip` पर fallback करें। और यदि PyPI तक ही पहुँच न हो, तो release zip/exe अनुभाग का उपयोग करें।
 
 ---
 
@@ -33,9 +33,30 @@ uvx --with playwright playwright install chromium                               
 
 पहला कमांड सर्वर को ठीक उसी `--with playwright` एनवायरनमेंट में पहले से फ़ेच और सत्यापित करता है जिसका क्लाइंट उपयोग करता है, ताकि पहली शुरुआत तत्काल हो। दूसरा कमांड Chromium डाउनलोड करता है; `uvx` मानक कैश में पहले से मौजूद किसी मेल खाते Chromium का पुनः उपयोग करता है।
 
+#### यदि uvx अवरुद्ध हो — `pip`
+
+Windows [Smart App Control](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0) `uvx` को चलने ही नहीं देता: uvx हर बार चलने पर एक अहस्ताक्षरित (unsigned) अस्थायी निष्पादन योग्य फ़ाइल unpack करता है, और SAC उसे अवरुद्ध कर देता है। यदि किसी Windows अपडेट के तुरंत बाद uvx ने काम करना बंद कर दिया, तो कारण लगभग निश्चित रूप से यही है। इसके बजाय pip से इंस्टॉल करें:
+
+```powershell
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+[python.org installer](https://www.python.org/downloads/) से लिया गया Python (हस्ताक्षरित, 3.10+) SAC से ज्यों का त्यों पास हो जाता है। सर्वर को `python -m servicenow_mcp` से शुरू करें — **न कि** `servicenow-mcp` console script से, जो pip द्वारा बनाया गया एक अहस्ताक्षरित `.exe` shim है और जिसे SAC भी अवरुद्ध करता है।
+
+> macOS/Linux पर pip की एकमात्र अड़चन यह है कि Homebrew और distro Python [PEP 668](https://peps.python.org/pep-0668/) के तहत global इंस्टॉल से इनकार कर देते हैं (`externally-managed-environment`)। python.org installer का उपयोग करें, या फिर बस uvx पर ही बने रहें।
+
 ### 3. अपने MCP क्लाइंट कॉन्फ़िग में सर्वर जोड़ें
 
-अपने क्लाइंट की कॉन्फ़िग फ़ाइल में एक प्रविष्टि जोड़ें (किसी इंस्टॉलर कमांड की आवश्यकता नहीं):
+अपने क्लाइंट की कॉन्फ़िग फ़ाइल में एक प्रविष्टि जोड़ें (किसी इंस्टॉलर कमांड की आवश्यकता नहीं)। **आपने चाहे जिस भी तरीके से इंस्टॉल किया हो, `env` ब्लॉक एक जैसा ही रहता है** — केवल `command`/`args` उस रास्ते के अनुसार बदलते हैं जो आपने ऊपर चुना:
+
+| इंस्टॉल | `command` | `args` |
+|---|---|---|
+| uvx (डिफ़ॉल्ट) | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
+| pip (uvx अवरुद्ध होने पर) | `python` | `["-m","servicenow_mcp"]` |
+| release exe | निष्पादन योग्य फ़ाइल का पूर्ण पथ | `[]` |
+
+नीचे दिए गए सभी प्रति-क्लाइंट उदाहरण uvx वाला रूप दिखाते हैं। pip पर बस इन दो keys को बदल दें और बाकी सब वैसा ही रहने दें।
 
 ```json
 {
@@ -56,7 +77,7 @@ uvx --with playwright playwright install chromium                               
 
 ### स्थानीय इंस्टॉल (release zip/exe)
 
-इसका उपयोग तब करें जब `uvx` या PyPI अवरुद्ध हो। release zip एक एकल PyInstaller-निर्मित निष्पादन योग्य फ़ाइल है — **कोई इंस्टॉलर स्क्रिप्ट नहीं, कोई Python आवश्यक नहीं, कोई सिस्टम-कैश प्रदूषण नहीं**। निष्पादन योग्य फ़ाइल अपने बगल में स्थित `ms-playwright/` डायरेक्टरी को स्वतः पहचान लेती है।
+इसका उपयोग तब करें जब PyPI तक ही पहुँच अवरुद्ध हो, यानी `uvx` और `pip` दोनों में से कोई भी पैकेज तक न पहुँच सके। release zip एक एकल PyInstaller-निर्मित निष्पादन योग्य फ़ाइल है — **कोई इंस्टॉलर स्क्रिप्ट नहीं, कोई Python आवश्यक नहीं, कोई सिस्टम-कैश प्रदूषण नहीं**। निष्पादन योग्य फ़ाइल अपने बगल में स्थित `ms-playwright/` डायरेक्टरी को स्वतः पहचान लेती है।
 
 **1. डाउनलोड करें।** निष्पादन योग्य फ़ाइल [latest release](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest) से; वैकल्पिक Chromium बंडल (केवल तभी जब नेटवर्क Playwright के Chromium डाउनलोड को भी अवरुद्ध करता हो) दीर्घकालिक [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) release से।
 
@@ -88,7 +109,7 @@ uvx --with playwright playwright install chromium                               
 & "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
 ```
 
-नीचे दिए गए [Configuration Guide](#configuration-guide) से MCP कॉन्फ़िग स्निपेट को अपने क्लाइंट की कॉन्फ़िग फ़ाइल में पेस्ट करें, `command` को अपनी निष्पादन योग्य फ़ाइल के पूर्ण पथ पर सेट करें। `env` ब्लॉक uvx सेटअप के समान ही है — केवल `command` बदलता है। यदि आपने Chromium को निष्पादन योग्य फ़ाइल के बगल के अलावा कहीं और रखा है, तो `env` ब्लॉक में `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` जोड़ें।
+नीचे दिए गए [Configuration Guide](#configuration-guide) से MCP कॉन्फ़िग स्निपेट को अपने क्लाइंट की कॉन्फ़िग फ़ाइल में पेस्ट करें, `command` को अपनी निष्पादन योग्य फ़ाइल के पूर्ण पथ पर और `args` को `[]` पर सेट करें। `env` ब्लॉक uvx सेटअप के समान ही है — केवल `command`/`args` बदलते हैं। यदि आपने Chromium को निष्पादन योग्य फ़ाइल के बगल के अलावा कहीं और रखा है, तो `env` ब्लॉक में `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` जोड़ें।
 
 यदि आपने Chromium zip को छोड़ दिया और Playwright का स्वतः-डाउनलोड अवरुद्ध है, तो Python वाली मशीन पर डायरेक्टरी को पहले से तैयार करें:
 
@@ -107,6 +128,12 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"
+
+# pip install: replace the first line with
+python -m servicenow_mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"
@@ -132,6 +159,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ```bash
 servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
+# pip install: python -m servicenow_mcp --transport http --http-host 127.0.0.1 --http-port 8000
 ```
 
 MCP endpoint `http://127.0.0.1:8000/mcp` है; `/health` एक हल्की स्थिति प्रतिक्रिया लौटाता है। जब तक सर्वर विश्वसनीय नेटवर्क नियंत्रणों के पीछे न हो, डिफ़ॉल्ट loopback host को बनाए रखें।
@@ -166,7 +194,7 @@ SERVICENOW_INSTANCE_CONFIG='{
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["mfa-servicenow-mcp@latest"],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
         "MCP_TOOL_PACKAGE": "standard",
         "SERVICENOW_ACTIVE_INSTANCE": "dev",
@@ -191,6 +219,42 @@ SERVICENOW_INSTANCE_CONFIG='{
 ```
 
 किसी non-active इंस्टेंस पर एकल write के लिए, ऊपर दी गई guarded `instance=<alias> confirm_instance=<alias> confirm=approve` routing का उपयोग करें। **कई** records को promote करने के लिए, per-record cross-instance writes के बजाय Update Set को प्राथमिकता दें।
+
+---
+
+## कई सर्वर प्रविष्टियों को नाम देना (`--server-name`)
+
+यह ऊपर बताए गए मल्टी-इंस्टेंस मोड से अलग topology है। मल्टी-इंस्टेंस = **एक** कनेक्शन जो कई इंस्टेंस तक पहुँच सकता है। यह अनुभाग = **कई अलग-अलग** कनेक्शन, प्रति इंस्टेंस एक प्रोसेस, और हर एक अपने ही इंस्टेंस से बंधा हुआ — यह तभी सार्थक है जब आप dev/stg/prd को क्लाइंट UI में स्पष्ट रूप से अलग-अलग देखना चाहते हों।
+
+पेच यह है: हर प्रविष्टि डिफ़ॉल्ट रूप से खुद को `ServiceNow` बताती है, इसलिए क्लाइंट उन्हें load order से अलग करता है — `mcp_servicenow`, `mcp_servicenow2`, `mcp_servicenow3`। यह क्रमांकन पुनः आरंभ के बीच बदल सकता है, जिससे **यह भरोसे लायक नहीं रहता कि कौन-सा कनेक्शन production है।** हर एक को `--server-name` से नाम दें:
+
+```json
+{
+  "mcpServers": {
+    "snow-dev": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-dev"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme-dev.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    },
+    "snow-prd": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-prd"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+इसके बाद टूल नाम `mcp_snow-dev_*` / `mcp_snow-prd_*` पर स्थिर हो जाते हैं। `SERVICENOW_MCP_SERVER_NAME` env var के रूप में यही काम करता है, और दोनों सेट होने पर flag जीतता है। सेट न करने पर नाम `ServiceNow` ही रहता है, इसलिए मौजूदा कॉन्फ़िग पहले की तरह काम करते रहते हैं।
+
+**जहाँ संभव हो, profiles को प्राथमिकता दें।** एक ही कनेक्शन के भीतर इंस्टेंस बदलते रहने के लिए [मल्टी-इंस्टेंस मोड](#मल्टी-इंस्टेंस-मोड-तुलना--गार्डेड-सिंगल-कॉल-राइट्स) ही अनुशंसित तरीका है: केवल वही आपको `compare_instances`, एक साझा ब्राउज़र लॉगिन, और प्रति-alias `allow_writes` गेट देता है। अलग-अलग प्रोसेस को इनमें से कुछ नहीं मिलता — हर प्रोसेस केवल अपने इंस्टेंस को जानती है, अपने आप अलग लॉगिन करती है, और आपके तथा किसी production write के बीच केवल tool package ही खड़ा रहता है।
 
 ---
 

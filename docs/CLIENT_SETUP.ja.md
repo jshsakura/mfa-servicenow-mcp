@@ -2,7 +2,7 @@
 
 各 MCP クライアントの詳細なセットアップ。すべてのクライアントは同じ MCP サーバーを使用します — 設定フォーマットだけが異なります。
 
-> **まず推奨:** 下記の `uvx` セットアップコマンドを使用してください。企業のセキュリティツールによって `uvx` がブロックされている場合は、リリース zip/exe のセクションを使用してください。
+> **ここから始めてください:** すべてのプラットフォームで `uvx` が標準のインストール方法です。`uvx` が動作しない場合 — 原因はたいてい Windows の Smart App Control です — `pip` にフォールバックしてください。PyPI そのものに到達できない場合は、リリース zip/exe のセクションを使用してください。
 
 ---
 
@@ -33,9 +33,30 @@ uvx --with playwright playwright install chromium                               
 
 最初のコマンドは、クライアントが使用するのとまったく同じ `--with playwright` 環境でサーバーを事前取得・検証するため、初回起動が即座になります。2 番目のコマンドは Chromium をダウンロードします。`uvx` は標準キャッシュ内に一致する Chromium が既にあれば再利用します。
 
+#### uvx がブロックされる場合 — `pip`
+
+Windows の [Smart App Control](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0) は `uvx` の実行そのものを止めます: uvx は実行のたびに署名されていない一時実行ファイルを展開するため、SAC がそれをブロックします。Windows Update の直後から uvx が動かなくなったのなら、ほぼ確実にこれが原因です。代わりに pip でインストールしてください:
+
+```powershell
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+[python.org のインストーラー](https://www.python.org/downloads/)から入れた Python（署名済み、3.10 以上）はそのまま SAC を通ります。サーバーの起動には `python -m servicenow_mcp` を使用してください — `servicenow-mcp` コンソールスクリプトは**使わないでください**。これは pip が生成する署名なしの `.exe` シムであり、これも SAC にブロックされます。
+
+> macOS/Linux における pip の唯一の注意点は、Homebrew やディストリビューション付属の Python が [PEP 668](https://peps.python.org/pep-0668/) によりグローバルインストールを拒否すること（`externally-managed-environment`）です。python.org のインストーラーを使うか、素直に uvx のままにしてください。
+
 ### 3. サーバーを MCP クライアント設定に追加する
 
-クライアントの設定ファイルにエントリを追加します（インストーラーコマンドは不要）:
+クライアントの設定ファイルにエントリを追加します（インストーラーコマンドは不要）。**`env` ブロックはどの方法でインストールしても同一です** — 上で選んだ方法によって変わるのは `command`/`args` だけです:
+
+| インストール方法 | `command` | `args` |
+|---|---|---|
+| uvx（標準） | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
+| pip（uvx がブロックされる場合） | `python` | `["-m","servicenow_mcp"]` |
+| リリース exe | 実行ファイルの絶対パス | `[]` |
+
+以下のクライアントごとの例はすべて uvx 形式で記載しています。pip の場合は、この 2 つのキーだけ差し替え、それ以外はそのままにしてください。
 
 ```json
 {
@@ -56,7 +77,7 @@ uvx --with playwright playwright install chromium                               
 
 ### ローカルインストール（リリース zip/exe）
 
-`uvx` または PyPI がブロックされている場合に使用します。リリース zip は単一の PyInstaller ビルド実行ファイルです — **インストーラースクリプト不要、Python 不要、システムキャッシュを汚しません**。実行ファイルは、自身の隣にある `ms-playwright/` ディレクトリを自動検出します。
+PyPI そのものがブロックされていて、`uvx` も `pip` もパッケージに到達できない場合に使用します。リリース zip は単一の PyInstaller ビルド実行ファイルです — **インストーラースクリプト不要、Python 不要、システムキャッシュを汚しません**。実行ファイルは、自身の隣にある `ms-playwright/` ディレクトリを自動検出します。
 
 **1. ダウンロード。** 実行ファイルは [最新リリース](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest) から、任意の Chromium バンドル（ネットワークが Playwright の Chromium ダウンロードもブロックしている場合のみ）は長期保持されている [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) リリースから取得します。
 
@@ -88,7 +109,7 @@ uvx --with playwright playwright install chromium                               
 & "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
 ```
 
-下記の [設定ガイド](#configuration-guide) の MCP 設定スニペットをクライアントの設定ファイルに貼り付け、`command` を実行ファイルの絶対パスに設定します。`env` ブロックは uvx セットアップと同じです — `command` だけが変わります。Chromium を実行ファイルの隣以外の場所に置いた場合は、`env` ブロックに `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` を追加してください。
+下記の [設定ガイド](#設定ガイド) の MCP 設定スニペットをクライアントの設定ファイルに貼り付け、`command` を実行ファイルの絶対パスに、`args` を `[]` に設定します。`env` ブロックは uvx セットアップと同じです — `command`/`args` だけが変わります。Chromium を実行ファイルの隣以外の場所に置いた場合は、`env` ブロックに `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` を追加してください。
 
 Chromium zip をスキップし、Playwright の自動ダウンロードがブロックされている場合は、Python のあるマシンでディレクトリを事前準備します:
 
@@ -107,6 +128,12 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"
+
+# pip でインストールした場合は、最初の行を次に置き換えます
+python -m servicenow_mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"
@@ -132,6 +159,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ```bash
 servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
+# pip でインストールした場合: python -m servicenow_mcp --transport http --http-host 127.0.0.1 --http-port 8000
 ```
 
 MCP エンドポイントは `http://127.0.0.1:8000/mcp` です。`/health` は軽量なステータスレスポンスを返します。サーバーが信頼できるネットワーク制御下にない限り、デフォルトのループバックホストのままにしてください。
@@ -166,7 +194,7 @@ SERVICENOW_INSTANCE_CONFIG='{
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["mfa-servicenow-mcp@latest"],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
         "MCP_TOOL_PACKAGE": "standard",
         "SERVICENOW_ACTIVE_INSTANCE": "dev",
@@ -191,6 +219,42 @@ SERVICENOW_INSTANCE_CONFIG='{
 ```
 
 非アクティブなインスタンスへの単一の書き込みには、上記のガード付き `instance=<alias> confirm_instance=<alias> confirm=approve` ルーティングを使用してください。**多数**のレコードを昇格させる場合は、レコード単位のクロスインスタンス書き込みより Update Set を推奨します。
+
+---
+
+## 複数のサーバーエントリに名前を付ける（`--server-name`）
+
+これは上記のマルチインスタンスモードとは別のトポロジーです。マルチインスタンス = **1 つ**の接続から複数インスタンスへ到達する構成。このセクション = インスタンスごとに 1 プロセスずつ立てる**複数の独立した接続**で、それぞれが自分のインスタンスに固定されます。dev/stg/prd をクライアント UI 上ではっきり分けて見たい場合にのみ価値があります。
+
+問題は、どのエントリもデフォルトで自身を `ServiceNow` と名乗るため、クライアントがロード順で区別してしまう点です — `mcp_servicenow`、`mcp_servicenow2`、`mcp_servicenow3`。この番号は再起動のたびに入れ替わる可能性があり、**どの接続が本番なのかを判断する材料としては信用できません。** `--server-name` でそれぞれに名前を付けてください:
+
+```json
+{
+  "mcpServers": {
+    "snow-dev": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-dev"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme-dev.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    },
+    "snow-prd": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-prd"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+こうするとツール名は `mcp_snow-dev_*` / `mcp_snow-prd_*` に固定されます。環境変数 `SERVICENOW_MCP_SERVER_NAME` でも同じことができ、両方を設定した場合はフラグが優先されます。未設定なら名前は `ServiceNow` のままなので、既存の設定はそのまま動作します。
+
+**可能ならプロファイルを優先してください。** 1 つの接続の中でインスタンス間を移動するなら、[マルチインスタンスモード](#マルチインスタンスモード比較--ガード付き単一呼び出し書き込み)が推奨されるアプローチです。`compare_instances`、ブラウザログインの共有、エイリアスごとの `allow_writes` ゲートが使えるのはこちらだけです。プロセスを分ける方式ではそのいずれも得られません — 各プロセスは自分のインスタンスしか知らず、それぞれ個別にログインし、本番への書き込みを食い止めるものはツールパッケージだけになります。
 
 ---
 
