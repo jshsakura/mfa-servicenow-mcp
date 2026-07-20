@@ -161,6 +161,7 @@ class TestCreateConfig:
         args.password = "password"
         args.debug = False
         args.timeout = 30
+        args.server_name = "ServiceNow"
         config = create_config(args)
         assert config.instance_url == "https://test.service-now.com"
         assert config.auth.type.value == "basic"
@@ -186,6 +187,7 @@ class TestCreateConfig:
         args.password = "password"
         args.debug = False
         args.timeout = 30
+        args.server_name = "ServiceNow"
 
         config = create_config(args)
 
@@ -216,6 +218,7 @@ class TestCreateConfig:
         args.password = None
         args.debug = False
         args.timeout = 30
+        args.server_name = "ServiceNow"
 
         config = create_config(args)
 
@@ -252,6 +255,7 @@ class TestCreateConfig:
         args.token_url = None
         args.debug = False
         args.timeout = 30
+        args.server_name = "ServiceNow"
         config = create_config(args)
         assert config.auth.type.value == "oauth"
         assert config.auth.oauth is not None
@@ -278,6 +282,7 @@ class TestCreateConfig:
         args.api_key_header = "X-Custom-Header"
         args.debug = False
         args.timeout = 30
+        args.server_name = "ServiceNow"
         config = create_config(args)
         assert config.auth.type.value == "api_key"
 
@@ -304,6 +309,7 @@ class TestCreateConfig:
         args.browser_session_ttl = 30
         args.debug = False
         args.timeout = 30
+        args.server_name = "ServiceNow"
         config = create_config(args)
         assert config.auth.type.value == "browser"
 
@@ -326,6 +332,7 @@ class TestCreateConfig:
         args.browser_session_ttl = 30
         args.debug = False
         args.timeout = 30
+        args.server_name = "ServiceNow"
 
         with patch.dict(os.environ, {"SERVICENOW_BROWSER_PROBE_PATH": ""}):
             config = create_config(args)
@@ -350,6 +357,7 @@ class TestCreateConfig:
         args.browser_session_ttl = 30
         args.debug = False
         args.timeout = 30
+        args.server_name = "ServiceNow"
 
         with patch.dict(
             os.environ,
@@ -380,6 +388,7 @@ class TestCreateConfig:
         args.browser_session_ttl = 30
         args.debug = False
         args.timeout = 30
+        args.server_name = "ServiceNow"
 
         config = create_config(args)
 
@@ -719,6 +728,76 @@ class TestConfigureLogging:
         assert not stale.exists() and not stale_rotated.exists()
         assert fresh.exists(), "files inside the retention window must survive"
         assert other_slug.exists(), "sweep must stay scoped to its own instance slug"
+
+
+class TestServerName:
+    """`--server-name` / SERVICENOW_MCP_SERVER_NAME (issue #77).
+
+    Multiple connections (dev/stg/prd) that all advertise "ServiceNow" get
+    namespaced by client load order, which is unstable across reloads — an
+    agent cannot tell which connection is production. These pin the resolution
+    order and the backward-compatible default.
+    """
+
+    def _args(self, **over):
+        args = MagicMock()
+        args.instance_url = "https://test.service-now.com"
+        args.auth_type = "basic"
+        args.username = "admin"
+        args.password = "password"
+        args.debug = False
+        args.timeout = 30
+        args.server_name = "ServiceNow"
+        for k, v in over.items():
+            setattr(args, k, v)
+        return args
+
+    def test_defaults_to_servicenow(self):
+        """Existing single-connection installs must keep their namespace."""
+        assert create_config(self._args()).server_name == "ServiceNow"
+
+    def test_explicit_name_is_used(self):
+        assert create_config(self._args(server_name="snow-prd")).server_name == "snow-prd"
+
+    @patch.dict(os.environ, {"SERVICENOW_MCP_SERVER_NAME": "snow-stg"}, clear=False)
+    def test_env_var_supplies_default(self):
+        with patch("sys.argv", ["servicenow-mcp", "--instance-url", "https://x.service-now.com"]):
+            assert parse_args().server_name == "snow-stg"
+
+    @patch.dict(os.environ, {"SERVICENOW_MCP_SERVER_NAME": "from-env"}, clear=False)
+    def test_flag_beats_env_var(self):
+        argv = [
+            "servicenow-mcp",
+            "--instance-url",
+            "https://x.service-now.com",
+            "--server-name",
+            "from-flag",
+        ]
+        with patch("sys.argv", argv):
+            assert parse_args().server_name == "from-flag"
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_blank_name_falls_back(self, blank):
+        """A blank name would advertise nothing — worse than the default."""
+        assert create_config(self._args(server_name=blank)).server_name == "ServiceNow"
+
+    def test_server_advertises_configured_name(self):
+        """The wiring that actually matters: config -> FastMCP + self.name."""
+        from servicenow_mcp.server import ServiceNowMCP
+
+        srv = ServiceNowMCP(
+            {
+                "instance_url": "https://example.service-now.com",
+                "auth": {
+                    "type": "basic",
+                    "basic": {"username": "admin", "password": "password"},
+                },
+                "server_name": "snow-prd",
+            }
+        )
+
+        assert srv.name == "snow-prd"
+        assert srv.mcp_server.name == "snow-prd"
 
 
 class TestModuleEntryPoint:
