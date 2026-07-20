@@ -20,7 +20,6 @@ MFA-first ServiceNow MCP server. Authenticates via real browser (Playwright) so 
 
 - [Features](https://github.com/jshsakura/mfa-servicenow-mcp#features)
 - [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup)
-- [Prerequisites](https://github.com/jshsakura/mfa-servicenow-mcp#prerequisites)
 - [MCP Client Configuration](https://github.com/jshsakura/mfa-servicenow-mcp#mcp-client-configuration)
 - [Authentication](https://github.com/jshsakura/mfa-servicenow-mcp#authentication)
 - [Tool Packages](https://github.com/jshsakura/mfa-servicenow-mcp#tool-packages)
@@ -44,27 +43,59 @@ Two steps: **install**, then **add the server to your MCP client config**. No in
 
 ### 1. Install
 
+The default is **`uvx`** — no separate install step, it just runs. For most people this is the whole story.
+
 ```bash
 # macOS/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version  # fetch + verify the server
-uvx --with playwright playwright install chromium                                   # Chromium for MFA/SSO login
-```
-
-```powershell
 # Windows PowerShell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
 uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version  # fetch + verify the server
 uvx --with playwright playwright install chromium                                   # Chromium for MFA/SSO login
 ```
 
-This installs `uv`, fetches+verifies the server, and downloads Chromium — once. The `--with playwright` on the fetch matches the runtime config below, so uvx caches the exact env and the first client start is instant.
+**To update** — uvx caches the last version it downloaded and keeps reusing it, so a new release has to be pulled in explicitly with `--refresh`:
 
-> **Guided setup.** Running `servicenow-mcp setup` with no flags walks you through numbered menus (pick clients and auth type by number or name — no free-text guessing), in English or Korean (auto-detected from your locale; force with `SERVICENOW_MCP_LANG=ko|en`).
+```bash
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
+uvx --with playwright playwright install chromium     # a newer Playwright needs a newer Chromium build
+```
+
+#### If uvx is blocked — `pip`
+
+Windows [Smart App Control](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0) stops uvx from running at all: uvx unpacks an unsigned temporary executable on every run, and SAC blocks it. If uvx suddenly stopped working right after a Windows update, this is almost certainly why. Use pip instead:
+
+```powershell
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+**To update:**
+
+```powershell
+pip install --upgrade mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+A Python from the [python.org installer](https://www.python.org/downloads/) (signed, 3.10+) passes SAC as-is. Launch it with `python -m servicenow_mcp` rather than the `servicenow-mcp` console script — that script is an unsigned `.exe` shim pip generates, and SAC blocks it too.
+
+> On mac/Linux the one pip caveat is that Homebrew and distro Pythons refuse global installs under [PEP 668](https://peps.python.org/pep-0668/) (`externally-managed-environment`). Use the python.org installer, or just stay on uvx.
+
+Installing Chromium **up front** matters either way. Deferring it to the first tool call means a ~150 MB download racing the MCP host's handshake deadline, which surfaces as `connection closed`.
+
+> **Guided setup.** Running `servicenow-mcp setup` with no flags (pip: `python -m servicenow_mcp setup`) walks you through numbered menus (pick clients and auth type by number or name — no free-text guessing), in English or Korean (auto-detected from your locale; force with `SERVICENOW_MCP_LANG=ko|en`).
 
 ### 2. Configure your MCP client
 
-Add the server to your client's config file — pick yours below. Only two env vars are required; `MCP_TOOL_PACKAGE` defaults to `standard`, so leave it out unless you need a different package.
+Add the server to your client's config file. **The `env` block is identical no matter how you installed** — only `command`/`args` follow the path you picked above:
+
+| Install | `command` | `args` |
+|---|---|---|
+| uvx (default) | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
+| pip | `python` | `["-m","servicenow_mcp"]` |
+
+Only two env vars are required; `MCP_TOOL_PACKAGE` defaults to `standard`, so leave it out unless you need a different package.
 
 **Claude Code** — `.mcp.json` (project root) / `~/.claude.json` (global):
 
@@ -83,12 +114,20 @@ Add the server to your client's config file — pick yours below. Only two env v
 }
 ```
 
+If you installed via pip, swap `command`/`args` to this — everything else stays the same:
+
+```json
+      "command": "python",
+      "args": ["-m", "servicenow_mcp"],
+```
+
 **Codex** — `.codex/config.toml` (project) / `~/.codex/config.toml` (global):
 
 ```toml
 [mcp_servers.servicenow]
 command = "uvx"
 args = ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"]
+# pip: command = "python"  /  args = ["-m", "servicenow_mcp"]
 
 [mcp_servers.servicenow.env]
 SERVICENOW_INSTANCE_URL = "https://your-instance.service-now.com"
@@ -118,9 +157,14 @@ Other clients (Cursor, VS Code, Antigravity, Zed, …) and full env options (aut
 
 Then restart the client. The first browser tool call opens a window for Okta/Entra ID/SAML/MFA login. Sessions persist — no re-login every time.
 
+> **More than one instance (dev / test / prod)?** Stop here and read [Multiple instances — two approaches](#multiple-instances-dev--test--prod--two-approaches) first. Deciding between profiles and separate processes up front is easier than reworking it later.
+
 > Prefer an AI to do it? Paste into Claude Code / Cursor / Codex / etc.:
 > `Install and configure mfa-servicenow-mcp following https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/llm-setup.md`
-> Corporate network blocking uvx/PyPI? Use the [release zip/exe](https://github.com/jshsakura/mfa-servicenow-mcp#install-offline--corporate).
+
+### If your corporate network blocks the install
+
+TLS-inspecting proxies (Zscaler and friends) and blocked PyPI access have their own path — see [Install (offline / corporate)](#install-offline--corporate).
 
 ---
 
@@ -179,10 +223,10 @@ Then restart the client. The first browser tool call opens a window for Okta/Ent
 
 For most users the [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) above (uvx) is all you need. Two corporate-network variants:
 
-- **PyPI reachable, but HTTPS is TLS-inspected** (Zscaler / Netskope / corporate MITM) → see **pip install (internal network behind TLS inspection)** just below.
-- **PyPI / uvx fully blocked** → see **Release zip/exe (local install)** further down.
+- **PyPI reachable, but HTTPS is TLS-inspected** (Zscaler / Netskope / corporate MITM) → see **Installing behind a TLS-inspecting proxy** just below.
+- **PyPI itself blocked** → see **Release zip/exe (local install)** further down.
 
-### pip install (internal network behind TLS inspection — Zscaler etc.)
+### Installing behind a TLS-inspecting proxy (Zscaler etc.)
 
 Use this when PyPI **is** reachable but a TLS-inspecting proxy re-signs HTTPS, so installs and runtime calls fail with `SSL: CERTIFICATE_VERIFY_FAILED`. Registering the proxy's root CA in the **OS trust store is not enough** — Python (`pip`, `requests`, `httpx`), `curl_cffi`, and Playwright each ship their own CA bundle (certifi / libcurl / node) and ignore the OS store unless you point them at the cert via env.
 
@@ -207,8 +251,8 @@ UV_NATIVE_TLS=1 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp -
 {
   "mcpServers": {
     "servicenow": {
-      "command": "servicenow-mcp",
-      "args": [],
+      "command": "python",
+      "args": ["-m", "servicenow_mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_AUTH_TYPE": "browser",
@@ -236,7 +280,7 @@ In a fully-inspected network the proxy re-signs every host, so the single proxy-
 
 ### Release zip/exe (local install)
 
-Use this path when `uvx` or PyPI is blocked by corporate security. The release zip ships a **PyInstaller-built single-file executable** — no Python required, no installer script, no system-cache pollution. The executable auto-detects a `ms-playwright/` directory sitting next to itself, so the entire install is "unzip and point your MCP client at it".
+Use this path when PyPI itself is blocked by corporate security. The release zip ships a **PyInstaller-built single-file executable** — no Python required, no installer script, no system-cache pollution. The executable auto-detects a `ms-playwright/` directory sitting next to itself, so the entire install is "unzip and point your MCP client at it".
 
 #### 1. Download
 
@@ -276,7 +320,7 @@ If the version prints, you're done with the binary half — every remaining step
 
 #### 4. Wire it up in your MCP client (copy-paste)
 
-Reuse the same client config as the `uvx` path in [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) — only `command` changes to the absolute path of your executable, the `env` block stays identical. Claude Code example:
+Reuse the same client config as in [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) — only `command` changes to the absolute path of your executable and `args` becomes `[]`; the `env` block stays identical. Claude Code example:
 
 ```json
 {
@@ -338,16 +382,33 @@ Copy-paste configs for each client: **[Client Setup Guide](https://github.com/js
 
 > `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional — they prefill the MFA login form. On Windows, set these as system environment variables.
 
-#### Multiple instances (dev / test / prod) in one client
+#### Multiple instances (dev / test / prod) — two approaches
 
-The examples above are single-instance — that stays the default. To switch between several instances from one client, list them in `SERVICENOW_INSTANCE_CONFIG` (alias → settings) and pick the active one with `SERVICENOW_ACTIVE_INSTANCE`. Each alias can carry its **own credentials** (`username` / `password` / `auth_type` / `api_key`); `${ENV}` references keep secrets out of the JSON. The single-instance `SERVICENOW_INSTANCE_URL` form still works as a fallback.
+The examples above are single-instance — that stays the default. With more than one instance there are two ways to go, and it's worth **picking one before you configure anything:**
+
+| | **A. Profiles** (recommended) | **B. Multi-process** |
+|---|---|---|
+| Server processes | 1 | one per instance |
+| Connections the client sees | 1 | 3 |
+| Choosing an instance | `instance="test"` per call | pinned to the process |
+| Cross-instance comparison | **works** (`compare_instances`) | impossible — processes don't know each other |
+| Browser login | one shared session | one login per process |
+| Write control | `allow_writes` per alias | per-process config |
+
+**Most people want A.** Write safety is already solved there — leave `allow_writes` off a prod alias and it's read-only, and writes to a non-active instance have to clear the `confirm_instance` gate. On top of that, only A gives you cross-instance comparison and a single login.
+
+**Pick B only when the connections need to be visibly separate in the client UI.** Tool names come through as `mcp_snow-prd_*`, so a human tells them apart at a glance. The cost is three logins, no comparison, and three copies of the config. Details: [Telling multiple connections apart](#telling-multiple-connections-apart---server-name).
+
+##### A. Profiles
+
+To switch between several instances from one client, list them in `SERVICENOW_INSTANCE_CONFIG` (alias → settings) and pick the active one with `SERVICENOW_ACTIVE_INSTANCE`. Each alias can carry its **own credentials** (`username` / `password` / `auth_type` / `api_key`); `${ENV}` references keep secrets out of the JSON. The single-instance `SERVICENOW_INSTANCE_URL` form still works as a fallback.
 
 ```json
 {
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["mfa-servicenow-mcp@latest"],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
         "MCP_TOOL_PACKAGE": "standard",
         "SERVICENOW_ACTIVE_INSTANCE": "dev",
@@ -359,6 +420,40 @@ The examples above are single-instance — that stays the default. To switch bet
 ```
 
 `SERVICENOW_ACTIVE_INSTANCE` is where writes default; read tools peek at the others with `instance="test"`, and a single write can be routed to a non-active instance with `instance="test" confirm_instance="test" confirm="approve"` (guarded, and verified after it lands). Full rules (write routing, gating, comparison, `${ENV}`): [Multi-Instance Mode](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md#multi-instance-mode-comparison--guarded-single-call-writes).
+
+##### B. Multi-process
+
+Only worth it when you want the connections split apart in the client UI. Each entry **pins one instance** and gets its own name via `--server-name`:
+
+```json
+{
+  "mcpServers": {
+    "snow-dev": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-dev"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme-dev.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    },
+    "snow-prd": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-prd"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+Tool names are then pinned to `mcp_snow-dev_*` / `mcp_snow-prd_*`. Drop `--server-name` and both advertise themselves as `ServiceNow`, so the client numbers them by load order (`mcp_servicenow`, `mcp_servicenow2`) — and that numbering can shift between restarts, which means you can never trust which one is production.
+
+To keep the production connection read-only, give it a read-only `MCP_TOOL_PACKAGE`. Unlike A, there is no `allow_writes` alias gate here — **the tool package is the only thing blocking writes.**
+
+> Login prompts come up per process, and cross-instance tools like `compare_instances` are unavailable — each process only knows its own instance. If that bites, go with A.
 
 ---
 
@@ -404,7 +499,7 @@ If you run more than one instance, leave this unset and let the per-instance sco
 Use this for PDIs or instances without MFA.
 
 ```bash
-uvx --from mfa-servicenow-mcp servicenow-mcp \
+python -m servicenow_mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "basic" \
   --username "your_id" \
@@ -416,7 +511,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp \
 Current CLI support expects OAuth password grant inputs.
 
 ```bash
-uvx --from mfa-servicenow-mcp servicenow-mcp \
+python -m servicenow_mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "oauth" \
   --client-id "your_client_id" \
@@ -430,7 +525,7 @@ If `--token-url` is omitted, the server defaults to `https://<instance>/oauth_to
 ### API Key
 
 ```bash
-uvx --from mfa-servicenow-mcp servicenow-mcp \
+python -m servicenow_mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "api_key" \
   --api-key "your_api_key"
@@ -520,6 +615,7 @@ For the full reference (all packages, inheritance details, config syntax): [Tool
 | `--instance-url` | `SERVICENOW_INSTANCE_URL` | *required* | ServiceNow instance URL |
 | `--auth-type` | `SERVICENOW_AUTH_TYPE` | `basic` | Auth mode: `basic`, `oauth`, `api_key`, `browser` |
 | `--tool-package` | `MCP_TOOL_PACKAGE` | `standard` | Tool package to load |
+| `--server-name` | `SERVICENOW_MCP_SERVER_NAME` | `ServiceNow` | MCP server name advertised to the client |
 | `--transport` | `SERVICENOW_MCP_TRANSPORT` | `stdio` | MCP transport: `stdio` or `http` |
 | `--http-host` | `SERVICENOW_MCP_HTTP_HOST` | `127.0.0.1` | Host for `--transport http` |
 | `--http-port` | `SERVICENOW_MCP_HTTP_PORT` | `8000` | Port for `--transport http` |
@@ -537,6 +633,19 @@ servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
 ```
 
 The MCP endpoint is `http://127.0.0.1:8000/mcp`; `/health` returns a lightweight health response.
+
+#### Telling multiple connections apart (`--server-name`)
+
+If you register **several server entries** in one client (dev / stg / prd as separate processes), they all default to the name `ServiceNow`, so the client disambiguates them by load order — `mcp_servicenow`, `mcp_servicenow2`, `mcp_servicenow3`. That numbering can change between restarts, which makes it **untrustworthy for telling which one is production.** Name each connection instead:
+
+```bash
+servicenow-mcp --server-name snow-prd          # uvx / console script
+python -m servicenow_mcp --server-name snow-prd # pip
+```
+
+The tool namespace is then pinned to `mcp_snow-prd_*`. `SERVICENOW_MCP_SERVER_NAME` does the same thing as an env var, and the flag wins if both are set. Unset, it stays `ServiceNow`, so existing configs keep working.
+
+> Looking to switch instances inside **one** server instead? That's [Multi-Instance Mode](#multi-instance-mode-comparison--guarded-single-call-writes), not this. The two are unrelated — `--server-name` is the name the client sees, while a multi-instance alias names an instance inside a single process.
 
 ### Basic Auth
 
@@ -572,41 +681,42 @@ The MCP endpoint is `http://127.0.0.1:8000/mcp`; `/health` returns a lightweight
 
 ## Keeping Up to Date
 
-> **`uvx` caches the last version it downloaded** and keeps reusing it.
-> To get a new release you must explicitly refresh — it will NOT update on its own.
+Pick the one matching how you installed (the same commands are in the [Install section](#1-install)):
 
 ```bash
-# Refresh the uvx cache to the latest PyPI release
-uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
+# uvx — it caches the last version it downloaded, so --refresh is how you pull a new one
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
+uvx --with playwright playwright install chromium
 ```
+
+```powershell
+# pip
+pip install --upgrade mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+Chromium gets refreshed alongside in both cases because a newer Playwright wants a different Chromium build (see below).
 
 After refreshing, **restart your MCP client** (Claude Code, Cursor, etc.) to load the new version.
 
-### First browser call downloads Chromium
+Check the current version:
 
-uvx resolves the latest `mfa-servicenow-mcp` and Playwright, and a new Playwright release ships a new Chromium build. The *first* browser tool call then has to fetch ~150 MB of browser binaries — which on a slow link can blow past the MCP host's handshake timeout and surface as:
+```bash
+uvx --from mfa-servicenow-mcp servicenow-mcp --version   # uvx
+python -m servicenow_mcp --version                       # pip
+```
+
+### Why Chromium has to be installed up front
+
+A new Playwright release wants a different Chromium build. Left alone, the *first* browser tool call has to fetch ~150 MB of browser binaries — which on a slow link blows past the MCP host's handshake timeout and surfaces as:
 
 ```text
 MCP startup failed: handshaking with MCP server failed: connection closed: initialize response
 ```
 
-Avoid it by installing Chromium **before** the first call (the setup commands above already do this):
+That's why the upgrade commands above run `playwright install chromium` every time.
 
-```bash
-uvx --with playwright playwright install chromium
-```
-
-#### Upgrading
-
-uvx auto-resolves the latest `mfa-servicenow-mcp` and `playwright` — there are no versions to bump in your config. To refresh:
-
-```bash
-# Re-install Chromium in case a newer Playwright shipped a new build, then
-# restart your MCP client
-uvx --with playwright playwright install chromium
-```
-
-> **Why we no longer auto-install Chromium inside the MCP server:** that download used to run during the first tool call. On a slow link the subprocess outlived the host's handshake deadline and the client reported "connection closed". v1.13.1 changed this — the MCP server now only *warns* if Chromium is missing. Install it ahead of time with `uvx --with playwright playwright install chromium` (out-of-band, no handshake timer).
+> **Why we no longer auto-install Chromium inside the MCP server:** that download used to run during the first tool call. On a slow link the subprocess outlived the host's handshake deadline and the client reported "connection closed". v1.13.1 changed this — the MCP server now only *warns* if Chromium is missing. Install it ahead of time (out-of-band, no handshake timer).
 
 ---
 
@@ -813,6 +923,12 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills antigravity
 ```
 
 The installer downloads 24 skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
+
+> If `servicenow-mcp-skills` is blocked by security policy on Windows, call it as a module instead — same behavior:
+>
+> ```bash
+> python -m servicenow_mcp.setup_skills claude
+> ```
 
 | Client | Install Path | Auto-Discovery |
 |--------|-------------|----------------|
