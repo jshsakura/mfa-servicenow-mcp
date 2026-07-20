@@ -74,7 +74,7 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem;">
       Si <code>uvx</code> está bloqueado por las herramientas de seguridad corporativas, salta a la sección
-      <a href="#local-install">Instalación local (zip de release)</a> más abajo.
+      <a href="#local-install">Si uvx está bloqueado (pip)</a> más abajo.
     </p>
 
     <div style="margin-top:56px;" class="reveal">
@@ -120,10 +120,10 @@ uvx --with playwright playwright install chromium
     </div>
 
     <div id="local-install" style="margin-top:56px;" class="reveal">
-      <span class="section-label">Instalación local — apta para entornos sin conexión</span>
-      <h2 class="section-title">Instala desde el zip de release</h2>
+      <span class="section-label">Si uvx está bloqueado</span>
+      <h2 class="section-title">Instala con pip en su lugar</h2>
       <p class="section-desc">
-        Usa esto cuando <code>uvx</code> o PyPI estén bloqueados. El zip de release incluye un ejecutable de un solo archivo compilado con PyInstaller — sin Python requerido, sin script de instalación. Descarga el zip de tu plataforma (y opcionalmente el zip de <code>ms-playwright-chromium</code> correspondiente si la descarga de Chromium también está bloqueada) desde <a href="https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>, extráelo y apunta el <code>command</code> de tu cliente MCP al ejecutable.
+        El <a href="https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0" target="_blank" rel="noopener">Smart App Control</a> de Windows bloquea <code>uvx</code>, porque uvx descomprime un ejecutable temporal sin firmar en cada ejecución. Si uvx te funcionaba hasta hace poco y dejó de hacerlo justo después de una actualización de Windows, esta es la razón. Instala con pip y arranca el servidor como módulo — el script de consola <code>servicenow-mcp</code> es un envoltorio <code>.exe</code> sin firmar generado por pip, y queda bloqueado por el mismo motivo.
       </p>
     </div>
     <div class="install-block reveal">
@@ -134,56 +134,37 @@ uvx --with playwright playwright install chromium
       <div class="install-panels">
         <div class="install-panel active" id="local-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. Pick a stable folder you control. Extract both zips UP FRONT —</span>
-<span class="c">#    don't leave .zip files alongside the executable. The Chromium</span>
-<span class="c">#    folder name just has to start with ms-play and hold chromium-*:</span>
-<span class="c">#</span>
-<span class="c">#    ~/apps/servicenow-mcp/                              (any directory)</span>
-<span class="c">#    ├── servicenow-mcp                                  ← executable</span>
-<span class="c">#    └── ms-playwright-chromium-linux-x64-&lt;ver&gt;/         ← default name works</span>
-<span class="c">#        └── chromium-1185/</span>
-<span class="c">#</span>
-<span class="c"># 2. At startup the executable globs for a sibling ms-play* directory</span>
-<span class="c">#    with a chromium-* inside and points Playwright at it. The system</span>
-<span class="c">#    standard cache (~/.cache/ms-playwright) and your MCP client config</span>
-<span class="c">#    stay untouched.</span>
-<span class="c"># 3. Verify the binary runs:</span>
-~/apps/servicenow-mcp/servicenow-mcp --version
+            <pre class="install-code"><code><span class="c"># Homebrew y los Python de distribución rechazan las instalaciones globales de pip (PEP 668).</span>
+<span class="c"># Usa un Python de python.org, o simplemente quédate con uvx de arriba.</span>
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
 
-<span class="c"># 4. Paste the MCP config snippet from "Manual fallback" below into</span>
-<span class="c">#    your client config and set 'command' to:</span>
-<span class="c">#       ~/apps/servicenow-mcp/servicenow-mcp</span>
-<span class="c"># Then restart your MCP client.</span></code></pre>
+<span class="c"># Verifica:</span>
+python -m servicenow_mcp --version
+
+<span class="c"># Para actualizar más adelante:</span>
+pip install --upgrade mfa-servicenow-mcp playwright
+python -m playwright install chromium</code></pre>
           </div>
         </div>
         <div class="install-panel" id="local-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. Pick a stable folder you control. Extract both zips UP FRONT —</span>
-<span class="c">#    don't leave .zip files alongside the executable. The Chromium</span>
-<span class="c">#    folder name just has to start with ms-play and hold chromium-*:</span>
-<span class="c">#</span>
-<span class="c">#    C:\Users\you\apps\servicenow-mcp\</span>
-<span class="c">#    ├── servicenow-mcp.exe                              ← executable</span>
-<span class="c">#    └── ms-playwright-chromium-windows-x64-&lt;ver&gt;\       ← default name works</span>
-<span class="c">#        └── chromium-1185\</span>
-<span class="c">#</span>
-<span class="c"># 2. At startup the executable globs for a sibling ms-play* directory</span>
-<span class="c">#    with a chromium-* inside and points Playwright at it. The system</span>
-<span class="c">#    standard cache (%LOCALAPPDATA%\ms-playwright) and your MCP client</span>
-<span class="c">#    config stay untouched.</span>
-<span class="c"># 3. Verify the binary runs:</span>
-& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
+            <pre class="install-code"><code><span class="c"># Python 3.10+ de python.org está firmado y pasa Smart App Control.</span>
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
 
-<span class="c"># 4. Paste the MCP config snippet from "Manual fallback" below into</span>
-<span class="c">#    your client config and set 'command' to:</span>
-<span class="c">#       C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe</span>
-<span class="c"># Then restart your MCP client.</span></code></pre>
+<span class="c"># Verifica:</span>
+python -m servicenow_mcp --version
+
+<span class="c"># Para actualizar más adelante:</span>
+pip install --upgrade mfa-servicenow-mcp playwright
+python -m playwright install chromium</code></pre>
           </div>
         </div>
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.8;">
-      Sin script de instalación. Descomprimes el ejecutable en cualquier carpeta estable que controles, extraes el zip de Chromium en una carpeta hermana llamada <code>ms-playwright</code>, y el ejecutable detecta automáticamente esa disposición al arrancar — apuntando Playwright a ella mediante <code>PLAYWRIGHT_BROWSERS_PATH</code> solo para el proceso actual. La caché estándar del sistema de Playwright (<code>~/.cache/ms-playwright</code>, <code>%LOCALAPPDATA%\ms-playwright</code>) permanece intacta, y la configuración de tu cliente MCP es tuya para editar — pega el fragmento de la sección <a href="#mcp-tabs">Manual de respaldo</a> de abajo y establece <code>command</code> en la ruta absoluta del ejecutable.
+      El bloque <code>env</code> es idéntico en ambos casos — solo cambian <code>command</code> y <code>args</code>. Pega el fragmento de la sección <a href="#mcp-tabs">Manual de respaldo</a> de abajo y luego establece <code>command</code> en <code>python</code> y <code>args</code> en <code>["-m", "servicenow_mcp"]</code>.
     </p>
 
     <div style="margin-top:56px;" class="reveal">

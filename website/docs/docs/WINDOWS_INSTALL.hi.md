@@ -1,9 +1,10 @@
 # Windows इंस्टॉलेशन गाइड
 
-बाकी सभी प्लेटफ़ॉर्म की तरह Windows पर भी डिफ़ॉल्ट `uvx` ही है। सिर्फ़ दो Windows-विशिष्ट वजहें आपको उससे हटा सकती हैं:
+बाकी सभी प्लेटफ़ॉर्म की तरह Windows पर भी डिफ़ॉल्ट `uvx` ही है। सिर्फ़ एक Windows-विशिष्ट वजह आपको उससे हटा सकती है:
 
 - **Smart App Control `uvx` को ब्लॉक कर देता है** → **pip** पर स्विच करें (Step 1b)। Windows पर यही अब तक की सबसे आम खराबी है, और आम तौर पर यह Windows अपडेट के ठीक बाद अचानक सामने आती है।
-- **PyPI तक ही पहुंच नहीं है** (कॉर्पोरेट नेटवर्क) → अंतिम उपाय के तौर पर रिलीज़ zip/exe (Step 2)।
+
+अगर **PyPI तक ही पहुंच नहीं है** — यानी कॉर्पोरेट नेटवर्क पैकेज इंडेक्स को पूरी तरह ब्लॉक कर देता है — तो दोनों में से कोई भी रास्ता पैकेज नहीं ला पाएगा। अपनी IT टीम से `pypi.org` और `files.pythonhosted.org` को allowlist में डलवाएं, या पैकेज को किसी आंतरिक इंडेक्स पर मिरर करवाएं जिसे आप `pip install --index-url` से इस्तेमाल कर सकें।
 
 ---
 
@@ -100,7 +101,7 @@ python -m servicenow_mcp --version
 
 ### pip वाले रास्ते पर क्लाइंट कॉन्फ़िग
 
-सिर्फ़ `command` और `args` बदलते हैं। **`env` ब्लॉक uvx वाले रूप के बिल्कुल समान रहता है** — Step 4 की कोई भी कॉन्फ़िग कॉपी करें और ऊपर की दो लाइनें बदल दें:
+सिर्फ़ `command` और `args` बदलते हैं। **`env` ब्लॉक uvx वाले रूप के बिल्कुल समान रहता है** — Step 2 की कोई भी कॉन्फ़िग कॉपी करें और ऊपर की दो लाइनें बदल दें:
 
 ```json
 {
@@ -123,80 +124,7 @@ Codex के TOML में इसका समकक्ष है `command = "p
 
 ---
 
-## Step 2: रिलीज़ zip/exe इंस्टॉल
-
-इसका उपयोग **अंतिम उपाय के तौर पर तब करें जब PyPI तक ही पहुंच न हो** — यानी ऐसा कॉर्पोरेट नेटवर्क जो पैकेज इंडेक्स को सिरे से ब्लॉक कर देता है, जिससे न `uvx` कुछ ला पाता है और न `pip`।
-
-> **यह Smart App Control का समाधान नहीं है।** बंडल किया गया एक्ज़ीक्यूटेबल PyInstaller से बना है और **वह भी बिना साइन किया हुआ** है, इसलिए SAC उसे उसी वजह से ब्लॉक करता है जिस वजह से uvx को करता है। अगर आपकी समस्या SAC है, तो [Step 1b](#step-1b-smart-app-control-uvx-को-ब्लॉक-करता-है--pip-से-इंस्टॉल-करें) पर वापस जाएं और pip का उपयोग करें।
-
-GitHub Releases से `servicenow-mcp-windows-x64-<version>.zip` डाउनलोड करें। इसमें एक ही PyInstaller-निर्मित `servicenow-mcp.exe` के साथ `LICENSE` होता है। किसी इंस्टॉलर स्क्रिप्ट की ज़रूरत नहीं है — एक्ज़ीक्यूटेबल खुद Chromium खोज को संभालता है। अपने नियंत्रण वाला एक स्थिर फ़ोल्डर चुनें (उदाहरण के लिए `C:\Users\you\apps\servicenow-mcp\`), उसमें `servicenow-mcp.exe` एक्सट्रैक्ट करें, और — अगर आपके पास Chromium zip है — तो **उसे पहले ही** उसी फ़ोल्डर में एक्सट्रैक्ट कर दें। `.zip` को यूं ही पड़ा न छोड़ें। एक्सट्रैक्ट किए गए फ़ोल्डर का नाम वैसा ही रह सकता है जैसा Windows ने बनाया हो या उसे `ms-playwright\` में बदला जा सकता है; एक्ज़ीक्यूटेबल स्टार्टअप पर किसी भी सिबलिंग `ms-play*` डायरेक्टरी के लिए glob करता है:
-
-```
-C:\Users\you\apps\servicenow-mcp\
-├── servicenow-mcp.exe
-└── ms-playwright-chromium-windows-x64-<ver>\   (default extracted name works)
-    └── chromium-1185\
-        └── …
-```
-
-स्टार्टअप पर एक्ज़ीक्यूटेबल किसी भी सिबलिंग `ms-play*\chromium-*` डायरेक्टरी की तलाश करता है और केवल वर्तमान प्रोसेस के लिए `PLAYWRIGHT_BROWSERS_PATH` के माध्यम से Playwright को उसकी ओर इंगित करता है। यह सिस्टम के मानक Playwright कैश (`%LOCALAPPDATA%\ms-playwright`) को नहीं छूता, किसी भी MCP क्लाइंट कॉन्फ़िग को संशोधित नहीं करता, और डिस्क पर कहीं भी कुछ नहीं लिखता।
-
-फिर इसे अपनी क्लाइंट कॉन्फ़िग फ़ाइल में पेस्ट करें (Claude Code / Claude Desktop उदाहरण):
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` वैकल्पिक MFA लॉगिन प्री-फ़िल हैं। अगर आप Chromium को सिबलिंग `ms-playwright\` डायरेक्टरी के अलावा कहीं और रखते हैं, तो `env` ब्लॉक में `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"` जोड़ें। Codex (`config.toml`) / OpenCode (`opencode.json`) / Cursor / Antigravity / Zed के लिए स्निपेट [Client Setup Guide](CLIENT_SETUP.md) में मौजूद हैं।
-
-यह `uvx` को रनटाइम से पूरी तरह बाहर रखता है।
-
-अगर Chromium बंडल नहीं है और डाउनलोड की अनुमति है, तो <https://www.python.org/downloads/> से Python 3.10+ इंस्टॉल करें, फिर चलाएं:
-
-```powershell
-py -m pip install playwright
-$env:PLAYWRIGHT_BROWSERS_PATH = "$HOME\apps\servicenow-mcp\ms-playwright"
-py -m playwright install chromium
-```
-
-अगर Playwright ब्राउज़र डाउनलोड भी ब्लॉक है, तो chromium-bundle रिलीज़ (https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) से `ms-playwright-chromium-windows-x64.zip` डाउनलोड करें और उसकी सामग्री को यहां एक्सट्रैक्ट करें:
-
-```text
-%LOCALAPPDATA%\ms-playwright
-```
-
-Playwright ब्राउज़र दस्तावेज़: <https://playwright.dev/python/docs/browsers>
-
----
-
-## Step 3: रिलीज़ एसेट्स बनाएं
-
-मेंटेनर Windows पर रिलीज़ zip बनाते हैं:
-
-```powershell
-py scripts\build_desktop_release.py --browser-zip
-```
-
-यह एक्ज़ीक्यूटेबल zip और ब्लॉक किए गए नेटवर्क के लिए वैकल्पिक Playwright Chromium कैश zip बनाता है।
-
----
-
-## Step 4: अपना MCP क्लाइंट कॉन्फ़िगर करें
+## Step 2: अपना MCP क्लाइंट कॉन्फ़िगर करें
 
 नीचे अपने MCP क्लाइंट के लिए कॉन्फ़िगरेशन कॉपी करें।
 `your-instance` को अपने वास्तविक ServiceNow इंस्टेंस एड्रेस से बदलें।
@@ -345,7 +273,7 @@ args = [
 
 ---
 
-## Step 5: स्किल्स इंस्टॉल करें (वैकल्पिक)
+## Step 3: स्किल्स इंस्टॉल करें (वैकल्पिक)
 
 स्किल्स AI एक्ज़ीक्यूशन ब्लूप्रिंट हैं — सुरक्षा गेट्स वाली सत्यापित पाइपलाइन जो कच्चे MCP टूल्स को विश्वसनीय वर्कफ़्लो में बदल देती हैं। 3 श्रेणियों में 4 स्किल्स।
 
@@ -390,7 +318,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 ---
 
-## Step 6: सत्यापित करें
+## Step 4: सत्यापित करें
 
 1. अपने MCP क्लाइंट को **पूरी तरह बंद करें और पुनः आरंभ करें** (ट्रे आइकन भी बंद करें)।
 2. ब्राउज़र विंडो पहले टूल कॉल पर खुलती है (सर्वर स्टार्ट पर नहीं)।
@@ -477,7 +405,6 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 uvx --with playwright playwright install chromium   # uvx
 python -m playwright install chromium               # pip
 ```
-→ अगर ब्राउज़र डाउनलोड ब्लॉक है, तो chromium-bundle रिलीज़ से `ms-playwright-chromium-windows-x64.zip` का उपयोग करें और उसे `%LOCALAPPDATA%\ms-playwright` में एक्सट्रैक्ट करें।
 
 ### "MCP server won't connect"
 → कॉन्फ़िग फ़ाइल सिंटैक्स जांचें:

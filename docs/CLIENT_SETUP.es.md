@@ -2,7 +2,7 @@
 
 Configuración detallada para cada cliente MCP. Todos los clientes usan el mismo servidor MCP — solo difiere el formato de configuración.
 
-> **Empieza por aquí:** `uvx` es la instalación predeterminada en todas las plataformas. Si `uvx` no llega a ejecutarse — el motivo habitual es Smart App Control de Windows —, recurre a `pip`. Si el bloqueo alcanza al propio PyPI, usa la sección del zip/exe de la versión.
+> **Empieza por aquí:** `uvx` es la instalación predeterminada en todas las plataformas. Si `uvx` no llega a ejecutarse — el motivo habitual es Smart App Control de Windows —, recurre a `pip`. Esas son las dos vías de instalación.
 
 ---
 
@@ -46,6 +46,10 @@ Un Python del [instalador de python.org](https://www.python.org/downloads/) (fir
 
 > En macOS/Linux la única pega de pip es que los Python de Homebrew y de la distribución rechazan las instalaciones globales según la [PEP 668](https://peps.python.org/pep-0668/) (`externally-managed-environment`). Usa el instalador de python.org, o simplemente quédate con uvx.
 
+Si **el bloqueo alcanza al propio PyPI** —una red corporativa que corta el índice de paquetes—, ninguna de las dos vías puede descargar nada. Pide a IT que incluya `pypi.org` y `files.pythonhosted.org` en la lista de permitidos, o que replique el paquete en un índice interno al que puedas apuntar con `pip install --index-url`.
+
+> Usuarios de Windows: consulta la [Guía de instalación en Windows](WINDOWS_INSTALL.md) para ver detalles paso a paso y notas sobre proxy/antivirus.
+
 ### 3. Añade el servidor a la configuración de tu cliente MCP
 
 Añade una entrada al archivo de configuración de tu cliente (no se necesita ningún comando de instalación). **El bloque `env` es idéntico sea cual sea la forma de instalación** — solo `command`/`args` dependen de la vía que hayas elegido arriba:
@@ -54,7 +58,6 @@ Añade una entrada al archivo de configuración de tu cliente (no se necesita ni
 |---|---|---|
 | uvx (predeterminada) | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
 | pip (uvx bloqueado) | `python` | `["-m","servicenow_mcp"]` |
-| exe de la versión | ruta absoluta del ejecutable | `[]` |
 
 Todos los ejemplos por cliente de más abajo muestran la forma con uvx. Con pip, cambia esas dos claves y deja todo lo demás intacto.
 
@@ -74,53 +77,6 @@ Todos los ejemplos por cliente de más abajo muestran la forma con uvx. Con pip,
 ```
 
 Las rutas de archivo y formatos por cliente (Codex TOML, etc.) están más abajo; reinicia el cliente después.
-
-### Instalación local (zip/exe de la versión)
-
-Usa esto cuando el bloqueo alcance al propio PyPI, de modo que ni `uvx` ni `pip` puedan llegar al paquete. El zip de la versión es un único ejecutable compilado con PyInstaller — **sin script de instalación, sin necesidad de Python, sin contaminación de la caché del sistema**. El ejecutable detecta automáticamente un directorio `ms-playwright/` ubicado junto a él.
-
-**1. Descargar.** El ejecutable desde la [última versión](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest); el paquete opcional de Chromium (solo si la red también bloquea la descarga de Chromium de Playwright) desde la versión perdurable [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle).
-
-| Plataforma | Requerido (última versión) | Añadir si la descarga de Chromium está bloqueada (versión chromium-bundle) |
-|----------|---------------------------|----------------------------------------------------------------|
-| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64.zip` |
-| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>.zip` |
-| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64.zip` |
-
-**2. Distribúyelo** en cualquier directorio estable que controles. **Extrae ambos zips por adelantado** — no dejes los archivos `.zip` junto al ejecutable. La carpeta extraída del zip de Chromium solo tiene que empezar por `ms-play` y contener un subdirectorio `chromium-*`:
-
-```
-~/apps/servicenow-mcp/                                  (any directory you choose)
-├── servicenow-mcp                                      ← from the platform zip (.exe on Windows)
-└── ms-playwright-chromium-linux-x64-<ver>/             ← default extracted name works
-    └── chromium-1185/
-        └── …
-```
-
-(Renómbralo a `ms-playwright/` si quieres un nombre más ordenado — ambos funcionan.) Al arrancar, el ejecutable busca cualquier directorio hermano `ms-play*` y, al encontrar un subdirectorio `chromium-*` dentro, dirige Playwright hacia él mediante `PLAYWRIGHT_BROWSERS_PATH` solo para el proceso actual. **No** toca la caché de Playwright del sistema, **no** modifica ninguna configuración del cliente MCP, **no** escribe en ningún lugar del disco.
-
-**3. Verifica y luego conecta tu cliente MCP:**
-
-```bash
-# macOS / Linux
-~/apps/servicenow-mcp/servicenow-mcp --version
-
-# Windows PowerShell
-& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
-```
-
-Pega el fragmento de configuración MCP de la [Guía de configuración](#guía-de-configuración) de abajo en el archivo de configuración de tu cliente, estableciendo `command` en la ruta absoluta de tu ejecutable y `args` en `[]`. El bloque `env` es el mismo que en la configuración de uvx — solo cambian `command`/`args`. Si pones Chromium en un lugar distinto a junto al ejecutable, añade `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` al bloque `env`.
-
-Si te saltaste el zip de Chromium y la descarga automática de Playwright está bloqueada, prepara el directorio por adelantado en una máquina con Python:
-
-```bash
-pip install playwright
-PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m playwright install chromium
-```
-
-La detección automática lo recoge sin configuración adicional.
-
-> Usuarios de Windows: consulta la [Guía de instalación en Windows](WINDOWS_INSTALL.md) para ver detalles paso a paso y notas sobre proxy/antivirus.
 
 ### Prueba rápida
 

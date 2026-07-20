@@ -2,7 +2,7 @@
 
 각 MCP 클라이언트별 상세 설정 가이드입니다. 모든 클라이언트는 동일한 MCP 서버를 사용하며, 설정 형식만 다릅니다.
 
-> **여기서 시작하세요:** 모든 플랫폼에서 기본 설치는 `uvx`입니다. `uvx`가 아예 실행되지 않는다면 — 대개 Windows Smart App Control이 원인입니다 — `pip`으로 넘어가세요. PyPI 자체에 접속이 안 되는 환경이면 릴리즈 zip/exe 섹션을 사용하세요.
+> **여기서 시작하세요:** 모든 플랫폼에서 기본 설치는 `uvx`입니다. `uvx`가 아예 실행되지 않는다면 — 대개 Windows Smart App Control이 원인입니다 — `pip`으로 넘어가세요. 설치 경로는 이 두 가지입니다.
 
 ---
 
@@ -46,6 +46,10 @@ python -m playwright install chromium
 
 > macOS/Linux에서 pip을 쓸 때 걸리는 건 하나뿐입니다. Homebrew나 배포판 기본 Python은 [PEP 668](https://peps.python.org/pep-0668/) 때문에 전역 설치를 거부합니다(`externally-managed-environment`). python.org 인스톨러를 쓰거나, 그냥 uvx를 유지하세요.
 
+**PyPI 자체가 막혀 있다면** — 사내망이 패키지 인덱스를 차단하는 경우 — uvx든 pip이든 패키지를 받아올 방법이 없습니다. IT 부서에 `pypi.org`와 `files.pythonhosted.org` 허용을 요청하거나, 사내 인덱스에 미러링해 두고 `pip install --index-url`로 받아 쓰세요.
+
+> Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](WINDOWS_INSTALL.ko.md) 참조.
+
 ### 3. MCP 클라이언트 설정에 서버 추가
 
 클라이언트 설정파일에 엔트리를 추가하세요 (별도 installer 명령 불필요). **어떤 방식으로 설치했든 `env` 블록은 동일합니다** — 위에서 고른 경로에 따라 `command`/`args`만 달라집니다:
@@ -54,7 +58,6 @@ python -m playwright install chromium
 |---|---|---|
 | uvx (기본) | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
 | pip (uvx 차단 시) | `python` | `["-m","servicenow_mcp"]` |
-| 릴리즈 exe | 실행 파일 절대 경로 | `[]` |
 
 아래 클라이언트별 예시는 전부 uvx 형태입니다. pip으로 설치했다면 이 두 키만 바꾸고 나머지는 그대로 두세요.
 
@@ -74,55 +77,6 @@ python -m playwright install chromium
 ```
 
 클라이언트별 경로·형식(Codex TOML 등)은 아래에 있습니다. 추가 후 클라이언트를 재시작하세요.
-
-### 로컬 설치 (릴리즈 zip/exe)
-
-PyPI 자체가 막혀서 `uvx`도 `pip`도 패키지를 받아올 수 없을 때 쓰는 경로입니다. 릴리즈 zip은 **PyInstaller로 빌드된 단일 실행 파일** — 설치 스크립트 없음, Python 불필요, 시스템 캐시 오염 없음. 실행 파일이 자기 옆 `ms-playwright/` 폴더를 자동으로 인식합니다.
-
-**1. [GitHub Releases](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest)에서 다운로드:**
-
-실행 파일은 [최신 릴리즈](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest), 선택적 Chromium 번들(네트워크가 Playwright 자동 다운로드까지 막을 때만)은 고정 [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) 릴리즈에서 받으세요 — 매 버전 재첨부 안 함.
-
-| 플랫폼 | 필수 (최신 릴리즈) | Chromium 막히면 추가로 (chromium-bundle 릴리즈) |
-|--------|---------------------|--------------------------------------------------|
-| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64.zip` |
-| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>.zip` |
-| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64.zip` |
-
-**2. 아래 구조로 배치** — 본인이 관리하는 안정적인 경로면 어디든 OK. **zip은 미리 다 풀어두세요** — `.zip` 파일을 실행 파일 옆에 남기지 말고. Chromium zip을 푼 폴더 이름은 `ms-play`로 시작하고 안에 `chromium-*` 서브디렉토리만 있으면 됩니다:
-
-```
-~/apps/servicenow-mcp/                                  (본인이 정하는 경로)
-├── servicenow-mcp                                      ← 플랫폼 zip에서 (Windows는 .exe)
-└── ms-playwright-chromium-linux-x64-<ver>/             ← 기본 추출 이름 그대로 OK
-    └── chromium-1185/
-        └── …
-```
-
-(정리해 두고 싶으면 `ms-playwright/`로 이름 변경해도 됩니다 — 둘 다 동작.) 시작 시 실행 파일이 자기 옆 `ms-play*` 디렉토리를 글롭으로 찾고, 안에 `chromium-*` 서브디렉토리가 있으면 그 경로로 `PLAYWRIGHT_BROWSERS_PATH`를 **현재 프로세스에만** 설정합니다. 시스템 Playwright 캐시는 **건드리지 않고**, MCP 클라이언트 설정 파일도 **건드리지 않고**, 디스크에 아무것도 **쓰지 않습니다**.
-
-**3. 동작 확인 후 MCP 클라이언트 연결:**
-
-```bash
-# macOS / Linux
-~/apps/servicenow-mcp/servicenow-mcp --version
-
-# Windows PowerShell
-& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
-```
-
-아래 [설정 가이드](#설정-가이드)의 MCP 스니펫을 본인 클라이언트 설정 파일에 붙여넣고, `command`를 실행 파일 절대 경로로, `args`를 `[]`로 지정하세요. `env` 블록은 uvx 설정과 동일 — `command`/`args`만 다릅니다. Chromium을 실행 파일 옆이 *아닌* 다른 위치에 두었다면 env에 `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"`를 추가하세요.
-
-Chromium zip을 받지 못했고 사내 망에서 Playwright 자동 다운로드도 막힌다면 Python이 가능한 PC에서 같은 구조로 디렉토리를 만들어 두세요:
-
-```bash
-pip install playwright
-PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m playwright install chromium
-```
-
-자동 인식이 그대로 동작합니다.
-
-> Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](WINDOWS_INSTALL.ko.md) 참조.
 
 ### 동작 확인
 

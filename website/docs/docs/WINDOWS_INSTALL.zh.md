@@ -1,9 +1,10 @@
 # Windows 安装指南
 
-和其他平台一样，Windows 上也默认使用 `uvx`。只有两种 Windows 特有的情况会迫使你放弃它：
+和其他平台一样，Windows 上也默认使用 `uvx`。只有一种 Windows 特有的情况会迫使你放弃它：
 
 - **Smart App Control 阻止 `uvx`** → 改用 **pip**（第 1b 步）。这是 Windows 上最常见的故障，而且往往在一次 Windows 更新之后毫无征兆地出现。
-- **PyPI 本身无法访问**（企业网络）→ 退而使用发布版 zip/exe（第 2 步），作为最后手段。
+
+如果**连 PyPI 本身都访问不了**——企业网络直接封掉了包索引——那么两条路都取不到包。请让 IT 把 `pypi.org` 和 `files.pythonhosted.org` 加入白名单，或者在内部索引上做一份镜像，再用 `pip install --index-url` 指向它安装。
 
 ---
 
@@ -100,7 +101,7 @@ python -m servicenow_mcp --version
 
 ### pip 方式下的客户端配置
 
-只有 `command` 和 `args` 需要改。**`env` 块与 uvx 形式完全一致** —— 从第 4 步复制任意一份配置，替换开头两行即可：
+只有 `command` 和 `args` 需要改。**`env` 块与 uvx 形式完全一致** —— 从第 2 步复制任意一份配置，替换开头两行即可：
 
 ```json
 {
@@ -123,80 +124,7 @@ python -m servicenow_mcp --version
 
 ---
 
-## 第 2 步：发布版 zip/exe 安装
-
-仅在**最后手段、PyPI 本身无法访问**时使用此方式 —— 比如企业网络直接封锁了包索引，导致 `uvx` 和 `pip` 都拉不到任何东西。
-
-> **这不是 Smart App Control 问题的解法。** 随附的可执行文件由 PyInstaller 构建，**同样未签名**，SAC 会以拦截 uvx 的相同理由拦截它。如果你的问题是 SAC，请回到[第 1b 步](#第-1b-步smart-app-control-阻止-uvx-时改用-pip-安装)改用 pip。
-
-从 GitHub Releases 下载 `servicenow-mcp-windows-x64-<version>.zip`。它包含单个由 PyInstaller 构建的 `servicenow-mcp.exe` 以及 `LICENSE`。无需安装脚本 —— 可执行文件自行处理 Chromium 的发现。挑选一个你掌控的稳定文件夹（例如 `C:\Users\you\apps\servicenow-mcp\`），将 `servicenow-mcp.exe` 解压进去，并且 —— 如果你有 Chromium zip —— **预先把它解压**到同一文件夹中。不要把 `.zip` 留在那里。解压出的文件夹名可以保持 Windows 生成的样子，也可以重命名为 `ms-playwright\`；可执行文件在启动时会通配查找任意同级的 `ms-play*` 目录：
-
-```
-C:\Users\you\apps\servicenow-mcp\
-├── servicenow-mcp.exe
-└── ms-playwright-chromium-windows-x64-<ver>\   (默认解压名即可)
-    └── chromium-1185\
-        └── …
-```
-
-启动时，可执行文件会查找任意同级的 `ms-play*\chromium-*` 目录，并仅为当前进程通过 `PLAYWRIGHT_BROWSERS_PATH` 将 Playwright 指向它。它不会触碰系统标准 Playwright 缓存（`%LOCALAPPDATA%\ms-playwright`），不会修改任何 MCP 客户端配置，也不会在磁盘上任何位置写入。
-
-然后将以下内容粘贴到你的客户端配置文件中（以 Claude Code / Claude Desktop 为例）：
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "standard"
-      }
-    }
-  }
-}
-```
-
-`SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` 是可选的 MFA 登录预填。如果你把 Chromium 放在了同级 `ms-playwright\` 目录以外的位置，请在 `env` 块中添加 `"PLAYWRIGHT_BROWSERS_PATH": "C:/abs/path/to/ms-playwright"`。Codex（`config.toml`）/ OpenCode（`opencode.json`）/ Cursor / Antigravity / Zed 的片段见[客户端安装指南](CLIENT_SETUP.md)。
-
-这样可以让 `uvx` 完全不参与运行时。
-
-如果 Chromium 未被捆绑且允许下载，请从 <https://www.python.org/downloads/> 安装 Python 3.10+，然后运行：
-
-```powershell
-py -m pip install playwright
-$env:PLAYWRIGHT_BROWSERS_PATH = "$HOME\apps\servicenow-mcp\ms-playwright"
-py -m playwright install chromium
-```
-
-如果 Playwright 浏览器下载也被阻止，请从 chromium-bundle 发布版（https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle）下载 `ms-playwright-chromium-windows-x64.zip`，并将其内容解压到：
-
-```text
-%LOCALAPPDATA%\ms-playwright
-```
-
-Playwright 浏览器文档：<https://playwright.dev/python/docs/browsers>
-
----
-
-## 第 3 步：构建发布资产
-
-维护者在 Windows 上构建发布版 zip：
-
-```powershell
-py scripts\build_desktop_release.py --browser-zip
-```
-
-这会创建可执行文件 zip，以及供受阻网络使用的可选 Playwright Chromium 缓存 zip。
-
----
-
-## 第 4 步：配置你的 MCP 客户端
+## 第 2 步：配置你的 MCP 客户端
 
 复制下面适用于你的 MCP 客户端的配置。
 将 `your-instance` 替换为你实际的 ServiceNow 实例地址。
@@ -345,7 +273,7 @@ args = [
 
 ---
 
-## 第 5 步：安装技能（可选）
+## 第 3 步：安装技能（可选）
 
 技能是 AI 执行蓝图 —— 带安全门控的经验证流水线，把原始 MCP 工具变成可靠的工作流。3 个类别共 4 个技能。
 
@@ -390,7 +318,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 
 ---
 
-## 第 6 步：验证
+## 第 4 步：验证
 
 1. **完全退出并重启**你的 MCP 客户端（同时关闭托盘图标）。
 2. 浏览器窗口在第一次工具调用时打开（而非服务器启动时）。
@@ -477,7 +405,6 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 uvx --with playwright playwright install chromium   # uvx
 python -m playwright install chromium               # pip
 ```
-→ 如果浏览器下载被阻止，从 chromium-bundle 发布版下载 `ms-playwright-chromium-windows-x64.zip`，并将其解压到 `%LOCALAPPDATA%\ms-playwright`。
 
 ### "MCP server won't connect"
 → 检查配置文件语法：

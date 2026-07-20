@@ -285,53 +285,25 @@ jobs:
             docker pull ghcr.io/${{ github.repository }}:latest
             ```
 
-            ## Desktop Release Zips
+            ## If `uvx` is blocked
 
-            If `uvx` is blocked by endpoint security/Zscaler, download the zip for your platform and run the included installer:
+            Windows Smart App Control blocks `uvx` — it unpacks an unsigned temporary
+            executable on every run. This usually starts right after a Windows update.
+            Install with pip instead:
 
-            - `servicenow-mcp-windows-x64-*.zip`
-            - `servicenow-mcp-macos-*.zip`
-            - `servicenow-mcp-linux-x64-*.zip`
+            ```bash
+            pip install --upgrade mfa-servicenow-mcp playwright
+            python -m playwright install chromium
+            ```
 
-            Playwright Chromium normally uses its standard browser cache. If browser downloads are blocked too, download the matching `ms-playwright-chromium-*.zip` asset and extract it to the standard Playwright cache for your OS before starting your MCP client.
+            Then set the MCP client `command` to `python` and `args` to `["-m", "servicenow_mcp"]`.
+            Do not use the `servicenow-mcp` console script — it is an unsigned pip-generated
+            `.exe` shim that Smart App Control blocks for the same reason.
           draft: false
           prerelease: ${{ contains(steps.version.outputs.VERSION, '-rc') || contains(steps.version.outputs.VERSION, '-beta') || contains(steps.version.outputs.VERSION, '-alpha') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  desktop-release-assets:
-    name: Build desktop release assets (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    needs: [release]
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-      - name: Build desktop zips
-        # Executable only — the ~150MB Chromium cache is NOT re-attached every
-        # release (its revision tracks Playwright, not the app version). It lives
-        # on the long-lived `chromium-bundle` release; rebuild via the
-        # browser-bundle workflow only when the Playwright pin changes.
-        run: python scripts/build_desktop_release.py
-
-      - name: Upload desktop assets to release
-        shell: bash
-        run: gh release upload "${GITHUB_REF#refs/tags/}" dist/desktop/*.zip --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ============================================
   # Publish to PyPI (tag push only — create git tag manually to deploy)
