@@ -74,7 +74,7 @@ curl -s https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs
 
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem;">
       회사 보안툴이 <code>uvx</code>를 막는 환경이라면
-      아래 <a href="#local-install">로컬 설치 (릴리즈 zip)</a> 섹션을 참고하세요.
+      아래 <a href="#local-install">uvx가 막힐 때 (pip)</a> 섹션을 참고하세요.
     </p>
 
     <div style="margin-top:56px;" class="reveal">
@@ -121,10 +121,10 @@ uvx --with playwright playwright install chromium
     </div>
 
     <div id="local-install" style="margin-top:56px;" class="reveal">
-      <span class="section-label">로컬 설치 — 오프라인 친화</span>
-      <h2 class="section-title">릴리즈 zip으로 설치하기</h2>
+      <span class="section-label">uvx가 막힐 때</span>
+      <h2 class="section-title">pip으로 설치하기</h2>
       <p class="section-desc">
-        <code>uvx</code>나 PyPI 접속이 막히는 사내망에서 사용하세요. 릴리즈 zip에는 PyInstaller로 빌드된 단일 실행 파일만 들어 있어 Python·설치 스크립트가 필요 없습니다. <a href="https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>에서 플랫폼 zip(필요 시 같은 릴리즈의 <code>ms-playwright-chromium</code> zip도)을 받아 풀고, MCP 클라이언트의 <code>command</code>를 실행 파일로 지정하면 됩니다.
+        Windows <a href="https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0" target="_blank" rel="noopener">Smart App Control</a>이 <code>uvx</code>를 차단합니다. uvx가 실행될 때마다 서명되지 않은 임시 실행 파일을 풀어내기 때문입니다. 얼마 전까지 잘 되던 uvx가 Windows 업데이트 직후부터 안 된다면 이게 원인입니다. pip으로 설치한 뒤 서버를 모듈로 실행하세요 — <code>servicenow-mcp</code> 콘솔 스크립트는 pip이 만들어 주는 서명 없는 <code>.exe</code> 래퍼라 같은 이유로 차단됩니다.
       </p>
     </div>
     <div class="install-block reveal">
@@ -135,54 +135,37 @@ uvx --with playwright playwright install chromium
       <div class="install-panels">
         <div class="install-panel active" id="local-mac">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. 본인이 정한 안정 폴더에 zip을 미리 다 풀어두세요 — .zip 파일을</span>
-<span class="c">#    실행 파일 옆에 남기지 말고. Chromium 폴더 이름은 ms-play로</span>
-<span class="c">#    시작하고 안에 chromium-*만 있으면 OK:</span>
-<span class="c">#</span>
-<span class="c">#    ~/apps/servicenow-mcp/                              (본인이 정하는 경로)</span>
-<span class="c">#    ├── servicenow-mcp                                  ← 실행 파일</span>
-<span class="c">#    └── ms-playwright-chromium-linux-x64-&lt;ver&gt;/         ← 기본 이름 OK</span>
-<span class="c">#        └── chromium-1185/</span>
-<span class="c">#</span>
-<span class="c"># 2. 시작 시 실행 파일이 옆 ms-play* 디렉토리를 글롭으로 찾아</span>
-<span class="c">#    Playwright를 그쪽으로 보냅니다. 시스템 표준 캐시</span>
-<span class="c">#    (~/.cache/ms-playwright) 와 MCP 클라이언트 설정은 그대로.</span>
-<span class="c"># 3. 바이너리 동작 확인:</span>
-~/apps/servicenow-mcp/servicenow-mcp --version
+            <pre class="install-code"><code><span class="c"># Homebrew나 배포판 기본 Python은 전역 pip 설치를 거부합니다 (PEP 668).</span>
+<span class="c"># python.org 배포판을 쓰거나, 그냥 위의 uvx를 그대로 쓰세요.</span>
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
 
-<span class="c"># 4. 아래 "수동 복구용" 섹션의 설정 스니펫을 본인 클라이언트 설정 파일에</span>
-<span class="c">#    붙여넣고 'command'를 아래 경로로 지정:</span>
-<span class="c">#       ~/apps/servicenow-mcp/servicenow-mcp</span>
-<span class="c"># 클라이언트 재시작 끝.</span></code></pre>
+<span class="c"># 확인:</span>
+python -m servicenow_mcp --version
+
+<span class="c"># 나중에 업데이트할 때:</span>
+pip install --upgrade mfa-servicenow-mcp playwright
+python -m playwright install chromium</code></pre>
           </div>
         </div>
         <div class="install-panel" id="local-win">
           <div class="install-code-block">
-            <pre class="install-code"><code><span class="c"># 1. 본인이 정한 안정 폴더에 zip을 미리 다 풀어두세요 — .zip 파일을</span>
-<span class="c">#    실행 파일 옆에 남기지 말고. Chromium 폴더 이름은 ms-play로</span>
-<span class="c">#    시작하고 안에 chromium-*만 있으면 OK:</span>
-<span class="c">#</span>
-<span class="c">#    C:\Users\you\apps\servicenow-mcp\</span>
-<span class="c">#    ├── servicenow-mcp.exe                              ← 실행 파일</span>
-<span class="c">#    └── ms-playwright-chromium-windows-x64-&lt;ver&gt;\       ← 기본 이름 OK</span>
-<span class="c">#        └── chromium-1185\</span>
-<span class="c">#</span>
-<span class="c"># 2. 시작 시 실행 파일이 옆 ms-play* 디렉토리를 글롭으로 찾아</span>
-<span class="c">#    Playwright를 그쪽으로 보냅니다. 시스템 표준 캐시</span>
-<span class="c">#    (%LOCALAPPDATA%\ms-playwright) 와 MCP 클라이언트 설정은 그대로.</span>
-<span class="c"># 3. 바이너리 동작 확인:</span>
-& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
+            <pre class="install-code"><code><span class="c"># python.org의 Python 3.10+ 는 서명되어 있어 Smart App Control을 통과합니다.</span>
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
 
-<span class="c"># 4. 아래 "수동 복구용" 섹션의 설정 스니펫을 본인 클라이언트 설정 파일에</span>
-<span class="c">#    붙여넣고 'command'를 아래 경로로 지정:</span>
-<span class="c">#       C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe</span>
-<span class="c"># 클라이언트 재시작 끝.</span></code></pre>
+<span class="c"># 확인:</span>
+python -m servicenow_mcp --version
+
+<span class="c"># 나중에 업데이트할 때:</span>
+pip install --upgrade mfa-servicenow-mcp playwright
+python -m playwright install chromium</code></pre>
           </div>
         </div>
       </div>
     </div>
     <p class="section-desc" style="margin-top:16px; font-size:0.9rem; opacity:0.8;">
-      설치 스크립트 없음. 본인이 정한 안정 폴더에 실행 파일을 풀고, Chromium zip을 그 옆 <code>ms-playwright</code> 서브폴더로 풀면, 실행 파일이 시작 시 그 구조를 자동 인식해 <code>PLAYWRIGHT_BROWSERS_PATH</code>를 현재 프로세스에만 지정합니다. 시스템 표준 Playwright 캐시(<code>~/.cache/ms-playwright</code>, <code>%LOCALAPPDATA%\ms-playwright</code>) 는 보존되고, MCP 클라이언트 설정 파일도 본인이 직접 관리 — 아래 <a href="#mcp-tabs">수동 복구용</a> 섹션의 스니펫을 붙여넣고 <code>command</code>를 실행 파일 절대 경로로 지정하세요.
+      <code>env</code> 블록은 어느 쪽이든 동일하고 <code>command</code>와 <code>args</code>만 달라집니다. 아래 <a href="#mcp-tabs">수동 복구용</a> 섹션의 스니펫을 붙여넣은 뒤, <code>command</code>를 <code>python</code>으로, <code>args</code>를 <code>["-m", "servicenow_mcp"]</code>로 지정하세요.
     </p>
 
     <div style="margin-top:56px;" class="reveal">

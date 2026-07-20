@@ -243,10 +243,11 @@ TLS-inspecting proxies (Zscaler and friends) and blocked PyPI access have their 
 
 ## Install (offline / corporate)
 
-For most users the [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) above (uvx) is all you need. Two corporate-network variants:
+For most users the [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) above (uvx) is all you need. Two corporate-network cases are worth calling out.
 
-- **PyPI reachable, but HTTPS is TLS-inspected** (Zscaler / Netskope / corporate MITM) → see **Installing behind a TLS-inspecting proxy** just below.
-- **PyPI itself blocked** → see **Release zip/exe (local install)** further down.
+The common case is **PyPI reachable, but HTTPS is TLS-inspected** (Zscaler / Netskope / corporate MITM) — that is what the section below covers.
+
+If PyPI itself is blocked outright, neither uvx nor pip can reach the package. Ask your IT team to allowlist `pypi.org` and `files.pythonhosted.org`, or to mirror the package on an internal index you can point `pip install --index-url` at.
 
 ### Installing behind a TLS-inspecting proxy (Zscaler etc.)
 
@@ -299,87 +300,6 @@ UV_NATIVE_TLS=1 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp -
 In a fully-inspected network the proxy re-signs every host, so the single proxy-root PEM covers all HTTPS. If some hosts **bypass** the proxy, concatenate the proxy root with certifi's bundle (`python -m certifi` prints its path) into one PEM and point the env vars at that.
 
 > Last resort if you genuinely can't obtain the PEM: `pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org mfa-servicenow-mcp` skips verification for the **install only** — it does nothing for runtime ServiceNow calls, which still need `CURL_CA_BUNDLE`. Prefer the cert path; `--trusted-host` disables a security control.
-
-### Release zip/exe (local install)
-
-Use this path when PyPI itself is blocked by corporate security. The release zip ships a **PyInstaller-built single-file executable** — no Python required, no installer script, no system-cache pollution. The executable auto-detects a `ms-playwright/` directory sitting next to itself, so the entire install is "unzip and point your MCP client at it".
-
-#### 1. Download
-
-The executable is on the [latest release](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest). The Chromium bundle — only needed when the network also blocks Playwright's own Chromium download — is **not** re-attached to every release (it's ~150 MB and only changes with Playwright); grab it from the long-lived [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) release.
-
-| Platform | Required (latest release) | Add this too if Chromium download is blocked (chromium-bundle release) |
-|----------|---------------------------|------------------------------------------------------------------------|
-| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64.zip` |
-| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>.zip` |
-| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64.zip` |
-
-#### 2. Build this folder layout
-
-Pick any directory you control (`~/apps/servicenow-mcp/`, `D:\Tools\servicenow-mcp\`, etc. — just keep it stable). **Extract both zips up front** — don't leave the `.zip` files lying next to the executable. The Chromium zip's extracted directory just has to start with `ms-play` and contain a `chromium-*` subdirectory; whatever name your unzip tool produces is fine:
-
-```
-~/apps/servicenow-mcp/                                  (any directory you choose)
-├── servicenow-mcp                                      ← from the platform zip (.exe on Windows)
-└── ms-playwright-chromium-linux-x64-1.13.7/            ← default extracted name works
-    └── chromium-1185/                                  (one of these is enough)
-        └── …
-```
-
-Or, if you'd rather have a clean name, extract into a folder simply called `ms-playwright/`. Both work — the executable globs for any sibling `ms-play*` directory at startup and, on finding a `chromium-*` subdirectory inside, sets `PLAYWRIGHT_BROWSERS_PATH` to that path **for the current process only**. It does not write anywhere on disk, does not edit your MCP client config, and does not touch the system-wide Playwright cache (`~/.cache/ms-playwright`, `%LOCALAPPDATA%\ms-playwright`, …). If Chromium isn't bundled, Playwright falls back to its own discovery — set `PLAYWRIGHT_BROWSERS_PATH` in your MCP env yourself or run `playwright install chromium` somewhere reachable.
-
-#### 3. Sanity-check the binary
-
-```bash
-# macOS / Linux
-~/apps/servicenow-mcp/servicenow-mcp --version
-
-# Windows PowerShell
-& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
-```
-
-If the version prints, you're done with the binary half — every remaining step is just config.
-
-#### 4. Wire it up in your MCP client (copy-paste)
-
-Reuse the same client config as in [Setup](https://github.com/jshsakura/mfa-servicenow-mcp#setup) — only `command` changes to the absolute path of your executable and `args` becomes `[]`; the `env` block stays identical. Claude Code example:
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "/home/you/apps/servicenow-mcp/servicenow-mcp",
-      "args": [],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_AUTH_TYPE": "browser",
-        "SERVICENOW_BROWSER_HEADLESS": "false",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
-}
-```
-
-On Windows replace `"command"` with `"C:/Users/you/apps/servicenow-mcp/servicenow-mcp.exe"`.
-
-> `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` are optional (MFA login pre-fill). If Chromium lives somewhere other than next to the executable, add `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` to the env block. Codex (TOML), OpenCode, Cursor, VS Code Copilot, Antigravity, Zed snippets: [Client Setup Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md).
-
-#### Chromium fallback (optional)
-
-If you skipped the Chromium zip and Playwright's auto-download is blocked, pre-stage the directory on any machine with Python:
-
-```bash
-pip install playwright
-PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m playwright install chromium
-```
-
-The result is the same `ms-playwright/chromium-*/…` layout the bundled zip produces, so the auto-detect picks it up with no extra config.
-
-> Windows users: see the [Windows Installation Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/WINDOWS_INSTALL.md) for PATH and antivirus notes.
-
----
 
 ## MCP Client Configuration
 

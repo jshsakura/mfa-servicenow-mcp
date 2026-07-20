@@ -2,7 +2,7 @@
 
 प्रत्येक MCP क्लाइंट के लिए विस्तृत सेटअप। सभी क्लाइंट एक ही MCP सर्वर का उपयोग करते हैं — केवल कॉन्फ़िग प्रारूप भिन्न होता है।
 
-> **यहाँ से शुरू करें:** हर प्लेटफ़ॉर्म पर डिफ़ॉल्ट इंस्टॉल `uvx` है। यदि `uvx` चल ही न पाए — आमतौर पर इसका कारण Windows Smart App Control होता है — तो `pip` पर fallback करें। और यदि PyPI तक ही पहुँच न हो, तो release zip/exe अनुभाग का उपयोग करें।
+> **यहाँ से शुरू करें:** हर प्लेटफ़ॉर्म पर डिफ़ॉल्ट इंस्टॉल `uvx` है। यदि `uvx` चल ही न पाए — आमतौर पर इसका कारण Windows Smart App Control होता है — तो `pip` पर fallback करें। इंस्टॉल के रास्ते बस यही दो हैं।
 
 ---
 
@@ -46,6 +46,10 @@ python -m playwright install chromium
 
 > macOS/Linux पर pip की एकमात्र अड़चन यह है कि Homebrew और distro Python [PEP 668](https://peps.python.org/pep-0668/) के तहत global इंस्टॉल से इनकार कर देते हैं (`externally-managed-environment`)। python.org installer का उपयोग करें, या फिर बस uvx पर ही बने रहें।
 
+यदि **PyPI तक ही पहुँच अवरुद्ध है** — यानी कॉर्पोरेट नेटवर्क पैकेज इंडेक्स को ही ब्लॉक करता है — तो इनमें से कोई भी रास्ता पैकेज नहीं ला सकता। अपनी IT टीम से `pypi.org` और `files.pythonhosted.org` को allowlist कराएँ, या पैकेज को किसी आंतरिक इंडेक्स पर मिरर कराएँ जिसे आप `pip install --index-url` से इस्तेमाल कर सकें।
+
+> Windows उपयोगकर्ता: चरण-दर-चरण विवरण और proxy/antivirus नोट्स के लिए [Windows Installation Guide](WINDOWS_INSTALL.md) देखें।
+
 ### 3. अपने MCP क्लाइंट कॉन्फ़िग में सर्वर जोड़ें
 
 अपने क्लाइंट की कॉन्फ़िग फ़ाइल में एक प्रविष्टि जोड़ें (किसी इंस्टॉलर कमांड की आवश्यकता नहीं)। **आपने चाहे जिस भी तरीके से इंस्टॉल किया हो, `env` ब्लॉक एक जैसा ही रहता है** — केवल `command`/`args` उस रास्ते के अनुसार बदलते हैं जो आपने ऊपर चुना:
@@ -54,7 +58,6 @@ python -m playwright install chromium
 |---|---|---|
 | uvx (डिफ़ॉल्ट) | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
 | pip (uvx अवरुद्ध होने पर) | `python` | `["-m","servicenow_mcp"]` |
-| release exe | निष्पादन योग्य फ़ाइल का पूर्ण पथ | `[]` |
 
 नीचे दिए गए सभी प्रति-क्लाइंट उदाहरण uvx वाला रूप दिखाते हैं। pip पर बस इन दो keys को बदल दें और बाकी सब वैसा ही रहने दें।
 
@@ -74,53 +77,6 @@ python -m playwright install chromium
 ```
 
 प्रति-क्लाइंट फ़ाइल पथ और प्रारूप (Codex TOML, आदि) नीचे दिए गए हैं; उसके बाद क्लाइंट को पुनः आरंभ करें।
-
-### स्थानीय इंस्टॉल (release zip/exe)
-
-इसका उपयोग तब करें जब PyPI तक ही पहुँच अवरुद्ध हो, यानी `uvx` और `pip` दोनों में से कोई भी पैकेज तक न पहुँच सके। release zip एक एकल PyInstaller-निर्मित निष्पादन योग्य फ़ाइल है — **कोई इंस्टॉलर स्क्रिप्ट नहीं, कोई Python आवश्यक नहीं, कोई सिस्टम-कैश प्रदूषण नहीं**। निष्पादन योग्य फ़ाइल अपने बगल में स्थित `ms-playwright/` डायरेक्टरी को स्वतः पहचान लेती है।
-
-**1. डाउनलोड करें।** निष्पादन योग्य फ़ाइल [latest release](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest) से; वैकल्पिक Chromium बंडल (केवल तभी जब नेटवर्क Playwright के Chromium डाउनलोड को भी अवरुद्ध करता हो) दीर्घकालिक [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) release से।
-
-| प्लेटफ़ॉर्म | आवश्यक (latest release) | यदि Chromium डाउनलोड अवरुद्ध हो तो जोड़ें (chromium-bundle release) |
-|----------|---------------------------|----------------------------------------------------------------|
-| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64.zip` |
-| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>.zip` |
-| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64.zip` |
-
-**2. इसे व्यवस्थित करें** किसी भी स्थिर डायरेक्टरी में जिस पर आपका नियंत्रण हो। **दोनों zip को पहले ही एक्सट्रैक्ट कर लें** — `.zip` फ़ाइलों को निष्पादन योग्य फ़ाइल के बगल में न छोड़ें। Chromium zip के एक्सट्रैक्ट किए गए फ़ोल्डर को बस `ms-play` से शुरू होना चाहिए और उसमें एक `chromium-*` सबडायरेक्टरी होनी चाहिए:
-
-```
-~/apps/servicenow-mcp/                                  (any directory you choose)
-├── servicenow-mcp                                      ← from the platform zip (.exe on Windows)
-└── ms-playwright-chromium-linux-x64-<ver>/             ← default extracted name works
-    └── chromium-1185/
-        └── …
-```
-
-(यदि आप अधिक साफ-सुथरा नाम चाहते हैं तो `ms-playwright/` नाम बदल दें — दोनों काम करते हैं।) स्टार्टअप पर निष्पादन योग्य फ़ाइल किसी भी सहोदर (sibling) `ms-play*` डायरेक्टरी के लिए glob करती है और, उसके अंदर एक `chromium-*` सबडायरेक्टरी मिलने पर, केवल वर्तमान प्रोसेस के लिए `PLAYWRIGHT_BROWSERS_PATH` के माध्यम से Playwright को उसकी ओर इंगित करती है। यह सिस्टम Playwright कैश को **छूती नहीं**, किसी MCP क्लाइंट कॉन्फ़िग को **संशोधित नहीं करती**, डिस्क पर कहीं भी **लिखती नहीं**।
-
-**3. सत्यापित करें, फिर अपने MCP क्लाइंट को कनेक्ट करें:**
-
-```bash
-# macOS / Linux
-~/apps/servicenow-mcp/servicenow-mcp --version
-
-# Windows PowerShell
-& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
-```
-
-नीचे दिए गए [Configuration Guide](#configuration-guide) से MCP कॉन्फ़िग स्निपेट को अपने क्लाइंट की कॉन्फ़िग फ़ाइल में पेस्ट करें, `command` को अपनी निष्पादन योग्य फ़ाइल के पूर्ण पथ पर और `args` को `[]` पर सेट करें। `env` ब्लॉक uvx सेटअप के समान ही है — केवल `command`/`args` बदलते हैं। यदि आपने Chromium को निष्पादन योग्य फ़ाइल के बगल के अलावा कहीं और रखा है, तो `env` ब्लॉक में `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` जोड़ें।
-
-यदि आपने Chromium zip को छोड़ दिया और Playwright का स्वतः-डाउनलोड अवरुद्ध है, तो Python वाली मशीन पर डायरेक्टरी को पहले से तैयार करें:
-
-```bash
-pip install playwright
-PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m playwright install chromium
-```
-
-स्वतः-पहचान इसे बिना किसी अतिरिक्त कॉन्फ़िग के उठा लेती है।
-
-> Windows उपयोगकर्ता: चरण-दर-चरण विवरण और proxy/antivirus नोट्स के लिए [Windows Installation Guide](WINDOWS_INSTALL.md) देखें।
 
 ### त्वरित परीक्षण
 

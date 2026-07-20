@@ -2,7 +2,7 @@
 
 各 MCP 客户端的详细安装说明。所有客户端使用同一个 MCP 服务器 —— 只是配置格式不同。
 
-> **从这里开始：** `uvx` 是所有平台上的默认安装方式。如果 `uvx` 跑不起来 —— 通常是 Windows 智能应用控制（Smart App Control）所致 —— 请改用 `pip`。如果连 PyPI 本身都无法访问，请使用发布版 zip/exe 一节。
+> **从这里开始：** `uvx` 是所有平台上的默认安装方式。如果 `uvx` 跑不起来 —— 通常是 Windows 智能应用控制（Smart App Control）所致 —— 请改用 `pip`。安装路径就这两条。
 
 ---
 
@@ -46,6 +46,10 @@ python -m playwright install chromium
 
 > 在 macOS/Linux 上，pip 唯一需要注意的是 Homebrew 和发行版自带的 Python 会按 [PEP 668](https://peps.python.org/pep-0668/) 拒绝全局安装（`externally-managed-environment`）。请改用 python.org 的安装程序，或干脆继续用 uvx。
 
+**如果连 PyPI 本身都无法访问** —— 企业网络屏蔽了包索引 —— 那么两条路径都拿不到这个包。请让 IT 将 `pypi.org` 和 `files.pythonhosted.org` 加入白名单，或者在内部索引上做镜像，再用 `pip install --index-url` 指向它。
+
+> Windows 用户：分步细节及代理/杀毒软件注意事项请参阅 [Windows 安装指南](WINDOWS_INSTALL.md)。
+
 ### 3. 将服务器添加到你的 MCP 客户端配置
 
 向客户端的配置文件中添加一个条目（无需安装命令）。**无论用哪种方式安装，`env` 块都完全相同** —— 只有 `command`/`args` 随你上面选择的路径而变：
@@ -54,7 +58,6 @@ python -m playwright install chromium
 |---|---|---|
 | uvx（默认） | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
 | pip（uvx 被阻止时） | `python` | `["-m","servicenow_mcp"]` |
-| 发布版 exe | 可执行文件的绝对路径 | `[]` |
 
 下文各客户端示例一律采用 uvx 形式。使用 pip 时，只需替换这两个键，其余保持不变。
 
@@ -74,53 +77,6 @@ python -m playwright install chromium
 ```
 
 各客户端的文件路径和格式（Codex TOML 等）见下文；之后请重启客户端。
-
-### 本地安装（发布版 zip/exe）
-
-当 PyPI 本身被阻止、`uvx` 和 `pip` 都拿不到这个包时使用此方式。发布版 zip 是单个由 PyInstaller 构建的可执行文件 —— **无安装脚本，无需 Python，不污染系统缓存**。可执行文件会自动检测位于自身旁边的 `ms-playwright/` 目录。
-
-**1. 下载。** 从[最新发布版](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest)下载可执行文件；可选的 Chromium 捆绑包（仅当网络同时阻止了 Playwright 的 Chromium 下载时才需要）从长期维护的 [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) 发布版下载。
-
-| 平台 | 必需（最新发布版） | 若 Chromium 下载被阻止则补充（chromium-bundle 发布版） |
-|----------|---------------------------|----------------------------------------------------------------|
-| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64.zip` |
-| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>.zip` |
-| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64.zip` |
-
-**2. 布置文件**，放入你掌控的任意稳定目录。**预先解压两个 zip** —— 不要把 `.zip` 文件留在可执行文件旁边。Chromium zip 解压出的文件夹只需以 `ms-play` 开头并包含一个 `chromium-*` 子目录即可：
-
-```
-~/apps/servicenow-mcp/                                  (你选择的任意目录)
-├── servicenow-mcp                                      ← 来自平台 zip（Windows 上为 .exe）
-└── ms-playwright-chromium-linux-x64-<ver>/             ← 默认解压名即可
-    └── chromium-1185/
-        └── …
-```
-
-（如果想要更整洁的名字，可重命名为 `ms-playwright/` —— 两者都可用。）启动时，可执行文件会通配查找任意同级的 `ms-play*` 目录，找到其中的 `chromium-*` 子目录后，仅为当前进程通过 `PLAYWRIGHT_BROWSERS_PATH` 将 Playwright 指向它。它**不会**触碰系统 Playwright 缓存，**不会**修改任何 MCP 客户端配置，**不会**在磁盘上任何位置写入。
-
-**3. 验证，然后连接你的 MCP 客户端：**
-
-```bash
-# macOS / Linux
-~/apps/servicenow-mcp/servicenow-mcp --version
-
-# Windows PowerShell
-& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
-```
-
-将下面[配置指南](#配置指南)中的 MCP 配置片段粘贴到客户端的配置文件中，并将 `command` 设为可执行文件的绝对路径、`args` 设为 `[]`。`env` 块与 uvx 安装方式相同 —— 只有 `command`/`args` 不同。如果你把 Chromium 放在了可执行文件旁边以外的位置，请在 `env` 块中添加 `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"`。
-
-如果你跳过了 Chromium zip，而 Playwright 的自动下载又被阻止，请在一台装有 Python 的机器上预先准备好该目录：
-
-```bash
-pip install playwright
-PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m playwright install chromium
-```
-
-自动检测会在无需额外配置的情况下识别它。
-
-> Windows 用户：分步细节及代理/杀毒软件注意事项请参阅 [Windows 安装指南](WINDOWS_INSTALL.md)。
 
 ### 快速测试
 

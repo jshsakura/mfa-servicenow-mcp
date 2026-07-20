@@ -2,7 +2,7 @@
 
 Detailed setup for each MCP client. All clients use the same MCP server — only the config format differs.
 
-> **Start here:** `uvx` is the default install on every platform. If `uvx` won't run — Windows Smart App Control is the usual reason — fall back to `pip`. If PyPI itself is unreachable, use the release zip/exe section.
+> **Start here:** `uvx` is the default install on every platform. If `uvx` won't run — Windows Smart App Control is the usual reason — fall back to `pip`. Those are the two install paths.
 
 ---
 
@@ -46,6 +46,10 @@ A Python from the [python.org installer](https://www.python.org/downloads/) (sig
 
 > On macOS/Linux the one pip caveat is that Homebrew and distro Pythons refuse global installs under [PEP 668](https://peps.python.org/pep-0668/) (`externally-managed-environment`). Use the python.org installer, or just stay on uvx.
 
+If **PyPI itself is unreachable** — a corporate network that blocks the package index — neither path can fetch anything. Ask IT to allowlist `pypi.org` and `files.pythonhosted.org`, or to mirror the package on an internal index you can point at with `pip install --index-url`.
+
+> Windows users: see [Windows Installation Guide](WINDOWS_INSTALL.md) for step-by-step details and proxy/antivirus notes.
+
 ### 3. Add the server to your MCP client config
 
 Add an entry to your client's config file (no installer command needed). **The `env` block is identical no matter how you installed** — only `command`/`args` follow the path you picked above:
@@ -54,7 +58,6 @@ Add an entry to your client's config file (no installer command needed). **The `
 |---|---|---|
 | uvx (default) | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
 | pip (uvx blocked) | `python` | `["-m","servicenow_mcp"]` |
-| release exe | absolute path to the executable | `[]` |
 
 Every per-client example below shows the uvx form. On pip, swap those two keys and leave everything else untouched.
 
@@ -74,53 +77,6 @@ Every per-client example below shows the uvx form. On pip, swap those two keys a
 ```
 
 Per-client file paths and formats (Codex TOML, etc.) are below; restart the client afterward.
-
-### Local install (release zip/exe)
-
-Use this when PyPI itself is blocked, so neither `uvx` nor `pip` can reach the package. The release zip is a single PyInstaller-built executable — **no installer script, no Python required, no system-cache pollution**. The executable auto-detects a `ms-playwright/` directory sitting next to itself.
-
-**1. Download.** Executable from the [latest release](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest); the optional Chromium bundle (only if the network also blocks Playwright's Chromium download) from the long-lived [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) release.
-
-| Platform | Required (latest release) | Add if Chromium download is blocked (chromium-bundle release) |
-|----------|---------------------------|----------------------------------------------------------------|
-| Windows x64 | `servicenow-mcp-windows-x64-<version>.zip` | `ms-playwright-chromium-windows-x64.zip` |
-| macOS (Intel / Apple Silicon) | `servicenow-mcp-macos-<arch>-<version>.zip` | `ms-playwright-chromium-macos-<arch>.zip` |
-| Linux x64 | `servicenow-mcp-linux-x64-<version>.zip` | `ms-playwright-chromium-linux-x64.zip` |
-
-**2. Lay it out** in any stable directory you control. **Extract both zips up front** — don't leave the `.zip` files alongside the executable. The Chromium zip's extracted folder just has to start with `ms-play` and contain a `chromium-*` subdirectory:
-
-```
-~/apps/servicenow-mcp/                                  (any directory you choose)
-├── servicenow-mcp                                      ← from the platform zip (.exe on Windows)
-└── ms-playwright-chromium-linux-x64-<ver>/             ← default extracted name works
-    └── chromium-1185/
-        └── …
-```
-
-(Rename to `ms-playwright/` if you want a tidier name — both work.) At startup the executable globs for any sibling `ms-play*` directory and, on finding a `chromium-*` subdirectory inside, points Playwright at it via `PLAYWRIGHT_BROWSERS_PATH` for the current process only. It does **not** touch the system Playwright cache, **not** modify any MCP client config, **not** write anywhere on disk.
-
-**3. Verify, then wire your MCP client:**
-
-```bash
-# macOS / Linux
-~/apps/servicenow-mcp/servicenow-mcp --version
-
-# Windows PowerShell
-& "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
-```
-
-Paste the MCP config snippet from the [Configuration Guide](#configuration-guide) below into your client's config file, setting `command` to the absolute path of your executable and `args` to `[]`. The `env` block is the same as the uvx setup — only `command`/`args` change. If you put Chromium somewhere other than next to the executable, add `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"` to the `env` block.
-
-If you skipped the Chromium zip and Playwright's auto-download is blocked, pre-stage the directory on a machine with Python:
-
-```bash
-pip install playwright
-PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m playwright install chromium
-```
-
-The auto-detect picks it up with no extra config.
-
-> Windows users: see [Windows Installation Guide](WINDOWS_INSTALL.md) for step-by-step details and proxy/antivirus notes.
 
 ### Quick Test
 
