@@ -684,7 +684,10 @@ def create_config(args) -> ServerConfig:
         # Include other server config fields if they exist on ServerConfig model
         debug=args.debug,
         timeout=args.timeout,
-        server_name=args.server_name,
+        # Empty/whitespace name (e.g. SERVICENOW_MCP_SERVER_NAME="") would leave
+        # the server advertising no name at all — worse than the default, since
+        # the whole point is telling connections apart. Fall back instead.
+        server_name=(args.server_name or "").strip() or "ServiceNow",
     )
 
 
