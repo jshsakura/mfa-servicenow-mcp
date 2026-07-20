@@ -149,7 +149,44 @@ Si el servidor arranca y se abre una ventana del navegador para iniciar sesión,
 
 > **Recomendado a nivel de proyecto**: Usa configuración con alcance de proyecto para que cada proyecto pueda conectarse a una instancia de ServiceNow diferente.
 
-> **Escritura con destino deliberado**: las herramientas ordinarias se enrutan a la instancia activa (`SERVICENOW_ACTIVE_INSTANCE`). Escribir en una instancia configurada *distinta* es posible pero nunca silencioso — requiere nombrar el destino y aprobarlo en esa misma llamada (ver [Modo Multi-Instancia](#modo-multi-instancia-comparación--escrituras-guardadas-de-una-sola-llamada)), de modo que moverse entre dev/test/prod no puede provocar una escritura accidental en producción.
+Todo lo que sigue varía únicamente dentro de `env`. `command`/`args` se quedan tal como los dejaste en el [paso 3](#3-añade-el-servidor-a-la-configuración-de-tu-cliente-mcp), sea cual sea la ruta de instalación que hayas seguido.
+
+### Perfiles — empieza aquí
+
+Si tocas más de una instancia de ServiceNow, **configura perfiles en lugar de levantar un servidor por instancia.** Dale un alias a cada entorno y elige cuál está activo:
+
+```json
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"test\": { \"url\": \"https://acme-test.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"prod\": { \"url\": \"https://acme-prod.service-now.com\", \"auth_type\": \"browser\" } }"
+      }
+```
+
+Ese único bloque sustituye a `SERVICENOW_INSTANCE_URL`, y es lo que hace funcionar el resto de esta guía:
+
+- **Producción queda protegida por omisión.** Un alias sin `allow_writes` es de solo lectura. En el `prod` de arriba no se puede escribir en absoluto: olvidar un flag nunca podrá habilitar una escritura en producción.
+- **Llega a otra instancia sin reiniciar.** Las herramientas de lectura aceptan un argumento `instance`: `sn_query(instance="prod", …)` mientras `dev` sigue activa.
+- **Compara entornos directamente.** `compare_instances` compara el mismo registro entre dos alias; `list_instances` muestra cada alias y su flag de escritura.
+- **Un solo inicio de sesión en el navegador.** La sesión se comparte entre alias en vez de un login por cada proceso de servidor.
+- **Las escrituras a una instancia no activa están protegidas**, nunca son silenciosas: consulta [Modo Multi-Instancia](#modo-multi-instancia-comparación--escrituras-guardadas-de-una-sola-llamada) para las reglas de enrutado, el control `confirm_instance` y las referencias a secretos `${ENV}`.
+
+### Una sola instancia
+
+¿Solo una instancia? Sáltate los perfiles por completo: dos variables son toda la configuración.
+
+```json
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+```
+
+Esta forma sigue funcionando y no está obsoleta; es simplemente el caso más simple de la configuración por perfiles de arriba.
+
+### ¿Una conexión o varias?
+
+Los perfiles ponen todas las instancias detrás de **una sola** conexión de cliente, que es lo que quiere casi todo el mundo. Si en cambio necesitas conexiones visualmente distintas en la interfaz del cliente —una entrada `snow-dev` y otra `snow-prd`—, mira [Nombrar varias entradas de servidor](#nombrar-varias-entradas-de-servidor---server-name). Eso renuncia a `compare_instances`, al inicio de sesión compartido y al control `allow_writes`, así que elígelo solo por esa separación visual.
 
 ---
 
