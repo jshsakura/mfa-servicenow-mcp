@@ -2,7 +2,7 @@
 
 各 MCP 客户端的详细安装说明。所有客户端使用同一个 MCP 服务器 —— 只是配置格式不同。
 
-> **建议优先：** 使用下面的 `uvx` 安装命令。如果 `uvx` 被企业安全工具阻止，请使用发布版 zip/exe 一节。
+> **从这里开始：** `uvx` 是所有平台上的默认安装方式。如果 `uvx` 跑不起来 —— 通常是 Windows 智能应用控制（Smart App Control）所致 —— 请改用 `pip`。如果连 PyPI 本身都无法访问，请使用发布版 zip/exe 一节。
 
 ---
 
@@ -33,9 +33,30 @@ uvx --with playwright playwright install chromium                               
 
 第一条命令会在客户端所使用的完全相同的 `--with playwright` 环境中预取并验证服务器，使首次启动瞬间完成。第二条命令下载 Chromium；如果标准缓存中已有匹配的 Chromium，`uvx` 会复用它。
 
+#### 如果 uvx 被阻止 —— 改用 `pip`
+
+Windows [智能应用控制](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0)会让 `uvx` 完全无法运行：uvx 每次运行都会解压出一个未签名的临时可执行文件，而 SAC 会拦截它。如果 uvx 是在某次 Windows 更新之后突然不能用了，基本就是这个原因。此时请改用 pip 安装：
+
+```powershell
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+来自 [python.org 安装程序](https://www.python.org/downloads/)的 Python（已签名，3.10+）可直接通过 SAC 检查。启动服务器请使用 `python -m servicenow_mcp` —— **不要**用 `servicenow-mcp` 命令行脚本，它是 pip 生成的未签名 `.exe` 包装器，同样会被 SAC 拦截。
+
+> 在 macOS/Linux 上，pip 唯一需要注意的是 Homebrew 和发行版自带的 Python 会按 [PEP 668](https://peps.python.org/pep-0668/) 拒绝全局安装（`externally-managed-environment`）。请改用 python.org 的安装程序，或干脆继续用 uvx。
+
 ### 3. 将服务器添加到你的 MCP 客户端配置
 
-向客户端的配置文件中添加一个条目（无需安装命令）：
+向客户端的配置文件中添加一个条目（无需安装命令）。**无论用哪种方式安装，`env` 块都完全相同** —— 只有 `command`/`args` 随你上面选择的路径而变：
+
+| 安装方式 | `command` | `args` |
+|---|---|---|
+| uvx（默认） | `uvx` | `["--with","playwright","--from","mfa-servicenow-mcp","servicenow-mcp"]` |
+| pip（uvx 被阻止时） | `python` | `["-m","servicenow_mcp"]` |
+| 发布版 exe | 可执行文件的绝对路径 | `[]` |
+
+下文各客户端示例一律采用 uvx 形式。使用 pip 时，只需替换这两个键，其余保持不变。
 
 ```json
 {
@@ -56,7 +77,7 @@ uvx --with playwright playwright install chromium                               
 
 ### 本地安装（发布版 zip/exe）
 
-当 `uvx` 或 PyPI 被阻止时使用此方式。发布版 zip 是单个由 PyInstaller 构建的可执行文件 —— **无安装脚本，无需 Python，不污染系统缓存**。可执行文件会自动检测位于自身旁边的 `ms-playwright/` 目录。
+当 PyPI 本身被阻止、`uvx` 和 `pip` 都拿不到这个包时使用此方式。发布版 zip 是单个由 PyInstaller 构建的可执行文件 —— **无安装脚本，无需 Python，不污染系统缓存**。可执行文件会自动检测位于自身旁边的 `ms-playwright/` 目录。
 
 **1. 下载。** 从[最新发布版](https://github.com/jshsakura/mfa-servicenow-mcp/releases/latest)下载可执行文件；可选的 Chromium 捆绑包（仅当网络同时阻止了 Playwright 的 Chromium 下载时才需要）从长期维护的 [`chromium-bundle`](https://github.com/jshsakura/mfa-servicenow-mcp/releases/tag/chromium-bundle) 发布版下载。
 
@@ -88,7 +109,7 @@ uvx --with playwright playwright install chromium                               
 & "$HOME\apps\servicenow-mcp\servicenow-mcp.exe" --version
 ```
 
-将下面[配置指南](#configuration-guide)中的 MCP 配置片段粘贴到客户端的配置文件中，并将 `command` 设为可执行文件的绝对路径。`env` 块与 uvx 安装方式相同 —— 只有 `command` 不同。如果你把 Chromium 放在了可执行文件旁边以外的位置，请在 `env` 块中添加 `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"`。
+将下面[配置指南](#配置指南)中的 MCP 配置片段粘贴到客户端的配置文件中，并将 `command` 设为可执行文件的绝对路径、`args` 设为 `[]`。`env` 块与 uvx 安装方式相同 —— 只有 `command`/`args` 不同。如果你把 Chromium 放在了可执行文件旁边以外的位置，请在 `env` 块中添加 `"PLAYWRIGHT_BROWSERS_PATH": "/abs/path/to/ms-playwright"`。
 
 如果你跳过了 Chromium zip，而 Playwright 的自动下载又被阻止，请在一台装有 Python 的机器上预先准备好该目录：
 
@@ -107,6 +128,12 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/apps/servicenow-mcp/ms-playwright" python -m pla
 
 ```bash
 uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
+  --instance-url "https://your-instance.service-now.com" \
+  --auth-type "browser" \
+  --browser-headless "false"
+
+# pip 安装：把第一行替换为
+python -m servicenow_mcp \
   --instance-url "https://your-instance.service-now.com" \
   --auth-type "browser" \
   --browser-headless "false"
@@ -132,6 +159,7 @@ uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp \
 
 ```bash
 servicenow-mcp --transport http --http-host 127.0.0.1 --http-port 8000
+# pip 安装：python -m servicenow_mcp --transport http --http-host 127.0.0.1 --http-port 8000
 ```
 
 MCP 端点为 `http://127.0.0.1:8000/mcp`；`/health` 返回一个轻量级状态响应。除非服务器处于受信任的网络管控之后，否则请保持默认的回环主机。
@@ -166,7 +194,7 @@ SERVICENOW_INSTANCE_CONFIG='{
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["mfa-servicenow-mcp@latest"],
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp"],
       "env": {
         "MCP_TOOL_PACKAGE": "standard",
         "SERVICENOW_ACTIVE_INSTANCE": "dev",
@@ -191,6 +219,42 @@ SERVICENOW_INSTANCE_CONFIG='{
 ```
 
 对非活动实例的单次写入，请使用上面受保护的 `instance=<alias> confirm_instance=<alias> confirm=approve` 路由。批量提升**多条**记录时，优先使用 Update Set，而非逐条的跨实例写入。
+
+---
+
+## 为多个服务器条目命名（`--server-name`）
+
+这是与上面多实例模式不同的拓扑结构。多实例 = **一个**连接即可访问多个实例；本节 = **多个彼此独立的连接**，每个实例一个进程，各自固定连向自己的实例 —— 只有当你希望 dev/stg/prd 在客户端界面中明显分开时才值得这么做。
+
+麻烦之处在于：每个条目默认都以 `ServiceNow` 自称，因此客户端只能按加载顺序来区分它们 —— `mcp_servicenow`、`mcp_servicenow2`、`mcp_servicenow3`。这个编号可能在重启之间发生变化，因此**用它来判断哪个连接是生产环境并不可靠。** 请用 `--server-name` 给每个条目起个名字：
+
+```json
+{
+  "mcpServers": {
+    "snow-dev": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-dev"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme-dev.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    },
+    "snow-prd": {
+      "command": "uvx",
+      "args": ["--with", "playwright", "--from", "mfa-servicenow-mcp", "servicenow-mcp", "--server-name", "snow-prd"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://acme.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser",
+        "MCP_TOOL_PACKAGE": "standard"
+      }
+    }
+  }
+}
+```
+
+这样工具名就固定为 `mcp_snow-dev_*` / `mcp_snow-prd_*`。环境变量 `SERVICENOW_MCP_SERVER_NAME` 效果相同，两者同时设置时以命令行参数为准。不设置时名称仍为 `ServiceNow`，因此已有配置照常可用。
+
+**能用配置文件（profile）就优先用它。** 如果只是要在一个连接内切换实例，推荐使用[多实例模式](#多实例模式比较--受保护的单次调用写入)：只有它才提供 `compare_instances`、共享的单次浏览器登录，以及按别名生效的 `allow_writes` 开关。独立进程这些都没有 —— 每个进程只知道自己的实例、各自单独登录，而挡在你和一次生产写入之间的，就只剩工具包这一道防线。
 
 ---
 

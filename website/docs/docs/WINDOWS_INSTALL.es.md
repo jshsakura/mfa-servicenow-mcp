@@ -1,6 +1,9 @@
 # Guía de instalación en Windows
 
-Usa `uvx` de forma predeterminada. Si la seguridad de endpoints/Zscaler bloquea `uvx` o las descargas de paquetes, usa la sección del zip/exe de la versión más abajo.
+`uvx` es la opción predeterminada en Windows, igual que en el resto de plataformas. Hay dos situaciones propias de Windows que pueden obligarte a abandonarlo:
+
+- **Smart App Control bloquea `uvx`** → cambia a **pip** (Paso 1b). Es con diferencia el fallo más habitual en Windows, y suele aparecer de golpe justo después de una actualización de Windows.
+- **PyPI es inaccesible** (red corporativa) → el zip/exe de la versión (Paso 2), como último recurso.
 
 ---
 
@@ -33,11 +36,100 @@ Eso instala `uv`, descarga y verifica el servidor, y descarga Chromium. Luego a�
 
 `uvx` reutiliza un Chromium compatible que ya esté en la caché estándar de Playwright; si falta Chromium, ejecuta primero el comando de instalación anterior.
 
+**Actualizar:** `uvx` guarda en caché la versión que descargó y la sigue reutilizando, así que hay que traer explícitamente cada nueva versión:
+
+```powershell
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
+uvx --with playwright playwright install chromium
+```
+
+---
+
+## Paso 1b: Smart App Control bloquea uvx — instala con pip
+
+### Qué vas a ver
+
+`uvx` deja de funcionar sin ningún error útil. El cliente MCP informa de que el servidor no arrancó, o PowerShell indica que el programa fue bloqueado por tu administrador / por una directiva del sistema. Nada ha cambiado en tu configuración. Muy a menudo esto empieza **justo después de una actualización de Windows**, lo que hace parecer que se ha roto el servidor y no el lanzador.
+
+### Por qué ocurre
+
+[Smart App Control](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0) (SAC) es una característica de Windows 11 que solo permite ejecutar programas **firmados o reconocidos como fiables**. `uvx` no ejecuta un programa instalado de forma permanente: en cada ejecución descomprime un **ejecutable temporal nuevo y sin firmar** y lo lanza. Eso es exactamente lo que SAC existe para impedir, así que lo bloquea siempre. Por más que reintentes o reinstales `uv`, no cambia nada: por diseño, el archivo es nuevo y no está firmado en cada ejecución.
+
+SAC viene en modo de evaluación en los equipos nuevos con Windows 11 y puede activarse solo más adelante, por su cuenta. Por eso aparece de la nada en una máquina donde `uvx` llevaba meses funcionando.
+
+Para comprobarlo: **Seguridad de Windows → Control de aplicaciones y navegador → Configuración de Smart App Control**.
+
+> **No desactives Smart App Control para resolver esto.** Desactivarlo es un **cambio sin retorno**: una vez desactivado, Windows no te dejará volver a activarlo. Recuperarlo exige **reinstalar Windows**. No compensa degradar permanentemente la seguridad del sistema operativo por un lanzador de paquetes. Usa pip: resuelve el problema por completo y deja SAC activado.
+
+### La vía de pip
+
+pip instala el servidor como archivos Python normales que ejecuta un intérprete de Python **firmado**, así que SAC no tiene nada que objetar.
+
+Instala Python **3.10 o superior** desde el [instalador de python.org](https://www.python.org/downloads/): esa compilación está firmada y pasa SAC tal cual. (El Python de Microsoft Store también sirve.) Marca **«Add python.exe to PATH»** durante la instalación. Después:
+
+```powershell
+pip install mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+**Actualizar:**
+
+```powershell
+pip install --upgrade mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+Instala Chromium de antemano, como se muestra. Dejarlo para la primera llamada a una herramienta supone una descarga de ~150 MB compitiendo con el plazo de handshake de tu cliente MCP, lo que se manifiesta como `connection closed`.
+
+### Lánzalo siempre como módulo, nunca con el script de consola
+
+pip también deja un shim `servicenow-mcp.exe` en tu carpeta Scripts. **Ese shim es un `.exe` sin firmar que pip genera en tu máquina, así que SAC lo bloquea igual que bloqueaba uvx.** Evítalo por completo llamando al módulo:
+
+| En lugar de | Usa |
+|---|---|
+| `servicenow-mcp` | `python -m servicenow_mcp` |
+| `servicenow-mcp setup` | `python -m servicenow_mcp setup` |
+| `servicenow-mcp --version` | `python -m servicenow_mcp --version` |
+| `servicenow-mcp-skills claude` | `python -m servicenow_mcp.setup_skills claude` |
+
+Verifica la instalación:
+
+```powershell
+python -m servicenow_mcp --version
+```
+
+### Configuración del cliente en la vía de pip
+
+Solo cambian `command` y `args`. **El bloque `env` es idéntico al de la forma con uvx**: copia cualquier configuración del Paso 4 y sustituye las dos primeras líneas:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "python",
+      "args": ["-m", "servicenow_mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+    }
+  }
+}
+```
+
+Para el TOML de Codex, el equivalente es `command = "python"` / `args = ["-m", "servicenow_mcp"]`.
+
+> Si tu cliente MCP no encuentra `python`, indica la ruta absoluta (por ejemplo `C:/Users/you/AppData/Local/Programs/Python/Python312/python.exe`). Los clientes MCP no siempre heredan el PATH que tiene tu shell.
+
 ---
 
 ## Paso 2: Instalación con el zip/exe de la versión
 
-Usa esto cuando `uvx` esté bloqueado. Descarga `servicenow-mcp-windows-x64-<version>.zip` desde GitHub Releases. Contiene un único `servicenow-mcp.exe` compilado con PyInstaller más `LICENSE`. No se necesita ningún script de instalación: el ejecutable gestiona por sí mismo el descubrimiento de Chromium. Elige una carpeta estable que controles (por ejemplo `C:\Users\you\apps\servicenow-mcp\`), extrae `servicenow-mcp.exe` en ella y, si tienes el zip de Chromium, **extráelo de antemano** en la misma carpeta. No dejes el `.zip` por ahí. El nombre de la carpeta extraída puede mantenerse tal como lo produjo Windows o renombrarse a `ms-playwright\`; el ejecutable busca con glob cualquier directorio hermano `ms-play*` al iniciarse:
+Usa esto como **último recurso, cuando PyPI sea inaccesible**: una red corporativa que bloquea directamente el índice de paquetes, de modo que ni `uvx` ni `pip` pueden descargar nada.
+
+> **Esta no es la solución para Smart App Control.** El ejecutable incluido está compilado con PyInstaller y **tampoco está firmado**, así que SAC lo bloquea por la misma razón por la que bloquea uvx. Si tu problema es SAC, vuelve al [Paso 1b](#paso-1b-smart-app-control-bloquea-uvx--instala-con-pip) y usa pip.
+
+Descarga `servicenow-mcp-windows-x64-<version>.zip` desde GitHub Releases. Contiene un único `servicenow-mcp.exe` compilado con PyInstaller más `LICENSE`. No se necesita ningún script de instalación: el ejecutable gestiona por sí mismo el descubrimiento de Chromium. Elige una carpeta estable que controles (por ejemplo `C:\Users\you\apps\servicenow-mcp\`), extrae `servicenow-mcp.exe` en ella y, si tienes el zip de Chromium, **extráelo de antemano** en la misma carpeta. No dejes el `.zip` por ahí. El nombre de la carpeta extraída puede mantenerse tal como lo produjo Windows o renombrarse a `ms-playwright\`; el ejecutable busca con glob cualquier directorio hermano `ms-play*` al iniciarse:
 
 ```
 C:\Users\you\apps\servicenow-mcp\
@@ -74,7 +166,7 @@ Luego pega esto en el archivo de configuración de tu cliente (ejemplo de Claude
 
 Esto mantiene `uvx` completamente fuera del tiempo de ejecución.
 
-Si Chromium no viene incluido y las descargas están permitidas, instala Python desde <https://www.python.org/downloads/> y luego ejecuta:
+Si Chromium no viene incluido y las descargas están permitidas, instala Python 3.10+ desde <https://www.python.org/downloads/> y luego ejecuta:
 
 ```powershell
 py -m pip install playwright
@@ -108,6 +200,8 @@ Esto crea el zip del ejecutable y el zip opcional de la caché de Chromium de Pl
 
 Copia la configuración para tu cliente MCP que aparece a continuación.
 Reemplaza `your-instance` por la dirección real de tu instancia de ServiceNow.
+
+> Estos ejemplos usan la instalación predeterminada con `uvx`. **En la vía de pip (Paso 1b), reemplaza `command` por `python` y `args` por `["-m", "servicenow_mcp"]`**, conservando los flags `--instance-url` / `--auth-type` que vengan a continuación y dejando el bloque `env` exactamente como está.
 
 ### Claude Desktop
 
@@ -269,6 +363,14 @@ servicenow-mcp-skills opencode
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 ```
 
+> **En la vía de pip (Paso 1b), llama al módulo en su lugar**: `servicenow-mcp-skills` es el mismo tipo de shim `.exe` sin firmar generado por pip que Smart App Control bloquea:
+>
+> ```powershell
+> python -m servicenow_mcp.setup_skills claude
+> python -m servicenow_mcp.setup_skills codex
+> python -m servicenow_mcp.setup_skills opencode
+> ```
+
 | Cliente | Ruta de instalación | Descubrimiento automático |
 |--------|-------------|----------------|
 | Claude Code | `.claude\commands\servicenow\` | Los comandos slash `/servicenow` aparecen en el siguiente arranque |
@@ -359,14 +461,21 @@ Clientes TOML (Codex) — añádelo dentro del array `args`:
 $env:Path += ";$env:USERPROFILE\.local\bin"
 ```
 
+### uvx se encuentra, pero no se ejecuta nada / «bloqueado por tu administrador» / dejó de funcionar tras una actualización de Windows
+→ Esto es **Smart App Control**, no una instalación rota. uvx descomprime un ejecutable temporal sin firmar en cada ejecución y SAC se niega a ejecutarlo. Cambia a la vía de pip del [Paso 1b](#paso-1b-smart-app-control-bloquea-uvx--instala-con-pip). No desactives SAC: es un cambio sin retorno que solo puedes deshacer reinstalando Windows.
+
+### La instalación con pip funcionó, pero `servicenow-mcp` sigue sin arrancar
+→ Estás topándote con el shim `servicenow-mcp.exe` generado por pip, que no está firmado y SAC bloquea igual que hacía con uvx. Llama al módulo en su lugar: `python -m servicenow_mcp`. Actualiza también la configuración de tu cliente MCP a `"command": "python"`, `"args": ["-m", "servicenow_mcp"]`.
+
 ### "Python is not installed"
-→ `uv` descarga automáticamente Python 3.11+. No se necesita ninguna instalación manual.
-Si hay un conflicto con el Python del sistema, desinstala y reinstala `uv`.
+→ En la vía de **uvx**, `uv` descarga automáticamente Python 3.11+: no se necesita ninguna instalación manual. Si hay un conflicto con el Python del sistema, desinstala y reinstala `uv`.
+→ En la vía de **pip** eres tú quien aporta Python: instala 3.10+ desde el [instalador de python.org](https://www.python.org/downloads/) (está firmado, así que pasa Smart App Control) y marca **«Add python.exe to PATH»**. El Python de Microsoft Store también sirve.
 
 ### "Browser won't open"
 → Chromium debe estar instalado antes de iniciar MCP:
 ```powershell
-uvx --with playwright playwright install chromium
+uvx --with playwright playwright install chromium   # uvx
+python -m playwright install chromium               # pip
 ```
 → Si la descarga del navegador está bloqueada, usa `ms-playwright-chromium-windows-x64.zip` de la versión chromium-bundle y extráelo en `%LOCALAPPDATA%\ms-playwright`.
 
@@ -392,7 +501,16 @@ Remove-Item "$env:USERPROFILE\.servicenow_mcp\session_*.json"
 ### Actualización de versión
 `uvx` reutiliza la última versión que descargó en caché. **No** se actualiza automáticamente a una versión más reciente en cada ejecución. Para traer la última versión publicada a la caché:
 ```powershell
-uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
+uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
+uvx --with playwright playwright install chromium
 ```
 
-Después de actualizar, reinicia por completo tu cliente MCP para que lance la nueva versión en caché.
+En la vía de pip:
+```powershell
+pip install --upgrade mfa-servicenow-mcp playwright
+python -m playwright install chromium
+```
+
+En ambos casos Chromium se actualiza a la vez, porque una versión más reciente de Playwright espera una compilación más reciente de Chromium.
+
+Después de actualizar, reinicia por completo tu cliente MCP para que lance la nueva versión.
