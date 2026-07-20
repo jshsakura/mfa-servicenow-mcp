@@ -149,7 +149,44 @@ python -m servicenow_mcp \
 
 > **推荐使用项目本地配置**：使用项目范围的配置，让每个项目都能连接到不同的 ServiceNow 实例。
 
-> **有意的写入目标定位**：普通工具路由到活动实例（`SERVICENOW_ACTIVE_INSTANCE`）。向*另一个*已配置实例写入也是可以的，但绝不会静默 —— 它要求在同一次调用中命名目标并予以批准（见[多实例模式](#多实例模式比较--受保护的单次调用写入)），因此在 dev/test/prod 之间移动不会导致意外写入生产环境。
+下面变化的只有 `env` 里的内容。`command`/`args` 保持[步骤 3](#3-将服务器添加到你的-mcp-客户端配置) 中的样子即可 —— 无论你走的是哪条安装路径。
+
+### 配置文件（profiles）—— 从这里开始
+
+如果你要接触不止一个 ServiceNow 实例，**请配置 profiles，而不是为每个实例各起一个服务器。** 给每个环境取一个别名，再选出活动的那个：
+
+```json
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"test\": { \"url\": \"https://acme-test.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"prod\": { \"url\": \"https://acme-prod.service-now.com\", \"auth_type\": \"browser\" } }"
+      }
+```
+
+这一个块就替代了 `SERVICENOW_INSTANCE_URL`，本指南其余部分也都建立在它之上：
+
+- **生产靠"不写"来保护。** 没有 `allow_writes` 的别名就是只读的。上面的 `prod` 根本无法写入 —— 忘记加某个标志永远不会意外打开生产写入。
+- **不重启就能访问另一个实例。** 读取类工具接受 `instance` 参数：在 `dev` 保持活动的同时执行 `sn_query(instance="prod", …)`。
+- **直接比较环境。** `compare_instances` 对同一条记录在两个别名之间做差异比较；`list_instances` 列出每个别名及其写入标志。
+- **只需一次浏览器登录。** 会话在各别名之间共享，而不是每个服务器进程各登录一次。
+- **写入非活动实例受保护**，绝不静默 —— 路由规则、`confirm_instance` 关卡以及 `${ENV}` 密钥引用见[多实例模式](#多实例模式比较--受保护的单次调用写入)。
+
+### 单实例
+
+只有一个实例？那就完全跳过 profiles —— 两个变量就是全部配置：
+
+```json
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+```
+
+这种写法仍然有效，也没有被废弃；它只是上面 profile 配置的最简形式。
+
+### 一个连接还是多个？
+
+Profiles 把所有实例都放在**一个**客户端连接后面，这也是绝大多数人想要的。如果你确实需要在客户端 UI 里视觉上彼此分开的连接 —— 比如各自独立的 `snow-dev` 和 `snow-prd` 条目 —— 请见[为多个服务器条目命名](#为多个服务器条目命名--server-name)。但那会失去 `compare_instances`、共享登录和 `allow_writes` 开关，所以只在确实需要 UI 分离时才这么选。
 
 ---
 

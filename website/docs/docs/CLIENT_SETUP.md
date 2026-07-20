@@ -149,7 +149,44 @@ If the server starts and a browser window opens for login, you're ready to confi
 
 > **Project-local recommended**: Use project-scoped config so each project can connect to a different ServiceNow instance.
 
-> **Deliberate write targeting**: ordinary tools route to the active instance (`SERVICENOW_ACTIVE_INSTANCE`). Writing to a *different* configured instance is possible but never silent — it requires naming the target and approving it on that same call (see [Multi-Instance Mode](#multi-instance-mode-comparison--guarded-single-call-writes)), so moving between dev/test/prod cannot cause an accidental production write.
+Everything below varies only inside `env`. `command`/`args` stay exactly as they were in [step 3](#3-add-the-server-to-your-mcp-client-config), whichever install path you took.
+
+### Profiles — start here
+
+If you touch more than one ServiceNow instance, **configure profiles rather than running a server per instance.** Name each environment as an alias and pick the active one:
+
+```json
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"test\": { \"url\": \"https://acme-test.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"prod\": { \"url\": \"https://acme-prod.service-now.com\", \"auth_type\": \"browser\" } }"
+      }
+```
+
+That one block replaces `SERVICENOW_INSTANCE_URL`, and it is what makes the rest of this guide work:
+
+- **Production is protected by omission.** An alias without `allow_writes` is read-only. `prod` above cannot be written to at all — a forgotten flag can never enable a production write.
+- **Reach another instance without restarting.** Read tools take an `instance` argument: `sn_query(instance="prod", …)` while `dev` stays active.
+- **Compare environments directly.** `compare_instances` diffs the same record across two aliases; `list_instances` reports every alias and its write flag.
+- **One browser login.** The session is shared across aliases instead of one login per server process.
+- **Writes to a non-active instance are guarded**, never silent — see [Multi-Instance Mode](#multi-instance-mode-comparison--guarded-single-call-writes) for the routing rules, the `confirm_instance` gate, and `${ENV}` secret references.
+
+### Single instance
+
+One instance only? Skip profiles entirely — two variables is the whole configuration:
+
+```json
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+```
+
+This form keeps working and is not deprecated; it is simply the degenerate case of the profile setup above.
+
+### One connection or several?
+
+Profiles put every instance behind **one** client connection, which is what almost everyone wants. If instead you need connections that are visually distinct in the client UI — a separate `snow-dev` and `snow-prd` entry — see [Naming multiple server entries](#naming-multiple-server-entries---server-name). That trades away `compare_instances`, the shared login, and the `allow_writes` gate, so choose it only for the UI separation.
 
 ---
 

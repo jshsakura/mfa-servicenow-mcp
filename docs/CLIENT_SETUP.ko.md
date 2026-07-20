@@ -151,7 +151,44 @@ python -m servicenow_mcp \
 
 > **프로젝트 로컬 설정을 권장합니다**: 프로젝트 단위로 설정하면 각 프로젝트가 서로 다른 ServiceNow 인스턴스에 연결할 수 있습니다.
 
-> **의도적 쓰기 타깃팅**: 일반 도구는 active 인스턴스(`SERVICENOW_ACTIVE_INSTANCE`)로 라우팅됩니다. *다른* 설정된 인스턴스로 쓰는 것도 가능하지만 절대 조용히 되지 않습니다 — 같은 호출에서 타깃을 명시하고 승인해야 합니다([멀티 인스턴스 모드](#멀티-인스턴스-모드-비교--가드된-단일-호출-쓰기) 참고). 그래서 dev/test/prod를 오가도 운영에 잘못 쓰는 사고가 나지 않습니다.
+아래 내용은 `env` 안에서만 달라집니다. `command`/`args`는 [3단계](#3-mcp-클라이언트-설정에-서버-추가)에서 넣은 그대로 두면 됩니다 — 어떤 설치 경로를 택했든 마찬가지입니다.
+
+### 프로파일 — 여기서 시작하세요
+
+ServiceNow 인스턴스를 두 개 이상 다룬다면, **인스턴스마다 서버를 따로 띄우지 말고 프로파일을 설정하세요.** 환경마다 alias를 붙이고 active로 쓸 하나를 고르면 됩니다:
+
+```json
+      "env": {
+        "MCP_TOOL_PACKAGE": "standard",
+        "SERVICENOW_ACTIVE_INSTANCE": "dev",
+        "SERVICENOW_INSTANCE_CONFIG": "{ \"dev\": { \"url\": \"https://acme-dev.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"test\": { \"url\": \"https://acme-test.service-now.com\", \"auth_type\": \"browser\", \"allow_writes\": true }, \"prod\": { \"url\": \"https://acme-prod.service-now.com\", \"auth_type\": \"browser\" } }"
+      }
+```
+
+이 블록 하나가 `SERVICENOW_INSTANCE_URL`을 대체하며, 이 가이드의 나머지 내용이 성립하는 전제가 됩니다:
+
+- **운영은 키를 빼는 것으로 보호됩니다.** `allow_writes`가 없는 alias는 읽기 전용입니다. 위의 `prod`에는 애초에 쓸 수 없습니다 — 플래그를 깜빡했다고 운영 쓰기가 열리는 일은 생기지 않습니다.
+- **재시작 없이 다른 인스턴스에 접근합니다.** 읽기 도구는 `instance` 인자를 받습니다: `dev`를 active로 둔 채 `sn_query(instance="prod", …)`.
+- **환경 간 비교를 바로 합니다.** `compare_instances`는 같은 레코드를 두 alias에서 비교하고, `list_instances`는 모든 alias와 쓰기 플래그를 보여줍니다.
+- **브라우저 로그인은 한 번.** 서버 프로세스마다 로그인하는 대신 세션을 alias들이 공유합니다.
+- **active가 아닌 인스턴스로의 쓰기는 가드됩니다** — 조용히 넘어가는 법은 없습니다. 라우팅 규칙, `confirm_instance` 게이트, `${ENV}` 시크릿 참조는 [멀티 인스턴스 모드](#멀티-인스턴스-모드-비교--가드된-단일-호출-쓰기)를 참고하세요.
+
+### 단일 인스턴스
+
+인스턴스가 하나뿐이라면 프로파일은 건너뛰세요 — 변수 두 개가 설정의 전부입니다:
+
+```json
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "browser"
+      }
+```
+
+이 형태도 그대로 동작하며 폐기 예정이 아닙니다. 위 프로파일 설정의 가장 단순한 경우일 뿐입니다.
+
+### 연결 하나로 갈지, 여러 개로 갈지
+
+프로파일은 모든 인스턴스를 **하나의** 클라이언트 연결 뒤에 둡니다. 대부분은 이걸 원합니다. 반대로 클라이언트 UI에서 눈에 띄게 구분되는 연결이 필요하다면 — `snow-dev`와 `snow-prd`를 별도 항목으로 두는 식 — [서버 엔트리 여러 개에 이름 붙이기](#서버-엔트리-여러-개에-이름-붙이기---server-name)를 보세요. 대신 `compare_instances`, 로그인 공유, `allow_writes` 게이트를 포기하게 되므로 UI 분리가 정말 필요할 때만 선택하세요.
 
 ---
 
