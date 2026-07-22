@@ -35,7 +35,7 @@ uvx --with playwright playwright install chromium                               
 
 #### 如果 uvx 被阻止 —— 改用 `pip`
 
-Windows [智能应用控制](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0)会让 `uvx` 完全无法运行：uvx 每次运行都会解压出一个未签名的临时可执行文件，而 SAC 会拦截它。如果 uvx 是在某次 Windows 更新之后突然不能用了，基本就是这个原因。此时请改用 pip 安装：
+Windows 智能应用控制会让 `uvx` 完全无法运行：uvx 每次运行都会解压出一个未签名的临时可执行文件，而 SAC 会拦截它。如果 uvx 是在某次 Windows 更新之后突然不能用了，基本就是这个原因。此时请改用 pip 安装：
 
 ```powershell
 pip install mfa-servicenow-mcp playwright

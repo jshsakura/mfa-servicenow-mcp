@@ -124,7 +124,7 @@ uvx --with playwright playwright install chromium
       <span class="section-label">uvx가 막힐 때</span>
       <h2 class="section-title">pip으로 설치하기</h2>
       <p class="section-desc">
-        Windows <a href="https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0" target="_blank" rel="noopener">Smart App Control</a>이 <code>uvx</code>를 차단합니다. uvx가 실행될 때마다 서명되지 않은 임시 실행 파일을 풀어내기 때문입니다. 얼마 전까지 잘 되던 uvx가 Windows 업데이트 직후부터 안 된다면 이게 원인입니다. pip으로 설치한 뒤 서버를 모듈로 실행하세요 — <code>servicenow-mcp</code> 콘솔 스크립트는 pip이 만들어 주는 서명 없는 <code>.exe</code> 래퍼라 같은 이유로 차단됩니다.
+        Windows Smart App Control이 <code>uvx</code>를 차단합니다. uvx가 실행될 때마다 서명되지 않은 임시 실행 파일을 풀어내기 때문입니다. 얼마 전까지 잘 되던 uvx가 Windows 업데이트 직후부터 안 된다면 이게 원인입니다. pip으로 설치한 뒤 서버를 모듈로 실행하세요 — <code>servicenow-mcp</code> 콘솔 스크립트는 pip이 만들어 주는 서명 없는 <code>.exe</code> 래퍼라 같은 이유로 차단됩니다.
       </p>
     </div>
     <div class="install-block reveal">

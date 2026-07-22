@@ -35,7 +35,7 @@ uvx --with playwright playwright install chromium                               
 
 #### uvx がブロックされる場合 — `pip`
 
-Windows の [Smart App Control](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0) は `uvx` の実行そのものを止めます: uvx は実行のたびに署名されていない一時実行ファイルを展開するため、SAC がそれをブロックします。Windows Update の直後から uvx が動かなくなったのなら、ほぼ確実にこれが原因です。代わりに pip でインストールしてください:
+Windows の Smart App Control は `uvx` の実行そのものを止めます: uvx は実行のたびに署名されていない一時実行ファイルを展開するため、SAC がそれをブロックします。Windows Update の直後から uvx が動かなくなったのなら、ほぼ確実にこれが原因です。代わりに pip でインストールしてください:
 
 ```powershell
 pip install mfa-servicenow-mcp playwright
