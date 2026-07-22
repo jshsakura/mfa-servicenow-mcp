@@ -50,11 +50,14 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
    per-component verdicts + line counts, zero source bodies in context.
    Cross-instance comparison → `compare_instances` (live, both sides).
 5. **Push back to ServiceNow** → `diff_local_component` → `update_remote_from_local`.
-6. **Re-download is content-aware (3-way, `utils/baseline.py`)**: locally
-   edited files are never overwritten — a true conflict saves the server copy
-   as `<field>.remote.<ext>` next to yours. Merge into the main file, push;
-   the sidecar auto-clears. NEVER edit or push `_baseline/` or `*.remote.*`
-   files — they are internal comparison artifacts (push rejects them).
+6. **Re-download is live-anchored (`utils/sync_anchor.py`)**: drift decisions use
+   the live `sys_mod_count` (authority) plus a per-field content sha recorded in
+   `_sync_meta` — there is NO frozen `_baseline/` snapshot anymore. Locally edited
+   files are never overwritten; a true conflict keeps your working file and writes
+   an always-fresh `<field>.remote.<ext>` mirror of the CURRENT server body next to
+   it. Merge into the main file, push; the mirror auto-clears. NEVER edit or push
+   `*.remote.*` files — they are the server's copy, not the component (push rejects
+   them). Legacy `_baseline/` dirs are swept automatically on the next download.
 
 Standard download root: `temp/<instance>/<scope>/_manifest.json`. Treat its
 presence as "already fetched"; check `downloaded_at` for freshness.

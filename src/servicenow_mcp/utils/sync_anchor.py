@@ -22,6 +22,7 @@ server — a stale copy has no reason to exist.
 from __future__ import annotations
 
 import hashlib
+import shutil
 from pathlib import Path
 from typing import Tuple
 
@@ -29,6 +30,19 @@ from servicenow_mcp.utils.atomic_io import atomic_write_text
 from servicenow_mcp.utils.source_layout import normalize_source_eol
 
 MIRROR_MARKER = ".remote"
+LEGACY_BASELINE_DIRNAME = "_baseline"
+
+
+def sweep_legacy_baseline(component_dir: Path) -> None:
+    """Remove a leftover ``_baseline/`` snapshot dir from a pre-anchor download.
+
+    Downloads now anchor on a content sha in _sync_meta, so the old frozen
+    snapshot dir is dead weight — sweep it on (re)download so trees self-tidy as
+    they migrate, instead of leaving orphaned artifacts behind forever.
+    """
+    legacy = component_dir / LEGACY_BASELINE_DIRNAME
+    if legacy.is_dir():
+        shutil.rmtree(legacy, ignore_errors=True)
 
 
 def normalize_for_hash(text: str) -> str:

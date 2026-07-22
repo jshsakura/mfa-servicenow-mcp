@@ -14,13 +14,13 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..utils.baseline import read_baseline_for, remote_sidecar_path_for
+from ..utils.sync_anchor import field_sha, mirror_path_for
 from .sync_tools import (
     _all_supported_tables,
     _component_field_files,
     _find_table_dirs,
-    _normalize_for_compare,
     _read_map_json,
+    _read_sync_meta,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,24 +55,26 @@ def _discover_trees(root: Path, max_trees: int) -> List[Path]:
 
 
 def _scan_tree_local(tree: Path, component_budget: Optional[int] = None) -> Dict[str, Any]:
-    """Offline state of one tree: your edits, conflict sidecars, baseline coverage.
+    """Offline state of one tree: your edits, conflict mirrors, anchor coverage.
 
-    ``component_budget`` caps how many components are content-checked (speed
-    guard for advisory surfaces like the health snapshot — the push gates
-    re-verify live at upload time, so stopping early never hides a conflict
-    where it matters).
+    Uses the per-field content-sha anchor in _sync_meta (``local sha != stored
+    sha`` = your unpushed edit) — no network, no frozen snapshot. ``component_budget``
+    caps how many components are content-checked (speed guard for advisory surfaces
+    like the health snapshot — the push gates re-verify live at upload time, so
+    stopping early never hides a conflict where it matters).
     """
     dirty: List[str] = []
     sidecars: List[str] = []
     components = 0
-    with_baseline = 0
+    with_anchor = 0
     for table_name in sorted(_all_supported_tables()):
         for table_dir in _find_table_dirs(tree, table_name):
+            sync_meta = _read_sync_meta(table_dir)
             for name in sorted(_read_map_json(table_dir)):
                 if component_budget is not None and components >= component_budget:
                     return {
                         "components": components,
-                        "baseline_protected": with_baseline,
+                        "anchor_protected": with_anchor,
                         "your_edits": dirty,
                         "unresolved_conflicts": sidecars,
                     }
@@ -80,26 +82,25 @@ def _scan_tree_local(tree: Path, component_budget: Optional[int] = None) -> Dict
                 if not fields:
                     continue
                 components += 1
-                component_has_baseline = False
-                for _field, fpath in sorted(fields.items()):
-                    sidecar = remote_sidecar_path_for(fpath)
-                    if sidecar.exists():
-                        sidecars.append(f"{table_name}/{name} ({sidecar.name})")
-                    baseline = read_baseline_for(fpath)
-                    if baseline is None:
+                stored_shas = sync_meta.get(name, {}).get("field_shas", {})
+                if stored_shas:
+                    with_anchor += 1
+                for field_name, fpath in sorted(fields.items()):
+                    mirror = mirror_path_for(fpath)
+                    if mirror.exists():
+                        sidecars.append(f"{table_name}/{name} ({mirror.name})")
+                    stored = stored_shas.get(field_name)
+                    if not stored:
                         continue
-                    component_has_baseline = True
                     try:
                         local = fpath.read_text(encoding="utf-8")
                     except (OSError, UnicodeDecodeError):
                         continue
-                    if _normalize_for_compare(local) != _normalize_for_compare(baseline):
+                    if field_sha(local) != stored:
                         dirty.append(f"{table_name}/{name}:{fpath.name}")
-                if component_has_baseline:
-                    with_baseline += 1
     return {
         "components": components,
-        "baseline_protected": with_baseline,
+        "anchor_protected": with_anchor,
         "your_edits": dirty,
         "unresolved_conflicts": sidecars,
     }
