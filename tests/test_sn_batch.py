@@ -105,7 +105,7 @@ class TestVerdictScanFusion:
 
     @pytest.fixture
     def widget_root(self, tmp_path):
-        from servicenow_mcp.utils.baseline import write_baseline_for
+        from servicenow_mcp.utils.sync_anchor import field_sha
 
         root = tmp_path / "output"
         root.mkdir()
@@ -117,9 +117,21 @@ class TestVerdictScanFusion:
         widget_dir.mkdir(parents=True)
         script = widget_dir / "script.js"
         script.write_text("var x = 1;", encoding="utf-8")
-        write_baseline_for(script, "var x = 1;")
         (root / "global" / "sp_widget" / "_map.json").write_text(
             json.dumps({"my-widget": "wid-1"}), encoding="utf-8"
+        )
+        # Anchor: local == server at last sync -> field-sha of the clean body.
+        (root / "global" / "sp_widget" / "_sync_meta.json").write_text(
+            json.dumps(
+                {
+                    "my-widget": {
+                        "sys_id": "wid-1",
+                        "sys_updated_on": "2025-01-10 10:00:00",
+                        "field_shas": {"script": field_sha("var x = 1;")},
+                    }
+                }
+            ),
+            encoding="utf-8",
         )
         return root
 

@@ -60,9 +60,22 @@ from servicenow_mcp.utils.source_layout import (
     field_extension,
     normalize_source_eol,
 )
+from servicenow_mcp.utils.sync_anchor import field_sha as _field_sha
 from servicenow_mcp.utils.workspace_roots import record_download_root
 
 logger = logging.getLogger(__name__)
+
+
+def _record_field_shas(record: Dict[str, Any], source_fields: List[str]) -> Dict[str, str]:
+    """Per-field normalized content sha at download — the offline edit anchor read
+    by sync_tools so a freshly downloaded component can attribute yours/theirs
+    without a frozen snapshot (see utils/sync_anchor.py)."""
+    shas: Dict[str, str] = {}
+    for sf in source_fields:
+        body = record.get(sf)
+        if isinstance(body, str) and body.strip():
+            shas[sf] = _field_sha(body)
+    return shas
 
 MAX_SEARCH_LIMIT = 10
 PER_TYPE_LIMIT = 5
@@ -2878,6 +2891,7 @@ def _download_source_types(
                             "sys_updated_on": remote_updated,
                             "sys_updated_by": str(record.get("sys_updated_by") or ""),
                             "sys_mod_count": str(record.get("sys_mod_count") or ""),
+                            "field_shas": _record_field_shas(record, source_cfg["source_fields"]),
                             "downloaded_at": now_iso,
                         }
                         manifest_entries.append(
@@ -2948,6 +2962,9 @@ def _download_source_types(
                 # download, so the next diff/push judges movement by fact, not a
                 # possibly-stale local snapshot (see sync_tools._assess_server_drift).
                 "sys_mod_count": str(record.get("sys_mod_count") or ""),
+                # Offline edit anchor: per-field content sha so a later diff can
+                # attribute yours/theirs with no network and no frozen snapshot.
+                "field_shas": _record_field_shas(record, source_cfg["source_fields"]),
                 "downloaded_at": now_iso,
             }
             manifest_entries.append(

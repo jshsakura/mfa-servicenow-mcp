@@ -2749,11 +2749,23 @@ class TestContentFirstDriftGate:
 
     @staticmethod
     def _seed_baseline(widget_dir, **field_bodies):
-        """Record what the server had at the last download/push."""
-        from servicenow_mcp.utils.baseline import write_baseline_for
+        """Record what the server had at the last sync as the per-field content-sha
+        anchor in _sync_meta, and write the matching working file (a fresh download
+        of that server body). Replaces the old frozen _baseline/ snapshot."""
+        from servicenow_mcp.utils.sync_anchor import field_sha
 
+        table_dir = widget_dir.parent
+        name = widget_dir.name
+        meta = _read_sync_meta(table_dir)
+        entry = dict(meta.get(name, {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 10:00:00"}))
+        shas = dict(entry.get("field_shas", {}))
+        widget_dir.mkdir(parents=True, exist_ok=True)
         for filename, body in field_bodies.items():
-            write_baseline_for(widget_dir / filename, body)
+            (widget_dir / filename).write_text(body, encoding="utf-8")
+            shas[filename.rsplit(".", 1)[0]] = field_sha(body)
+        entry["field_shas"] = shas
+        meta[name] = entry
+        _write_sync_meta(table_dir, meta)
 
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
