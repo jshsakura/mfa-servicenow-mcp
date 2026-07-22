@@ -761,6 +761,10 @@ class TestGetWidgetBundle:
         mock_full.assert_called_once()
         assert result["widget"]["script"] == complete
         assert "(truncated" not in result["widget"]["script"]
+        # Deliberate completeness: true length disclosed + oversized bodies flagged
+        # with the bounded read paths (never a silent clip, never a blind opaque dump).
+        assert result["widget"]["_script_length"] == 60000
+        assert "script" in result["large_bodies"]["fields"]
 
     @patch("servicenow_mcp.tools.portal_tools._fetch_portal_component_record")
     @patch("servicenow_mcp.tools.portal_tools.sn_query")
