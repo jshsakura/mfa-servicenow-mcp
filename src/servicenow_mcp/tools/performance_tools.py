@@ -305,31 +305,19 @@ def _fetch_widget_bundle(
         return {}
 
     widget = response["results"][0]
-    # The default sn_query path clips fields >50k (truncate_results, a bulk-safety
-    # measure). Performance analysis must scan the WHOLE script or it silently
-    # misses patterns in the tail of a large widget — re-fetch the record raw when
-    # a body field came back clipped. Analysis still applies its own explicit
-    # max_script_length bound afterward; this only removes the hidden double-clip.
-    from servicenow_mcp.tools.portal_tools import _fetch_portal_component_record
+    # Performance analysis must scan the WHOLE script or it silently misses
+    # patterns in the tail of a >50k widget — re-fetch raw if a body came back
+    # clipped (shared guard). The explicit max_script_length bound still applies.
+    from servicenow_mcp.tools.portal_tools import untruncate_source_fields
 
-    if any(
-        isinstance(widget.get(f), str) and "(truncated, original length:" in widget[f]
-        for f in ("script", "client_script")
-    ):
-        try:
-            full = _fetch_portal_component_record(
-                config,
-                auth_manager,
-                "sp_widget",
-                str(widget.get("sys_id") or ""),
-                ["script", "client_script"],
-                full=True,
-            )
-            for f in ("script", "client_script"):
-                if isinstance(full.get(f), str):
-                    widget[f] = full[f]
-        except ValueError:
-            pass  # keep the clipped body rather than failing the analysis
+    untruncate_source_fields(
+        config,
+        auth_manager,
+        "sp_widget",
+        str(widget.get("sys_id") or ""),
+        widget,
+        ("script", "client_script"),
+    )
     return widget
 
 
