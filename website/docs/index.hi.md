@@ -123,7 +123,7 @@ uvx --with playwright playwright install chromium
       <span class="section-label">अगर uvx ब्लॉक हो</span>
       <h2 class="section-title">इसके बजाय pip से इंस्टॉल करें</h2>
       <p class="section-desc">
-        Windows का <a href="https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0" target="_blank" rel="noopener">Smart App Control</a> <code>uvx</code> को ब्लॉक कर देता है, क्योंकि uvx हर बार चलने पर एक बिना-हस्ताक्षर वाला अस्थायी एक्ज़ीक्यूटेबल खोलता है। अगर uvx कुछ समय पहले तक ठीक चल रहा था और किसी Windows अपडेट के तुरंत बाद बंद हो गया, तो वजह यही है। pip से इंस्टॉल करें और सर्वर को मॉड्यूल के रूप में चलाएँ — <code>servicenow-mcp</code> कंसोल स्क्रिप्ट pip का बनाया हुआ बिना-हस्ताक्षर वाला <code>.exe</code> रैपर है, जो इसी वजह से ब्लॉक होता है।
+        Windows का Smart App Control <code>uvx</code> को ब्लॉक कर देता है, क्योंकि uvx हर बार चलने पर एक बिना-हस्ताक्षर वाला अस्थायी एक्ज़ीक्यूटेबल खोलता है। अगर uvx कुछ समय पहले तक ठीक चल रहा था और किसी Windows अपडेट के तुरंत बाद बंद हो गया, तो वजह यही है। pip से इंस्टॉल करें और सर्वर को मॉड्यूल के रूप में चलाएँ — <code>servicenow-mcp</code> कंसोल स्क्रिप्ट pip का बनाया हुआ बिना-हस्ताक्षर वाला <code>.exe</code> रैपर है, जो इसी वजह से ब्लॉक होता है।
       </p>
     </div>
     <div class="install-block reveal">

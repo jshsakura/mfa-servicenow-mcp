@@ -2662,6 +2662,78 @@ class TestQualifiedFolderResolution:
         )
 
 
+class TestModCountDriftAuthority:
+    """The LIVE sys_mod_count is the authority for "did the server move" — a local
+    snapshot (baseline or otherwise) can go stale and must never override it. This
+    pins the fix for 'baseline over-trust': bodies matching a possibly-stale local
+    copy no longer buy a free 'no drift' pass when the server's own counter advanced.
+    """
+
+    def test_mod_count_moved_helper(self):
+        from servicenow_mcp.tools.sync_tools import _mod_count_moved
+
+        assert _mod_count_moved("5", "6") == (True, True)
+        assert _mod_count_moved("6", "6") == (False, True)
+        assert _mod_count_moved("7", "6") == (False, True)  # never backward
+        assert _mod_count_moved("", "6") == (False, False)  # unknown → caller falls back
+        assert _mod_count_moved("x", "6") == (False, False)
+
+    @staticmethod
+    def _resolved(tmp_path):
+        from servicenow_mcp.tools.sync_tools import _ResolvedComponent
+
+        f = tmp_path / "script.js"
+        f.write_text("local body", encoding="utf-8")
+        return _ResolvedComponent("sp_widget", "w1", "w", {"script": f}, tmp_path, "")
+
+    def test_live_mod_count_advance_is_drift_even_when_body_matches(self, tmp_path):
+        """No baseline on disk + body identical to local, but the server counter
+        advanced → drifted. A stale local copy cannot mask the live movement."""
+        from servicenow_mcp.tools.sync_tools import _assess_server_drift
+
+        resolved = self._resolved(tmp_path)
+        d = _assess_server_drift(
+            resolved,
+            {"script": "local body"},
+            "2025-01-01 00:00:00",
+            "2025-01-01 00:00:00",
+            local_mod_count="4",
+            remote_mod_count="5",
+        )
+        assert d["drifted"] is True
+        assert d["mod_count_known"] and d["mod_count_moved"]
+
+    def test_equal_mod_count_with_stamp_bump_is_benign(self, tmp_path):
+        from servicenow_mcp.tools.sync_tools import _assess_server_drift
+
+        resolved = self._resolved(tmp_path)
+        d = _assess_server_drift(
+            resolved,
+            {"script": "local body"},
+            "2025-01-01 00:00:00",
+            "2025-01-09 00:00:00",  # stamp advanced …
+            local_mod_count="5",
+            remote_mod_count="5",  # … but the real counter did not
+        )
+        assert d["drifted"] is False
+        assert d["timestamp_only"] is True
+
+    def test_falls_back_to_timestamp_without_anchor(self, tmp_path):
+        """Legacy tree (no mod_count anchor, no baseline) → timestamp fallback,
+        never a silent pass."""
+        from servicenow_mcp.tools.sync_tools import _assess_server_drift
+
+        resolved = self._resolved(tmp_path)
+        d = _assess_server_drift(
+            resolved,
+            {"script": "local body"},
+            "2025-01-01 00:00:00",
+            "2025-01-09 00:00:00",
+        )
+        assert d["drifted"] is True
+        assert d["mod_count_known"] is False
+
+
 class TestContentFirstDriftGate:
     """The gate answers "did the SERVER BODY move since my baseline?" by hashing
     content against the pristine _baseline/ snapshot — NOT by comparing

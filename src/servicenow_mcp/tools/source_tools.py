@@ -2576,6 +2576,11 @@ def _download_source_types(
         type_dir = scope_root / table
 
         all_fields = list(source_cfg["summary_fields"]) + list(source_cfg["source_fields"])
+        # sys_mod_count: the live-authority drift anchor recorded in _sync_meta so the
+        # FIRST diff/push after download already decides "did the server move" by the
+        # server's own monotonic counter, not a local snapshot (see sync_tools).
+        if "sys_mod_count" not in all_fields:
+            all_fields.append("sys_mod_count")
         restrict_source_page_size = (
             bool(source_cfg["source_fields"]) and source_type not in skip_empty_source_retry
         )
@@ -2872,6 +2877,7 @@ def _download_source_types(
                             "name": name,
                             "sys_updated_on": remote_updated,
                             "sys_updated_by": str(record.get("sys_updated_by") or ""),
+                            "sys_mod_count": str(record.get("sys_mod_count") or ""),
                             "downloaded_at": now_iso,
                         }
                         manifest_entries.append(
@@ -2934,10 +2940,14 @@ def _download_source_types(
                 "sys_id": sys_id,
                 "name": name,
                 "sys_updated_on": str(record.get("sys_updated_on") or ""),
-                # Named baseline: WHO owned the record at download. Free —
+                # Named anchor: WHO owned the record at download. Free —
                 # sys_updated_by is already in every family's summary_fields. Lets
                 # a later push/diff say "you downloaded when X owned it".
                 "sys_updated_by": str(record.get("sys_updated_by") or ""),
+                # Live-authority drift anchor: the server's monotonic counter at
+                # download, so the next diff/push judges movement by fact, not a
+                # possibly-stale local snapshot (see sync_tools._assess_server_drift).
+                "sys_mod_count": str(record.get("sys_mod_count") or ""),
                 "downloaded_at": now_iso,
             }
             manifest_entries.append(

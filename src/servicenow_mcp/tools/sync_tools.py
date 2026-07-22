@@ -507,15 +507,22 @@ def _write_sync_meta(table_dir: Path, meta: Dict[str, Dict[str, str]]) -> None:
 
 
 def _record_sync_meta(
-    table_dir: Path, name: str, sys_id: str, updated_on: str, updated_by: str
+    table_dir: Path,
+    name: str,
+    sys_id: str,
+    updated_on: str,
+    updated_by: str,
+    mod_count: str = "",
 ) -> None:
-    """Record one component's in-sync watermark: WHEN the server was last known
-    good AND WHO last touched it.
+    """Record one component's in-sync anchor: WHEN the server was last known good,
+    WHO last touched it, and its ``sys_mod_count`` at that moment.
 
-    ``sys_updated_by`` is not decoration — it is the baseline owner the next diff
-    compares the current editor against. Omitting it leaves the previous owner
-    standing, so your own completed push reads as someone taking the record over.
-    Only call this when the local copy provably equals the remote body.
+    ``sys_mod_count`` is the LIVE-authority anchor: the next diff/push asks "is the
+    live counter higher than this?" to decide the server moved — a truncation-proof
+    server fact, unlike a local body snapshot that can silently go stale. It auto-
+    advances to the last-reflected revision on every successful download/push.
+    ``sys_updated_by`` is the owner the next diff compares the current editor
+    against. Only call this when the local copy provably equals the remote body.
     """
     meta = _read_sync_meta(table_dir)
     # Immutable update: build a new mapping rather than mutating the loaded one.
@@ -527,6 +534,7 @@ def _record_sync_meta(
                 "sys_id": sys_id,
                 "sys_updated_on": updated_on,
                 "sys_updated_by": updated_by,
+                "sys_mod_count": mod_count,
                 "downloaded_at": datetime.now(UTC).isoformat(),
             },
         },
@@ -1366,29 +1374,62 @@ def _server_moved_fields(
     return moved, verifiable
 
 
+def _mod_count_moved(local_mod_count: str, remote_mod_count: str) -> Tuple[bool, bool]:
+    """(moved, known) from ``sys_mod_count``.
+
+    ``sys_mod_count`` is the server's own monotonic revision counter: it bumps on
+    every real change and never goes backward, immune to truncation / EOL / display
+    quirks that can make a body hash lie. ``known`` is True only when BOTH the
+    recorded anchor and the live value are numeric — otherwise the caller falls
+    back to body/timestamp. This is the LIVE authority a stale local copy can't override.
+    """
+    try:
+        local = int(str(local_mod_count).strip())
+        remote = int(str(remote_mod_count).strip())
+    except (TypeError, ValueError):
+        return False, False
+    return remote > local, True
+
+
 def _assess_server_drift(
     resolved: "_ResolvedComponent",
     remote_record: Dict[str, Any],
     local_updated_on: str,
     remote_updated_on: str,
+    *,
+    local_mod_count: str = "",
+    remote_mod_count: str = "",
 ) -> Dict[str, Any]:
-    """Did the server move? Content decides; the timestamp is the fallback.
+    """Did the server move? The live ``sys_mod_count`` decides; content and the
+    timestamp are only fallbacks for records with no recorded mod_count anchor.
 
-    Returns {drifted, moved_fields, verifiable, timestamp_moved, timestamp_only}.
-    ``timestamp_only`` — the stamp advanced but every body still matches your
-    baseline — is the benign case: a stale watermark, not a conflict.
+    Authority order — LIVE beats a possibly-stale local copy:
+      1. ``sys_mod_count`` (server-side monotonic counter) when both sides carry it,
+      2. else content vs the recorded snapshot (legacy trees),
+      3. else the bare timestamp.
+    A local snapshot body-match NEVER suppresses a live mod_count advance — that
+    over-trust of a stale anchor was the whole defect. ``timestamp_only`` (the
+    stamp bumped but neither mod_count nor body moved) stays the benign case.
     """
     timestamp_moved = bool(
         local_updated_on and remote_updated_on and remote_updated_on > local_updated_on
     )
+    mod_count_moved, mod_count_known = _mod_count_moved(local_mod_count, remote_mod_count)
     moved_fields, verifiable = _server_moved_fields(resolved, remote_record)
-    drifted = bool(moved_fields) if verifiable else timestamp_moved
+    if mod_count_known:
+        drifted = mod_count_moved
+    elif verifiable:
+        drifted = bool(moved_fields)
+    else:
+        drifted = timestamp_moved
     return {
         "drifted": drifted,
         "moved_fields": moved_fields,
         "verifiable": verifiable,
         "timestamp_moved": timestamp_moved,
-        "timestamp_only": timestamp_moved and verifiable and not moved_fields,
+        "mod_count_moved": mod_count_moved,
+        "mod_count_known": mod_count_known,
+        "timestamp_only": timestamp_moved and not drifted and (mod_count_known or verifiable),
     }
 
 
@@ -1785,9 +1826,16 @@ def diff_local_component(
         me=me,
         me_confirmed=me_confirmed,
     )
-    # Content decides, the timestamp only hints — a bump with identical bodies
-    # (your own push, a re-save) is a stale watermark, not "someone edited it".
-    drift = _assess_server_drift(resolved, remote_record, local_updated_on, remote_updated_on)
+    # The live sys_mod_count decides whether the server moved; content/timestamp
+    # are fallbacks. A stale local snapshot can never mask a live mod_count advance.
+    drift = _assess_server_drift(
+        resolved,
+        remote_record,
+        local_updated_on,
+        remote_updated_on,
+        local_mod_count=meta.get("sys_mod_count", ""),
+        remote_mod_count=str(remote_record.get("sys_mod_count") or ""),
+    )
     conflict_warning = None
     if drift["drifted"]:
         if attribution["self_edit"]:
@@ -2056,6 +2104,7 @@ def update_remote_from_local(
         "sys_updated_by",
         "sys_created_by",
         "sys_scope",
+        "sys_mod_count",
     ]
     try:
         # full=True: raw untruncated GET. The default sn_query path clips any
@@ -2103,7 +2152,14 @@ def update_remote_from_local(
     # The baseline lives in _sync_meta / _baseline from the ORIGIN download, so it
     # is only meaningful for a same-instance round-trip. For a cross-instance deploy
     # the target was re-resolved by name (already verified), so skip the drift gate.
-    drift = _assess_server_drift(resolved, remote_record, local_updated_on, remote_updated_on)
+    drift = _assess_server_drift(
+        resolved,
+        remote_record,
+        local_updated_on,
+        remote_updated_on,
+        local_mod_count=meta.get("sys_mod_count", ""),
+        remote_mod_count=str(remote_record.get("sys_mod_count") or ""),
+    )
     drifted = not cross_instance_deploy and drift["drifted"]
 
     # Local-only magnitude + deterministic risk score. Built BEFORE the gate so a
@@ -2234,7 +2290,12 @@ def update_remote_from_local(
         # "changed on the server" from resurfacing on every later diff.
         if drift["timestamp_only"] and not cross_instance_deploy:
             _record_sync_meta(
-                table_dir, resolved.name, resolved.sys_id, remote_updated_on, remote_updated_by
+                table_dir,
+                resolved.name,
+                resolved.sys_id,
+                remote_updated_on,
+                remote_updated_by,
+                str(remote_record.get("sys_mod_count") or ""),
             )
             result_nc["stale_watermark_refreshed"] = remote_updated_on
         return result_nc
@@ -2419,7 +2480,7 @@ def update_remote_from_local(
     #    next diff falsely say "no drift", hiding the non-landing forever).
     #    sys_updated_by rides this same re-read at no extra cost — it becomes the
     #    baseline OWNER recorded in step 5b.
-    verify_fields = list(update_data.keys()) + ["sys_updated_on", "sys_updated_by"]
+    verify_fields = list(update_data.keys()) + ["sys_updated_on", "sys_updated_by", "sys_mod_count"]
     fresh_remote: Optional[Dict[str, Any]] = None
     try:
         # full=True: same untruncated read as the pre-push gate — a >50k field
@@ -2470,6 +2531,7 @@ def update_remote_from_local(
             resolved.sys_id,
             str((fresh_remote or {}).get("sys_updated_on") or ""),
             _display_str((fresh_remote or {}).get("sys_updated_by")) or me,
+            str((fresh_remote or {}).get("sys_mod_count") or ""),
         )
     except Exception as e:
         logger.warning("Failed to update _sync_meta.json after push: %s", e)

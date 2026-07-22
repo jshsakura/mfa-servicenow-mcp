@@ -123,7 +123,7 @@ uvx --with playwright playwright install chromium
       <span class="section-label">uvx がブロックされる場合</span>
       <h2 class="section-title">pip でインストールする</h2>
       <p class="section-desc">
-        Windows の <a href="https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0" target="_blank" rel="noopener">Smart App Control</a> は <code>uvx</code> をブロックします。uvx は実行のたびに署名のない一時実行ファイルを展開するためです。少し前まで動いていた uvx が Windows Update の直後に動かなくなったなら、原因はこれです。pip でインストールし、サーバーはモジュールとして起動してください — <code>servicenow-mcp</code> コンソールスクリプトは pip が生成する署名のない <code>.exe</code> ラッパーなので、同じ理由でブロックされます。
+        Windows の Smart App Control は <code>uvx</code> をブロックします。uvx は実行のたびに署名のない一時実行ファイルを展開するためです。少し前まで動いていた uvx が Windows Update の直後に動かなくなったなら、原因はこれです。pip でインストールし、サーバーはモジュールとして起動してください — <code>servicenow-mcp</code> コンソールスクリプトは pip が生成する署名のない <code>.exe</code> ラッパーなので、同じ理由でブロックされます。
       </p>
     </div>
     <div class="install-block reveal">

@@ -727,6 +727,68 @@ class TestGetWidgetBundle:
         )
         assert "error" in result
 
+    @patch("servicenow_mcp.tools.portal_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.portal_tools.sn_query")
+    def test_clipped_body_is_refetched_full(
+        self, mock_q, mock_full, mock_config, mock_auth_manager
+    ):
+        """A >50k field clipped by sn_query is re-fetched raw so the bundle carries
+        the complete source — never a silently truncated tail that a push would lose."""
+        clipped = "a" * 50000 + "... (truncated, original length: 60000)"
+        complete = "a" * 60000
+        mock_q.return_value = {
+            "success": True,
+            "results": [
+                {
+                    "name": "W",
+                    "id": "w",
+                    "template": "<div></div>",
+                    "script": clipped,
+                    "client_script": "fn",
+                    "css": "",
+                    "sys_id": "s1",
+                }
+            ],
+        }
+        mock_full.return_value = {"script": complete, "sys_id": "s1", "name": "W"}
+        result = get_widget_bundle(
+            mock_config,
+            mock_auth_manager,
+            GetWidgetBundleParams(
+                widget_id="s1", include_providers=False, include_dependencies=False
+            ),
+        )
+        mock_full.assert_called_once()
+        assert result["widget"]["script"] == complete
+        assert "(truncated" not in result["widget"]["script"]
+
+    @patch("servicenow_mcp.tools.portal_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.portal_tools.sn_query")
+    def test_short_body_skips_refetch(self, mock_q, mock_full, mock_config, mock_auth_manager):
+        """No clip marker → no extra network round-trip."""
+        mock_q.return_value = {
+            "success": True,
+            "results": [
+                {
+                    "name": "W",
+                    "id": "w",
+                    "template": "<div></div>",
+                    "script": "short",
+                    "client_script": "fn",
+                    "css": "",
+                    "sys_id": "s1",
+                }
+            ],
+        }
+        get_widget_bundle(
+            mock_config,
+            mock_auth_manager,
+            GetWidgetBundleParams(
+                widget_id="s1", include_providers=False, include_dependencies=False
+            ),
+        )
+        mock_full.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # get_portal_component_code — lines 1827, 1839, 1844-1851
@@ -785,6 +847,30 @@ class TestGetPortalComponentCode:
         )
         # Non-string value should be skipped in budget tracking
         assert result["script"] == 12345
+
+    @patch("servicenow_mcp.tools.portal_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.portal_tools.sn_query")
+    def test_clipped_field_refetched_full(self, mock_q, mock_full, mock_config, mock_auth_manager):
+        """sn_query clips >50k; the clip corrupts body + sha/length. The tool must
+        re-fetch raw so fetch_complete=True never labels a capped body 'complete'."""
+        clipped = "a" * 50000 + "... (truncated, original length: 60000)"
+        complete = "a" * 60000
+        mock_q.return_value = {
+            "success": True,
+            "results": [{"script": clipped, "sys_id": "s1", "name": "W"}],
+        }
+        mock_full.return_value = {"script": complete, "sys_id": "s1", "name": "W"}
+        result = get_portal_component_code(
+            mock_config,
+            mock_auth_manager,
+            GetPortalComponentParams(
+                table="sp_widget", sys_id="s1", fields=["script"], fetch_complete=True
+            ),
+        )
+        mock_full.assert_called_once()
+        assert result["script"] == complete
+        assert "(truncated" not in result["script"]
+        assert result["_script_total_length"] == 60000
 
 
 # ---------------------------------------------------------------------------

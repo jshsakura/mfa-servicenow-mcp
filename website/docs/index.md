@@ -123,7 +123,7 @@ uvx --with playwright playwright install chromium
       <span class="section-label">If uvx is blocked</span>
       <h2 class="section-title">Install with pip instead</h2>
       <p class="section-desc">
-        Windows <a href="https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0" target="_blank" rel="noopener">Smart App Control</a> blocks <code>uvx</code>, because uvx unpacks an unsigned temporary executable on every run. If uvx worked until recently and stopped right after a Windows update, this is why. Install with pip and launch the server as a module — the <code>servicenow-mcp</code> console script is an unsigned pip-generated <code>.exe</code> shim that Smart App Control blocks for the same reason.
+        Windows Smart App Control blocks <code>uvx</code>, because uvx unpacks an unsigned temporary executable on every run. If uvx worked until recently and stopped right after a Windows update, this is why. Install with pip and launch the server as a module — the <code>servicenow-mcp</code> console script is an unsigned pip-generated <code>.exe</code> shim that Smart App Control blocks for the same reason.
       </p>
     </div>
     <div class="install-block reveal">

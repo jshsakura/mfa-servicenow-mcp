@@ -64,7 +64,7 @@ uvx --with playwright playwright install chromium     # un Playwright más nuevo
 
 #### Si uvx está bloqueado — `pip`
 
-El [Smart App Control](https://support.microsoft.com/es-es/topic/qu%C3%A9-es-el-control-inteligente-de-aplicaciones-285ea03d-fa88-4495-afc7-c4d1abd9c0e0) de Windows impide directamente que uvx se ejecute: uvx descomprime un ejecutable temporal sin firmar en cada ejecución, y SAC lo bloquea. Si uvx dejó de funcionar de golpe justo después de una actualización de Windows, casi con seguridad es por esto. Usa pip en su lugar:
+El Smart App Control de Windows impide directamente que uvx se ejecute: uvx descomprime un ejecutable temporal sin firmar en cada ejecución, y SAC lo bloquea. Si uvx dejó de funcionar de golpe justo después de una actualización de Windows, casi con seguridad es por esto. Usa pip en su lugar:
 
 ```powershell
 pip install mfa-servicenow-mcp playwright

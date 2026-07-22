@@ -54,7 +54,7 @@ uvx --with playwright playwright install chromium
 
 ### Why it happens
 
-[Smart App Control](https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0) (SAC) is a Windows 11 feature that only lets **signed or otherwise known-good** executables run. `uvx` doesn't run a permanently installed program — on every single run it unpacks a **fresh, unsigned temporary executable** and launches it. That is precisely the shape SAC exists to stop, so SAC blocks it every time. No amount of retrying or reinstalling `uv` changes it: the file is new and unsigned on each run by design.
+Smart App Control (SAC) is a Windows 11 feature that only lets **signed or otherwise known-good** executables run. `uvx` doesn't run a permanently installed program — on every single run it unpacks a **fresh, unsigned temporary executable** and launches it. That is precisely the shape SAC exists to stop, so SAC blocks it every time. No amount of retrying or reinstalling `uv` changes it: the file is new and unsigned on each run by design.
 
 SAC ships in evaluation mode on new Windows 11 machines and can flip itself to **on** later, on its own. That's why this appears out of nowhere on a machine where `uvx` had been working for months.
 
