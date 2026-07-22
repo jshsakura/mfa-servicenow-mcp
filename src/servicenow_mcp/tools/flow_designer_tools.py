@@ -1639,6 +1639,58 @@ def list_flows(
         return {"success": False, "error": str(e)}
 
 
+def _flow_runtime_status(
+    config: ServerConfig, auth_manager: AuthManager, flow_id: str
+) -> Dict[str, Any]:
+    """Authoritative, directly-usable publish state — so a caller NEVER has to dig
+    the sys_hub_flow snapshot columns by hand.
+
+    The Flow engine runs the MASTER snapshot. A LATEST snapshot that differs from
+    MASTER is an unpublished draft sitting *ahead* of what actually runs — which is
+    exactly why the processflow ``status`` field ("draft") is misleading on its
+    own: a flow can read ``status: draft`` yet be fully live with the current
+    content (master == latest). This resolves that into one plain answer.
+    """
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_TABLE,
+            query=f"sys_id={flow_id}",
+            fields="active,master_snapshot,latest_snapshot",
+            limit=1,
+            offset=0,
+            display_value=False,
+            fail_silently=True,
+        )
+    except Exception as exc:  # noqa: BLE001 — advisory only, never break get_detail
+        logger.warning("runtime status lookup failed for flow %s: %s", flow_id, exc)
+        return {}
+    if not rows:
+        return {}
+    row = rows[0]
+    active = str(row.get("active") or "").strip().lower() in ("true", "1")
+    master = str(row.get("master_snapshot") or "").strip()
+    latest = str(row.get("latest_snapshot") or "").strip()
+    unpublished = bool(latest and master and latest != master)
+    live = active and bool(master)
+    if not live:
+        note = "NOT LIVE — flow is inactive or was never published; it will not run."
+    elif unpublished:
+        note = (
+            "LIVE, but there are UNPUBLISHED draft edits AHEAD — the runtime still "
+            "runs the last published version, NOT your draft. Publish to make them live."
+        )
+    else:
+        note = "LIVE — the published version IS the latest; the current content runs at runtime."
+    return {
+        "live": live,
+        "published_is_current": live and not unpublished,
+        "has_unpublished_edits": unpublished,
+        "note": note,
+    }
+
+
 def get_flow_details(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1678,6 +1730,9 @@ def get_flow_details(
                         "active": pf_data.get("active", ""),
                         "scope": pf_data.get("scope", ""),
                     },
+                    # Direct, unambiguous runtime answer so nobody reads snapshot
+                    # tables to tell "draft status" from "actually live".
+                    "runtime": _flow_runtime_status(config, auth_manager, flow_id),
                 }
                 if params.include_structure:
                     result["structure"] = (
@@ -1724,6 +1779,7 @@ def get_flow_details(
             "success": True,
             "source": "table_api",
             "flow": flow,
+            "runtime": _flow_runtime_status(config, auth_manager, flow_id),
         }
         if pf_error:
             result["processflow_note"] = pf_error
