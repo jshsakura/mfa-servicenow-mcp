@@ -178,6 +178,24 @@ class TestFetchWidgetBundle:
         result = _fetch_widget_bundle(config, auth, "wid1")
         assert result == {}
 
+    @patch("servicenow_mcp.tools.portal_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.performance_tools.sn_query")
+    def test_clipped_script_refetched_for_full_analysis(
+        self, mock_sn_query, mock_full, config, auth
+    ):
+        """A >50k client_script clipped by sn_query is re-fetched raw so analysis
+        scans the whole body, not just the head (else tail patterns are missed)."""
+        clipped = "a" * 50000 + "... (truncated, original length: 60000)"
+        complete = "a" * 60000
+        mock_sn_query.return_value = {
+            "success": True,
+            "results": [{"sys_id": "w1", "name": "W", "id": "w", "client_script": clipped}],
+        }
+        mock_full.return_value = {"client_script": complete, "script": ""}
+        result = _fetch_widget_bundle(config, auth, "w1")
+        mock_full.assert_called_once()
+        assert result["client_script"] == complete
+
 
 # ---------------------------------------------------------------------------
 # _fetch_angular_providers

@@ -1539,6 +1539,19 @@ class ServiceNowMCP:
 
         # Serialize the result to a string (preferably JSON) using the helper
         serialized_string = serialize_tool_output(result, name)
+        # Observability: the debug line below shows only the first 500 chars, so a
+        # per-field clip (marker sits at ~char 50000) is invisible there — which is
+        # exactly why source-body truncation could bite silently. Surface a signal
+        # (marker count + size) WITHOUT dumping the body, so truncation is auditable.
+        _clip_count = serialized_string.count("(truncated, original length:")
+        if _clip_count:
+            logger.info(
+                "tool '%s': output carries %d truncated field(s) (serialized %d chars) — "
+                "a source-body read may be clipped; verify the tool uses an untruncated fetch",
+                name,
+                _clip_count,
+                len(serialized_string),
+            )
         logger.debug(f"Serialized value for tool '{name}': {serialized_string[:500]}...")
 
         # Return a list with a TextContent object

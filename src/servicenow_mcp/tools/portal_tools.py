@@ -1874,7 +1874,26 @@ def get_widget_bundle(
         for f in _body_fields:
             if isinstance(_full.get(f), str):
                 widget[f] = _full[f]
+    # Deliberate completeness, never an opaque dump: disclose each body field's true
+    # length so the caller sees exactly what it received (not a silently clipped or
+    # blindly huge blob). If a field is very large, name the bounded read paths so a
+    # full inline body is a choice, not a surprise.
+    _oversized = [
+        f for f in _body_fields if isinstance(widget.get(f), str) and len(widget[f]) > 50000
+    ]
+    for f in _body_fields:
+        if isinstance(widget.get(f), str):
+            widget[f"_{f}_length"] = len(widget[f])
     bundle: Dict[str, Any] = {"widget": widget}
+    if _oversized:
+        bundle["large_bodies"] = {
+            "fields": _oversized,
+            "note": (
+                "Returned in full. For a bounded/chunked read use get_portal_component_code"
+                "(table='sp_widget', sys_id=..., fetch_complete=False); download_portal_sources "
+                "writes full source to disk and returns only a summary to context."
+            ),
+        }
 
     # 2. Fetch Angular Provider list (minimal info to save context)
     if params.include_providers:
