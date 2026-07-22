@@ -18,7 +18,9 @@ import pytest
 from servicenow_mcp.tools.sync_tools import (
     DiffLocalComponentParams,
     PushLocalComponentParams,
+    _read_sync_meta,
     _resolve_local_path,
+    _write_sync_meta,
     diff_local_component,
     update_remote_from_local,
 )
@@ -41,6 +43,23 @@ from servicenow_mcp.utils.baseline import (
     write_baseline_for,
 )
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.sync_anchor import field_sha, mirror_path_for
+
+
+def _seed_anchor(script_path, body):
+    """Record the last-known-good per-field content-sha anchor in _sync_meta — the
+    new drift/edit anchor that replaces the frozen _baseline/ snapshot for the
+    sync_tools integration tests."""
+    table_dir = script_path.parent.parent
+    name = script_path.parent.name
+    field = script_path.stem
+    meta = _read_sync_meta(table_dir)
+    entry = dict(meta.get(name, {"sys_id": "wid-1", "sys_updated_on": "2025-01-10 10:00:00"}))
+    shas = dict(entry.get("field_shas", {}))
+    shas[field] = field_sha(body)
+    entry["field_shas"] = shas
+    meta[name] = entry
+    _write_sync_meta(table_dir, meta)
 
 ORIGINAL = "var x = 1;"
 LOCAL_EDIT = "var x = 1; // my edit"
@@ -199,7 +218,7 @@ class TestArtifacts:
         sidecar = tmp_path / "sp_widget" / "w" / "script.remote.js"
         sidecar.parent.mkdir(parents=True)
         sidecar.write_text("x", encoding="utf-8")
-        with pytest.raises(ValueError, match="conflict sidecar"):
+        with pytest.raises(ValueError, match="mirror sidecar"):
             _resolve_local_path(sidecar)
 
     def test_resolve_local_path_rejects_baseline_file(self, tmp_path):
@@ -265,8 +284,8 @@ class TestPushRefreshesBaseline:
     ):
         script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
         # Simulate an earlier conflict: baseline at the old ancestor + sidecar.
-        write_baseline_for(script, "var x = 0;")
-        sidecar = remote_sidecar_path_for(script)
+        _seed_anchor(script, "var x = 0;")
+        sidecar = mirror_path_for(script)
         sidecar.write_text("var x = 9; // theirs", encoding="utf-8")
 
         mock_fetch.side_effect = [
@@ -289,9 +308,10 @@ class TestPushRefreshesBaseline:
         )
 
         assert result["success"] is True
-        # The pushed body is the new common ancestor; the conflict is resolved.
-        assert read_baseline_for(script) == "var x = 1;"
+        # The push recorded the pushed body as the new anchor and cleared the mirror.
         assert not sidecar.exists()
+        anchor = _read_sync_meta(script.parent.parent)["my-widget"]["field_shas"]["script"]
+        assert anchor == field_sha("var x = 1;")
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +333,7 @@ class TestDiffThreeWay:
         self, mock_fetch, mock_config, mock_auth, widget_root
     ):
         script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
-        write_baseline_for(script, "var x = 0;")  # local "var x = 1;" = YOUR edit
+        _seed_anchor(script, "var x = 0;")  # local "var x = 1;" = YOUR edit
         mock_fetch.return_value = self._remote("var x = 0;")  # server == baseline
 
         result = diff_local_component(
@@ -327,8 +347,8 @@ class TestDiffThreeWay:
         self, mock_fetch, mock_config, mock_auth, widget_root
     ):
         script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
-        write_baseline_for(script, "var x = 0;")
-        sidecar = remote_sidecar_path_for(script)
+        _seed_anchor(script, "var x = 0;")
+        sidecar = mirror_path_for(script)
         sidecar.write_text("var x = 9; // theirs", encoding="utf-8")
         mock_fetch.return_value = self._remote("var x = 9; // theirs")
 
@@ -406,7 +426,7 @@ class TestVerdictMode:
         self, mock_fetch, mock_config, mock_auth, widget_root
     ):
         script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
-        write_baseline_for(script, "var x = 0;")  # local edit vs unmoved server
+        _seed_anchor(script, "var x = 0;")  # local edit vs unmoved server
         mock_fetch.return_value = self._remote("var x = 0;")
 
         result = diff_local_component(
@@ -438,7 +458,7 @@ class TestVerdictMode:
         self, mock_query, mock_config, mock_auth, widget_root
     ):
         script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
-        write_baseline_for(script, "var x = 1;")  # clean local
+        _seed_anchor(script, "var x = 1;")  # clean local
         mock_auth.make_request.side_effect = _verdict_chunk_make_request(
             [self._remote("var x = 2; // server moved", mod_count="9")]
         )

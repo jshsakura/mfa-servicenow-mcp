@@ -17,15 +17,9 @@ from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
-from ..utils.baseline import (
-    cleanup_remote_sidecar,
-    is_baseline_artifact,
-    read_baseline_for,
-    remote_sidecar_path_for,
-    write_baseline_for,
-)
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
+from ..utils.sync_anchor import cleanup_mirror, field_sha, is_mirror_artifact, mirror_path_for
 from .portal_tools import (
     UpdatePortalComponentParams,
     _fetch_portal_component_record,
@@ -506,6 +500,21 @@ def _write_sync_meta(table_dir: Path, meta: Dict[str, Dict[str, str]]) -> None:
     path.write_text(json_fast.dumps(meta), encoding="utf-8")
 
 
+def _local_field_shas(resolved: "_ResolvedComponent") -> Dict[str, str]:
+    """Normalized content sha per field file that exists — the offline edit anchor.
+
+    Recorded in _sync_meta only when the local copy provably equals the server, so
+    a later ``local sha != stored sha`` means YOUR unpushed edit (see sync_anchor).
+    """
+    shas: Dict[str, str] = {}
+    for field_name, fpath in resolved.fields.items():
+        try:
+            shas[field_name] = field_sha(fpath.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return shas
+
+
 def _record_sync_meta(
     table_dir: Path,
     name: str,
@@ -513,16 +522,19 @@ def _record_sync_meta(
     updated_on: str,
     updated_by: str,
     mod_count: str = "",
+    field_shas: Optional[Dict[str, str]] = None,
 ) -> None:
     """Record one component's in-sync anchor: WHEN the server was last known good,
-    WHO last touched it, and its ``sys_mod_count`` at that moment.
+    WHO last touched it, its ``sys_mod_count``, and a normalized content sha per
+    field at that moment.
 
-    ``sys_mod_count`` is the LIVE-authority anchor: the next diff/push asks "is the
-    live counter higher than this?" to decide the server moved — a truncation-proof
-    server fact, unlike a local body snapshot that can silently go stale. It auto-
-    advances to the last-reflected revision on every successful download/push.
-    ``sys_updated_by`` is the owner the next diff compares the current editor
-    against. Only call this when the local copy provably equals the remote body.
+    ``sys_mod_count`` is the LIVE-authority drift anchor: the next diff/push asks
+    "is the live counter higher than this?" — a truncation-proof server fact,
+    unlike a local body snapshot that can silently go stale. ``field_shas`` is the
+    offline edit anchor: ``local sha != stored sha`` means an unpushed local edit,
+    with no network and no frozen body copy. Both auto-advance to the last-reflected
+    revision on every successful download/push. Only call this when the local copy
+    provably equals the remote body.
     """
     meta = _read_sync_meta(table_dir)
     # Immutable update: build a new mapping rather than mutating the loaded one.
@@ -535,6 +547,7 @@ def _record_sync_meta(
                 "sys_updated_on": updated_on,
                 "sys_updated_by": updated_by,
                 "sys_mod_count": mod_count,
+                "field_shas": field_shas or {},
                 "downloaded_at": datetime.now(UTC).isoformat(),
             },
         },
@@ -574,14 +587,14 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
     """
     path = path.expanduser().resolve()
 
-    # Hard stop for internal 3-way artifacts: pushing a baseline snapshot or a
-    # .remote conflict sidecar would upload the WRONG body under the component's
+    # Hard stop for internal artifacts: pushing a .remote server-mirror sidecar
+    # would upload the WRONG body (the SERVER's copy) under the component's
     # identity — exactly the "stale source pushed" accident this layer prevents.
-    if is_baseline_artifact(path):
+    if is_mirror_artifact(path):
         raise ValueError(
-            f"'{path.name}' is a baseline snapshot or '.remote' conflict sidecar — an internal "
-            f"comparison artifact, not the component. Edit and push the main field file next to "
-            f"it; the sidecar is the server's version saved during a conflict for manual merge."
+            f"'{path.name}' is a .remote server-mirror sidecar — the server's current version "
+            f"kept next to your working file for manual merge, NOT the component. Edit and push "
+            f"the main field file instead; the mirror clears itself once you reconcile."
         )
 
     # Case 1: Directory -> a record folder (<table>/<name>/) in either a
@@ -1340,36 +1353,29 @@ def _diff_against_compare_to(path: Path, compare_to: Path, context_lines: int) -
 
 
 def _server_moved_fields(
-    resolved: "_ResolvedComponent", remote_record: Dict[str, Any]
+    resolved: "_ResolvedComponent",
+    remote_record: Dict[str, Any],
+    stored_field_shas: Dict[str, str],
 ) -> Tuple[List[str], bool]:
-    """CONTENT truth for the conflict gate: which fields the SERVER actually
-    changed since your last download/push. Returns (moved_fields, verifiable).
+    """CONTENT fallback for the conflict gate: which fields the SERVER changed
+    since your last sync. Returns (moved_fields, verifiable). The live
+    ``sys_mod_count`` is the primary authority (see ``_assess_server_drift``); this
+    content check only runs when no mod_count anchor is available.
 
-    ``sys_updated_on`` is only a HINT. It also bumps for YOUR OWN push, a re-save,
-    or an edit to an unrelated field on the same record — so a timestamp-only gate
-    reports "someone changed this" on a perfectly clean round-trip, which is the
-    false alarm this replaces (editing the same file twice in one session tripped
-    it every time). The pristine ``_baseline/`` snapshot holds exactly what the
-    server had at your last download or successful push, so hashing the remote
-    BODY against it answers the real question: is there a server-side change you
-    have not seen?
-
-    This is a CONTENT check, not a trust check — being the last editor never
-    excuses the comparison; identity only shapes the wording afterwards.
-
-    ``verifiable`` is False when no field has a baseline (legacy tree downloaded
-    before baselines existed). The caller MUST then fall back to the timestamp —
-    never to a silent "no conflict".
+    The comparison is against the recorded per-field content sha (normalized, so
+    pure EOL noise is never a change) — a fact about your last known-good sync, not
+    a frozen body snapshot that can go stale. ``verifiable`` is False when no field
+    has a recorded sha (legacy tree); the caller MUST then fall back to the
+    timestamp — never to a silent "no conflict".
     """
     moved: List[str] = []
     verifiable = False
-    for field_name, fpath in sorted(resolved.fields.items()):
-        baseline = read_baseline_for(fpath)
-        if baseline is None:
+    for field_name, _fpath in sorted(resolved.fields.items()):
+        stored = stored_field_shas.get(field_name)
+        if not stored:
             continue
         verifiable = True
-        remote_content = _normalize_for_compare(str(remote_record.get(field_name) or ""))
-        if remote_content != _normalize_for_compare(baseline):
+        if field_sha(str(remote_record.get(field_name) or "")) != stored:
             moved.append(field_name)
     return moved, verifiable
 
@@ -1399,6 +1405,7 @@ def _assess_server_drift(
     *,
     local_mod_count: str = "",
     remote_mod_count: str = "",
+    field_shas: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Did the server move? The live ``sys_mod_count`` decides; content and the
     timestamp are only fallbacks for records with no recorded mod_count anchor.
@@ -1415,7 +1422,7 @@ def _assess_server_drift(
         local_updated_on and remote_updated_on and remote_updated_on > local_updated_on
     )
     mod_count_moved, mod_count_known = _mod_count_moved(local_mod_count, remote_mod_count)
-    moved_fields, verifiable = _server_moved_fields(resolved, remote_record)
+    moved_fields, verifiable = _server_moved_fields(resolved, remote_record, field_shas or {})
     if mod_count_known:
         drifted = mod_count_moved
     elif verifiable:
@@ -1434,40 +1441,41 @@ def _assess_server_drift(
 
 
 def _baseline_three_way(
-    resolved: "_ResolvedComponent", remote_record: Dict[str, Any]
+    resolved: "_ResolvedComponent",
+    remote_record: Dict[str, Any],
+    stored_field_shas: Dict[str, str],
 ) -> Dict[str, Any]:
-    """Separate YOUR local edits from the SERVER's changes using the pristine
-    baseline recorded at download/push time. Empty dict when no baseline exists
-    (legacy tree) or nothing diverged. Field names only — token-lean."""
+    """Separate YOUR local edits from the SERVER's changes using the recorded
+    per-field content sha (normalized) as the last-known-good anchor. Empty dict
+    when no anchor exists (legacy tree) or nothing diverged. Field names only."""
     yours: List[str] = []
     theirs: List[str] = []
     both_applied: List[str] = []
     diverged: List[str] = []
     sidecars: List[str] = []
     for field_name, fpath in sorted(resolved.fields.items()):
-        baseline = read_baseline_for(fpath)
-        if baseline is None or not fpath.exists():
+        anchor = stored_field_shas.get(field_name)
+        if not anchor or not fpath.exists():
             continue
         try:
             local = fpath.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        local_n = _normalize_for_compare(local)
-        baseline_n = _normalize_for_compare(baseline)
-        remote_n = _normalize_for_compare(str(remote_record.get(field_name) or ""))
-        if local_n == baseline_n and remote_n == baseline_n:
+        local_sha = field_sha(local)
+        remote_sha = field_sha(str(remote_record.get(field_name) or ""))
+        if local_sha == anchor and remote_sha == anchor:
             continue
-        if local_n != baseline_n and remote_n == baseline_n:
+        if local_sha != anchor and remote_sha == anchor:
             yours.append(field_name)
-        elif local_n == baseline_n:
+        elif local_sha == anchor:
             theirs.append(field_name)
-        elif local_n == remote_n:
+        elif local_sha == remote_sha:
             both_applied.append(field_name)
         else:
             diverged.append(field_name)
-        sidecar = remote_sidecar_path_for(fpath)
-        if sidecar.exists():
-            sidecars.append(sidecar.name)
+        mirror = mirror_path_for(fpath)
+        if mirror.exists():
+            sidecars.append(mirror.name)
     out: Dict[str, Any] = {}
     if yours:
         out["your_local_edits"] = yours
@@ -1502,17 +1510,16 @@ def _count_changed_lines(left: str, right: str) -> int:
     return changed
 
 
-def _field_state(local: str, baseline: Optional[str], remote: str) -> str:
-    local_n = _normalize_for_compare(local)
-    remote_n = _normalize_for_compare(remote)
-    if local_n == remote_n:
+def _field_state(local: str, anchor_sha: Optional[str], remote: str) -> str:
+    if _normalize_for_compare(local) == _normalize_for_compare(remote):
         return "in_sync"
-    if baseline is None:
-        return "changed_no_baseline"
-    baseline_n = _normalize_for_compare(baseline)
-    if baseline_n == local_n:
+    if not anchor_sha:
+        return "changed_no_baseline"  # legacy tree: no anchor to attribute yours/theirs
+    local_sha = field_sha(local)
+    remote_sha = field_sha(remote)
+    if anchor_sha == local_sha:
         return "remote_ahead"
-    if baseline_n == remote_n:
+    if anchor_sha == remote_sha:
         return "local_ahead"
     return "diverged"
 
@@ -1539,9 +1546,11 @@ def _remote_record_state(record: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _component_field_verdicts(
-    fields: Dict[str, Path], remote_record: Dict[str, Any]
+    fields: Dict[str, Path],
+    remote_record: Dict[str, Any],
+    stored_field_shas: Dict[str, str],
 ) -> Tuple[Dict[str, Any], Set[str], List[str]]:
-    """(non-in_sync field rows, their states, conflict sidecars on disk)."""
+    """(non-in_sync field rows, their states, conflict mirror sidecars on disk)."""
     field_rows: Dict[str, Any] = {}
     states: Set[str] = set()
     sidecars: List[str] = []
@@ -1553,10 +1562,10 @@ def _component_field_verdicts(
         except (OSError, UnicodeDecodeError):
             continue
         remote_text = str(remote_record.get(field_name) or "")
-        state = _field_state(local, read_baseline_for(fpath), remote_text)
-        sidecar = remote_sidecar_path_for(fpath)
-        if sidecar.exists():
-            sidecars.append(sidecar.name)
+        state = _field_state(local, stored_field_shas.get(field_name), remote_text)
+        mirror = mirror_path_for(fpath)
+        if mirror.exists():
+            sidecars.append(mirror.name)
         if state == "in_sync":
             continue
         states.add(state)
@@ -1694,6 +1703,7 @@ def _verdict_scan(config: ServerConfig, auth_manager: AuthManager, root: Path) -
     # Pass 3: verdicts (pure local content comparison).
     for idx, (table_name, table_dir, map_data) in enumerate(work):
         remote_by_id = remote_by_work[idx]
+        table_sync_meta = _read_sync_meta(table_dir)
         for name in sorted(map_data):
             sys_id = str(map_data.get(name) or "")
             fields = _component_field_files(table_dir, name, table_name)
@@ -1704,7 +1714,9 @@ def _verdict_scan(config: ServerConfig, auth_manager: AuthManager, root: Path) -
             if remote_record is None:
                 attention.append({"table": table_name, "name": name, "verdict": "missing_remote"})
                 continue
-            field_rows, states, sidecars = _component_field_verdicts(fields, remote_record)
+            field_rows, states, sidecars = _component_field_verdicts(
+                fields, remote_record, table_sync_meta.get(name, {}).get("field_shas", {})
+            )
             if not field_rows:
                 in_sync += 1
                 continue
@@ -1835,6 +1847,7 @@ def diff_local_component(
         remote_updated_on,
         local_mod_count=meta.get("sys_mod_count", ""),
         remote_mod_count=str(remote_record.get("sys_mod_count") or ""),
+        field_shas=meta.get("field_shas", {}),
     )
     conflict_warning = None
     if drift["drifted"]:
@@ -1858,16 +1871,20 @@ def diff_local_component(
     if drift["timestamp_only"]:
         stale_watermark = (
             f"The record's sys_updated_on moved to {remote_updated_on}, but every source body "
-            f"is byte-identical to your baseline — no server-side source change. Not a conflict."
+            f"still matches your sync anchor — no server-side source change. Not a conflict."
         )
 
-    # 3-way separation (baseline-aware): tells YOUR edits apart from the
-    # SERVER's changes so a mixed diff never has to be untangled by eye.
-    three_way = _baseline_three_way(resolved, remote_record)
+    # 3-way separation (anchor-aware): tells YOUR edits apart from the SERVER's
+    # changes via the recorded per-field shas, so a mixed diff never has to be
+    # untangled by eye.
+    _stored_shas = meta.get("field_shas", {})
+    three_way = _baseline_three_way(resolved, remote_record, _stored_shas)
 
     # Verdict mode: status + line counts only, never diff bodies.
     if params.verdict:
-        field_rows, states, sidecars = _component_field_verdicts(resolved.fields, remote_record)
+        field_rows, states, sidecars = _component_field_verdicts(
+            resolved.fields, remote_record, _stored_shas
+        )
         vres: Dict[str, Any] = {
             "mode": "verdict",
             "component": {
@@ -2149,9 +2166,9 @@ def update_remote_from_local(
     # than guess — only a genuine resolution failure leaves identity unconfirmed.
     me, me_confirmed = _resolve_push_actor(config, auth_manager)
 
-    # The baseline lives in _sync_meta / _baseline from the ORIGIN download, so it
-    # is only meaningful for a same-instance round-trip. For a cross-instance deploy
-    # the target was re-resolved by name (already verified), so skip the drift gate.
+    # The anchor lives in _sync_meta from the ORIGIN download, so it is only
+    # meaningful for a same-instance round-trip. For a cross-instance deploy the
+    # target was re-resolved by name (already verified), so skip the drift gate.
     drift = _assess_server_drift(
         resolved,
         remote_record,
@@ -2159,6 +2176,7 @@ def update_remote_from_local(
         remote_updated_on,
         local_mod_count=meta.get("sys_mod_count", ""),
         remote_mod_count=str(remote_record.get("sys_mod_count") or ""),
+        field_shas=meta.get("field_shas", {}),
     )
     drifted = not cross_instance_deploy and drift["drifted"]
 
@@ -2296,6 +2314,7 @@ def update_remote_from_local(
                 remote_updated_on,
                 remote_updated_by,
                 str(remote_record.get("sys_mod_count") or ""),
+                _local_field_shas(resolved),
             )
             result_nc["stale_watermark_refreshed"] = remote_updated_on
         return result_nc
@@ -2532,19 +2551,19 @@ def update_remote_from_local(
             str((fresh_remote or {}).get("sys_updated_on") or ""),
             _display_str((fresh_remote or {}).get("sys_updated_by")) or me,
             str((fresh_remote or {}).get("sys_mod_count") or ""),
+            _local_field_shas(resolved),
         )
     except Exception as e:
         logger.warning("Failed to update _sync_meta.json after push: %s", e)
 
-    # The pushed local content is the new common ancestor for 3-way download
-    # decisions; a leftover .remote conflict sidecar is resolved by this push.
+    # The push reconciled local and server, so a leftover .remote server-mirror
+    # sidecar (from an earlier conflict) is now stale — clear it.
     try:
         for field_name, fpath in resolved.fields.items():
             if field_name in update_data and fpath.exists():
-                write_baseline_for(fpath, fpath.read_text(encoding="utf-8"))
-                cleanup_remote_sidecar(fpath)
-    except (OSError, UnicodeDecodeError) as e:
-        logger.warning("Failed to refresh baseline snapshots after push: %s", e)
+                cleanup_mirror(fpath)
+    except OSError as e:
+        logger.warning("Failed to clear stale mirror sidecars after push: %s", e)
 
     # 6. Enrich result (reached only on a confirmed successful push). target_instance
     #    is echoed at top level so the operator/LLM SEES which instance actually

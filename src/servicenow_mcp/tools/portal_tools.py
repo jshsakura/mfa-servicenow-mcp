@@ -19,6 +19,7 @@ from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
 from ..utils.baseline import ACTION_CONFLICT, ACTION_KEPT_DIRTY, ACTION_REFRESHED, sync_field_file
 from ..utils.config import ServerConfig
+from ..utils.sync_anchor import field_sha as _field_sha
 from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file
 from ..utils.progress import emit_progress
 from ..utils.registry import register_tool
@@ -36,6 +37,19 @@ from .sn_api import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _portal_field_shas(record: Dict[str, Any], fields: tuple) -> Dict[str, str]:
+    """Per-field normalized content sha at download — the offline edit anchor read
+    by sync_tools so a freshly downloaded component attributes yours/theirs with
+    no network and no frozen snapshot (see utils/sync_anchor.py)."""
+    shas: Dict[str, str] = {}
+    for f in fields:
+        body = record.get(f)
+        if isinstance(body, str) and body.strip():
+            shas[f] = _field_sha(body)
+    return shas
+
 
 # Constants for Portal tables
 WIDGET_TABLE = "sp_widget"
@@ -3397,6 +3411,9 @@ def download_portal_sources(
                 "sys_updated_on": str(widget.get("sys_updated_on") or ""),
                 "sys_updated_by": str(widget.get("sys_updated_by") or ""),
                 "sys_mod_count": str(widget.get("sys_mod_count") or ""),
+                "field_shas": _portal_field_shas(
+                    widget, ("template", "script", "client_script", "css", "link")
+                ),
                 "downloaded_at": _now_iso,
             }
     merge_map_file(
@@ -3505,6 +3522,7 @@ def download_portal_sources(
                             "sys_updated_on": str(provider.get("sys_updated_on") or ""),
                             "sys_updated_by": str(provider.get("sys_updated_by") or ""),
                             "sys_mod_count": str(provider.get("sys_mod_count") or ""),
+                            "field_shas": _portal_field_shas(provider, ("script",)),
                             "downloaded_at": _now_iso,
                         }
                 if sys_id:
@@ -3647,6 +3665,7 @@ def download_portal_sources(
                     "sys_updated_on": str(row.get("sys_updated_on") or ""),
                     "sys_updated_by": str(row.get("sys_updated_by") or ""),
                     "sys_mod_count": str(row.get("sys_mod_count") or ""),
+                    "field_shas": _portal_field_shas(row, ("script",)),
                     "downloaded_at": _now_iso,
                 }
             exported_script_includes.append(
