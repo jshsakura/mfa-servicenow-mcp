@@ -18,7 +18,20 @@ from servicenow_mcp.utils.sync_anchor import (
     mirror_path_for,
     normalize_for_hash,
     reconcile_field,
+    sweep_legacy_baseline,
 )
+
+
+class TestSweepLegacyBaseline:
+    def test_removes_legacy_baseline_dir(self, tmp_path):
+        (tmp_path / "_baseline").mkdir()
+        (tmp_path / "_baseline" / "script.js").write_text("old", encoding="utf-8")
+        sweep_legacy_baseline(tmp_path)
+        assert not (tmp_path / "_baseline").exists()
+
+    def test_noop_when_absent(self, tmp_path):
+        sweep_legacy_baseline(tmp_path)  # must not raise
+        assert tmp_path.exists()
 
 
 class TestHashComparisonValidity:

@@ -17,13 +17,14 @@ from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
-from ..utils.baseline import ACTION_CONFLICT, ACTION_KEPT_DIRTY, ACTION_REFRESHED, sync_field_file
 from ..utils.config import ServerConfig
-from ..utils.sync_anchor import field_sha as _field_sha
-from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file
+from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file, read_download_map
 from ..utils.progress import emit_progress
 from ..utils.registry import register_tool
-from ..utils.source_layout import field_filename, normalize_source_eol
+from ..utils.source_layout import FIELD_FILENAME, field_filename, normalize_source_eol
+from ..utils.sync_anchor import CONFLICT_MIRRORED, KEPT_LOCAL, REFRESHED
+from ..utils.sync_anchor import field_sha as _field_sha
+from ..utils.sync_anchor import reconcile_field, sweep_legacy_baseline
 from ..utils.workspace_roots import known_download_roots, record_download_root
 from .sn_api import (
     GenericQueryParams,
@@ -37,6 +38,9 @@ from .sn_api import (
 )
 
 logger = logging.getLogger(__name__)
+
+# filename -> field name, so a synced file resolves to the anchor key sync_tools uses.
+_FILENAME_FIELD = {v: k for k, v in FIELD_FILENAME.items()}
 
 
 def _portal_field_shas(record: Dict[str, Any], fields: tuple) -> Dict[str, str]:
@@ -3185,27 +3189,38 @@ def download_portal_sources(
     instance_name = _get_instance_name(config)
     g_ck = str(getattr(auth_manager, "_browser_session_token", "") or "")
 
-    # Content-aware source writes (3-way via utils/baseline.py): a local file
-    # carrying YOUR edits is never silently overwritten — kept as-is when the
-    # server is unmoved, kept + '<field>.remote' sidecar on a true conflict.
-    # Components left out-of-sync keep their PRIOR sync watermark so a later
-    # push still flags the conflict. Legacy trees (no _baseline/) keep the
-    # historical overwrite behavior and get baselines seeded.
+    # Content-aware source writes (two-copy via utils/sync_anchor.py): a local file
+    # carrying YOUR edits is never silently overwritten — kept as-is when the server
+    # is unmoved, kept + an always-fresh '<field>.remote' server mirror on a true
+    # conflict. Components left out-of-sync keep their PRIOR sync watermark so a
+    # later push still flags the conflict. Legacy trees (no sha anchor) keep the
+    # historical overwrite behavior.
     conflict_files: List[str] = []
     kept_edit_files: List[str] = []
     refreshed_files: List[str] = []
     out_of_sync_keys: Set[Tuple[str, str]] = set()
 
+    # Prior per-field content-sha anchors, read once from the on-disk _sync_meta so
+    # reconcile can tell YOUR edits from server changes with no frozen snapshot.
+    _prior_shas: Dict[Tuple[str, str], Dict[str, str]] = {}
+    for _tbl in ("sp_widget", "sp_angular_provider", "sys_script_include"):
+        for _key, _entry in read_download_map(scope_root / _tbl / "_sync_meta.json").items():
+            if isinstance(_entry, dict) and _entry.get("field_shas"):
+                _prior_shas[(_tbl, _key)] = _entry["field_shas"]
+
     def _sync_source_file(table: str, meta_key: str, fpath: Path, content: str) -> None:
-        action = sync_field_file(fpath, content, legacy_overwrite=True)
+        field = _FILENAME_FIELD.get(fpath.name, fpath.stem)
+        stored_sha = _prior_shas.get((table, meta_key), {}).get(field, "")
+        outcome, _sha = reconcile_field(fpath, content, stored_sha, legacy_overwrite=True)
+        sweep_legacy_baseline(fpath.parent)  # self-tidy any pre-anchor _baseline/
         label = f"{table}/{fpath.parent.name}/{fpath.name}"
-        if action == ACTION_CONFLICT:
+        if outcome == CONFLICT_MIRRORED:
             conflict_files.append(label)
             out_of_sync_keys.add((table, meta_key))
-        elif action == ACTION_KEPT_DIRTY:
+        elif outcome == KEPT_LOCAL:
             kept_edit_files.append(label)
             out_of_sync_keys.add((table, meta_key))
-        elif action == ACTION_REFRESHED:
+        elif outcome == REFRESHED:
             refreshed_files.append(label)
 
     _write_json_file(
