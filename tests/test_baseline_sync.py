@@ -1,13 +1,12 @@
-"""Tests for the 3-way baseline safety net (utils/baseline.py + integrations).
+"""Integration tests for the live-anchored sync model (utils/sync_anchor.py).
 
-Invariants pinned here:
-- sync_field_file NEVER destroys local edits (only clean copies or the caller's
-  explicit legacy policy get overwritten).
-- A true conflict keeps the local file and saves the server's body as a
-  '<stem>.remote<ext>' sidecar.
-- Baseline artifacts are recognized (scanner skip / push rejection).
-- A successful push re-seeds the baseline and clears a resolved sidecar.
-- diff_local_component separates YOUR edits from the SERVER's changes.
+The frozen _baseline/ 3-way is gone; drift/diff/verdict/push decide from the live
+sys_mod_count + per-field content-sha anchor in _sync_meta. reconcile_field's
+two-copy behavior is unit-tested in test_sync_anchor.py; here we pin the sync_tools
+integrations:
+- diff_local_component separates YOUR edits from the SERVER's changes via the anchor.
+- a .remote server-mirror sidecar is rejected as a push target.
+- a successful push records the new anchor and clears a resolved mirror.
 """
 
 import json
@@ -23,24 +22,6 @@ from servicenow_mcp.tools.sync_tools import (
     _write_sync_meta,
     diff_local_component,
     update_remote_from_local,
-)
-from servicenow_mcp.utils.baseline import (
-    ACTION_BLANK_REMOTE_KEPT,
-    ACTION_CONFLICT,
-    ACTION_KEPT_DIRTY,
-    ACTION_LEGACY_KEPT,
-    ACTION_LEGACY_OVERWRITTEN,
-    ACTION_REFRESHED,
-    ACTION_RESEEDED,
-    ACTION_UNCHANGED,
-    ACTION_WRITTEN,
-    IN_SYNC_ACTIONS,
-    baseline_path_for,
-    is_baseline_artifact,
-    read_baseline_for,
-    remote_sidecar_path_for,
-    sync_field_file,
-    write_baseline_for,
 )
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.sync_anchor import field_sha, mirror_path_for
@@ -61,172 +42,17 @@ def _seed_anchor(script_path, body):
     meta[name] = entry
     _write_sync_meta(table_dir, meta)
 
-ORIGINAL = "var x = 1;"
-LOCAL_EDIT = "var x = 1; // my edit"
-REMOTE_EDIT = "var x = 2; // their edit"
-
-
-@pytest.fixture
-def field_file(tmp_path):
-    return tmp_path / "record" / "script.js"
-
-
-def _seed(field_file, local, baseline):
-    field_file.parent.mkdir(parents=True, exist_ok=True)
-    field_file.write_text(local, encoding="utf-8")
-    write_baseline_for(field_file, baseline)
-
-
-# ---------------------------------------------------------------------------
-# _baseline/ directories keep themselves out of the user's git status
-# ---------------------------------------------------------------------------
-class TestBaselineDirSelfIgnores:
-    def test_write_baseline_creates_self_ignoring_gitignore(self, field_file):
-        write_baseline_for(field_file, ORIGINAL)
-        gitignore = field_file.parent / "_baseline" / ".gitignore"
-        assert gitignore.exists()
-        # '*' ignores every snapshot AND the .gitignore itself -> nothing shows.
-        assert gitignore.read_text().splitlines()[-1] == "*"
-
-    def test_gitignore_lives_inside_baseline_dir_and_is_an_artifact(self, field_file):
-        write_baseline_for(field_file, ORIGINAL)
-        gitignore = field_file.parent / "_baseline" / ".gitignore"
-        # Being under _baseline/, scanners skip it exactly like snapshots.
-        assert is_baseline_artifact(gitignore)
-
-    def test_existing_gitignore_is_not_clobbered(self, field_file):
-        write_baseline_for(field_file, ORIGINAL)
-        gitignore = field_file.parent / "_baseline" / ".gitignore"
-        gitignore.write_text("custom\n", encoding="utf-8")
-        write_baseline_for(field_file, REMOTE_EDIT)
-        assert gitignore.read_text() == "custom\n"
-
-
-# ---------------------------------------------------------------------------
-# sync_field_file decision matrix
-# ---------------------------------------------------------------------------
-class TestSyncFieldFile:
-    def test_missing_local_writes_file_and_baseline(self, field_file):
-        action = sync_field_file(field_file, ORIGINAL, legacy_overwrite=False)
-        assert action == ACTION_WRITTEN
-        assert field_file.read_text() == ORIGINAL
-        assert read_baseline_for(field_file) == ORIGINAL
-
-    def test_clean_local_remote_unmoved_is_noop(self, field_file):
-        _seed(field_file, ORIGINAL, ORIGINAL)
-        assert sync_field_file(field_file, ORIGINAL, legacy_overwrite=False) == ACTION_UNCHANGED
-        assert field_file.read_text() == ORIGINAL
-
-    def test_clean_local_remote_moved_auto_refreshes(self, field_file):
-        _seed(field_file, ORIGINAL, ORIGINAL)
-        action = sync_field_file(field_file, REMOTE_EDIT, legacy_overwrite=False)
-        assert action == ACTION_REFRESHED
-        assert field_file.read_text() == REMOTE_EDIT
-        assert read_baseline_for(field_file) == REMOTE_EDIT
-
-    def test_dirty_local_remote_unmoved_is_kept(self, field_file):
-        _seed(field_file, LOCAL_EDIT, ORIGINAL)
-        assert sync_field_file(field_file, ORIGINAL, legacy_overwrite=False) == ACTION_KEPT_DIRTY
-        assert field_file.read_text() == LOCAL_EDIT
-        # Baseline stays the common ancestor.
-        assert read_baseline_for(field_file) == ORIGINAL
-
-    def test_dirty_local_matching_remote_reseeds_baseline(self, field_file):
-        # The user's edit was applied on the server too (manual apply).
-        _seed(field_file, LOCAL_EDIT, ORIGINAL)
-        assert sync_field_file(field_file, LOCAL_EDIT, legacy_overwrite=False) == ACTION_RESEEDED
-        assert read_baseline_for(field_file) == LOCAL_EDIT
-
-    def test_conflict_keeps_local_and_writes_sidecar(self, field_file):
-        _seed(field_file, LOCAL_EDIT, ORIGINAL)
-        action = sync_field_file(field_file, REMOTE_EDIT, legacy_overwrite=False)
-        assert action == ACTION_CONFLICT
-        assert field_file.read_text() == LOCAL_EDIT
-        sidecar = remote_sidecar_path_for(field_file)
-        assert sidecar.name == "script.remote.js"
-        assert sidecar.read_text() == REMOTE_EDIT
-        # Baseline untouched — still the ancestor for a later merge.
-        assert read_baseline_for(field_file) == ORIGINAL
-
-    def test_conflict_even_under_legacy_overwrite_policy(self, field_file):
-        # legacy_overwrite only applies to trees WITHOUT a baseline; with one,
-        # local edits are protected regardless of caller policy (incremental /
-        # portal full overwrite).
-        _seed(field_file, LOCAL_EDIT, ORIGINAL)
-        assert sync_field_file(field_file, REMOTE_EDIT, legacy_overwrite=True) == ACTION_CONFLICT
-        assert field_file.read_text() == LOCAL_EDIT
-
-    def test_legacy_tree_kept_without_overwrite_policy(self, field_file):
-        field_file.parent.mkdir(parents=True)
-        field_file.write_text(LOCAL_EDIT, encoding="utf-8")
-        assert (
-            sync_field_file(field_file, REMOTE_EDIT, legacy_overwrite=False) == ACTION_LEGACY_KEPT
-        )
-        assert field_file.read_text() == LOCAL_EDIT
-        assert read_baseline_for(field_file) is None
-
-    def test_legacy_tree_overwritten_seeds_baseline(self, field_file):
-        field_file.parent.mkdir(parents=True)
-        field_file.write_text(LOCAL_EDIT, encoding="utf-8")
-        action = sync_field_file(field_file, REMOTE_EDIT, legacy_overwrite=True)
-        assert action == ACTION_LEGACY_OVERWRITTEN
-        assert field_file.read_text() == REMOTE_EDIT
-        assert read_baseline_for(field_file) == REMOTE_EDIT
-
-    def test_blank_remote_is_unknown_keeps_everything(self, field_file):
-        _seed(field_file, LOCAL_EDIT, ORIGINAL)
-        action = sync_field_file(
-            field_file, "", legacy_overwrite=True, blank_remote_is_unknown=True
-        )
-        assert action == ACTION_BLANK_REMOTE_KEPT
-        assert field_file.read_text() == LOCAL_EDIT
-        assert read_baseline_for(field_file) == ORIGINAL
-
-    def test_eol_only_difference_is_not_a_change(self, field_file):
-        _seed(field_file, "var a = 1;\nvar b = 2;\n", "var a = 1;\nvar b = 2;\n")
-        action = sync_field_file(field_file, "var a = 1;\r\nvar b = 2;\r\n", legacy_overwrite=False)
-        assert action == ACTION_UNCHANGED
-
-    def test_refresh_clears_stale_sidecar(self, field_file):
-        _seed(field_file, ORIGINAL, ORIGINAL)
-        sidecar = remote_sidecar_path_for(field_file)
-        sidecar.write_text("old conflict copy", encoding="utf-8")
-        assert sync_field_file(field_file, REMOTE_EDIT, legacy_overwrite=False) == ACTION_REFRESHED
-        assert not sidecar.exists()
-
-    def test_in_sync_actions_frozenset(self):
-        assert ACTION_WRITTEN in IN_SYNC_ACTIONS
-        assert ACTION_CONFLICT not in IN_SYNC_ACTIONS
-        assert ACTION_KEPT_DIRTY not in IN_SYNC_ACTIONS
-        assert ACTION_BLANK_REMOTE_KEPT not in IN_SYNC_ACTIONS
-
 
 # ---------------------------------------------------------------------------
 # Artifact recognition (scanner skip / push rejection)
 # ---------------------------------------------------------------------------
 class TestArtifacts:
-    def test_baseline_dir_is_artifact(self, field_file):
-        assert is_baseline_artifact(baseline_path_for(field_file))
-
-    def test_sidecar_is_artifact(self, field_file):
-        assert is_baseline_artifact(remote_sidecar_path_for(field_file))
-
-    def test_main_field_file_is_not_artifact(self, field_file):
-        assert not is_baseline_artifact(field_file)
-
-    def test_resolve_local_path_rejects_sidecar(self, tmp_path):
+    def test_resolve_local_path_rejects_mirror_sidecar(self, tmp_path):
         sidecar = tmp_path / "sp_widget" / "w" / "script.remote.js"
         sidecar.parent.mkdir(parents=True)
         sidecar.write_text("x", encoding="utf-8")
         with pytest.raises(ValueError, match="mirror sidecar"):
             _resolve_local_path(sidecar)
-
-    def test_resolve_local_path_rejects_baseline_file(self, tmp_path):
-        bfile = tmp_path / "sp_widget" / "w" / "_baseline" / "script.js"
-        bfile.parent.mkdir(parents=True)
-        bfile.write_text("x", encoding="utf-8")
-        with pytest.raises(ValueError, match="baseline"):
-            _resolve_local_path(bfile)
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +268,7 @@ class TestVerdictMode:
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_component_verdict_identical(self, mock_fetch, mock_config, mock_auth, widget_root):
         script = widget_root / "global" / "sp_widget" / "my-widget" / "script.js"
-        write_baseline_for(script, "var x = 1;")
+        _seed_anchor(script, "var x = 1;")
         mock_fetch.return_value = self._remote("var x = 1;")
 
         result = diff_local_component(

@@ -34,17 +34,6 @@ from servicenow_mcp.tools.source_resume import (
     save_stage,
 )
 from servicenow_mcp.utils.atomic_io import atomic_write_text
-from servicenow_mcp.utils.baseline import (
-    ACTION_BLANK_REMOTE_KEPT,
-    ACTION_CONFLICT,
-    ACTION_LEGACY_KEPT,
-    ACTION_REFRESHED,
-    IN_SYNC_ACTIONS,
-    is_baseline_artifact,
-    read_baseline_for,
-    sync_field_file,
-    write_baseline_for,
-)
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.download_map import (
     map_sys_ids,
@@ -60,22 +49,40 @@ from servicenow_mcp.utils.source_layout import (
     field_extension,
     normalize_source_eol,
 )
+from servicenow_mcp.utils.sync_anchor import (
+    BLANK_REMOTE_KEPT,
+    CONFLICT_MIRRORED,
+    IN_SYNC_OUTCOMES,
+    LEGACY_KEPT,
+    REFRESHED,
+)
 from servicenow_mcp.utils.sync_anchor import field_sha as _field_sha
+from servicenow_mcp.utils.sync_anchor import (
+    is_mirror_artifact,
+    reconcile_field,
+    sweep_legacy_baseline,
+)
 from servicenow_mcp.utils.workspace_roots import record_download_root
 
 logger = logging.getLogger(__name__)
 
 
-def _record_field_shas(record: Dict[str, Any], source_fields: List[str]) -> Dict[str, str]:
-    """Per-field normalized content sha at download — the offline edit anchor read
-    by sync_tools so a freshly downloaded component can attribute yours/theirs
-    without a frozen snapshot (see utils/sync_anchor.py)."""
+def _record_field_shas(record_dir: Path, source_fields: List[str]) -> Dict[str, str]:
+    """Per-field normalized content sha of the FILES just written — the offline edit
+    anchor read by sync_tools so a freshly downloaded component can attribute
+    yours/theirs without a frozen snapshot (see utils/sync_anchor.py). Hashing the
+    on-disk body (not the summary record, whose source may be fetched separately)
+    guarantees the anchor matches exactly what the next diff compares."""
     shas: Dict[str, str] = {}
     for sf in source_fields:
-        body = record.get(sf)
-        if isinstance(body, str) and body.strip():
-            shas[sf] = _field_sha(body)
+        fpath = record_dir / f"{sf}{_FIELD_EXTENSIONS.get(sf, '.txt')}"
+        if fpath.exists():
+            try:
+                shas[sf] = _field_sha(fpath.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError):
+                continue
     return shas
+
 
 MAX_SEARCH_LIMIT = 10
 PER_TYPE_LIMIT = 5
@@ -1905,7 +1912,7 @@ def _scan_scope_dep_refs(scope_root: Path) -> Dict[str, Set[str]]:
         if "_deps" in src_file.parts:
             continue
         # Skip baseline snapshots / conflict sidecars (would double-count refs)
-        if is_baseline_artifact(src_file):
+        if is_mirror_artifact(src_file):
             continue
         if src_file.suffix.lower() not in {".js", ".html", ".xml"}:
             continue
@@ -2509,7 +2516,6 @@ def _retry_empty_source(
             ext = _FIELD_EXTENSIONS.get(sf, ".txt")
             fpath = rdir / f"{sf}{ext}"
             _dl_write_file(fpath, content)
-            write_baseline_for(fpath, content)
             fetched += 1
     return fetched
 
@@ -2788,10 +2794,11 @@ def _download_source_types(
                     metadata[sf] = str(val) if not isinstance(val, str) else val
 
             record_dir = type_dir / safe_name
+            sweep_legacy_baseline(record_dir)  # self-tidy any pre-anchor _baseline/
 
             # A record already on disk is reconciled PER FIELD against the batch
-            # content in hand (no extra API call) using the pristine baseline as
-            # the common ancestor (utils/baseline.py):
+            # content in hand (no extra API call) using the recorded content-sha
+            # anchor as the common ancestor (utils/sync_anchor.py):
             #   - untouched local + server moved  -> auto-refreshed
             #   - your edits + server unmoved     -> kept
             #   - your edits + server moved       -> kept, server copy saved as
@@ -2812,7 +2819,9 @@ def _download_source_types(
                     backfilled = 0
                     still_missing: List[str] = []
                     remote_updated = str(record.get("sys_updated_on") or "")
-                    prior_updated = str(prior_meta.get(safe_name, {}).get("sys_updated_on") or "")
+                    prior_entry = prior_meta.get(safe_name, {})
+                    prior_updated = str(prior_entry.get("sys_updated_on") or "")
+                    prior_field_shas = prior_entry.get("field_shas", {}) or {}
                     remote_moved = bool(
                         prior_updated and remote_updated and remote_updated > prior_updated
                     )
@@ -2824,12 +2833,12 @@ def _download_source_types(
                                 not content_str.strip()
                                 and sys_id
                                 and (incremental or remote_moved)
-                                and read_baseline_for(field_paths[sf]) is not None
+                                and prior_field_shas.get(sf)
                             ):
                                 # The record changed on the server but the bulk
                                 # body came back blank (spurious on some
                                 # instances) — fetch the real body once so the
-                                # 3-way decision sees actual content. Bounded to
+                                # reconcile decision sees actual content. Bounded to
                                 # records whose watermark actually moved.
                                 content_str = _fetch_record_fields(
                                     config,
@@ -2841,15 +2850,15 @@ def _download_source_types(
                                     name,
                                     warnings,
                                 ).get(sf, "")
-                            actions[sf] = sync_field_file(
+                            actions[sf] = reconcile_field(
                                 field_paths[sf],
                                 content_str,
+                                prior_field_shas.get(sf, ""),
                                 legacy_overwrite=incremental,
                                 blank_remote_is_unknown=True,
-                            )
+                            )[0]
                         elif content_str.strip():
                             _dl_write_file(field_paths[sf], content_str)
-                            write_baseline_for(field_paths[sf], content_str)
                             backfilled += 1
                         else:
                             still_missing.append(sf)
@@ -2866,8 +2875,8 @@ def _download_source_types(
                     if backfilled:
                         backfilled_records.append(name)
 
-                    refreshed = [sf for sf, a in actions.items() if a == ACTION_REFRESHED]
-                    conflicted = [sf for sf, a in actions.items() if a == ACTION_CONFLICT]
+                    refreshed = [sf for sf, a in actions.items() if a == REFRESHED]
+                    conflicted = [sf for sf, a in actions.items() if a == CONFLICT_MIRRORED]
                     if refreshed:
                         refreshed_records.append(name)
                     if conflicted:
@@ -2881,7 +2890,7 @@ def _download_source_types(
                             }
                         )
 
-                    if all(a in IN_SYNC_ACTIONS for a in actions.values()):
+                    if all(a in IN_SYNC_OUTCOMES for a in actions.values()):
                         # Every on-disk field provably equals the current remote
                         # body -> safe to bump the watermark and refresh metadata.
                         _dl_write_json(record_dir / "_metadata.json", metadata)
@@ -2891,7 +2900,9 @@ def _download_source_types(
                             "sys_updated_on": remote_updated,
                             "sys_updated_by": str(record.get("sys_updated_by") or ""),
                             "sys_mod_count": str(record.get("sys_mod_count") or ""),
-                            "field_shas": _record_field_shas(record, source_cfg["source_fields"]),
+                            "field_shas": _record_field_shas(
+                                record_dir, source_cfg["source_fields"]
+                            ),
                             "downloaded_at": now_iso,
                         }
                         manifest_entries.append(
@@ -2909,10 +2920,7 @@ def _download_source_types(
                         # keeps the prior entry so a later push flags the conflict.
                         # Timestamp-based stale evidence covers the cases where
                         # content couldn't be compared (legacy tree, blank body).
-                        if any(
-                            a in (ACTION_LEGACY_KEPT, ACTION_BLANK_REMOTE_KEPT)
-                            for a in actions.values()
-                        ):
+                        if any(a in (LEGACY_KEPT, BLANK_REMOTE_KEPT) for a in actions.values()):
                             if remote_moved:
                                 stale_skipped.append(
                                     {
@@ -2937,7 +2945,6 @@ def _download_source_types(
                 ext = _FIELD_EXTENSIONS.get(source_field, ".txt")
                 fpath = record_dir / f"{source_field}{ext}"
                 _dl_write_file(fpath, content)
-                write_baseline_for(fpath, content)
                 type_file_count += 1
 
             # Queue for individual retry if batch returned empty source
@@ -2964,7 +2971,7 @@ def _download_source_types(
                 "sys_mod_count": str(record.get("sys_mod_count") or ""),
                 # Offline edit anchor: per-field content sha so a later diff can
                 # attribute yours/theirs with no network and no frozen snapshot.
-                "field_shas": _record_field_shas(record, source_cfg["source_fields"]),
+                "field_shas": _record_field_shas(record_dir, source_cfg["source_fields"]),
                 "downloaded_at": now_iso,
             }
             manifest_entries.append(
@@ -2986,6 +2993,12 @@ def _download_source_types(
                 type_file_count += _retry_empty_source(
                     config, auth_manager, table, _src_fields, source_type, rec, warnings
                 )
+            # Retry wrote the source AFTER the per-record meta was built, so the
+            # field-sha anchor computed then was empty — backfill it from the files
+            # now on disk (the anchor must match exactly what the next diff reads).
+            for _sid, safe_name, record_dir in retry_records:
+                if safe_name in sync_meta:
+                    sync_meta[safe_name]["field_shas"] = _record_field_shas(record_dir, _src_fields)
 
         merge_map_file(
             type_dir / "_map.json",
@@ -3290,7 +3303,7 @@ def _scan_tables_from_source_root(source_root: Path) -> Set[str]:
     tables: Set[str] = set()
     for root in [source_root, *dep_scope_roots(source_root)]:
         for js_file in root.rglob("*.js"):
-            if is_baseline_artifact(js_file):
+            if is_mirror_artifact(js_file):
                 continue
             try:
                 script_text = js_file.read_text(encoding="utf-8")

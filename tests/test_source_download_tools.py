@@ -1603,11 +1603,11 @@ class TestEdgeCases:
 
 # ---------------------------------------------------------------------------
 # Re-download must never let a stale local body reach the server NOR destroy
-# local edits (3-way via the _baseline snapshot, utils/baseline.py):
+# local edits (reconcile via the content-sha anchor, utils/sync_anchor.py):
 #   - clean local + server moved  -> auto-refresh (watermark bumps: honest)
-#   - local edits + server moved  -> keep local, save .remote sidecar, and
+#   - local edits + server moved  -> keep local, save .remote mirror, and
 #     PRESERVE the watermark so a later push still flags the conflict
-#   - legacy tree (no _baseline/) -> historical resume-skip + stale warning
+#   - legacy tree (no sha anchor)  -> historical resume-skip + stale warning
 # ---------------------------------------------------------------------------
 
 
@@ -1637,9 +1637,10 @@ class TestResumeSkipWatermark:
         scope_root.mkdir(parents=True)
         si_dir = scope_root / "sys_script_include"
 
-        # First download at T0 seeds the baseline snapshot.
+        # First download at T0 records the per-field content-sha anchor.
         self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
-        assert (si_dir / "CommitHelper" / "_baseline" / "script.js").exists()
+        meta0 = json.loads((si_dir / "_sync_meta.json").read_text())
+        assert meta0["CommitHelper"]["field_shas"].get("script")
 
         # Someone edits CommitHelper remotely at T1; local copy was NOT edited.
         result = self._redownload_with_remote_change(config, auth, scope_root, tmp_path, mqa, mqp)
@@ -1647,8 +1648,6 @@ class TestResumeSkipWatermark:
         # Clean local -> auto-refreshed to the server's version; watermark bumps.
         local_script = (si_dir / "CommitHelper" / "script.js").read_text()
         assert "REMOTE_CHANGED" in local_script
-        baseline = (si_dir / "CommitHelper" / "_baseline" / "script.js").read_text()
-        assert "REMOTE_CHANGED" in baseline
         meta1 = json.loads((si_dir / "_sync_meta.json").read_text())
         assert meta1["CommitHelper"]["sys_updated_on"] == "2026-05-01 09:00:00"
         assert any("auto-refreshed" in w and "CommitHelper" in w for w in result["warnings"])
@@ -1686,10 +1685,11 @@ class TestResumeSkipWatermark:
         si_dir = scope_root / "sys_script_include"
 
         self._download(config, auth, _si_records(), scope_root, tmp_path, mqa, mqp)
-        # Simulate a pre-baseline tree: drop the snapshots.
-        import shutil
-
-        shutil.rmtree(si_dir / "CommitHelper" / "_baseline")
+        # Simulate a pre-anchor (legacy) tree: drop the recorded field shas.
+        meta_path = si_dir / "_sync_meta.json"
+        meta = json.loads(meta_path.read_text())
+        meta["CommitHelper"].pop("field_shas", None)
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
         result = self._redownload_with_remote_change(config, auth, scope_root, tmp_path, mqa, mqp)
 
         # Historical behavior: keep local, preserve watermark, surface the drift.

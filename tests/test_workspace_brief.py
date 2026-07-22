@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from servicenow_mcp.tools.workspace_tools import _discover_trees, _scan_tree_local
-from servicenow_mcp.utils.baseline import remote_sidecar_path_for, write_baseline_for
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.sync_anchor import field_sha, mirror_path_for
 
 
 @pytest.fixture
@@ -48,7 +48,6 @@ def workspace(tmp_path):
     )
     script = widget_dir / "script.js"
     script.write_text("var x = 1;", encoding="utf-8")
-    write_baseline_for(script, "var x = 1;")
     (tree / "sp_widget" / "_map.json").write_text(
         json.dumps({"my-widget": "wid-1"}), encoding="utf-8"
     )
@@ -59,6 +58,7 @@ def workspace(tmp_path):
                     "sys_id": "wid-1",
                     "sys_updated_on": "2025-01-10 10:00:00",
                     "downloaded_at": "2025-01-10T10:05:00+00:00",
+                    "field_shas": {"script": field_sha("var x = 1;")},
                 }
             }
         ),
@@ -73,26 +73,28 @@ class TestTreeScan:
         assert len(trees) == 1
         local = _scan_tree_local(trees[0])
         assert local["components"] == 1
-        assert local["baseline_protected"] == 1
+        assert local["anchor_protected"] == 1
         assert local["your_edits"] == []
         assert local["unresolved_conflicts"] == []
 
     def test_detects_edits_and_sidecars(self, workspace):
         script = workspace / "test" / "x_app" / "sp_widget" / "my-widget" / "script.js"
         script.write_text("var x = 1; // my edit", encoding="utf-8")
-        remote_sidecar_path_for(script).write_text("var x = 2;", encoding="utf-8")
+        mirror_path_for(script).write_text("var x = 2;", encoding="utf-8")
 
         local = _scan_tree_local(workspace / "test" / "x_app")
         assert local["your_edits"] == ["sp_widget/my-widget:script.js"]
         assert local["unresolved_conflicts"] == ["sp_widget/my-widget (script.remote.js)"]
 
     def test_legacy_tree_counts_as_unprotected(self, workspace):
-        import shutil
-
-        shutil.rmtree(workspace / "test" / "x_app" / "sp_widget" / "my-widget" / "_baseline")
+        # A tree with no field-sha anchor (legacy download) cannot attribute edits.
+        meta_path = workspace / "test" / "x_app" / "sp_widget" / "_sync_meta.json"
+        meta = json.loads(meta_path.read_text())
+        meta["my-widget"].pop("field_shas", None)
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
         local = _scan_tree_local(workspace / "test" / "x_app")
-        assert local["baseline_protected"] == 0
-        assert local["your_edits"] == []  # no baseline -> cannot claim edits
+        assert local["anchor_protected"] == 0
+        assert local["your_edits"] == []  # no anchor -> cannot claim edits
 
 
 class TestHealthIntegration:
@@ -104,7 +106,7 @@ class TestHealthIntegration:
 
         script = workspace / "test" / "x_app" / "sp_widget" / "my-widget" / "script.js"
         script.write_text("var x = 1; // my edit", encoding="utf-8")
-        remote_sidecar_path_for(script).write_text("var x = 2;", encoding="utf-8")
+        mirror_path_for(script).write_text("var x = 2;", encoding="utf-8")
         monkeypatch.chdir(workspace.parent)
 
         snap = _workspace_snapshot()
