@@ -1440,7 +1440,7 @@ def _assess_server_drift(
     }
 
 
-def _baseline_three_way(
+def _three_way_by_anchor(
     resolved: "_ResolvedComponent",
     remote_record: Dict[str, Any],
     stored_field_shas: Dict[str, str],
@@ -1493,9 +1493,9 @@ def _baseline_three_way(
 # ---------------------------------------------------------------------------
 # Verdict mode: token-lean live verification. The remote BODY is fetched and
 # compared inside the MCP (network only) — the LLM context receives verdicts
-# and line counts, never source text. Verdicts (baseline-attributed):
+# and line counts, never source text. Verdicts (anchor-attributed):
 #   identical | local_ahead (your edits) | remote_ahead (server moved) |
-#   diverged (both) | changed_no_baseline (differs, legacy tree — can't
+#   diverged (both) | changed_no_anchor (differs, legacy tree — can't
 #   attribute) | missing_remote
 # ---------------------------------------------------------------------------
 _VERDICT_ATTENTION_CAP = 200
@@ -1514,7 +1514,7 @@ def _field_state(local: str, anchor_sha: Optional[str], remote: str) -> str:
     if _normalize_for_compare(local) == _normalize_for_compare(remote):
         return "in_sync"
     if not anchor_sha:
-        return "changed_no_baseline"  # legacy tree: no anchor to attribute yours/theirs
+        return "changed_no_anchor"  # legacy tree: no anchor to attribute yours/theirs
     local_sha = field_sha(local)
     remote_sha = field_sha(remote)
     if anchor_sha == local_sha:
@@ -1530,8 +1530,8 @@ def _aggregate_verdict(states: Set[str]) -> str:
         return "identical"
     if "diverged" in states or {"local_ahead", "remote_ahead"} <= states:
         return "diverged"
-    if "changed_no_baseline" in states:
-        return "changed_no_baseline"
+    if "changed_no_anchor" in states:
+        return "changed_no_anchor"
     return next(iter(states))
 
 
@@ -1864,7 +1864,7 @@ def diff_local_component(
             f"overwritten — review the diff before pushing."
         )
 
-    # The stamp moved but every body still matches your baseline — say so plainly
+    # The stamp moved but every body still matches your anchor — say so plainly
     # instead of leaving a bare timestamp gap the reader has to interpret as a
     # conflict. (Typical cause: your own push, or an edit to a non-source field.)
     stale_watermark = None
@@ -1878,7 +1878,7 @@ def diff_local_component(
     # changes via the recorded per-field shas, so a mixed diff never has to be
     # untangled by eye.
     _stored_shas = meta.get("field_shas", {})
-    three_way = _baseline_three_way(resolved, remote_record, _stored_shas)
+    three_way = _three_way_by_anchor(resolved, remote_record, _stored_shas)
 
     # Verdict mode: status + line counts only, never diff bodies.
     if params.verdict:
@@ -2142,15 +2142,15 @@ def update_remote_from_local(
     # actual write goes through update_portal_component, which warns and lets the
     # SERVER decide. A genuine rejection surfaces there as a 403 with guidance.
 
-    # 2. Baseline-drift verification gate — CONTENT-FIRST and TIME-INDEPENDENT.
-    #    The question is "did the SERVER BODY move since my baseline", and only the
-    #    pristine `_baseline/` snapshot can answer it: sys_updated_on also bumps for
-    #    my own push, a re-save, or an edit to an unrelated field, and gating on the
-    #    stamp alone turned a normal edit->push->edit-again round-trip into a fake
-    #    "someone changed this" every time. So we hash the remote bodies against the
-    #    baseline; the stamp is only the fallback when no baseline exists (legacy
-    #    tree) — never a silent pass. Being the last editor yourself does NOT skip
-    #    the comparison; it only changes the wording (see assess_push_risk).
+    # 2. Server-drift verification gate — LIVE-ANCHORED and TIME-INDEPENDENT.
+    #    "Did the SERVER move since my sync?" is answered by the live sys_mod_count
+    #    (authority) and, as a fallback, the remote body hashed against the recorded
+    #    per-field sha anchor: sys_updated_on also bumps for my own push, a re-save,
+    #    or an edit to an unrelated field, and gating on the stamp alone turned a
+    #    normal edit->push->edit-again round-trip into a fake "someone changed this"
+    #    every time. The stamp is only the last-resort fallback when neither a
+    #    mod_count nor a sha anchor exists (legacy tree) — never a silent pass. Being
+    #    the last editor yourself does NOT skip the check; it only changes the wording.
     #    The point is VERIFICATION, not a hard block: it stops a blind push by
     #    showing WHAT moved, WHO moved it and WHEN, so force=true is a deliberate
     #    "yes, overwrite that" — never silent. (Pushing to the wrong INSTANCE is the
@@ -2495,10 +2495,10 @@ def update_remote_from_local(
     #    proof the content landed. So we re-read the ACTUAL pushed fields and
     #    recompute the same diff that decided the push: if any field we just pushed
     #    still differs from local, the write did not land — report success:false
-    #    LOUDLY and do NOT poison _sync_meta/baseline (a poisoned baseline makes the
+    #    LOUDLY and do NOT poison _sync_meta (a poisoned anchor makes the
     #    next diff falsely say "no drift", hiding the non-landing forever).
     #    sys_updated_by rides this same re-read at no extra cost — it becomes the
-    #    baseline OWNER recorded in step 5b.
+    #    anchor OWNER recorded in step 5b.
     verify_fields = list(update_data.keys()) + ["sys_updated_on", "sys_updated_by", "sys_mod_count"]
     fresh_remote: Optional[Dict[str, Any]] = None
     try:
@@ -2538,10 +2538,10 @@ def update_remote_from_local(
                 "sync_meta_updated": False,
             }
 
-    # 5b. Landing confirmed (or unverifiable) → record the new baseline watermark:
+    # 5b. Landing confirmed (or unverifiable) → record the new sync anchor:
     #     the timestamp AND the editor. Dropping sys_updated_by here is what made a
-    #     settled push re-litigate itself: the next diff compared the current editor
-    #     (you) against a baseline owner still holding the ORIGINAL author's name,
+    #     settled push re-litigate itself: next diff compared the current editor
+    #     (you) against an anchor owner still holding the ORIGINAL author name,
     #     and reported an "ownership change" for the edit you had just made.
     try:
         _record_sync_meta(

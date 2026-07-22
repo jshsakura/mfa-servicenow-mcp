@@ -323,6 +323,39 @@ def _fetch_portal_component_record(
     return _direct()
 
 
+_CLIP_MARKER = "(truncated, original length:"
+
+
+def untruncate_source_fields(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    sys_id: str,
+    record: Dict[str, Any],
+    fields,
+) -> Dict[str, Any]:
+    """The single guard every source-returning read should use.
+
+    sn_query's 50k per-field budget (a bulk-safety measure) also clips targeted
+    single-record source reads. When any of ``fields`` in ``record`` carries the
+    clip marker, re-fetch that record RAW (``full=True`` direct GET) and overwrite
+    those fields in place — so a caller never returns, hashes, or pushes a silently
+    truncated body. Mutates and returns ``record``; no-op (no extra call) when
+    nothing was clipped.
+    """
+    if any(isinstance(record.get(f), str) and _CLIP_MARKER in record[f] for f in fields):
+        try:
+            full = _fetch_portal_component_record(
+                config, auth_manager, table, sys_id, list(fields), full=True
+            )
+            for f in fields:
+                if isinstance(full.get(f), str):
+                    record[f] = full[f]
+        except ValueError:
+            pass  # keep the clipped body rather than failing the read outright
+    return record
+
+
 def _summarize_text_preview(value: str, max_length: int | None = None) -> str:
     if max_length is None:
         max_length = MAX_PREVIEW_TEXT_LENGTH
@@ -1877,21 +1910,12 @@ def get_widget_bundle(
         return {"error": f"Widget '{params.widget_id}' not found."}
 
     widget = _strip_metadata(response["results"][0], widget_fields)
-    # Untruncate: sn_query clips fields >50k (truncate_results), so a >50KB body
-    # (template/client_script) comes back capped — and if the caller edits and
-    # pushes it back, the tail is silently lost. Re-fetch the record raw when any
-    # body field was clipped so the bundle always carries complete source.
+    # A >50KB body clipped by sn_query would be silently lost on an edit+push —
+    # re-fetch raw when any body field came back truncated (shared guard).
     _body_fields = ["template", "script", "client_script", "css"]
-    if any(
-        isinstance(widget.get(f), str) and "(truncated, original length:" in widget[f]
-        for f in _body_fields
-    ):
-        _full = _fetch_portal_component_record(
-            config, auth_manager, WIDGET_TABLE, widget["sys_id"], _body_fields, full=True
-        )
-        for f in _body_fields:
-            if isinstance(_full.get(f), str):
-                widget[f] = _full[f]
+    untruncate_source_fields(
+        config, auth_manager, WIDGET_TABLE, widget["sys_id"], widget, _body_fields
+    )
     # Deliberate completeness, never an opaque dump: disclose each body field's true
     # length so the caller sees exactly what it received (not a silently clipped or
     # blindly huge blob). If a field is very large, name the bounded read paths so a
@@ -2025,24 +2049,12 @@ def get_portal_component_code(
     # Only return requested code fields to keep context clean
     result = _strip_metadata(response["results"][0], params.fields)
 
-    # Untruncate: sn_query clips fields >50k (truncate_results). A clipped body
-    # would corrupt both the returned source AND the sha256/length/chunk-offset
-    # metadata below (fetch_complete=True would then label a capped body
-    # "complete"). Re-fetch any clipped field raw (full=True direct GET) so
-    # everything downstream sees the whole source.
-    if any(
-        isinstance(result.get(f), str) and "(truncated, original length:" in result[f]
-        for f in params.fields
-    ):
-        try:
-            _full = _fetch_portal_component_record(
-                config, auth_manager, params.table, params.sys_id, params.fields, full=True
-            )
-            for f in params.fields:
-                if isinstance(_full.get(f), str):
-                    result[f] = _full[f]
-        except ValueError:
-            pass  # keep the sn_query body rather than failing the read outright
+    # A clipped body would corrupt both the returned source AND the sha/length/
+    # chunk-offset metadata below (fetch_complete=True would then label a capped
+    # body "complete"). Re-fetch any clipped field raw (shared guard).
+    untruncate_source_fields(
+        config, auth_manager, params.table, params.sys_id, result, params.fields
+    )
 
     for field in params.fields:
         val = result.get(field, "")
