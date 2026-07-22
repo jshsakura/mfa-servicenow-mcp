@@ -943,7 +943,7 @@ def _fetch_linked_script_include_rows(
             auth_manager,
             table="sys_script_include",
             query="^".join(query_parts),
-            fields="sys_id,name,api_name,script,sys_scope,sys_updated_by,sys_updated_on",
+            fields="sys_id,name,api_name,script,sys_scope,sys_updated_by,sys_updated_on,sys_mod_count",
             page_size=page_size,
             max_records=max(20, len(chunk) * 5),
         )
@@ -1181,6 +1181,10 @@ def _download_widget_fields(
         "demo_data",
         "sys_updated_on",
         "sys_updated_by",
+        # Live-authority drift anchor recorded in _sync_meta (see sync_tools):
+        # the server's monotonic counter, so movement is judged by fact not a
+        # possibly-stale local snapshot.
+        "sys_mod_count",
     ]
     if include_widget_template:
         fields.append("template")
@@ -1855,6 +1859,21 @@ def get_widget_bundle(
         return {"error": f"Widget '{params.widget_id}' not found."}
 
     widget = _strip_metadata(response["results"][0], widget_fields)
+    # Untruncate: sn_query clips fields >50k (truncate_results), so a >50KB body
+    # (template/client_script) comes back capped — and if the caller edits and
+    # pushes it back, the tail is silently lost. Re-fetch the record raw when any
+    # body field was clipped so the bundle always carries complete source.
+    _body_fields = ["template", "script", "client_script", "css"]
+    if any(
+        isinstance(widget.get(f), str) and "(truncated, original length:" in widget[f]
+        for f in _body_fields
+    ):
+        _full = _fetch_portal_component_record(
+            config, auth_manager, WIDGET_TABLE, widget["sys_id"], _body_fields, full=True
+        )
+        for f in _body_fields:
+            if isinstance(_full.get(f), str):
+                widget[f] = _full[f]
     bundle: Dict[str, Any] = {"widget": widget}
 
     # 2. Fetch Angular Provider list (minimal info to save context)
@@ -1968,6 +1987,25 @@ def get_portal_component_code(
 
     # Only return requested code fields to keep context clean
     result = _strip_metadata(response["results"][0], params.fields)
+
+    # Untruncate: sn_query clips fields >50k (truncate_results). A clipped body
+    # would corrupt both the returned source AND the sha256/length/chunk-offset
+    # metadata below (fetch_complete=True would then label a capped body
+    # "complete"). Re-fetch any clipped field raw (full=True direct GET) so
+    # everything downstream sees the whole source.
+    if any(
+        isinstance(result.get(f), str) and "(truncated, original length:" in result[f]
+        for f in params.fields
+    ):
+        try:
+            _full = _fetch_portal_component_record(
+                config, auth_manager, params.table, params.sys_id, params.fields, full=True
+            )
+            for f in params.fields:
+                if isinstance(_full.get(f), str):
+                    result[f] = _full[f]
+        except ValueError:
+            pass  # keep the sn_query body rather than failing the read outright
 
     for field in params.fields:
         val = result.get(field, "")
@@ -3339,6 +3377,7 @@ def download_portal_sources(
                 "sys_id": str(widget.get("sys_id") or ""),
                 "sys_updated_on": str(widget.get("sys_updated_on") or ""),
                 "sys_updated_by": str(widget.get("sys_updated_by") or ""),
+                "sys_mod_count": str(widget.get("sys_mod_count") or ""),
                 "downloaded_at": _now_iso,
             }
     merge_map_file(
@@ -3410,7 +3449,7 @@ def download_portal_sources(
                 auth_manager,
                 table=ANGULAR_PROVIDER_TABLE,
                 query=f"sys_idIN{','.join(m2m_ids)}",
-                fields="sys_id,name,type,sys_scope,sys_updated_on,sys_updated_by",
+                fields="sys_id,name,type,sys_scope,sys_updated_on,sys_updated_by,sys_mod_count",
                 page_size=100,
                 max_records=1000,
             )
@@ -3446,6 +3485,7 @@ def download_portal_sources(
                             "sys_id": sys_id,
                             "sys_updated_on": str(provider.get("sys_updated_on") or ""),
                             "sys_updated_by": str(provider.get("sys_updated_by") or ""),
+                            "sys_mod_count": str(provider.get("sys_mod_count") or ""),
                             "downloaded_at": _now_iso,
                         }
                 if sys_id:
@@ -3587,6 +3627,7 @@ def download_portal_sources(
                     "sys_id": sys_id,
                     "sys_updated_on": str(row.get("sys_updated_on") or ""),
                     "sys_updated_by": str(row.get("sys_updated_by") or ""),
+                    "sys_mod_count": str(row.get("sys_mod_count") or ""),
                     "downloaded_at": _now_iso,
                 }
             exported_script_includes.append(

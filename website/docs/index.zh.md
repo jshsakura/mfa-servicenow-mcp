@@ -123,7 +123,7 @@ uvx --with playwright playwright install chromium
       <span class="section-label">当 uvx 被阻止时</span>
       <h2 class="section-title">改用 pip 安装</h2>
       <p class="section-desc">
-        Windows 的 <a href="https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4495-afc7-c4d1abd9c0e0" target="_blank" rel="noopener">Smart App Control</a> 会阻止 <code>uvx</code>，因为 uvx 每次运行都要解压一个未签名的临时可执行文件。如果 uvx 一直用得好好的，却在某次 Windows 更新之后突然失效，原因就在这里。改用 pip 安装，并以模块方式启动服务器 —— <code>servicenow-mcp</code> 控制台脚本是 pip 生成的未签名 <code>.exe</code> 包装器，会因为同样的原因被阻止。
+        Windows 的 Smart App Control 会阻止 <code>uvx</code>，因为 uvx 每次运行都要解压一个未签名的临时可执行文件。如果 uvx 一直用得好好的，却在某次 Windows 更新之后突然失效，原因就在这里。改用 pip 安装，并以模块方式启动服务器 —— <code>servicenow-mcp</code> 控制台脚本是 pip 生成的未签名 <code>.exe</code> 包装器，会因为同样的原因被阻止。
       </p>
     </div>
     <div class="install-block reveal">

@@ -68,9 +68,11 @@ def describe_attribution(
         note = f"Created by '{creator}', last changed by '{current}' — shared record."
     elif self_edit and (ownership_changed_raw or shared_raw):
         attribution = "self"
-        note = f"You ('{current}') are the last editor on the server" + (
-            f"; the record was originally created by '{creator}'." if shared_raw else "."
-        )
+        # Deliberately does NOT name the original creator. When YOU are the last
+        # editor and nothing actually changed hands, "created by <someone else>"
+        # only reads as "another user modified this" — the exact false alarm this
+        # avoids. The creator is still in the raw record if ever truly needed.
+        note = f"You ('{current}') are the last editor on the server."
     else:
         attribution = "consistent"
         note = ""
