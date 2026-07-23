@@ -23,7 +23,7 @@
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 32 | ~8.2K | ⚠️ 需要更新/关闭 incident 和 change 的服务台坐席 |
 | `portal_developer` | 42 | ~10.6K | ⚠️ 部署 widget、变更集和 script include 的门户开发者 |
-| `platform_developer` | 41 | ~10.8K | ⚠️ 管理工作流、Flow Designer 和脚本的平台工程师 |
+| `platform_developer` | 42 | ~10.8K | ⚠️ 管理工作流、Flow Designer 和脚本的平台工程师 |
 | `full` | 56 | ~13.8K | ⚠️ 最高级 —— 同时启用所有领域的所有写入工具（见下方警告） |
 
 > **~令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）。使用更窄的包可节省上下文与成本。
