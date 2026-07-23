@@ -71,6 +71,9 @@ standard:
   # Script Include (Read)
   - manage_script_include:
       actions: [list, get]
+  # Scripted REST (Read) — write actions exposed in portal_developer/full
+  - manage_scripted_rest:
+      actions: [list, get]
   # Developer Productivity (Read)
   - get_developer_changes
   # Logs
