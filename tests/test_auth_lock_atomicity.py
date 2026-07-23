@@ -49,11 +49,24 @@ def _race_for_lock(tmp_path, racers=RACERS):
         with guard:
             verdicts.append(got)
 
+    # The O_EXCL winner leaves a 0-byte lock for the microseconds between the
+    # create and the payload write. `_collect_lock_with_no_timestamp` collects an
+    # empty lock older than LOGIN_LOCK_CLAIM_GRACE_SECONDS as "abandoned mid-claim"
+    # — correct in production (a multi-second gap on a one-syscall write means a
+    # dead claimant). But under coverage's sys.settrace + N GIL-bound threads on a
+    # slow CI runner, a LIVE winner can be descheduled past the 5 s grace, and a
+    # collector then reaps its lock and wins too — two winners, a flaky failure of
+    # the very invariant this asserts (proven: GRACE=5 collects a 6 s-old empty
+    # lock; GRACE huge backs off). Widen the grace so the harness's own starvation
+    # can't be misread as death; O_EXCL exclusivity and the single-winner check are
+    # unchanged. The empty-vs-aged boundary itself is pinned deterministically by
+    # test_a_lock_claimed_moments_ago_is_not_collected_as_corrupt.
     threads = [threading.Thread(target=_claim) for _ in range(racers)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=10)
+    with patch.object(AuthManager, "LOGIN_LOCK_CLAIM_GRACE_SECONDS", 3600.0):
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
     return verdicts
 
 
