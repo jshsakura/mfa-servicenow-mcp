@@ -10,7 +10,7 @@ import re
 from concurrent.futures import as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel, Field
@@ -3143,6 +3143,160 @@ def update_portal_component(
     return result_dict
 
 
+def _capture_widget_dependency_graph(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: DownloadPortalSourcesParams,
+    *,
+    widgets: List[Dict[str, Any]],
+    widget_name_by_sys_id: Dict[str, str],
+    scope_root: Path,
+    warnings: List[str],
+) -> int:
+    """Capture authoritative widget -> CSS/JS dependency edges to _dependency_graph.json.
+
+    From m2m_sp_widget_dependency -> sp_dependency, captured at download so offline
+    analysis reads the real relationship graph instead of guessing from code.
+    Fully fail-safe: chunked, capped, and wrapped — a denied/empty dependency
+    table never breaks the download (this metadata is additive, not load-bearing).
+    Returns the edge count; appends a non-fatal note to ``warnings`` on failure.
+    """
+    if not widgets:
+        return 0
+    try:
+        dep_widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
+        widget_dep_edges: Dict[str, List[str]] = {}
+        dep_ids: List[str] = []
+        for sys_id_chunk in _chunked(dep_widget_sys_ids, 100):
+            for row in _sn_query_all(
+                config,
+                auth_manager,
+                table=WIDGET_DEPENDENCY_TABLE,
+                query=f"sp_widgetIN{','.join(_escape_query(v) for v in sys_id_chunk)}",
+                fields="sp_widget,sp_dependency",
+                page_size=params.page_size,
+                max_records=500,
+            ):
+                dep_id = _as_ref_sys_id(row.get("sp_dependency"))
+                widget_ref_id = _as_ref_sys_id(row.get("sp_widget"))
+                if dep_id and dep_id not in dep_ids:
+                    dep_ids.append(dep_id)
+                if widget_ref_id and dep_id:
+                    edge = widget_dep_edges.setdefault(widget_ref_id, [])
+                    if dep_id not in edge:
+                        edge.append(dep_id)
+        dep_name_by_sys_id: Dict[str, str] = {}
+        for id_chunk in _chunked(dep_ids, 100):
+            for row in _sn_query_all(
+                config,
+                auth_manager,
+                table=DEPENDENCY_TABLE,
+                query=f"sys_idIN{','.join(id_chunk)}",
+                fields="sys_id,name",
+                page_size=100,
+                max_records=1000,
+            ):
+                sid = str(row.get("sys_id") or "")
+                if sid:
+                    dep_name_by_sys_id[sid] = str(row.get("name") or sid)
+        widget_to_deps: Dict[str, List[str]] = {}
+        for widget_sid, dep_sids in widget_dep_edges.items():
+            widget_label = widget_name_by_sys_id.get(widget_sid)
+            if not widget_label:
+                continue
+            dep_names = sorted({dep_name_by_sys_id.get(d, d) for d in dep_sids})
+            if dep_names:
+                widget_to_deps[widget_label] = dep_names
+        if widget_to_deps:
+            merge_map_file(
+                scope_root / "_dependency_graph.json",
+                widget_to_deps,
+                writer=_write_json_file,
+                label="widget_dependency_graph",
+            )
+            return sum(len(v) for v in widget_to_deps.values())
+        return 0
+    except Exception as _dep_exc:
+        warnings.append(f"dependency graph: capture failed (non-fatal): {_dep_exc}")
+        return 0
+
+
+def _download_linked_script_includes(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: DownloadPortalSourcesParams,
+    *,
+    candidates: List[str],
+    scope_root: Path,
+    emit_phases: bool,
+    sync_source_file: Callable[[str, str, Path, str], None],
+    out_of_sync_keys: Set[Tuple[str, str]],
+    now_iso: str,
+) -> List[Dict[str, str]]:
+    """Fetch + write script includes referenced by widget code; merge the maps.
+
+    ``candidates`` is empty when linked-SI capture is disabled — the fetch is
+    skipped but the (possibly empty) maps are still merged, matching the prior
+    inline behavior. ``sync_source_file`` is the caller's content-aware writer so
+    conflict/kept/refreshed bookkeeping stays shared. Returns the exported list.
+    """
+    si_map: Dict[str, str] = {}
+    si_sync_meta: Dict[str, Dict[str, str]] = {}
+    exported: List[Dict[str, str]] = []
+    if candidates:
+        if emit_phases:
+            emit_progress(3, None, "portal: linked script includes")
+        for row in _fetch_linked_script_include_rows(
+            config,
+            auth_manager,
+            candidates=candidates,
+            page_size=params.page_size,
+            scope=params.scope,
+        ):
+            name = str(row.get("name") or row.get("api_name") or row.get("sys_id") or "")
+            sys_id = str(row.get("sys_id") or "")
+            file_name = _safe_name(name)
+            # Folder layout (<table>/<name>/script.js) — match the generic
+            # downloader and the uploader. See source_layout.
+            sync_source_file(
+                "sys_script_include",
+                name,
+                scope_root / "sys_script_include" / file_name / field_filename("script"),
+                str(row.get("script") or ""),
+            )
+            si_map[name] = sys_id
+            if ("sys_script_include", name) not in out_of_sync_keys:
+                si_sync_meta[name] = {
+                    "sys_id": sys_id,
+                    "sys_updated_on": str(row.get("sys_updated_on") or ""),
+                    "sys_updated_by": str(row.get("sys_updated_by") or ""),
+                    "sys_mod_count": str(row.get("sys_mod_count") or ""),
+                    "field_shas": _portal_field_shas(row, ("script",)),
+                    "downloaded_at": now_iso,
+                }
+            exported.append(
+                {
+                    "name": name,
+                    "sys_id": sys_id,
+                    "api_name": str(row.get("api_name") or ""),
+                }
+            )
+
+    merge_map_file(
+        scope_root / "sys_script_include" / "_map.json",
+        si_map,
+        writer=_write_json_file,
+        label="sys_script_include",
+    )
+    merge_map_file(
+        scope_root / "sys_script_include" / "_sync_meta.json",
+        si_sync_meta,
+        writer=_write_json_file,
+        label="sys_script_include_sync_meta",
+    )
+    return exported
+
+
 @register_tool(
     "download_portal_sources",
     params=DownloadPortalSourcesParams,
@@ -3599,122 +3753,26 @@ def download_portal_sources(
             label="widget_provider_graph",
         )
 
-    # Authoritative widget -> CSS/JS dependency edges (m2m_sp_widget_dependency ->
-    # sp_dependency), captured at download so offline analysis reads the real
-    # relationship graph instead of guessing from code. Fully fail-safe: chunked,
-    # capped, and wrapped — a denied/empty dependency table never breaks the
-    # download (this metadata is additive, not load-bearing).
-    dependency_edge_count = 0
-    if widgets:
-        try:
-            dep_widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
-            widget_dep_edges: Dict[str, List[str]] = {}
-            dep_ids: List[str] = []
-            for sys_id_chunk in _chunked(dep_widget_sys_ids, 100):
-                for row in _sn_query_all(
-                    config,
-                    auth_manager,
-                    table=WIDGET_DEPENDENCY_TABLE,
-                    query=f"sp_widgetIN{','.join(_escape_query(v) for v in sys_id_chunk)}",
-                    fields="sp_widget,sp_dependency",
-                    page_size=params.page_size,
-                    max_records=500,
-                ):
-                    dep_id = _as_ref_sys_id(row.get("sp_dependency"))
-                    widget_ref_id = _as_ref_sys_id(row.get("sp_widget"))
-                    if dep_id and dep_id not in dep_ids:
-                        dep_ids.append(dep_id)
-                    if widget_ref_id and dep_id:
-                        edge = widget_dep_edges.setdefault(widget_ref_id, [])
-                        if dep_id not in edge:
-                            edge.append(dep_id)
-            dep_name_by_sys_id: Dict[str, str] = {}
-            for id_chunk in _chunked(dep_ids, 100):
-                for row in _sn_query_all(
-                    config,
-                    auth_manager,
-                    table=DEPENDENCY_TABLE,
-                    query=f"sys_idIN{','.join(id_chunk)}",
-                    fields="sys_id,name",
-                    page_size=100,
-                    max_records=1000,
-                ):
-                    sid = str(row.get("sys_id") or "")
-                    if sid:
-                        dep_name_by_sys_id[sid] = str(row.get("name") or sid)
-            widget_to_deps: Dict[str, List[str]] = {}
-            for widget_sid, dep_sids in widget_dep_edges.items():
-                widget_label = widget_name_by_sys_id.get(widget_sid)
-                if not widget_label:
-                    continue
-                dep_names = sorted({dep_name_by_sys_id.get(d, d) for d in dep_sids})
-                if dep_names:
-                    widget_to_deps[widget_label] = dep_names
-            if widget_to_deps:
-                merge_map_file(
-                    scope_root / "_dependency_graph.json",
-                    widget_to_deps,
-                    writer=_write_json_file,
-                    label="widget_dependency_graph",
-                )
-                dependency_edge_count = sum(len(v) for v in widget_to_deps.values())
-        except Exception as _dep_exc:
-            warnings.append(f"dependency graph: capture failed (non-fatal): {_dep_exc}")
-
-    si_map: Dict[str, str] = {}
-    _si_sync_meta: Dict[str, Dict[str, str]] = {}
-    exported_script_includes: List[Dict[str, str]] = []
-    if include_linked_script_includes and script_include_candidates:
-        if emit_phases:
-            emit_progress(3, None, "portal: linked script includes")
-        script_include_rows = _fetch_linked_script_include_rows(
-            config,
-            auth_manager,
-            candidates=script_include_candidates,
-            page_size=params.page_size,
-            scope=params.scope,
-        )
-        for row in script_include_rows:
-            name = str(row.get("name") or row.get("api_name") or row.get("sys_id") or "")
-            sys_id = str(row.get("sys_id") or "")
-            file_name = _safe_name(name)
-            # Folder layout (<table>/<name>/script.js) — match the generic
-            # downloader and the uploader. See source_layout.
-            _sync_source_file(
-                "sys_script_include",
-                name,
-                scope_root / "sys_script_include" / file_name / field_filename("script"),
-                str(row.get("script") or ""),
-            )
-            si_map[name] = sys_id
-            if ("sys_script_include", name) not in out_of_sync_keys:
-                _si_sync_meta[name] = {
-                    "sys_id": sys_id,
-                    "sys_updated_on": str(row.get("sys_updated_on") or ""),
-                    "sys_updated_by": str(row.get("sys_updated_by") or ""),
-                    "sys_mod_count": str(row.get("sys_mod_count") or ""),
-                    "field_shas": _portal_field_shas(row, ("script",)),
-                    "downloaded_at": _now_iso,
-                }
-            exported_script_includes.append(
-                {
-                    "name": name,
-                    "sys_id": sys_id,
-                    "api_name": str(row.get("api_name") or ""),
-                }
-            )
-
-    merge_map_file(
-        scope_root / "sys_script_include" / "_map.json",
-        si_map,
-        writer=_write_json_file,
-        label="sys_script_include",
+    dependency_edge_count = _capture_widget_dependency_graph(
+        config,
+        auth_manager,
+        params,
+        widgets=widgets,
+        widget_name_by_sys_id=widget_name_by_sys_id,
+        scope_root=scope_root,
+        warnings=warnings,
     )
-    merge_map_file(
-        scope_root / "sys_script_include" / "_sync_meta.json",
-        _si_sync_meta,
-        writer=_write_json_file,
-        label="sys_script_include_sync_meta",
+
+    exported_script_includes = _download_linked_script_includes(
+        config,
+        auth_manager,
+        params,
+        candidates=(script_include_candidates if include_linked_script_includes else []),
+        scope_root=scope_root,
+        emit_phases=emit_phases,
+        sync_source_file=_sync_source_file,
+        out_of_sync_keys=out_of_sync_keys,
+        now_iso=_now_iso,
     )
     _write_json_file(root / "scopes.json", scope_sys_ids)
 
