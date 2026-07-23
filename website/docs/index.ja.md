@@ -312,23 +312,15 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <div class="skill-categories reveal-stagger">
       <div class="step-card" style="--i:1">
         <h3>🔍 analyze/</h3>
-        <p>5 スキル — ウィジェット分析、ポータル診断、ローカルソース監査、プロバイダー監査、ESC ページ監査</p>
+        <p>1 スキル — ローカルソース監査: 相互参照、デッドコード、実行順序、HTML レポート</p>
       </div>
       <div class="step-card" style="--i:2">
-        <h3>🔧 fix/</h3>
-        <p>3 スキル — 段階的な安全ゲート付きウィジェットパッチ適用、デバッグ、コードレビュー</p>
+        <h3>🧭 explore/</h3>
+        <p>1 スキル — フロートリガートレース: テーブル変更時にどのワークフロー/フローが発火するか</p>
       </div>
       <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
-        <p>5 スキル — アプリソースダウンロード、チェンジセットワークフロー、ローカル同期、ワークフロー管理、スキル管理</p>
-      </div>
-      <div class="step-card" style="--i:4">
-        <h3>🚀 deploy/</h3>
-        <p>1 スキル — 変更要求のライフサイクル</p>
-      </div>
-      <div class="step-card" style="--i:5">
-        <h3>🧭 explore/</h3>
-        <p>2 スキル — フロートリガートレース、ESC カタログフロー</p>
+        <p>2 スキル — アプリソースダウンロード、ローカル同期（diff → 競合検出付きプッシュ）</p>
       </div>
     </div>
   </div>
@@ -352,7 +344,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">70</span>
+    <span class="hero-stat-value">66</span>
     <span class="hero-stat-label">登録済みツール</span>
   </div>
   <div class="hero-stat">
@@ -360,7 +352,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <span class="hero-stat-label">ネイティブ対応</span>
   </div>
   <div class="hero-stat">
-    <span class="hero-stat-value">5</span>
+    <span class="hero-stat-value">3</span>
     <span class="hero-stat-label">スキルカテゴリ</span>
   </div>
   <div class="hero-stat">
@@ -393,7 +385,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>接続</h3>
-        <p>Claude、Cursor、Zed、または任意の MCP クライアントを向けるだけ。70 個の登録済みツールがアクティブなパッケージプロファイルを通じて読み込まれます。</p>
+        <p>Claude、Cursor、Zed、または任意の MCP クライアントを向けるだけ。66 個の登録済みツールがアクティブなパッケージプロファイルを通じて読み込まれます。</p>
       </div>
     </div>
   </div>

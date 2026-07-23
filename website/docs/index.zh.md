@@ -312,23 +312,15 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <div class="skill-categories reveal-stagger">
       <div class="step-card" style="--i:1">
         <h3>🔍 analyze/</h3>
-        <p>5 个技能 —— widget 分析、门户诊断、本地源码审计、provider 审计、ESC 页面审计</p>
+        <p>1 个技能 —— 本地源码审计：交叉引用、死代码、执行顺序、HTML 报告</p>
       </div>
       <div class="step-card" style="--i:2">
-        <h3>🔧 fix/</h3>
-        <p>3 个技能 —— 带分阶段安全门控的 widget 修补、调试、代码审查</p>
+        <h3>🧭 explore/</h3>
+        <p>1 个技能 —— flow 触发器追踪：当某个表发生更改时哪些 workflow/flow 会触发</p>
       </div>
       <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
-        <p>5 个技能 —— 应用源码下载、变更集工作流、本地同步、工作流管理、技能管理</p>
-      </div>
-      <div class="step-card" style="--i:4">
-        <h3>🚀 deploy/</h3>
-        <p>1 个技能 —— 变更请求生命周期</p>
-      </div>
-      <div class="step-card" style="--i:5">
-        <h3>🧭 explore/</h3>
-        <p>2 个技能 —— flow 触发器追踪、ESC 目录流程</p>
+        <p>2 个技能 —— 应用源码下载、本地同步（diff → 推送，带冲突检测）</p>
       </div>
     </div>
   </div>
@@ -352,7 +344,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">70</span>
+    <span class="hero-stat-value">66</span>
     <span class="hero-stat-label">已注册工具</span>
   </div>
   <div class="hero-stat">
@@ -360,7 +352,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <span class="hero-stat-label">原生支持</span>
   </div>
   <div class="hero-stat">
-    <span class="hero-stat-value">5</span>
+    <span class="hero-stat-value">3</span>
     <span class="hero-stat-label">技能类别</span>
   </div>
   <div class="hero-stat">
@@ -393,7 +385,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>连接</h3>
-        <p>指向 Claude、Cursor、Zed 或任意 MCP 客户端。70 个已注册工具通过活动包配置加载。</p>
+        <p>指向 Claude、Cursor、Zed 或任意 MCP 客户端。66 个已注册工具通过活动包配置加载。</p>
       </div>
     </div>
   </div>

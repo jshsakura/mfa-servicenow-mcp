@@ -312,23 +312,15 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <div class="skill-categories reveal-stagger">
       <div class="step-card" style="--i:1">
         <h3>🔍 analyze/</h3>
-        <p>5 स्किल्स — विजेट विश्लेषण, पोर्टल निदान, लोकल सोर्स ऑडिट, प्रोवाइडर ऑडिट, ESC पेज ऑडिट</p>
+        <p>1 स्किल — लोकल सोर्स ऑडिट: cross-references, dead code, execution order, HTML रिपोर्ट</p>
       </div>
       <div class="step-card" style="--i:2">
-        <h3>🔧 fix/</h3>
-        <p>3 स्किल्स — चरणबद्ध सुरक्षा गेट्स के साथ विजेट पैचिंग, डिबगिंग, कोड समीक्षा</p>
+        <h3>🧭 explore/</h3>
+        <p>1 स्किल — flow trigger tracing: किसी table के बदलने पर कौन से workflows/flows चलते हैं</p>
       </div>
       <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
-        <p>5 स्किल्स — ऐप सोर्स डाउनलोड, चेंजसेट वर्कफ़्लो, लोकल सिंक, वर्कफ़्लो प्रबंधन, स्किल प्रबंधन</p>
-      </div>
-      <div class="step-card" style="--i:4">
-        <h3>🚀 deploy/</h3>
-        <p>1 स्किल — चेंज रिक्वेस्ट जीवनचक्र</p>
-      </div>
-      <div class="step-card" style="--i:5">
-        <h3>🧭 explore/</h3>
-        <p>2 स्किल्स — फ़्लो ट्रिगर ट्रेसिंग, ESC कैटलॉग फ़्लो</p>
+        <p>2 स्किल्स — app source download, local sync (diff → conflict detection के साथ push)</p>
       </div>
     </div>
   </div>
@@ -352,7 +344,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">70</span>
+    <span class="hero-stat-value">66</span>
     <span class="hero-stat-label">पंजीकृत टूल्स</span>
   </div>
   <div class="hero-stat">
@@ -360,7 +352,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <span class="hero-stat-label">मूल समर्थन</span>
   </div>
   <div class="hero-stat">
-    <span class="hero-stat-value">5</span>
+    <span class="hero-stat-value">3</span>
     <span class="hero-stat-label">स्किल श्रेणियाँ</span>
   </div>
   <div class="hero-stat">
@@ -393,7 +385,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>कनेक्ट करें</h3>
-        <p>Claude, Cursor, Zed, या किसी भी MCP क्लाइंट को इंगित करें। सक्रिय पैकेज प्रोफ़ाइल के माध्यम से 70 पंजीकृत टूल्स लोड होते हैं।</p>
+        <p>Claude, Cursor, Zed, या किसी भी MCP क्लाइंट को इंगित करें। सक्रिय पैकेज प्रोफ़ाइल के माध्यम से 66 पंजीकृत टूल्स लोड होते हैं।</p>
       </div>
     </div>
   </div>
