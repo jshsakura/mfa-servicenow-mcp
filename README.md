@@ -194,8 +194,8 @@ TLS-inspecting proxies (Zscaler and friends) and blocked PyPI access have their 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **65 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
-- **16 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
+- **66 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **4 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
 - **Authoritative relationship graphs on disk** — `_graph.json` (widget→Angular Provider, from the live M2M) and `_page_graph.json` (page→widget, from `sp_instance`) let the LLM answer dependency questions offline instead of re-querying the instance
@@ -486,20 +486,22 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 
 Read-only (safe defaults):
 
-| Package | Tools | Description |
-| :--- | :---: | :--- |
-| `none` | 0 | Disabled profile for intentionally turning tools off |
-| `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 27 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| Package | Tools | ~Tokens | Description |
+| :--- | :---: | :---: | :--- |
+| `none` | 0 | 0 | Disabled profile for intentionally turning tools off |
+| `core` | 12 | ~3.0K | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
+| `standard` | 29 | ~7.3K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
 
 ⚠️ Write-capable (advanced — grants create/update/delete):
 
-| Package | Tools | Description |
-| :--- | :---: | :--- |
-| `service_desk` | 29 | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 38 | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
-| `platform_developer` | 43 | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 57 | ⚠️ **Most advanced** — all write tools across all domains at once |
+| Package | Tools | ~Tokens | Description |
+| :--- | :---: | :---: | :--- |
+| `service_desk` | 31 | ~8.2K | ⚠️ standard + incident and change operational writes |
+| `portal_developer` | 41 | ~10.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `platform_developer` | 41 | ~10.8K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 55 | ~13.8K | ⚠️ **Most advanced** — all write tools across all domains at once |
+
+> **~Tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down.
 
 Each server process binds to one active ServiceNow instance for ordinary tools. A write to a *different* configured instance is possible per call, but only through an explicit, guarded acknowledgement (below) — never a silent switch.
 
@@ -692,7 +694,7 @@ Beyond the confirm gate, every write runs through deterministic guards that bloc
 | Guard | Protects against | Override / toggle |
 |---|---|---|
 | Concurrent edit (G3/G8) | Blindly overwriting a record a **different user** edited within the last 10 min. Covers `sn_write`, `manage_portal_component`, and the `manage_*` update tools — including `manage_script_include`, `manage_flow_designer`, `manage_workflow`, `manage_kb_article`, `manage_portal_layout`, and `manage_widget_dependency`. Decided by a **live remote read** of `sys_updated_by`/`sys_updated_on` — never the local copy. | `SERVICENOW_CONCURRENT_EDIT_GUARD=off`; window via `SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN` (default `10`); fail-closed via `SERVICENOW_WRITE_GUARDS_FAIL=closed` |
-| Source push drift (baseline + update-set HOLD) | Pushing edited source back with `update_remote_from_local` adds two checks the time-window can't catch: a **time-independent** compare of the remote's current `sys_updated_on` against the value recorded at download (catches an overwrite hours or **days** later), and a live check for the record being **held in another user's uncommitted update set**. | `force=true` to push past a detected drift |
+| Source push drift (live anchor + update-set HOLD) | Pushing edited source back with `update_remote_from_local` adds two checks the time-window can't catch: a **time-independent** compare of the remote's current `sys_updated_on` against the value recorded at download (catches an overwrite hours or **days** later), and a live check for the record being **held in another user's uncommitted update set**. | `force=true` to push past a detected drift |
 | Duplicate create (G9) | Silently creating a second record with a name that already exists, on tables ServiceNow does not make unique (`sys_update_set`, `wf_workflow`, `sys_user_group`, `sys_user`). | pass `allow_duplicate='true'` to create anyway |
 | Flow Designer raw write (G6) | Raw `sn_write` to `sys_hub_*` tables that corrupt flow snapshots — forces `manage_flow_designer`. | — |
 | Publish-class (G7) | Accidental publish/commit/push — needs a second `confirm_publish='approve'`. | — |
@@ -843,10 +845,10 @@ Tools are raw API calls. Skills are what make your LLM actually useful — verif
 
 | | Tools Only | Tools + Skills |
 |---|---|---|
-| Safety | LLM decides | Gates enforced (snapshot → preview → apply) |
+| Safety | LLM decides | Gates enforced (diff → preview → confirm → apply) |
 | Tokens | Source dumps in context | Delegate to sub-agent, summary only |
 | Accuracy | LLM guesses tool order | Verified pipeline |
-| Rollback | Might forget | Snapshot mandatory |
+| Rollback | Might forget | Server-side version history (ServiceNow Versions tab / update sets) |
 
 ### Install Skills
 
@@ -864,7 +866,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills opencode
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills antigravity
 ```
 
-The installer downloads 24 skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
+The installer downloads the skill files from this repository's `skills/` directory and places them in a project-local LLM directory. No authentication or configuration needed.
 
 > If `servicenow-mcp-skills` is blocked by security policy on Windows, call it as a module instead — same behavior:
 >
@@ -889,11 +891,9 @@ The installer downloads 24 skill files from this repository's `skills/` director
 
 | Category | Skills | Purpose |
 |----------|--------|---------|
-| `analyze/` | 6 | Widget analysis, portal diagnosis, provider audit, dependency mapping, ESC audit, **local source audit** |
-| `fix/` | 3 | Widget patching (staged gates), debugging, code review |
-| `manage/` | 8 | Page layout, script includes, source export, **app source download**, changeset workflow, local sync, workflow management, **skill management** |
-| `deploy/` | 2 | Change request lifecycle, incident triage |
-| `explore/` | 5 | Health check, schema discovery, route tracing, flow trigger tracing, ESC catalog flow |
+| `analyze/` | 1 | **local source audit** — cross-references, dead code, execution order, HTML report |
+| `explore/` | 1 | **flow trigger tracing** — which workflows/flows fire when a table changes |
+| `manage/` | 2 | **app source download**, **local sync** (diff → push with conflict detection) |
 
 ### Skill Metadata
 
@@ -901,7 +901,7 @@ Each skill includes metadata that helps LLMs optimize execution:
 
 ```yaml
 context_cost: low|medium|high    # → high = delegate to sub-agent
-safety_level: none|confirm|staged # → staged = mandatory snapshot/preview/apply
+safety_level: none|confirm|staged # → staged = mandatory diff/preview/apply
 delegatable: true|false           # → can run in sub-agent to save context
 triggers: ["위젯 분석", "analyze widget"]  # → LLM trigger matching
 ```

@@ -194,8 +194,8 @@ Los proxies con inspección TLS (Zscaler y compañía) y el acceso bloqueado a P
 
 - **Autenticación por navegador** para entornos MFA/SSO (Okta, Entra ID, SAML, MFA)
 - **4 modos de autenticación**: Browser, Basic, OAuth, API Key
-- **65 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
-- **16 skills de flujo de trabajo** con compuertas de seguridad, delegación a sub-agentes y pipelines verificados
+- **66 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
+- **4 skills de flujo de trabajo** con compuertas de seguridad, delegación a sub-agentes y pipelines verificados
 - **Transporte Streamable HTTP** — mantén stdio como predeterminado, o expón `/mcp` para clientes y puentes con capacidad HTTP
 - **Auditoría de fuentes locales** con informe HTML, grafo de referencias cruzadas, detección de código muerto y conocimiento de dominio autogenerado
 - **Grafos de relaciones autoritativos en disco** — `_graph.json` (widget→Angular Provider, desde el M2M en vivo) y `_page_graph.json` (página→widget, desde `sp_instance`) permiten al LLM responder preguntas de dependencia sin conexión en lugar de volver a consultar la instancia
@@ -486,20 +486,22 @@ Encabezado predeterminado: `X-ServiceNow-API-Key` (personalizable con `--api-key
 
 Solo lectura (valores predeterminados seguros):
 
-| Paquete | Herramientas | Descripción |
-| :--- | :---: | :--- |
-| `none` | 0 | Perfil deshabilitado para desactivar herramientas intencionadamente |
-| `core` | 12 | Mínimo de solo lectura para salud, esquema, descubrimiento y búsquedas clave de artefactos |
-| `standard` | 27 | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de fuentes |
+| Paquete | Herramientas | ~Tokens | Descripción |
+| :--- | :---: | :---: | :--- |
+| `none` | 0 | 0 | Perfil deshabilitado para desactivar herramientas intencionadamente |
+| `core` | 12 | ~3.0K | Mínimo de solo lectura para salud, esquema, descubrimiento y búsquedas clave de artefactos |
+| `standard` | 29 | ~7.3K | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de fuentes |
 
 ⚠️ Con capacidad de escritura (avanzado — otorga create/update/delete):
 
-| Paquete | Herramientas | Descripción |
-| :--- | :---: | :--- |
-| `service_desk` | 29 | ⚠️ standard + escrituras operativas de incidentes y cambios |
-| `portal_developer` | 38 | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
-| `platform_developer` | 43 | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 57 | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
+| Paquete | Herramientas | ~Tokens | Descripción |
+| :--- | :---: | :---: | :--- |
+| `service_desk` | 31 | ~8.2K | ⚠️ standard + escrituras operativas de incidentes y cambios |
+| `portal_developer` | 41 | ~10.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
+| `platform_developer` | 41 | ~10.8K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
+| `full` | 55 | ~13.8K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
+
+> **~Tokens** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken `cl100k_base`; el conteo real de Claude varía ligeramente); usar el paquete más reducido ahorra contexto y costo.
 
 Cada proceso de servidor se vincula a una instancia de ServiceNow activa para las herramientas ordinarias. Una escritura hacia una instancia configurada *distinta* es posible por llamada, pero solo mediante un reconocimiento explícito y guardado (abajo) — nunca un cambio silencioso.
 
@@ -680,7 +682,7 @@ Más allá de la compuerta de confirmación, cada escritura pasa por guardas det
 | Guarda | Protege contra | Anulación / interruptor |
 |---|---|---|
 | Edición concurrente (G3/G8) | Sobrescribir a ciegas un registro que un **usuario diferente** editó en los últimos 10 min. Cubre `sn_write`, `manage_portal_component` y las herramientas de actualización `manage_*` — incluyendo `manage_script_include`, `manage_flow_designer`, `manage_workflow`, `manage_kb_article`, `manage_portal_layout` y `manage_widget_dependency`. Se decide mediante una **lectura remota en vivo** de `sys_updated_by`/`sys_updated_on` — nunca la copia local. | `SERVICENOW_CONCURRENT_EDIT_GUARD=off`; ventana mediante `SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN` (predeterminado `10`) |
-| Drift de push de fuente (baseline + HOLD de update-set) | Volver a empujar la fuente editada con `update_remote_from_local` añade dos comprobaciones que la ventana de tiempo no puede captar: una comparación **independiente del tiempo** del `sys_updated_on` actual del remoto contra el valor registrado en la descarga (capta una sobrescritura horas o **días** después), y una comprobación en vivo de que el registro esté **retenido en el update set sin confirmar de otro usuario**. | `force=true` para empujar más allá de un drift detectado |
+| Drift de push de fuente (ancla en vivo + HOLD de update-set) | Volver a empujar la fuente editada con `update_remote_from_local` añade dos comprobaciones que la ventana de tiempo no puede captar: una comparación **independiente del tiempo** del `sys_updated_on` actual del remoto contra el valor registrado en la descarga (capta una sobrescritura horas o **días** después), y una comprobación en vivo de que el registro esté **retenido en el update set sin confirmar de otro usuario**. | `force=true` para empujar más allá de un drift detectado |
 | Creación duplicada (G9) | Crear silenciosamente un segundo registro con un nombre que ya existe, en tablas que ServiceNow no hace únicas (`sys_update_set`, `wf_workflow`, `sys_user_group`, `sys_user`). | pasa `allow_duplicate='true'` para crear de todos modos |
 | Escritura cruda de Flow Designer (G6) | `sn_write` cruda a tablas `sys_hub_*` que corrompen los snapshots de flujo — fuerza `manage_flow_designer`. | — |
 | Clase de publicación (G7) | Publicación/commit/push accidental — necesita un segundo `confirm_publish='approve'`. | — |
@@ -830,10 +832,10 @@ Las herramientas son llamadas API en crudo. Las skills son lo que hace que tu LL
 
 | | Solo herramientas | Herramientas + Skills |
 |---|---|---|
-| Seguridad | El LLM decide | Compuertas aplicadas (snapshot → vista previa → aplicar) |
+| Seguridad | El LLM decide | Compuertas aplicadas (diff → vista previa → confirm → aplicar) |
 | Tokens | Volcados de fuente en el contexto | Delegar a sub-agente, solo resumen |
 | Precisión | El LLM adivina el orden de las herramientas | Pipeline verificado |
-| Rollback | Podría olvidarse | Snapshot obligatorio |
+| Rollback | Podría olvidarse | Historial de versiones del lado del servidor (pestaña Versions de ServiceNow / update sets) |
 
 ### Instalar Skills
 
@@ -851,7 +853,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills opencode
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills antigravity
 ```
 
-El instalador descarga 24 archivos de skill del directorio `skills/` de este repositorio y los coloca en un directorio LLM local del proyecto. Sin necesidad de autenticación ni configuración.
+El instalador descarga los archivos de skill del directorio `skills/` de este repositorio y los coloca en un directorio LLM local del proyecto. Sin necesidad de autenticación ni configuración.
 
 > Si la política de seguridad de Windows bloquea `servicenow-mcp-skills`, invócalo como módulo — mismo comportamiento:
 >
@@ -876,11 +878,9 @@ El instalador descarga 24 archivos de skill del directorio `skills/` de este rep
 
 | Categoría | Skills | Propósito |
 |----------|--------|---------|
-| `analyze/` | 6 | Análisis de widgets, diagnóstico de portal, auditoría de providers, mapeo de dependencias, auditoría ESC, **auditoría de fuentes locales** |
-| `fix/` | 3 | Parcheado de widgets (compuertas escalonadas), depuración, revisión de código |
-| `manage/` | 8 | Diseño de páginas, script includes, exportación de fuentes, **descarga de fuentes de app**, flujo de changeset, sincronización local, gestión de workflow, **gestión de skills** |
-| `deploy/` | 2 | Ciclo de vida de change request, triaje de incidentes |
-| `explore/` | 5 | Comprobación de salud, descubrimiento de esquema, trazado de rutas, trazado de disparadores de flujo, flujo de catálogo ESC |
+| `analyze/` | 1 | **auditoría de fuentes locales** — referencias cruzadas, código muerto, orden de ejecución, informe HTML |
+| `explore/` | 1 | **trazado de disparadores de flujo** — qué workflows/flujos se activan cuando cambia una tabla |
+| `manage/` | 2 | **descarga de fuentes de app**, **sincronización local** (diff → push con detección de conflictos) |
 
 ### Metadatos de skill
 
@@ -888,7 +888,7 @@ Cada skill incluye metadatos que ayudan a los LLM a optimizar la ejecución:
 
 ```yaml
 context_cost: low|medium|high    # → high = delegate to sub-agent
-safety_level: none|confirm|staged # → staged = mandatory snapshot/preview/apply
+safety_level: none|confirm|staged # → staged = mandatory diff/preview/apply
 delegatable: true|false           # → can run in sub-agent to save context
 triggers: ["위젯 분석", "analyze widget"]  # → LLM trigger matching
 ```

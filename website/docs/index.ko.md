@@ -313,23 +313,15 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <div class="skill-categories reveal-stagger">
       <div class="step-card" style="--i:1">
         <h3>🔍 analyze/</h3>
-        <p>5개 스킬 — 위젯 분석, 포털 진단, 로컬 소스 감사, provider 감사, ESC 페이지 감사</p>
+        <p>스킬 1개 — 로컬 소스 감사: 상호참조, 데드코드, 실행 순서, HTML 리포트</p>
       </div>
       <div class="step-card" style="--i:2">
-        <h3>🔧 fix/</h3>
-        <p>3개 스킬 — 안전망이 있는 위젯 패치, 디버깅, 코드 리뷰</p>
+        <h3>🧭 explore/</h3>
+        <p>스킬 1개 — 플로우 트리거 추적: 테이블 변경 시 어떤 워크플로우/플로우가 실행되는지</p>
       </div>
       <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
-        <p>5개 스킬 — 앱 소스 다운로드, 변경 집합(Changeset) 워크플로우, 로컬 동기화, 워크플로우 관리, 스킬 관리</p>
-      </div>
-      <div class="step-card" style="--i:4">
-        <h3>🚀 deploy/</h3>
-        <p>1개 스킬 — 변경 요청(CR) 수명주기</p>
-      </div>
-      <div class="step-card" style="--i:5">
-        <h3>🧭 explore/</h3>
-        <p>2개 스킬 — 플로우 트리거 추적, ESC 카탈로그 흐름</p>
+        <p>스킬 2개 — 앱 소스 다운로드, 로컬 동기화(diff → 충돌 탐지 후 푸시)</p>
       </div>
     </div>
   </div>
@@ -353,7 +345,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">70</span>
+    <span class="hero-stat-value">66</span>
     <span class="hero-stat-label">등록 도구</span>
   </div>
   <div class="hero-stat">
@@ -361,7 +353,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <span class="hero-stat-label">네이티브 지원</span>
   </div>
   <div class="hero-stat">
-    <span class="hero-stat-value">5</span>
+    <span class="hero-stat-value">3</span>
     <span class="hero-stat-label">스킬 패키지</span>
   </div>
   <div class="hero-stat">
@@ -394,7 +386,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>연결</h3>
-        <p>Claude, Cursor, Zed 또는 모든 MCP 클라이언트에 연결하세요. 등록 도구 70개가 활성 패키지 프로필을 통해 준비됩니다.</p>
+        <p>Claude, Cursor, Zed 또는 모든 MCP 클라이언트에 연결하세요. 등록 도구 66개가 활성 패키지 프로필을 통해 준비됩니다.</p>
       </div>
     </div>
   </div>

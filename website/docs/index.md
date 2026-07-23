@@ -312,23 +312,15 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <div class="skill-categories reveal-stagger">
       <div class="step-card" style="--i:1">
         <h3>🔍 analyze/</h3>
-        <p>5 skills — widget analysis, portal diagnosis, local source audit, provider audit, ESC page audit</p>
+        <p>1 skill — local source audit: cross-references, dead code, execution order, HTML report</p>
       </div>
       <div class="step-card" style="--i:2">
-        <h3>🔧 fix/</h3>
-        <p>3 skills — widget patching with staged safety gates, debugging, code review</p>
+        <h3>🧭 explore/</h3>
+        <p>1 skill — flow trigger tracing: which workflows/flows fire when a table changes</p>
       </div>
       <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
-        <p>5 skills — app source download, changeset workflow, local sync, workflow management, skill management</p>
-      </div>
-      <div class="step-card" style="--i:4">
-        <h3>🚀 deploy/</h3>
-        <p>1 skill — change request lifecycle</p>
-      </div>
-      <div class="step-card" style="--i:5">
-        <h3>🧭 explore/</h3>
-        <p>2 skills — flow trigger tracing, ESC catalog flow</p>
+        <p>2 skills — app source download, local sync (diff → push with conflict detection)</p>
       </div>
     </div>
   </div>
@@ -352,7 +344,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">70</span>
+    <span class="hero-stat-value">66</span>
     <span class="hero-stat-label">Registered Tools</span>
   </div>
   <div class="hero-stat">
@@ -360,7 +352,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <span class="hero-stat-label">Native Support</span>
   </div>
   <div class="hero-stat">
-    <span class="hero-stat-value">5</span>
+    <span class="hero-stat-value">3</span>
     <span class="hero-stat-label">Skill Categories</span>
   </div>
   <div class="hero-stat">
@@ -393,7 +385,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Connect</h3>
-        <p>Point Claude, Cursor, Zed, or any MCP client. 70 registered tools load through active package profiles.</p>
+        <p>Point Claude, Cursor, Zed, or any MCP client. 66 registered tools load through active package profiles.</p>
       </div>
     </div>
   </div>

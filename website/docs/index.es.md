@@ -312,23 +312,15 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <div class="skill-categories reveal-stagger">
       <div class="step-card" style="--i:1">
         <h3>🔍 analyze/</h3>
-        <p>5 skills — análisis de widgets, diagnóstico de portal, auditoría de fuentes locales, auditoría de proveedores, auditoría de páginas ESC</p>
+        <p>1 skill — auditoría de fuentes locales: referencias cruzadas, código muerto, orden de ejecución, informe HTML</p>
       </div>
       <div class="step-card" style="--i:2">
-        <h3>🔧 fix/</h3>
-        <p>3 skills — parcheo de widgets con controles de seguridad por etapas, depuración, revisión de código</p>
+        <h3>🧭 explore/</h3>
+        <p>1 skill — trazado de triggers de flujo: qué workflows/flujos se activan cuando cambia una tabla</p>
       </div>
       <div class="step-card" style="--i:3">
         <h3>📦 manage/</h3>
-        <p>5 skills — descarga de fuentes de la app, flujo de changesets, sincronización local, gestión de workflows, gestión de skills</p>
-      </div>
-      <div class="step-card" style="--i:4">
-        <h3>🚀 deploy/</h3>
-        <p>1 skill — ciclo de vida de change requests</p>
-      </div>
-      <div class="step-card" style="--i:5">
-        <h3>🧭 explore/</h3>
-        <p>2 skills — trazado de triggers de flujo, flujo del catálogo ESC</p>
+        <p>2 skills — descarga de fuentes de la app, sincronización local (diff → push con detección de conflictos)</p>
       </div>
     </div>
   </div>
@@ -352,7 +344,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">70</span>
+    <span class="hero-stat-value">66</span>
     <span class="hero-stat-label">Herramientas registradas</span>
   </div>
   <div class="hero-stat">
@@ -360,7 +352,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
     <span class="hero-stat-label">Soporte nativo</span>
   </div>
   <div class="hero-stat">
-    <span class="hero-stat-value">5</span>
+    <span class="hero-stat-value">3</span>
     <span class="hero-stat-label">Categorías de skills</span>
   </div>
   <div class="hero-stat">
@@ -393,7 +385,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Conectar</h3>
-        <p>Apunta Claude, Cursor, Zed o cualquier cliente MCP. 70 herramientas registradas se cargan mediante perfiles de paquete activos.</p>
+        <p>Apunta Claude, Cursor, Zed o cualquier cliente MCP. 66 herramientas registradas se cargan mediante perfiles de paquete activos.</p>
       </div>
     </div>
   </div>
