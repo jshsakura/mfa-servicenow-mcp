@@ -22,13 +22,21 @@ from pathlib import Path
 
 
 def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
-    """Write *content* to *path* atomically (temp file + os.replace)."""
+    """Write *content* to *path* atomically (temp file + os.replace).
+
+    ``newline=""`` disables the platform newline translation text mode applies by
+    default (``newline=None`` rewrites every ``\\n`` to ``os.linesep`` on write —
+    ``\\r\\n`` on Windows). Without it, an LF-normalized body silently re-expands to
+    CRLF on Windows, defeating ``normalize_source_eol`` and reintroducing whole-file
+    EOL noise into git/editor/cross-instance diffs. With it, ``content`` lands on
+    disk byte-for-byte on every OS, so a body normalized to LF stays LF everywhere.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     # Unique per process+thread so concurrent writers never collide on the temp.
     tmp = path.parent / f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
     try:
-        with open(tmp, "w", encoding=encoding) as handle:
+        with open(tmp, "w", encoding=encoding, newline="") as handle:
             handle.write(content)
         os.replace(tmp, path)
     except BaseException:
