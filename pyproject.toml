@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.21.3"
+version = "1.21.4"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,7 +30,11 @@ dependencies = [
     # breaking schema/transport/validation API would otherwise break a fresh
     # install with no code change here. We bind deeply to mcp's schema gen,
     # pydantic v2 model API, and httpx's 0.x transport — the riskiest surfaces.
-    "mcp[cli]>=1.27.0,<2",
+    # Floor at 1.28.1: <1.28.1 carries three high-sev advisories (WebSocket
+    # Host/Origin validation, HTTP-transport principal check, task-handler
+    # cross-client access). uvx/PyPI installs have no lockfile, so the floor is
+    # the only guard against a fresh install resolving a vulnerable 1.27.x.
+    "mcp[cli]>=1.28.1,<2",
     "requests>=2.32.4,<3",
     "pydantic>=2.0.0,<3",
     "python-dotenv>=1.0.0,<2",
