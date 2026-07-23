@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.21.8"
+version = "1.21.9"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -118,6 +118,14 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "--ignore=examples --cov=src/servicenow_mcp --cov-report=term-missing"
+markers = [
+    # Cosmetic / auto-generatable documentation consistency (mirror byte-equality,
+    # README count phrases, generated-doc equality). These must NOT gate the PyPI
+    # deploy — a stale translation count should never block shipping working code.
+    # CI runs them in a separate, non-blocking `docs` job; regenerate with
+    # `python scripts/regenerate_doc_counts.py` and resync mirrors.
+    "docs: documentation/count consistency (non-blocking for deploy)",
+]
 
 [tool.coverage.run]
 source = ["src/servicenow_mcp"]

@@ -13,6 +13,10 @@ from pathlib import Path
 
 import pytest
 
+# Cosmetic mirror-sync — never gate the PyPI deploy on it (see the `docs` marker
+# note in pyproject.toml). CI runs these in a separate non-blocking job.
+pytestmark = pytest.mark.docs
+
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = ROOT / "docs"
 WEBSITE_DIR = ROOT / "website" / "docs" / "docs"
