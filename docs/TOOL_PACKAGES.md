@@ -11,20 +11,22 @@ Start with the narrowest package that covers your work. Each step up adds write 
 
 Read-only — safe for any environment, no write tools:
 
-| Package | Tools | When to use |
-| :--- | :---: | :--- |
-| `core` | 12 | Minimal read-only: health, schema, discovery, key artifact lookups only |
-| `standard` | 27 | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
-| `none` | 0 | Intentionally disable all tools (testing, locked-down environments) |
+| Package | Tools | ~Tokens | When to use |
+| :--- | :---: | :---: | :--- |
+| `core` | 12 | ~3.0K | Minimal read-only: health, schema, discovery, key artifact lookups only |
+| `standard` | 29 | ~7.3K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `none` | 0 | 0 | Intentionally disable all tools (testing, locked-down environments) |
 
 ⚠️ Write-capable — **advanced options** that grant create/update/delete:
 
-| Package | Tools | When to use |
-| :--- | :---: | :--- |
-| `service_desk` | 29 | ⚠️ Service desk agents who need to update/close incidents and changes |
-| `portal_developer` | 39 | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
-| `platform_developer` | 39 | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
-| `full` | 53 | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
+| Package | Tools | ~Tokens | When to use |
+| :--- | :---: | :---: | :--- |
+| `service_desk` | 31 | ~8.2K | ⚠️ Service desk agents who need to update/close incidents and changes |
+| `portal_developer` | 41 | ~10.6K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
+| `platform_developer` | 41 | ~10.8K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
+| `full` | 55 | ~13.8K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
+
+> **~Tokens** is the approximate footprint each package's tool schemas add to the model's context per request (tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Prefer the narrowest package to keep context and cost down.
 
 All packages except `core` and `none` inherit `standard` read-only tools via `_extends`. See `config/tool_packages.yaml` for the full inheritance tree.
 
