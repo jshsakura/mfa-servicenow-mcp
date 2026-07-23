@@ -56,6 +56,8 @@ FOR EACH component with status = local_modified or conflict:
 Show unified diff (compact, never full source).
 
 - If `conflict_warning` is present, display it prominently
+- If the result lists a `.remote` sidecar for the component, a conflict mirror
+  exists on disk — see "Conflict resolution" below
 - Let user decide: push, skip, or re-download
 
 ### Step 3 — Push (user must confirm)
@@ -77,11 +79,26 @@ Show for each push:
 
 After all pushes, suggest: `git add . && git commit` to create a local checkpoint.
 
+## Conflict resolution (`.remote` mirror)
+
+When both local and remote changed, re-download does NOT overwrite your edits.
+It keeps your working file and writes a `<field>.remote.<ext>` sidecar holding the
+CURRENT server body next to it (an always-fresh mirror, refreshed every download).
+
+Resolve a conflict like this:
+1. Open both `<field>.<ext>` (your edits) and `<field>.remote.<ext>` (server body).
+2. Merge the server's changes INTO your working file — never the other way.
+3. Push the working file with `update_remote_from_local`. The mirror auto-clears
+   on the next successful reconcile.
+
+**NEVER edit or push a `*.remote.*` file** — it is the server's copy, not the
+component. `update_remote_from_local` hard-rejects it (it is a sidecar, not a field).
+
 ## ON ERROR
 
 | Error | Action |
 |-------|--------|
-| `CONFLICT` | Remote changed since download (by you/unattributed). Re-download, or `force=true` with explicit user approval |
+| `CONFLICT` | Remote changed since download (by you/unattributed). Re-download to get a fresh `.remote` mirror and merge (see "Conflict resolution"), or `force=true` with explicit user approval |
 | `CONFLICT_OTHER_USER` | A DIFFERENT user (`remote_updated_by`) edited it after your download. Show the user WHO + WHEN; recommend coordinating or re-downloading and re-applying. If the user still wants to overwrite that person's change, pass `force=true` |
 | `403 Forbidden` | Record may be locked to another user's open update set — check ACLs, update set scope, or API permissions |
 | `Component not found` | `_map.json` may be stale — re-download sources |
