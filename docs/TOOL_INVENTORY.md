@@ -15,10 +15,10 @@ It is documented below, but package counts in this file reflect the YAML-defined
 |---------|------:|-------------|
 | `none` | 0 | Disabled profile for intentionally turning tools off. |
 | `core` | 12 | Minimal read-only essentials for quick health/schema/table work. |
-| `standard` | 29 | Default read-only package across incidents, changes, portal, logs, and source analysis. |
-| `service_desk` | 31 | standard plus incident and change write workflows for operational support. |
+| `standard` | 30 | Default read-only package across incidents, changes, portal, logs, and source analysis. |
+| `service_desk` | 32 | standard plus incident and change write workflows for operational support. |
 | `portal_developer` | 42 | standard plus portal, changeset, script include, and local-sync delivery workflows. |
-| `platform_developer` | 41 | standard plus workflow, Flow Designer, UI policy, incident/change, and script writes. |
+| `platform_developer` | 42 | standard plus workflow, Flow Designer, UI policy, incident/change, and script writes. |
 | `full` | 56 | Broadest packaged surface: all manage_* workflows plus advanced operations. |
 
 ## Runtime-Injected Helpers
@@ -179,7 +179,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_scripted_rest` | W | CRUD Scripted REST services + resources (sys_ws_definition/sys_ws_operation). Use list/get to find sys_ids. | portal_developer, full |
+| `manage_scripted_rest` | W | CRUD Scripted REST services + resources (sys_ws_definition/sys_ws_operation). Use list/get to find sys_ids. | standard (get, list), portal_developer, platform_developer (get, list), service_desk (get, list), full |
 
 ### Scrum Task Tools (1)
 
