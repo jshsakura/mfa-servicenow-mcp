@@ -847,7 +847,7 @@ servicenow-mcp-skills antigravity
 uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 ```
 
-이 저장소의 `skills/` 디렉토리에서 스킬 파일들을 다운로드해 프로젝트 로컬 LLM 디렉토리에 설치합니다. 인증이나 별도 설정은 필요 없습니다.
+이 저장소의 `skills/` 디렉토리에서 4개 스킬 파일을 다운로드해 프로젝트 로컬 LLM 디렉토리에 설치합니다. 인증이나 별도 설정은 필요 없습니다.
 
 > Windows에서 `servicenow-mcp-skills`가 보안 정책에 막히면 모듈로 호출하세요 — 동일하게 동작합니다:
 >

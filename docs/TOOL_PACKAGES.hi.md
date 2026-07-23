@@ -14,17 +14,17 @@
 | Package | Tools | ~टोकन | कब उपयोग करें |
 | :--- | :---: | :---: | :--- |
 | `core` | 12 | ~3.0K | न्यूनतम केवल-पठन: केवल health, schema, discovery, और मुख्य artifact लुकअप |
-| `standard` | 29 | ~7.3K | **(डिफ़ॉल्ट)** incidents, changes, portal, logs, और source विश्लेषण में केवल-पठन |
+| `standard` | 30 | ~7.3K | **(डिफ़ॉल्ट)** incidents, changes, portal, logs, और source विश्लेषण में केवल-पठन |
 | `none` | 0 | 0 | जानबूझकर सभी टूल्स अक्षम करें (परीक्षण, प्रतिबंधित वातावरण) |
 
 ⚠️ लेखन-सक्षम — **उन्नत विकल्प** जो create/update/delete की अनुमति देते हैं:
 
 | Package | Tools | ~टोकन | कब उपयोग करें |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 31 | ~8.2K | ⚠️ सर्विस डेस्क एजेंट जिन्हें incidents और changes को अपडेट/बंद करने की आवश्यकता हो |
-| `portal_developer` | 41 | ~10.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
+| `service_desk` | 32 | ~8.2K | ⚠️ सर्विस डेस्क एजेंट जिन्हें incidents और changes को अपडेट/बंद करने की आवश्यकता हो |
+| `portal_developer` | 42 | ~10.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
 | `platform_developer` | 41 | ~10.8K | ⚠️ प्लेटफ़ॉर्म इंजीनियर जो workflows, Flow Designer, और scripts प्रबंधित करते हैं |
-| `full` | 55 | ~13.8K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
+| `full` | 56 | ~13.8K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
 
 > **~टोकन** = हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens (tiktoken cl100k_base आधार; वास्तविक Claude token संख्या थोड़ी भिन्न)। संकरे package से context और लागत बचती है।
 
