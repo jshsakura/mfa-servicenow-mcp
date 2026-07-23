@@ -27,6 +27,23 @@ def test_overwrites_completely(tmp_path):
     assert target.read_text(encoding="utf-8") == "new"
 
 
+def test_lf_is_not_re_expanded_to_crlf(tmp_path):
+    # newline="" must stop text mode from rewriting \n -> os.linesep on write, so
+    # an LF-normalized body stays LF on disk on every OS (regression: on Windows,
+    # newline=None re-expanded to CRLF and defeated normalize_source_eol).
+    target = tmp_path / "body.js"
+    atomic_write_text(target, "a\nb\nc\n")
+    assert target.read_bytes() == b"a\nb\nc\n"
+    assert b"\r" not in target.read_bytes()
+
+
+def test_content_written_byte_for_byte(tmp_path):
+    # No newline translation in either direction: mixed EOLs land verbatim.
+    target = tmp_path / "mixed.txt"
+    atomic_write_text(target, "a\nb\r\nc")
+    assert target.read_bytes() == b"a\nb\r\nc"
+
+
 def test_no_temp_file_left_after_success(tmp_path):
     target = tmp_path / "f.txt"
     atomic_write_text(target, "data")

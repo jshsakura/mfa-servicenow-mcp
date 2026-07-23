@@ -1757,8 +1757,9 @@ def _note_table_response(config: ServerConfig, table: str, response: Dict[str, A
 def _write_text_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # EOL canonicalized to LF so the same widget downloaded from two instances
-    # compares clean (no whole-file CRLF<->LF phantom diff).
-    path.write_text(normalize_source_eol(content), encoding="utf-8")
+    # compares clean (no whole-file CRLF<->LF phantom diff). newline="" keeps text
+    # mode from re-expanding the LF to CRLF on Windows (see atomic_write_text).
+    path.write_text(normalize_source_eol(content), encoding="utf-8", newline="")
 
 
 def _write_json_file(path: Path, payload: Any) -> None:
