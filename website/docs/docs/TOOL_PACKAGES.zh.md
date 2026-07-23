@@ -11,20 +11,22 @@
 
 只读 —— 对任何环境都安全，无写入工具：
 
-| 包 | 工具数 | 何时使用 |
-| :--- | :---: | :--- |
-| `core` | 12 | 极简只读：仅健康检查、schema、发现、关键工件查询 |
-| `standard` | 27 | **（默认）** 覆盖 incident、change、门户、日志和源码分析的只读 |
-| `none` | 0 | 有意禁用所有工具（测试、锁定环境） |
+| 包 | 工具数 | ~令牌 | 何时使用 |
+| :--- | :---: | :---: | :--- |
+| `core` | 12 | ~3.0K | 极简只读：仅健康检查、schema、发现、关键工件查询 |
+| `standard` | 30 | ~7.3K | **（默认）** 覆盖 incident、change、门户、日志和源码分析的只读 |
+| `none` | 0 | 0 | 有意禁用所有工具（测试、锁定环境） |
 
 ⚠️ 具备写入能力 —— 授予创建/更新/删除权限的**高级选项**：
 
-| 包 | 工具数 | 何时使用 |
-| :--- | :---: | :--- |
-| `service_desk` | 29 | ⚠️ 需要更新/关闭 incident 和 change 的服务台坐席 |
-| `portal_developer` | 39 | ⚠️ 部署 widget、变更集和 script include 的门户开发者 |
-| `platform_developer` | 39 | ⚠️ 管理工作流、Flow Designer 和脚本的平台工程师 |
-| `full` | 53 | ⚠️ 最高级 —— 同时启用所有领域的所有写入工具（见下方警告） |
+| 包 | 工具数 | ~令牌 | 何时使用 |
+| :--- | :---: | :---: | :--- |
+| `service_desk` | 32 | ~8.2K | ⚠️ 需要更新/关闭 incident 和 change 的服务台坐席 |
+| `portal_developer` | 42 | ~10.6K | ⚠️ 部署 widget、变更集和 script include 的门户开发者 |
+| `platform_developer` | 41 | ~10.8K | ⚠️ 管理工作流、Flow Designer 和脚本的平台工程师 |
+| `full` | 56 | ~13.8K | ⚠️ 最高级 —— 同时启用所有领域的所有写入工具（见下方警告） |
+
+> **~令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）。使用更窄的包可节省上下文与成本。
 
 除 `core` 和 `none` 外的所有包都通过 `_extends` 继承 `standard` 的只读工具。完整的继承树见 `config/tool_packages.yaml`。
 
