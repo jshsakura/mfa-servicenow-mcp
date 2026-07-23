@@ -104,6 +104,8 @@ portal_developer:
     - manage_workflow
     - manage_catalog
     - manage_ui_policy
+    # Scripted REST API CRUD (sys_ws_definition/sys_ws_operation)
+    - manage_scripted_rest
     # Portal debugging (specialized read — used by portal analysis/audit skills)
     - detect_angular_implicit_globals
     # Portal writes
@@ -176,6 +178,7 @@ full:
     - manage_portal_component
     - manage_widget_dependency
     - manage_ui_policy
+    - manage_scripted_rest
     # Change Management orchestrators (manage_change covers create/update/add_task)
     - submit_change_for_approval
     - approve_change
