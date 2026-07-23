@@ -295,8 +295,13 @@ class TestSkillIndex:
         assert len(broken) == 0, f"Broken links in SKILL.md: {broken}"
 
 
+@pytest.mark.docs
 class TestSkillDocsSync:
-    """Verify skill docs stay synced with live skill metadata/counts."""
+    """Verify skill docs stay synced with live skill metadata/counts.
+
+    Marked ``docs`` — README/site count phrasing is cosmetic and must not gate
+    the deploy; CI runs it in a separate non-blocking job.
+    """
 
     def test_output_enum_documented_in_index(self):
         content = (SKILLS_DIR / "SKILL.md").read_text(encoding="utf-8")

@@ -9,6 +9,12 @@ regenerating the inventory. Run:
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
+import pytest
+
+# Auto-generatable doc — a stale inventory is one command to fix, so it should
+# never block the deploy. Runs in CI's non-blocking `docs` job.
+pytestmark = pytest.mark.docs
+
 ROOT = Path(__file__).resolve().parents[1]
 DOC_PATH = ROOT / "docs" / "TOOL_INVENTORY.md"
 SCRIPT_PATH = ROOT / "scripts" / "regenerate_tool_inventory.py"

@@ -23,7 +23,7 @@ Read-only — safe for any environment, no write tools:
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 32 | ~8.2K | ⚠️ Service desk agents who need to update/close incidents and changes |
 | `portal_developer` | 42 | ~10.6K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
-| `platform_developer` | 41 | ~10.8K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
+| `platform_developer` | 42 | ~10.8K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
 | `full` | 56 | ~13.8K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
 
 > **~Tokens** is the approximate footprint each package's tool schemas add to the model's context per request (tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Prefer the narrowest package to keep context and cost down.
