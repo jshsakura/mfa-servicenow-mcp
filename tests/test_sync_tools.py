@@ -797,11 +797,58 @@ class TestUpdateRemoteFromLocal:
             mock_config, mock_auth, PushLocalComponentParams(path=str(path))
         )
 
-        assert result["message"] == "Update successful"
-        assert result["local_sync"]["fields_pushed"] == ["script"]
-        assert "snapshot" not in result["local_sync"]
         assert result["success"] is True
+        assert result["fields_pushed"] == ["script"]
+        assert result["sys_id"] == "wid-1"
         mock_update.assert_called_once()
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_push_success_ack_is_compact(
+        self, mock_fetch, mock_update, mock_write_meta, mock_config, mock_auth, download_root
+    ):
+        # A success returns no bodies (they are on disk), so it must not return
+        # packaging either: no prose that paraphrases its own fields, no echo of
+        # the caller's own input, no absolute path. Every key here is either a
+        # result, a handle, or a safety signal — that is the whole contract.
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 0;",
+                "sys_updated_on": "2025-01-10 10:00:00",
+            },
+            {"sys_id": "wid-1", "script": "var x = 1;", "sys_updated_on": "2025-01-10 11:00:00"},
+        ]
+        mock_update.return_value = {
+            "message": "Update successful",
+            "sys_id": "wid-1",
+            "fields": ["script"],
+            "validation": {
+                "verified_fields": ["script"],
+                "mismatched_fields": [],
+                "post_update_name": "my-widget",
+            },
+        }
+
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert set(result) == {
+            "success",
+            "landed",
+            "target_instance",
+            "sys_id",
+            "fields_pushed",
+            "risk_level",
+            "change_ratio",
+        }
+        assert result["risk_level"] == "none"  # nothing drifted → nothing at stake
+        # The local path the caller supplied is never echoed back at any depth.
+        assert str(download_root) not in json.dumps(result)
 
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
@@ -1214,7 +1261,7 @@ class TestUpdateRemoteFromLocal:
         )
 
         assert result["success"] is True
-        assert result["local_sync"]["fields_pushed"] == ["condition"]
+        assert result["fields_pushed"] == ["condition"]
         pushed_params = mock_update.call_args.args[2]
         assert pushed_params.table == "sys_script"
         assert "condition" in pushed_params.update_data
@@ -1586,8 +1633,8 @@ class TestUpdateRemoteFromLocal:
             mock_config, mock_auth, PushLocalComponentParams(path=str(path))
         )
 
-        assert result["message"] == "Update successful"
-        pushed = result["local_sync"]["fields_pushed"]
+        assert result["success"] is True
+        pushed = result["fields_pushed"]
         assert "template" in pushed
         assert "script" in pushed
 
@@ -2175,7 +2222,7 @@ class TestExtendedSyncCoverage:
             mock_config, mock_auth, PushLocalComponentParams(path=str(path))
         )
         # Should still succeed despite sync meta update failure
-        assert result["message"] == "Update successful"
+        assert result["success"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -2805,7 +2852,7 @@ class TestContentFirstDriftGate:
         )
 
         assert "error" not in result
-        assert result["risk"]["level"] == "none"
+        assert result["risk_level"] == "none"
         mock_update.assert_called_once()
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")

@@ -2565,21 +2565,49 @@ def update_remote_from_local(
     except OSError as e:
         logger.warning("Failed to clear stale mirror sidecars after push: %s", e)
 
-    # 6. Enrich result (reached only on a confirmed successful push). target_instance
-    #    is echoed at top level so the operator/LLM SEES which instance actually
-    #    received the write — the whole point of the multi-instance safety story is
-    #    that "where did it land" must never be implicit. landed reflects whether the
-    #    post-write re-read confirmed the content (True) or could not be verified
-    #    (re-read failed → "unverified"), never a bare optimistic success.
-    result["success"] = True
-    result["landed"] = True if fresh_remote is not None else "unverified"
-    result["target_instance"] = active
-    result["risk"] = risk
-    result["local_sync"] = {
-        "pushed_from": str(path),
+    # 6. Compact success ack (reached only on a confirmed successful push). This
+    #    tool returns no bodies — they live on disk — so everything past the
+    #    contract below was packaging, not information: prose that paraphrased its
+    #    own fields, an echo of the caller's own input, and the absolute path the
+    #    caller just passed in. Measured at ~278 tokens per success across the real
+    #    call corpus, for a result that says "it worked".
+    #
+    #    What stays is every SAFETY signal, in full:
+    #      landed          — verified landing (True) vs one we could not re-read
+    #                        ("unverified"); never a bare optimistic success.
+    #      target_instance — WHICH instance took the write. The multi-instance
+    #                        story rests on this never being implicit.
+    #      risk / warnings  — forwarded below whenever they carry something. They
+    #                        are rare by construction, so they cost nothing here.
+    ack: Dict[str, Any] = {
+        "success": True,
+        "landed": True if fresh_remote is not None else "unverified",
+        "target_instance": active,
+        "sys_id": resolved.sys_id,
         "fields_pushed": list(update_data.keys()),
-        "sync_meta_updated": True,
+        "risk_level": risk["level"],
+        "change_ratio": risk["change_ratio"],
     }
+    # A level above "none" on a SUCCESS means the caller forced this push over
+    # server-side drift (an unforced drift returned CONFLICT long before here).
+    # That is the one success where the detail — who moved it, what changed, how
+    # much — must stay readable instead of collapsing to a grade.
+    if risk["level"] != "none":
+        ack["risk"] = risk
+    # Our own landing verification could not run (the re-read failed), so the
+    # delegate's post-write check is the only evidence there is — forward what it
+    # found. When our re-read DID run it is the stricter, normalization-aware one,
+    # and any mismatch there already returned WRITE_NOT_LANDED above.
+    if fresh_remote is None:
+        validation = result.get("validation")
+        mismatched = validation.get("mismatched_fields") if isinstance(validation, dict) else None
+        if mismatched:
+            ack["fields_mismatched"] = [m.get("field") for m in mismatched]
+    # Genuine warnings from the delegate ride along untouched — an oversized
+    # payload or a pre-flight caveat is exactly what a compact ack must not eat.
+    for warning_key in ("size_warnings", "pre_flight_warnings", "update_set_warning"):
+        if result.get(warning_key):
+            ack[warning_key] = result[warning_key]
     if not resolved.instance_url:
-        result["origin_unverified"] = _ORIGIN_UNVERIFIED_MSG
-    return result
+        ack["origin_unverified"] = _ORIGIN_UNVERIFIED_MSG
+    return ack
