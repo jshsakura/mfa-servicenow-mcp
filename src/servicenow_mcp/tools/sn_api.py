@@ -73,6 +73,45 @@ def strip_empty_fields(record: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in record.items() if v is not None and v != "" and v != {} and v != []}
 
 
+# Columnar encoding for multi-row results. On the real-usage corpus (12,936
+# calls) ~28.7% of a multi-row sn_query payload's bytes are the field-name keys
+# repeated once per row; emitting the keys ONCE as `columns` and each record as
+# a positional array in `data` reclaims them (measured ~18% off multi-row
+# bodies). This is the DEFAULT for >= _COLUMNAR_MIN_ROWS rows — the `format:
+# "columnar"` marker + the `columns` header make the shape self-describing.
+# Single/small results stay as dicts (columnar only pays on many rows, and the
+# per-row dict reads more naturally for a one-off record).
+_COLUMNAR_MIN_ROWS = 3
+
+
+def to_columnar(
+    rows: List[Dict[str, Any]], preferred_order: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """Re-encode a list of (possibly ragged) record dicts as {columns, data}.
+
+    Columns are ordered by ``preferred_order`` (the queried field list) for the
+    fields that actually appear, then any remaining keys in first-seen order —
+    so the shape is deterministic and mirrors what the caller asked for. A field
+    absent from a record (``strip_empty_fields`` dropped it) becomes ``None`` in
+    that row's array, which the caller reads as "empty for this record" exactly
+    like a missing dict key.
+    """
+    seen: "OrderedDict[str, None]" = OrderedDict()
+    for name in preferred_order or []:
+        key = name.strip()
+        if key:
+            seen.setdefault(key, None)
+    for row in rows:
+        for key in row:
+            seen.setdefault(key, None)
+    # Keep only columns present in at least one row (preferred_order may name
+    # fields the table didn't return), preserving the established order.
+    present = {k for row in rows for k in row}
+    columns = [c for c in seen if c in present]
+    data = [[row.get(c) for c in columns] for row in rows]
+    return {"columns": columns, "data": data}
+
+
 def truncate_results(
     results: List[Dict[str, Any]],
     max_len: int = 50000,
@@ -312,6 +351,68 @@ def invalidate_query_cache(*, table: Optional[str] = None) -> int:
         for key in keys_to_delete:
             del _query_cache[key]
         return len(keys_to_delete)
+
+
+# ---------------------------------------------------------------------------
+# General-purpose keyed TTL cache for EXPENSIVE read-tool results (e.g. a flow
+# get_detail full-tree dump). Kept separate from _query_cache so read-tool
+# entries never evict hot query pages and the two invalidate independently.
+# Keys are namespaced — (namespace, *caller_key) — so a write can clear one
+# tool's entries by namespace without touching another's. Only ever populate
+# with SUCCESSFUL reads; a cached error would outlive the transient that caused
+# it. Callers MUST invalidate the namespace whenever a write could change what
+# the read returns — TTL alone bounds external drift, not the caller's OWN edit.
+# ---------------------------------------------------------------------------
+
+_READ_CACHE_MAX_ENTRIES = 128
+_READ_CACHE_TTL_SECONDS = 60.0
+_read_cache: "OrderedDict[tuple, tuple[float, float, Any]]" = OrderedDict()
+_read_cache_lock = threading.Lock()
+
+
+def read_cache_get(namespace: str, key: tuple) -> Optional[Any]:
+    """Return the cached value for (namespace, *key), or None if absent/expired."""
+    full = (namespace, *key)
+    with _read_cache_lock:
+        entry = _read_cache.get(full)
+        if entry is None:
+            return None
+        ts, ttl, value = entry
+        if time.monotonic() - ts > ttl:
+            del _read_cache[full]
+            return None
+        _read_cache.move_to_end(full)
+        return value
+
+
+def read_cache_put(
+    namespace: str, key: tuple, value: Any, *, ttl: float = _READ_CACHE_TTL_SECONDS
+) -> None:
+    full = (namespace, *key)
+    with _read_cache_lock:
+        if full in _read_cache:
+            _read_cache[full] = (time.monotonic(), ttl, value)
+            _read_cache.move_to_end(full)
+            return
+        if len(_read_cache) >= _READ_CACHE_MAX_ENTRIES:
+            _read_cache.popitem(last=False)
+        _read_cache[full] = (time.monotonic(), ttl, value)
+
+
+def invalidate_read_cache(namespace: Optional[str] = None) -> int:
+    """Drop cached read-tool results. One namespace, or all when None.
+
+    Returns the number of removed entries.
+    """
+    with _read_cache_lock:
+        if namespace is None:
+            removed = len(_read_cache)
+            _read_cache.clear()
+            return removed
+        keys = [k for k in _read_cache if k and k[0] == namespace]
+        for k in keys:
+            del _read_cache[k]
+        return len(keys)
 
 
 def sn_query_page(
@@ -1370,14 +1471,22 @@ def sn_query(
         compact = [strip_empty_fields(row) for row in result]
         safe_result, budget_notice = truncate_results(compact)
 
+        queried_fields = (safe_fields or "").split(",") if safe_fields else []
         response_data: Dict[str, Any] = {
             "success": True,
             "table": params.table,
-            "queried_fields": (safe_fields or "").split(",") if safe_fields else [],
+            "queried_fields": queried_fields,
             "total_count": total_count if total_count is not None else len(result),
             "count": len(safe_result),
-            "results": safe_result,
         }
+        # Columnar re-encode reclaims the repeated per-row field keys on multi-row
+        # results (the default above _COLUMNAR_MIN_ROWS). Small results stay as
+        # dicts — columnar only pays on many rows.
+        if len(safe_result) >= _COLUMNAR_MIN_ROWS:
+            response_data["format"] = "columnar"
+            response_data["results"] = to_columnar(safe_result, queried_fields)
+        else:
+            response_data["results"] = safe_result
         notices: List[str] = []
         if safety_notice:
             notices.append(safety_notice)
