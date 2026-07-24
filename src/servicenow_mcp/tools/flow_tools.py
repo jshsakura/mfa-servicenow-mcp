@@ -16,6 +16,7 @@ from typing import Any, ClassVar, Dict, Literal, Optional, cast
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.tools.sn_api import invalidate_read_cache, read_cache_get, read_cache_put
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -355,11 +356,34 @@ def _do_list(
     )
 
 
+# get_detail is the corpus's single heaviest read (avg ~4.2K tokens, and during a
+# migration the SAME flow's full-tree dump is re-fetched repeatedly). Cache the
+# SUCCESSFUL result per (instance, flow_id, options) so an identical re-read
+# inside the TTL costs nothing. Any non-read action clears the namespace (see
+# manage_flow_designer, which reuses the module-level _READ_ACTIONS set) so a
+# cached tree never masks the caller's own edit. edit_status stays a "read" —
+# it inspects a LOCAL checkout file and never changes the server flow.
+_FLOW_DETAIL_NS = "flow_detail"
+
+
 def _do_get_detail(
     config: ServerConfig, auth_manager: AuthManager, p: ManageFlowDesignerParams
 ) -> Dict[str, Any]:
     assert p.flow_id is not None  # guaranteed by _validate_per_action
-    return get_flow_details(
+    key = (
+        config.instance_url,
+        p.flow_id,
+        p.include_structure,
+        p.include_triggers,
+        p.include_executions_summary,
+        p.trace_pill,
+        p.include_subflow_tree,
+        p.summary_format,
+    )
+    cached = read_cache_get(_FLOW_DETAIL_NS, key)
+    if cached is not None:
+        return cached
+    result = get_flow_details(
         config,
         auth_manager,
         GetFlowDetailsParams(
@@ -372,6 +396,10 @@ def _do_get_detail(
             summary_format=p.summary_format,
         ),
     )
+    # Never cache a failure — a transient error must not outlive its cause.
+    if isinstance(result, dict) and result.get("success") is not False:
+        read_cache_put(_FLOW_DETAIL_NS, key, result)
+    return result
 
 
 def _do_get_executions(
@@ -533,6 +561,10 @@ def manage_flow_designer(
     params: ManageFlowDesignerParams,
 ) -> Dict[str, Any]:
     """Dispatch to the underlying implementation by action."""
+    # A write may change any flow's structure; clear cached get_detail trees so
+    # the next read reflects the edit rather than a stale pre-write snapshot.
+    if params.action not in _READ_ACTIONS:
+        invalidate_read_cache(_FLOW_DETAIL_NS)
     handler = _DISPATCH.get(params.action)
     if handler is not None:
         return handler(config, auth_manager, params)
