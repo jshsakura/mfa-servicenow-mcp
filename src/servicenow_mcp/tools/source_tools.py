@@ -55,6 +55,7 @@ from servicenow_mcp.utils.sync_anchor import (
     IN_SYNC_OUTCOMES,
     LEGACY_KEPT,
     REFRESHED,
+    SyncMeta,
 )
 from servicenow_mcp.utils.sync_anchor import field_sha as _field_sha
 from servicenow_mcp.utils.sync_anchor import (
@@ -2719,7 +2720,7 @@ def _download_source_types(
 
         type_dir = scope_root / table
         name_map: Dict[str, str] = {}
-        sync_meta: Dict[str, Dict[str, str]] = {}
+        sync_meta: SyncMeta = {}
         # Collision net: two records mapping to one folder means one body + sys_id
         # silently overwrites the other (the download looks complete but is
         # scrambled). folder_qualifier_field prevents this for tables whose name is

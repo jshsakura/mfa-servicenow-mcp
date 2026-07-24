@@ -24,13 +24,22 @@ from __future__ import annotations
 import hashlib
 import shutil
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 from servicenow_mcp.utils.atomic_io import atomic_write_text
 from servicenow_mcp.utils.source_layout import normalize_source_eol
 
 MIRROR_MARKER = ".remote"
 LEGACY_BASELINE_DIRNAME = "_baseline"
+
+# One component's _sync_meta entry: the scalar stamps (sys_id, sys_updated_on,
+# sys_updated_by, sys_mod_count, downloaded_at) AND the nested per-field sha map
+# under "field_shas". The value type is a genuine union, so it is Any by
+# construction — typing it as str made every field_shas read a type error at the
+# call sites that produce and consume the anchor.
+SyncMetaEntry = Dict[str, Any]
+# name -> entry, as stored in a table dir's _sync_meta.json.
+SyncMeta = Dict[str, SyncMetaEntry]
 
 
 def sweep_legacy_baseline(component_dir: Path) -> None:
