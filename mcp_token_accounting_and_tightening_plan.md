@@ -55,6 +55,8 @@
 ## 3. 다음 조임 — 우선순위 (더 짜기)
 
 ### T1. #2 update_remote 성공 payload 트림 `[저노력·최대 즉시실현 549K]`
+> 📄 **구현 스펙 별도 문서: `mcp_next_win_update_remote_trim_spec.md`**
+> (자체 완결형 — 현재 구조/목표 shape/절차/테스트 영향/검증법. 원격에서 이것만 보고 작업 가능)
 - `sync_tools.py`(유지보수자 mid-edit — **본인 반영**). 성공경로만.
 - 버림: `risk` 산문중복(message==factors)·`validation` 에코·`local_sync.pushed_from` 절대경로·
   `instance_target`·`update_set_context`. 유지: success/landed/target_instance/sys_id/
