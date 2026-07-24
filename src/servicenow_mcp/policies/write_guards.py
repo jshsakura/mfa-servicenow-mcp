@@ -912,12 +912,13 @@ def update_set_context(
                 f"{ctx.get('record_scope')}. Another session may have changed your current "
                 "update set — verify this is the intended target."
             )
-        else:
-            if aligned is True:
-                ctx["aligned"] = True
-            ctx["note"] = (
-                f"Captured into update set '{ctx['update_set']}' (scope {ctx['update_set_scope']})."
-            )
+        elif aligned is True:
+            ctx["aligned"] = True
+        # No note in the benign case: it only ever restated update_set and
+        # update_set_scope, which are right here. A note in this stamp MEANS
+        # "something is off" — spending it on "everything is fine" both costs
+        # every single write and dulls the two cases above, which are the ones
+        # that must read as alarming.
         return ctx
     except Exception:
         logger.debug("update_set_context computation failed", exc_info=True)

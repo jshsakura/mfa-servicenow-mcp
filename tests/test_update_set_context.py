@@ -58,8 +58,9 @@ def test_aligned_is_quiet():
     assert ctx["aligned"] is True
     assert ctx["update_set"] == "BPM Dev"
     assert ctx["record_scope"] == "BPM"
-    assert "⚠" not in ctx["note"]
-    assert "Captured into" in ctx["note"]
+    # Nothing is off, so the stamp says nothing beyond the facts — a `note` here
+    # is reserved for the cases that need a second look (Default / mismatch).
+    assert "note" not in ctx
 
 
 def test_scope_mismatch_is_loud():
@@ -138,7 +139,7 @@ def test_record_unresolvable_gives_base_awareness():
     assert ctx["update_set_scope"] == "BPM"
     assert "record_scope" not in ctx  # couldn't resolve → no comparison
     assert "aligned" not in ctx
-    assert "Captured into" in ctx["note"]
+    assert "note" not in ctx  # nothing to flag — the two fields ARE the awareness
 
 
 def test_no_current_update_set_returns_none():
