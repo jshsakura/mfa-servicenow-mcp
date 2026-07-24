@@ -19,7 +19,13 @@ from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from ..utils.sync_anchor import cleanup_mirror, field_sha, is_mirror_artifact, mirror_path_for
+from ..utils.sync_anchor import (
+    SyncMeta,
+    cleanup_mirror,
+    field_sha,
+    is_mirror_artifact,
+    mirror_path_for,
+)
 from .portal_tools import (
     UpdatePortalComponentParams,
     _fetch_portal_component_record,
@@ -340,7 +346,7 @@ _ORIGIN_UNVERIFIED_MSG = (
 )
 
 
-def _read_sync_meta(table_dir: Path) -> Dict[str, Dict[str, str]]:
+def _read_sync_meta(table_dir: Path) -> SyncMeta:
     """Read _sync_meta.json from a table directory. Returns empty dict if missing."""
     path = table_dir / "_sync_meta.json"
     if not path.exists():
@@ -493,7 +499,7 @@ def _read_map_json(table_dir: Path) -> Dict[str, str]:
         return {}
 
 
-def _write_sync_meta(table_dir: Path, meta: Dict[str, Dict[str, str]]) -> None:
+def _write_sync_meta(table_dir: Path, meta: SyncMeta) -> None:
     """Write _sync_meta.json to a table directory."""
     path = table_dir / "_sync_meta.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1088,7 +1094,7 @@ def _scan_download_root(
     # dir's ids first, fetch ALL tables' timestamps in one batch round trip,
     # then judge per component. Previously each (table, dir) paid its own
     # batch call — T round trips for a T-table scope (issue #68 item 1).
-    dir_entries: List[Tuple[str, Path, Dict[str, str], Dict[str, Dict[str, str]]]] = []
+    dir_entries: List[Tuple[str, Path, Dict[str, str], SyncMeta]] = []
     ids_by_table: Dict[str, List[str]] = {}
     for table_name in sorted(_all_supported_tables()):
         for table_dir in _find_table_dirs(root, table_name):
