@@ -22,7 +22,7 @@ from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_fil
 from ..utils.progress import emit_progress
 from ..utils.registry import register_tool
 from ..utils.source_layout import FIELD_FILENAME, field_filename, normalize_source_eol
-from ..utils.sync_anchor import CONFLICT_MIRRORED, KEPT_LOCAL, REFRESHED
+from ..utils.sync_anchor import CONFLICT_MIRRORED, KEPT_LOCAL, REFRESHED, SyncMeta
 from ..utils.sync_anchor import field_sha as _field_sha
 from ..utils.sync_anchor import reconcile_field, sweep_legacy_baseline
 from ..utils.workspace_roots import known_download_roots, record_download_root
@@ -3241,7 +3241,7 @@ def _download_linked_script_includes(
     conflict/kept/refreshed bookkeeping stays shared. Returns the exported list.
     """
     si_map: Dict[str, str] = {}
-    si_sync_meta: Dict[str, Dict[str, str]] = {}
+    si_sync_meta: SyncMeta = {}
     exported: List[Dict[str, str]] = []
     if candidates:
         if emit_phases:
@@ -3582,7 +3582,7 @@ def download_portal_sources(
         label="sp_widget",
     )
     _now_iso = datetime.now(UTC).isoformat()
-    _widget_sync_meta: Dict[str, Dict[str, str]] = {}
+    _widget_sync_meta: SyncMeta = {}
     for widget in widgets:
         _wid = str(widget.get("id") or widget.get("name") or widget.get("sys_id") or "")
         # Out-of-sync widgets (kept local edits / conflicts) keep their PRIOR
@@ -3607,7 +3607,7 @@ def download_portal_sources(
 
     provider_map: Dict[str, str] = {}
     provider_name_by_sys_id: Dict[str, str] = {}
-    _provider_sync_meta: Dict[str, Dict[str, str]] = {}
+    _provider_sync_meta: SyncMeta = {}
     exported_providers: List[Dict[str, str]] = []
     # widget sys_id -> [provider sys_id] from the authoritative M2M (not code text)
     widget_provider_edges_by_sys_id: Dict[str, List[str]] = {}
