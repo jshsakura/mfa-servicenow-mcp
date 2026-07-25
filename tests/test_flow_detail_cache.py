@@ -13,6 +13,7 @@ import servicenow_mcp.tools.sn_api as sn_api
 from servicenow_mcp.tools.flow_tools import (
     ManageFlowDesignerParams,
     _do_get_detail,
+    _resolve_flow_id_by_name,
     manage_flow_designer,
 )
 
@@ -130,3 +131,82 @@ def test_read_action_does_not_invalidate():
         )
         _do_get_detail(_cfg(), MagicMock(), read_p)  # still cached
     assert gfd.call_count == 1
+
+
+# --- RANK1: get_detail by name (server-side resolve, kills the list→pick→get hop)
+
+
+def test_get_detail_accepts_flow_name_without_flow_id():
+    # The whole point: no flow_id, just a name — validation must allow it.
+    p = ManageFlowDesignerParams(action="get_detail", flow_name="My Flow")
+    assert p.flow_id is None and p.flow_name == "My Flow"
+
+
+def test_get_detail_requires_flow_id_or_name():
+    with pytest.raises(ValueError, match="flow_id or flow_name"):
+        ManageFlowDesignerParams(action="get_detail")
+
+
+def test_resolve_name_unique_hit_returns_sys_id():
+    rows = [{"sys_id": "F9", "name": "My Flow", "type": "flow", "active": "true"}]
+    with patch("servicenow_mcp.tools.flow_tools.sn_query_page", return_value=(rows, None)) as q:
+        out = _resolve_flow_id_by_name(_cfg(), MagicMock(), "My Flow")
+    assert out == {"sys_id": "F9"}
+    # exact match query is tried FIRST (name=), so one call suffices.
+    assert q.call_args_list[0].kwargs["query"] == "name=My Flow"
+
+
+def test_resolve_name_ambiguous_returns_candidates():
+    rows = [
+        {"sys_id": "A", "name": "Order Flow", "type": "flow", "active": "true"},
+        {"sys_id": "B", "name": "Order Flow", "type": "subflow", "active": "false"},
+    ]
+    with patch("servicenow_mcp.tools.flow_tools.sn_query_page", return_value=(rows, None)):
+        out = _resolve_flow_id_by_name(_cfg(), MagicMock(), "Order Flow")
+    assert out["success"] is False
+    assert "ambiguous" in out["error"] or "matched" in out["error"]
+    assert {c["sys_id"] for c in out["candidates"]} == {"A", "B"}
+
+
+def test_resolve_name_not_found():
+    with patch("servicenow_mcp.tools.flow_tools.sn_query_page", return_value=([], None)):
+        out = _resolve_flow_id_by_name(_cfg(), MagicMock(), "Nope")
+    assert out["success"] is False
+    assert "No flow found" in out["error"]
+
+
+def test_get_detail_by_name_resolves_then_fetches_and_caches_by_sys_id():
+    # get_detail(flow_name) resolves to a sys_id, fetches once, and a later
+    # get_detail(flow_id=<that sys_id>) hits the SAME cache entry — no re-fetch.
+    rows = [{"sys_id": "F9", "name": "My Flow", "type": "flow", "active": "true"}]
+    ok = {"success": True, "name": "My Flow"}
+    with (
+        patch("servicenow_mcp.tools.flow_tools.sn_query_page", return_value=(rows, None)) as q,
+        patch("servicenow_mcp.tools.flow_tools.get_flow_details", return_value=ok) as gfd,
+    ):
+        by_name = _do_get_detail(
+            _cfg(), MagicMock(), ManageFlowDesignerParams(action="get_detail", flow_name="My Flow")
+        )
+        by_id = _do_get_detail(
+            _cfg(), MagicMock(), ManageFlowDesignerParams(action="get_detail", flow_id="F9")
+        )
+    assert by_name == by_id == ok
+    assert gfd.call_count == 1  # name + sys_id share one cache entry
+    assert gfd.call_args.kwargs == {} and gfd.call_args.args[2].flow_id == "F9"
+    q.assert_called_once()  # resolve happened exactly once (before the cache hit)
+
+
+def test_get_detail_by_name_ambiguous_short_circuits_before_fetch():
+    rows = [
+        {"sys_id": "A", "name": "Dup", "type": "flow", "active": "true"},
+        {"sys_id": "B", "name": "Dup", "type": "flow", "active": "true"},
+    ]
+    with (
+        patch("servicenow_mcp.tools.flow_tools.sn_query_page", return_value=(rows, None)),
+        patch("servicenow_mcp.tools.flow_tools.get_flow_details") as gfd,
+    ):
+        out = _do_get_detail(
+            _cfg(), MagicMock(), ManageFlowDesignerParams(action="get_detail", flow_name="Dup")
+        )
+    assert out["success"] is False and out["candidates"]
+    gfd.assert_not_called()  # never fetch on an ambiguous name
