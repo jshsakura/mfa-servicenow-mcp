@@ -21,6 +21,7 @@ from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
 from .flow_designer_tools import (
+    FLOW_TABLE,
     CompareFlowsParams,
     GetActionSourceParams,
     GetFlowDetailsParams,
@@ -35,6 +36,7 @@ from .flow_designer_tools import (
     update_flow_designer,
 )
 from .flow_edit_tools import ManageFlowEditParams, manage_flow_edit
+from .sn_api import sn_query_page
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +65,8 @@ _EDIT_ACTIONS = frozenset(
 )
 _NEEDS_FLOW_ID = frozenset(
     {
-        "get_detail",
+        # get_detail is intentionally NOT here — it accepts flow_id OR flow_name
+        # (see _validate_per_action + _resolve_flow_id_by_name).
         "get_executions",
         "update",
         "checkout",
@@ -97,7 +100,7 @@ class ManageFlowDesignerParams(BaseModel):
 
     Required per action:
       list:                  (none — all optional; flow_type=action|playbook|decision lists those tabs)
-      get_detail:            flow_id
+      get_detail:            flow_id OR flow_name
       get_executions:        flow_id (or context_id for single execution)
       compare:               flow_id_a|name_a AND flow_id_b|name_b
       update:                flow_id + at least one of new_name/description/active
@@ -144,7 +147,7 @@ class ManageFlowDesignerParams(BaseModel):
     # ---- Common ----
     flow_id: Optional[str] = Field(
         default=None,
-        description="Flow sys_id; required for get_detail/get_executions/update/edit",
+        description="Flow sys_id; get_detail also accepts flow_name instead",
     )
     limit: int = Field(default=20, description="Max records")
     offset: int = Field(default=0, description="Pagination offset")
@@ -179,7 +182,10 @@ class ManageFlowDesignerParams(BaseModel):
     context_id: Optional[str] = Field(
         default=None, description="Execution sys_id (sys_flow_context)"
     )
-    flow_name: Optional[str] = Field(default=None, description="Flow name contains-match")
+    flow_name: Optional[str] = Field(
+        default=None,
+        description="Flow name: get_detail exact/contains lookup, or executions filter",
+    )
     exec_state: Optional[str] = Field(
         default=None, description="Complete/Error/Waiting/Cancelled/In Progress"
     )
@@ -238,6 +244,7 @@ class ManageFlowDesignerParams(BaseModel):
         "get_detail": frozenset(
             {
                 "flow_id",
+                "flow_name",
                 "include_structure",
                 "include_triggers",
                 "include_executions_summary",
@@ -284,6 +291,9 @@ class ManageFlowDesignerParams(BaseModel):
 
         if action in _NEEDS_FLOW_ID and not self.flow_id:
             raise ValueError(f"flow_id is required for action='{action}'")
+
+        if action == "get_detail" and not (self.flow_id or self.flow_name):
+            raise ValueError("get_detail requires flow_id or flow_name")
 
         if action == "compare":
             if not (self.flow_id_a or self.name_a):
@@ -366,13 +376,72 @@ def _do_list(
 _FLOW_DETAIL_NS = "flow_detail"
 
 
+def _resolve_flow_id_by_name(
+    config: ServerConfig, auth_manager: AuthManager, name: str
+) -> Dict[str, Any]:
+    """Resolve a flow NAME to its sys_id server-side, so get_detail need not be
+    preceded by a list dump the caller reads a sys_id out of (3 round trips → 1).
+
+    Exact match is tried before a contains match — a substring must never silently
+    pick the wrong flow. Returns ``{"sys_id": ...}`` on a unique hit, or a
+    caller-actionable error dict (not found / ambiguous + candidates) otherwise.
+    Never raises; a query failure reads as not-found so get_detail stays a read.
+    """
+    name = (name or "").strip()
+    if not name:
+        return {"success": False, "error": "flow_name is empty"}
+    for query in (f"name={name}", f"nameLIKE{name}"):
+        records, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_TABLE,
+            query=query,
+            fields="sys_id,name,type,active,sys_scope",
+            limit=11,
+            offset=0,
+            display_value=True,
+            fail_silently=True,
+        )
+        if not records:
+            continue
+        if len(records) == 1:
+            return {"sys_id": str(records[0].get("sys_id") or "")}
+        return {
+            "success": False,
+            "error": (
+                f"flow_name '{name}' matched {len(records)}{'+' if len(records) > 10 else ''} "
+                "flows — pass flow_id (from candidates) to disambiguate."
+            ),
+            "candidates": [
+                {
+                    "sys_id": r.get("sys_id"),
+                    "name": r.get("name"),
+                    "type": r.get("type"),
+                    "active": r.get("active"),
+                    "scope": r.get("sys_scope"),
+                }
+                for r in records[:10]
+            ],
+        }
+    return {"success": False, "error": f"No flow found with name '{name}'"}
+
+
 def _do_get_detail(
     config: ServerConfig, auth_manager: AuthManager, p: ManageFlowDesignerParams
 ) -> Dict[str, Any]:
-    assert p.flow_id is not None  # guaranteed by _validate_per_action
+    # flow_id or flow_name is guaranteed by _validate_per_action. When only a name
+    # is given, resolve it to a sys_id here — the cache and the fetch both key on
+    # the sys_id, so a name and its sys_id share one cache entry.
+    flow_id = p.flow_id
+    if not flow_id:
+        resolved = _resolve_flow_id_by_name(config, auth_manager, p.flow_name or "")
+        if "sys_id" not in resolved:
+            return resolved  # not found / ambiguous — hand the caller the candidates
+        flow_id = str(resolved["sys_id"])
+    assert flow_id  # p.flow_id or a resolved sys_id — never None past here
     key = (
         config.instance_url,
-        p.flow_id,
+        flow_id,
         p.include_structure,
         p.include_triggers,
         p.include_executions_summary,
@@ -387,7 +456,7 @@ def _do_get_detail(
         config,
         auth_manager,
         GetFlowDetailsParams(
-            flow_id=p.flow_id,
+            flow_id=flow_id,
             include_structure=p.include_structure,
             include_triggers=p.include_triggers,
             include_executions_summary=p.include_executions_summary,
