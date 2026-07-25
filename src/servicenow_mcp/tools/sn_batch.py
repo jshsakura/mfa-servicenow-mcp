@@ -51,8 +51,11 @@ def batch_get(
     ``requests_by_id``: (id, relative_url) pairs — relative_url like
     ``/api/now/table/incident?sysparm_query=...``.
 
-    Returns ``{id: {"status_code": int, "body": parsed-JSON-or-None,
-    "headers": {lowercase-name: value}}}`` for every SERVICED sub-request.
+    Returns ``{id: {"status_code": int, "body": parsed-JSON-or-None}}`` for every
+    SERVICED sub-request. Sub-response headers are deliberately NOT returned: no
+    caller consumes them (pagination reads ``X-Total-Count`` off its own direct
+    GET, not off a batch sub-response), so echoing a header dict per sub-request
+    was pure context weight. Unparsable bodies are still logged at DEBUG.
     Ids the server did not service are simply absent — the caller falls back
     per-id. Returns ``None`` when the Batch API itself is unavailable (caller
     must fall back entirely).
@@ -118,14 +121,8 @@ def batch_get(
                     logger.debug("batch_get: sub-request %s raw body[:200]=%r", rid, decoded[:200])
                 except Exception:  # noqa: BLE001 — diagnostics must never raise
                     pass
-        headers = {
-            str(h.get("name") or "").lower(): str(h.get("value") or "")
-            for h in (item.get("headers") or [])
-            if isinstance(h, dict)
-        }
         out[rid] = {
             "status_code": int(item.get("status_code") or 0),
             "body": body,
-            "headers": headers,
         }
     return out

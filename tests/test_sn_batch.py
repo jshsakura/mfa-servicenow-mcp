@@ -44,7 +44,7 @@ def _sub(rid, payload, status=200, headers=()):
 
 
 class TestBatchGet:
-    def test_parses_bodies_and_headers(self, mock_config):
+    def test_parses_bodies_no_headers(self, mock_config):
         auth = MagicMock()
         auth.make_request.return_value = _batch_response(
             [_sub("0", {"result": [{"sys_id": "a"}]}, headers=[("X-Total-Count", "3")])]
@@ -52,7 +52,9 @@ class TestBatchGet:
         out = batch_get(mock_config, auth, [("0", "/api/now/table/incident?sysparm_limit=1")])
         assert out["0"]["status_code"] == 200
         assert out["0"]["body"]["result"] == [{"sys_id": "a"}]
-        assert out["0"]["headers"]["x-total-count"] == "3"
+        # Sub-response headers are NOT echoed — no caller reads them, so a
+        # per-sub-request header dict was pure context weight.
+        assert "headers" not in out["0"]
         # One POST carried the whole thing.
         auth.make_request.assert_called_once()
         assert auth.make_request.call_args[0][0] == "POST"

@@ -3093,8 +3093,11 @@ def update_portal_component(
     response = auth_manager.make_request("PATCH", url, json=effective_update_data, headers=headers)
 
     if response.status_code >= 400:
+        # A >=400 body is an error surface (HTML WAF/login page can be several KB).
+        # Cap it — the status + first chars identify the cause; the page does not.
+        error_body = (response.text or "")[:500]
         error_dict: Dict[str, Any] = {
-            "error": f"Update failed: {response.text}",
+            "error": f"Update failed: {error_body}",
             "status": response.status_code,
         }
         if pre_flight_warnings:
