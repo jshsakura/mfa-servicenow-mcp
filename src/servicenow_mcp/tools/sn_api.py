@@ -993,13 +993,29 @@ def _generate_query_hint(query: str, error_msg: str) -> Optional[str]:
     return " | ".join(hints) if hints else None
 
 
+# When a response body is not JSON it is an error surface — an HTML login bounce,
+# a WAF block page, a proxy 5xx — often several KB that lands whole in the LLM
+# context every time it happens. Diagnosis needs the first few hundred chars, not
+# the page; cap it and record the true length so nothing looks silently complete.
+_ERROR_BODY_CAP = 500
+
+
+def _cap_error_body(text: str) -> Dict[str, Any]:
+    """Bounded {"raw": ...} for a non-JSON body, flagged when truncated."""
+    text = text or ""
+    out: Dict[str, Any] = {"raw": text[:_ERROR_BODY_CAP]}
+    if len(text) > _ERROR_BODY_CAP:
+        out["raw_truncated_from"] = len(text)
+    return out
+
+
 def _safe_json(response: requests.Response) -> Dict[str, Any]:
     try:
         if response.content:
             return json_fast.loads(response.content)
         return response.json()
     except Exception:
-        return {"raw": response.text}
+        return _cap_error_body(response.text)
 
 
 def _extract_sn_error(response: requests.Response) -> Optional[str]:

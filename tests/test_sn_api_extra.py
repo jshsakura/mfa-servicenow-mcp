@@ -93,7 +93,22 @@ class TestSafeJson:
         resp.json.side_effect = ValueError("bad json")
         resp.text = "not-json"
         result = _safe_json(resp)
+        # A short non-JSON body passes through whole (no truncation flag).
         assert result == {"raw": "not-json"}
+
+    def test_large_non_json_body_is_capped(self):
+        # An HTML error page (WAF/login bounce) must not land whole in context:
+        # cap to the first chars and record the true length so it never reads as
+        # a complete body.
+        html = "<html>" + "x" * 5000 + "</html>"
+        resp = MagicMock()
+        resp.content = html.encode()
+        resp.json.side_effect = ValueError("bad json")
+        resp.text = html
+        result = _safe_json(resp)
+        assert len(result["raw"]) == 500
+        assert result["raw"] == html[:500]
+        assert result["raw_truncated_from"] == len(html)
 
 
 class TestSnQueryErrorWithHint:
