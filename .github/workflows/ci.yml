@@ -69,11 +69,13 @@ jobs:
           source .venv/bin/activate
           ruff check src/ tests/
 
+      # Blocking since the v1.21.17 incident. It was advisory, and advisory
+      # meant nobody looked: two errors rode into main under a green check
+      # mark. The tree is clean, so the only way it reddens is a new error.
       - name: Run MyPy (type checking)
         run: |
           source .venv/bin/activate
           mypy src/
-        continue-on-error: true
 
   # ============================================
   # Run Tests
