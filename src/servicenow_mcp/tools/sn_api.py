@@ -1512,11 +1512,19 @@ def sn_query(
             response_data["safety_notice"] = " | ".join(notices)
 
         if not safe_result:
+            # Only reachable after a 2xx (sn_query_page runs with
+            # fail_silently=False, so a bad table name raises out to the except
+            # branch below). The table therefore EXISTS — telling the caller to
+            # go verify it with sn_schema/sn_discover was advice this path can
+            # already rule out, and it led the hint with the one cause that
+            # cannot be true. What remains are the causes that still can be.
             response_data["hint"] = (
-                "0 rows returned. Verify the table name (sn_schema / sn_discover), check "
-                "encoded-query syntax (e.g. active=true^priority=1), or the records may "
-                "genuinely not exist. A persistent empty result on a valid query can also "
-                "mean ACLs hide the rows from this account."
+                "0 rows, and the table resolved — the name is not the problem. "
+                "An unknown field in the encoded query is dropped silently, or ACLs "
+                "hide the rows from this account."
+                if params.query
+                else "0 rows with no filter — this table has no rows visible to this "
+                "account (empty, or hidden by ACLs)."
             )
 
         return response_data

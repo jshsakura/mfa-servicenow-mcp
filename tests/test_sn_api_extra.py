@@ -205,3 +205,62 @@ class TestSnQuerySafetyNotice:
             GenericQueryParams(table="sys_metadata", limit=10),
         )
         assert result["success"] is True
+
+
+class TestSnQueryEmptyResultHint:
+    """The empty-result hint is only reachable after a 2xx, so it must not lead
+    with the one cause that path rules out (a bad table name raises instead)."""
+
+    def _empty_response(self):
+        resp = MagicMock()
+        resp.content = json.dumps({"result": []}).encode()
+        resp.headers = {"X-Total-Count": "0"}
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {"result": []}
+        return resp
+
+    def test_filtered_empty_does_not_blame_the_table_name(self, mock_config, mock_auth):
+        invalidate_query_cache()
+        mock_auth.make_request.return_value = self._empty_response()
+
+        result = sn_query(
+            mock_config,
+            mock_auth,
+            GenericQueryParams(table="incident", query="active=true^priority=1", limit=10),
+        )
+        hint = result["hint"]
+        # The causes that can still be true survive...
+        assert "encoded query" in hint
+        assert "ACLs" in hint
+        # ...the one that cannot is gone, along with the round trip it invited.
+        assert "sn_schema" not in hint
+        assert "sn_discover" not in hint
+
+    def test_unfiltered_empty_names_the_stronger_conclusion(self, mock_config, mock_auth):
+        """With no filter to blame, 0 rows says something sharper than 'nothing
+        matched': there is nothing in this table this account can see."""
+        invalidate_query_cache()
+        mock_auth.make_request.return_value = self._empty_response()
+
+        result = sn_query(
+            mock_config,
+            mock_auth,
+            GenericQueryParams(table="incident", limit=10),
+        )
+        assert "no filter" in result["hint"]
+        assert "no rows visible to this account" in result["hint"]
+
+    def test_bad_table_name_still_reaches_the_error_branch(self, mock_config, mock_auth):
+        """The premise of the trimmed hint: a table that does not exist never
+        reaches it, because sn_query runs with fail_silently=False."""
+        invalidate_query_cache()
+        mock_auth.make_request.side_effect = Exception("400 Invalid table name")
+
+        result = sn_query(
+            mock_config,
+            mock_auth,
+            GenericQueryParams(table="not_a_table", limit=10),
+        )
+        assert result["success"] is False
+        assert "Query failed" in result["message"]
+        assert "hint" not in result or "table resolved" not in result.get("hint", "")

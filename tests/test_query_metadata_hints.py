@@ -125,7 +125,12 @@ class TestEmptyResultGuidance:
         assert resp["success"] is True
         assert resp["count"] == 0
         hint = resp.get("hint", "")
-        assert "sn_schema" in hint or "sn_discover" in hint
+        # Guidance still ships. It no longer points at sn_schema/sn_discover:
+        # this branch is only reachable after a 2xx, so the table provably
+        # exists and "go verify the table name" was the one cause ruled out.
+        assert hint
+        assert "ACLs" in hint
+        assert "sn_schema" not in hint and "sn_discover" not in hint
 
     def test_nonempty_result_has_no_empty_hint(self, mock_config, mock_auth):
         """Regression: the empty-result hint must not appear when rows return."""
