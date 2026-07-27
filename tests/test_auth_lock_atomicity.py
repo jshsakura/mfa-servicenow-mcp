@@ -29,6 +29,20 @@ from servicenow_mcp.utils.config import AuthType
 
 RACERS = 8
 
+# A race that loses 6% of the time is caught by a single round 6% of the time —
+# and a test that fails one CI run in sixteen reads as flaky, which invites a
+# retry instead of an investigation. That is exactly how the live-lock deletion
+# fixed in v1.21.17 survived: it failed once on main and looked like runner
+# noise. 8 threads x 50 rounds costs ~0.2s and turns that same 6% into ~96%.
+ROUNDS = 50
+
+
+def _round_dir(tmp_path, round_no):
+    """A private lock directory per round — no round inherits another's file."""
+    path = tmp_path / f"round{round_no:02d}"
+    path.mkdir()
+    return path
+
 
 def _lock_manager(tmp_path):
     manager = AuthManager.__new__(AuthManager)
@@ -73,31 +87,38 @@ def _race_for_lock(tmp_path, racers=RACERS):
 class TestLoginLockIsExclusive:
     def test_exactly_one_racer_wins_a_free_lock(self, tmp_path):
         """The bug: both hosts win, both open a browser window."""
-        verdicts = _race_for_lock(tmp_path)
+        for round_no in range(ROUNDS):
+            verdicts = _race_for_lock(_round_dir(tmp_path, round_no))
 
-        assert len(verdicts) == RACERS
-        assert sum(verdicts) == 1, (
-            f"{sum(verdicts)} of {RACERS} hosts believed they held the login "
-            "lock — every winner opens its own browser window."
-        )
+            assert len(verdicts) == RACERS
+            assert sum(verdicts) == 1, (
+                f"round {round_no}: {sum(verdicts)} of {RACERS} hosts believed "
+                "they held the login lock — every winner opens its own browser window."
+            )
 
     def test_exactly_one_racer_wins_when_collecting_a_dead_holder(self, tmp_path):
         """A stale lock must be collected once, not license a free-for-all."""
-        lock = tmp_path / "session_host_user.lock"
-        lock.write_text(json.dumps({"pid": 2**30, "timestamp": 0}))  # dead holder
+        for round_no in range(ROUNDS):
+            round_dir = _round_dir(tmp_path, round_no)
+            lock = round_dir / "session_host_user.lock"
+            lock.write_text(json.dumps({"pid": 2**30, "timestamp": 0}))  # dead holder
 
-        verdicts = _race_for_lock(tmp_path)
+            verdicts = _race_for_lock(round_dir)
 
-        assert sum(verdicts) == 1, f"{sum(verdicts)} racers collected the same stale lock"
+            assert (
+                sum(verdicts) == 1
+            ), f"round {round_no}: {sum(verdicts)} racers collected the same stale lock"
 
     def test_nobody_steals_a_live_peers_fresh_lock(self, tmp_path):
-        lock = tmp_path / "session_host_user.lock"
-        lock.write_text(json.dumps({"pid": os.getpid(), "timestamp": 10.0}))
+        for round_no in range(ROUNDS):
+            round_dir = _round_dir(tmp_path, round_no)
+            lock = round_dir / "session_host_user.lock"
+            lock.write_text(json.dumps({"pid": os.getpid(), "timestamp": 10.0}))
 
-        with patch("servicenow_mcp.auth.auth_manager.time.time", return_value=11.0):
-            verdicts = _race_for_lock(tmp_path)
+            with patch("servicenow_mcp.auth.auth_manager.time.time", return_value=11.0):
+                verdicts = _race_for_lock(round_dir)
 
-        assert sum(verdicts) == 0
+            assert sum(verdicts) == 0, f"round {round_no}: a live peer's lock was stolen"
 
     def test_lock_survives_the_claim_and_names_its_holder(self, tmp_path):
         manager = _lock_manager(tmp_path)
