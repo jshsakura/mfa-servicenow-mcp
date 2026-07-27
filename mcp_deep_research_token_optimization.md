@@ -309,7 +309,7 @@ Python 한 번이면 끝나는 것.
 |---|---|--:|--:|---|---|---|
 | **1** | read 툴 **세션 응답캐시**. 착수: **flow get_detail**(순수 read, TTL 60s, write시 네임스페이스 무효화). 범용 `read_cache_get/put/invalidate_read_cache`(sn_api.py, 미래 read툴 확장용) | **~566K**(1차 착수분 ~193K) | 6.8% | 中 | 低中 | ✅ **flow get_detail 구현+테스트9**. download은 부작용으로 보류 |
 | **2** | `update_remote_from_local` **성공 payload 트림** → `{success,sys_id,fields,risk_level,change_ratio,cross_instance}`. risk 산문중복·절대경로·update_set/validation echo 제거 | **549K** | 6.6% | **低** | 低 | 📋 **스펙 전달**(네 파일 mid-edit, 네가 반영) |
-| **3** | multi-row `sn_query` **컬럼형**(`columns[]`+`data[][]`). 다행결과 바이트 28.7%=반복 키 | **519K** | 6.2% | 中 | 中 | ✅ **구현+테스트9**. `SERVICENOW_SN_QUERY_COLUMNAR` 기본OFF·≥3행·eval후 on |
+| **3** | multi-row `sn_query` **컬럼형**(`columns[]`+`data[][]`). 다행결과 바이트 28.7%=반복 키 | **519K** | 6.2% | 中 | 中 | ✅ **구현+테스트9**. 무플래그·무조건 ON·≥3행(`sn_api.py:1485`) |
 
 > **구현 원칙(확정):** 채택한 3개 전부 **under-fetch-safe** — 필드를 안 버림(캐시=동일본문,
 > 컬럼형=쿼리필드 그대로 재인코딩, 트림=콜러가 보낸 에코 제거). projection 좁히기·

@@ -10,7 +10,11 @@
 - **%는 전부 출력토큰(8.38M) 기준.** 입력/스키마 축(요청당 ~5K·캐시)은 **이미 종료** — 더 없음.
 - 코퍼스는 **유지보수자 sync-편향**(update+diff+download+flow=48% 토큰). 코덱스 read-mostly면
   랭킹 뒤집힘 → **#2·#3 둘 다** 해야 양쪽 커버.
-- **구현 ≠ 실현.** 기본OFF/스펙만은 실현 0.
+- **구현 ≠ 실현.** 스펙만 있으면 실현 0.
+- **배포 ≠ 실현 (재시작 지연).** MCP 서버는 장수 프로세스라 핫리로드가 없다. 배포일
+  로그 6세션 중 5세션이 **커밋 이후에도 구 모듈로 계속** 돌았다(09:10에 뜬 프로세스가
+  17:12 커밋을 못 봄 → 그날 컬럼형 채택률 0%). 어떤 최적화든 클라이언트 재시작
+  전까지 그 세션의 실현은 0이다. 릴리스 직후 측정은 이 지연을 빼고 읽을 것.
 - **선택/추론 비용은 미측정**(정적으로 못 잼) — eval 하네스 필요.
 - **under-fetch 금지**: 필드 누락→재쿼리(왕복)는 절감이 아니라 손해. 안전한 절감은
   fetch한 걸 안 버리는 것뿐(캐시=동일본문 / 컬럼형=쿼리필드 재인코딩 / 트림=에코 제거).
@@ -22,19 +26,23 @@
 | 항목 | 잠재 | %(출력) | 상태 | 지금 실현 |
 |---|--:|--:|---|--:|
 | #1 flow get_detail 캐시 | ~193K | 2.3% | ✅ 활성 | ~193K† |
-| #2 update_remote 성공 트림 | 549K | 6.6% | 📋 스펙만 | 0 |
-| #3 sn_query 컬럼형 | 519K | 6.2% | ✅ **기본ON**(플래그 제거·무손실 왕복 검증) | 다행쿼리서 자동 |
+| #2 update_remote 성공 트림 | 549K | 6.6% | ✅ **반영**(v1.21.12 `80c0a25`) | ≥140K 실측‡ |
+| #3 sn_query 컬럼형 | 519K | 6.2% | ✅ **기본ON**(플래그 없음·무손실 왕복 검증) | 다행쿼리서 자동 |
 | ~~#1b download 캐시~~ | ~330K | — | ⛔ **드롭**(드리프트 정확성 손상) | 0 |
 | #4 error→retry 감소 | 120K | 1.4% | ⛔ 미착수 | 0 |
 | #5 diff→update→diff 루프 단락 | ~189K | 2.3% | ⛔ 미착수 | 0 |
 | #6 diff full 컨텍스트 캡 | ~120K | 1.4% | ⛔ 위험·보류 | 0 |
 
-† TTL 60s 내 동일 재fetch만 → 실제론 상한. **지금 도는 실현 ≈ 2%대.**
+† TTL 60s 내 동일 재fetch만 → 실제론 상한.
+‡ 실서버 응답 346건 파싱(2026-07-27). 로그가 500자에서 잘려 **보이는 4키만** 계측한
+하한: `validation` 31 + `pre_flight_warnings` 26 + `message` 8 + 중복 `fields` 7 ≈
+**성공 1건당 72토큰** × 2,198성공. 549K 추정에 포함된 `risk` 산문·`local_sync` 블록은
+500자 창 밖이라 미계측 — 실제값은 140K~549K 사이.
 
 **단계별 누적 실현:**
-- 지금: **~2%** (#1 flow 캐시만; #3는 이제 기본ON이라 다행쿼리에서 자동 실현되기 시작).
-- **#2 반영: ~15%** ← 저노력 실질 목표(#2 549K + #3 519K가 여기 대부분).
-- +#4 error 감소: ~16%.
+- **지금(v1.21.14): #1·#2·#3 반영 완료** — 잠재 합 ~1.26M(15.1%), 실측 하한 기준으로는
+  더 낮다(‡와 재시작 지연 참조).
+- +#4 error 감소: 여기에 120K(1.4%) 추가.
 - ~~#1b download 캐시~~: **드롭**(드리프트 정확성 손상, T3 참조).
 - +#5/#6(redundancy·diff): 상한 **~18%**, 단 sync 정확성 검증 필요.
 
@@ -44,8 +52,10 @@
 ---
 
 ## 2. 이번 세션 착수분 (구현 완료)
-- **#3 컬럼형**: `sn_api.py` `to_columnar`/`columnar_enabled`, `sn_query` 배선.
-  `SERVICENOW_SN_QUERY_COLUMNAR` 기본OFF·≥3행. under-fetch-safe. 테스트 9.
+- **#3 컬럼형**: `sn_api.py` `to_columnar()`, `sn_query` 배선. **무조건 ON·≥3행**
+  (`_COLUMNAR_MIN_ROWS`, `sn_api.py:1485`). under-fetch-safe. 테스트 9.
+  ⚠️ 이 문서 초판이 적었던 `SERVICENOW_SN_QUERY_COLUMNAR` 환경변수와 `columnar_enabled`
+  함수는 **소스에 존재한 적이 없다**(도입 커밋 `af87b23`부터 무플래그). 켤 것도 없다.
 - **#1 flow 캐시**: `sn_api.py` 범용 `read_cache_get/put/invalidate_read_cache`(네임스페이스,
   독립 TTL). `flow_tools.py` `_do_get_detail` 캐시(성공만·TTL60s)·write시 무효화. 테스트 9.
 - 전체 스위트 3969 passed / cov 92.95% / 회귀 0.
@@ -54,16 +64,18 @@
 
 ## 3. 다음 조임 — 우선순위 (더 짜기)
 
-### T1. #2 update_remote 성공 payload 트림 `[저노력·최대 즉시실현 549K]`
-> 📄 **구현 스펙 별도 문서: `mcp_next_win_update_remote_trim_spec.md`**
-> (자체 완결형 — 현재 구조/목표 shape/절차/테스트 영향/검증법. 원격에서 이것만 보고 작업 가능)
-- `sync_tools.py`(유지보수자 mid-edit — **본인 반영**). 성공경로만.
-- 버림: `risk` 산문중복(message==factors)·`validation` 에코·`local_sync.pushed_from` 절대경로·
-  `instance_target`·`update_set_context`. 유지: success/landed/target_instance/sys_id/
-  fields_pushed/risk_level/change_ratio/update_set_warning?/origin_unverified?. 에러경로 상세 유지.
+### ~~T1. #2 update_remote 성공 payload 트림~~ `[완료 — v1.21.12 80c0a25]`
+성공경로가 delegate 결과를 장식하는 대신 **compact ack를 새로 조립**한다:
+`{success, landed, target_instance, sys_id, fields_pushed, risk_level, change_ratio}`.
+버림: `message`·중복 `fields`·`validation` 에코·`risk` 산문블록·`local_sync` 래퍼(절대경로).
+안전신호는 **조건부로 전부 생존** — `risk`는 level≠none일 때 원본 유지, `validation`은
+자체 재읽기가 실패한 경우에만 `fields_mismatched`로 전달, `size_warnings`/
+`pre_flight_warnings`/`update_set_warning`은 그대로 통과. 스펙 문서는 구현과 함께 삭제됨.
 
-### T2. #3 컬럼형 활성화 `[519K, eval 게이트]`
-- A/B eval(코덱스가 `{columns,data}` 정확 파싱하나) → 통과시 `=on`. 실패시 OFF 유지.
+### ~~T2. #3 컬럼형 활성화~~ `[해당없음 — 애초에 게이트가 없었음]`
+플래그가 존재한 적 없으므로 "켜는" 작업 자체가 성립하지 않는다(위 §2 경고 참조).
+다만 **≥3행에서만** 발동하므로 상한 519K는 다행 트래픽 비중에 비례해 축소된다 —
+실측 세션(2026-07-27)에서 sn_query 15건 중 3건(20%)만 임계치 통과.
 
 ### ~~T3. #1b download_app_sources 캐시~~ `[드롭 — 코드 검증 후 기각]`
 - **재평가 결과 안전 레버 아님.** download은 `sys_mod_count`로 **라이브 드리프트
