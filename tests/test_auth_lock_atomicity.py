@@ -147,6 +147,42 @@ class TestLoginLockIsExclusive:
         manager = _lock_manager(tmp_path)
         assert manager._acquire_login_lock() is False
 
+    def test_a_payload_that_lands_mid_look_is_not_read_as_garbage(self, tmp_path):
+        """The collector's read and its size check are two syscalls too.
+
+        A peer wins the create (0 bytes), a collector reads it empty, and the
+        peer's payload lands before the collector looks at the size. Judging
+        "has bytes now" as a corrupt payload deleted a LIVE lock, and the next
+        racer's O_EXCL create then succeeded — two winners, two browser
+        windows. The lock here is complete on disk; only the caller's read
+        (the one that reports "no timestamp") saw it empty.
+        """
+        lock = tmp_path / "session_host_user.lock"
+        lock.write_text(json.dumps({"pid": os.getpid(), "timestamp": time.time()}))
+
+        manager = _lock_manager(tmp_path)
+        with patch.object(AuthManager, "_read_login_lock", return_value={}):
+            assert manager._collect_stale_login_lock() is False
+        assert lock.exists(), "a live peer's lock was collected as garbage"
+
+    def test_a_lock_that_stays_unparseable_is_still_collected(self, tmp_path):
+        """The mid-look guard must not resurrect the dead-mid-write case."""
+        lock = tmp_path / "session_host_user.lock"
+        lock.write_text('{"pid": 42, "timesta')  # died mid-write
+
+        manager = _lock_manager(tmp_path)
+        assert manager._collect_stale_login_lock() is True
+        assert not lock.exists()
+
+    def test_a_parseable_lock_with_no_timestamp_is_collected(self, tmp_path):
+        """Valid JSON that can never age out must not block logins forever."""
+        lock = tmp_path / "session_host_user.lock"
+        lock.write_text(json.dumps({"pid": 42}))
+
+        manager = _lock_manager(tmp_path)
+        assert manager._collect_stale_login_lock() is True
+        assert not lock.exists()
+
     def test_unwritable_lock_dir_fails_open(self, tmp_path):
         """A broken cache dir must not deadlock every host out of logging in."""
         manager = AuthManager.__new__(AuthManager)

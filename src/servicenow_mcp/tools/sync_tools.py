@@ -31,6 +31,7 @@ from ..utils.sync_anchor import (
     UNCHANGED,
     WRITTEN,
     SyncMeta,
+    SyncMetaEntry,
     cleanup_mirror,
     field_sha,
     is_mirror_artifact,
@@ -1599,7 +1600,7 @@ def _refresh_local_from_remote(
     resolved: "_ResolvedComponent",
     remote_record: Dict[str, Any],
     table_dir: Path,
-    meta: Dict[str, str],
+    meta: SyncMetaEntry,
 ) -> Dict[str, Any]:
     """Fast-forward the local working copy to the live server body. Never clobbers.
 
