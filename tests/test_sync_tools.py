@@ -9,6 +9,7 @@ import pytest
 from servicenow_mcp.tools.sync_tools import (
     DiffLocalComponentParams,
     PushLocalComponentParams,
+    _alias_for_instance_url,
     _batch_fetch_updated_on,
     _find_manifest_json,
     _find_settings_json,
@@ -2327,6 +2328,87 @@ class TestOriginProvenance:
         # Leads with the actionable retry (issue #65/P2-1), names the origin.
         assert result.get("error", "").startswith("Retry this diff with instance=<alias>")
         assert "prod.service-now.com" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Wrong-instance routing: the message names the alias when the registry knows
+# it. Sending the caller to list_instances costs a round trip to learn what this
+# process already holds — and the observed failure was the caller re-issuing the
+# same broken call instead of taking that detour.
+# ---------------------------------------------------------------------------
+class TestInstanceAliasInRetryHint:
+    _REGISTRY = json.dumps(
+        {
+            "dev": {"url": "https://dev.service-now.com"},
+            "prod": {"url": "https://prod.service-now.com/"},
+        }
+    )
+
+    def _cfg(self, url):
+        return ServerConfig(
+            instance_url=url,
+            auth={"type": "basic", "basic": {"username": "admin", "password": "password"}},
+        )
+
+    def _tree(self, tmp_path, origin):
+        root = tmp_path / "out"
+        root.mkdir()
+        (root / "_manifest.json").write_text(json.dumps({"instance": origin}), encoding="utf-8")
+        return root
+
+    def test_resolves_alias_by_host(self, monkeypatch):
+        monkeypatch.setenv("SERVICENOW_INSTANCE_CONFIG", self._REGISTRY)
+        # Trailing slash on the registry side, none on the origin side — the host
+        # is what identifies the instance, not the exact string.
+        assert _alias_for_instance_url("https://prod.service-now.com") == "prod"
+        assert _alias_for_instance_url("https://dev.service-now.com/") == "dev"
+
+    def test_unregistered_origin_has_no_alias(self, monkeypatch):
+        monkeypatch.setenv("SERVICENOW_INSTANCE_CONFIG", self._REGISTRY)
+        assert _alias_for_instance_url("https://sandbox.service-now.com") == ""
+
+    def test_malformed_registry_degrades_instead_of_raising(self, monkeypatch):
+        """A diagnostic must never be the thing that raises — a broken config
+        loses the alias, it does not replace a useful error with a parse error."""
+        monkeypatch.setenv("SERVICENOW_INSTANCE_CONFIG", "{not json")
+        assert _alias_for_instance_url("https://prod.service-now.com") == ""
+
+    def test_no_registry_keeps_the_lookup_instruction(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("SERVICENOW_INSTANCE_CONFIG", raising=False)
+        result = _scan_download_root(
+            self._cfg("https://dev.service-now.com"),
+            MagicMock(),
+            self._tree(tmp_path, "https://prod.service-now.com"),
+        )
+        assert "instance=<alias> (run list_instances to find it)" in result["error"]
+
+    def test_scan_names_the_alias(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("SERVICENOW_INSTANCE_CONFIG", self._REGISTRY)
+        result = _scan_download_root(
+            self._cfg("https://dev.service-now.com"),
+            MagicMock(),
+            self._tree(tmp_path, "https://prod.service-now.com"),
+        )
+        assert result["error"].startswith("Retry this diff with instance='prod'.")
+        assert "list_instances" not in result["error"]
+
+    def test_push_gate_names_the_alias_for_both_params(self, monkeypatch, tmp_path):
+        """The push path needs TWO routed params — a caller told only the first
+        comes back for a second failure on confirm_instance."""
+        monkeypatch.setenv("SERVICENOW_INSTANCE_CONFIG", self._REGISTRY)
+        root = self._tree(tmp_path, "https://prod.service-now.com")
+        si = root / "global" / "sys_script_include"
+        si.mkdir(parents=True)
+        (si / "MyUtil.script.js").write_text("var x = 1;", encoding="utf-8")
+        (si / "_map.json").write_text(json.dumps({"MyUtil": "si-1"}), encoding="utf-8")
+
+        resolved = _resolve_local_path(si / "MyUtil.script.js")
+        with pytest.raises(ValueError) as excinfo:
+            _validate_instance_url(resolved, self._cfg("https://dev.service-now.com"))
+        message = str(excinfo.value)
+        assert message.startswith("Retry this call with instance='prod'.")
+        assert "confirm_instance='prod'" in message
+        assert "list_instances" not in message
 
 
 # ---------------------------------------------------------------------------
