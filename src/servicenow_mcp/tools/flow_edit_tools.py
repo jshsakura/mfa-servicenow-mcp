@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,7 @@ from .flow_designer_tools import (
     _try_processflow_api,
     render_flow_compact,
 )
+from .sn_batch import batch_get
 
 logger = logging.getLogger(__name__)
 
@@ -480,6 +481,57 @@ def _table_lookup(
         return []
 
 
+# Every surface a flow-edit target can live on, with the fields each read needs.
+_TARGET_SURFACES = (
+    ("flow", _FLOW_DEF_TABLE, "sys_id,name,type"),
+    ("action", _ACTION_DEF_TABLE, "sys_id,name"),
+    ("decision", _DECISION_TABLE, "sys_id,name,label"),
+)
+
+
+def _surface_lookup_url(table: str, query: str, fields: str) -> str:
+    """Relative Table-API GET url for one target surface (Batch sub-request)."""
+    return f"/api/now/table/{table}?" + urlencode(
+        {"sysparm_query": query, "sysparm_fields": fields, "sysparm_limit": "5"}
+    )
+
+
+def _lookup_target_surfaces(
+    config: ServerConfig, auth_manager: AuthManager, query: str
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Rows from all three target surfaces for one query, keyed by surface.
+
+    A name has to be searched on every surface — the caller collects candidates
+    from all of them and only then decides — so the three GETs were always all
+    three, never a short-circuit. One batched round trip instead of three
+    (issue #68 item 9); the per-surface path stays as the fallback for instances
+    where the Batch API is unavailable.
+    """
+    specs = [
+        (key, _surface_lookup_url(table, query, fields)) for key, table, fields in _TARGET_SURFACES
+    ]
+    batched = batch_get(config, auth_manager, specs)
+    if batched is not None:
+        fused: Dict[str, List[Dict[str, Any]]] = {}
+        for key, _table, _fields in _TARGET_SURFACES:
+            sub = batched.get(key)
+            # A surface the server did not service (or refused) is unknown, not
+            # empty — falling through to the per-surface reads is the only way
+            # to tell "no such flow" from "we never asked".
+            if not sub or sub.get("status_code") != 200:
+                fused = {}
+                break
+            rows = (sub.get("body") or {}).get("result", [])
+            fused[key] = rows if isinstance(rows, list) else []
+        if fused:
+            return fused
+
+    return {
+        key: _table_lookup(config, auth_manager, table, query, fields=fields)
+        for key, table, fields in _TARGET_SURFACES
+    }
+
+
 def _resolve_target(config: ServerConfig, auth_manager: AuthManager, target: str) -> Dict[str, Any]:
     """Resolve a flow/subflow/action/decision by NAME or sys_id to a concrete
     {kind, sys_id, name} so one read entry point can serve them all. kind is one
@@ -506,17 +558,16 @@ def _resolve_target(config: ServerConfig, auth_manager: AuthManager, target: str
             return {"kind": "decision", "sys_id": target, "name": rows[0].get("name")}
         return {"kind": "unknown", "sys_id": target}
 
-    # by name — search each surface, collect candidates
+    # by name — every surface is searched anyway, so they ride one round trip
+    surfaces = _lookup_target_surfaces(config, auth_manager, name_q)
     candidates: List[Dict[str, Any]] = []
-    for row in _table_lookup(config, auth_manager, _FLOW_DEF_TABLE, name_q):
+    for row in surfaces.get("flow", []):
         candidates.append(
             {"kind": _classify_flow(row), "sys_id": row.get("sys_id"), "name": row.get("name")}
         )
-    for row in _table_lookup(config, auth_manager, _ACTION_DEF_TABLE, name_q, fields="sys_id,name"):
+    for row in surfaces.get("action", []):
         candidates.append({"kind": "action", "sys_id": row.get("sys_id"), "name": row.get("name")})
-    for row in _table_lookup(
-        config, auth_manager, _DECISION_TABLE, name_q, fields="sys_id,name,label"
-    ):
+    for row in surfaces.get("decision", []):
         candidates.append(
             {"kind": "decision", "sys_id": row.get("sys_id"), "name": row.get("name")}
         )
