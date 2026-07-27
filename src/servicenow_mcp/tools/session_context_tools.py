@@ -478,6 +478,87 @@ def is_default_update_set(update_set: Optional[Dict[str, str]]) -> bool:
     return str(update_set.get("name", "")).strip().lower() == "default"
 
 
+def check_update_set_for_push(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str = "",
+    sys_id: str = "",
+) -> Optional[Dict[str, str]]:
+    """Non-blocking pre-write check on WHERE this change is about to be captured.
+
+    Everything here is read from state we already hold: the current update set is
+    live session state, and ``get_last_update_set_for_record`` reads THIS
+    instance's ``sys_update_xml`` for THIS record. Both are inherently
+    instance-/session-scoped, so across a prod/dev/test multi-session each push
+    compares its own instance's last-capture set against its own session's current
+    set — no cross-instance bookkeeping needed.
+
+    Returns None (silence — a correctly-targeted push pays no tokens to say so)
+    when the set cannot be read at all (basic/OAuth auth — the picker is
+    session-only), and for the common good case. It speaks up for two situations:
+
+    1. **Default** — changes captured into 'Default' are not retrievable and never
+       promote, so the push lands on this instance only and silently fails to ship.
+       This is a warning: it costs you the deploy.
+    2. **Set switched since you last worked this record** — the current session set
+       differs from the one this record was last captured into. This is a
+       confirmation, not a warning: switching is often deliberate (a new feature
+       set), but doing it unintentionally splits one logical change across two
+       sets. Silent when they match, or when the record has no prior capture (first
+       edit) — there is nothing to have switched away from.
+
+    Deliberately does NOT create or switch a set. Creating a sys_update_set as a
+    side effect of a push writes a record nobody asked for, and a wrong guess
+    splits one logical change across two sets — a worse failure than the note.
+    Must be called AFTER any scope alignment: switching the current application
+    switches the update set with it, so the set we are about to capture into is
+    only knowable once the session is in its final state.
+    """
+    us = get_current_update_set(config, auth_manager)
+    if us is None:
+        return None  # unreadable (basic/OAuth) — stay silent, never guess
+
+    # 1. Default — the change won't ship. Highest-severity, reported first.
+    if is_default_update_set(us):
+        return {
+            "update_set": us.get("name") or "Default",
+            "warning": (
+                "The session's current update set is 'Default'. Changes captured there are NOT "
+                "retrievable and never promote to another instance — this push lands on this "
+                "instance only and will be missing from any release built from an update set."
+            ),
+            "recommended_action": (
+                "Switch to a real update set — manage_changeset(action='create', name=..., "
+                "application=<scope>) then manage_session_context(action='set_update_set', "
+                "update_set_name=...) — and then re-SAVE this record so it is captured there. "
+                "A plain re-push will NOT recapture it: local now equals remote, so there is "
+                "nothing left to write."
+            ),
+        }
+
+    # 2. Named set, but not the one this record was last worked in — confirm intent.
+    if not (table and sys_id):
+        return None
+    current_id = (us.get("sys_id") or "").strip()
+    last = get_last_update_set_for_record(config, auth_manager, table, sys_id)
+    last_id = (last or {}).get("sys_id", "").strip()
+    if not last_id or last_id == current_id:
+        return None  # first edit, or still in the same set — nothing to confirm
+    current_name = us.get("name") or current_id
+    last_name = (last or {}).get("name") or last_id
+    return {
+        "current_update_set": current_name,
+        "last_worked_update_set": last_name,
+        "confirm": (
+            f"This record was last captured into update set '{last_name}', but the current "
+            f"session set is '{current_name}'. If switching is intentional (e.g. a new feature "
+            f"set), push as-is. If not, switch back with manage_session_context("
+            f"action='set_update_set', update_set_name='{last_name}') before saving, so this "
+            f"change is not split across two sets."
+        ),
+    }
+
+
 def get_last_update_set_for_record(
     config: ServerConfig, auth_manager: AuthManager, table: str, sys_id: str
 ) -> Optional[Dict[str, str]]:

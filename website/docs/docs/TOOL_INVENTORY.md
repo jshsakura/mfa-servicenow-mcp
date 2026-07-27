@@ -232,7 +232,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `diff_local_component` | R | Diff local edits vs remote, or vs a 2nd root (compare_to); verdict=True for status-only. | standard, portal_developer, platform_developer, service_desk, full |
+| `diff_local_component` | R | Diff local edits vs remote (or compare_to root); verdict=True status-only, refresh=True fast-forwards. | standard, portal_developer, platform_developer, service_desk, full |
 | `update_remote_from_local` | W | Push one local edit back to ServiceNow (diff_local_component first). Targeted refresh, not bulk dev→test promotion. | portal_developer, platform_developer, full |
 
 ### UI Policy (1)
