@@ -72,6 +72,14 @@ wrappers and feature-specific pipelines were dropped — tool descriptions and t
 tools' own built-in safety gates cover those. **Enforcement lives in the tools,
 not in skills** (skills are advisory; they can't be forced).
 
+**This index is the complete list — there are no unlisted skills.** If a task
+has no skill here, use the tools directly; never cite a `servicenow:<dir>:<name>`
+that is not in a table below. The gap that most invites an invented name is
+promoting to a read-only instance (`allow_writes: false`, typically prod):
+that has no skill on purpose. The path is `export_record_xml(table=...,
+sys_ids=[...])` on the source instance, then the user imports the .xml on the
+target — or a normal Update Set promotion.
+
 ### analyze/ — Understand before you touch
 
 | Skill | Cost | Delegatable | Trigger Examples |
