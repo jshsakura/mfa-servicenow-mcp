@@ -361,6 +361,28 @@ class TestVerdictMode:
         assert "compare_instances" in result["skipped_hint"]
         mock_query.assert_not_called()
 
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_directory_verdict_skip_hint_names_the_alias(
+        self, mock_query, mock_config, mock_auth, widget_root, monkeypatch
+    ):
+        """The scan already holds every origin it skipped, so it can route the
+        caller directly instead of spending a round trip on list_instances."""
+        monkeypatch.setenv(
+            "SERVICENOW_INSTANCE_CONFIG",
+            json.dumps({"dev": {"url": "https://dev.service-now.com"}}),
+        )
+        (widget_root / "_settings.json").write_text(
+            json.dumps({"name": "dev", "url": "https://dev.service-now.com", "g_ck": ""}),
+            encoding="utf-8",
+        )
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(widget_root / "global"), verdict=True),
+        )
+        assert "instance='dev'" in result["skipped_hint"]
+        assert "list_instances" not in result["skipped_hint"]
+
 
 # ---------------------------------------------------------------------------
 # Force-CAS: force=true approves overwriting exactly the version the caller

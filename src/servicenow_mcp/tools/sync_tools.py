@@ -6,6 +6,7 @@ with conflict detection.
 
 import difflib
 import logging
+import os
 import time
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
 from ..utils.config import ServerConfig
+from ..utils.instances import INSTANCE_CONFIG_ENV, load_instance_config_env, safe_instance_url
 from ..utils.registry import register_tool
 from ..utils.sync_anchor import (
     BLANK_REMOTE_KEPT,
@@ -347,6 +349,46 @@ def _resolve_origin_url(scope_root: Path) -> str:
         return url
     manifest = _find_manifest_json(scope_root)
     return str(manifest.get("instance") or "").strip()
+
+
+def _alias_for_instance_url(url: str) -> str:
+    """Reverse-resolve a recorded origin URL to its configured instance alias.
+
+    A wrong-instance message that ends in "run list_instances to find it" costs
+    the caller a whole extra round trip to learn something this process already
+    knows — and the observed failure was the caller re-issuing the same broken
+    call instead of taking the detour. The registry is env-sourced, so the answer
+    is available right here without reaching into the server object.
+
+    Empty string when the answer isn't knowable — single-instance mode, an origin
+    that predates the registry, or a malformed config. Diagnostics must never be
+    the thing that raises, so a bad SERVICENOW_INSTANCE_CONFIG degrades to the
+    generic guidance instead of replacing a useful error with a parse failure.
+    """
+    if not url:
+        return ""
+    try:
+        entries = load_instance_config_env(os.getenv(INSTANCE_CONFIG_ENV))
+    except (ValueError, TypeError):
+        return ""
+    # Match on host: the recorded origin and the configured URL routinely differ
+    # by a trailing slash or scheme, and the host is what actually identifies the
+    # instance.
+    target = safe_instance_url(url.rstrip("/")).lower()
+    for alias, entry in entries.items():
+        entry_url = str(entry.get("url") or entry.get("instance_url") or "").strip()
+        if entry_url and safe_instance_url(entry_url.rstrip("/")).lower() == target:
+            return alias
+    return ""
+
+
+def _instance_retry_hint(url: str) -> str:
+    """The routing fix as one clause: the exact alias when we can name it, the
+    lookup instruction only when we genuinely cannot."""
+    alias = _alias_for_instance_url(url)
+    if alias:
+        return f"instance='{alias}'"
+    return "instance=<alias> (run list_instances to find it)"
 
 
 # Surfaced (not raised) when a local source has no recorded origin instance.
@@ -887,12 +929,13 @@ def _validate_instance_url(resolved: _ResolvedComponent, config: ServerConfig) -
         # Lead with the fix: the observed failure mode is the LLM re-issuing the
         # same call ~12× because the actionable hint was buried mid-message. The
         # FIRST sentence must be the exact retry.
+        alias = _alias_for_instance_url(origin)
+        confirm = f"confirm_instance='{alias}'" if alias else "confirm_instance=<alias>"
         raise ValueError(
-            f"Retry this call with instance=<alias> — the alias for '{origin}' "
-            f"(run list_instances to find it). For a push, add confirm_instance=<alias> "
-            f"confirm='approve'. Reason: this local component is from '{origin}' but the "
-            f"active instance is '{active}', so the active one is the WRONG target and is "
-            f"blocked. Do NOT edit config or re-download to change the target."
+            f"Retry this call with {_instance_retry_hint(origin)}. For a push, add "
+            f"{confirm} confirm='approve'. Reason: this local component is from '{origin}' "
+            f"but the active instance is '{active}', so the active one is the WRONG target "
+            f"and is blocked. Do NOT edit config or re-download to change the target."
         )
 
 
@@ -1095,9 +1138,9 @@ def _scan_download_root(
         # call repeatedly. First sentence = the exact retry.
         return {
             "error": (
-                f"Retry this diff with instance=<alias> — the alias for '{origin_url}' "
-                f"(run list_instances to find it). Reason: this directory is from "
-                f"'{origin_url}' but the current connection is '{config.instance_url}'."
+                f"Retry this diff with {_instance_retry_hint(origin_url)}. Reason: this "
+                f"directory is from '{origin_url}' but the current connection is "
+                f"'{config.instance_url}'."
             )
         }
 
@@ -1883,11 +1926,19 @@ def _verdict_scan(config: ServerConfig, auth_manager: AuthManager, root: Path) -
         )
     if skipped_origin:
         result["skipped_other_instance"] = skipped_origin
+        # Name the alias per distinct origin rather than sending the caller to
+        # list_instances — the scan already holds every origin it skipped.
+        aliases = sorted(
+            {a for a in (_alias_for_instance_url(s["origin"]) for s in skipped_origin) if a}
+        )
+        if aliases:
+            routing = "instance='" + "' or instance='".join(aliases) + "'"
+        else:
+            routing = "instance=<alias> (see list_instances)"
         result["skipped_hint"] = (
             "These trees were downloaded from a DIFFERENT instance than the active one — "
-            "verdicts against the wrong server would be misleading. Route the call with "
-            "instance=<alias> (see list_instances), or compare across instances with "
-            "compare_instances."
+            f"verdicts against the wrong server would be misleading. Route the call with "
+            f"{routing}, or compare across instances with compare_instances."
         )
     return result
 
