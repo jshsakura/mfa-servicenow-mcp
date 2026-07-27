@@ -907,15 +907,34 @@ class AuthManager:
           non-empty file that won't parse is not a claim in flight. Collect it
           immediately: a broken lock must never block logins.
 
-        Size tells them apart. Age is only the tie-breaker for the empty case,
-        in case a claimant died in the microseconds between create and write.
+        Content tells them apart, and it must be re-read here rather than
+        inferred from a size the caller stat'ed separately: the file goes 0 →
+        payload between the create and the write, so "the caller read it empty"
+        and "it has bytes now" are both true of a LIVE claim a millisecond old.
+        Judging on size alone deleted exactly those locks (a 6%-of-races
+        second winner in the concurrency test, two browser windows in
+        production). Age is only the tie-breaker for the still-empty case, in
+        case a claimant died in the microseconds between create and write.
         """
         try:
             stat_result = os.stat(self._login_lock_path)
+            with open(self._login_lock_path, "rb") as f:
+                payload = f.read()
         except OSError:
             return True  # vanished under us — the claim is worth a retry
 
-        if stat_result.st_size > 0:
+        if payload:
+            # The caller's read found no timestamp; if one is there NOW, the
+            # payload landed between the two reads, which can only mean a peer
+            # won the create moments ago. Only content that still won't yield a
+            # timestamp is the dead-mid-write garbage this branch is for.
+            try:
+                landed = json.loads(payload)
+            except ValueError:
+                landed = None
+            if isinstance(landed, dict) and isinstance(landed.get("timestamp"), (int, float)):
+                logger.debug("Login lock payload landed while we looked — backing off.")
+                return False
             logger.info("Removing unreadable login lock (garbage payload).")
             return self._remove_login_lock()
 
