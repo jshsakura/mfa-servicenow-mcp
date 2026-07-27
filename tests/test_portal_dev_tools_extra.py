@@ -122,7 +122,6 @@ class TestGetDeveloperChangesScopeAndFilters:
         config = _make_config()
         auth = _make_auth()
         auth.make_request.side_effect = [
-            _mock_stats_response(500),
             _mock_response({"result": [{"sys_id": "w1"}]}, total_count=500),
         ]
 
@@ -140,7 +139,7 @@ class TestGetDeveloperChangesScopeAndFilters:
     def test_zero_results(self):
         config = _make_config()
         auth = _make_auth()
-        auth.make_request.return_value = _mock_stats_response(0)
+        auth.make_request.return_value = _mock_response({"result": []}, total_count=0)
 
         result = get_developer_changes(
             config,
@@ -293,15 +292,9 @@ class TestGetUncommittedChangesFilters:
         config = _make_config()
         auth = _make_auth()
 
-        with (
-            patch(
-                "servicenow_mcp.tools.portal_dev_tools._sn_query_page_shared",
-                return_value=([{"sys_id": "us1", "name": "Test Set"}], 1),
-            ),
-            patch(
-                "servicenow_mcp.tools.portal_dev_tools._sn_count_shared",
-                return_value=0,
-            ),
+        with patch(
+            "servicenow_mcp.tools.portal_dev_tools._sn_query_page_shared",
+            side_effect=[([{"sys_id": "us1", "name": "Test Set"}], 1), ([], 0)],
         ):
             result = get_uncommitted_changes(
                 config,
@@ -312,6 +305,7 @@ class TestGetUncommittedChangesFilters:
         assert result["total_entries"] == 0
 
     def test_count_query_error(self):
+        """count_only is the path that still issues a count query of its own."""
         config = _make_config()
         auth = _make_auth()
 
@@ -328,9 +322,10 @@ class TestGetUncommittedChangesFilters:
             result = get_uncommitted_changes(
                 config,
                 auth,
-                GetUncommittedChangesParams(developer="admin"),
+                GetUncommittedChangesParams(developer="admin", count_only=True),
             )
         assert result["success"] is False
+        assert "count" in result["message"].lower()
 
     def test_with_multiple_update_sets(self):
         config = _make_config()
@@ -484,17 +479,11 @@ class TestGetUncommittedChangesFilters:
             call_count[0] += 1
             if call_count[0] == 1:
                 return (us_data, 1)
-            return (entries, len(entries))
+            return (entries, 5000)  # 3 rows returned, 5000 match
 
-        with (
-            patch(
-                "servicenow_mcp.tools.portal_dev_tools._sn_query_page_shared",
-                side_effect=_query_side_effect,
-            ),
-            patch(
-                "servicenow_mcp.tools.portal_dev_tools._sn_count_shared",
-                return_value=5000,
-            ),
+        with patch(
+            "servicenow_mcp.tools.portal_dev_tools._sn_query_page_shared",
+            side_effect=_query_side_effect,
         ):
             result = get_uncommitted_changes(
                 config,
