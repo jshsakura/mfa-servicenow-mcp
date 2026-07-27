@@ -6,6 +6,7 @@ import pytest
 
 from servicenow_mcp.tools.session_context_tools import (
     ManageSessionContextParams,
+    check_update_set_for_push,
     ensure_current_app,
     ensure_current_update_set,
     get_current_update_set,
@@ -291,6 +292,83 @@ def test_get_current_update_set_swallows_errors():
     auth = MagicMock()
     auth.make_request.side_effect = Exception("boom")
     assert get_current_update_set(_browser_config(), auth) is None
+
+
+# --- check_update_set_for_push (pre-write capture warning) ----------------
+# The invariant under test is as much what this does NOT do: it never creates or
+# switches an update set. A push must not write a sys_update_set record nobody
+# asked for, so every case below asserts read-only behaviour.
+def test_check_update_set_for_push_warns_on_default():
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-def", "name": "Default"}}}
+    )
+    out = check_update_set_for_push(_browser_config(), auth)
+    assert out is not None
+    assert out["update_set"] == "Default"
+    assert "not" in out["warning"].lower()
+    assert "recommended_action" in out
+    # Read-only: exactly one GET, never a PUT and never an insert.
+    assert auth.make_request.call_count == 1
+    assert auth.make_request.call_args[0][0] == "GET"
+
+
+def test_check_update_set_for_push_silent_on_a_real_set():
+    """A correctly-captured push (no record context) pays zero tokens to say so."""
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-1", "name": "My Feature"}}}
+    )
+    assert check_update_set_for_push(_browser_config(), auth) is None
+
+
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_check_update_set_for_push_confirms_when_switched_away(mock_last):
+    """Named set differs from where THIS record was last captured → confirm intent."""
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-new", "name": "Other Feature"}}}
+    )
+    mock_last.return_value = {"sys_id": "us-old", "name": "Original Feature"}
+    out = check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1")
+    assert out is not None
+    assert out["current_update_set"] == "Other Feature"
+    assert out["last_worked_update_set"] == "Original Feature"
+    assert "confirm" in out
+
+
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_check_update_set_for_push_silent_when_still_in_same_set(mock_last):
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-1", "name": "My Feature"}}}
+    )
+    mock_last.return_value = {"sys_id": "us-1", "name": "My Feature"}
+    assert check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1") is None
+
+
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_check_update_set_for_push_silent_on_first_edit(mock_last):
+    """No prior capture for the record → nothing to have switched away from."""
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-1", "name": "My Feature"}}}
+    )
+    mock_last.return_value = None
+    assert check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1") is None
+
+
+def test_check_update_set_for_push_silent_for_basic_auth():
+    """The picker is session-only; uncertainty must stay silent, not guess."""
+    auth = MagicMock()
+    assert check_update_set_for_push(_basic_config(), auth) is None
+    auth.make_request.assert_not_called()
+
+
+def test_check_update_set_for_push_silent_when_unreadable():
+    auth = MagicMock()
+    auth.make_request.side_effect = Exception("boom")
+    assert check_update_set_for_push(_browser_config(), auth) is None
 
 
 def test_is_default_update_set_matches_by_name():
