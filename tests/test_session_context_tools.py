@@ -338,6 +338,49 @@ def test_check_update_set_for_push_confirms_when_switched_away(mock_last):
 
 
 @patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_check_update_set_for_push_attributes_the_earlier_capture(mock_last):
+    """WHO/WHEN must ride along — an unattributed diff reads as 'you switched'."""
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-new", "name": "Other Feature"}}}
+    )
+    mock_last.return_value = {
+        "sys_id": "us-old",
+        "name": "Original Feature",
+        "by": "another.dev",
+        "at": "2026-07-27 05:35:00",
+    }
+    out = check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1")
+    assert out["last_worked_by"] == "another.dev"
+    assert out["last_worked_at"] == "2026-07-27 05:35:00"
+    assert "another.dev" in out["confirm"] and "05:35:00" in out["confirm"]
+    # Must not imply the MCP changed session state — it only ever reads.
+    assert "Nothing was created or switched" in out["confirm"]
+
+
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_check_update_set_for_push_flags_suffixed_lookalike_sets(mock_last):
+    """'X' vs 'X [BPM]' are two sets; a split there is the easiest one to miss."""
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-new", "name": "Some Dev [BPM]"}}}
+    )
+    mock_last.return_value = {"sys_id": "us-old", "name": "Some Dev"}
+    out = check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1")
+    assert "DIFFERENT update sets" in out["note"]
+
+
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_check_update_set_for_push_omits_note_for_unrelated_names(mock_last):
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-new", "name": "Other Feature"}}}
+    )
+    mock_last.return_value = {"sys_id": "us-old", "name": "Original Feature"}
+    assert "note" not in check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1")
+
+
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
 def test_check_update_set_for_push_silent_when_still_in_same_set(mock_last):
     auth = MagicMock()
     auth.make_request.return_value = _resp(

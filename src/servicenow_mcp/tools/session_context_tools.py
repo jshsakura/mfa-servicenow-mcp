@@ -546,17 +546,36 @@ def check_update_set_for_push(
         return None  # first edit, or still in the same set — nothing to confirm
     current_name = us.get("name") or current_id
     last_name = (last or {}).get("name") or last_id
-    return {
+    by = (last or {}).get("by") or ""
+    at = (last or {}).get("at") or ""
+    # Attribute the earlier capture. A bare "the set differs" reads as "you
+    # switched", so a push after someone else's edit sends the developer hunting
+    # for a mistake they never made.
+    who = f" by {by}" if by else ""
+    when = f" on {at}" if at else ""
+    out = {
         "current_update_set": current_name,
         "last_worked_update_set": last_name,
+        "last_worked_by": by,
+        "last_worked_at": at,
         "confirm": (
-            f"This record was last captured into update set '{last_name}', but the current "
-            f"session set is '{current_name}'. If switching is intentional (e.g. a new feature "
-            f"set), push as-is. If not, switch back with manage_session_context("
-            f"action='set_update_set', update_set_name='{last_name}') before saving, so this "
-            f"change is not split across two sets."
+            f"This record was last captured into update set '{last_name}'{who}{when}; this "
+            f"session's set is '{current_name}'. Nothing was created or switched — this is a "
+            f"read of where the two captures land. If that earlier capture was someone else's "
+            f"session or an intentional new feature set, push as-is. Otherwise switch with "
+            f"manage_session_context(action='set_update_set', update_set_name='{last_name}') "
+            f"and re-SAVE, so one logical change is not split across two sets."
         ),
     }
+    # Near-identical names (a suffixed variant) read as one set, so a split into
+    # two is easy to miss exactly where it matters most.
+    a, b = current_name.strip().lower(), last_name.strip().lower()
+    if a and b and (a.startswith(b) or b.startswith(a)):
+        out["note"] = (
+            f"'{current_name}' and '{last_name}' are two DIFFERENT update sets whose names "
+            f"only differ by a suffix — promoting one will not carry the other."
+        )
+    return out
 
 
 def get_last_update_set_for_record(
@@ -576,7 +595,7 @@ def get_last_update_set_for_record(
             auth_manager,
             table="sys_update_xml",
             query=f"name={table}_{sys_id}^ORDERBYDESCsys_updated_on",
-            fields="sys_id,name,update_set,sys_updated_on",
+            fields="sys_id,name,update_set,sys_updated_on,sys_updated_by",
             limit=1,
             offset=0,
             display_value=True,
@@ -586,10 +605,24 @@ def get_last_update_set_for_record(
         return None
     if not rows:
         return None
-    us = rows[0].get("update_set")
+    row = rows[0]
+    us = row.get("update_set")
     if isinstance(us, dict):
-        return {"sys_id": str(us.get("value") or ""), "name": str(us.get("display_value") or "")}
-    return {"sys_id": str(us or ""), "name": ""}
+        out = {"sys_id": str(us.get("value") or ""), "name": str(us.get("display_value") or "")}
+    else:
+        out = {"sys_id": str(us or ""), "name": ""}
+    # WHO/WHEN: without these the caller can only say "the set differs", which
+    # reads as "you switched" even when another person/session captured it.
+    out["by"] = _display(row.get("sys_updated_by"))
+    out["at"] = _display(row.get("sys_updated_on"))
+    return out
+
+
+def _display(value: Any) -> str:
+    """Flatten a display_value Table API field ({value, display_value} or str)."""
+    if isinstance(value, dict):
+        return str(value.get("display_value") or value.get("value") or "")
+    return str(value or "")
 
 
 def ensure_current_app(

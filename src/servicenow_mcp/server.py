@@ -1353,7 +1353,11 @@ class ServiceNowMCP:
                 if not ctx["definition"].allow_writes:
                     raise ValueError(
                         f"Instance '{target_alias}' is read-only (allow_writes=false); "
-                        "cannot write to it."
+                        "cannot write to it. To ship a change there, export it from the "
+                        "source instance with export_record_xml(table=..., sys_ids=[...]) "
+                        "and have the user import the .xml on the target — or promote via "
+                        "an Update Set. There is no skill or setting that writes to a "
+                        "read-only instance; do not invent one."
                     )
                 cross_instance_ctx = ctx
                 call_config = ctx["config"]
@@ -1382,7 +1386,11 @@ class ServiceNowMCP:
                 "at runtime. Do NOT edit .mcp.json / config / env files to flip allow_writes "
                 "or switch SERVICENOW_ACTIVE_INSTANCE — it has no effect until a restart and "
                 "is not a valid workaround. Ask the user to restart the server with the target "
-                "instance active (allow_writes=true), or to make the change directly in ServiceNow."
+                "instance active (allow_writes=true), or to make the change directly in "
+                "ServiceNow. To ship an already-made change here, export it from the source "
+                "instance with export_record_xml(table=..., sys_ids=[...]) and have the user "
+                "import the .xml — or promote via an Update Set. There is no skill that "
+                "writes to a read-only instance; do not invent one."
             )
 
         # Write guards: block writes against wrong/denied/bloated update sets,
