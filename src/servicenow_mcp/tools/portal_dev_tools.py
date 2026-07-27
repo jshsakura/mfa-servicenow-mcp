@@ -322,11 +322,11 @@ def get_developer_changes(
         query = "^".join(query_parts)
 
         try:
-            # Always fetch count first (1 lightweight API call)
-            count = _sn_count(config, auth_manager, tconfig["table"], query)
-            total_api_calls += 1
-
+            # count_only returns no rows, so the aggregate query is the cheapest
+            # answer for it and stays.
             if params.count_only:
+                count = _sn_count(config, auth_manager, tconfig["table"], query)
+                total_api_calls += 1
                 results_by_type[stype] = {
                     "label": tconfig["label"],
                     "table": tconfig["table"],
@@ -335,24 +335,10 @@ def get_developer_changes(
                 total_items += count
                 continue
 
-            # Warn if large result set
-            if count > safe_limit:
-                cost_warnings.append(
-                    f"{tconfig['label']}: {count} records found, returning first {safe_limit}. "
-                    f"Use updated_after/updated_before or scope to narrow results."
-                )
-
-            if count == 0:
-                results_by_type[stype] = {
-                    "label": tconfig["label"],
-                    "table": tconfig["table"],
-                    "count": 0,
-                    "total_count": 0,
-                    "items": [],
-                }
-                continue
-
-            rows, _ = _sn_get(
+            # The listing path used to count every table and then fetch the same
+            # query — two round trips per source type for one question the page
+            # already answers in X-Total-Count.
+            rows, total = _sn_get(
                 config,
                 auth_manager,
                 tconfig["table"],
@@ -362,6 +348,19 @@ def get_developer_changes(
                 orderby=params.orderby,
             )
             total_api_calls += 1
+
+            count = total if total is not None else len(rows)
+            # No header and a full page: len(rows) is a lower bound, and passing
+            # it off as the total would silently drop the "there are more" warning.
+            if total is None and len(rows) >= safe_limit:
+                count = _sn_count(config, auth_manager, tconfig["table"], query)
+                total_api_calls += 1
+
+            if count > safe_limit:
+                cost_warnings.append(
+                    f"{tconfig['label']}: {count} records found, returning first {safe_limit}. "
+                    f"Use updated_after/updated_before or scope to narrow results."
+                )
 
             # Compact results for LLM token efficiency
             compact_rows = [_compact_record(r) for r in rows]
@@ -488,26 +487,27 @@ def get_uncommitted_changes(
         xml_query_parts.append("nameIN" + ",".join(table_names))
     xml_query = "^".join(xml_query_parts)
 
-    # Count entries first
-    try:
-        entry_count = _sn_count(config, auth_manager, "sys_update_xml", xml_query)
-        total_api_calls += 1
-    except Exception as exc:
-        return {
-            "success": False,
-            "message": f"Failed to count update XML entries: {exc}",
-        }
-
     compact_update_sets = [_compact_record(us) for us in update_sets]
     cost_warnings: List[str] = []
 
-    if entry_count > safe_limit:
-        cost_warnings.append(
-            f"{entry_count} entries found across {len(us_ids)} update sets, "
-            f"returning first {safe_limit}. Use source_types or scope to narrow."
-        )
-
+    # count_only wants the number and no rows, so the aggregate query is the
+    # cheapest answer and stays. The listing path used to pay for it too, then
+    # immediately fetch the same query — and that fetch reports the same total in
+    # X-Total-Count. One read now serves both.
     if params.count_only:
+        try:
+            entry_count = _sn_count(config, auth_manager, "sys_update_xml", xml_query)
+            total_api_calls += 1
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": f"Failed to count update XML entries: {exc}",
+            }
+        if entry_count > safe_limit:
+            cost_warnings.append(
+                f"{entry_count} entries found across {len(us_ids)} update sets, "
+                f"returning first {safe_limit}. Use source_types or scope to narrow."
+            )
         response: Dict[str, Any] = {
             "success": True,
             "developer": params.developer,
@@ -520,20 +520,9 @@ def get_uncommitted_changes(
             response["cost_warnings"] = cost_warnings
         return response
 
-    if entry_count == 0:
-        return {
-            "success": True,
-            "developer": params.developer,
-            "update_sets": compact_update_sets,
-            "total_update_sets": us_total,
-            "entries_by_update_set": {},
-            "total_entries": 0,
-            "api_calls_made": total_api_calls,
-        }
-
     # Fetch actual entries
     try:
-        all_entries, _ = _sn_get(
+        all_entries, entry_total = _sn_get(
             config,
             auth_manager,
             "sys_update_xml",
@@ -547,6 +536,36 @@ def get_uncommitted_changes(
         return {
             "success": False,
             "message": f"Failed to fetch update XML entries: {exc}",
+        }
+
+    # No header (instance suppresses it) and a full page means the true total is
+    # unknown, not len(rows) — only then is the count query worth a round trip.
+    entry_count = entry_total if entry_total is not None else len(all_entries)
+    if entry_total is None and len(all_entries) >= safe_limit:
+        try:
+            entry_count = _sn_count(config, auth_manager, "sys_update_xml", xml_query)
+            total_api_calls += 1
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": f"Failed to count update XML entries: {exc}",
+            }
+
+    if entry_count > safe_limit:
+        cost_warnings.append(
+            f"{entry_count} entries found across {len(us_ids)} update sets, "
+            f"returning first {safe_limit}. Use source_types or scope to narrow."
+        )
+
+    if not all_entries:
+        return {
+            "success": True,
+            "developer": params.developer,
+            "update_sets": compact_update_sets,
+            "total_update_sets": us_total,
+            "entries_by_update_set": {},
+            "total_entries": entry_count,
+            "api_calls_made": total_api_calls,
         }
 
     # Group entries by update set — compact output
@@ -652,30 +671,12 @@ def get_provider_dependency_map(
 
     widget_query = "^".join(widget_query_parts)
 
-    try:
-        widget_count = _sn_count(config, auth_manager, "sp_widget", widget_query)
-        total_api_calls += 1
-    except Exception as exc:
-        return {"success": False, "message": f"Failed to count widgets: {exc}"}
-
-    if widget_count == 0:
-        return {
-            "success": True,
-            "message": "No widgets found matching the filters.",
-            "widget_count": 0,
-            "dependency_map": [],
-            "api_calls_made": total_api_calls,
-        }
-
-    if widget_count > safe_max:
-        cost_warnings.append(
-            f"{widget_count} widgets match your filter, processing first {safe_max}. "
-            f"This will require ~{2 + safe_max // 50 + 1} API calls. "
-            f"Use widget_ids to target specific widgets for faster results."
-        )
-
-    # Step 2: Fetch widgets — include server script ONLY for SI ref extraction
-    # Script bodies will be parsed then discarded from the response
+    # Step 1: Fetch the first page — its X-Total-Count already answers "how many
+    # match", so counting first asked the server the same question twice. The
+    # page is capped at safe_max either way, so the count never gated the fetch;
+    # it only fed the warning and the empty case, both of which the header
+    # serves. Include the server script ONLY for SI ref extraction — script
+    # bodies are parsed then discarded from the response.
     widget_fields = "sys_id,name,id,sys_scope,sys_updated_by"
     if params.include_script_include_refs:
         widget_fields += ",script"
@@ -693,6 +694,34 @@ def get_provider_dependency_map(
         total_api_calls += 1
     except Exception as exc:
         return {"success": False, "message": f"Failed to fetch widgets: {exc}"}
+
+    # An instance that suppresses the pagination header leaves the total unknown,
+    # and len(rows) is only a lower bound once the page is full. Pay for the
+    # count query there, and nowhere else.
+    if widget_total is None:
+        try:
+            widget_total = _sn_count(config, auth_manager, "sp_widget", widget_query)
+            total_api_calls += 1
+        except Exception as exc:
+            return {"success": False, "message": f"Failed to count widgets: {exc}"}
+
+    widget_count = widget_total
+
+    if widget_count == 0:
+        return {
+            "success": True,
+            "message": "No widgets found matching the filters.",
+            "widget_count": 0,
+            "dependency_map": [],
+            "api_calls_made": total_api_calls,
+        }
+
+    if widget_count > safe_max:
+        cost_warnings.append(
+            f"{widget_count} widgets match your filter, processing first {safe_max}. "
+            f"This will require ~{2 + safe_max // 50} API calls. "
+            f"Use widget_ids to target specific widgets for faster results."
+        )
 
     widget_ids = [w["sys_id"] for w in widgets if w.get("sys_id")]
 

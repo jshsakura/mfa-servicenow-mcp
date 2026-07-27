@@ -22,6 +22,16 @@ from servicenow_mcp.tools.sn_api import invalidate_query_cache
 
 
 @pytest.fixture(autouse=True)
+def _clear_query_cache():
+    """These tests pin exact make_request sequences, and the shared query cache
+    is keyed by table+query+limit — so two tests that ask the same thing would
+    otherwise let the second one pass on the first one's rows."""
+    invalidate_query_cache()
+    yield
+    invalidate_query_cache()
+
+
+@pytest.fixture(autouse=True)
 def _stub_provider_m2m_resolver():
     """The provider junction table is discovered against the live instance at
     runtime; stub it to a fixed name in unit tests so discovery round-trips do
@@ -114,10 +124,10 @@ class TestGetDeveloperChanges:
         invalidate_query_cache()
 
         widget_rows = [{"sys_id": "w1", "name": "Widget1", "sys_updated_on": "2026-03-31"}]
+        # One page read serves the whole first call (its X-Total-Count is the
+        # total); the second call is answered entirely from the query cache.
         auth.make_request.side_effect = [
-            _mock_stats_response(1),
             _mock_response({"result": widget_rows}, total_count=1),
-            _mock_stats_response(1),
         ]
 
         params = GetDeveloperChangesParams(
@@ -132,7 +142,9 @@ class TestGetDeveloperChanges:
         assert first["success"] is True
         assert second["success"] is True
         assert first["results"]["widget"]["items"] == second["results"]["widget"]["items"]
-        assert auth.make_request.call_count == 3
+        assert first["results"]["widget"]["total_count"] == 1
+        assert first["api_calls_made"] == 1
+        assert auth.make_request.call_count == 1
 
     def test_count_only_mode(self):
         config = _make_config()
@@ -167,11 +179,11 @@ class TestGetDeveloperChanges:
             for i in range(20)
         ]
 
+        # One read per source type — the page's X-Total-Count carries the total,
+        # so a table with more rows than the limit still warns without a count query.
         auth.make_request.side_effect = [
-            _mock_stats_response(100),  # widget count (large!)
-            _mock_response({"result": widget_rows}, total_count=100),  # widget fetch
-            _mock_stats_response(0),  # angular_provider count
-            _mock_stats_response(2),  # script_include count
+            _mock_response({"result": widget_rows}, total_count=100),  # 20 of 100
+            _mock_response({"result": []}, total_count=0),  # angular_provider
             _mock_response({"result": [{"sys_id": "s1", "name": "SI1"}]}, total_count=2),
         ]
 
@@ -184,6 +196,55 @@ class TestGetDeveloperChanges:
         assert result["success"] is True
         assert "cost_warnings" in result
         assert any("100 records found" in w for w in result["cost_warnings"])
+        assert result["results"]["widget"]["total_count"] == 100
+        assert result["results"]["angular_provider"]["items"] == []
+        assert result["api_calls_made"] == 3
+        assert auth.make_request.call_count == 3
+
+    def test_a_full_page_without_the_header_falls_back_to_a_count(self):
+        """Only the header-less instance pays for the extra round trip."""
+        config = _make_config()
+        auth = _make_auth()
+
+        rows = [{"sys_id": f"w{i}", "name": f"Widget{i}"} for i in range(5)]
+        auth.make_request.side_effect = [
+            _mock_response({"result": rows}),  # full page, header suppressed
+            _mock_stats_response(80),  # fallback count
+        ]
+
+        params = GetDeveloperChangesParams(
+            developer="admin@example.com",
+            source_types=["widget"],
+            limit_per_table=5,
+        )
+        result = get_developer_changes(config, auth, params)
+
+        assert result["success"] is True
+        assert result["results"]["widget"]["total_count"] == 80
+        assert result["results"]["widget"]["count"] == 5
+        assert any("80 records found" in w for w in result["cost_warnings"])
+        assert result["api_calls_made"] == 2
+
+    def test_a_short_page_without_the_header_needs_no_count(self):
+        """A page shorter than the limit IS the whole result — nothing to count."""
+        config = _make_config()
+        auth = _make_auth()
+
+        auth.make_request.side_effect = [
+            _mock_response({"result": [{"sys_id": "w1", "name": "Widget1"}]}),
+        ]
+
+        params = GetDeveloperChangesParams(
+            developer="admin@example.com",
+            source_types=["widget"],
+            limit_per_table=5,
+        )
+        result = get_developer_changes(config, auth, params)
+
+        assert result["success"] is True
+        assert result["results"]["widget"]["total_count"] == 1
+        assert result["api_calls_made"] == 1
+        assert "cost_warnings" not in result
 
     def test_unknown_source_type_produces_error(self):
         config = _make_config()
@@ -265,9 +326,10 @@ class TestGetUncommittedChanges:
             },
         ]
 
+        # Two reads, not three: the entry fetch's X-Total-Count is the total, so
+        # the listing path no longer pays for a separate count of the same query.
         auth.make_request.side_effect = [
             _mock_response({"result": us_data}, total_count=1),
-            _mock_stats_response(1),
             _mock_response({"result": entries}, total_count=1),
         ]
 
@@ -277,6 +339,45 @@ class TestGetUncommittedChanges:
         assert result["success"] is True
         assert "US-Portal-Fix" in result["entries_by_update_set"]
         assert len(result["entries_by_update_set"]["US-Portal-Fix"]) == 1
+        assert result["total_entries"] == 1
+        assert result["api_calls_made"] == 2
+        assert auth.make_request.call_count == 2
+
+    def test_full_fetch_counts_a_full_page_when_the_header_is_missing(self):
+        """An instance that suppresses X-Total-Count still gets a true total.
+
+        len(rows) is a lower bound once the page is full, and reporting it as
+        the total would hide the "there are more" warning entirely.
+        """
+        config = _make_config()
+        auth = _make_auth()
+
+        us_data = [{"sys_id": "us1", "name": "US-Portal-Fix", "state": "in progress"}]
+        entries = [
+            {
+                "target_name": f"Widget{i}",
+                "name": "sp_widget",
+                "action": "INSERT_OR_UPDATE",
+                "update_set": {"display_value": "US-Portal-Fix", "value": "us1"},
+                "sys_updated_on": "2026-03-31 10:00:00",
+            }
+            for i in range(2)
+        ]
+
+        auth.make_request.side_effect = [
+            _mock_response({"result": us_data}, total_count=1),
+            _mock_response({"result": entries}),  # full page, no header
+            _mock_stats_response(40),
+        ]
+
+        params = GetUncommittedChangesParams(developer="test@test.com", limit=2)
+        result = get_uncommitted_changes(config, auth, params)
+
+        assert result["success"] is True
+        assert result["total_entries"] == 40
+        assert result["returned_entries"] == 2
+        assert any("40 entries found" in w for w in result["cost_warnings"])
+        assert result["api_calls_made"] == 3
 
 
 class TestGetProviderDependencyMap:
@@ -294,7 +395,7 @@ class TestGetProviderDependencyMap:
         config = _make_config()
         auth = _make_auth()
         auth.make_request.side_effect = [
-            _mock_stats_response(0),  # widget count
+            _mock_response({"result": []}, total_count=0),  # widget fetch
         ]
 
         params = GetProviderDependencyMapParams(developer="test@test.com")
@@ -302,6 +403,7 @@ class TestGetProviderDependencyMap:
 
         assert result["success"] is True
         assert result["widget_count"] == 0
+        assert result["api_calls_made"] == 1  # the fetch alone answers "none match"
 
     def test_maps_widget_to_providers(self):
         config = _make_config()
@@ -324,8 +426,8 @@ class TestGetProviderDependencyMap:
             {"sys_id": "si2", "name": "AnotherHelper", "api_name": "global.AnotherHelper"},
         ]
 
+        # The widget fetch's X-Total-Count is the match count — no count query.
         auth.make_request.side_effect = [
-            _mock_stats_response(1),  # widget count
             _mock_response({"result": widgets}, total_count=1),  # widget fetch
             _mock_response({"result": m2m_rows}, total_count=1),  # M2M
             _mock_response({"result": providers}, total_count=1),  # provider fetch
@@ -342,6 +444,9 @@ class TestGetProviderDependencyMap:
         assert result["summary"]["widgets"] == 1
         assert result["summary"]["providers"] == 1
         assert result["summary"]["script_include_refs"] == 2  # MyHelper + AnotherHelper
+        assert result["summary"]["widgets_total"] == 1
+        assert result["summary"]["api_calls"] == 4
+        assert auth.make_request.call_count == 4
 
         dep = result["dependency_map"][0]
         assert dep["widget"]["name"] == "TestWidget"
@@ -356,8 +461,7 @@ class TestGetProviderDependencyMap:
 
         widgets = [{"sys_id": f"w{i}", "name": f"W{i}"} for i in range(10)]
         auth.make_request.side_effect = [
-            _mock_stats_response(50),  # 50 widgets match
-            _mock_response({"result": widgets}, total_count=50),  # fetch 10
+            _mock_response({"result": widgets}, total_count=50),  # fetch 10 of 50
             _mock_response({"result": []}, total_count=0),  # M2M
         ]
 
@@ -371,6 +475,7 @@ class TestGetProviderDependencyMap:
         assert result["success"] is True
         assert "cost_warnings" in result
         assert any("50 widgets" in w for w in result["cost_warnings"])
+        assert result["summary"]["api_calls"] == 2
 
 
 class TestGetDeveloperDailySummary:
