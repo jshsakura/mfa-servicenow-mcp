@@ -23,6 +23,7 @@ from servicenow_mcp.browser import (
     impersonate,
     launch_budget,
     login,
+    mfa_trust,
     report,
     window,
 )
@@ -2533,3 +2534,139 @@ def test_the_effective_user_script_reads_the_platform_impersonation_flag():
     from servicenow_mcp.browser.session import EFFECTIVE_USER_SCRIPT
 
     assert "user_impersonating" in EFFECTIVE_USER_SCRIPT
+
+
+# ---------------------------------------------------------------------------
+# mfa_trust.py — one challenge per account, and only the one cookie moves
+# ---------------------------------------------------------------------------
+
+
+def _mfa_cookie(value="tok", expires=None, name=None, domain="dev.example.com"):
+    return {
+        "name": name or mfa_trust.MFA_COOKIE_NAME,
+        "value": value,
+        "domain": domain,
+        "path": "/",
+        "expires": expires if expires is not None else time.time() + 16 * 3600,
+        "httpOnly": True,
+        "secure": True,
+    }
+
+
+def test_only_the_remembered_browser_cookie_is_ever_picked_up():
+    jar = [
+        {"name": "JSESSIONID", "value": "s", "domain": "dev.example.com", "expires": -1},
+        {"name": "glide_session_store", "value": "s", "domain": "dev.example.com", "expires": -1},
+        {"name": "glide_user_activity", "value": "s", "domain": "dev.example.com", "expires": -1},
+        _mfa_cookie(),
+    ]
+
+    picked = mfa_trust.pick(jar, "dev.example.com")
+
+    # The session cookies are the ones session.py refuses to share. They must
+    # not be able to ride along with the device trust.
+    assert picked["name"] == mfa_trust.MFA_COOKIE_NAME
+    assert picked["value"] == "tok"
+
+
+def test_a_cookie_for_another_host_is_not_ours():
+    assert mfa_trust.pick([_mfa_cookie(domain="other.example.com")], "dev.example.com") is None
+
+
+def test_an_expired_or_session_scoped_cookie_is_not_worth_carrying():
+    assert mfa_trust.pick([_mfa_cookie(expires=time.time() - 5)], "dev.example.com") is None
+    assert mfa_trust.pick([_mfa_cookie(expires=-1)], "dev.example.com") is None
+    assert mfa_trust.pick([_mfa_cookie(expires=time.time() + 30)], "dev.example.com") is None
+
+
+def test_the_store_round_trips_and_is_owner_only(tmp_path):
+    path = str(tmp_path / "mfa.json")
+    cookie = _mfa_cookie(value="secret-token")
+
+    assert mfa_trust.write_store(path, cookie) is True
+    assert mfa_trust.read_store(path)["value"] == "secret-token"
+    # It is a credential: same handling the session cache gives cookies.
+    assert oct(os.stat(path).st_mode & 0o777) == "0o600"
+
+
+def test_writing_the_same_value_twice_is_not_an_update(tmp_path):
+    # The write-back into the login profile is gated on this returning True, so
+    # a no-op write must not trigger a headless launch on every open.
+    path = str(tmp_path / "mfa.json")
+    cookie = _mfa_cookie(value="same")
+
+    assert mfa_trust.write_store(path, cookie) is True
+    assert mfa_trust.write_store(path, dict(cookie)) is False
+
+
+def test_an_expired_store_reads_as_nothing(tmp_path):
+    path = str(tmp_path / "mfa.json")
+    mfa_trust.write_store(path, _mfa_cookie(expires=time.time() + 16 * 3600))
+    json.dump({"cookie": _mfa_cookie(expires=time.time() - 1)}, open(path, "w"))
+
+    assert mfa_trust.read_store(path) is None
+
+
+def test_the_store_is_keyed_by_account_not_by_profile_configuration():
+    # A named-instance alias and a legacy host+user key produce different
+    # PROFILE directories for the same human — which is exactly how one account
+    # got challenged twice. The trust key must not inherit that split.
+    root = "/cache"
+    from_alias = mfa_trust.store_path(root, "https://dev.example.com", "alice@corp.com")
+    from_legacy = mfa_trust.store_path(root, "https://dev.example.com", "Alice@Corp.com")
+
+    assert from_alias == from_legacy
+    assert mfa_trust.store_path(root, "https://other.example.com", "alice@corp.com") != from_alias
+
+
+def test_seeding_puts_exactly_one_cookie_into_the_context():
+    class FakeContext:
+        def __init__(self):
+            self.added = []
+
+        def add_cookies(self, cookies):
+            self.added.extend(cookies)
+
+    context = FakeContext()
+    assert mfa_trust.seed_context(context, _mfa_cookie()) is True
+    assert [c["name"] for c in context.added] == [mfa_trust.MFA_COOKIE_NAME]
+
+    # Nothing to seed is not a failure, and must not touch the browser.
+    fresh = FakeContext()
+    assert mfa_trust.seed_context(fresh, None) is False
+    assert fresh.added == []
+
+
+def test_harvesting_from_a_context_never_raises_on_a_hostile_jar():
+    class Hostile:
+        def cookies(self):
+            raise RuntimeError("context destroyed")
+
+    assert mfa_trust.harvest_from_context(Hostile(), "dev.example.com") is None
+
+
+def test_a_profile_in_use_is_left_alone(monkeypatch, tmp_path):
+    # The login profile's lock is held for as long as that browser is open;
+    # waiting for it would stall the window someone is waiting for.
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    monkeypatch.setattr("servicenow_mcp.auth._browser_dom._singleton_holder_pid", lambda path: 4321)
+
+    assert mfa_trust.harvest_from_profile(str(profile), "dev.example.com") is None
+    assert mfa_trust.seed_profile(str(profile), _mfa_cookie()) is False
+
+
+def test_a_missing_profile_is_not_an_error():
+    assert mfa_trust.harvest_from_profile("/nope/does/not/exist", "dev.example.com") is None
+
+
+def test_the_shared_cookie_only_helps_a_headed_window():
+    # Measured: seeded + headless was still challenged, seeded + headed was not.
+    # The debug window is headed by contract, which is why this feature works at
+    # all — if that contract ever changes, this stops being an optimisation and
+    # starts being a lie. Pinned here rather than in prose.
+    from servicenow_mcp.browser import mfa_trust as trust
+    from servicenow_mcp.browser.window import DEBUG_WINDOW_ALWAYS_HEADED
+
+    assert DEBUG_WINDOW_ALWAYS_HEADED is True
+    assert "headed" in trust.__doc__
