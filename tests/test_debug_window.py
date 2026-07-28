@@ -1870,9 +1870,11 @@ class FakeSessionPage(FakePage):
         response=None,
         becomes=None,
         dirty=(),
+        impersonating=None,
     ):
         super().__init__(known=[], url=url)
         self.user = user
+        self.impersonating = impersonating
         self.becomes = becomes
         self.dirty = list(dirty)
         self.response = (
@@ -1889,7 +1891,9 @@ class FakeSessionPage(FakePage):
             return {"ok": True, "value": self.response, "type": "object"}
         if "p.dirty()" in script:
             return {"fields": self.dirty, "observedFromStart": True}
-        return {"user": self.user, "source": "g_user"} if self.user else None
+        if not self.user:
+            return None
+        return {"user": self.user, "source": "g_user", "impersonating": self.impersonating}
 
     def reload(self, wait_until=None, timeout=None):
         self.reloads += 1
@@ -2075,7 +2079,7 @@ def test_with_nothing_to_go_back_to_it_says_so_instead_of_guessing(tmp_path):
     out = impersonate.restore(page, marker_path=_marker(tmp_path), started_at=7.0)
 
     assert out["ok"] is False
-    assert "Impersonate your own" in out["error"]
+    assert "records the account it signed in as" in out["error"]
 
 
 def test_ending_when_already_home_is_a_no_op_that_clears_the_marker(tmp_path):
@@ -2130,7 +2134,7 @@ def test_a_session_step_makes_the_batch_report_who_the_window_now_is(monkeypatch
     )
 
     assert result["window_user"] == "bob"
-    assert "every MCP session shares it" in result["session_note"]
+    assert "every MCP session" in result["session_note"]
     # The tool layer resolves the window-scoped context; actions.py stays dumb.
     assert seen["session"]["marker_path"] == _marker(tmp_path)
     assert seen["session"]["instance_host"] == "dev.example.com"
@@ -2295,3 +2299,67 @@ def test_the_account_the_badge_compares_against_survives_the_impersonation(tmp_p
         assert tools._window_account(config, auth_manager, state) == "alice"
     finally:
         tools.window_impersonation_path = original
+
+
+# ---------------------------------------------------------------------------
+# Mixing the avatar menu with the tool — the live bug this pins
+# ---------------------------------------------------------------------------
+
+
+def test_the_user_we_go_home_to_is_never_one_we_were_pretending_to_be(tmp_path):
+    # Found on a live instance: the user impersonated 'heejin' by hand, the tool
+    # then impersonated 'carol', and end_impersonation went back to heejin —
+    # a user nobody had ever signed in as. The page said so all along.
+    path = _marker(tmp_path)
+    page = FakeSessionPage(user="heejin", becomes="carol", impersonating=True)
+
+    impersonate.become(page, target="carol", marker_path=path, started_at=3.0, login_user="alice")
+
+    assert impersonate.read_marker(path, 3.0)["original"] == "alice"
+
+
+def test_when_the_page_says_this_is_the_real_account_that_is_the_account(tmp_path):
+    path = _marker(tmp_path)
+    page = FakeSessionPage(user="alice", becomes="bob", impersonating=False)
+
+    impersonate.become(page, target="bob", marker_path=path, started_at=3.0, login_user="ignored")
+
+    assert impersonate.read_marker(path, 3.0)["original"] == "alice"
+
+
+def test_a_hand_made_impersonation_is_reported_even_with_no_marker():
+    detected = {"user": "bob", "source": "g_user", "impersonating": True}
+
+    assert impersonate.describe_detected(detected, None) == {"as": "bob", "original": None}
+
+
+def test_the_page_saying_this_is_the_real_account_beats_a_stale_marker():
+    marker = {"as": "bob", "original": "alice"}
+    detected = {"user": "alice", "source": "g_user", "impersonating": False}
+
+    assert impersonate.describe_detected(detected, marker) is None
+
+
+def test_a_page_that_does_not_expose_the_flag_falls_back_to_the_marker():
+    marker = {"as": "bob", "original": "alice"}
+    detected = {"user": "bob", "source": "g_user", "impersonating": None}
+
+    assert impersonate.describe_detected(detected, marker) == {"as": "bob", "original": "alice"}
+
+
+def test_ending_a_hand_made_impersonation_uses_the_configured_account(tmp_path):
+    page = FakeSessionPage(user="heejin", becomes="alice", impersonating=True)
+
+    out = impersonate.restore(
+        page, marker_path=_marker(tmp_path), started_at=3.0, fallback_user="alice"
+    )
+
+    assert out["ok"] is True and out["now"] == "alice"
+
+
+def test_the_effective_user_script_reads_the_platform_impersonation_flag():
+    # Measured on a live instance: NOW.user_impersonating is true while
+    # impersonating, on a portal page where NOW.user and g_user are both absent.
+    from servicenow_mcp.browser.session import EFFECTIVE_USER_SCRIPT
+
+    assert "user_impersonating" in EFFECTIVE_USER_SCRIPT

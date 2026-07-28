@@ -254,14 +254,20 @@ def _run_step(
             "allow_discard": bool(context.get("allow_discard")),
             "timeout_ms": timeout_ms,
         }
+        login_user = str(context.get("login_user") or "")
         if name == IMPERSONATE_ACTION:
-            outcome = become(page, target=step["value"] or "", **common)
+            outcome = become(page, target=step["value"] or "", login_user=login_user, **common)
         else:
-            outcome = restore(page, fallback_user=str(context.get("login_user") or ""), **common)
+            outcome = restore(page, fallback_user=login_user, **common)
         if not outcome.get("ok"):
             raise ActionError(str(outcome.get("error")), index=index)
         if name == IMPERSONATE_ACTION:
-            return {"impersonating": outcome.get("now"), "was": outcome.get("before")}
+            entry = {"impersonating": outcome.get("now"), "was": outcome.get("before")}
+            # Only when the caller's word was not the account's — "Dev User
+            # is dev.user@example.com" is the answer to the next question.
+            if outcome.get("resolved"):
+                entry["resolved"] = outcome["resolved"]
+            return entry
         return {"restored_to": outcome.get("now")}
 
     if name == EVAL_ACTION:

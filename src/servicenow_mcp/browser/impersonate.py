@@ -143,49 +143,103 @@ def clear_marker(path: str) -> None:
 
 
 def post_script(target: str) -> str:
-    """Source for the impersonate POST, run inside the window's own session."""
+    """Source for the impersonate POST, run inside the window's own session.
+
+    Takes whatever the caller has. Measured against a live instance: the
+    endpoint accepts a ``user_name`` and a ``sys_id`` and answers 201 with
+    ``{"result": {"user": ..., "impersonatedUser": ...}}``. It does NOT accept a
+    display name — so rather than telling the caller to go and look up an id,
+    a miss falls back to asking sys_user who that is and retries with the sys_id.
+    Finding the user is the tool's job, not the caller's.
+    """
     return """
     const target = %(target)s;
     const token = (window.g_ck || (window.NOW && window.NOW.g_ck) || '');
-    let response;
-    try {
-      response = await fetch('/api/now/ui/impersonate/' + encodeURIComponent(target), {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-UserToken': token
-        },
-        body: '{}'
-      });
-    } catch (e) {
-      return { sent: false, error: String((e && e.message) || e) };
-    }
-    let body = '';
-    try { body = (await response.text()).slice(0, 200); } catch (e) {}
-    return {
-      sent: true,
-      ok: response.ok,
-      status: response.status,
-      had_token: token ? true : false,
-      body: body
+    const headers = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'X-UserToken': token
     };
+
+    const attempt = async (who) => {
+      let response;
+      try {
+        response = await fetch('/api/now/ui/impersonate/' + encodeURIComponent(who), {
+          method: 'POST', credentials: 'same-origin', headers: headers, body: '{}'
+        });
+      } catch (e) {
+        return { sent: false, error: String((e && e.message) || e) };
+      }
+      let text = '';
+      try { text = await response.text(); } catch (e) {}
+      let became = '';
+      try { became = String((JSON.parse(text).result || {}).impersonatedUser || ''); } catch (e) {}
+      return {
+        sent: true,
+        ok: response.ok,
+        status: response.status,
+        became: became,
+        body: text.slice(0, 200)
+      };
+    };
+
+    // '^' separates ServiceNow query clauses; letting one through would let a
+    // name append conditions to the lookup.
+    const lookup = async (name) => {
+      const safe = String(name).split('^').join(' ').trim();
+      if (!safe) return [];
+      const query = 'active=true^user_name=' + safe + '^ORemail=' + safe + '^ORname=' + safe;
+      try {
+        const r = await fetch(
+          '/api/now/table/sys_user?sysparm_query=' + encodeURIComponent(query) +
+          '&sysparm_fields=sys_id,user_name,name&sysparm_limit=6',
+          { credentials: 'same-origin', headers: headers }
+        );
+        if (!r.ok) return [];
+        return ((await r.json()).result) || [];
+      } catch (e) {
+        return [];
+      }
+    };
+
+    let outcome = await attempt(target);
+    if (outcome.sent && !outcome.ok && (outcome.status === 404 || outcome.status === 400)) {
+      const matches = await lookup(target);
+      if (matches.length === 1) {
+        const resolved = matches[0];
+        outcome = await attempt(resolved.sys_id);
+        outcome.resolved = { from: target, user_name: resolved.user_name, name: resolved.name };
+      } else if (matches.length > 1) {
+        outcome.candidates = matches.map((m) => m.user_name + ' (' + m.name + ')');
+      }
+    }
+    outcome.had_token = token ? true : false;
+    return outcome;
     """ % {
         "target": json.dumps(str(target)),
     }
 
 
-def current_user(page: Any) -> str:
-    """Who the page says it is, or '' when nothing readable is there yet."""
+def current_identity(page: Any) -> Dict[str, Any]:
+    """Who the page says it is, and whether it admits to impersonating.
+
+    ``impersonating`` is None when the page does not expose the flag at all
+    (an older UI, a document that has not booted) — which is not the same as
+    False and must not be read as "this is definitely the real account".
+    """
     try:
         result = page.evaluate(EFFECTIVE_USER_SCRIPT)
     except Exception as exc:  # noqa: BLE001 - an unbooted page is not an error here
         logger.debug("Effective-user read failed during impersonation: %s", exc)
-        return ""
+        return {"user": "", "impersonating": None}
     if isinstance(result, dict) and result.get("user"):
-        return str(result["user"])
-    return ""
+        return {"user": str(result["user"]), "impersonating": result.get("impersonating")}
+    return {"user": "", "impersonating": None}
+
+
+def current_user(page: Any) -> str:
+    """Who the page says it is, or '' when nothing readable is there yet."""
+    return str(current_identity(page).get("user") or "")
 
 
 def _url(page: Any) -> str:
@@ -207,10 +261,17 @@ def _explain(outcome: Dict[str, Any], target: str) -> str:
             f"The instance refused to impersonate '{target}' ({status}). The account the "
             "window is signed in as needs the impersonator or admin role."
         )
+    candidates = outcome.get("candidates") or []
+    if candidates:
+        # Several people answer to that name. Picking one for the caller is the
+        # one thing worse than asking: the whole test would run as the wrong user.
+        return f"'{target}' matches {len(candidates)} users — say which one: " + "; ".join(
+            str(entry) for entry in candidates[:6]
+        )
     if status == 404:
         return (
-            f"No user '{target}' ({status}). Pass the user_name or the sys_id from "
-            "sys_user — a display name will not resolve."
+            f"No active user matched '{target}' ({status}) — not as a user_name, an "
+            "email, a display name, or a sys_id."
         )
     if not outcome.get("had_token", True):
         return (
@@ -318,6 +379,15 @@ def _switch(
             "status": outcome.get("status"),
         }
 
+    # The server names who the session became ("impersonatedUser" in the 201
+    # body). That is the authority on the session; the page read below is the
+    # authority on what is now on screen. Both are reported when they disagree,
+    # because a session that switched under a document that did not is exactly
+    # the state that makes a debugging session go sideways.
+    became = str(outcome.get("became") or "")
+    resolved = outcome.get("resolved") or None
+    expected = became or target
+
     # The session changed under the open document: everything on screen — the
     # globals, the ACLs the page was rendered with, the badge — is now stale.
     # A reload rather than a navigation, so whatever screen this is comes back
@@ -332,13 +402,31 @@ def _switch(
     while True:
         now = current_user(page)
         # Changed, or already the requested user: either way the read is final.
-        if now and (not _same(now, before) or _same(now, target)):
+        if now and (not _same(now, before) or _same(now, expected)):
             break
         if time.time() >= deadline:
             break
         time.sleep(_VERIFY_POLL_S)
 
+    result: Dict[str, Any] = {
+        "ok": True,
+        "before": before,
+        "now": now or became,
+        "url": _url(page),
+    }
+    if resolved:
+        result["resolved"] = resolved
+
     if not now:
+        # The server said it switched and the page has not said anything yet:
+        # a portal that boots its globals slowly, not a failure. Reported as
+        # what it is rather than dressed up as either outcome.
+        if became:
+            result["unverified_on_page"] = (
+                f"The instance switched the session to '{became}'; the page had not "
+                "reported a user yet when this returned."
+            )
+            return result
         return {
             "ok": False,
             "before": before,
@@ -347,17 +435,43 @@ def _switch(
                 "never reported a signed-in user. Look at the window."
             ),
         }
-    if _same(now, before) and not _same(now, target):
+    if _same(now, before) and not _same(now, expected):
         return {
             "ok": False,
             "before": before,
             "now": now,
             "error": (
-                f"The instance answered 200 but the session is still '{now}'. "
-                f"Check that '{target}' is an active user_name."
+                f"The instance answered {outcome.get('status')} but the session is "
+                f"still '{now}'. Check that '{target}' is an active account."
             ),
         }
-    return {"ok": True, "before": before, "now": now, "url": _url(page)}
+    return result
+
+
+def home_user(page: Any, *, marker: Optional[Dict[str, Any]], login_user: str) -> str:
+    """The account to go back to — never a user we are merely pretending to be.
+
+    Learned from a live run that got this wrong: "whoever the page said we were
+    before the switch" is only the account when the page was NOT already
+    impersonating, and a user who used the avatar menu first makes it not be.
+    So, in order:
+
+    1. an existing marker's ``original`` — the start of the chain, recorded when
+       the first switch happened;
+    2. the configured login account, when the page admits to impersonating —
+       the window signs itself in with those credentials, so that IS the account;
+    3. the page's current user, when nothing says it is an impersonation.
+
+    Returns '' when none of the three can answer, which the caller must report
+    rather than paper over: sending the session "back" to the wrong user is
+    worse than saying it does not know.
+    """
+    if marker and marker.get("original"):
+        return str(marker["original"])
+    identity = current_identity(page)
+    if identity.get("impersonating"):
+        return login_user
+    return str(identity.get("user") or "") or login_user
 
 
 def become(
@@ -369,15 +483,17 @@ def become(
     timeout_ms: int = 10_000,
     instance_host: str = "",
     allow_discard: bool = False,
+    login_user: str = "",
 ) -> Dict[str, Any]:
     """Impersonate ``target`` in the window, and record who to go back to.
 
-    The original is whoever the window was BEFORE the first impersonation —
-    switching from one impersonated user to another keeps the first answer, so
-    ``end_impersonation`` always lands back on the real account rather than on
-    the previous stop along the way.
+    The recorded original is the account, not the previous stop: switching from
+    one impersonated user to another — or impersonating on top of one the user
+    started by hand in the avatar menu — still ends up back at the real account.
+    See :func:`home_user`.
     """
     existing = read_marker(marker_path, started_at) if marker_path else None
+    home = home_user(page, marker=existing, login_user=login_user)
     result = _switch(
         page,
         target=target,
@@ -388,7 +504,9 @@ def become(
     if not result.get("ok"):
         return result
 
-    original = str((existing or {}).get("original") or result.get("before") or "")
+    # Resolved BEFORE the switch, while the page could still be asked whether it
+    # was impersonating — afterwards it always is, and the answer would be lost.
+    original = home or str(result.get("before") or "")
     if marker_path:
         write_marker(
             marker_path,
@@ -418,18 +536,25 @@ def restore(
     thing they want.
     """
     marker = read_marker(marker_path, started_at) if marker_path else None
+    identity = current_identity(page)
     target = str((marker or {}).get("original") or fallback_user or "").strip()
     if not target:
+        if identity.get("impersonating") is False:
+            # The page is explicit: this session is the real one. Nothing to end.
+            return {"ok": True, "now": identity.get("user") or "", "already": True}
+        # Impersonating, or a page that does not say — either way this cannot be
+        # answered, and guessing would send the session to the wrong user.
         return {
             "ok": False,
             "error": (
-                "Nothing records who this window was before. Impersonate your own "
-                "user_name to get back, or use the avatar menu in the window."
+                f"The window shows '{identity.get('user') or 'nobody'}' and nothing "
+                "records the account it signed in as. Impersonate that account by "
+                "name to get back, or use the avatar menu in the window."
             ),
         }
 
-    current = current_user(page)
-    if current and _same(current, target):
+    current = str(identity.get("user") or "")
+    if current and _same(current, target) and not identity.get("impersonating"):
         clear_marker(marker_path)
         return {"ok": True, "now": current, "already": True}
 
@@ -443,6 +568,29 @@ def restore(
     if result.get("ok"):
         clear_marker(marker_path)
     return result
+
+
+def describe_detected(
+    detected: Optional[Dict[str, Any]], marker: Optional[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """The impersonation to report on a read, page-first.
+
+    The page's own ``user_impersonating`` flag catches what a marker cannot: an
+    impersonation started from the avatar menu, or one left by an MCP session
+    whose marker was cleaned up. The marker only adds the account to go back to.
+    Falls back to marker-only agreement for pages that do not expose the flag.
+    """
+    user = str((detected or {}).get("user") or "")
+    if not user:
+        return None
+    flag = (detected or {}).get("impersonating")
+    if flag:
+        return {"as": user, "original": str((marker or {}).get("original") or "") or None}
+    if flag is False:
+        # The page says this is the real account; a marker claiming otherwise is
+        # stale and reporting it would send the next question to the wrong user.
+        return None
+    return describe(marker, user)
 
 
 def describe(marker: Optional[Dict[str, Any]], window_user: str) -> Optional[Dict[str, Any]]:
@@ -463,6 +611,9 @@ __all__ = [
     "END_IMPERSONATION_ACTION",
     "IMPERSONATE_ACTION",
     "become",
+    "current_identity",
+    "describe_detected",
+    "home_user",
     "clear_marker",
     "current_user",
     "describe",
