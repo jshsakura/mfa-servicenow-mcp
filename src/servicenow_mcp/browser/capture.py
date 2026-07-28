@@ -349,6 +349,19 @@ def navigate(
     it, which is what a person does when they need to look at something else
     without losing their place. It never triggers the unsaved-input check,
     because there is nothing to lose.
+
+    A GUESS does not refuse — it steps aside. When no keystroke was ever
+    observed (``basis == "guessed"``: the probe was not on that document, and
+    the fields merely differ from their HTML defaults, which every widget that
+    initialises itself produces) this opens the new tab by itself instead of
+    returning "no". Refusing on that evidence is how a shared window stops being
+    usable: the portal landing page reports eight dirty fields nobody touched,
+    every navigation is denied, and the person ends up closing the window to get
+    a working one. Both people are supposed to be able to type in this window —
+    protecting that must not cost the ability to use it.
+
+    Observed input (``typed``/``partial``) still refuses, because there the
+    evidence is a real person's keystrokes.
     """
     require_playwright()
 
@@ -364,7 +377,24 @@ def navigate(
                 context = contexts[0]
                 existing = _instance_page(context.pages, state.instance_host)
 
-                if new_tab or existing is None:
+                # Decided before anything moves: a guess steps aside into a new
+                # tab, observed input still refuses. See the docstring.
+                stepped_aside: Dict[str, Any] = {}
+                use_new_tab = new_tab
+                if existing is not None and not use_new_tab and not allow_discard:
+                    dirty, basis = _dirty_fields(existing)
+                    if dirty and basis == "guessed":
+                        use_new_tab = True
+                        stepped_aside = {"kept_input": dirty, "input_basis": basis}
+                    elif dirty:
+                        return {
+                            "navigated": False,
+                            "url": str(existing.url),
+                            "blocked_by_unsaved_input": dirty,
+                            "input_basis": basis,
+                        }
+
+                if use_new_tab or existing is None:
                     # Register the init scripts BEFORE the tab exists, so the
                     # new document is instrumented from its first byte — which
                     # is also what makes its unsaved-input record trustworthy
@@ -379,19 +409,11 @@ def navigate(
                         "new_tab": True,
                         "previous_url": (str(existing.url) if existing else None),
                         "tabs": len(context.pages),
+                        **stepped_aside,
                     }
 
                 page = existing
                 previous_url = str(page.url)
-                if not allow_discard:
-                    dirty, basis = _dirty_fields(page)
-                    if dirty:
-                        return {
-                            "navigated": False,
-                            "url": previous_url,
-                            "blocked_by_unsaved_input": dirty,
-                            "input_basis": basis,
-                        }
 
                 # Register BEFORE navigating: add_init_script only reaches
                 # documents created after it lands, so arming after goto would
