@@ -1923,7 +1923,45 @@ def test_a_page_that_cannot_be_probed_never_blocks_navigation():
     assert capture_module._dirty_fields(Hostile()) == ([], "guessed")
 
 
-def test_a_guessed_block_says_it_is_probably_a_false_alarm(monkeypatch):
+def test_a_guess_steps_aside_into_a_new_tab_instead_of_refusing(monkeypatch):
+    # A shared window that answers "no" to every navigation is not shared, it is
+    # broken: the portal landing page reports eight fields nobody touched. The
+    # guess now opens a tab beside them and says why.
+    state = window.WindowState(
+        pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=0.0
+    )
+    monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, False))
+    monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
+    monkeypatch.setattr(tools, "window_history_path", lambda a: "/tmp/h.json")
+    monkeypatch.setattr(tools, "arm", lambda state, **kw: {"armed": True})
+    monkeypatch.setattr(tools, "auto_login", lambda state, **kw: {"status": "no_credentials"})
+    monkeypatch.setattr(tools, "window_login_path", lambda a: "/tmp/l.json")
+    monkeypatch.setattr(
+        tools,
+        "navigate",
+        lambda state, url, profile, allow_discard, new_tab, **kw: {
+            "navigated": True,
+            "url": "https://dev.example.com/sp?id=other",
+            "new_tab": True,
+            "tabs": 2,
+            "kept_input": ["c.data.requestType", "request_date_from"],
+            "input_basis": "guessed",
+        },
+    )
+
+    result = tools.open_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.OpenDebugWindowParams(url="/sp?id=other"),
+    )
+
+    assert result["new_tab"] is True
+    assert "2 field(s)" in result["opened_beside"]
+    assert "discard_unsaved_input" in result["opened_beside"]
+
+
+def test_observed_typing_still_refuses(monkeypatch):
+    # The guess steps aside; a real person's keystrokes do not get stepped on.
     state = window.WindowState(
         pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=0.0
     )
@@ -1936,8 +1974,8 @@ def test_a_guessed_block_says_it_is_probably_a_false_alarm(monkeypatch):
         lambda state, url, profile, allow_discard, new_tab, **kw: {
             "navigated": False,
             "url": "https://dev.example.com/form",
-            "blocked_by_unsaved_input": ["c.data.requestType"],
-            "input_basis": "guessed",
+            "blocked_by_unsaved_input": ["short_description"],
+            "input_basis": "typed",
         },
     )
 
@@ -1947,8 +1985,9 @@ def test_a_guessed_block_says_it_is_probably_a_false_alarm(monkeypatch):
         tools.OpenDebugWindowParams(url="/sp?id=other"),
     )
 
-    assert result["input_basis"] == "guessed"
-    assert "false alarm" in result["hint"]
+    assert result["navigated"] is False
+    assert result["input_basis"] == "typed"
+    assert "Someone typed" in result["hint"]
 
 
 def test_a_new_tab_leaves_the_form_alone(monkeypatch):

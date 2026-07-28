@@ -305,31 +305,33 @@ def open_debug_window(
         except (NoPageFound, RuntimeError, TimeoutError) as exc:
             return {**result, "success": False, "error": str(exc)}
         if not moved.get("navigated"):
-            basis = moved.get("input_basis")
-            # new_tab is offered FIRST: it keeps the input and gets the page
-            # open, where discarding trades one for the other.
-            hint = (
-                "Fields hold input. Use new_tab=true to open this alongside without "
-                "touching them, or discard_unsaved_input=true to navigate anyway."
-            )
-            if basis == "guessed":
-                hint += (
-                    " Note: no keystroke was actually observed — these fields merely "
-                    "differ from their HTML defaults, which a widget initializing "
-                    "itself also does. Likely a false alarm."
-                )
+            # Only reachable now when a real keystroke was observed — a guess
+            # opens a new tab instead of refusing (see capture.navigate).
             return {
                 **result,
                 "navigated": False,
                 "url": moved.get("url"),
                 "blocked_by_unsaved_input": moved.get("blocked_by_unsaved_input"),
-                "input_basis": basis,
-                "hint": hint,
+                "input_basis": moved.get("input_basis"),
+                "hint": (
+                    "Someone typed in these fields. Use new_tab=true to open this "
+                    "alongside without touching them, or discard_unsaved_input=true "
+                    "to navigate anyway."
+                ),
             }
         result["url"] = moved.get("url")
         if moved.get("new_tab"):
             result["new_tab"] = True
             result["tabs"] = moved.get("tabs")
+        if moved.get("kept_input"):
+            # Said, not silent: a tab appeared that the caller did not ask for,
+            # and the reason is fields that merely look edited.
+            result["opened_beside"] = (
+                f"Opened in a new tab rather than disturbing {len(moved['kept_input'])} "
+                "field(s) that look filled in. No keystroke was observed in them, so "
+                "this is probably a widget's own defaults — pass discard_unsaved_input="
+                "true to reuse the tab instead."
+            )
     elif target_url:
         result["url"] = target_url
 
