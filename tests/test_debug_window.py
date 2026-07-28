@@ -648,12 +648,46 @@ def test_the_badge_names_the_profile_so_two_windows_are_distinguishable():
     assert "https://" not in badge_init_script("dev")
 
 
-def test_production_gets_its_own_colour_and_dev_does_not():
-    # "I thought this window was dev" is the mistake the dot exists to prevent,
-    # so prod must be unmistakable before anything is read.
-    assert badge.badge_accent("prod-eu") == badge.badge_accent("production")
-    assert badge.badge_accent("prod") != badge.badge_accent("dev")
-    assert badge.badge_accent("whatever") == badge._ACCENT_FALLBACK
+def test_a_profile_always_draws_the_same_colour():
+    """Colour identifies a window across sessions, so it cannot wobble."""
+    assert badge.badge_accent("dev") == badge.badge_accent("dev")
+    assert badge.badge_accent("DEV") == badge.badge_accent(" dev ")
+    assert badge.badge_accent("dev") in badge._PALETTE
+
+
+def test_names_the_old_keyword_table_could_not_see_get_their_own_colours():
+    """The reason the table went: profile names are whatever a person chose.
+
+    Every unrecognized name used to collapse onto one fallback blue, which is
+    the badge's own question — "which window is this?" — left unanswered for
+    the normal case.
+    """
+    custom = ["yoko-main", "customer-a", "sandbox2", "aaa", "bbb", "ccc"]
+    colours = {name: badge.badge_accent(name) for name in custom}
+
+    assert len(set(colours.values())) > 1, "custom names must not share one colour"
+
+
+def test_the_meaning_is_in_the_words_not_the_colour():
+    """Nothing is reserved, so the name itself has to be on screen — it is.
+
+    A window called prod says so in text whatever colour it happened to draw,
+    which is why dropping the reserved red cost nothing.
+    """
+    script = badge_init_script("prod")
+
+    assert "PROFILE_NAME = 'prod'" in script
+    assert badge.badge_accent("prod") in script
+
+
+def test_the_profile_name_is_the_part_that_carries_the_colour():
+    """ "MCP DEBUG" is identical on every window; colouring it answers nothing."""
+    script = badge_init_script("dev")
+
+    assert "nameEl.style.cssText" in script
+    assert "'color:' + ACCENT" in script
+    # The constant half is dimmed rather than tinted, so the name wins the glance.
+    assert "text.style.cssText = 'color:rgba(233,233,236,.5)" in script
 
 
 def test_the_signed_in_user_is_read_in_the_page_not_baked_in():
@@ -1961,7 +1995,7 @@ def test_the_ring_is_the_environment_and_the_fill_is_activity():
     script = badge_init_script("prod")
 
     assert badge.IDLE_COLOUR in script, "at rest the fill is neutral grey"
-    assert badge.badge_accent("prod") in script, "the ring still names the environment"
+    assert badge.badge_accent("prod") in script, "the ring still identifies the window"
     assert "snmcp-pulse" in script
 
 

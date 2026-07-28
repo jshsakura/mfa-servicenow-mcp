@@ -78,7 +78,8 @@ _USER_RESOLVER = """
 _BADGE_TEMPLATE = """
 (() => {
   const HOST_ID = %(host_id)s;
-  const PROFILE = %(label)s;
+  const PREFIX = %(prefix)s;
+  const PROFILE_NAME = %(profile_name)s;
   const ACCENT = %(accent)s;
   const IDLE = %(idle)s;
   const ACCOUNT = %(account)s;
@@ -155,9 +156,20 @@ _BADGE_TEMPLATE = """
       }
     };
 
+    // The profile NAME carries the colour, not the whole label. "MCP DEBUG" is
+    // the same on every window, so colouring it would spend the badge's only
+    // strong signal on the one word that never distinguishes anything — and at
+    // 11px a fully tinted pill reads as decoration rather than as an answer.
+    // Dimming the constant part also lets the name win the glance on its own.
     const text = document.createElement('span');
-    text.style.cssText = 'color:#e9e9ec;white-space:nowrap';
-    text.textContent = PROFILE;
+    text.style.cssText = 'color:rgba(233,233,236,.5);white-space:nowrap';
+    text.textContent = PROFILE_NAME ? PREFIX + ' \\u00b7 ' : PREFIX;
+
+    const nameEl = document.createElement('span');
+    nameEl.style.cssText =
+      'color:' + ACCENT + ';white-space:nowrap;font-weight:700;display:' +
+      (PROFILE_NAME ? '' : 'none');
+    nameEl.textContent = PROFILE_NAME;
 
     // Hidden until a user actually resolves, so the badge never shows a
     // dangling separator on a page that has no ServiceNow session yet.
@@ -170,6 +182,7 @@ _BADGE_TEMPLATE = """
 
     wrap.appendChild(dot);
     wrap.appendChild(text);
+    wrap.appendChild(nameEl);
     wrap.appendChild(sep);
     wrap.appendChild(userEl);
     shadow.appendChild(wrap);
@@ -182,6 +195,7 @@ _BADGE_TEMPLATE = """
     let collapsed = false;
     const paint = () => {
       text.style.display = collapsed ? 'none' : '';
+      nameEl.style.display = collapsed || !PROFILE_NAME ? 'none' : '';
       sep.style.display = collapsed || !userEl.textContent ? 'none' : '';
       userEl.style.display = collapsed || !userEl.textContent ? 'none' : '';
       wrap.style.padding = collapsed ? '6px' : '5px 11px 5px 9px';
@@ -254,6 +268,12 @@ def profile_label(config: Any = None) -> str:
     return "default"
 
 
+# The constant half of the label. Split out because the badge draws the two
+# halves differently — this one dimmed, the profile name in its colour — while
+# badge_label still composes them for anywhere that wants the plain string.
+BADGE_PREFIX = "MCP DEBUG"
+
+
 def badge_label(profile: str) -> str:
     """Short, scannable identity. The ACCOUNT is appended in-page, live.
 
@@ -264,19 +284,30 @@ def badge_label(profile: str) -> str:
     window has its own session and may well be a different user (or an
     impersonation) than the API tools are running as.
     """
-    return f"MCP DEBUG · {profile}" if profile else "MCP DEBUG"
+    return f"{BADGE_PREFIX} · {profile}" if profile else BADGE_PREFIX
 
 
-# Environment colours, in the order everyone already expects from CI badges and
-# deploy dashboards. Matched on the profile name because that is what the
-# person named — an instance called "prod-eu" is production whatever its URL.
-_ACCENTS = (
-    (("prod", "production", "live"), "#ff4d4f"),
-    (("stage", "staging", "uat", "preprod", "pre-prod"), "#ffa940"),
-    (("test", "qa", "sit"), "#ffd666"),
-    (("dev", "develop", "development", "sandbox", "local"), "#4ade80"),
+# Distinct hues, all legible on the badge's near-black glass. Curated rather
+# than generated: a hue computed from a hash lands wherever it lands, and half
+# of the wheel is muddy or invisible at 11px against this background. Fourteen
+# is enough that two profiles colliding is uncommon, and a collision costs
+# nothing anyway — see badge_accent.
+_PALETTE = (
+    "#ff4d4f",  # red
+    "#fb7185",  # rose
+    "#f472b6",  # pink
+    "#e879f9",  # fuchsia
+    "#a78bfa",  # violet
+    "#818cf8",  # indigo
+    "#60a5fa",  # blue
+    "#22d3ee",  # cyan
+    "#2dd4bf",  # teal
+    "#34d399",  # emerald
+    "#4ade80",  # green
+    "#a3e635",  # lime
+    "#ffd666",  # amber
+    "#ffa940",  # orange
 )
-_ACCENT_FALLBACK = "#60a5fa"
 
 # At rest the dot is a neutral grey, so the pulse reads as "something is
 # happening NOW" rather than as decoration. The environment stays legible
@@ -305,17 +336,34 @@ _ACTIVITY_TEMPLATE = """
 
 
 def badge_accent(profile: str) -> str:
-    """A colour for the profile dot: red for prod, down to green for dev.
+    """A colour derived from the profile name. Same name, same colour, always.
 
-    Anything unrecognized gets one neutral blue rather than a hashed colour —
-    a made-up hue would read as meaningful and it is not. The one signal that
-    must never be ambiguous is "this is production".
+    Colour is an IDENTITY channel here, not a severity one: it answers "is this
+    the same window I was looking at a minute ago?" at a glance, across however
+    many are open. It deliberately carries no meaning of its own — the meaning
+    is in the label right next to it, which spells the profile out in words.
+
+    This replaced a keyword table (prod→red, dev→green, everything else→one
+    blue). Profile names are whatever the person configuring them chose, so
+    "everything else" was the normal case, and every custom profile came out the
+    same blue — the exact question the badge exists to answer, unanswered. A
+    table cannot enumerate names it has never seen; a hash does not have to.
+
+    Nothing is reserved, including red. A reserved colour would only be worth
+    the complexity if colour were load-bearing for "this is production", and it
+    is not: the badge writes the profile name, so a window called ``prod`` says
+    so in text whatever colour it drew.
+
+    FNV-1a, the same hash the probe uses, so the two agree on what stable and
+    cheap means. Collisions are possible and harmless — two windows sharing a
+    hue still carry different names beside it.
     """
     name = (profile or "").strip().lower()
-    for keywords, colour in _ACCENTS:
-        if any(word in name for word in keywords):
-            return colour
-    return _ACCENT_FALLBACK
+    digest = 0x811C9DC5
+    for char in name:
+        digest ^= ord(char)
+        digest = (digest * 0x01000193) & 0xFFFFFFFF
+    return _PALETTE[digest % len(_PALETTE)]
 
 
 def badge_init_script(profile: str, account: str = "") -> str:
@@ -329,7 +377,8 @@ def badge_init_script(profile: str, account: str = "") -> str:
     """
     return _BADGE_TEMPLATE % {
         "host_id": _js_string(BADGE_ELEMENT_ID),
-        "label": _js_string(badge_label(profile)),
+        "prefix": _js_string(BADGE_PREFIX),
+        "profile_name": _js_string((profile or "").strip()),
         "accent": _js_string(badge_accent(profile)),
         "idle": _js_string(IDLE_COLOUR),
         "account": _js_string(account or ""),
@@ -360,9 +409,11 @@ def show_badge_script() -> str:
 
 __all__ = [
     "BADGE_ELEMENT_ID",
+    "BADGE_PREFIX",
     "COLLAPSED_KEY",
     "IMPERSONATING_COLOUR",
     "KEEPALIVE_MS",
+    "badge_accent",
     "badge_init_script",
     "badge_label",
     "hide_badge_script",
