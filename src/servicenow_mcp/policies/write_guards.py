@@ -892,8 +892,15 @@ def update_set_context(
         )
         us_scope_id, us_scope_name = _ref_pair(usrec.get("application")) if usrec else ("", "")
 
+        # The record's own name, not the picker's "Name [App]" label: the label
+        # is not what sys_update_set stores and cannot be passed back to
+        # update_set_name. The sys_id rides along because two sets in different
+        # applications are routinely given the same name, and then the name
+        # identifies nothing.
+        us_name = str((usrec or {}).get("name") or "").strip() or us.get("name") or us["sys_id"]
         ctx: Dict[str, Any] = {
-            "update_set": us.get("name") or us.get("sys_id"),
+            "update_set": us_name,
+            "update_set_id": us["sys_id"],
             "update_set_scope": us_scope_name or us_scope_id or "unknown",
         }
 

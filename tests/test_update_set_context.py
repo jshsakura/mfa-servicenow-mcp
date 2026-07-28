@@ -158,3 +158,75 @@ def test_fail_open_on_exception():
         side_effect=RuntimeError("boom"),
     ):
         assert update_set_context(server, "manage_portal_component", {}, {}) is None
+
+
+# --- naming the set so it can be acted on ---------------------------------
+# Two sets in different applications routinely carry the same name, and the
+# picker labels its current selection "Name [Application]". A stamp that prints
+# the label gives back a string sys_update_set does not store; a stamp that
+# prints only a shared name identifies nothing at all.
+
+
+def test_the_stamp_prefers_the_records_own_name_over_the_picker_label():
+    server = _browser_server()
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value={"sys_id": "us-1", "name": "Shared Name [My App]"},
+        ),
+        patch(
+            "servicenow_mcp.policies.write_guards._fetch_one",
+            side_effect=lambda srv, table, query, fields: {
+                "sys_update_set": {
+                    "name": "Shared Name",
+                    "application": {"value": "scope-1", "display_value": "My App"},
+                }
+            }.get(table),
+        ),
+    ):
+        ctx = update_set_context(server, "manage_script_include", {}, {"sys_id": "si-1"})
+
+    # The label is not a name: update_set_name='Shared Name [My App]' resolves
+    # to nothing, so handing it back breaks the round trip.
+    assert ctx["update_set"] == "Shared Name"
+    assert ctx["update_set_scope"] == "My App"
+
+
+def test_the_stamp_always_carries_the_sys_id():
+    # With a name shared by two sets, the sys_id is the only thing that says
+    # which one this write landed in.
+    server = _browser_server()
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value={"sys_id": "us-1", "name": "Shared Name"},
+        ),
+        patch(
+            "servicenow_mcp.policies.write_guards._fetch_one",
+            side_effect=lambda srv, table, query, fields: {
+                "sys_update_set": {
+                    "name": "Shared Name",
+                    "application": {"value": "scope-1", "display_value": "My App"},
+                }
+            }.get(table),
+        ),
+    ):
+        ctx = update_set_context(server, "manage_script_include", {}, {"sys_id": "si-1"})
+
+    assert ctx["update_set_id"] == "us-1"
+
+
+def test_an_unreadable_set_record_falls_back_to_the_picker_name():
+    # Fail-open: a name from the picker beats no name at all.
+    server = _browser_server()
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value={"sys_id": "us-1", "name": "Pilot"},
+        ),
+        patch("servicenow_mcp.policies.write_guards._fetch_one", return_value=None),
+    ):
+        ctx = update_set_context(server, "manage_script_include", {}, {"sys_id": "si-1"})
+
+    assert ctx["update_set"] == "Pilot"
+    assert ctx["update_set_id"] == "us-1"

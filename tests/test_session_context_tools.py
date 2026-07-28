@@ -6,12 +6,14 @@ import pytest
 
 from servicenow_mcp.tools.session_context_tools import (
     ManageSessionContextParams,
+    _resolve_update_set_by_name,
     check_update_set_for_push,
     ensure_current_app,
     ensure_current_update_set,
     get_current_update_set,
     is_default_update_set,
     manage_session_context,
+    split_picker_label,
 )
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -359,15 +361,57 @@ def test_check_update_set_for_push_attributes_the_earlier_capture(mock_last):
 
 
 @patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
-def test_check_update_set_for_push_flags_suffixed_lookalike_sets(mock_last):
-    """'X' vs 'X [BPM]' are two sets; a split there is the easiest one to miss."""
+def test_a_picker_label_is_not_a_suffixed_name(mock_last):
+    """'Some Dev [My App]' from the picker IS 'Some Dev'.
+
+    This case used to be reported as "two sets whose names differ by a suffix",
+    which sent people looking for a set named 'Some Dev [My App]' that does not
+    exist. The two sys_ids really are two sets — but they share a NAME, and the
+    application is the thing that tells them apart.
+    """
     auth = MagicMock()
     auth.make_request.return_value = _resp(
-        {"result": {"current": {"sysId": "us-new", "name": "Some Dev [BPM]"}}}
+        {"result": {"current": {"sysId": "us-new", "name": "Some Dev [My App]"}}}
     )
     mock_last.return_value = {"sys_id": "us-old", "name": "Some Dev"}
     out = check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1")
-    assert "DIFFERENT update sets" in out["note"]
+
+    assert out["current_update_set"] == "Some Dev"
+    assert out["current_update_set_application"] == "My App"
+    assert "both named 'Some Dev'" in out["note"]
+    assert "differ by a suffix" not in out["note"]
+
+
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_two_sets_sharing_a_name_must_be_switched_by_sys_id(mock_last):
+    # Recommending update_set_name here would resolve ambiguously — or silently
+    # pick the other one, which is the failure this whole change is about.
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-new", "name": "Shared Name [App A]"}}}
+    )
+    mock_last.return_value = {"sys_id": "us-old", "name": "Shared Name"}
+    out = check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1")
+
+    assert "update_set_id='us-old'" in out["confirm"]
+    assert "update_set_name=" not in out["confirm"]
+    assert out["current_update_set_id"] == "us-new"
+    assert out["last_worked_update_set_id"] == "us-old"
+
+
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_genuinely_suffixed_names_are_still_flagged_as_lookalikes(mock_last):
+    """'Pilot' vs 'Pilot Phase 2' are two sets; a split there is easy to miss."""
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-new", "name": "Pilot Phase 2"}}}
+    )
+    mock_last.return_value = {"sys_id": "us-old", "name": "Pilot"}
+    out = check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1")
+
+    assert "only differ by a suffix" in out["note"]
+    # Names are unambiguous here, so the cheaper name-based switch is fine.
+    assert "update_set_name='Pilot'" in out["confirm"]
 
 
 @patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
@@ -665,3 +709,127 @@ def test_set_app_success_with_real_application_shape():
     )
     assert result["success"] is True
     assert result["current"] == {"sys_id": "eeee5555ffff6666aaaa7777bbbb8888", "name": "HBPM"}
+
+
+# --- picker labels vs names (the "which set is this?" confusion) -----------
+# The update-set picker labels entries "Name [Application]". That label is not
+# the name: sys_update_set stores the name alone, every reference display value
+# shows the name alone, and update_set_name resolves against the name alone.
+# Handing the label back produced a string that could not be fed into the tool
+# that accepts one — and made one set look like two.
+
+
+def test_a_picker_label_splits_into_a_name_and_an_application():
+    assert split_picker_label("Pilot [My App]") == ("Pilot", "My App")
+    assert split_picker_label("  Pilot [My App]  ") == ("Pilot", "My App")
+
+
+def test_a_name_without_a_label_is_left_alone():
+    assert split_picker_label("Pilot") == ("Pilot", "")
+    assert split_picker_label("") == ("", "")
+
+
+def test_only_a_trailing_bracket_group_is_a_label():
+    # A set genuinely named "[Draft] Pilot" keeps its name — the application is
+    # read from the record, never guessed from the string.
+    assert split_picker_label("[Draft] Pilot") == ("[Draft] Pilot", "")
+    assert split_picker_label("Release [Q3] notes") == ("Release [Q3] notes", "")
+
+
+def test_the_current_update_set_reports_the_name_that_round_trips():
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-1", "name": "Pilot [My App]"}}}
+    )
+
+    out = get_current_update_set(_browser_config(), auth)
+
+    assert out["name"] == "Pilot"
+    assert out["application"] == "My App"
+
+
+def test_the_default_set_is_recognized_through_its_label():
+    # The picker calls it "Default [Global]". An exact match against that string
+    # is False — and would silently drop the one warning that costs a deploy.
+    assert is_default_update_set({"sys_id": "x", "name": "Default [Global]"}) is True
+    assert is_default_update_set({"sys_id": "x", "name": "Default"}) is True
+    assert is_default_update_set({"sys_id": "x", "name": "Default Pilot"}) is False
+
+
+def test_the_default_warning_survives_a_labelled_picker_value():
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-def", "name": "Default [Global]"}}}
+    )
+
+    out = check_update_set_for_push(_browser_config(), auth)
+
+    assert out is not None
+    assert out["update_set"] == "Default"
+    assert "never promote" in out["warning"]
+
+
+# --- resolving a name when two sets share one -----------------------------
+
+
+@patch("servicenow_mcp.tools.session_context_tools.sn_query_page")
+def test_same_name_candidates_are_told_apart_by_application(mock_query):
+    mock_query.return_value = (
+        [
+            {"sys_id": "us-1", "name": "Shared Name", "application": "App A"},
+            {"sys_id": "us-2", "name": "Shared Name", "application": "App B"},
+        ],
+        2,
+    )
+
+    out = _resolve_update_set_by_name(_browser_config(), MagicMock(), "Shared Name")
+
+    assert out["error"] == "ambiguous"
+    assert "share the name" in out["message"]
+    assert "update_set_id=<sys_id>" in out["message"]
+    # Without the application these are two visually identical rows — which is
+    # exactly how the pair became impossible to tell apart.
+    assert {c["application"] for c in out["candidates"]} == {"App A", "App B"}
+
+
+@patch("servicenow_mcp.tools.session_context_tools.sn_query_page")
+def test_a_label_pasted_back_resolves_instead_of_failing(mock_query):
+    # The caller shows "Shared Name [App B]" because that is what an earlier
+    # response showed THEM. nameLIKE on that string matches nothing.
+    mock_query.return_value = (
+        [
+            {"sys_id": "us-1", "name": "Shared Name", "application": "App A"},
+            {"sys_id": "us-2", "name": "Shared Name", "application": "App B"},
+        ],
+        2,
+    )
+
+    out = _resolve_update_set_by_name(_browser_config(), MagicMock(), "Shared Name [App B]")
+
+    assert out.get("error") is None
+    assert out["sys_id"] == "us-2"
+    assert mock_query.call_args.kwargs["query"].startswith("state=in progress^nameLIKEShared Name^")
+
+
+@patch("servicenow_mcp.tools.session_context_tools.sn_query_page")
+def test_an_unknown_application_in_a_label_stays_ambiguous_rather_than_guessing(mock_query):
+    mock_query.return_value = (
+        [
+            {"sys_id": "us-1", "name": "Shared Name", "application": "App A"},
+            {"sys_id": "us-2", "name": "Shared Name", "application": "App B"},
+        ],
+        2,
+    )
+
+    out = _resolve_update_set_by_name(_browser_config(), MagicMock(), "Shared Name [App C]")
+
+    assert out["error"] == "ambiguous"
+
+
+@patch("servicenow_mcp.tools.session_context_tools.sn_query_page")
+def test_a_unique_hit_carries_its_application(mock_query):
+    mock_query.return_value = ([{"sys_id": "us-1", "name": "Pilot", "application": "My App"}], 1)
+
+    out = _resolve_update_set_by_name(_browser_config(), MagicMock(), "Pilot")
+
+    assert out == {"sys_id": "us-1", "name": "Pilot", "application": "My App"}
