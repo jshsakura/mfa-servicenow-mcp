@@ -53,9 +53,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from ._offload import require_playwright, run_off_loop
 from .capture import (
     NoPageFound,
+    _active_instance_page,
+    _arm_tabs,
     _effective_user,
     _install_probe,
-    _instance_page,
     _screenshot,
     _set_activity,
 )
@@ -364,7 +365,8 @@ def act(
                 if not contexts:
                     raise NoPageFound("The debug window has no browser context.")
                 context = contexts[0]
-                page = _instance_page(context.pages, state.instance_host)
+                _arm_tabs(context.pages, state, profile, account)
+                page = _active_instance_page(context.pages, state.instance_host)
                 if page is None:
                     raise NoPageFound(
                         "The debug window has no open tab. Open a page in it and retry."

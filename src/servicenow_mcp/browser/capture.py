@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from ._offload import require_playwright, run_off_loop
 from .badge import badge_activity_script, badge_init_script, hide_badge_script, show_badge_script
 from .evaluate import run_in_page
-from .probe import PROBE_SCRIPT, dirty_script, drain_script
+from .probe import PROBE_SCRIPT, dirty_script, drain_script, presence_script
 from .session import EFFECTIVE_USER_SCRIPT
 from .window import WindowState
 
@@ -82,6 +82,55 @@ def _instance_page(pages: Sequence[Any], instance_host: str) -> Optional[Any]:
     return real_pages[0]
 
 
+def _active_instance_page(pages: Sequence[Any], instance_host: str) -> Optional[Any]:
+    """The instance tab someone was last working in — not merely the first one.
+
+    With one tab this is :func:`_instance_page` and costs nothing. With several
+    it matters a great deal: a new tab opened beside a form (see ``navigate``)
+    would otherwise leave the model reading the OLD tab while the person looks
+    at the new one, and "let's look at this together" quietly becomes two people
+    describing different pages.
+
+    Focus is not available: measured on the live window, every tab reports
+    ``document.visibilityState === 'visible'`` and ``hasFocus() === true`` once
+    CDP is attached, because attaching lifts background throttling. What IS
+    available is the probe's ``lastHuman`` stamp, kept per tab in sessionStorage
+    for the reaper. Whoever touched a tab most recently — the person or the
+    model's own clicks, which arrive through the same input pipeline — is
+    working there, and that is the tab to continue in.
+
+    Falls back to the first instance tab whenever the probe cannot answer: an
+    unarmed document is not a reason to pick the wrong page.
+    """
+    candidates = [page for page in pages if not str(page.url).startswith("devtools://")]
+    if instance_host:
+        on_instance = [page for page in candidates if instance_host in str(page.url)]
+        candidates = on_instance or candidates
+    if len(candidates) <= 1:
+        return candidates[0] if candidates else None
+
+    best: Optional[Any] = None
+    best_stamp = -1.0
+    for page in candidates:
+        try:
+            reading = page.evaluate(presence_script())
+        except Exception as exc:  # noqa: BLE001 - an unarmed tab simply has no say
+            logger.debug("Could not read presence from a tab: %s", exc)
+            continue
+        if not isinstance(reading, dict):
+            continue
+        try:
+            stamp = float(reading.get("lastHuman") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if stamp > best_stamp:
+            best, best_stamp = page, stamp
+
+    if best is not None and best_stamp > 0:
+        return best
+    return _instance_page(pages, instance_host)
+
+
 def _probe_scripts(state: WindowState, profile: str, account: str = "") -> Tuple[str, ...]:
     return (PROBE_SCRIPT, badge_init_script(profile, account))
 
@@ -123,6 +172,40 @@ def _install_probe(
             page.evaluate(script)
         except Exception as exc:  # noqa: BLE001 - a hostile page must not break the read
             logger.debug("Could not inject debug script into the current document: %s", exc)
+
+
+def _arm_tabs(pages: Sequence[Any], state: WindowState, profile: str, account: str = "") -> int:
+    """Put the probe in EVERY instance tab, not just the one we are about to use.
+
+    Otherwise the tab choice above cannot work: a tab the user opened by hand —
+    or one opened beside a form — has no probe, so it cannot report that the
+    person is working in it, so it is never chosen, so it never gets a probe.
+    Arming every tab breaks that circle.
+
+    A tab armed on this attach still starts at ``lastHuman = 0``; it earns a say
+    from the next thing done in it. One call to catch up is the cost of a tab
+    that appeared without us.
+
+    Returns how many tabs were armed, for the tests. Never raises: a tab that
+    refuses the script simply stays silent.
+    """
+    armed = 0
+    scripts = _probe_scripts(state, profile, account)
+    for page in pages:
+        url = str(getattr(page, "url", ""))
+        if url.startswith("devtools://"):
+            continue
+        if state.instance_host and state.instance_host not in url:
+            continue
+        for script in scripts:
+            try:
+                page.evaluate(script)
+            except Exception as exc:  # noqa: BLE001 - a torn-down tab is not an error
+                logger.debug("Could not arm a tab: %s", exc)
+                break
+        else:
+            armed += 1
+    return armed
 
 
 def _set_activity(page: Any, active: bool) -> None:
@@ -240,7 +323,11 @@ def capture(
                 if not contexts:
                     raise NoPageFound("The debug window has no browser context.")
                 context = contexts[0]
-                page = _instance_page(context.pages, state.instance_host)
+                # Arm first, choose second: an unarmed tab has no say in which
+                # tab is being worked in, and staying unarmed is how it keeps
+                # not having one.
+                _arm_tabs(context.pages, state, profile, account)
+                page = _active_instance_page(context.pages, state.instance_host)
                 if page is None:
                     raise NoPageFound(
                         "The debug window has no open tab. Open a page in it and retry."
@@ -314,7 +401,11 @@ def arm(state: WindowState, *, profile: str, account: str = "") -> Dict[str, Any
                 if not contexts:
                     return {"armed": False, "reason": "no browser context"}
                 context = contexts[0]
-                page = _instance_page(context.pages, state.instance_host)
+                # Arm first, choose second: an unarmed tab has no say in which
+                # tab is being worked in, and staying unarmed is how it keeps
+                # not having one.
+                _arm_tabs(context.pages, state, profile, account)
+                page = _active_instance_page(context.pages, state.instance_host)
                 if page is None:
                     return {"armed": False, "reason": "no open tab"}
                 _install_probe(context, page, state, profile, account)
@@ -375,7 +466,8 @@ def navigate(
                 if not contexts:
                     raise NoPageFound("The debug window has no browser context.")
                 context = contexts[0]
-                existing = _instance_page(context.pages, state.instance_host)
+                _arm_tabs(context.pages, state, profile, account)
+                existing = _active_instance_page(context.pages, state.instance_host)
 
                 # Decided before anything moves: a guess steps aside into a new
                 # tab, observed input still refuses. See the docstring.
