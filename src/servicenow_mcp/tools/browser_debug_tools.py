@@ -31,6 +31,12 @@ Running JavaScript is graded in two, because "read a value off the page" and
 ``act_in_debug_window`` action ``eval``  arbitrary source, and therefore
     confirm='approve' AND confirm_eval='approve'.
 
+Impersonation is a step, not a tool, for the same reason: testing "what does
+this user see" is never one call. It changes the whole window's session — which
+every MCP session and the person watching the screen share — so both tools
+report who the window is afterwards, and open_debug_window says so on the way in
+when it reuses a window someone left impersonating. See browser/impersonate.py.
+
 Closing is not a tool: the user closes the window with the mouse, and a closed
 window is simply reopened on the next explicit request.
 """
@@ -49,6 +55,9 @@ from ..browser.actions import EVAL_ACTION, MAX_ACTIONS, act, normalize
 from ..browser.badge import profile_label
 from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate
 from ..browser.cursor import resolve_after_seq, write_cursor
+from ..browser.impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION
+from ..browser.impersonate import describe as describe_impersonation
+from ..browser.impersonate import read_marker
 from ..browser.launch_budget import LaunchBudgetExceeded, budget_status
 from ..browser.login import auto_login
 from ..browser.login import describe as describe_login
@@ -61,6 +70,7 @@ from ..browser.window import (
     window_artifacts_dir,
     window_cursor_path,
     window_history_path,
+    window_impersonation_path,
     window_login_path,
 )
 from ..utils.config import ServerConfig
@@ -107,6 +117,11 @@ class DebugAction(BaseModel):
     ``eval`` is in it, and it is the only member that is not a thing a person
     could do with a mouse — which is why it costs a second approval
     (``confirm_eval``) on top of the tool's own confirm.
+
+    ``impersonate`` / ``end_impersonation`` are things a person does with the
+    mouse (the avatar menu), and they are steps for the same reason the rest
+    are: "be that user, open the page, click Save" is one intention. They reload
+    the current page in place — see browser/impersonate.py.
     """
 
     action: Literal[
@@ -122,12 +137,15 @@ class DebugAction(BaseModel):
         "wait_for",
         "wait",
         "eval",
+        "impersonate",
+        "end_impersonation",
     ]
     selector: Optional[str] = Field(
         default=None, description="CSS, text=..., or xpath=... Frames are searched too."
     )
     value: Optional[str] = Field(
-        default=None, description="Text for fill, option for select, JS source for eval."
+        default=None,
+        description="fill text, select option, eval JS, or user_name/sys_id to impersonate.",
     )
     key: Optional[str] = Field(default=None, description="Key for press, e.g. Enter.")
     ms: Optional[int] = Field(default=None, description="Pause length for action='wait'.")
@@ -151,6 +169,10 @@ class ActInDebugWindowParams(BaseModel):
     since_last: bool = Field(default=True, description="Only events newer than the last read.")
     confirm_eval: Optional[str] = Field(
         default=None, description="Required ('approve') when any step is action='eval'."
+    )
+    discard_unsaved_input: bool = Field(
+        default=False,
+        description="Allow impersonate/end_impersonation to reload a form holding input.",
     )
 
 
@@ -186,6 +208,21 @@ def _resolve_url(config: ServerConfig, url: Optional[str]) -> str:
         return url
     base = str(config.instance_url or "").rstrip("/")
     return f"{base}/{url.lstrip('/')}" if base else url
+
+
+def _window_account(config: ServerConfig, auth_manager: AuthManager, state: Any) -> str:
+    """The user this window SIGNED IN as — not necessarily who it is right now.
+
+    The badge draws anyone else as an impersonation, so this has to be the real
+    account: while impersonating, the page itself no longer knows it. The marker
+    holds the answer it read before the switch; the configured browser login is
+    the answer for a window nobody has impersonated in. An OAuth or API-key
+    profile has neither, and the badge simply names whoever is signed in.
+    """
+    marker = read_marker(window_impersonation_path(auth_manager), state.started_at)
+    if marker and marker.get("original"):
+        return str(marker["original"])
+    return (saved_credentials(config) or ("", ""))[0]
 
 
 def _window_identity(state: Any, config: ServerConfig) -> Dict[str, Any]:
@@ -233,9 +270,10 @@ def open_debug_window(
         **_window_identity(state, config),
     }
 
-    # The badge shows the PROFILE, not the address — the address bar is
-    # directly above it. See browser/badge.py.
+    # The badge shows the PROFILE and the account, not the address — the
+    # address bar is directly above it. See browser/badge.py.
     profile = profile_label(config)
+    account = _window_account(config, auth_manager, state)
 
     # A brand new window navigates via the command line; an existing one has to
     # be told, and that is where unsaved input can be destroyed.
@@ -245,6 +283,7 @@ def open_debug_window(
                 state,
                 url=target_url,
                 profile=profile,
+                account=account,
                 allow_discard=params.discard_unsaved_input,
                 new_tab=params.new_tab,
             )
@@ -282,7 +321,7 @@ def open_debug_window(
     # Arm the collector NOW, not on the first inspect. Otherwise the submit
     # that caused the bug happens before anything is watching it.
     try:
-        armed = arm(state, profile=profile)
+        armed = arm(state, profile=profile, account=account)
         result["recording"] = bool(armed.get("armed"))
         if not armed.get("armed"):
             result["recording_note"] = (
@@ -308,6 +347,21 @@ def open_debug_window(
     used, allowance = budget_status(window_history_path(auth_manager))
     if used >= allowance - 1:
         result["launch_budget"] = f"{used}/{allowance} recent launches"
+
+    # Reusing a window that someone left impersonating is the surprise this
+    # feature could most easily cause — the page looks normal and every ACL is
+    # somebody else's. Say it on the way in, not after the confusing result.
+    marker = read_marker(window_impersonation_path(auth_manager), state.started_at)
+    if marker:
+        result["impersonating"] = {
+            "as": marker.get("as"),
+            "original": marker.get("original") or None,
+        }
+        result["impersonation_note"] = (
+            f"This window is impersonating '{marker.get('as')}'. Use "
+            "act_in_debug_window action='end_impersonation' to go back to "
+            f"'{marker.get('original') or 'the signed-in account'}'."
+        )
 
     if login_note:
         result["hint"] = login_note
@@ -363,6 +417,7 @@ def inspect_debug_window(
         raw = capture(
             state,
             profile=profile_label(config),
+            account=_window_account(config, auth_manager, state),
             after_seq=after_seq,
             watch_seconds=min(float(params.watch_seconds), MAX_WATCH_SECONDS),
             screenshot=params.screenshot,
@@ -389,6 +444,18 @@ def inspect_debug_window(
     }
     if identity.get("window_user"):
         result["window_user"] = identity["window_user"]
+
+    # Someone else's impersonation is still this window's session: the batch
+    # that started it may have run in another MCP session entirely, so a read
+    # has to say so rather than let "why is this user denied?" be investigated
+    # against the wrong account.
+    impersonation = describe_impersonation(
+        read_marker(window_impersonation_path(auth_manager), state.started_at),
+        str(identity.get("window_user") or ""),
+    )
+    if impersonation:
+        result["impersonating"] = impersonation
+
     if identity.get("note"):
         result["session_note"] = identity["note"]
     elif not identity.get("window_user"):
@@ -408,7 +475,7 @@ def inspect_debug_window(
 @register_tool(
     name="act_in_debug_window",
     params=ActInDebugWindowParams,
-    description="Drive the open debug window: click, fill, select, press, wait, eval. Reports what the steps caused.",
+    description="Drive the open debug window: click, fill, select, wait, eval, impersonate. Reports what steps caused.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -468,12 +535,23 @@ def act_in_debug_window(
         raw = act(
             state,
             profile=profile_label(config),
+            account=_window_account(config, auth_manager, state),
             actions=steps,
             after_seq=after_seq,
             settle_ms=params.settle_ms,
             screenshot=params.screenshot,
             selector=params.selector,
             screenshot_path=shot_path,
+            session={
+                # Everything the impersonation steps need, resolved here where
+                # the config and the auth manager are — actions.py stays a page
+                # driver that knows nothing about profiles.
+                "marker_path": window_impersonation_path(auth_manager),
+                "started_at": state.started_at,
+                "instance_host": state.instance_host,
+                "login_user": (saved_credentials(config) or ("", ""))[0],
+                "allow_discard": params.discard_unsaved_input,
+            },
         )
     except (NoPageFound, PlaywrightUnavailable) as exc:
         return {"success": False, "window_open": True, "error": str(exc)}
@@ -502,6 +580,17 @@ def act_in_debug_window(
         # because "a confirm box appeared and was answered" changes what the
         # click actually did.
         result["dialogs"] = raw["dialogs"]
+
+    # A session step changed WHO the window is, and one window is shared by
+    # every MCP session and by the person watching it. Never let that be a
+    # silent side effect of a batch.
+    if any(step["action"] in (IMPERSONATE_ACTION, END_IMPERSONATION_ACTION) for step in steps):
+        result["window_user"] = (raw.get("effective_user") or {}).get("user")
+        result["session_note"] = (
+            f"The debug window is now signed in as '{result['window_user']}'. That is the "
+            "whole window — every MCP session shares it — until end_impersonation. "
+            "MCP API calls are unaffected."
+        )
     return result
 
 

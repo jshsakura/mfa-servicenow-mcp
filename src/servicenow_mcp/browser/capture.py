@@ -82,25 +82,29 @@ def _instance_page(pages: Sequence[Any], instance_host: str) -> Optional[Any]:
     return real_pages[0]
 
 
-def _probe_scripts(state: WindowState, profile: str) -> Tuple[str, ...]:
-    return (PROBE_SCRIPT, badge_init_script(profile))
+def _probe_scripts(state: WindowState, profile: str, account: str = "") -> Tuple[str, ...]:
+    return (PROBE_SCRIPT, badge_init_script(profile, account))
 
 
-def _install_probe_scripts(context: Any, state: WindowState, profile: str) -> None:
+def _install_probe_scripts(
+    context: Any, state: WindowState, profile: str, account: str = ""
+) -> None:
     """Register the init scripts on the CONTEXT — for documents not yet created.
 
     Split out because a new tab has no page to inject into yet, and registering
     first is what makes that tab instrumented from its first byte. The probe's
     unsaved-input record is only trustworthy when it was there from the start.
     """
-    for script in _probe_scripts(state, profile):
+    for script in _probe_scripts(state, profile, account):
         try:
             context.add_init_script(script)
         except Exception as exc:  # noqa: BLE001 - instrumentation is best effort
             logger.debug("Could not register debug init script: %s", exc)
 
 
-def _install_probe(context: Any, page: Any, state: WindowState, profile: str) -> None:
+def _install_probe(
+    context: Any, page: Any, state: WindowState, profile: str, account: str = ""
+) -> None:
     """Make sure the collector and the badge are present, now and after navigation.
 
     Registered on EVERY attach, deliberately. Playwright registers init scripts
@@ -110,11 +114,11 @@ def _install_probe(context: Any, page: Any, state: WindowState, profile: str) ->
     would leave the next navigation uninstrumented and the user's clicks would
     go unrecorded. Re-registering is correct either way, so it is not cached.
     """
-    _install_probe_scripts(context, state, profile)
+    _install_probe_scripts(context, state, profile, account)
 
     # add_init_script only affects documents created from now on, so the page
     # already loaded needs a direct injection. Both scripts no-op if present.
-    for script in _probe_scripts(state, profile):
+    for script in _probe_scripts(state, profile, account):
         try:
             page.evaluate(script)
         except Exception as exc:  # noqa: BLE001 - a hostile page must not break the read
@@ -213,6 +217,7 @@ def capture(
     state: WindowState,
     *,
     profile: str,
+    account: str = "",
     after_seq: int = 0,
     watch_seconds: float = 0.0,
     screenshot: str = "none",
@@ -241,7 +246,7 @@ def capture(
                         "The debug window has no open tab. Open a page in it and retry."
                     )
 
-                _install_probe(context, page, state, profile)
+                _install_probe(context, page, state, profile, account)
                 _set_activity(page, True)
 
                 if wait_s:
@@ -289,7 +294,7 @@ def capture(
     return run_off_loop(_work, timeout_s=wait_s + 90.0)
 
 
-def arm(state: WindowState, *, profile: str) -> Dict[str, Any]:
+def arm(state: WindowState, *, profile: str, account: str = "") -> Dict[str, Any]:
     """Install the collector now, before the user does anything worth recording.
 
     Without this the probe would first appear on the initial inspect call — and
@@ -312,7 +317,7 @@ def arm(state: WindowState, *, profile: str) -> Dict[str, Any]:
                 page = _instance_page(context.pages, state.instance_host)
                 if page is None:
                     return {"armed": False, "reason": "no open tab"}
-                _install_probe(context, page, state, profile)
+                _install_probe(context, page, state, profile, account)
                 return {"armed": True, "url": str(page.url)}
             finally:
                 # Disconnects from the browser; it does NOT terminate the
@@ -328,6 +333,7 @@ def navigate(
     *,
     url: str,
     profile: str = "",
+    account: str = "",
     allow_discard: bool = False,
     new_tab: bool = False,
 ) -> Dict[str, Any]:
@@ -363,7 +369,7 @@ def navigate(
                     # new document is instrumented from its first byte — which
                     # is also what makes its unsaved-input record trustworthy
                     # later (see _dirty_fields).
-                    _install_probe_scripts(context, state, profile)
+                    _install_probe_scripts(context, state, profile, account)
                     page = context.new_page()
                     page.goto(url, wait_until="domcontentloaded")
                     page.bring_to_front()
@@ -390,7 +396,7 @@ def navigate(
                 # Register BEFORE navigating: add_init_script only reaches
                 # documents created after it lands, so arming after goto would
                 # miss everything the page does while loading.
-                _install_probe(context, page, state, profile)
+                _install_probe(context, page, state, profile, account)
                 page.goto(url, wait_until="domcontentloaded")
                 return {
                     "navigated": True,

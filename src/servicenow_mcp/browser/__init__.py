@@ -34,6 +34,7 @@ from ._offload import PlaywrightUnavailable, run_off_loop
 from .actions import EVAL_ACTION, MAX_ACTIONS, SUPPORTED_ACTIONS, act, normalize
 from .badge import badge_init_script, badge_label
 from .evaluate import MAX_RESULT_CHARS, body_script, expression_script, run_in_page
+from .impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, become, restore
 from .launch_budget import LaunchBudgetExceeded, budget_status
 from .login import auto_login, saved_credentials
 from .probe import PROBE_SCRIPT, drain_script
@@ -48,6 +49,7 @@ from .window import (
     launch_window,
     read_window_state,
     stop_window,
+    window_impersonation_path,
     window_login_path,
     window_profile_dir,
     window_state_path,
@@ -57,7 +59,9 @@ __all__ = [
     "DEBUG_WINDOW_ALWAYS_HEADED",
     "DEFAULT_VIEWPORT",
     "EFFECTIVE_USER_SCRIPT",
+    "END_IMPERSONATION_ACTION",
     "EVAL_ACTION",
+    "IMPERSONATE_ACTION",
     "MAX_ACTIONS",
     "MAX_RESULT_CHARS",
     "LaunchBudgetExceeded",
@@ -71,6 +75,7 @@ __all__ = [
     "auto_login",
     "badge_init_script",
     "badge_label",
+    "become",
     "body_script",
     "budget_status",
     "expression_script",
@@ -83,10 +88,12 @@ __all__ = [
     "launch_window",
     "normalize",
     "read_window_state",
+    "restore",
     "run_in_page",
     "run_off_loop",
     "saved_credentials",
     "stop_window",
+    "window_impersonation_path",
     "window_login_path",
     "window_profile_dir",
     "window_state_path",

@@ -55,7 +55,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `act_in_debug_window` | W | Drive the open debug window: click, fill, select, press, wait, eval. Reports what the steps caused. | portal_developer |
+| `act_in_debug_window` | W | Drive the open debug window: click, fill, select, wait, eval, impersonate. Reports what steps caused. | portal_developer |
 | `inspect_debug_window` | R | Read the shared debug window: console errors, XHR, duplicates, screenshot, CSS, JS expression. Never opens one. | portal_developer |
 | `open_debug_window` | R | Open a visible browser window on the user's screen for shared debugging. Reuses an open one. | portal_developer |
 
