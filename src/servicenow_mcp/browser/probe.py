@@ -47,12 +47,18 @@ PROBE_SCRIPT = """
   let seq = 0;
   let events = [];
   let lastMirror = 0;
+  // When a human last touched THIS tab. Mirrored like the events are, because
+  // clicking a link is itself an interaction: without carrying it across the
+  // navigation, somebody actively browsing would look untouched on every new
+  // document, which is exactly backwards.
+  let lastHuman = 0;
 
   try {
     const saved = sessionStorage.getItem(KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed.events)) { events = parsed.events; seq = parsed.seq || 0; }
+      lastHuman = parsed.lastHuman || 0;
     }
   } catch (e) { /* storage blocked or corrupt — start fresh */ }
 
@@ -60,7 +66,7 @@ PROBE_SCRIPT = """
     const now = Date.now();
     if (!force && now - lastMirror < MIRROR_MS) return;
     lastMirror = now;
-    try { sessionStorage.setItem(KEY, JSON.stringify({ events, seq })); } catch (e) {}
+    try { sessionStorage.setItem(KEY, JSON.stringify({ events, seq, lastHuman })); } catch (e) {}
   };
 
   // Cheap, stable string hash (FNV-1a). Only used to decide "same payload?",
@@ -206,30 +212,55 @@ PROBE_SCRIPT = """
   const fieldName = (el) => el.name || el.id || el.getAttribute('ng-model') || el.tagName.toLowerCase();
   const isField = (el) => !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName || '');
 
-  ['input', 'change'].forEach((type) => {
+  // `lastHuman` answers a second question, for the reaper: was anyone at this
+  // window recently? Pointer and key events are listened to purely for that —
+  // they record no event and touch no field, they only stamp the clock.
+  //
+  // isTrusted alone does NOT separate a person from the model here: Playwright
+  // drives clicks and typing through the CDP Input domain, which goes through
+  // the browser's real input pipeline and arrives trusted, exactly like a hand
+  // on the mouse. The separation comes from pairing this with the window's
+  // last-attach time instead (see reaper.py): the reaper only looks at windows
+  // no tool has attached to for a long time, and during that span the model
+  // provably generated no input at all — so a recent stamp in that span can
+  // only be a person.
+  ['input', 'change', 'pointerdown', 'keydown'].forEach((type) => {
     window.addEventListener(type, (e) => {
       if (!e || !e.isTrusted) return;
-      if (isField(e.target)) touched.add(e.target);
+      lastHuman = Date.now();
+      mirror(false);
+      if ((type === 'input' || type === 'change') && isField(e.target)) touched.add(e.target);
     }, true);
   });
 
   window.addEventListener('pagehide', () => mirror(true));
 
+  // Fields a human edited and left non-empty. Capped: the caller needs to
+  // know THAT input would be lost, not an inventory of the form.
+  const dirtyFields = () => {
+    const out = [];
+    for (const el of document.querySelectorAll('input, textarea, select')) {
+      if (el.type === 'hidden' || el.disabled || el.readOnly) continue;
+      if (!touched.has(el)) continue;
+      if (el.type === 'checkbox' || el.type === 'radio') { out.push(fieldName(el)); }
+      else if (String(el.value || '').length) { out.push(fieldName(el)); }
+      if (out.length >= 10) break;
+    }
+    return { fields: out, observedFromStart: !installedLate };
+  };
+
   window[G] = {
-    version: 2,
-    // Fields a human edited and left non-empty. Capped: the caller needs to
-    // know THAT input would be lost, not an inventory of the form.
-    dirty: () => {
-      const out = [];
-      for (const el of document.querySelectorAll('input, textarea, select')) {
-        if (el.type === 'hidden' || el.disabled || el.readOnly) continue;
-        if (!touched.has(el)) continue;
-        if (el.type === 'checkbox' || el.type === 'radio') { out.push(fieldName(el)); }
-        else if (String(el.value || '').length) { out.push(fieldName(el)); }
-        if (out.length >= 10) break;
-      }
-      return { fields: out, observedFromStart: !installedLate };
-    },
+    version: 3,
+    dirty: dirtyFields,
+    // Everything the reaper needs to decide "is this window in use?", in one
+    // evaluate. `now` is the PAGE's clock so the caller subtracts two readings
+    // from the same clock rather than comparing across processes.
+    presence: () => ({
+      now: Date.now(),
+      lastHuman: lastHuman,
+      seq: seq,
+      dirty: dirtyFields().fields.length
+    }),
     // Harvest everything newer than `afterSeq`. The caller keeps the high-water
     // mark, so a repeat call costs only what actually changed.
     drain: (afterSeq) => ({
@@ -275,6 +306,21 @@ def reset_script() -> str:
     return f"(() => {{ const p = window['{PROBE_GLOBAL}']; if (p) p.reset(); }})()"
 
 
+def presence_script() -> str:
+    """Is anyone using this window? Null when the probe cannot answer.
+
+    Null has two causes and one meaning. Either no probe is installed, or the
+    one installed predates ``presence`` — a window that has been open across an
+    upgrade keeps its old probe, because the script returns early when the
+    global already exists. Both mean *no evidence*, never *nobody is there*, so
+    the reaper must refuse to close on null. See reaper.py.
+    """
+    return (
+        f"(() => {{ const p = window['{PROBE_GLOBAL}'];"
+        f" return (p && p.presence) ? p.presence() : null; }})()"
+    )
+
+
 __all__ = [
     "BODY_HEAD_CHARS",
     "MAX_EVENTS",
@@ -282,5 +328,6 @@ __all__ = [
     "PROBE_SCRIPT",
     "dirty_script",
     "drain_script",
+    "presence_script",
     "reset_script",
 ]
