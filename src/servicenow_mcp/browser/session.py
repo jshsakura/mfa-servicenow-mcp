@@ -53,7 +53,18 @@ def instance_host(instance_url: str) -> str:
 # stance the repo takes on attribution generally.
 EFFECTIVE_USER_SCRIPT = """
 (() => {
-  const pick = (source, user) => (user ? { user: String(user), source } : null);
+  // NOW.user_impersonating is the platform's own answer to "is this session
+  // pretending to be someone?" — measured on a live instance, where it reads
+  // true while impersonating and is absent otherwise. It does NOT name the real
+  // account; it only says that the name below is not it.
+  let impersonating = null;
+  try {
+    if (window.NOW && typeof NOW.user_impersonating !== 'undefined') {
+      impersonating = NOW.user_impersonating === true || NOW.user_impersonating === 'true';
+    }
+  } catch (e) {}
+  const pick = (source, user) =>
+    (user ? { user: String(user), source, impersonating } : null);
   try {
     if (window.NOW && NOW.user && NOW.user.userName) return pick('NOW.user', NOW.user.userName);
   } catch (e) {}

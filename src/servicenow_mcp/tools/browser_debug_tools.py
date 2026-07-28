@@ -56,7 +56,7 @@ from ..browser.badge import profile_label
 from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate
 from ..browser.cursor import resolve_after_seq, write_cursor
 from ..browser.impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION
-from ..browser.impersonate import describe as describe_impersonation
+from ..browser.impersonate import describe_detected as describe_impersonation
 from ..browser.impersonate import read_marker
 from ..browser.launch_budget import LaunchBudgetExceeded, budget_status
 from ..browser.login import auto_login
@@ -145,7 +145,7 @@ class DebugAction(BaseModel):
     )
     value: Optional[str] = Field(
         default=None,
-        description="fill text, select option, eval JS, or user_name/sys_id to impersonate.",
+        description="fill text, select option, eval JS, or who to impersonate (name works).",
     )
     key: Optional[str] = Field(default=None, description="Key for press, e.g. Enter.")
     ms: Optional[int] = Field(default=None, description="Pause length for action='wait'.")
@@ -450,8 +450,8 @@ def inspect_debug_window(
     # has to say so rather than let "why is this user denied?" be investigated
     # against the wrong account.
     impersonation = describe_impersonation(
+        raw.get("effective_user"),
         read_marker(window_impersonation_path(auth_manager), state.started_at),
-        str(identity.get("window_user") or ""),
     )
     if impersonation:
         result["impersonating"] = impersonation
@@ -586,10 +586,10 @@ def act_in_debug_window(
     # silent side effect of a batch.
     if any(step["action"] in (IMPERSONATE_ACTION, END_IMPERSONATION_ACTION) for step in steps):
         result["window_user"] = (raw.get("effective_user") or {}).get("user")
+        # Short on purpose: window_user above already names the user, so this
+        # only has to carry what the name alone does not say.
         result["session_note"] = (
-            f"The debug window is now signed in as '{result['window_user']}'. That is the "
-            "whole window — every MCP session shares it — until end_impersonation. "
-            "MCP API calls are unaffected."
+            "Whole window, every MCP session, until end_impersonation. API calls unaffected."
         )
     return result
 
