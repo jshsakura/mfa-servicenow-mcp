@@ -24,6 +24,7 @@ from servicenow_mcp.browser import (
     launch_budget,
     login,
     report,
+    server_scripts,
     window,
 )
 from servicenow_mcp.browser.badge import badge_init_script, badge_label, hide_badge_script
@@ -2769,3 +2770,216 @@ def test_a_tab_that_refuses_the_probe_does_not_stop_the_others(auth):
 
     assert capture_module._arm_tabs(tabs, state, "dev") == 1
     assert tabs[1].scripts
+
+
+# ---------------------------------------------------------------------------
+# server_scripts.py — running server-side code is not a click
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url,surface",
+    [
+        ("https://dev.example.com/sys.scripts.do", "Background Scripts"),
+        ("https://dev.example.com/nav_to.do?uri=sys_script_fix.do%3Fsys_id%3Dab", "Fix Script"),
+        # A gate an encoder walks through is not a gate.
+        ("https://dev.example.com/nav_to.do?uri=%2Fsys.scripts.do", "Background Scripts"),
+        ("https://dev.example.com/SYS.SCRIPTS.DO", "Background Scripts"),
+        ("https://dev.example.com/sysauto_script.do?sys_id=1", "Scheduled Script Execution"),
+    ],
+)
+def test_a_script_runner_page_is_recognised_however_it_is_addressed(url, surface):
+    assert server_scripts.surface_for_url(url) == surface
+
+
+def test_an_ordinary_page_is_not_a_script_runner():
+    assert server_scripts.surface_for_url("https://dev.example.com/incident.do?sys_id=1") is None
+    assert server_scripts.surface_for_url("") is None
+
+
+def test_the_run_verb_is_recognised_without_any_url():
+    # A Fix Script run from a list view's context menu never loads its form,
+    # so the URL half of the check has nothing to look at.
+    assert server_scripts.surface_for_step(_step(selector="text=Run Fix Script")) == "Fix Script"
+    assert server_scripts.surface_for_step(_step(selector='input[name="runscript"]')) == (
+        "Background Scripts"
+    )
+
+
+def test_typing_a_script_is_not_running_one():
+    # fill has to stay free: showing the user what you want run is the outcome
+    # this gate is asking for.
+    assert server_scripts.surface_for_step(_step(action="fill", value="gs.info('x')")) is None
+
+
+def test_an_activating_step_on_a_script_runner_fails_that_step(monkeypatch):
+    page = FakePage(known=["#run"], url="https://dev.example.com/sys.scripts.do")
+
+    with pytest.raises(actions.ActionError) as excinfo:
+        actions._run_step(page, _step(selector="#run"), 3)
+
+    assert "Background Scripts" in str(excinfo.value)
+    assert "confirm_script_exec='approve'" in str(excinfo.value)
+    assert excinfo.value.index == 3
+
+
+def test_the_same_step_proceeds_once_approved():
+    page = FakePage(known=["#run"], url="https://dev.example.com/sys.scripts.do")
+
+    assert actions._run_step(page, _step(selector="#run"), 1, None, True) == {}
+
+
+def test_a_click_elsewhere_is_untouched_by_the_gate():
+    page = FakePage(known=["#save"], url="https://dev.example.com/incident.do")
+
+    assert actions._run_step(page, _step(selector="#save"), 1) == {}
+
+
+def test_an_unreadable_url_does_not_break_an_ordinary_click():
+    class Detached(FakePage):
+        @property
+        def url(self):
+            raise RuntimeError("page has been closed")
+
+        @url.setter
+        def url(self, _value):
+            pass
+
+    assert actions._run_step(Detached(known=["#save"]), _step(selector="#save"), 1) == {}
+
+
+def test_running_a_background_script_needs_its_own_approval(monkeypatch):
+    def _explode(*args, **kwargs):
+        raise AssertionError("must not reach the window without confirm_script_exec")
+
+    monkeypatch.setattr(tools, "find_window", _explode)
+
+    result = tools.act_in_debug_window(
+        MagicMock(),
+        MagicMock(),
+        tools.ActInDebugWindowParams(
+            actions=[
+                {"action": "fill", "selector": "#script", "value": "gr.deleteMultiple()"},
+                {"action": "click", "selector": "text=Run script"},
+            ]
+        ),
+    )
+
+    assert result["success"] is False
+    assert result["script_exec_steps"] == [2]
+    assert "confirm_script_exec='approve'" in result["error"]
+    assert "Background Scripts" in result["error"]
+
+
+def test_an_eval_that_posts_to_the_runner_needs_both_approvals(monkeypatch):
+    monkeypatch.setattr(tools, "find_window", lambda a: pytest.fail("must not reach the window"))
+
+    result = tools.act_in_debug_window(
+        MagicMock(),
+        MagicMock(),
+        tools.ActInDebugWindowParams(
+            actions=[{"action": "eval", "value": "fetch('/sys.scripts.do', {method:'POST'})"}],
+            confirm_eval="approve",
+        ),
+    )
+
+    assert result["success"] is False
+    assert result["script_exec_steps"] == [1]
+
+
+def test_an_approved_run_reaches_the_window_with_the_flag(monkeypatch, tmp_path):
+    state = _state()
+    seen = {}
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+
+    def _act(state, **kw):
+        seen.update(kw)
+        return {
+            "url": "https://dev.example.com/sys.scripts.do",
+            "seq": 1,
+            "events": [],
+            "steps": [{"step": 1, "action": "click", "ok": True}],
+            "dialogs": [],
+            "failed_step": None,
+            "skipped": 0,
+        }
+
+    monkeypatch.setattr(tools, "act", _act)
+
+    result = tools.act_in_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.ActInDebugWindowParams(
+            actions=[{"action": "click", "selector": "text=Run script"}],
+            confirm_script_exec="approve",
+        ),
+    )
+
+    assert result["success"] is True
+    assert seen["allow_server_script"] is True
+
+
+def test_a_window_already_on_the_runner_refuses_the_whole_batch(monkeypatch, tmp_path):
+    state = _state()
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+
+    def _act(state, **kw):
+        raise server_scripts.ServerScriptBlocked(
+            server_scripts.rejection("Background Scripts"), surface="Background Scripts"
+        )
+
+    monkeypatch.setattr(tools, "act", _act)
+
+    result = tools.act_in_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        # Neither selector names a run verb — only the live URL knows.
+        tools.ActInDebugWindowParams(actions=[{"action": "click", "selector": "#go"}]),
+    )
+
+    assert result["success"] is False
+    assert result["script_exec_surface"] == "Background Scripts"
+    assert "confirm_script_exec='approve'" in result["error"]
+
+
+def test_the_read_tool_cannot_post_to_the_runner_either(monkeypatch):
+    monkeypatch.setattr(tools, "find_window", lambda a: pytest.fail("must not reach the window"))
+
+    result = tools.inspect_debug_window(
+        MagicMock(),
+        MagicMock(),
+        tools.InspectDebugWindowParams(evaluate="fetch('/sys.scripts.do',{method:'POST'})"),
+    )
+
+    assert result["success"] is False
+    assert result["script_exec_surface"] == "Background Scripts"
+
+
+def test_an_ordinary_expression_still_reads_freely(monkeypatch, tmp_path):
+    state = _state()
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+    monkeypatch.setattr(
+        tools,
+        "capture",
+        lambda state, **kw: {
+            "url": "https://dev.example.com/sp",
+            "seq": 1,
+            "events": [],
+            "evaluation": {"ok": True, "value": 7},
+        },
+    )
+
+    result = tools.inspect_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.InspectDebugWindowParams(evaluate="$scope.data.items.length"),
+    )
+
+    assert result["success"] is True
+    assert result["evaluation"]["value"] == 7

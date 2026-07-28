@@ -31,6 +31,14 @@ Running JavaScript is graded in two, because "read a value off the page" and
 ``act_in_debug_window`` action ``eval``  arbitrary source, and therefore
     confirm='approve' AND confirm_eval='approve'.
 
+Running SERVER-side code is graded above both, because a click on Run in
+Background Scripts is not a click a person's ACLs constrain — see
+browser/server_scripts.py. Reaching those pages costs nothing; pulling the
+trigger on one costs confirm_script_exec='approve'. That gate is enforced twice:
+here, against the verb a step names, before the browser is touched — and in
+actions.py against the window's live URL, which is the only place a click that
+navigates onto Background Scripts mid-batch can be caught.
+
 Impersonation is a step, not a tool, for the same reason: testing "what does
 this user see" is never one call. It changes the whole window's session — which
 every MCP session and the person watching the screen share — so both tools
@@ -49,6 +57,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
+from ..browser import server_scripts
 from ..browser._launch_lock import LaunchBusy
 from ..browser._offload import PlaywrightUnavailable
 from ..browser.actions import EVAL_ACTION, MAX_ACTIONS, act, normalize
@@ -64,6 +73,7 @@ from ..browser.login import describe as describe_login
 from ..browser.login import saved_credentials
 from ..browser.reaper import reap_idle_windows
 from ..browser.report import compact
+from ..browser.server_scripts import ServerScriptBlocked
 from ..browser.session import api_username, describe_window_user
 from ..browser.window import (
     ensure_window,
@@ -171,6 +181,10 @@ class ActInDebugWindowParams(BaseModel):
     confirm_eval: Optional[str] = Field(
         default=None, description="Required ('approve') when any step is action='eval'."
     )
+    confirm_script_exec: Optional[str] = Field(
+        default=None,
+        description="Required ('approve') to run a server-side script (Background/Fix/ATF).",
+    )
     discard_unsaved_input: bool = Field(
         default=False,
         description="Allow impersonate/end_impersonation to reload a form holding input.",
@@ -199,6 +213,10 @@ class InspectDebugWindowParams(BaseModel):
     evaluate: Optional[str] = Field(
         default=None,
         description="A JS expression to read from the page. Statements need act's eval.",
+    )
+    confirm_script_exec: Optional[str] = Field(
+        default=None,
+        description="Required ('approve') when evaluate posts to a server-script endpoint.",
     )
 
 
@@ -410,6 +428,18 @@ def inspect_debug_window(
     if params.screenshot == "element" and not params.selector:
         return {"success": False, "error": "screenshot='element' requires a selector."}
 
+    # `fetch('/sys.scripts.do', {method:'POST'})` is an expression, so the read
+    # tool can run a background script without ever loading its page. Same
+    # approval as the act path — one gate, whichever door it comes through.
+    if params.evaluate and not server_scripts.approved(params.confirm_script_exec):
+        surface = server_scripts.surface_in_source(params.evaluate)
+        if surface:
+            return {
+                "success": False,
+                "error": server_scripts.rejection(surface),
+                "script_exec_surface": surface,
+            }
+
     state = find_window(auth_manager)
     if state is None:
         # Deliberately does NOT open one. See the module docstring.
@@ -531,6 +561,30 @@ def act_in_debug_window(
             "eval_steps": eval_steps,
         }
 
+    # A click on Run in Background Scripts is not the same request as a click on
+    # Save, and until now it cost the same. Caught here by the verb the step
+    # names — which is the half that works when the run is invoked from a list
+    # view and no script-runner page is ever loaded. The other half, the live
+    # URL, is checked in actions.py where the URL is real.
+    allow_server_script = server_scripts.approved(params.confirm_script_exec)
+    if not allow_server_script:
+        script_steps: List[int] = []
+        surface = ""
+        for step in _numbered(steps):
+            hit = server_scripts.surface_for_step(step)
+            if not hit and step["action"] == EVAL_ACTION:
+                # An eval never loads the page: it posts to it.
+                hit = server_scripts.surface_in_source(step["value"])
+            if hit:
+                script_steps.append(step["step"])
+                surface = surface or hit
+        if script_steps:
+            return {
+                "success": False,
+                "error": server_scripts.rejection(surface, steps=script_steps),
+                "script_exec_steps": script_steps,
+            }
+
     state = find_window(auth_manager)
     if state is None:
         return {
@@ -569,7 +623,17 @@ def act_in_debug_window(
                 "login_user": (saved_credentials(config) or ("", ""))[0],
                 "allow_discard": params.discard_unsaved_input,
             },
+            allow_server_script=allow_server_script,
         )
+    except ServerScriptBlocked as exc:
+        # The window was already sitting on a script runner, so nothing ran —
+        # not even the fill that would have typed the script in.
+        return {
+            "success": False,
+            "window_open": True,
+            "error": str(exc),
+            "script_exec_surface": exc.surface,
+        }
     except (NoPageFound, PlaywrightUnavailable) as exc:
         return {"success": False, "window_open": True, "error": str(exc)}
     except (RuntimeError, TimeoutError, ValueError, OSError) as exc:
