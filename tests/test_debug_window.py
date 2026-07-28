@@ -2533,3 +2533,83 @@ def test_the_effective_user_script_reads_the_platform_impersonation_flag():
     from servicenow_mcp.browser.session import EFFECTIVE_USER_SCRIPT
 
     assert "user_impersonating" in EFFECTIVE_USER_SCRIPT
+
+
+# ---------------------------------------------------------------------------
+# Crash marks — why a reopened window came back with two of the same tab
+# ---------------------------------------------------------------------------
+
+
+def _prefs(profile_dir, payload):
+    default = os.path.join(profile_dir, "Default")
+    os.makedirs(default, exist_ok=True)
+    path = os.path.join(default, "Preferences")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+    return path
+
+
+def test_a_crash_mark_is_cleared_so_no_tab_is_restored(tmp_path):
+    # Closing by signal (stop_window, the reaper) is what Chromium records as a
+    # crash — measured on a real profile: exit_type "Crashed", and the next
+    # launch showed the restored tab AND the url we passed on the command line.
+    profile = str(tmp_path / "profile")
+    path = _prefs(profile, {"profile": {"exit_type": "Crashed"}, "other": {"keep": 1}})
+
+    assert window.clear_restore_state(profile) is True
+
+    saved = json.load(open(path))
+    assert saved["profile"]["exit_type"] == "Normal"
+    assert saved["profile"]["exited_cleanly"] is True
+    # Everything else in that file belongs to Chromium, not to us.
+    assert saved["other"] == {"keep": 1}
+
+
+def test_a_clean_profile_is_left_untouched(tmp_path):
+    profile = str(tmp_path / "profile")
+    _prefs(profile, {"profile": {"exit_type": "Normal", "exited_cleanly": True}})
+
+    assert window.clear_restore_state(profile) is False
+
+
+def test_a_profile_that_never_ran_has_nothing_to_clear(tmp_path):
+    assert window.clear_restore_state(str(tmp_path / "never")) is False
+
+
+def test_unreadable_preferences_never_stop_a_window_from_opening(tmp_path):
+    profile = str(tmp_path / "profile")
+    os.makedirs(os.path.join(profile, "Default"))
+    with open(os.path.join(profile, "Default", "Preferences"), "w") as handle:
+        handle.write("{not json")
+
+    assert window.clear_restore_state(profile) is False
+
+
+def test_the_restore_bubble_can_never_cover_the_shared_page():
+    args = window._launch_args(
+        port=1, profile_dir="/tmp/p", viewport=(800, 600), url="https://x.test"
+    )
+
+    assert "--hide-crash-restore-bubble" in args
+
+
+def test_the_session_files_chromium_restores_from_are_removed(tmp_path):
+    # The measured cause: Sessions/Session_* and Tabs_* survive a signal-close,
+    # so the next launch restores that tab and adds the one it was asked for —
+    # two, then three, growing by one per cycle.
+    profile = tmp_path / "profile"
+    sessions = profile / "Default" / "Sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "Session_13429694818788795").write_bytes(b"x")
+    (sessions / "Tabs_13429694819516645").write_bytes(b"x")
+    (profile / "Default" / "Last Session").write_bytes(b"x")
+    cookies = profile / "Default" / "Cookies"
+    cookies.write_bytes(b"sqlite")
+
+    assert window.clear_restore_state(str(profile)) is True
+
+    assert list(sessions.iterdir()) == []
+    assert not (profile / "Default" / "Last Session").exists()
+    # The signed-in session is the whole reason a reopen is silent. Never ours
+    # to delete.
+    assert cookies.read_bytes() == b"sqlite"
