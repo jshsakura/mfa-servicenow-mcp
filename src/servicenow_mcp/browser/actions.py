@@ -37,6 +37,18 @@ it as several tool calls is how the wrong user ends up being tested. They change
 the whole window's session, which every MCP session shares; impersonate.py has
 the details and holds the marker that lets any session end what another started.
 
+Running server-side code
+------------------------
+A handful of pages in ServiceNow turn a click into arbitrary server-side
+execution, and ``fill`` + ``click`` reaches them. Doing that is allowed — it is
+just not something to arrive at sideways, so an unapproved batch stops rather
+than runs: before the first step when the window is already sitting on such a
+page, and again before each activating step, because a click can navigate onto
+one mid-batch. Both checks read the LIVE ``page.url``, which is why they live
+here and not in the tool layer: a pre-flight can only see where the window was.
+``allow_server_script`` is the caller's approval arriving from there. See
+server_scripts.py.
+
 Dialogs
 -------
 A native ``confirm()`` blocks the page and would hang the batch. Playwright's
@@ -63,6 +75,9 @@ from .capture import (
 from .evaluate import run_in_page
 from .impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, become, restore
 from .probe import drain_script
+from .server_scripts import ACTIVATING_ACTIONS, ServerScriptBlocked
+from .server_scripts import rejection as script_rejection
+from .server_scripts import surface_for_url
 from .window import WindowState
 
 logger = logging.getLogger(__name__)
@@ -225,11 +240,26 @@ def budget_seconds(actions: Sequence[Dict[str, Any]]) -> float:
     return total / 1000.0 + 60.0
 
 
+def _page_url(page: Any) -> str:
+    """The window's current address, or '' if it cannot be read.
+
+    Never raises: an unreadable URL must not turn a legitimate click into an
+    error. It only means this half of the script-runner check abstains — the
+    verb half, checked at the tool layer, still applies.
+    """
+    try:
+        return str(page.url)
+    except Exception as exc:  # noqa: BLE001 - a torn-down page has no url
+        logger.debug("Could not read the page URL: %s", exc)
+        return ""
+
+
 def _run_step(
     page: Any,
     step: Dict[str, Any],
     index: int,
     session: Optional[Dict[str, Any]] = None,
+    allow_server_script: bool = False,
 ) -> Dict[str, Any]:
     """Execute one step. Raises :class:`ActionError` with a usable message.
 
@@ -237,11 +267,20 @@ def _run_step(
     marker path, the window's ``started_at`` that keys it, and the account the
     window signed in as. Absent (the default) those steps report that they were
     not wired up rather than guessing at a path.
+
+    ``allow_server_script`` is the second approval, already checked at the tool
+    layer. Without it, an activating step on a script-runner page fails HERE
+    rather than in a pre-flight, because only here is the URL the real one.
     """
     name = step["action"]
     selector = step["selector"]
     timeout_ms = step["timeout_ms"]
     context = session or {}
+
+    if not allow_server_script and name in ACTIVATING_ACTIONS:
+        surface = surface_for_url(_page_url(page))
+        if surface:
+            raise ActionError(script_rejection(surface, steps=index), index=index)
 
     if name == "wait":
         time.sleep(step["ms"] / 1000.0)
@@ -349,8 +388,14 @@ def act(
     selector: Optional[str] = None,
     screenshot_path: str = "",
     session: Optional[Dict[str, Any]] = None,
+    allow_server_script: bool = False,
 ) -> Dict[str, Any]:
-    """Run the batch, then drain what it caused. Same raw shape as capture()."""
+    """Run the batch, then drain what it caused. Same raw shape as capture().
+
+    ``allow_server_script`` carries the caller's second approval for running
+    server-side code; without it a batch that would do so is refused with
+    :class:`ServerScriptBlocked` before any step runs.
+    """
     require_playwright()
     steps = list(actions)
     settle_s = max(0, min(int(settle_ms), MAX_WAIT_MS)) / 1000.0
@@ -371,6 +416,14 @@ def act(
                     raise NoPageFound(
                         "The debug window has no open tab. Open a page in it and retry."
                     )
+
+                # The window may already be sitting on Background Scripts, in
+                # which case the whole batch is refused rather than half-run:
+                # nothing typed, nothing clicked, page left as the user had it.
+                if not allow_server_script:
+                    surface = surface_for_url(_page_url(page))
+                    if surface and any(step["action"] in ACTIVATING_ACTIONS for step in steps):
+                        raise ServerScriptBlocked(script_rejection(surface), surface=surface)
 
                 # Re-arm first: a click that navigates must land on an
                 # instrumented document, and add_init_script only affects
@@ -407,7 +460,7 @@ def act(
                         "selector": step["selector"],
                     }
                     try:
-                        entry.update(_run_step(page, step, index, session))
+                        entry.update(_run_step(page, step, index, session, allow_server_script))
                         entry["ok"] = True
                     except ActionError as exc:
                         entry["ok"] = False
@@ -460,6 +513,7 @@ def act(
 __all__ = [
     "ACTIONS_NEEDING_SELECTOR",
     "ACTIONS_NEEDING_VALUE",
+    "ACTIVATING_ACTIONS",
     "END_IMPERSONATION_ACTION",
     "EVAL_ACTION",
     "IMPERSONATE_ACTION",
@@ -470,6 +524,7 @@ __all__ = [
     "MAX_STEP_TIMEOUT_MS",
     "MAX_WAIT_MS",
     "SUPPORTED_ACTIONS",
+    "ServerScriptBlocked",
     "act",
     "budget_seconds",
     "normalize",
