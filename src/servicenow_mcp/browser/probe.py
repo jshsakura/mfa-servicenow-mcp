@@ -74,17 +74,32 @@ PROBE_SCRIPT = """
     return h.toString(16);
   };
 
+  // Credentials are stripped HERE, in the page, before anything is buffered.
+  // The window signs itself in (auto-login fills a real password into a real
+  // form), and an IdP that posts that form over fetch would otherwise leave the
+  // password in `head` — which is written to an artifacts file on disk. Doing
+  // it at the source means no later stage has to remember to.
+  const SECRET_KEY = /(password|passwd|pwd|secret|token|api[_-]?key|authorization|sessionid)/i;
+  const redact = (s) => s.replace(
+    /([?&;]?[\\w.\\-\\[\\]]*(?:password|passwd|pwd|secret|token|api[_-]?key|authorization|sessionid)[\\w.\\-\\[\\]]*"?\\s*[:=]\\s*"?)([^"&;,}\\s]*)/gi,
+    '$1<redacted>'
+  );
+
   const summarize = (body) => {
     if (body == null) return null;
     let text;
     try {
       if (typeof body === 'string') text = body;
       else if (body instanceof URLSearchParams) text = body.toString();
-      else if (body instanceof FormData) text = [...body.entries()].map(p => p[0] + '=' + p[1]).join('&');
+      else if (body instanceof FormData) text = [...body.entries()].map(p => p[0] + '=' + (SECRET_KEY.test(p[0]) ? '<redacted>' : p[1])).join('&');
       else text = JSON.stringify(body);
     } catch (e) { return { bytes: -1, hash: null, head: '[unserializable]' }; }
     if (typeof text !== 'string') return null;
-    return { bytes: text.length, hash: hash(text), head: text.slice(0, HEAD) };
+    const bytes = text.length;
+    text = redact(text);
+    // Hashed AFTER redaction: the hash only has to be stable enough to answer
+    // "same payload twice?", and two identical submits redact identically.
+    return { bytes: bytes, hash: hash(text), head: text.slice(0, HEAD) };
   };
 
   const push = (event) => {
@@ -142,7 +157,7 @@ PROBE_SCRIPT = """
     this.addEventListener('loadend', () => {
       push({
         kind: 'xhr', transport: 'xhr',
-        method: meta.method || 'GET', url: meta.url || '',
+        method: meta.method || 'GET', url: redact(meta.url || ''),
         status: this.status, ms: Date.now() - started,
         req: summarize(body),
         resBytes: (this.responseText || '').length
@@ -156,7 +171,7 @@ PROBE_SCRIPT = """
     const fetchOriginal = window.fetch;
     window.fetch = function (input, init) {
       const started = Date.now();
-      const url = String((input && input.url) || input || '');
+      const url = redact(String((input && input.url) || input || ''));
       const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
       const body = init && init.body;
       return fetchOriginal.apply(this, arguments).then((response) => {

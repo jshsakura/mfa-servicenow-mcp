@@ -1,16 +1,24 @@
-"""The two tools behind the shared debug window.
+"""The three tools behind the shared debug window.
 
-Exactly two, and the split is by side effect rather than by verb:
+The split is by side effect rather than by verb:
 
 ``open_debug_window``   the only tool that can put a window on the user's screen
 ``inspect_debug_window`` reads whatever window is already there, or reports none
+``act_in_debug_window``  drives that window — clicks, types, waits
 
 That asymmetry is the design. A read tool that opens windows on demand means a
-window appears every time the model wants to check something, so inspecting
-uses ``find_window`` (never launches) while opening uses ``ensure_window``
-(idempotent, rate-capped). Everything else — session isolation, the launch
-claim, the unsaved-input guard — lives in servicenow_mcp.browser as
-deterministic code rather than as instructions the model is asked to follow.
+window appears every time the model wants to check something, so inspecting and
+acting both use ``find_window`` (never launches) while opening uses
+``ensure_window`` (idempotent, rate-capped). Everything else — session
+isolation, the launch claim, the unsaved-input guard, the single auto-login
+attempt — lives in servicenow_mcp.browser as deterministic code rather than as
+instructions the model is asked to follow.
+
+Acting is classified as a WRITE (write_guards.MUTATING_TOOL_NAMES), because a
+click on Save in an authenticated session creates a record just as surely as
+the Table API would. The window's session is its own, so that write is
+attributed to whoever the window is signed in as — which is exactly why
+inspect reports that user back.
 
 Closing is not a tool: the user closes the window with the mouse, and a closed
 window is simply reopened on the next explicit request.
@@ -19,16 +27,20 @@ window is simply reopened on the next explicit request.
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..browser._launch_lock import LaunchBusy
 from ..browser._offload import PlaywrightUnavailable
+from ..browser.actions import MAX_ACTIONS, act, normalize
 from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate
 from ..browser.cursor import resolve_after_seq, write_cursor
 from ..browser.launch_budget import LaunchBudgetExceeded, budget_status
+from ..browser.login import auto_login
+from ..browser.login import describe as describe_login
+from ..browser.login import saved_credentials
 from ..browser.report import compact
 from ..browser.session import api_username, describe_window_user
 from ..browser.window import (
@@ -37,6 +49,7 @@ from ..browser.window import (
     window_artifacts_dir,
     window_cursor_path,
     window_history_path,
+    window_login_path,
 )
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
@@ -60,6 +73,48 @@ class OpenDebugWindowParams(BaseModel):
         default=False,
         description="Allow navigating away from a form with unsaved input.",
     )
+
+
+class DebugAction(BaseModel):
+    """One step. The enum below is the whole vocabulary — there is no eval hatch."""
+
+    action: Literal[
+        "click",
+        "double_click",
+        "fill",
+        "select",
+        "check",
+        "uncheck",
+        "hover",
+        "press",
+        "scroll_to",
+        "wait_for",
+        "wait",
+    ]
+    selector: Optional[str] = Field(
+        default=None, description="CSS, text=..., or xpath=... Frames are searched too."
+    )
+    value: Optional[str] = Field(default=None, description="Text for fill, option for select.")
+    key: Optional[str] = Field(default=None, description="Key for press, e.g. Enter.")
+    ms: Optional[int] = Field(default=None, description="Pause length for action='wait'.")
+    timeout_ms: Optional[int] = Field(default=None, description="Per-step timeout. Default 10000.")
+    state: Optional[str] = Field(
+        default=None, description="For wait_for: visible (default) or hidden."
+    )
+
+
+class ActInDebugWindowParams(BaseModel):
+    actions: List[DebugAction] = Field(
+        description="Steps in order. Stops at the first failure and reports it."
+    )
+    settle_ms: int = Field(
+        default=500, description="Pause after the last step so the page can react."
+    )
+    screenshot: str = Field(default="none", description="none | viewport | full | element.")
+    selector: Optional[str] = Field(
+        default=None, description="CSS selector for screenshot='element'."
+    )
+    since_last: bool = Field(default=True, description="Only events newer than the last read.")
 
 
 class InspectDebugWindowParams(BaseModel):
@@ -177,11 +232,25 @@ def open_debug_window(
         logger.info("Could not arm the debug collector yet: %s", exc)
         result["recording"] = False
 
+    # Sign the window in with what the server already knows, once per window.
+    # Runs after arming so the login round-trip is itself recorded, and after
+    # navigation so the form it looks at is the one on the target page.
+    login = auto_login(
+        state,
+        credentials=saved_credentials(config),
+        marker_path=window_login_path(auth_manager),
+    )
+    if login.get("status") not in (None, "no_credentials", "no_login_form", "no_page"):
+        result["auto_login"] = login.get("status")
+    login_note = describe_login(login)
+
     used, allowance = budget_status(window_history_path(auth_manager))
     if used >= allowance - 1:
         result["launch_budget"] = f"{used}/{allowance} recent launches"
 
-    if opened:
+    if login_note:
+        result["hint"] = login_note
+    elif opened:
         result["hint"] = (
             "This window has its own ServiceNow session, so it may ask for login once. "
             "Sign in there; impersonating or logging out here cannot affect MCP API calls."
@@ -271,11 +340,99 @@ def inspect_debug_window(
     return result
 
 
+@register_tool(
+    name="act_in_debug_window",
+    params=ActInDebugWindowParams,
+    description="Drive the open debug window: click, fill, select, press, wait. Reports what the steps caused.",
+    serialization="raw_dict",
+    return_type=dict,
+)
+def act_in_debug_window(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ActInDebugWindowParams,
+) -> Dict[str, Any]:
+    if params.screenshot not in SCREENSHOT_MODES:
+        return {
+            "success": False,
+            "error": f"screenshot must be one of: {', '.join(SCREENSHOT_MODES)}.",
+        }
+    if params.screenshot == "element" and not params.selector:
+        return {"success": False, "error": "screenshot='element' requires a selector."}
+
+    try:
+        steps = normalize([action.model_dump() for action in params.actions])
+    except ValueError as exc:
+        # Rejected before the browser is touched: a batch that would fail
+        # halfway leaves the page in a state nobody planned.
+        return {"success": False, "error": str(exc), "max_actions": MAX_ACTIONS}
+
+    state = find_window(auth_manager)
+    if state is None:
+        return {
+            "success": False,
+            "window_open": False,
+            "error": "No debug window is open. Call open_debug_window first.",
+        }
+
+    cursor_path = window_cursor_path(auth_manager)
+    after_seq = resolve_after_seq(cursor_path, since_last=params.since_last)
+    artifacts_dir = window_artifacts_dir(auth_manager)
+    shot_path = (
+        os.path.join(artifacts_dir, f"shot-{int(time.time() * 1000)}.png")
+        if params.screenshot != "none"
+        else ""
+    )
+
+    try:
+        raw = act(
+            state,
+            profile=str(config.instance_url or ""),
+            actions=steps,
+            after_seq=after_seq,
+            settle_ms=params.settle_ms,
+            screenshot=params.screenshot,
+            selector=params.selector,
+            screenshot_path=shot_path,
+        )
+    except (NoPageFound, PlaywrightUnavailable) as exc:
+        return {"success": False, "window_open": True, "error": str(exc)}
+    except (RuntimeError, TimeoutError, ValueError, OSError) as exc:
+        logger.warning("Driving the debug window failed: %s", exc)
+        return {"success": False, "window_open": True, "error": str(exc)}
+
+    report = compact(raw, artifacts_dir=artifacts_dir)
+    write_cursor(cursor_path, report.get("next_seq", 0))
+
+    failed_step = raw.get("failed_step")
+    result: Dict[str, Any] = {
+        # A failed step is not a failed call: the report below is how the
+        # caller finds out WHY the click missed.
+        "success": failed_step is None,
+        "window_open": True,
+        **_window_identity(state, config),
+        "steps": raw.get("steps", []),
+        **report,
+    }
+    if failed_step is not None:
+        result["failed_step"] = failed_step
+        result["skipped_steps"] = raw.get("skipped", 0)
+    if raw.get("dialogs"):
+        # Accepted, not dismissed — see browser/actions.py. Always reported,
+        # because "a confirm box appeared and was answered" changes what the
+        # click actually did.
+        result["dialogs"] = raw["dialogs"]
+    return result
+
+
 __all__ = [
+    "ActInDebugWindowParams",
+    "DebugAction",
     "InspectDebugWindowParams",
     "MAX_STYLE_SELECTORS",
     "OpenDebugWindowParams",
     "SCREENSHOT_MODES",
+    "act_in_debug_window",
     "inspect_debug_window",
     "open_debug_window",
 ]

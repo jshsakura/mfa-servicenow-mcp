@@ -5,6 +5,7 @@ A CI test verifies this file matches the live AST scan of the tools/ package.
 """
 
 TOOL_MODULE_INDEX = {
+    "act_in_debug_window": "browser_debug_tools",
     "analyze_portal_component_update": "portal_tools",
     "analyze_widget_performance": "performance_tools",
     "approve_change": "change_tools",

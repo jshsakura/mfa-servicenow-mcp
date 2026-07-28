@@ -167,6 +167,17 @@ def window_cursor_path(auth_manager: Any) -> str:
     )
 
 
+def window_login_path(auth_manager: Any) -> str:
+    """Records that this window already spent its one auto-login attempt.
+
+    Keyed by window, not by instance — see login.py for why a second attempt is
+    a lockout risk rather than a second chance.
+    """
+    return os.path.join(
+        _cache_root(auth_manager), f"debug_window_{_window_key(auth_manager)}.login.json"
+    )
+
+
 def window_artifacts_dir(auth_manager: Any) -> str:
     """Where full event dumps and screenshots land — on disk, never in context."""
     return os.path.join(_cache_root(auth_manager), f"debug_artifacts_{_window_key(auth_manager)}")
@@ -502,6 +513,7 @@ __all__ = [
     "window_claim_path",
     "window_cursor_path",
     "window_history_path",
+    "window_login_path",
     "window_profile_dir",
     "window_state_path",
     "write_window_state",

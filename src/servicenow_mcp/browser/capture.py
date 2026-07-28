@@ -1,9 +1,10 @@
 """Attach to the live window, take what is asked for, detach.
 
-Nothing here stays connected between tool calls and nothing here clicks. The
-page does its own recording (probe.py), so a call attaches, drains whatever
-accumulated since last time, optionally captures a screenshot or a few computed
-styles, and lets go.
+Nothing here stays connected between tool calls, and nothing here clicks —
+driving the page is actions.py, deliberately a different module behind a
+different (write-classified) tool. The page does its own recording (probe.py),
+so a call attaches, drains whatever accumulated since last time, optionally
+captures a screenshot or a few computed styles, and lets go.
 
 Defaults are all "off": no screenshot, no styles, only events newer than the
 caller's high-water mark. Everything this module returns had to be asked for.
