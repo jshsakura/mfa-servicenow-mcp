@@ -178,6 +178,21 @@ def window_login_path(auth_manager: Any) -> str:
     )
 
 
+def window_impersonation_path(auth_manager: Any) -> str:
+    """Who this window is impersonating, and who it was before.
+
+    On disk rather than in memory because one window is shared by every MCP
+    session pointed at this instance: the session that ends an impersonation is
+    routinely not the one that started it. Keyed to the window's ``started_at``
+    inside the file (see impersonate.py), so a closed window leaves nothing that
+    could describe the next one.
+    """
+    return os.path.join(
+        _cache_root(auth_manager),
+        f"debug_window_{_window_key(auth_manager)}.impersonation.json",
+    )
+
+
 def window_artifacts_dir(auth_manager: Any) -> str:
     """Where full event dumps and screenshots land — on disk, never in context."""
     return os.path.join(_cache_root(auth_manager), f"debug_artifacts_{_window_key(auth_manager)}")
@@ -513,6 +528,7 @@ __all__ = [
     "window_claim_path",
     "window_cursor_path",
     "window_history_path",
+    "window_impersonation_path",
     "window_login_path",
     "window_profile_dir",
     "window_state_path",

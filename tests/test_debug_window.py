@@ -17,7 +17,15 @@ import pytest
 import servicenow_mcp.server as server_module
 from servicenow_mcp.browser import _launch_lock, actions, badge
 from servicenow_mcp.browser import capture as capture_module
-from servicenow_mcp.browser import cursor, evaluate, launch_budget, login, report, window
+from servicenow_mcp.browser import (
+    cursor,
+    evaluate,
+    impersonate,
+    launch_budget,
+    login,
+    report,
+    window,
+)
 from servicenow_mcp.browser.badge import badge_init_script, badge_label, hide_badge_script
 from servicenow_mcp.browser.capture import _instance_page
 from servicenow_mcp.browser.probe import PROBE_GLOBAL, PROBE_SCRIPT, drain_script
@@ -526,7 +534,10 @@ def test_the_badge_lives_in_a_closed_shadow_root_so_page_css_cannot_reach_it():
 
     assert "attachShadow({ mode: 'closed' })" in script
     assert "position:fixed" in script
-    assert "pointer-events:none" in script
+    # The pill itself takes clicks — that is the collapse control. It is the
+    # only part of the overlay that does, and it sits in the corner.
+    assert "pointer-events:auto" in script
+    assert "cursor:pointer" in script
 
 
 def test_the_badge_can_be_hidden_for_screenshots():
@@ -621,7 +632,7 @@ def test_open_reports_reuse_rather_than_opening_a_second_window(monkeypatch):
     monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, False))
     monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
     monkeypatch.setattr(tools, "window_history_path", lambda auth_manager: "/tmp/h.json")
-    monkeypatch.setattr(tools, "arm", lambda state, profile: {"armed": True})
+    monkeypatch.setattr(tools, "arm", lambda state, **kw: {"armed": True})
 
     result = tools.open_debug_window(
         SimpleNamespace(instance_url="https://dev.example.com"),
@@ -645,7 +656,7 @@ def test_opening_arms_the_collector_before_the_user_clicks_anything(monkeypatch)
     monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
     monkeypatch.setattr(tools, "window_history_path", lambda auth_manager: "/tmp/h.json")
     monkeypatch.setattr(
-        tools, "arm", lambda state, profile: armed_calls.append(profile) or {"armed": True}
+        tools, "arm", lambda state, profile, **kw: armed_calls.append(profile) or {"armed": True}
     )
 
     result = tools.open_debug_window(
@@ -665,9 +676,7 @@ def test_a_window_with_no_tab_reports_that_it_is_not_recording(monkeypatch):
     monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, True))
     monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
     monkeypatch.setattr(tools, "window_history_path", lambda auth_manager: "/tmp/h.json")
-    monkeypatch.setattr(
-        tools, "arm", lambda state, profile: {"armed": False, "reason": "no open tab"}
-    )
+    monkeypatch.setattr(tools, "arm", lambda state, **kw: {"armed": False, "reason": "no open tab"})
 
     result = tools.open_debug_window(
         SimpleNamespace(instance_url="https://dev.example.com"),
@@ -689,7 +698,7 @@ def test_open_refuses_to_discard_unsaved_input_by_default(monkeypatch):
     monkeypatch.setattr(
         tools,
         "navigate",
-        lambda state, url, profile, allow_discard, new_tab: {
+        lambda state, url, profile, allow_discard, new_tab, **kw: {
             "navigated": False,
             "url": "https://dev.example.com/form",
             "blocked_by_unsaved_input": ["short_description"],
@@ -1352,7 +1361,7 @@ def _open_with_login(monkeypatch, login_result, config):
     monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
     monkeypatch.setattr(tools, "window_history_path", lambda a: "/tmp/h.json")
     monkeypatch.setattr(tools, "window_login_path", lambda a: "/tmp/l.json")
-    monkeypatch.setattr(tools, "arm", lambda state, profile: {"armed": True})
+    monkeypatch.setattr(tools, "arm", lambda state, **kw: {"armed": True})
     monkeypatch.setattr(tools, "auto_login", lambda state, **kw: login_result)
     return tools.open_debug_window(config, MagicMock(), tools.OpenDebugWindowParams())
 
@@ -1754,7 +1763,7 @@ def test_a_guessed_block_says_it_is_probably_a_false_alarm(monkeypatch):
     monkeypatch.setattr(
         tools,
         "navigate",
-        lambda state, url, profile, allow_discard, new_tab: {
+        lambda state, url, profile, allow_discard, new_tab, **kw: {
             "navigated": False,
             "url": "https://dev.example.com/form",
             "blocked_by_unsaved_input": ["c.data.requestType"],
@@ -1782,11 +1791,11 @@ def test_a_new_tab_leaves_the_form_alone(monkeypatch):
     monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, False))
     monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
     monkeypatch.setattr(tools, "window_history_path", lambda a: "/tmp/h.json")
-    monkeypatch.setattr(tools, "arm", lambda state, profile: {"armed": True})
+    monkeypatch.setattr(tools, "arm", lambda state, **kw: {"armed": True})
     monkeypatch.setattr(tools, "auto_login", lambda state, **kw: {"status": "no_credentials"})
     monkeypatch.setattr(tools, "window_login_path", lambda a: "/tmp/l.json")
 
-    def _navigate(state, url, profile, allow_discard, new_tab):
+    def _navigate(state, url, profile, allow_discard, new_tab, **kw):
         seen.update({"new_tab": new_tab, "allow_discard": allow_discard})
         return {"navigated": True, "url": url, "new_tab": True, "tabs": 2}
 
@@ -1844,3 +1853,445 @@ def test_a_page_that_refuses_the_activity_script_does_not_fail_the_read():
             raise RuntimeError("context destroyed")
 
     capture_module._set_activity(Hostile(), True)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Impersonation — one window, one session, every MCP session sharing it
+# ---------------------------------------------------------------------------
+
+
+class FakeSessionPage(FakePage):
+    """A page that answers the three scripts impersonation runs against it."""
+
+    def __init__(
+        self,
+        user="alice",
+        url="https://dev.example.com/nav_to.do",
+        response=None,
+        becomes=None,
+        dirty=(),
+    ):
+        super().__init__(known=[], url=url)
+        self.user = user
+        self.becomes = becomes
+        self.dirty = list(dirty)
+        self.response = (
+            response
+            if response is not None
+            else {"sent": True, "ok": True, "status": 200, "had_token": True, "body": ""}
+        )
+        self.posts = []
+        self.reloads = 0
+
+    def evaluate(self, script):
+        if "/api/now/ui/impersonate/" in script:
+            self.posts.append(script)
+            return {"ok": True, "value": self.response, "type": "object"}
+        if "p.dirty()" in script:
+            return {"fields": self.dirty, "observedFromStart": True}
+        return {"user": self.user, "source": "g_user"} if self.user else None
+
+    def reload(self, wait_until=None, timeout=None):
+        self.reloads += 1
+        if self.becomes is not None:
+            self.user = self.becomes
+
+
+def _marker(tmp_path):
+    return str(tmp_path / "impersonation.json")
+
+
+def test_impersonate_needs_a_user_to_become():
+    with pytest.raises(ValueError) as excinfo:
+        actions.normalize([{"action": "impersonate"}])
+
+    assert "value" in str(excinfo.value)
+
+
+def test_ending_an_impersonation_needs_no_arguments():
+    normalized = actions.normalize([{"action": "end_impersonation"}])
+
+    assert normalized[0]["selector"] is None and normalized[0]["value"] is None
+
+
+def test_a_session_step_gets_twice_the_budget_because_it_reloads_and_verifies():
+    plain = actions.budget_seconds(actions.normalize([{"action": "click", "selector": "#x"}]))
+    session = actions.budget_seconds(
+        actions.normalize([{"action": "impersonate", "value": "abel.tuter"}])
+    )
+
+    assert session > plain
+
+
+def test_a_marker_from_a_closed_window_cannot_describe_the_next_one(tmp_path):
+    path = _marker(tmp_path)
+    impersonate.write_marker(path, started_at=100.0, original="alice", impersonated="bob")
+
+    assert impersonate.read_marker(path, 100.0)["as"] == "bob"
+    # A new window is a new session, signed in as itself.
+    assert impersonate.read_marker(path, 200.0) is None
+
+
+def test_impersonating_from_a_page_that_is_not_the_instance_is_refused():
+    page = FakeSessionPage(url="https://example.org/other")
+
+    out = impersonate.become(
+        page, target="bob", marker_path="", started_at=1.0, instance_host="dev.example.com"
+    )
+
+    assert out["ok"] is False
+    assert "example.org" in out["error"]
+    # Never fired: a relative POST would have gone to the wrong origin.
+    assert page.posts == []
+
+
+def test_switching_user_refuses_to_reload_a_form_holding_unsaved_input(tmp_path):
+    page = FakeSessionPage(dirty=["short_description"], becomes="bob")
+
+    out = impersonate.become(page, target="bob", marker_path=_marker(tmp_path), started_at=1.0)
+
+    assert out["ok"] is False
+    assert out["blocked_by_unsaved_input"] == ["short_description"]
+    assert "discard_unsaved_input=true" in out["error"]
+    assert page.posts == [] and page.reloads == 0
+
+
+def test_discarding_is_explicit_and_then_the_switch_proceeds(tmp_path):
+    page = FakeSessionPage(dirty=["short_description"], becomes="bob")
+
+    out = impersonate.become(
+        page,
+        target="bob",
+        marker_path=_marker(tmp_path),
+        started_at=1.0,
+        allow_discard=True,
+    )
+
+    assert out["ok"] is True and out["now"] == "bob"
+
+
+def test_a_missing_role_is_reported_as_the_missing_role(tmp_path):
+    page = FakeSessionPage(
+        response={"sent": True, "ok": False, "status": 403, "had_token": True, "body": ""}
+    )
+
+    out = impersonate.become(page, target="bob", marker_path=_marker(tmp_path), started_at=1.0)
+
+    assert out["ok"] is False
+    assert "impersonator" in out["error"]
+
+
+def test_an_unknown_user_says_to_pass_a_user_name_not_a_display_name(tmp_path):
+    page = FakeSessionPage(
+        response={"sent": True, "ok": False, "status": 404, "had_token": True, "body": ""}
+    )
+
+    out = impersonate.become(
+        page, target="Bob Smith", marker_path=_marker(tmp_path), started_at=1.0
+    )
+
+    assert out["ok"] is False
+    assert "user_name" in out["error"]
+
+
+def test_the_page_is_the_verdict_not_the_http_status(tmp_path):
+    # 200 with an unchanged session is a failed impersonation, however the
+    # instance chose to answer.
+    page = FakeSessionPage(user="alice", becomes="alice")
+
+    out = impersonate.become(page, target="bob", marker_path=_marker(tmp_path), started_at=1.0)
+
+    assert out["ok"] is False
+    assert "still 'alice'" in out["error"]
+
+
+def test_a_successful_switch_reloads_the_same_page_rather_than_navigating(tmp_path):
+    page = FakeSessionPage(user="alice", becomes="bob", url="https://dev.example.com/sp?id=form")
+
+    out = impersonate.become(
+        page,
+        target="bob",
+        marker_path=_marker(tmp_path),
+        started_at=1.0,
+        instance_host="dev.example.com",
+    )
+
+    assert out["ok"] is True and out["before"] == "alice" and out["now"] == "bob"
+    assert page.reloads == 1
+    assert out["url"] == "https://dev.example.com/sp?id=form"
+
+
+def test_the_switch_records_who_to_go_back_to(tmp_path):
+    path = _marker(tmp_path)
+    page = FakeSessionPage(user="alice", becomes="bob")
+
+    impersonate.become(page, target="bob", marker_path=path, started_at=7.0)
+
+    assert impersonate.read_marker(path, 7.0) == {
+        "started_at": 7.0,
+        "original": "alice",
+        "as": "bob",
+        "at": pytest.approx(time.time(), abs=30),
+    }
+
+
+def test_hopping_between_users_still_points_home_to_the_real_account(tmp_path):
+    path = _marker(tmp_path)
+    page = FakeSessionPage(user="alice", becomes="bob")
+    impersonate.become(page, target="bob", marker_path=path, started_at=7.0)
+
+    page.becomes = "carol"
+    impersonate.become(page, target="carol", marker_path=path, started_at=7.0)
+
+    # Not 'bob' — end_impersonation must land on the account that signed in.
+    assert impersonate.read_marker(path, 7.0)["original"] == "alice"
+
+
+def test_any_session_can_end_what_another_session_started(tmp_path):
+    path = _marker(tmp_path)
+    impersonate.write_marker(path, started_at=7.0, original="alice", impersonated="bob")
+    page = FakeSessionPage(user="bob", becomes="alice")
+
+    out = impersonate.restore(page, marker_path=path, started_at=7.0)
+
+    assert out["ok"] is True and out["now"] == "alice"
+    assert impersonate.read_marker(path, 7.0) is None
+
+
+def test_a_hand_made_impersonation_falls_back_to_the_signed_in_account(tmp_path):
+    # No marker: the user clicked the avatar menu themselves.
+    page = FakeSessionPage(user="bob", becomes="alice")
+
+    out = impersonate.restore(
+        page, marker_path=_marker(tmp_path), started_at=7.0, fallback_user="alice"
+    )
+
+    assert out["ok"] is True and out["now"] == "alice"
+
+
+def test_with_nothing_to_go_back_to_it_says_so_instead_of_guessing(tmp_path):
+    page = FakeSessionPage(user="bob")
+
+    out = impersonate.restore(page, marker_path=_marker(tmp_path), started_at=7.0)
+
+    assert out["ok"] is False
+    assert "Impersonate your own" in out["error"]
+
+
+def test_ending_when_already_home_is_a_no_op_that_clears_the_marker(tmp_path):
+    path = _marker(tmp_path)
+    impersonate.write_marker(path, started_at=7.0, original="alice", impersonated="bob")
+    page = FakeSessionPage(user="alice")
+
+    out = impersonate.restore(page, marker_path=path, started_at=7.0)
+
+    assert out["ok"] is True and out["already"] is True
+    assert page.posts == []
+    assert impersonate.read_marker(path, 7.0) is None
+
+
+def test_the_page_wins_over_a_stale_marker():
+    marker = {"as": "bob", "original": "alice"}
+
+    assert impersonate.describe(marker, "bob") == {"as": "bob", "original": "alice"}
+    # Ended by hand in the window: reporting 'bob' would send the next
+    # investigation after the wrong account.
+    assert impersonate.describe(marker, "alice") is None
+    assert impersonate.describe(None, "bob") is None
+
+
+def test_a_session_step_makes_the_batch_report_who_the_window_now_is(monkeypatch, tmp_path):
+    state = _state()
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+    monkeypatch.setattr(tools, "window_impersonation_path", lambda a: _marker(tmp_path))
+    seen = {}
+
+    def _act(state, **kw):
+        seen.update(kw)
+        return {
+            "url": "https://dev.example.com/sp",
+            "seq": 1,
+            "events": [],
+            "steps": [{"step": 1, "action": "impersonate", "ok": True, "impersonating": "bob"}],
+            "dialogs": [],
+            "failed_step": None,
+            "skipped": 0,
+            "effective_user": {"user": "bob", "source": "g_user"},
+        }
+
+    monkeypatch.setattr(tools, "act", _act)
+
+    result = tools.act_in_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com", auth=SimpleNamespace()),
+        MagicMock(),
+        tools.ActInDebugWindowParams(actions=[{"action": "impersonate", "value": "bob"}]),
+    )
+
+    assert result["window_user"] == "bob"
+    assert "every MCP session shares it" in result["session_note"]
+    # The tool layer resolves the window-scoped context; actions.py stays dumb.
+    assert seen["session"]["marker_path"] == _marker(tmp_path)
+    assert seen["session"]["instance_host"] == "dev.example.com"
+    assert seen["session"]["started_at"] == state.started_at
+
+
+def test_impersonation_needs_no_second_approval_the_way_eval_does(monkeypatch, tmp_path):
+    # Deliberate: it cannot run code, cannot exceed the account's roles, cannot
+    # touch the API session, and one step undoes it.
+    state = _state()
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+    monkeypatch.setattr(tools, "window_impersonation_path", lambda a: _marker(tmp_path))
+    monkeypatch.setattr(
+        tools,
+        "act",
+        lambda state, **kw: {
+            "url": "u",
+            "seq": 1,
+            "events": [],
+            "steps": [{"step": 1, "action": "impersonate", "ok": True}],
+            "dialogs": [],
+            "failed_step": None,
+            "skipped": 0,
+            "effective_user": {"user": "bob"},
+        },
+    )
+
+    result = tools.act_in_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com", auth=SimpleNamespace()),
+        MagicMock(),
+        tools.ActInDebugWindowParams(actions=[{"action": "impersonate", "value": "bob"}]),
+    )
+
+    assert result["success"] is True
+
+
+def test_a_read_reports_an_impersonation_another_session_started(monkeypatch, tmp_path):
+    state = _state()
+    impersonate.write_marker(
+        _marker(tmp_path), started_at=state.started_at, original="alice", impersonated="bob"
+    )
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+    monkeypatch.setattr(tools, "window_impersonation_path", lambda a: _marker(tmp_path))
+    monkeypatch.setattr(
+        tools,
+        "capture",
+        lambda state, **kw: {
+            "url": "u",
+            "seq": 1,
+            "events": [],
+            "effective_user": {"user": "bob", "source": "g_user"},
+        },
+    )
+
+    result = tools.inspect_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com", auth=SimpleNamespace()),
+        MagicMock(),
+        tools.InspectDebugWindowParams(),
+    )
+
+    assert result["impersonating"] == {"as": "bob", "original": "alice"}
+
+
+def test_opening_says_up_front_when_it_reuses_an_impersonating_window(monkeypatch, tmp_path):
+    state = _state()
+    impersonate.write_marker(
+        _marker(tmp_path), started_at=state.started_at, original="alice", impersonated="bob"
+    )
+    monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, False))
+    monkeypatch.setattr(tools, "arm", lambda state, **kw: {"armed": True})
+    monkeypatch.setattr(tools, "auto_login", lambda state, **kw: {"status": "no_credentials"})
+    monkeypatch.setattr(tools, "window_history_path", lambda a: str(tmp_path / "h.json"))
+    monkeypatch.setattr(tools, "window_login_path", lambda a: str(tmp_path / "l.json"))
+    monkeypatch.setattr(tools, "window_impersonation_path", lambda a: _marker(tmp_path))
+
+    result = tools.open_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com", auth=SimpleNamespace()),
+        MagicMock(),
+        tools.OpenDebugWindowParams(),
+    )
+
+    assert result["impersonating"]["as"] == "bob"
+    assert "end_impersonation" in result["impersonation_note"]
+
+
+# ---------------------------------------------------------------------------
+# The badge — always up, says who you are pretending to be, folds away
+# ---------------------------------------------------------------------------
+
+
+def test_the_badge_draws_an_impersonation_as_account_arrow_user():
+    script = badge_init_script("dev", "alice")
+
+    assert "const ACCOUNT = 'alice'" in script
+    # account → user, in the "not the normal state" colour.
+    assert "ACCOUNT + ' \\u2192 ' + user" in script
+    assert badge.IMPERSONATING_COLOUR in script
+
+
+def test_without_a_known_account_the_badge_just_names_whoever_is_signed_in():
+    # An OAuth or API-key profile has no browser username to compare against;
+    # inventing one would label every session an impersonation.
+    script = badge_init_script("dev")
+
+    assert "const ACCOUNT = ''" in script
+
+
+def test_the_badge_puts_itself_back_when_the_page_re_renders_it_away():
+    script = badge_init_script("dev")
+
+    assert "root.contains(host)" in script
+    assert f"}}, {badge.KEEPALIVE_MS})" in script
+
+
+def test_the_badge_collapses_on_a_click_and_remembers_it_across_reloads():
+    script = badge_init_script("dev")
+
+    assert "wrap.addEventListener('click'" in script
+    assert badge.COLLAPSED_KEY in script
+    assert "localStorage.setItem(COLLAPSED_KEY" in script
+
+
+def test_a_collapsed_badge_still_shows_the_environment_and_the_activity():
+    # Folding away the names must not fold away the two signals nobody should
+    # have to ask about.
+    script = badge_init_script("dev")
+
+    collapse_block = script[script.index("const paint = ") : script.index("const setCollapsed")]
+    assert "dot" not in collapse_block
+    assert "text.style.display" in collapse_block
+
+
+def test_a_name_arriving_late_does_not_reopen_a_collapsed_badge():
+    script = badge_init_script("dev")
+
+    assert "trackUser(sep, userEl, paint)" in script
+
+
+def test_the_account_the_badge_compares_against_survives_the_impersonation(tmp_path):
+    # While impersonating, the page no longer knows the real account — the
+    # marker does, and it has to win over the config for the badge to keep
+    # drawing 'alice → bob' instead of deciding bob is the account.
+    state = _state()
+    impersonate.write_marker(
+        _marker(tmp_path), started_at=state.started_at, original="alice", impersonated="bob"
+    )
+    config = SimpleNamespace(
+        auth=SimpleNamespace(browser=SimpleNamespace(username="alice", password="x"))
+    )
+
+    class Auth(FakeAuthManager):
+        pass
+
+    auth_manager = Auth(str(tmp_path))
+    original = tools.window_impersonation_path
+    try:
+        tools.window_impersonation_path = lambda a: _marker(tmp_path)
+        assert tools._window_account(config, auth_manager, state) == "alice"
+    finally:
+        tools.window_impersonation_path = original

@@ -4,15 +4,20 @@ With a dev window and a test window open side by side, "check the errors on
 that page" is ambiguous — and acting on the wrong instance is the failure this
 repo guards against everywhere else. The badge answers it at a glance.
 
-Two constraints shape the implementation, both from the feature's own purpose:
+Three constraints shape the implementation, all from the feature's own purpose:
 
 - This window is used to debug CSS. The badge must therefore be invisible to
   the page's styles and contribute nothing to layout: it lives in a CLOSED
   shadow root on ``documentElement`` (so no page selector can reach it) and is
-  ``position: fixed`` with ``pointer-events: none``.
+  ``position: fixed``. Its children stay inert; only the pill itself takes
+  clicks, so it can be collapsed to a dot when it covers the element under
+  investigation — which is the alternative to it being dismissed for good.
 - Screenshots are used to judge visual breakage, so the badge must not appear
   in them. :func:`hide_badge_script` / :func:`show_badge_script` bracket every
   capture.
+- It has to be there EVERY time, or the question it answers gets asked at the
+  moment it is missing. It re-appends itself after the framework re-renders the
+  document, and it is re-injected on every attach.
 """
 
 import os
@@ -21,6 +26,12 @@ from typing import Any
 from ..utils.instances import ACTIVE_INSTANCE_ENV
 
 BADGE_ELEMENT_ID = "__sn_mcp_debug_badge__"
+
+# Where the collapsed choice is remembered. localStorage rather than a Python
+# file: it is a per-screen preference of the person looking at the window, and
+# it has to survive the reloads a save or an impersonation causes without a
+# round trip through the server.
+COLLAPSED_KEY = "__sn_mcp_debug_badge_collapsed__"
 
 # The signed-in user is read in the page, not passed in from Python, and that
 # is the point: this window has its OWN ServiceNow session. A name captured
@@ -37,14 +48,23 @@ _USER_RESOLVER = """
   // portal, so a single read at mount would almost always come up empty.
   // Polling stops once a name appears: an impersonation reloads the page, and
   // this whole script runs again on the new document.
-  const trackUser = (sep, userEl) => {
+  //
+  // ACCOUNT is the user this window SIGNED IN as. Anyone else on screen is an
+  // impersonation — including one done by hand through the avatar menu — so the
+  // badge shows both names and colours them, rather than quietly swapping one
+  // name for another and letting the ACLs of a different user look like a bug.
+  const trackUser = (sep, userEl, paint) => {
     let tries = 0;
     const tick = () => {
       const user = resolveUser();
       if (user) {
-        userEl.textContent = user;
-        sep.style.display = '';
-        userEl.style.display = '';
+        const acting = ACCOUNT && user.toLowerCase() !== ACCOUNT.toLowerCase();
+        userEl.textContent = acting ? (ACCOUNT + ' \\u2192 ' + user) : user;
+        userEl.style.color = acting ? IMPERSONATING : NORMAL_USER;
+        userEl.style.fontWeight = acting ? '700' : '500';
+        // paint() decides visibility, so a name arriving while the badge is
+        // collapsed does not pop it back open behind the user's decision.
+        paint();
         return;
       }
       if (++tries < 40) setTimeout(tick, 500);
@@ -61,6 +81,10 @@ _BADGE_TEMPLATE = """
   const PROFILE = %(label)s;
   const ACCENT = %(accent)s;
   const IDLE = %(idle)s;
+  const ACCOUNT = %(account)s;
+  const IMPERSONATING = %(impersonating)s;
+  const NORMAL_USER = 'rgba(233,233,236,.62)';
+  const COLLAPSED_KEY = %(collapsed_key)s;
   if (window[HOST_ID]) return;
 
 %(user_script)s
@@ -86,9 +110,14 @@ _BADGE_TEMPLATE = """
       'box-shadow:0 2px 10px rgba(0,0,0,.32)',
       'font:500 11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace',
       'letter-spacing:.01em',
-      'pointer-events:none', 'user-select:none',
-      'opacity:0', 'transition:opacity .25s ease'
+      // Clickable, unlike everything else here — the badge is the one thing on
+      // this overlay a person needs to operate (collapse it when it sits on top
+      // of the element being debugged). It is small and in the corner, so the
+      // page keeps effectively all of its own clicks.
+      'pointer-events:auto', 'user-select:none', 'cursor:pointer',
+      'opacity:0', 'transition:opacity .25s ease,padding .15s ease'
     ].join(';');
+    wrap.title = 'MCP debug badge — click to collapse';
 
     const style = document.createElement('style');
     style.textContent =
@@ -137,7 +166,7 @@ _BADGE_TEMPLATE = """
     sep.textContent = '|';
 
     const userEl = document.createElement('span');
-    userEl.style.cssText = 'color:rgba(233,233,236,.62);white-space:nowrap;display:none';
+    userEl.style.cssText = 'color:' + NORMAL_USER + ';white-space:nowrap;display:none';
 
     wrap.appendChild(dot);
     wrap.appendChild(text);
@@ -147,8 +176,49 @@ _BADGE_TEMPLATE = """
     root.appendChild(host);
     requestAnimationFrame(() => { wrap.style.opacity = '1'; });
 
-    window[HOST_ID] = { host, badge: text, user: userEl, setActive };
-    trackUser(sep, userEl);
+    // Collapsed is a dot, not a hidden badge: the environment ring and the
+    // activity pulse — the two things you must not have to ask about — survive
+    // in 7 pixels. Only the names fold away.
+    let collapsed = false;
+    const paint = () => {
+      text.style.display = collapsed ? 'none' : '';
+      sep.style.display = collapsed || !userEl.textContent ? 'none' : '';
+      userEl.style.display = collapsed || !userEl.textContent ? 'none' : '';
+      wrap.style.padding = collapsed ? '6px' : '5px 11px 5px 9px';
+      wrap.title = collapsed
+        ? 'MCP debug badge — click to expand'
+        : 'MCP debug badge — click to collapse';
+    };
+    const setCollapsed = (on) => {
+      collapsed = !!on;
+      paint();
+      // Remembered per profile+origin, so collapsing it once survives the
+      // reloads an impersonation and a save both cause. A storage that throws
+      // (sandboxed document) simply means it reopens expanded.
+      try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (e) {}
+    };
+    wrap.addEventListener('click', (event) => {
+      event.stopPropagation();
+      setCollapsed(!collapsed);
+    });
+    try { collapsed = localStorage.getItem(COLLAPSED_KEY) === '1'; } catch (e) {}
+    paint();
+
+    window[HOST_ID] = { host, badge: text, user: userEl, setActive, setCollapsed, paint };
+    trackUser(sep, userEl, paint);
+
+    // Stay up. A badge that is there only sometimes is worse than none: the
+    // question it answers ("which window is this, and who am I here?") gets
+    // asked precisely when it has quietly gone missing. ServiceNow's own
+    // frameworks re-render large parts of the document — a workspace route
+    // change, a portal page swap — and anything hanging off documentElement can
+    // go with them. Re-appending is cheap and the element is inert
+    // (pointer-events:none, closed shadow root), so it cannot come back as
+    // something the page has to cope with.
+    setInterval(() => {
+      const root = document.documentElement;
+      if (root && !root.contains(host)) root.appendChild(host);
+    }, %(keepalive_ms)d);
   };
 
   if (document.documentElement) mount();
@@ -213,6 +283,15 @@ _ACCENT_FALLBACK = "#60a5fa"
 # through the ring around it, which never changes.
 IDLE_COLOUR = "#6b7280"
 
+# Amber, the same "you are not in the normal state" colour the staging accent
+# uses. Not red: impersonating is a thing you do on purpose, not an alarm.
+IMPERSONATING_COLOUR = "#ffc53d"
+
+# How often the badge checks it is still in the document. Long enough to be
+# invisible on a profile, short enough that a re-render never leaves the window
+# unlabelled for longer than a glance.
+KEEPALIVE_MS = 2000
+
 # A tool call that dies mid-flight must not leave the dot pulsing forever — a
 # light that is always on stops being a light. The page reverts on its own.
 ACTIVE_TTL_S = 30.0
@@ -239,14 +318,26 @@ def badge_accent(profile: str) -> str:
     return _ACCENT_FALLBACK
 
 
-def badge_init_script(profile: str) -> str:
+def badge_init_script(profile: str, account: str = "") -> str:
+    """The badge for this window.
+
+    ``account`` is the user the window signed in as, when the server knows it.
+    Anyone else showing up in the page is an impersonation and is drawn as
+    ``account → impersonated`` in amber. Left empty (an OAuth or API-key profile
+    has no browser username to compare against) the badge just names whoever is
+    signed in, as before.
+    """
     return _BADGE_TEMPLATE % {
         "host_id": _js_string(BADGE_ELEMENT_ID),
         "label": _js_string(badge_label(profile)),
         "accent": _js_string(badge_accent(profile)),
         "idle": _js_string(IDLE_COLOUR),
+        "account": _js_string(account or ""),
+        "impersonating": _js_string(IMPERSONATING_COLOUR),
+        "collapsed_key": _js_string(COLLAPSED_KEY),
         "user_script": _USER_RESOLVER,
         "active_ttl_ms": int(ACTIVE_TTL_S * 1000),
+        "keepalive_ms": KEEPALIVE_MS,
     }
 
 
@@ -269,6 +360,9 @@ def show_badge_script() -> str:
 
 __all__ = [
     "BADGE_ELEMENT_ID",
+    "COLLAPSED_KEY",
+    "IMPERSONATING_COLOUR",
+    "KEEPALIVE_MS",
     "badge_init_script",
     "badge_label",
     "hide_badge_script",

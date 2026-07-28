@@ -28,6 +28,15 @@ so a caller never has to know which document an element lives in. Resolution is
 polled rather than instant: after a click that navigates, the next element does
 not exist yet, and waiting is what a person does.
 
+Session steps
+-------------
+``impersonate`` and ``end_impersonation`` are steps rather than a separate tool
+because becoming a user is never the point on its own — "be that user, open
+this page, click Save, see whether the ACL bites" is one intention, and running
+it as several tool calls is how the wrong user ends up being tested. They change
+the whole window's session, which every MCP session shares; impersonate.py has
+the details and holds the marker that lets any session end what another started.
+
 Dialogs
 -------
 A native ``confirm()`` blocks the page and would hang the batch. Playwright's
@@ -51,6 +60,7 @@ from .capture import (
     _set_activity,
 )
 from .evaluate import run_in_page
+from .impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, become, restore
 from .probe import drain_script
 from .window import WindowState
 
@@ -82,12 +92,18 @@ ACTIONS_NEEDING_SELECTOR = frozenset(
         "wait_for",
     }
 )
-ACTIONS_NEEDING_VALUE = frozenset({"fill", "select", "eval"})
+ACTIONS_NEEDING_VALUE = frozenset({"fill", "select", "eval", IMPERSONATE_ACTION})
 
 # Runs arbitrary JavaScript in the signed-in window. Gated by a second explicit
 # approval at the tool layer (see browser_debug_tools.py) — the tool-level
 # confirm covers "you are driving the page", this covers "you are running code".
 EVAL_ACTION = "eval"
+
+# The two steps that change WHO the window is rather than what the page shows.
+# They are ordinary steps on purpose: "become this user, open that page, click
+# Save, see the ACL error" is one intention, and splitting it across tool calls
+# is how the model ends up testing the wrong user. See impersonate.py.
+SESSION_ACTIONS = frozenset({IMPERSONATE_ACTION, END_IMPERSONATION_ACTION})
 
 SUPPORTED_ACTIONS: Tuple[str, ...] = (
     "click",
@@ -102,6 +118,8 @@ SUPPORTED_ACTIONS: Tuple[str, ...] = (
     "wait_for",
     "wait",
     EVAL_ACTION,
+    IMPERSONATE_ACTION,
+    END_IMPERSONATION_ACTION,
 )
 
 _RESOLVE_POLL_S = 0.15
@@ -196,20 +214,55 @@ def normalize(raw_actions: Sequence[Any]) -> List[Dict[str, Any]]:
 
 
 def budget_seconds(actions: Sequence[Dict[str, Any]]) -> float:
-    """Wall-clock the whole batch may take, for the offload timeout."""
-    total = sum(step["timeout_ms"] + step["ms"] for step in actions) / 1000.0
-    return total + 60.0
+    """Wall-clock the whole batch may take, for the offload timeout.
+
+    A session step is counted twice: it reloads the page AND then waits for the
+    globals to report the new user, so one timeout does not cover it.
+    """
+    total = sum(step["timeout_ms"] + step["ms"] for step in actions)
+    total += sum(step["timeout_ms"] for step in actions if step["action"] in SESSION_ACTIONS)
+    return total / 1000.0 + 60.0
 
 
-def _run_step(page: Any, step: Dict[str, Any], index: int) -> Dict[str, Any]:
-    """Execute one step. Raises :class:`ActionError` with a usable message."""
+def _run_step(
+    page: Any,
+    step: Dict[str, Any],
+    index: int,
+    session: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Execute one step. Raises :class:`ActionError` with a usable message.
+
+    ``session`` carries what the impersonation steps need and nothing else: the
+    marker path, the window's ``started_at`` that keys it, and the account the
+    window signed in as. Absent (the default) those steps report that they were
+    not wired up rather than guessing at a path.
+    """
     name = step["action"]
     selector = step["selector"]
     timeout_ms = step["timeout_ms"]
+    context = session or {}
 
     if name == "wait":
         time.sleep(step["ms"] / 1000.0)
         return {"waited_ms": step["ms"]}
+
+    if name in SESSION_ACTIONS:
+        common = {
+            "marker_path": str(context.get("marker_path") or ""),
+            "started_at": float(context.get("started_at") or 0.0),
+            "instance_host": str(context.get("instance_host") or ""),
+            "allow_discard": bool(context.get("allow_discard")),
+            "timeout_ms": timeout_ms,
+        }
+        if name == IMPERSONATE_ACTION:
+            outcome = become(page, target=step["value"] or "", **common)
+        else:
+            outcome = restore(page, fallback_user=str(context.get("login_user") or ""), **common)
+        if not outcome.get("ok"):
+            raise ActionError(str(outcome.get("error")), index=index)
+        if name == IMPERSONATE_ACTION:
+            return {"impersonating": outcome.get("now"), "was": outcome.get("before")}
+        return {"restored_to": outcome.get("now")}
 
     if name == EVAL_ACTION:
         # Runs on the main frame. A script that needs a frame reaches it the
@@ -281,12 +334,14 @@ def act(
     state: WindowState,
     *,
     profile: str,
-    actions: Sequence[Dict[str, Any]],
+    account: str = "",
+    actions: Sequence[Dict[str, Any]] = (),
     after_seq: int = 0,
     settle_ms: int = 0,
     screenshot: str = "none",
     selector: Optional[str] = None,
     screenshot_path: str = "",
+    session: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Run the batch, then drain what it caused. Same raw shape as capture()."""
     require_playwright()
@@ -312,7 +367,7 @@ def act(
                 # Re-arm first: a click that navigates must land on an
                 # instrumented document, and add_init_script only affects
                 # documents created after it is registered.
-                _install_probe(context, page, state, profile)
+                _install_probe(context, page, state, profile, account)
                 # Lit for the whole batch: this is the case where "was that me
                 # or the model?" is asked most, because the page is moving.
                 _set_activity(page, True)
@@ -344,7 +399,7 @@ def act(
                         "selector": step["selector"],
                     }
                     try:
-                        entry.update(_run_step(page, step, index))
+                        entry.update(_run_step(page, step, index, session))
                         entry["ok"] = True
                     except ActionError as exc:
                         entry["ok"] = False
@@ -397,7 +452,10 @@ def act(
 __all__ = [
     "ACTIONS_NEEDING_SELECTOR",
     "ACTIONS_NEEDING_VALUE",
+    "END_IMPERSONATION_ACTION",
     "EVAL_ACTION",
+    "IMPERSONATE_ACTION",
+    "SESSION_ACTIONS",
     "ActionError",
     "DEFAULT_STEP_TIMEOUT_MS",
     "MAX_ACTIONS",
