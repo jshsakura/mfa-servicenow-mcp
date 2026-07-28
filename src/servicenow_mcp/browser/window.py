@@ -395,10 +395,108 @@ def _launch_args(*, port: int, profile_dir: str, viewport: Tuple[int, int], url:
         # Chromium 111+ rejects CDP websockets carrying a non-null Origin.
         # Playwright sends none, but hosts that proxy through a local page do.
         "--remote-allow-origins=http://127.0.0.1",
+        # Belt to mark_profile_clean's braces: even if a crash mark survives,
+        # the "restore pages?" bubble must not sit on top of the page the user
+        # and the model are looking at together.
+        "--hide-crash-restore-bubble",
     ]
     if url:
         args.append(url)
     return args
+
+
+# What Chromium restores FROM. Modern builds keep numbered files under
+# Sessions/; older ones keep these four in Default/. Both are cleared, because a
+# profile can carry either after an upgrade.
+_LEGACY_SESSION_FILES = ("Current Session", "Current Tabs", "Last Session", "Last Tabs")
+
+
+def clear_restore_state(profile_dir: str) -> bool:
+    """Leave Chromium nothing to restore, so the window opens with ONE tab.
+
+    Measured, twice, on the real profile: close the window with a signal and the
+    next launch comes back with the previous tab restored AND the url we passed
+    on the command line — two tabs on the same page, then three, growing by one
+    per cycle as each restored session is itself saved.
+
+    Marking the previous exit clean is not enough and the reason is visible in
+    the profile: ``exit_type`` reads "Crashed" for as long as the browser is
+    RUNNING (Chromium writes "Normal" only on a clean exit), so a pre-launch fix
+    of that flag is undone a second later. What actually drives the restore is
+    ``Default/Sessions/Session_*`` and ``Tabs_*``, so those are what goes.
+
+    This is safe precisely because of what it does NOT touch: cookies live in
+    ``Default/Cookies``, so the signed-in session — the thing that makes the
+    second open silent — survives untouched. A tool surface should open on the
+    page it was asked for and nothing else; a browsing session it is not.
+
+    Returns True when something was actually cleared, for the tests.
+    """
+    cleared = False
+    sessions_dir = os.path.join(profile_dir, "Default", "Sessions")
+    try:
+        for name in os.listdir(sessions_dir):
+            if name.startswith(("Session_", "Tabs_")):
+                try:
+                    os.remove(os.path.join(sessions_dir, name))
+                    cleared = True
+                except OSError as exc:  # pragma: no cover - best effort
+                    logger.debug("Could not remove session file %s: %s", name, exc)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:  # pragma: no cover - best effort
+        logger.debug("Could not list %s: %s", sessions_dir, exc)
+
+    for name in _LEGACY_SESSION_FILES:
+        try:
+            os.remove(os.path.join(profile_dir, "Default", name))
+            cleared = True
+        except FileNotFoundError:
+            pass
+        except OSError as exc:  # pragma: no cover - best effort
+            logger.debug("Could not remove %s: %s", name, exc)
+
+    if _mark_profile_clean(profile_dir):
+        cleared = True
+    if cleared:
+        logger.info("Cleared the debug profile's restore state; the window opens with one tab.")
+    return cleared
+
+
+def _mark_profile_clean(profile_dir: str) -> bool:
+    """Clear a stale crash mark, so no "restore pages?" bubble greets the user.
+
+    Secondary to :func:`clear_restore_state` — with no session files left there
+    is nothing to restore either way, but a profile that still reads as crashed
+    can show the bubble over the page being debugged.
+    """
+    prefs_path = os.path.join(profile_dir, "Default", "Preferences")
+    try:
+        with open(prefs_path, "r", encoding="utf-8") as handle:
+            prefs = json.load(handle)
+    except FileNotFoundError:
+        return False  # A profile that has never run has nothing to restore.
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        logger.debug("Could not read Chromium preferences at %s: %s", prefs_path, exc)
+        return False
+
+    profile_prefs = prefs.get("profile")
+    if not isinstance(profile_prefs, dict):
+        return False
+    if profile_prefs.get("exit_type") == "Normal" and profile_prefs.get("exited_cleanly", True):
+        return False
+
+    profile_prefs["exit_type"] = "Normal"
+    profile_prefs["exited_cleanly"] = True
+    tmp_path = f"{prefs_path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(prefs, handle)
+        os.replace(tmp_path, prefs_path)
+    except OSError as exc:  # pragma: no cover - best effort
+        logger.debug("Could not clear the Chromium crash mark: %s", exc)
+        return False
+    return True
 
 
 def _orphan_window_pid(profile_dir: str) -> Optional[int]:
@@ -426,6 +524,10 @@ def launch_window(
     executable = _chromium_executable()
     profile_dir = window_profile_dir(auth_manager)
     os.makedirs(profile_dir, mode=0o700, exist_ok=True)
+    # Before the launch, not after: a restored tab exists the moment the window
+    # opens, and then something has to guess which of two identical tabs is the
+    # one that was asked for.
+    clear_restore_state(profile_dir)
 
     orphan = _orphan_window_pid(profile_dir)
     if orphan is not None:
@@ -617,6 +719,7 @@ __all__ = [
     "find_window",
     "is_window_alive",
     "launch_window",
+    "clear_restore_state",
     "read_window_state",
     "replace_state",
     "stop_window",
