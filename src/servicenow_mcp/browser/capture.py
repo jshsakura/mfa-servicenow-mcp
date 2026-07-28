@@ -16,7 +16,7 @@ import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ._offload import require_playwright, run_off_loop
-from .badge import badge_init_script, hide_badge_script, show_badge_script
+from .badge import badge_activity_script, badge_init_script, hide_badge_script, show_badge_script
 from .evaluate import run_in_page
 from .probe import PROBE_SCRIPT, dirty_script, drain_script
 from .session import EFFECTIVE_USER_SCRIPT
@@ -119,6 +119,18 @@ def _install_probe(context: Any, page: Any, state: WindowState, profile: str) ->
             page.evaluate(script)
         except Exception as exc:  # noqa: BLE001 - a hostile page must not break the read
             logger.debug("Could not inject debug script into the current document: %s", exc)
+
+
+def _set_activity(page: Any, active: bool) -> None:
+    """Light the badge dot while the MCP is attached to this page.
+
+    Best-effort by design: the light is a courtesy to the human watching, and
+    a page that refuses the script must not fail the operation it is reporting.
+    """
+    try:
+        page.evaluate(badge_activity_script(active))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Could not update the activity dot: %s", exc)
 
 
 def _computed_styles(page: Any, selectors: Sequence[str]) -> Dict[str, Any]:
@@ -230,6 +242,7 @@ def capture(
                     )
 
                 _install_probe(context, page, state, profile)
+                _set_activity(page, True)
 
                 if wait_s:
                     # The page records on its own; this is just the agreed
@@ -264,6 +277,12 @@ def capture(
                     "watched_seconds": wait_s,
                 }
             finally:
+                # Cleared before detaching, so the dot never outlives the
+                # attachment it is reporting.
+                try:
+                    _set_activity(page, False)
+                except Exception:  # noqa: BLE001 - page may be gone
+                    pass
                 browser.close()
 
     # The offload budget has to outlast the watch itself, plus attach/capture.

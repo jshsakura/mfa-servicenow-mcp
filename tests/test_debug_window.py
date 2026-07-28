@@ -1803,3 +1803,44 @@ def test_a_new_tab_leaves_the_form_alone(monkeypatch):
     assert seen["allow_discard"] is False
     assert result["new_tab"] is True
     assert result["tabs"] == 2
+
+
+# ---------------------------------------------------------------------------
+# The activity dot — "was that me or the model?"
+# ---------------------------------------------------------------------------
+
+
+def test_the_ring_is_the_environment_and_the_fill_is_activity():
+    # Two signals on one dot, so neither has to be given up: the environment
+    # must stay legible AT REST, which is when "I thought this was dev" happens.
+    script = badge_init_script("prod")
+
+    assert badge.IDLE_COLOUR in script, "at rest the fill is neutral grey"
+    assert badge.badge_accent("prod") in script, "the ring still names the environment"
+    assert "snmcp-pulse" in script
+
+
+def test_the_dot_reverts_on_its_own_if_a_call_dies_mid_flight():
+    # A light that is always on stops being a light.
+    script = badge_init_script("dev")
+
+    assert f"setActive(false), {int(badge.ACTIVE_TTL_S * 1000)}" in script
+
+
+def test_activity_can_be_lit_and_cleared():
+    assert "setActive(true)" in badge.badge_activity_script(True)
+    assert "setActive(false)" in badge.badge_activity_script(False)
+
+
+def test_lighting_a_badge_that_was_never_mounted_is_a_no_op():
+    # Injected into a page the badge never reached, this must not throw and
+    # take the surrounding read down with it.
+    assert "ref && ref.setActive" in badge.badge_activity_script(True)
+
+
+def test_a_page_that_refuses_the_activity_script_does_not_fail_the_read():
+    class Hostile:
+        def evaluate(self, script):
+            raise RuntimeError("context destroyed")
+
+    capture_module._set_activity(Hostile(), True)  # must not raise
