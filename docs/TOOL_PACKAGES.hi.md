@@ -22,7 +22,7 @@
 | Package | Tools | ~टोकन | कब उपयोग करें |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 32 | ~8.2K | ⚠️ सर्विस डेस्क एजेंट जिन्हें incidents और changes को अपडेट/बंद करने की आवश्यकता हो |
-| `portal_developer` | 42 | ~10.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
+| `portal_developer` | 44 | ~10.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
 | `platform_developer` | 42 | ~10.8K | ⚠️ प्लेटफ़ॉर्म इंजीनियर जो workflows, Flow Designer, और scripts प्रबंधित करते हैं |
 | `full` | 56 | ~13.8K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
 
