@@ -15,16 +15,9 @@ from unittest.mock import MagicMock
 import pytest
 
 import servicenow_mcp.server as server_module
-from servicenow_mcp.browser import (
-    _launch_lock,
-    actions,
-    cursor,
-    evaluate,
-    launch_budget,
-    login,
-    report,
-    window,
-)
+from servicenow_mcp.browser import _launch_lock, actions, badge
+from servicenow_mcp.browser import capture as capture_module
+from servicenow_mcp.browser import cursor, evaluate, launch_budget, login, report, window
 from servicenow_mcp.browser.badge import badge_init_script, badge_label, hide_badge_script
 from servicenow_mcp.browser.capture import _instance_page
 from servicenow_mcp.browser.probe import PROBE_GLOBAL, PROBE_SCRIPT, drain_script
@@ -504,12 +497,32 @@ def test_with_no_instance_tab_the_first_real_tab_is_used():
 # ---------------------------------------------------------------------------
 
 
-def test_the_badge_names_the_instance_so_two_windows_are_distinguishable():
-    assert "dev.example.com" in badge_label("dev.example.com", "profile_x")
+def test_the_badge_names_the_profile_so_two_windows_are_distinguishable():
+    # NOT the address: the address bar sits directly above the badge, so
+    # repeating it spends the whole label on the one fact already on screen.
+    assert badge_label("dev") == "MCP DEBUG \u00b7 dev"
+    assert "https://" not in badge_init_script("dev")
+
+
+def test_production_gets_its_own_colour_and_dev_does_not():
+    # "I thought this window was dev" is the mistake the dot exists to prevent,
+    # so prod must be unmistakable before anything is read.
+    assert badge.badge_accent("prod-eu") == badge.badge_accent("production")
+    assert badge.badge_accent("prod") != badge.badge_accent("dev")
+    assert badge.badge_accent("whatever") == badge._ACCENT_FALLBACK
+
+
+def test_the_signed_in_user_is_read_in_the_page_not_baked_in():
+    # The window has its own session; a name captured when the script was
+    # built would go stale the moment someone impersonates.
+    script = badge_init_script("dev")
+
+    assert "g_user.userName" in script
+    assert "trackUser" in script
 
 
 def test_the_badge_lives_in_a_closed_shadow_root_so_page_css_cannot_reach_it():
-    script = badge_init_script("dev.example.com", "p")
+    script = badge_init_script("dev")
 
     assert "attachShadow({ mode: 'closed' })" in script
     assert "position:fixed" in script
@@ -641,7 +654,7 @@ def test_opening_arms_the_collector_before_the_user_clicks_anything(monkeypatch)
         tools.OpenDebugWindowParams(url="/sp?id=my_page"),
     )
 
-    assert armed_calls == ["https://dev.example.com"]
+    assert armed_calls == ["default"]
     assert result["recording"] is True
 
 
@@ -676,10 +689,11 @@ def test_open_refuses_to_discard_unsaved_input_by_default(monkeypatch):
     monkeypatch.setattr(
         tools,
         "navigate",
-        lambda state, url, profile, allow_discard: {
+        lambda state, url, profile, allow_discard, new_tab: {
             "navigated": False,
             "url": "https://dev.example.com/form",
             "blocked_by_unsaved_input": ["short_description"],
+            "input_basis": "typed",
         },
     )
 
@@ -691,6 +705,7 @@ def test_open_refuses_to_discard_unsaved_input_by_default(monkeypatch):
 
     assert result["navigated"] is False
     assert result["blocked_by_unsaved_input"] == ["short_description"]
+    assert "new_tab=true" in result["hint"]
     assert "discard_unsaved_input=true" in result["hint"]
 
 
@@ -1664,3 +1679,127 @@ def test_both_classifiers_read_the_same_table():
         ServiceNowMCP._is_read_only_call(ServiceNowMCP, "inspect_debug_window", {"evaluate": "1+1"})
         is False
     )
+
+
+# ---------------------------------------------------------------------------
+# Unsaved input: what a human typed vs what a widget filled in
+# ---------------------------------------------------------------------------
+
+
+def test_the_probe_records_only_trusted_input():
+    # `isTrusted` is the browser's own "a human did this". Comparing against
+    # defaultValue cannot tell a keystroke from `el.value = x`, which is why
+    # every ng-model-bound field on a portal page read as half-typed.
+    assert "e.isTrusted" in PROBE_SCRIPT
+    assert "touched.add" in PROBE_SCRIPT
+
+
+def test_the_probe_knows_whether_it_saw_the_document_from_the_start():
+    # Injected into an already-loaded page, an empty touched set is not
+    # evidence that nothing was typed — only that nothing was watched.
+    assert "document.readyState !== 'loading'" in PROBE_SCRIPT
+    assert "observedFromStart" in PROBE_SCRIPT
+
+
+def test_typed_fields_are_reported_as_observed():
+    class Page:
+        def evaluate(self, script):
+            return {"fields": ["short_description"], "observedFromStart": True}
+
+    fields, basis = capture_module._dirty_fields(Page())
+
+    assert fields == ["short_description"]
+    assert basis == "typed"
+
+
+def test_a_late_armed_probe_reports_partial_confidence():
+    class Page:
+        def evaluate(self, script):
+            return {"fields": [], "observedFromStart": False}
+
+    assert capture_module._dirty_fields(Page())[1] == "partial"
+
+
+def test_without_the_probe_the_answer_is_labelled_a_guess():
+    # This is the path that produced the false alarm on c.data.requestType.
+    class Page:
+        def __init__(self):
+            self.calls = 0
+
+        def evaluate(self, script):
+            self.calls += 1
+            return None if self.calls == 1 else ["c.data.requestType"]
+
+    fields, basis = capture_module._dirty_fields(Page())
+
+    assert fields == ["c.data.requestType"]
+    assert basis == "guessed"
+
+
+def test_a_page_that_cannot_be_probed_never_blocks_navigation():
+    class Hostile:
+        def evaluate(self, script):
+            raise RuntimeError("context destroyed")
+
+    assert capture_module._dirty_fields(Hostile()) == ([], "guessed")
+
+
+def test_a_guessed_block_says_it_is_probably_a_false_alarm(monkeypatch):
+    state = window.WindowState(
+        pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=0.0
+    )
+    monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, False))
+    monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
+    monkeypatch.setattr(tools, "window_history_path", lambda a: "/tmp/h.json")
+    monkeypatch.setattr(
+        tools,
+        "navigate",
+        lambda state, url, profile, allow_discard, new_tab: {
+            "navigated": False,
+            "url": "https://dev.example.com/form",
+            "blocked_by_unsaved_input": ["c.data.requestType"],
+            "input_basis": "guessed",
+        },
+    )
+
+    result = tools.open_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.OpenDebugWindowParams(url="/sp?id=other"),
+    )
+
+    assert result["input_basis"] == "guessed"
+    assert "false alarm" in result["hint"]
+
+
+def test_a_new_tab_leaves_the_form_alone(monkeypatch):
+    # The answer to the block, not a way around it: the half-filled form stays
+    # open in its tab while the page being checked loads beside it.
+    state = window.WindowState(
+        pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=0.0
+    )
+    seen = {}
+    monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, False))
+    monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
+    monkeypatch.setattr(tools, "window_history_path", lambda a: "/tmp/h.json")
+    monkeypatch.setattr(tools, "arm", lambda state, profile: {"armed": True})
+    monkeypatch.setattr(tools, "auto_login", lambda state, **kw: {"status": "no_credentials"})
+    monkeypatch.setattr(tools, "window_login_path", lambda a: "/tmp/l.json")
+
+    def _navigate(state, url, profile, allow_discard, new_tab):
+        seen.update({"new_tab": new_tab, "allow_discard": allow_discard})
+        return {"navigated": True, "url": url, "new_tab": True, "tabs": 2}
+
+    monkeypatch.setattr(tools, "navigate", _navigate)
+
+    result = tools.open_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.OpenDebugWindowParams(url="/sp?id=other", new_tab=True),
+    )
+
+    assert seen["new_tab"] is True
+    # Never needs to discard: nothing is being navigated away from.
+    assert seen["allow_discard"] is False
+    assert result["new_tab"] is True
+    assert result["tabs"] == 2

@@ -46,6 +46,7 @@ from ..auth.auth_manager import AuthManager
 from ..browser._launch_lock import LaunchBusy
 from ..browser._offload import PlaywrightUnavailable
 from ..browser.actions import EVAL_ACTION, MAX_ACTIONS, act, normalize
+from ..browser.badge import profile_label
 from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate
 from ..browser.cursor import resolve_after_seq, write_cursor
 from ..browser.launch_budget import LaunchBudgetExceeded, budget_status
@@ -93,6 +94,10 @@ class OpenDebugWindowParams(BaseModel):
     discard_unsaved_input: bool = Field(
         default=False,
         description="Allow navigating away from a form with unsaved input.",
+    )
+    new_tab: bool = Field(
+        default=False,
+        description="Open in a new tab, leaving the current page untouched.",
     )
 
 
@@ -228,7 +233,9 @@ def open_debug_window(
         **_window_identity(state, config),
     }
 
-    profile = str(config.instance_url or "")
+    # The badge shows the PROFILE, not the address — the address bar is
+    # directly above it. See browser/badge.py.
+    profile = profile_label(config)
 
     # A brand new window navigates via the command line; an existing one has to
     # be told, and that is where unsaved input can be destroyed.
@@ -239,18 +246,36 @@ def open_debug_window(
                 url=target_url,
                 profile=profile,
                 allow_discard=params.discard_unsaved_input,
+                new_tab=params.new_tab,
             )
         except (NoPageFound, RuntimeError, TimeoutError) as exc:
             return {**result, "success": False, "error": str(exc)}
         if not moved.get("navigated"):
+            basis = moved.get("input_basis")
+            # new_tab is offered FIRST: it keeps the input and gets the page
+            # open, where discarding trades one for the other.
+            hint = (
+                "Fields hold input. Use new_tab=true to open this alongside without "
+                "touching them, or discard_unsaved_input=true to navigate anyway."
+            )
+            if basis == "guessed":
+                hint += (
+                    " Note: no keystroke was actually observed — these fields merely "
+                    "differ from their HTML defaults, which a widget initializing "
+                    "itself also does. Likely a false alarm."
+                )
             return {
                 **result,
                 "navigated": False,
                 "url": moved.get("url"),
                 "blocked_by_unsaved_input": moved.get("blocked_by_unsaved_input"),
-                "hint": "Fields have unsaved input. Re-run with discard_unsaved_input=true to navigate anyway.",
+                "input_basis": basis,
+                "hint": hint,
             }
         result["url"] = moved.get("url")
+        if moved.get("new_tab"):
+            result["new_tab"] = True
+            result["tabs"] = moved.get("tabs")
     elif target_url:
         result["url"] = target_url
 
@@ -337,7 +362,7 @@ def inspect_debug_window(
     try:
         raw = capture(
             state,
-            profile=str(config.instance_url or ""),
+            profile=profile_label(config),
             after_seq=after_seq,
             watch_seconds=min(float(params.watch_seconds), MAX_WATCH_SECONDS),
             screenshot=params.screenshot,
@@ -442,7 +467,7 @@ def act_in_debug_window(
     try:
         raw = act(
             state,
-            profile=str(config.instance_url or ""),
+            profile=profile_label(config),
             actions=steps,
             after_seq=after_seq,
             settle_ms=params.settle_ms,
