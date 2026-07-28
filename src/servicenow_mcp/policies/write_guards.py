@@ -281,7 +281,17 @@ MUTATING_TOOL_PREFIXES = (
 # Mutating tools whose NAME matches no prefix above. Any new tool that writes
 # but doesn't match a prefix MUST be listed here, or it silently bypasses the
 # confirm gate AND the allow_writes read-only guard (the scaffold_page bug).
-MUTATING_TOOL_NAMES = frozenset({"sn_batch", "sn_write", "scaffold_page"})
+MUTATING_TOOL_NAMES = frozenset(
+    {
+        "sn_batch",
+        "sn_write",
+        "scaffold_page",
+        # Clicks Save in an authenticated browser session. No Table API call is
+        # involved, which is exactly why the name-prefix gate would miss it —
+        # and why it belongs here: the record gets created either way.
+        "act_in_debug_window",
+    }
+)
 
 # manage_<X>: per-tool set of action values that are read-only (no confirm).
 # Bundles whose actions are all writes don't appear here — the prefix gate

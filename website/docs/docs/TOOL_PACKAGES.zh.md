@@ -22,7 +22,7 @@
 | 包 | 工具数 | ~令牌 | 何时使用 |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 32 | ~8.2K | ⚠️ 需要更新/关闭 incident 和 change 的服务台坐席 |
-| `portal_developer` | 44 | ~10.6K | ⚠️ 部署 widget、变更集和 script include 的门户开发者 |
+| `portal_developer` | 45 | ~10.6K | ⚠️ 部署 widget、变更集和 script include 的门户开发者 |
 | `platform_developer` | 42 | ~10.8K | ⚠️ 管理工作流、Flow Designer 和脚本的平台工程师 |
 | `full` | 56 | ~13.8K | ⚠️ 最高级 —— 同时启用所有领域的所有写入工具（见下方警告） |
 

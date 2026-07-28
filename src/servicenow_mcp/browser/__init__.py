@@ -16,15 +16,21 @@ choice is deliberate:
   outlives a call, so there is no cross-call state to corrupt. History is not
   lost in the gaps because the page collects its own events (``probe.py``).
 
-Read-only by design: navigate, observe, capture. Nothing here clicks or types.
-An authenticated session is on the other side of that window, and driving it
-from a tool would bypass every write guard in this repo.
+Observing and driving are separate modules, and that separation is the safety
+story rather than a filing convention. ``capture.py`` reads and never clicks, so
+the tool that inspects cannot change anything by accident. ``actions.py`` is the
+only module that touches the page, ``login.py`` the only one that types a
+credential — and the tool in front of actions.py is classified as a WRITE
+(``write_guards.MUTATING_TOOL_NAMES``), because clicking Save in an
+authenticated session creates a record exactly like the Table API would.
 """
 
 from ._launch_lock import LaunchBusy, launch_claim
 from ._offload import PlaywrightUnavailable, run_off_loop
+from .actions import MAX_ACTIONS, SUPPORTED_ACTIONS, act, normalize
 from .badge import badge_init_script, badge_label
 from .launch_budget import LaunchBudgetExceeded, budget_status
+from .login import auto_login, saved_credentials
 from .probe import PROBE_SCRIPT, drain_script
 from .session import EFFECTIVE_USER_SCRIPT, api_username, describe_window_user
 from .window import (
@@ -37,6 +43,7 @@ from .window import (
     launch_window,
     read_window_state,
     stop_window,
+    window_login_path,
     window_profile_dir,
     window_state_path,
 )
@@ -45,12 +52,16 @@ __all__ = [
     "DEBUG_WINDOW_ALWAYS_HEADED",
     "DEFAULT_VIEWPORT",
     "EFFECTIVE_USER_SCRIPT",
+    "MAX_ACTIONS",
     "LaunchBudgetExceeded",
     "LaunchBusy",
     "PROBE_SCRIPT",
     "PlaywrightUnavailable",
+    "SUPPORTED_ACTIONS",
     "WindowState",
+    "act",
     "api_username",
+    "auto_login",
     "badge_init_script",
     "badge_label",
     "budget_status",
@@ -61,9 +72,12 @@ __all__ = [
     "is_window_alive",
     "launch_claim",
     "launch_window",
+    "normalize",
     "read_window_state",
     "run_off_loop",
+    "saved_credentials",
     "stop_window",
+    "window_login_path",
     "window_profile_dir",
     "window_state_path",
 ]

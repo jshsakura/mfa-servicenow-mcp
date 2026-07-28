@@ -113,9 +113,11 @@ portal_developer:
     - detect_angular_implicit_globals
     # Shared debug window — a visible browser the user and the LLM look at
     # together. open_* is the only tool that can put a window on the screen;
-    # inspect_* reads whatever is already open and never launches one.
+    # inspect_* reads whatever is already open and never launches one;
+    # act_* drives it (a write — a click on Save creates a record).
     - open_debug_window
     - inspect_debug_window
+    - act_in_debug_window
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update
