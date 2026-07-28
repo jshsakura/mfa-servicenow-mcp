@@ -21,6 +21,24 @@ also exactly what a person does after fixing a typo in their config.
 window the user is already looking at, which is the whole premise of the
 feature. Nothing here waits for it: the tool returns and says so.
 
+Do not try to carry the "remembered browser" over from the login profile. It
+was tried (v1.22.1, reverted in v1.22.2) and the instance does not accept it.
+Measured, not reasoned about:
+
+- "do not challenge for 16 hours" is one cookie on the instance host,
+  ``glide_mfa_remembered_browser``, sitting beside the session cookies;
+- copied into another Chromium profile it reaches the server — verified in the
+  request headers — and the server challenges anyway;
+- so does copying every non-session cookie the profile holds
+  (``glide_user_route``, ``glide_node_id_for_js``, ``BIGipServerpool_*``, …);
+- and a fresh token, taken seconds after a successful challenge, behaves the
+  same way in a second profile.
+
+The instance identifies the BROWSER, not just the token. One profile, one
+challenge — the debug window's own persistent profile is what makes the second
+open silent, and that already works. The only thing sharing would have bought
+is what session.py refuses to share for much better reasons.
+
 Credentials come from ``auth.browser`` first, then ``auth.basic``. The second
 is not a fallback so much as a convenience for the common setup where the same
 account is used both ways; on an OAuth or API-key profile there is simply
@@ -42,7 +60,6 @@ from ..auth._browser_dom import (
     _target_label,
 )
 from ._offload import require_playwright, run_off_loop
-from .mfa_trust import seed_context as seed_trust
 from .window import WindowState
 
 logger = logging.getLogger(__name__)
@@ -190,7 +207,6 @@ def auto_login(
     *,
     credentials: Optional[Tuple[str, str]],
     marker_path: str,
-    trust_cookie: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Fill and submit the login form in the window, at most once per window.
 
@@ -227,11 +243,6 @@ def auto_login(
                 if not _wait_for_login_form(page):
                     return {"status": "no_login_form", "url": str(page.url)}
 
-                # Before the password, not after: the server decides whether to
-                # challenge when it sees the credentials, and by then the cookie
-                # has to be in the jar. See mfa_trust.py.
-                seeded = seed_trust(contexts[0], trust_cookie)
-
                 # Claimed BEFORE the submit: if this call dies between the
                 # click and the response, the next one must not try again.
                 record_attempt(marker_path, state)
@@ -240,13 +251,8 @@ def auto_login(
                 if not outcome["filled"]:
                     return {"status": "fields_not_found", "url": str(page.url)}
                 if not outcome["submitted"]:
-                    return {"status": "filled", "user": username, "mfa_trust": seeded}
-                return {
-                    "status": "submitted",
-                    "user": username,
-                    "via": outcome["via"],
-                    "mfa_trust": seeded,
-                }
+                    return {"status": "filled", "user": username}
+                return {"status": "submitted", "user": username, "via": outcome["via"]}
             finally:
                 # Disconnects from the window; does not close it.
                 browser.close()
@@ -262,14 +268,6 @@ def describe(result: Dict[str, Any]) -> Optional[str]:
     """One line for the caller to pass on, or None when there is nothing to say."""
     status = result.get("status")
     if status == "submitted":
-        if result.get("mfa_trust"):
-            # Said plainly: the user should know why they were not challenged,
-            # and should still be told to look if the instance disagrees.
-            return (
-                f"Signed in as '{result.get('user')}' automatically, reusing the MFA "
-                "approval this account already gave on this machine. If the instance "
-                "asks anyway, complete it in the window."
-            )
         return (
             f"Signed in as '{result.get('user')}' automatically. "
             "If the instance asks for MFA, complete it in the window."

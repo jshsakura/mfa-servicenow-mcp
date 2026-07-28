@@ -62,16 +62,10 @@ from ..browser.launch_budget import LaunchBudgetExceeded, budget_status
 from ..browser.login import auto_login
 from ..browser.login import describe as describe_login
 from ..browser.login import saved_credentials
-from ..browser.mfa_trust import harvest_from_profile as harvest_trust_from_profile
-from ..browser.mfa_trust import read_store as read_trust
-from ..browser.mfa_trust import seed_profile as seed_trust_profile
-from ..browser.mfa_trust import store_path as mfa_store_path
-from ..browser.mfa_trust import write_store as write_trust
 from ..browser.reaper import reap_idle_windows
 from ..browser.report import compact
 from ..browser.session import api_username, describe_window_user
 from ..browser.window import (
-    _cache_root,
     ensure_window,
     find_window,
     window_artifacts_dir,
@@ -232,30 +226,6 @@ def _window_account(config: ServerConfig, auth_manager: AuthManager, state: Any)
     return (saved_credentials(config) or ("", ""))[0]
 
 
-def _login_profile_dir(auth_manager: AuthManager, config: ServerConfig) -> str:
-    """The auth layer's Chromium profile — the one that has already been through MFA.
-
-    Read through the frozen class's own helpers rather than rebuilt here, so a
-    change to how it keys profiles cannot silently point this at the wrong one.
-    Returns '' when the profile cannot be located, which every caller treats as
-    "no shortcut available" rather than as an error.
-    """
-    browser_config = getattr(getattr(config, "auth", None), "browser", None)
-    resolver = getattr(auth_manager, "_resolve_user_data_dir", None)
-    if callable(resolver) and browser_config is not None:
-        try:
-            return str(resolver(browser_config))
-        except Exception as exc:  # noqa: BLE001 - fall through to the default
-            logger.debug("Could not resolve the login profile dir: %s", exc)
-    default = getattr(auth_manager, "_get_default_user_data_dir", None)
-    if callable(default):
-        try:
-            return str(default())
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Could not read the default login profile dir: %s", exc)
-    return ""
-
-
 def _window_identity(state: Any, config: ServerConfig) -> Dict[str, Any]:
     """Always echo which window this is.
 
@@ -363,34 +333,11 @@ def open_debug_window(
     elif target_url:
         result["url"] = target_url
 
-    # One MFA challenge per account per machine, not one per Chromium profile.
-    # Resolved before arming so the cookie is already in the shared store when
-    # the login below needs it. See browser/mfa_trust.py.
-    # Keyed by the LOGIN account, never by whoever the window is impersonating:
-    # the device trust belongs to the person who answered the challenge.
-    trust_path = mfa_store_path(
-        _cache_root(auth_manager),
-        str(config.instance_url or ""),
-        (saved_credentials(config) or ("", ""))[0],
-    )
-    trust_cookie = read_trust(trust_path)
-    if trust_cookie is None:
-        # Nothing shared yet: ask the login profile, which has very likely been
-        # challenged already. Read-only, headless, skipped if it is in use.
-        harvested = harvest_trust_from_profile(
-            _login_profile_dir(auth_manager, config),
-            state.instance_host,
-            executable_path=state.executable_path,
-        )
-        if write_trust(trust_path, harvested):
-            trust_cookie = harvested
-
     # Arm the collector NOW, not on the first inspect. Otherwise the submit
     # that caused the bug happens before anything is watching it.
     try:
-        armed = arm(state, profile=profile, account=account, trust_path=trust_path)
+        armed = arm(state, profile=profile, account=account)
         result["recording"] = bool(armed.get("armed"))
-        armed_trust_updated = bool(armed.get("trust_updated"))
         if not armed.get("armed"):
             result["recording_note"] = (
                 f"Not recording yet ({armed.get('reason')}). Open a page in the window; "
@@ -399,28 +346,14 @@ def open_debug_window(
     except (PlaywrightUnavailable, RuntimeError, TimeoutError, OSError) as exc:
         logger.info("Could not arm the debug collector yet: %s", exc)
         result["recording"] = False
-        armed_trust_updated = False
 
     # Sign the window in with what the server already knows, once per window.
     # Runs after arming so the login round-trip is itself recorded, and after
     # navigation so the form it looks at is the one on the target page.
-    # A challenge answered in the WINDOW does not reach the login profile on
-    # its own — two profiles, two jars. Closed here, and only when the shared
-    # value actually changed, so this costs a headless launch about once per
-    # remembered-browser lifetime rather than once per open.
-    if armed_trust_updated:
-        seed_trust_profile(
-            _login_profile_dir(auth_manager, config),
-            read_trust(trust_path),
-            executable_path=state.executable_path,
-        )
-        trust_cookie = read_trust(trust_path)
-
     login = auto_login(
         state,
         credentials=saved_credentials(config),
         marker_path=window_login_path(auth_manager),
-        trust_cookie=trust_cookie,
     )
     if login.get("status") not in (None, "no_credentials", "no_login_form", "no_page"):
         result["auto_login"] = login.get("status")
