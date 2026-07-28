@@ -107,6 +107,7 @@ from servicenow_mcp.policies.write_guards import (  # noqa: E402
     MANAGE_READ_ACTIONS,
     MUTATING_TOOL_NAMES,
     MUTATING_TOOL_PREFIXES,
+    is_arg_triggered_write,
 )
 
 
@@ -1649,6 +1650,10 @@ class ServiceNowMCP:
             ) = saved
 
     def _is_read_only_call(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
+        if is_arg_triggered_write(tool_name, arguments):
+            # A read tool called with a mutating argument. Consulted from the
+            # same table write_guards uses, so the two classifiers cannot drift.
+            return False
         if tool_name in MANAGE_READ_ACTIONS:
             return arguments.get("action") in MANAGE_READ_ACTIONS[tool_name]
         return not self._is_blocked_mutating_tool(tool_name)

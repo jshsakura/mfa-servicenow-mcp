@@ -20,6 +20,17 @@ the Table API would. The window's session is its own, so that write is
 attributed to whoever the window is signed in as — which is exactly why
 inspect reports that user back.
 
+Running JavaScript is graded in two, because "read a value off the page" and
+"run a script in someone's session" are not the same request:
+
+``inspect_debug_window(evaluate=...)``  one EXPRESSION, value returned. A
+    statement body is a parse error, not a silent success. It cannot be
+    promised side-effect-free (``fetch(...)`` is an expression), so the
+    argument itself flips the call to a write for the allow_writes gate —
+    see write_guards.ARG_TRIGGERED_WRITE_ARGS.
+``act_in_debug_window`` action ``eval``  arbitrary source, and therefore
+    confirm='approve' AND confirm_eval='approve'.
+
 Closing is not a tool: the user closes the window with the mouse, and a closed
 window is simply reopened on the next explicit request.
 """
@@ -34,7 +45,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..browser._launch_lock import LaunchBusy
 from ..browser._offload import PlaywrightUnavailable
-from ..browser.actions import MAX_ACTIONS, act, normalize
+from ..browser.actions import EVAL_ACTION, MAX_ACTIONS, act, normalize
 from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate
 from ..browser.cursor import resolve_after_seq, write_cursor
 from ..browser.launch_budget import LaunchBudgetExceeded, budget_status
@@ -58,9 +69,19 @@ logger = logging.getLogger(__name__)
 
 SCREENSHOT_MODES = ("none", "viewport", "full", "element")
 
+# The second approval for the eval action. Same shape as the publish-class
+# double confirm in write_guards: one flag for "this is a write", a separate
+# one for "this specific write is the dangerous kind".
+CONFIRM_EVAL_VALUE = "approve"
+
 # Enough selectors to compare a broken element against its parent and a sibling
 # without turning the response into a stylesheet.
 MAX_STYLE_SELECTORS = 5
+
+
+def _numbered(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Steps with their 1-based position, so a rejection can name which one."""
+    return [{**step, "step": index} for index, step in enumerate(steps, start=1)]
 
 
 class OpenDebugWindowParams(BaseModel):
@@ -76,7 +97,12 @@ class OpenDebugWindowParams(BaseModel):
 
 
 class DebugAction(BaseModel):
-    """One step. The enum below is the whole vocabulary — there is no eval hatch."""
+    """One step. The enum below is the whole vocabulary.
+
+    ``eval`` is in it, and it is the only member that is not a thing a person
+    could do with a mouse — which is why it costs a second approval
+    (``confirm_eval``) on top of the tool's own confirm.
+    """
 
     action: Literal[
         "click",
@@ -90,11 +116,14 @@ class DebugAction(BaseModel):
         "scroll_to",
         "wait_for",
         "wait",
+        "eval",
     ]
     selector: Optional[str] = Field(
         default=None, description="CSS, text=..., or xpath=... Frames are searched too."
     )
-    value: Optional[str] = Field(default=None, description="Text for fill, option for select.")
+    value: Optional[str] = Field(
+        default=None, description="Text for fill, option for select, JS source for eval."
+    )
     key: Optional[str] = Field(default=None, description="Key for press, e.g. Enter.")
     ms: Optional[int] = Field(default=None, description="Pause length for action='wait'.")
     timeout_ms: Optional[int] = Field(default=None, description="Per-step timeout. Default 10000.")
@@ -115,6 +144,9 @@ class ActInDebugWindowParams(BaseModel):
         default=None, description="CSS selector for screenshot='element'."
     )
     since_last: bool = Field(default=True, description="Only events newer than the last read.")
+    confirm_eval: Optional[str] = Field(
+        default=None, description="Required ('approve') when any step is action='eval'."
+    )
 
 
 class InspectDebugWindowParams(BaseModel):
@@ -135,6 +167,10 @@ class InspectDebugWindowParams(BaseModel):
     since_last: bool = Field(default=True, description="Only events newer than the last inspect.")
     after_seq: Optional[int] = Field(
         default=None, description="Read from this event sequence instead of the cursor."
+    )
+    evaluate: Optional[str] = Field(
+        default=None,
+        description="A JS expression to read from the page. Statements need act's eval.",
     )
 
 
@@ -261,7 +297,7 @@ def open_debug_window(
 @register_tool(
     name="inspect_debug_window",
     params=InspectDebugWindowParams,
-    description="Read the shared debug window: console errors, XHR, duplicate calls, screenshot, CSS. Never opens one.",
+    description="Read the shared debug window: console errors, XHR, duplicates, screenshot, CSS, JS expression. Never opens one.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -308,6 +344,7 @@ def inspect_debug_window(
             selector=params.selector,
             style_selectors=params.styles[:MAX_STYLE_SELECTORS],
             screenshot_path=shot_path,
+            evaluate_expression=params.evaluate,
         )
     except (NoPageFound, PlaywrightUnavailable) as exc:
         return {"success": False, "window_open": True, "error": str(exc)}
@@ -335,6 +372,9 @@ def inspect_debug_window(
             "need a login, or the page is not a ServiceNow UI."
         )
 
+    if raw.get("evaluation"):
+        result["evaluation"] = raw["evaluation"]
+
     if len(params.styles) > MAX_STYLE_SELECTORS:
         result["styles_omitted"] = len(params.styles) - MAX_STYLE_SELECTORS
     return result
@@ -343,7 +383,7 @@ def inspect_debug_window(
 @register_tool(
     name="act_in_debug_window",
     params=ActInDebugWindowParams,
-    description="Drive the open debug window: click, fill, select, press, wait. Reports what the steps caused.",
+    description="Drive the open debug window: click, fill, select, press, wait, eval. Reports what the steps caused.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -366,6 +406,21 @@ def act_in_debug_window(
         # Rejected before the browser is touched: a batch that would fail
         # halfway leaves the page in a state nobody planned.
         return {"success": False, "error": str(exc), "max_actions": MAX_ACTIONS}
+
+    # Running code is a bigger ask than clicking, so it takes its own approval
+    # on top of the tool's. The tool-level confirm means "drive the page"; this
+    # one means "run this source, which can do anything the signed-in user can".
+    eval_steps = [step["step"] for step in _numbered(steps) if step["action"] == EVAL_ACTION]
+    if eval_steps and str(params.confirm_eval or "").strip().lower() != CONFIRM_EVAL_VALUE:
+        return {
+            "success": False,
+            "error": (
+                f"Step(s) {eval_steps} run arbitrary JavaScript in the signed-in window. "
+                f"That needs confirm_eval='{CONFIRM_EVAL_VALUE}' in addition to confirm. "
+                "Show the user the source first — it can do anything they can."
+            ),
+            "eval_steps": eval_steps,
+        }
 
     state = find_window(auth_manager)
     if state is None:

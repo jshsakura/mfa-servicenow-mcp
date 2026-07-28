@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ._offload import require_playwright, run_off_loop
 from .badge import badge_init_script, hide_badge_script, show_badge_script
+from .evaluate import run_in_page
 from .probe import PROBE_SCRIPT, drain_script
 from .session import EFFECTIVE_USER_SCRIPT
 from .window import WindowState
@@ -194,6 +195,7 @@ def capture(
     selector: Optional[str] = None,
     style_selectors: Sequence[str] = (),
     screenshot_path: str = "",
+    evaluate_expression: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Attach, collect, detach. Returns raw material for report.py to compact."""
     require_playwright()
@@ -223,6 +225,14 @@ def capture(
                     time.sleep(wait_s)
 
                 drained = page.evaluate(drain_script(after_seq)) or {}
+                # Evaluated AFTER the drain so a question about the page's
+                # state is answered from the same moment the events describe,
+                # and before the screenshot so the picture matches the answer.
+                evaluation = (
+                    run_in_page(page, expression=evaluate_expression)
+                    if evaluate_expression
+                    else None
+                )
                 shot = _screenshot(
                     page,
                     mode=screenshot,
@@ -230,6 +240,7 @@ def capture(
                     destination=screenshot_path,
                 )
                 return {
+                    "evaluation": evaluation,
                     "url": str(page.url),
                     "title": str(drained.get("title") or page.title()),
                     "seq": int(drained.get("seq") or 0),

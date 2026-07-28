@@ -23,12 +23,17 @@ only module that touches the page, ``login.py`` the only one that types a
 credential — and the tool in front of actions.py is classified as a WRITE
 (``write_guards.MUTATING_TOOL_NAMES``), because clicking Save in an
 authenticated session creates a record exactly like the Table API would.
+
+``evaluate.py`` is called by both and imports neither: an expression for the
+read door, a script body for the write door. It is honest about being a size
+cap and a parser, not a sandbox — read its docstring before extending it.
 """
 
 from ._launch_lock import LaunchBusy, launch_claim
 from ._offload import PlaywrightUnavailable, run_off_loop
-from .actions import MAX_ACTIONS, SUPPORTED_ACTIONS, act, normalize
+from .actions import EVAL_ACTION, MAX_ACTIONS, SUPPORTED_ACTIONS, act, normalize
 from .badge import badge_init_script, badge_label
+from .evaluate import MAX_RESULT_CHARS, body_script, expression_script, run_in_page
 from .launch_budget import LaunchBudgetExceeded, budget_status
 from .login import auto_login, saved_credentials
 from .probe import PROBE_SCRIPT, drain_script
@@ -52,7 +57,9 @@ __all__ = [
     "DEBUG_WINDOW_ALWAYS_HEADED",
     "DEFAULT_VIEWPORT",
     "EFFECTIVE_USER_SCRIPT",
+    "EVAL_ACTION",
     "MAX_ACTIONS",
+    "MAX_RESULT_CHARS",
     "LaunchBudgetExceeded",
     "LaunchBusy",
     "PROBE_SCRIPT",
@@ -64,7 +71,9 @@ __all__ = [
     "auto_login",
     "badge_init_script",
     "badge_label",
+    "body_script",
     "budget_status",
+    "expression_script",
     "describe_window_user",
     "drain_script",
     "ensure_window",
@@ -74,6 +83,7 @@ __all__ = [
     "launch_window",
     "normalize",
     "read_window_state",
+    "run_in_page",
     "run_off_loop",
     "saved_credentials",
     "stop_window",

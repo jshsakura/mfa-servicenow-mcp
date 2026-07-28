@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ._offload import require_playwright, run_off_loop
 from .capture import NoPageFound, _effective_user, _install_probe, _instance_page, _screenshot
+from .evaluate import run_in_page
 from .probe import drain_script
 from .window import WindowState
 
@@ -74,7 +75,12 @@ ACTIONS_NEEDING_SELECTOR = frozenset(
         "wait_for",
     }
 )
-ACTIONS_NEEDING_VALUE = frozenset({"fill", "select"})
+ACTIONS_NEEDING_VALUE = frozenset({"fill", "select", "eval"})
+
+# Runs arbitrary JavaScript in the signed-in window. Gated by a second explicit
+# approval at the tool layer (see browser_debug_tools.py) — the tool-level
+# confirm covers "you are driving the page", this covers "you are running code".
+EVAL_ACTION = "eval"
 
 SUPPORTED_ACTIONS: Tuple[str, ...] = (
     "click",
@@ -88,6 +94,7 @@ SUPPORTED_ACTIONS: Tuple[str, ...] = (
     "scroll_to",
     "wait_for",
     "wait",
+    EVAL_ACTION,
 )
 
 _RESOLVE_POLL_S = 0.15
@@ -196,6 +203,15 @@ def _run_step(page: Any, step: Dict[str, Any], index: int) -> Dict[str, Any]:
     if name == "wait":
         time.sleep(step["ms"] / 1000.0)
         return {"waited_ms": step["ms"]}
+
+    if name == EVAL_ACTION:
+        # Runs on the main frame. A script that needs a frame reaches it the
+        # way a script does — through `frames`/`contentWindow` — rather than
+        # through a selector this layer would have to guess at.
+        outcome = run_in_page(page, body=step["value"] or "")
+        if not outcome.get("ok"):
+            raise ActionError(f"eval failed: {outcome.get('error')}", index=index)
+        return {"result": outcome}
 
     if name == "press" and not selector:
         try:
@@ -367,6 +383,7 @@ def act(
 __all__ = [
     "ACTIONS_NEEDING_SELECTOR",
     "ACTIONS_NEEDING_VALUE",
+    "EVAL_ACTION",
     "ActionError",
     "DEFAULT_STEP_TIMEOUT_MS",
     "MAX_ACTIONS",
