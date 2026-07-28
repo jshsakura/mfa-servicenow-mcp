@@ -191,10 +191,45 @@ PROBE_SCRIPT = """
     };
   }
 
+  // --- who actually typed ----------------------------------------------
+  // `isTrusted` is the browser's own answer to "did a human do this": events
+  // from a real keystroke are trusted, `el.value = x` and dispatchEvent are
+  // not. Comparing against defaultValue cannot tell the two apart — on a
+  // Service Portal page every ng-model-bound field differs from its (empty)
+  // HTML value attribute, so a widget initializing itself looked exactly like
+  // a half-filled form.
+  const touched = new WeakSet();
+  // Whether this script reached the document before it rendered. Injected late
+  // (an already-loaded page armed after the fact), anything typed BEFORE now
+  // was never observed, so the touched set is not evidence of a clean form.
+  const installedLate = document.readyState !== 'loading';
+  const fieldName = (el) => el.name || el.id || el.getAttribute('ng-model') || el.tagName.toLowerCase();
+  const isField = (el) => !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName || '');
+
+  ['input', 'change'].forEach((type) => {
+    window.addEventListener(type, (e) => {
+      if (!e || !e.isTrusted) return;
+      if (isField(e.target)) touched.add(e.target);
+    }, true);
+  });
+
   window.addEventListener('pagehide', () => mirror(true));
 
   window[G] = {
-    version: 1,
+    version: 2,
+    // Fields a human edited and left non-empty. Capped: the caller needs to
+    // know THAT input would be lost, not an inventory of the form.
+    dirty: () => {
+      const out = [];
+      for (const el of document.querySelectorAll('input, textarea, select')) {
+        if (el.type === 'hidden' || el.disabled || el.readOnly) continue;
+        if (!touched.has(el)) continue;
+        if (el.type === 'checkbox' || el.type === 'radio') { out.push(fieldName(el)); }
+        else if (String(el.value || '').length) { out.push(fieldName(el)); }
+        if (out.length >= 10) break;
+      }
+      return { fields: out, observedFromStart: !installedLate };
+    },
     // Harvest everything newer than `afterSeq`. The caller keeps the high-water
     // mark, so a repeat call costs only what actually changed.
     drain: (afterSeq) => ({
@@ -216,6 +251,18 @@ PROBE_SCRIPT = """
 }
 
 
+def dirty_script() -> str:
+    """Fields a human actually edited, per the in-page trusted-event record.
+
+    Returns null when the probe is absent, which the caller must treat as "no
+    evidence" rather than "nothing is dirty" — see capture._dirty_fields.
+    """
+    return (
+        f"(() => {{ const p = window['{PROBE_GLOBAL}'];"
+        f" return (p && p.dirty) ? p.dirty() : null; }})()"
+    )
+
+
 def drain_script(after_seq: int) -> str:
     """Expression that returns every buffered event newer than ``after_seq``."""
     return (
@@ -233,6 +280,7 @@ __all__ = [
     "MAX_EVENTS",
     "PROBE_GLOBAL",
     "PROBE_SCRIPT",
+    "dirty_script",
     "drain_script",
     "reset_script",
 ]

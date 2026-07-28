@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from ._offload import require_playwright, run_off_loop
 from .badge import badge_init_script, hide_badge_script, show_badge_script
 from .evaluate import run_in_page
-from .probe import PROBE_SCRIPT, drain_script
+from .probe import PROBE_SCRIPT, dirty_script, drain_script
 from .session import EFFECTIVE_USER_SCRIPT
 from .window import WindowState
 
@@ -82,6 +82,24 @@ def _instance_page(pages: Sequence[Any], instance_host: str) -> Optional[Any]:
     return real_pages[0]
 
 
+def _probe_scripts(state: WindowState, profile: str) -> Tuple[str, ...]:
+    return (PROBE_SCRIPT, badge_init_script(profile))
+
+
+def _install_probe_scripts(context: Any, state: WindowState, profile: str) -> None:
+    """Register the init scripts on the CONTEXT — for documents not yet created.
+
+    Split out because a new tab has no page to inject into yet, and registering
+    first is what makes that tab instrumented from its first byte. The probe's
+    unsaved-input record is only trustworthy when it was there from the start.
+    """
+    for script in _probe_scripts(state, profile):
+        try:
+            context.add_init_script(script)
+        except Exception as exc:  # noqa: BLE001 - instrumentation is best effort
+            logger.debug("Could not register debug init script: %s", exc)
+
+
 def _install_probe(context: Any, page: Any, state: WindowState, profile: str) -> None:
     """Make sure the collector and the badge are present, now and after navigation.
 
@@ -92,17 +110,11 @@ def _install_probe(context: Any, page: Any, state: WindowState, profile: str) ->
     would leave the next navigation uninstrumented and the user's clicks would
     go unrecorded. Re-registering is correct either way, so it is not cached.
     """
-    scripts = (PROBE_SCRIPT, badge_init_script(state.instance_host, profile))
-
-    for script in scripts:
-        try:
-            context.add_init_script(script)
-        except Exception as exc:  # noqa: BLE001 - instrumentation is best effort
-            logger.debug("Could not register debug init script: %s", exc)
+    _install_probe_scripts(context, state, profile)
 
     # add_init_script only affects documents created from now on, so the page
     # already loaded needs a direct injection. Both scripts no-op if present.
-    for script in scripts:
+    for script in _probe_scripts(state, profile):
         try:
             page.evaluate(script)
         except Exception as exc:  # noqa: BLE001 - a hostile page must not break the read
@@ -293,14 +305,25 @@ def arm(state: WindowState, *, profile: str) -> Dict[str, Any]:
 
 
 def navigate(
-    state: WindowState, *, url: str, profile: str = "", allow_discard: bool = False
+    state: WindowState,
+    *,
+    url: str,
+    profile: str = "",
+    allow_discard: bool = False,
+    new_tab: bool = False,
 ) -> Dict[str, Any]:
-    """Point the window's active tab at ``url``.
+    """Point the window's active tab at ``url``, or open ``url`` in a new one.
 
     Refuses when the current page holds edited-but-unsaved form input, unless
     ``allow_discard``. Navigating away from a half-filled form is the most
-    damaging thing this read-only feature could do to the person using it — and
-    that person is mid-task by definition, since they are the one filling it in.
+    damaging thing this feature could do to the person using it — and that
+    person is mid-task by definition, since they are the one filling it in.
+
+    ``new_tab`` is the answer to that refusal rather than a way around it: the
+    form stays open and untouched in its tab while the new page loads beside
+    it, which is what a person does when they need to look at something else
+    without losing their place. It never triggers the unsaved-input check,
+    because there is nothing to lose.
     """
     require_playwright()
 
@@ -314,18 +337,35 @@ def navigate(
                 if not contexts:
                     raise NoPageFound("The debug window has no browser context.")
                 context = contexts[0]
-                page = _instance_page(context.pages, state.instance_host)
-                if page is None:
-                    page = context.new_page()
+                existing = _instance_page(context.pages, state.instance_host)
 
+                if new_tab or existing is None:
+                    # Register the init scripts BEFORE the tab exists, so the
+                    # new document is instrumented from its first byte — which
+                    # is also what makes its unsaved-input record trustworthy
+                    # later (see _dirty_fields).
+                    _install_probe_scripts(context, state, profile)
+                    page = context.new_page()
+                    page.goto(url, wait_until="domcontentloaded")
+                    page.bring_to_front()
+                    return {
+                        "navigated": True,
+                        "url": str(page.url),
+                        "new_tab": True,
+                        "previous_url": (str(existing.url) if existing else None),
+                        "tabs": len(context.pages),
+                    }
+
+                page = existing
                 previous_url = str(page.url)
                 if not allow_discard:
-                    dirty = _dirty_fields(page)
+                    dirty, basis = _dirty_fields(page)
                     if dirty:
                         return {
                             "navigated": False,
                             "url": previous_url,
                             "blocked_by_unsaved_input": dirty,
+                            "input_basis": basis,
                         }
 
                 # Register BEFORE navigating: add_init_script only reaches
@@ -333,14 +373,26 @@ def navigate(
                 # miss everything the page does while loading.
                 _install_probe(context, page, state, profile)
                 page.goto(url, wait_until="domcontentloaded")
-                return {"navigated": True, "url": str(page.url), "previous_url": previous_url}
+                return {
+                    "navigated": True,
+                    "url": str(page.url),
+                    "new_tab": False,
+                    "previous_url": previous_url,
+                }
             finally:
                 browser.close()
 
     return run_off_loop(_work, timeout_s=120.0)
 
 
-_DIRTY_FIELDS_SCRIPT = """
+# The fallback, used only when the probe was never installed. It compares each
+# field against its HTML value attribute, which on a framework-rendered page
+# says almost nothing: Angular/ng-model assigns `.value` from JS and leaves
+# `defaultValue` empty, so every widget that initialized itself reads as
+# half-typed. Kept because "no evidence either way" must fail toward keeping
+# the user's work, not toward discarding it — but it is labelled as a guess so
+# the caller can weigh it accordingly.
+_DIRTY_FIELDS_FALLBACK_SCRIPT = """
 (() => {
   const dirty = [];
   const named = (el) => el.name || el.id || el.getAttribute('ng-model') || el.tagName.toLowerCase();
@@ -358,13 +410,35 @@ _DIRTY_FIELDS_SCRIPT = """
 """
 
 
-def _dirty_fields(page: Any) -> List[str]:
+def _dirty_fields(page: Any) -> Tuple[List[str], str]:
+    """Fields that would lose input on navigation, and how confidently we know.
+
+    Returns (names, basis) where basis is one of:
+
+    ``typed``     the probe watched this document from its first byte and these
+                  fields received TRUSTED input events — a human typed in them.
+    ``partial``   the probe is present but was injected into an already-loaded
+                  document, so anything typed before it arrived went unseen.
+                  What it reports is real; what it omits is not proof.
+    ``guessed``   no probe. Values differ from the HTML defaults, which a widget
+                  initializing itself also produces. Frequently a false alarm.
+    """
     try:
-        result = page.evaluate(_DIRTY_FIELDS_SCRIPT)
+        record = page.evaluate(dirty_script())
     except Exception as exc:  # noqa: BLE001 - never block navigation on a probe failure
         logger.debug("Unsaved-input check failed: %s", exc)
-        return []
-    return [str(name) for name in result or []]
+        return [], "guessed"
+
+    if isinstance(record, dict):
+        fields = [str(name) for name in record.get("fields") or []]
+        return fields, ("typed" if record.get("observedFromStart") else "partial")
+
+    try:
+        legacy = page.evaluate(_DIRTY_FIELDS_FALLBACK_SCRIPT)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Fallback unsaved-input check failed: %s", exc)
+        return [], "guessed"
+    return [str(name) for name in legacy or []], "guessed"
 
 
 __all__ = [
