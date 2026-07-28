@@ -370,9 +370,34 @@ def _fail_closed() -> bool:
     return os.getenv(ENV_WRITE_GUARDS_FAIL, "").strip().lower() in _FAIL_CLOSED_VALUES
 
 
+# Tools that read by default but can mutate when a particular argument is
+# supplied. The classic name-prefix gate cannot see this: the tool name is the
+# same either way.
+#
+# inspect_debug_window(evaluate=...) evaluates a JS EXPRESSION in the signed-in
+# window. It is meant for questions ("what is $scope.data.items.length"), and
+# the parser rejects statement bodies — but `fetch(...)` is an expression too,
+# so it cannot be promised side-effect-free. Rather than pretend, the argument
+# flips the call to a write, which is what makes allow_writes=false a real
+# guarantee instead of a naming convention.
+ARG_TRIGGERED_WRITE_ARGS: Dict[str, frozenset] = {
+    "inspect_debug_window": frozenset({"evaluate"}),
+}
+
+
+def is_arg_triggered_write(tool_name: str, arguments: Dict[str, Any]) -> bool:
+    """True when an otherwise-read-only tool was called with a mutating argument."""
+    triggers = ARG_TRIGGERED_WRITE_ARGS.get(tool_name)
+    if not triggers:
+        return False
+    return any(arguments.get(name) for name in triggers)
+
+
 def _is_read_only(tool_name: str, arguments: Dict[str, Any]) -> bool:
     """True if this call doesn't mutate ServiceNow data."""
     if tool_name in MUTATING_TOOL_NAMES:
+        return False
+    if is_arg_triggered_write(tool_name, arguments):
         return False
     if tool_name.startswith("manage_"):
         read_actions = MANAGE_READ_ACTIONS.get(tool_name)

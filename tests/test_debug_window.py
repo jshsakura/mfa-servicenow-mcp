@@ -14,10 +14,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import servicenow_mcp.server as server_module
 from servicenow_mcp.browser import (
     _launch_lock,
     actions,
     cursor,
+    evaluate,
     launch_budget,
     login,
     report,
@@ -28,6 +30,7 @@ from servicenow_mcp.browser.capture import _instance_page
 from servicenow_mcp.browser.probe import PROBE_GLOBAL, PROBE_SCRIPT, drain_script
 from servicenow_mcp.browser.session import describe_window_user
 from servicenow_mcp.policies import write_guards
+from servicenow_mcp.server import ServiceNowMCP
 from servicenow_mcp.tools import browser_debug_tools as tools
 
 # ---------------------------------------------------------------------------
@@ -1035,9 +1038,9 @@ def test_the_byte_count_still_describes_the_real_payload():
 
 def test_an_unknown_action_is_rejected_with_the_supported_list():
     with pytest.raises(ValueError) as excinfo:
-        actions.normalize([{"action": "eval", "selector": "#x"}])
+        actions.normalize([{"action": "drag", "selector": "#x"}])
 
-    assert "eval" in str(excinfo.value)
+    assert "drag" in str(excinfo.value)
     assert "click" in str(excinfo.value)
 
 
@@ -1378,3 +1381,286 @@ def test_a_failed_auto_login_does_not_fail_the_open(monkeypatch):
     assert result["success"] is True
     assert result["auto_login"] == "error"
     assert "manually" in result["hint"]
+
+
+# ---------------------------------------------------------------------------
+# evaluate.py — the read door rejects statements by PARSING, not by pattern
+# ---------------------------------------------------------------------------
+
+
+def test_an_expression_is_compiled_as_an_expression():
+    script = evaluate.expression_script("$scope.data.items.length")
+
+    assert "new Function('return (' + src + ')')" in script
+    # The source is embedded as a JSON string literal, so it cannot terminate
+    # the wrapper and rewrite the surrounding script.
+    assert '"$scope.data.items.length"' in script
+
+
+def test_a_source_string_cannot_break_out_of_the_wrapper():
+    # The payload IS in the script — as the contents of a string literal, which
+    # is the point. What must not happen is it becoming code in the wrapper.
+    source = '"); alert(1); ("'
+    script = evaluate.expression_script(source)
+
+    assert json.dumps(source) in script
+    # Unescaped, the payload would close the call and add a second one.
+    assert "})(" + source + ")" not in script
+    assert script.count("new Function") == 1
+
+
+def test_the_wrapper_survives_every_quote_and_newline_shape():
+    for source in ('a\\"b', "a'b", "a\nb", "a\\b", "</script>", "`${x}`"):
+        script = evaluate.expression_script(source)
+        assert json.dumps(source).replace("</", "<\\/") in script
+
+
+def test_the_body_door_awaits_so_a_fetch_is_not_reported_as_a_promise():
+    script = evaluate.body_script("const r = await fetch('/x'); return r.status;")
+
+    assert "async" in script
+    assert "await fn()" in script
+
+
+def test_a_failed_evaluation_keeps_the_reason_and_says_it_threw():
+    out = evaluate.clamp_result({"ok": False, "error": "x is not defined", "threw": True})
+
+    assert out["ok"] is False
+    assert out["threw"] is True
+    assert "not defined" in out["error"]
+
+
+def test_a_small_value_comes_back_whole():
+    out = evaluate.clamp_result({"ok": True, "value": {"a": 1}, "type": "object"})
+
+    assert out == {"ok": True, "value": {"a": 1}, "type": "object"}
+
+
+def test_an_oversized_value_is_cut_and_says_so():
+    # Silent truncation is the failure mode here: half a value that reads as
+    # complete sends the reader to a wrong conclusion.
+    out = evaluate.clamp_result({"ok": True, "value": ["x" * 200] * 200, "type": "object"})
+
+    assert out["truncated"] is True
+    assert len(out["value"]) == evaluate.MAX_RESULT_CHARS
+    assert "Narrow the expression" in out["note"]
+
+
+def test_an_unserializable_value_degrades_instead_of_raising():
+    out = evaluate.clamp_result({"ok": True, "value": {1, 2, 3}, "type": "object"})
+
+    assert out["ok"] is True
+
+
+def test_a_page_that_refuses_to_evaluate_is_an_error_not_an_exception():
+    class Hostile:
+        def evaluate(self, script):
+            raise RuntimeError("Execution context was destroyed")
+
+    out = evaluate.run_in_page(Hostile(), expression="1+1")
+
+    assert out["ok"] is False
+    assert "refused to evaluate" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# The eval action — write-classified AND separately approved
+# ---------------------------------------------------------------------------
+
+
+def test_eval_needs_a_source():
+    with pytest.raises(ValueError) as excinfo:
+        actions.normalize([{"action": "eval"}])
+
+    assert "value" in str(excinfo.value)
+
+
+def test_eval_needs_no_selector():
+    normalized = actions.normalize([{"action": "eval", "value": "return 1"}])
+
+    assert normalized[0]["selector"] is None
+
+
+def test_an_eval_step_runs_the_source_and_returns_the_described_value():
+    class Evaluating(FakePage):
+        def __init__(self):
+            super().__init__(known=[])
+            self.scripts = []
+
+        def evaluate(self, script):
+            self.scripts.append(script)
+            return {"ok": True, "value": 42, "type": "number"}
+
+    page = Evaluating()
+    out = actions._run_step(page, _step(action="eval", selector=None, value="return 42"), 1)
+
+    assert out["result"] == {"ok": True, "value": 42, "type": "number"}
+    assert "return 42" in page.scripts[0]
+
+
+def test_an_eval_that_throws_fails_the_step_with_the_page_error():
+    class Throwing(FakePage):
+        def evaluate(self, script):
+            return {"ok": False, "error": "g_form is not defined", "threw": True}
+
+    with pytest.raises(actions.ActionError) as excinfo:
+        actions._run_step(
+            Throwing(known=[]), _step(action="eval", selector=None, value="g_form.x"), 2
+        )
+
+    assert "g_form is not defined" in str(excinfo.value)
+    assert excinfo.value.index == 2
+
+
+def test_running_code_needs_its_own_approval_on_top_of_the_tools(monkeypatch):
+    def _explode(*args, **kwargs):
+        raise AssertionError("must not reach the window without confirm_eval")
+
+    monkeypatch.setattr(tools, "find_window", _explode)
+
+    result = tools.act_in_debug_window(
+        MagicMock(),
+        MagicMock(),
+        tools.ActInDebugWindowParams(
+            actions=[
+                {"action": "click", "selector": "#x"},
+                {"action": "eval", "value": "return 1"},
+            ]
+        ),
+    )
+
+    assert result["success"] is False
+    assert result["eval_steps"] == [2]
+    assert "confirm_eval='approve'" in result["error"]
+
+
+def test_an_approved_eval_batch_proceeds(monkeypatch, tmp_path):
+    state = _state()
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+    monkeypatch.setattr(
+        tools,
+        "act",
+        lambda state, **kw: {
+            "url": "https://dev.example.com/sp",
+            "seq": 1,
+            "events": [],
+            "steps": [
+                {"step": 1, "action": "eval", "ok": True, "result": {"ok": True, "value": 3}}
+            ],
+            "dialogs": [],
+            "failed_step": None,
+            "skipped": 0,
+        },
+    )
+
+    result = tools.act_in_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.ActInDebugWindowParams(
+            actions=[{"action": "eval", "value": "return 3"}], confirm_eval="approve"
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["steps"][0]["result"]["value"] == 3
+
+
+def test_a_batch_with_no_eval_needs_no_extra_approval(monkeypatch, tmp_path):
+    state = _state()
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+    monkeypatch.setattr(
+        tools,
+        "act",
+        lambda state, **kw: {
+            "url": "https://dev.example.com/sp",
+            "seq": 1,
+            "events": [],
+            "steps": [{"step": 1, "action": "click", "ok": True}],
+            "dialogs": [],
+            "failed_step": None,
+            "skipped": 0,
+        },
+    )
+
+    result = tools.act_in_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.ActInDebugWindowParams(actions=[{"action": "click", "selector": "#x"}]),
+    )
+
+    assert result["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# Reading with evaluate — a read tool that can run code is gated as a write
+# ---------------------------------------------------------------------------
+
+
+def test_inspecting_with_an_expression_returns_its_value(monkeypatch, tmp_path):
+    state = _state()
+    seen = {}
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+
+    def _capture(state, **kw):
+        seen.update(kw)
+        return {
+            "url": "https://dev.example.com/sp",
+            "seq": 1,
+            "events": [],
+            "evaluation": {"ok": True, "value": 12, "type": "number"},
+        }
+
+    monkeypatch.setattr(tools, "capture", _capture)
+
+    result = tools.inspect_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.InspectDebugWindowParams(evaluate="$scope.data.items.length"),
+    )
+
+    assert seen["evaluate_expression"] == "$scope.data.items.length"
+    assert result["evaluation"]["value"] == 12
+
+
+def test_a_plain_inspect_carries_no_evaluation_key(monkeypatch, tmp_path):
+    state = _state()
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+    monkeypatch.setattr(
+        tools,
+        "capture",
+        lambda state, **kw: {"url": "u", "seq": 1, "events": [], "evaluation": None},
+    )
+
+    result = tools.inspect_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.InspectDebugWindowParams(),
+    )
+
+    assert "evaluation" not in result
+
+
+def test_evaluate_flips_the_read_tool_to_a_write():
+    # `fetch(...)` is an expression. The read door cannot be promised
+    # side-effect-free, so allow_writes=false has to be able to refuse it.
+    assert write_guards._is_read_only("inspect_debug_window", {}) is True
+    assert write_guards._is_read_only("inspect_debug_window", {"evaluate": "1+1"}) is False
+    assert write_guards._is_read_only("inspect_debug_window", {"evaluate": ""}) is True
+
+
+def test_both_classifiers_read_the_same_table():
+    # The scaffold_page bug was two hand-mirrored tables drifting. This one is
+    # consulted from server._is_read_only_call and write_guards._is_read_only.
+    assert server_module.is_arg_triggered_write is write_guards.is_arg_triggered_write
+    assert (
+        ServiceNowMCP._is_read_only_call(ServiceNowMCP, "inspect_debug_window", {"evaluate": "1+1"})
+        is False
+    )
