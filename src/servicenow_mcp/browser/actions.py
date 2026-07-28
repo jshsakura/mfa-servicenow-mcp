@@ -42,7 +42,14 @@ import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ._offload import require_playwright, run_off_loop
-from .capture import NoPageFound, _effective_user, _install_probe, _instance_page, _screenshot
+from .capture import (
+    NoPageFound,
+    _effective_user,
+    _install_probe,
+    _instance_page,
+    _screenshot,
+    _set_activity,
+)
 from .evaluate import run_in_page
 from .probe import drain_script
 from .window import WindowState
@@ -306,6 +313,9 @@ def act(
                 # instrumented document, and add_init_script only affects
                 # documents created after it is registered.
                 _install_probe(context, page, state, profile)
+                # Lit for the whole batch: this is the case where "was that me
+                # or the model?" is asked most, because the page is moving.
+                _set_activity(page, True)
 
                 dialogs: List[Dict[str, Any]] = []
 
@@ -375,6 +385,10 @@ def act(
                     "skipped": max(0, len(steps) - len(results)),
                 }
             finally:
+                try:
+                    _set_activity(page, False)
+                except Exception:  # noqa: BLE001 - page may be gone
+                    pass
                 browser.close()
 
     return run_off_loop(_work, timeout_s=budget_seconds(steps) + settle_s)

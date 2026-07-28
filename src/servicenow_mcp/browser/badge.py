@@ -60,6 +60,7 @@ _BADGE_TEMPLATE = """
   const HOST_ID = %(host_id)s;
   const PROFILE = %(label)s;
   const ACCENT = %(accent)s;
+  const IDLE = %(idle)s;
   if (window[HOST_ID]) return;
 
 %(user_script)s
@@ -89,15 +90,41 @@ _BADGE_TEMPLATE = """
       'opacity:0', 'transition:opacity .25s ease'
     ].join(';');
 
-    // The dot carries the profile identity as COLOR, which is the part you
-    // register without reading — the whole point when the mistake being
-    // guarded against is "I thought this window was dev".
+    const style = document.createElement('style');
+    style.textContent =
+      '@keyframes snmcp-pulse{0%%,100%%{opacity:1;transform:scale(1)}' +
+      '50%%{opacity:.3;transform:scale(.75)}}';
+    shadow.appendChild(style);
+
+    // Two signals, two channels, so neither has to be given up:
+    //   the RING is the environment and never changes — "I thought this window
+    //   was dev" is the mistake it exists to prevent, and that mistake is made
+    //   while nothing is happening.
+    //   the FILL is activity — grey at rest, environment-coloured and pulsing
+    //   while the MCP is attached and driving. Watching the window together,
+    //   the question is constantly "was that me or the model?".
     const dot = document.createElement('span');
     dot.style.cssText = [
       'width:7px', 'height:7px', 'border-radius:50%%', 'flex:none',
-      'background:' + ACCENT,
-      'box-shadow:0 0 0 2px ' + ACCENT + '33'
+      'background:' + IDLE,
+      'box-shadow:0 0 0 2px ' + ACCENT + '55',
+      'transition:background .2s ease'
     ].join(';');
+
+    let idleTimer = null;
+    const setActive = (on) => {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      if (on) {
+        dot.style.background = ACCENT;
+        dot.style.animation = 'snmcp-pulse 1s ease-in-out infinite';
+        // Never leave it stuck lit: a tool call that dies mid-flight would
+        // otherwise pulse forever and the light would stop meaning anything.
+        idleTimer = setTimeout(() => setActive(false), %(active_ttl_ms)d);
+      } else {
+        dot.style.background = IDLE;
+        dot.style.animation = '';
+      }
+    };
 
     const text = document.createElement('span');
     text.style.cssText = 'color:#e9e9ec;white-space:nowrap';
@@ -120,7 +147,7 @@ _BADGE_TEMPLATE = """
     root.appendChild(host);
     requestAnimationFrame(() => { wrap.style.opacity = '1'; });
 
-    window[HOST_ID] = { host, badge: text, user: userEl };
+    window[HOST_ID] = { host, badge: text, user: userEl, setActive };
     trackUser(sep, userEl);
   };
 
@@ -181,6 +208,22 @@ _ACCENTS = (
 )
 _ACCENT_FALLBACK = "#60a5fa"
 
+# At rest the dot is a neutral grey, so the pulse reads as "something is
+# happening NOW" rather than as decoration. The environment stays legible
+# through the ring around it, which never changes.
+IDLE_COLOUR = "#6b7280"
+
+# A tool call that dies mid-flight must not leave the dot pulsing forever — a
+# light that is always on stops being a light. The page reverts on its own.
+ACTIVE_TTL_S = 30.0
+
+_ACTIVITY_TEMPLATE = """
+(() => {
+  const ref = window[%(host_id)s];
+  if (ref && ref.setActive) ref.setActive(%(state)s);
+})();
+"""
+
 
 def badge_accent(profile: str) -> str:
     """A colour for the profile dot: red for prod, down to green for dev.
@@ -201,7 +244,17 @@ def badge_init_script(profile: str) -> str:
         "host_id": _js_string(BADGE_ELEMENT_ID),
         "label": _js_string(badge_label(profile)),
         "accent": _js_string(badge_accent(profile)),
+        "idle": _js_string(IDLE_COLOUR),
         "user_script": _USER_RESOLVER,
+        "active_ttl_ms": int(ACTIVE_TTL_S * 1000),
+    }
+
+
+def badge_activity_script(active: bool) -> str:
+    """Light or clear the activity dot. A no-op if the badge is not mounted."""
+    return _ACTIVITY_TEMPLATE % {
+        "host_id": _js_string(BADGE_ELEMENT_ID),
+        "state": "true" if active else "false",
     }
 
 
