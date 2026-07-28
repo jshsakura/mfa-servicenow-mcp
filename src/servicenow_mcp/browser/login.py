@@ -42,6 +42,7 @@ from ..auth._browser_dom import (
     _target_label,
 )
 from ._offload import require_playwright, run_off_loop
+from .mfa_trust import seed_context as seed_trust
 from .window import WindowState
 
 logger = logging.getLogger(__name__)
@@ -189,6 +190,7 @@ def auto_login(
     *,
     credentials: Optional[Tuple[str, str]],
     marker_path: str,
+    trust_cookie: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Fill and submit the login form in the window, at most once per window.
 
@@ -225,6 +227,11 @@ def auto_login(
                 if not _wait_for_login_form(page):
                     return {"status": "no_login_form", "url": str(page.url)}
 
+                # Before the password, not after: the server decides whether to
+                # challenge when it sees the credentials, and by then the cookie
+                # has to be in the jar. See mfa_trust.py.
+                seeded = seed_trust(contexts[0], trust_cookie)
+
                 # Claimed BEFORE the submit: if this call dies between the
                 # click and the response, the next one must not try again.
                 record_attempt(marker_path, state)
@@ -233,8 +240,13 @@ def auto_login(
                 if not outcome["filled"]:
                     return {"status": "fields_not_found", "url": str(page.url)}
                 if not outcome["submitted"]:
-                    return {"status": "filled", "user": username}
-                return {"status": "submitted", "user": username, "via": outcome["via"]}
+                    return {"status": "filled", "user": username, "mfa_trust": seeded}
+                return {
+                    "status": "submitted",
+                    "user": username,
+                    "via": outcome["via"],
+                    "mfa_trust": seeded,
+                }
             finally:
                 # Disconnects from the window; does not close it.
                 browser.close()
@@ -250,6 +262,14 @@ def describe(result: Dict[str, Any]) -> Optional[str]:
     """One line for the caller to pass on, or None when there is nothing to say."""
     status = result.get("status")
     if status == "submitted":
+        if result.get("mfa_trust"):
+            # Said plainly: the user should know why they were not challenged,
+            # and should still be told to look if the instance disagrees.
+            return (
+                f"Signed in as '{result.get('user')}' automatically, reusing the MFA "
+                "approval this account already gave on this machine. If the instance "
+                "asks anyway, complete it in the window."
+            )
         return (
             f"Signed in as '{result.get('user')}' automatically. "
             "If the instance asks for MFA, complete it in the window."

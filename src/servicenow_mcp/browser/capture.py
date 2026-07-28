@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from ._offload import require_playwright, run_off_loop
 from .badge import badge_activity_script, badge_init_script, hide_badge_script, show_badge_script
 from .evaluate import run_in_page
+from .mfa_trust import harvest_from_context as harvest_trust
+from .mfa_trust import write_store as write_trust
 from .probe import PROBE_SCRIPT, dirty_script, drain_script
 from .session import EFFECTIVE_USER_SCRIPT
 from .window import WindowState
@@ -294,7 +296,9 @@ def capture(
     return run_off_loop(_work, timeout_s=wait_s + 90.0)
 
 
-def arm(state: WindowState, *, profile: str, account: str = "") -> Dict[str, Any]:
+def arm(
+    state: WindowState, *, profile: str, account: str = "", trust_path: str = ""
+) -> Dict[str, Any]:
     """Install the collector now, before the user does anything worth recording.
 
     Without this the probe would first appear on the initial inspect call — and
@@ -318,7 +322,10 @@ def arm(state: WindowState, *, profile: str, account: str = "") -> Dict[str, Any
                 if page is None:
                     return {"armed": False, "reason": "no open tab"}
                 _install_probe(context, page, state, profile, account)
-                return {"armed": True, "url": str(page.url)}
+                # Free ride: we are attached anyway, and this is where a
+                # challenge the user just answered by hand becomes reusable.
+                updated = write_trust(trust_path, harvest_trust(context, state.instance_host))
+                return {"armed": True, "url": str(page.url), "trust_updated": updated}
             finally:
                 # Disconnects from the browser; it does NOT terminate the
                 # window (Playwright: a connected browser is disconnected, a
