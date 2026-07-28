@@ -92,6 +92,15 @@ _READ_ONLY_TOOL_SNAPSHOT = frozenset(
         "get_uncommitted_changes",
         "get_widget_bundle",
         "get_widget_instance",
+        # Shared debug window. Neither tool calls a ServiceNow write API: one
+        # opens/points a local browser, the other reads what that page recorded.
+        # The window holds its OWN session (servicenow_mcp/browser/session.py),
+        # so nothing done in it reaches the API session these guards protect.
+        # Caveat worth knowing: navigation is a GET, and a hand-crafted
+        # ServiceNow URL can carry a UI action. The tools never construct such a
+        # URL, but they do not police one either.
+        "inspect_debug_window",
+        "open_debug_window",
         "preview_portal_component_update",
         "query_local_graph",
         "route_portal_component_edit",

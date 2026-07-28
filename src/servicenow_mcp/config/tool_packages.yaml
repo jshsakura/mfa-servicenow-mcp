@@ -111,6 +111,11 @@ portal_developer:
     - manage_scripted_rest
     # Portal debugging (specialized read — used by portal analysis/audit skills)
     - detect_angular_implicit_globals
+    # Shared debug window — a visible browser the user and the LLM look at
+    # together. open_* is the only tool that can put a window on the screen;
+    # inspect_* reads whatever is already open and never launches one.
+    - open_debug_window
+    - inspect_debug_window
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update
