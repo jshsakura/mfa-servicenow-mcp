@@ -2652,3 +2652,120 @@ def test_the_session_files_chromium_restores_from_are_removed(tmp_path):
     # The signed-in session is the whole reason a reopen is silent. Never ours
     # to delete.
     assert cookies.read_bytes() == b"sqlite"
+
+
+# ---------------------------------------------------------------------------
+# Which tab do we continue in? The one someone was working in.
+# ---------------------------------------------------------------------------
+
+
+class PresencePage:
+    """A tab that answers the probe's presence question with a stamp."""
+
+    def __init__(self, url, last_human=None):
+        self.url = url
+        self.last_human = last_human
+
+    def evaluate(self, script):
+        if "presence" in script:
+            if self.last_human is None:
+                return None  # unarmed document: no say
+            return {"lastHuman": self.last_human, "now": 9_000.0}
+        return None
+
+
+def test_with_one_tab_nothing_is_asked():
+    only = PresencePage("https://dev.example.com/sp")
+
+    assert capture_module._active_instance_page([only], "dev.example.com") is only
+
+
+def test_the_tab_last_worked_in_wins_over_the_first_one():
+    # A new tab opened beside a form would otherwise leave the model reading the
+    # old page while the person looks at the new one.
+    old = PresencePage("https://dev.example.com/sp", last_human=1000.0)
+    new = PresencePage("https://dev.example.com/incident_list.do", last_human=8000.0)
+
+    assert capture_module._active_instance_page([old, new], "dev.example.com") is new
+
+
+def test_tabs_off_the_instance_are_never_chosen_over_one_on_it():
+    off = PresencePage("https://docs.example.org/guide", last_human=9999.0)
+    on = PresencePage("https://dev.example.com/sp", last_human=1.0)
+
+    assert capture_module._active_instance_page([off, on], "dev.example.com") is on
+
+
+def test_when_no_tab_can_answer_the_first_instance_tab_is_used():
+    # An unarmed document is not a reason to pick the wrong page.
+    first = PresencePage("https://dev.example.com/sp")
+    second = PresencePage("https://dev.example.com/other")
+
+    assert capture_module._active_instance_page([first, second], "dev.example.com") is first
+
+
+def test_a_tab_that_refuses_to_answer_does_not_break_the_choice():
+    class Hostile(PresencePage):
+        def evaluate(self, script):
+            raise RuntimeError("execution context destroyed")
+
+    hostile = Hostile("https://dev.example.com/a")
+    answering = PresencePage("https://dev.example.com/b", last_human=42.0)
+
+    assert (
+        capture_module._active_instance_page([hostile, answering], "dev.example.com") is answering
+    )
+
+
+def test_devtools_tabs_are_still_never_selected():
+    devtools = PresencePage("devtools://devtools/bundled/inspector.html", last_human=9999.0)
+    real = PresencePage("https://dev.example.com/sp", last_human=1.0)
+
+    assert capture_module._active_instance_page([devtools, real], "dev.example.com") is real
+
+
+class ArmablePage:
+    def __init__(self, url, hostile=False):
+        self.url = url
+        self.hostile = hostile
+        self.scripts = []
+
+    def evaluate(self, script):
+        if self.hostile:
+            raise RuntimeError("execution context destroyed")
+        self.scripts.append(script)
+        return None
+
+
+def test_every_instance_tab_gets_the_probe_not_just_the_chosen_one(auth):
+    # The circle this breaks: no probe -> no say in which tab is being worked
+    # in -> never chosen -> never armed.
+    state = window.WindowState(
+        pid=1, port=2, profile_dir="/p", instance_url="https://dev.example.com", started_at=0.0
+    )
+    tabs = [
+        ArmablePage("https://dev.example.com/sp"),
+        ArmablePage("https://dev.example.com/incident_list.do"),
+        ArmablePage("https://docs.example.org/guide"),
+        ArmablePage("devtools://devtools/bundled/inspector.html"),
+    ]
+
+    armed = capture_module._arm_tabs(tabs, state, "dev")
+
+    assert armed == 2
+    assert tabs[0].scripts and tabs[1].scripts
+    # Someone's unrelated reading and the devtools window are not ours to touch.
+    assert tabs[2].scripts == [] and tabs[3].scripts == []
+
+
+def test_a_tab_that_refuses_the_probe_does_not_stop_the_others(auth):
+    state = window.WindowState(
+        pid=1, port=2, profile_dir="/p", instance_url="https://dev.example.com", started_at=0.0
+    )
+    tabs = [
+        ArmablePage("https://dev.example.com/a", hostile=True),
+        ArmablePage("https://dev.example.com/b"),
+    ]
+
+    assert capture_module._arm_tabs(tabs, state, "dev") == 1
+    assert tabs[1].scripts
