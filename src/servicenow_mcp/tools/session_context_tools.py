@@ -14,7 +14,8 @@ surfaces as a clear failure rather than a false positive.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
@@ -113,6 +114,41 @@ def _name_for_sys_id(container: Any, sys_id: str) -> str:
     return ""
 
 
+# The update-set picker labels every entry with its application: "Pilot [My App]".
+# That label is NOT the name. sys_update_set.name holds "Pilot", every reference
+# display value shows "Pilot", and update_set_name resolves against "Pilot" — so
+# handing the label back to the caller produced a name that could not be fed into
+# the very tool that accepts one, and made one set look like two.
+_PICKER_LABEL_RE = re.compile(r"^(?P<name>.+?)\s*\[(?P<app>[^\[\]]+)\]$")
+
+
+def split_picker_label(label: str) -> Tuple[str, str]:
+    """('Pilot [My App]') -> ('Pilot', 'My App'). No suffix -> (label, '').
+
+    Deliberately conservative: only a bracketed group at the very END is a
+    suffix. A set genuinely named "Release [Q3]" keeps its name, because the
+    application it belongs to is read from the record, never from the string.
+    """
+    match = _PICKER_LABEL_RE.match((label or "").strip())
+    if not match:
+        return (label or "").strip(), ""
+    return match.group("name").strip(), match.group("app").strip()
+
+
+def _normalize_update_set_selection(selection: Dict[str, str]) -> Dict[str, str]:
+    """Split a picker label into the name and the application it was tagged with.
+
+    Applied at the READ boundary rather than at each call site: every consumer
+    of "the current update set" wants the name that round-trips, and one that
+    has to remember to normalize is one that will forget.
+    """
+    name, application = split_picker_label(str(selection.get("name") or ""))
+    normalized = {**selection, "name": name}
+    if application:
+        normalized["application"] = application
+    return normalized
+
+
 def _find_flagged_selection(node: Any) -> Optional[Dict[str, str]]:
     """Depth-first search for the object flagged as the active selection."""
     if isinstance(node, dict):
@@ -170,15 +206,22 @@ def _resolve_update_set_by_name(
     """Resolve an update set *name* to a sys_id, preferring in-progress sets.
 
     Only in-progress sets are selectable, so the name is matched against those
-    first; an exact match wins over a substring. Returns {"sys_id", "name"} on a
-    unique hit, or {"error", "message", "candidates"?} when none/ambiguous.
+    first; an exact match wins over a substring. Returns {"sys_id", "name",
+    "application"} on a unique hit, or {"error", "message", "candidates"?} when
+    none/ambiguous.
+
+    A caller may pass back a picker label ("Pilot [My App]") because that is
+    what an earlier response showed them. The suffix is stripped before the
+    query and used as a tie-breaker afterwards, so the round-trip works instead
+    of returning not_found for a set that plainly exists.
     """
+    requested_name, requested_app = split_picker_label(name)
     try:
         rows, _ = sn_query_page(
             config,
             auth_manager,
             table="sys_update_set",
-            query=f"state=in progress^nameLIKE{name}^ORDERBYname",
+            query=f"state=in progress^nameLIKE{requested_name}^ORDERBYname",
             fields="sys_id,name,state,application",
             limit=20,
             offset=0,
@@ -192,27 +235,55 @@ def _resolve_update_set_by_name(
         return {
             "error": "not_found",
             "message": (
-                f"No in-progress update set matching '{name}'. Only in-progress "
+                f"No in-progress update set matching '{requested_name}'. Only in-progress "
                 "sets can be selected — check the name or create one first."
             ),
         }
 
-    exact = [r for r in rows if str(r.get("name", "")).strip().lower() == name.strip().lower()]
+    exact = [
+        r for r in rows if str(r.get("name", "")).strip().lower() == requested_name.strip().lower()
+    ]
     chosen = exact if exact else rows
+
+    # An application given in the label narrows a same-name collision without a
+    # second round trip — it is exactly the information that tells them apart.
+    if len(chosen) > 1 and requested_app:
+        by_app = [r for r in chosen if _display(r.get("application")).strip() == requested_app]
+        if len(by_app) == 1:
+            chosen = by_app
+
     if len(chosen) > 1:
         candidates: List[Dict[str, str]] = [
-            {"sys_id": str(r.get("sys_id") or ""), "name": str(r.get("name") or "")} for r in chosen
+            {
+                "sys_id": str(r.get("sys_id") or ""),
+                "name": str(r.get("name") or ""),
+                # Without this the list is N visually identical rows, which is
+                # how a same-name pair became impossible to tell apart.
+                "application": _display(r.get("application")) or "unknown",
+            }
+            for r in chosen
         ]
+        same_name = len({c["name"].strip().lower() for c in candidates}) == 1
+        detail = (
+            f"{len(chosen)} in-progress update sets share the name '{requested_name}', "
+            f"differing only by application ({', '.join(c['application'] for c in candidates)})"
+            if same_name
+            else f"'{requested_name}' matches {len(chosen)} in-progress update sets"
+        )
         return {
             "error": "ambiguous",
             "message": (
-                f"'{name}' matches {len(chosen)} in-progress update sets. "
-                "Pass update_set_id to disambiguate."
+                f"{detail}. The name cannot identify one of them — pass "
+                "update_set_id=<sys_id> from the candidates below."
             ),
             "candidates": candidates,
         }
     row = chosen[0]
-    return {"sys_id": str(row.get("sys_id") or ""), "name": str(row.get("name") or "")}
+    return {
+        "sys_id": str(row.get("sys_id") or ""),
+        "name": str(row.get("name") or ""),
+        "application": _display(row.get("application")),
+    }
 
 
 def _ui_context_headers(config: ServerConfig) -> Dict[str, str]:
@@ -277,6 +348,11 @@ def _get_current_raw(
     except Exception:
         payload = {}
     parsed = _picker_value(payload if isinstance(payload, dict) else {})
+    if endpoint == _UPDATESET_ENDPOINT:
+        # ONE place, so no caller can forget: everything downstream — the
+        # Default check, the push confirmation, the awareness stamp on writes —
+        # sees the name sys_update_set actually stores.
+        parsed = _normalize_update_set_selection(parsed)
     dbg = _response_debug(response)
     # Log the raw shape so a parser/shape issue is diagnosable from the log file
     # alone (the body is otherwise only in the tool response's diagnostics).
@@ -472,10 +548,16 @@ def is_default_update_set(update_set: Optional[Dict[str, str]]) -> bool:
     Capturing app changes into Default is almost always an accident, so create
     paths flag it. Matched by name (case-insensitive) since the sys_id differs
     per application.
+
+    The picker labels it "Default [Global]", and an exact match against that
+    string is False — which would have silently dropped the one warning that
+    costs a deploy. The label is split here as well as at the read boundary, so
+    a caller holding a raw picker value still gets the right answer.
     """
     if not update_set:
         return False
-    return str(update_set.get("name", "")).strip().lower() == "default"
+    name, _ = split_picker_label(str(update_set.get("name", "")))
+    return name.strip().lower() == "default"
 
 
 def check_update_set_for_push(
@@ -544,8 +626,13 @@ def check_update_set_for_push(
     last_id = (last or {}).get("sys_id", "").strip()
     if not last_id or last_id == current_id:
         return None  # first edit, or still in the same set — nothing to confirm
-    current_name = us.get("name") or current_id
-    last_name = (last or {}).get("name") or last_id
+    # The read boundary already split the picker's label, so `application` is
+    # normally right here; the split is kept as a fallback for a caller holding
+    # a raw picker value.
+    current_name, split_app = split_picker_label(us.get("name") or current_id)
+    current_app = us.get("application") or split_app
+    last_name, last_app = split_picker_label((last or {}).get("name") or last_id)
+    last_app = (last or {}).get("application") or last_app
     by = (last or {}).get("by") or ""
     at = (last or {}).get("at") or ""
     # Attribute the earlier capture. A bare "the set differs" reads as "you
@@ -553,9 +640,19 @@ def check_update_set_for_push(
     # for a mistake they never made.
     who = f" by {by}" if by else ""
     when = f" on {at}" if at else ""
+
+    a, b = current_name.strip().lower(), last_name.strip().lower()
+    collides = bool(a) and a == b
+
+    # How to switch back. With two sets sharing a name, a name cannot say which
+    # one — recommending it would send the caller into an ambiguity error, or
+    # worse, into the other set.
+    switch_by = f"update_set_id='{last_id}'" if collides else f"update_set_name='{last_name}'"
     out = {
         "current_update_set": current_name,
+        "current_update_set_id": current_id,
         "last_worked_update_set": last_name,
+        "last_worked_update_set_id": last_id,
         "last_worked_by": by,
         "last_worked_at": at,
         "confirm": (
@@ -563,14 +660,28 @@ def check_update_set_for_push(
             f"session's set is '{current_name}'. Nothing was created or switched — this is a "
             f"read of where the two captures land. If that earlier capture was someone else's "
             f"session or an intentional new feature set, push as-is. Otherwise switch with "
-            f"manage_session_context(action='set_update_set', update_set_name='{last_name}') "
+            f"manage_session_context(action='set_update_set', {switch_by}) "
             f"and re-SAVE, so one logical change is not split across two sets."
         ),
     }
-    # Near-identical names (a suffixed variant) read as one set, so a split into
-    # two is easy to miss exactly where it matters most.
-    a, b = current_name.strip().lower(), last_name.strip().lower()
-    if a and b and (a.startswith(b) or b.startswith(a)):
+    if current_app:
+        out["current_update_set_application"] = current_app
+    if last_app:
+        out["last_worked_update_set_application"] = last_app
+
+    if collides:
+        # The nastiest shape: two sets, one name. Everything that identifies a
+        # set by name — this confirmation, the picker label, a human reading a
+        # release note — points at both, so the sys_id has to lead.
+        apps = f" ('{current_app}' vs '{last_app}')" if current_app and last_app else ""
+        out["note"] = (
+            f"Two DIFFERENT in-progress update sets are both named '{current_name}'{apps} — "
+            f"current is {current_id}, the earlier capture went to {last_id}. Identify them by "
+            f"sys_id, not by name: update_set_name='{current_name}' cannot pick one."
+        )
+    elif a and b and (a.startswith(b) or b.startswith(a)):
+        # Near-identical names (a suffixed variant) read as one set, so a split
+        # into two is easy to miss exactly where it matters most.
         out["note"] = (
             f"'{current_name}' and '{last_name}' are two DIFFERENT update sets whose names "
             f"only differ by a suffix — promoting one will not carry the other."
