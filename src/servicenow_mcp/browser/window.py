@@ -62,6 +62,11 @@ class WindowState:
     instance_url: str
     started_at: float
     executable_path: str = ""
+    # When a tool last attached. Defaults to ``started_at`` on read, so a state
+    # file written before this field existed reads as "untouched since launch"
+    # rather than as "idle since 1970" — the difference decides whether the
+    # reaper may close it.
+    last_used_at: float = 0.0
 
     @property
     def cdp_endpoint(self) -> str:
@@ -79,18 +84,25 @@ class WindowState:
             "instance_url": self.instance_url,
             "started_at": self.started_at,
             "executable_path": self.executable_path,
+            "last_used_at": self.last_used_at,
         }
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> Optional["WindowState"]:
         try:
+            started_at = float(raw.get("started_at", 0.0))
+            # Absent, not falsy: a state file written before this field existed
+            # falls back to the launch time, while one that genuinely recorded
+            # 0.0 round-trips unchanged.
+            raw_last = raw.get("last_used_at")
             return cls(
                 pid=int(raw["pid"]),
                 port=int(raw["port"]),
                 profile_dir=str(raw["profile_dir"]),
                 instance_url=str(raw.get("instance_url", "")),
-                started_at=float(raw.get("started_at", 0.0)),
+                started_at=started_at,
                 executable_path=str(raw.get("executable_path", "")),
+                last_used_at=(float(raw_last) if raw_last is not None else started_at),
             )
         except (KeyError, TypeError, ValueError) as exc:
             logger.debug("Ignoring malformed debug-window state: %s", exc)
@@ -134,13 +146,61 @@ def _instance_suffix(auth_manager: Any) -> str:
     return host.replace(".", "_")
 
 
-def _window_key(auth_manager: Any) -> str:
-    """Identity of one window: which configured instance+user opened it.
+def _window_account(auth_manager: Any) -> str:
+    """The account this window will sign itself in as, or "".
 
-    Note this keys the *config*, not the person signed into the window — the
-    window has its own session and may well be impersonating someone else.
+    Same source and same order as ``login.saved_credentials`` — the window's
+    identity is whoever it logs in as, so the key must be read from where the
+    login reads it. Two config shapes are accepted because the auth layer holds
+    an ``AuthConfig`` while the tool layer holds a ``ServerConfig`` wrapping one.
     """
-    return _instance_suffix(auth_manager)
+    config = getattr(auth_manager, "config", None)
+    if config is None:
+        return ""
+    root = getattr(config, "auth", None) or config
+    for holder in ("browser", "basic"):
+        section = getattr(root, holder, None)
+        username = getattr(section, "username", None)
+        if username:
+            return str(username)
+    return ""
+
+
+def _window_key(auth_manager: Any) -> str:
+    """Identity of one window: the instance host plus the account it signs in as.
+
+    Deliberately NOT ``_get_instance_user_suffix``. That helper keys SESSION and
+    PROFILE files, and for those the profile label is rightly the identity unit
+    (issue #64) — but it also means the key format flips shape depending on
+    whether a label is declared: ``{profile}_{host}`` with one, ``{host}_{user}``
+    without. Two configs pointed at the same instance as the same person then
+    produce two different keys, so neither finds the other's window and a second
+    one opens. That is a duplicate, not a second session.
+
+    What actually has to stay separate is a SESSION, and a ServiceNow session is
+    a cookie jar: one per host per account. So that is what is keyed here, and a
+    profile label — a naming convenience in someone's config — cannot split it.
+    Impersonation is unaffected: it re-points a session at another user, so two
+    people at once still needs two windows, which host+account still gives.
+
+    Falls back to the suffix helper only when there is no host to key on, which
+    in practice means an unconfigured instance URL.
+    """
+    try:
+        raw_url = str(getattr(auth_manager, "instance_url", "") or "")
+        host = (urlparse(raw_url).hostname or "").lower()
+    except (TypeError, ValueError) as exc:
+        logger.debug("Falling back to the suffix helper for the window key: %s", exc)
+        host = ""
+    if not host:
+        return _instance_suffix(auth_manager)
+    key = host.replace(".", "_")
+    account = _window_account(auth_manager)
+    if account:
+        # `@` before `.` so alice@corp.com and alice.corp.com stay distinct —
+        # the same ordering the auth layer's suffix uses, for the same reason.
+        key += f"_{account.replace('@', '_at_').replace('.', '_')}"
+    return key
 
 
 def window_state_path(auth_manager: Any) -> str:
@@ -233,6 +293,25 @@ def write_window_state(auth_manager: Any, state: WindowState) -> None:
     with open(tmp_path, "w", encoding="utf-8") as handle:
         json.dump(state.to_dict(), handle)
     os.replace(tmp_path, path)
+
+
+def touch_window(auth_manager: Any, state: WindowState) -> WindowState:
+    """Record that a tool just attached, and return the updated state.
+
+    This is the model's half of "is anyone using this window?" — the human's
+    half is recorded in the page by the probe. Best-effort: failing to write a
+    timestamp must never fail the operation that was being performed. The cost
+    of a lost stamp is bounded and one-directional — the window looks idler than
+    it is, and the reaper's other conditions still have to agree before anything
+    closes.
+    """
+    stamped = replace_state(state, last_used_at=time.time())
+    try:
+        write_window_state(auth_manager, stamped)
+    except OSError as exc:  # pragma: no cover - best effort
+        logger.debug("Could not stamp the debug-window last-used time: %s", exc)
+        return state
+    return stamped
 
 
 def clear_window_state(auth_manager: Any) -> None:
@@ -369,13 +448,15 @@ def launch_window(
     deadline = time.time() + _PORT_READY_TIMEOUT_S
     while time.time() < deadline:
         if _cdp_responds(port):
+            now = time.time()
             state = WindowState(
                 pid=process.pid,
                 port=port,
                 profile_dir=profile_dir,
                 instance_url=str(getattr(auth_manager, "instance_url", "") or ""),
-                started_at=time.time(),
+                started_at=now,
                 executable_path=executable,
+                last_used_at=now,
             )
             write_window_state(auth_manager, state)
             return state
@@ -433,26 +514,36 @@ def _force_terminate(pid: int) -> None:
         logger.debug("Could not force-kill debug window pid %s: %s", pid, exc)
 
 
+def terminate_pid(pid: int) -> bool:
+    """Ask a window to exit, then insist. False when it was already gone.
+
+    Split out so the reaper closes windows exactly the way stop_window does —
+    graceful first, forced only after the grace period. A second closer with
+    its own kill policy is how one of them ends up SIGKILLing a browser that
+    was still flushing its profile to disk.
+    """
+    if not _is_pid_alive(pid):
+        return False
+
+    _terminate(pid)
+    deadline = time.time() + _STOP_GRACE_S
+    while time.time() < deadline:
+        if not _is_pid_alive(pid):
+            return True
+        time.sleep(_STOP_POLL_INTERVAL_S)
+
+    _force_terminate(pid)
+    return True
+
+
 def stop_window(auth_manager: Any, *, state: Optional[WindowState] = None) -> bool:
     """Close the shared window. Returns True if a live window was stopped."""
     target = state or read_window_state(auth_manager)
     if target is None:
         return False
-    if not _is_pid_alive(target.pid):
-        clear_window_state(auth_manager)
-        return False
-
-    _terminate(target.pid)
-    deadline = time.time() + _STOP_GRACE_S
-    while time.time() < deadline:
-        if not _is_pid_alive(target.pid):
-            clear_window_state(auth_manager)
-            return True
-        time.sleep(_STOP_POLL_INTERVAL_S)
-
-    _force_terminate(target.pid)
+    stopped = terminate_pid(target.pid)
     clear_window_state(auth_manager)
-    return True
+    return stopped
 
 
 def find_window(auth_manager: Any) -> Optional[WindowState]:
@@ -464,7 +555,12 @@ def find_window(auth_manager: Any) -> Optional[WindowState]:
     stated purpose is opening a window may call :func:`ensure_window`.
     """
     state = read_window_state(auth_manager)
-    return state if is_window_alive(state) else None
+    if not is_window_alive(state):
+        return None
+    assert state is not None  # is_window_alive rejects None
+    # Reading IS using: an inspect every few minutes is a window in active use,
+    # and the reaper must see that as clearly as it sees an action.
+    return touch_window(auth_manager, state)
 
 
 def ensure_window(
@@ -485,14 +581,14 @@ def ensure_window(
     """
     existing = read_window_state(auth_manager)
     if is_window_alive(existing):
-        return existing, False  # type: ignore[return-value]
+        return touch_window(auth_manager, existing), False  # type: ignore[arg-type]
 
     with launch_claim(window_claim_path(auth_manager)) as claimed:
         # Re-read inside the claim: a peer may have opened one while we waited,
         # and reusing theirs is the whole point of the claim.
         current = read_window_state(auth_manager)
         if is_window_alive(current):
-            return current, False  # type: ignore[return-value]
+            return touch_window(auth_manager, current), False  # type: ignore[arg-type]
         if not claimed:
             raise RuntimeError(
                 "Another process finished opening the shared debug window but no live "
@@ -524,6 +620,8 @@ __all__ = [
     "read_window_state",
     "replace_state",
     "stop_window",
+    "terminate_pid",
+    "touch_window",
     "window_artifacts_dir",
     "window_claim_path",
     "window_cursor_path",

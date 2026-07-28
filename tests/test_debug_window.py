@@ -28,7 +28,7 @@ from servicenow_mcp.browser import (
 )
 from servicenow_mcp.browser.badge import badge_init_script, badge_label, hide_badge_script
 from servicenow_mcp.browser.capture import _instance_page
-from servicenow_mcp.browser.probe import PROBE_GLOBAL, PROBE_SCRIPT, drain_script
+from servicenow_mcp.browser.probe import PROBE_GLOBAL, PROBE_SCRIPT, drain_script, presence_script
 from servicenow_mcp.browser.session import describe_window_user
 from servicenow_mcp.policies import write_guards
 from servicenow_mcp.server import ServiceNowMCP
@@ -40,12 +40,27 @@ from servicenow_mcp.tools import browser_debug_tools as tools
 
 
 class FakeAuthManager:
-    """Only the two read-only helpers window.py borrows from the frozen class."""
+    """The read-only surface window.py borrows from the frozen class.
 
-    def __init__(self, cache_dir: str, suffix: str = "dev_example_com_alice"):
+    ``instance_url`` and ``config`` are real inputs, not decoration: the window
+    key is derived from them, so a double that hardcoded one URL would make two
+    different instances look like the same window.
+    """
+
+    def __init__(
+        self,
+        cache_dir: str,
+        suffix: str = "dev_example_com_alice",
+        instance_url: str = "https://dev.example.com",
+        username: str = "alice@example.com",
+    ):
         self._cache_dir = cache_dir
         self._suffix = suffix
-        self.instance_url = "https://dev.example.com"
+        self.instance_url = instance_url
+        self.config = SimpleNamespace(
+            browser=SimpleNamespace(username=username) if username else None,
+            basic=None,
+        )
 
     def _get_cache_dir(self) -> str:
         return self._cache_dir
@@ -408,12 +423,133 @@ def test_the_debug_profile_is_never_the_login_profile(auth):
 
 
 def test_two_instances_get_separate_windows(tmp_path):
-    dev = FakeAuthManager(str(tmp_path), "dev_example_com_alice")
-    test = FakeAuthManager(str(tmp_path), "test_example_com_alice")
+    dev = FakeAuthManager(str(tmp_path), "dev_example_com_alice", "https://dev.example.com")
+    test = FakeAuthManager(str(tmp_path), "test_example_com_alice", "https://test.example.com")
 
     assert window.window_state_path(dev) != window.window_state_path(test)
     assert window.window_profile_dir(dev) != window.window_profile_dir(test)
     assert window.window_artifacts_dir(dev) != window.window_artifacts_dir(test)
+
+
+def test_two_accounts_on_one_instance_get_separate_windows(tmp_path):
+    """A session is a cookie jar per account — impersonating two people needs two."""
+    alice = FakeAuthManager(str(tmp_path), "p_dev", "https://dev.example.com", "alice@example.com")
+    bob = FakeAuthManager(str(tmp_path), "p_dev", "https://dev.example.com", "bob@example.com")
+
+    assert window.window_state_path(alice) != window.window_state_path(bob)
+    assert window.window_profile_dir(alice) != window.window_profile_dir(bob)
+
+
+def test_a_profile_label_cannot_split_one_instance_into_two_windows(tmp_path):
+    """The bug this fixes: same host, same account, two configs, two windows.
+
+    ``_get_instance_user_suffix`` changes key SHAPE when a profile label exists
+    (``{profile}_{host}`` vs ``{host}_{user}``), so a labelled config and a bare
+    one pointed at the same instance as the same person never found each other's
+    window. Nothing about the window key may depend on that label.
+    """
+    labelled = FakeAuthManager(
+        str(tmp_path), "dev_dev_example_com", "https://dev.example.com", "alice@example.com"
+    )
+    bare = FakeAuthManager(
+        str(tmp_path),
+        "dev_example_com_alice_at_example_com",
+        "https://dev.example.com",
+        "alice@example.com",
+    )
+
+    assert labelled._get_instance_user_suffix() != bare._get_instance_user_suffix()
+    assert window.window_state_path(labelled) == window.window_state_path(bare)
+    assert window.window_profile_dir(labelled) == window.window_profile_dir(bare)
+    assert window.window_impersonation_path(labelled) == window.window_impersonation_path(bare)
+
+
+def test_the_window_key_survives_an_instance_url_it_cannot_parse(tmp_path):
+    """No host to key on falls back rather than raising — paths must never throw."""
+    broken = FakeAuthManager(str(tmp_path), "fallback_key", "", "alice@example.com")
+
+    assert "fallback_key" in window.window_state_path(broken)
+
+
+# ---------------------------------------------------------------------------
+# Last-attach stamp — the model's half of "is anyone using this?"
+# ---------------------------------------------------------------------------
+
+
+def test_touching_a_window_records_when_and_persists_it(auth):
+    state = window.WindowState(
+        pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=5.0
+    )
+    window.write_window_state(auth, state)
+
+    stamped = window.touch_window(auth, state)
+
+    assert stamped.last_used_at > state.started_at
+    assert window.read_window_state(auth).last_used_at == stamped.last_used_at
+
+
+def test_reading_a_window_counts_as_using_it(auth, monkeypatch):
+    """An inspect every few minutes is active use; the reaper must see it."""
+    state = window.WindowState(
+        pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=5.0
+    )
+    window.write_window_state(auth, state)
+    monkeypatch.setattr(window, "is_window_alive", lambda s: True)
+
+    found = window.find_window(auth)
+
+    assert found.last_used_at > state.started_at
+
+
+def test_a_state_file_written_before_the_stamp_existed_reads_as_untouched_since_launch(auth):
+    """Legacy files must not read as idle since 1970 — that would reap them at once."""
+    path = window.window_state_path(auth)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "pid": 7,
+                "port": 8,
+                "profile_dir": "/tmp/p",
+                "instance_url": "https://dev.example.com",
+                "started_at": 4242.0,
+            },
+            handle,
+        )
+
+    assert window.read_window_state(auth).last_used_at == 4242.0
+
+
+# ---------------------------------------------------------------------------
+# The probe's human-presence record
+# ---------------------------------------------------------------------------
+
+
+def test_only_trusted_events_stamp_human_presence():
+    assert "if (!e || !e.isTrusted) return;" in PROBE_SCRIPT
+    assert "lastHuman = Date.now();" in PROBE_SCRIPT
+
+
+def test_pointer_and_key_events_are_watched_for_presence():
+    """A person reading and clicking never types — input events alone would miss them."""
+    assert "['input', 'change', 'pointerdown', 'keydown']" in PROBE_SCRIPT
+
+
+def test_human_presence_survives_a_navigation():
+    """Clicking a link IS an interaction; losing it per document inverts the signal."""
+    assert "JSON.stringify({ events, seq, lastHuman })" in PROBE_SCRIPT
+    assert "lastHuman = parsed.lastHuman || 0;" in PROBE_SCRIPT
+
+
+def test_presence_reports_the_page_clock_alongside_the_stamp():
+    """Both readings come from one clock so the caller never compares across processes."""
+    assert "now: Date.now()," in PROBE_SCRIPT
+    assert "lastHuman: lastHuman," in PROBE_SCRIPT
+
+
+def test_presence_is_null_when_the_probe_cannot_answer():
+    """An old probe survives an upgrade, and must read as no-evidence, not as empty."""
+    assert "(p && p.presence) ? p.presence() : null" in presence_script()
 
 
 def test_window_state_round_trips_through_disk(auth):

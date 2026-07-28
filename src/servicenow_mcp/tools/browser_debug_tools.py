@@ -62,6 +62,7 @@ from ..browser.launch_budget import LaunchBudgetExceeded, budget_status
 from ..browser.login import auto_login
 from ..browser.login import describe as describe_login
 from ..browser.login import saved_credentials
+from ..browser.reaper import reap_idle_windows
 from ..browser.report import compact
 from ..browser.session import api_username, describe_window_user
 from ..browser.window import (
@@ -249,6 +250,19 @@ def open_debug_window(
 ) -> Dict[str, Any]:
     target_url = _resolve_url(config, params.url)
 
+    # Before the population grows, retire whatever is provably unused. Never
+    # fatal: an unusable reaper must not stand between the user and a window.
+    try:
+        retired = reap_idle_windows(auth_manager)
+    except Exception as exc:  # noqa: BLE001 - housekeeping, not the job
+        logger.debug("Could not reap idle debug windows: %s", exc)
+        retired = []
+
+    # Reported on EVERY path, including the failures: a window that vanished
+    # from the user's screen has to be accounted for even when the call that
+    # retired it then went on to fail.
+    housekeeping: Dict[str, Any] = {"closed_idle_windows": retired} if retired else {}
+
     try:
         state, opened = ensure_window(
             auth_manager,
@@ -256,18 +270,19 @@ def open_debug_window(
             viewport=(max(320, params.width), max(240, params.height)),
         )
     except (LaunchBudgetExceeded, LaunchBusy) as exc:
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": str(exc), **housekeeping}
     except PlaywrightUnavailable as exc:
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": str(exc), **housekeeping}
     except (RuntimeError, TimeoutError, OSError) as exc:
         logger.warning("Could not open the debug window: %s", exc)
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": str(exc), **housekeeping}
 
     result: Dict[str, Any] = {
         "success": True,
         "opened": opened,
         "reused": not opened,
         **_window_identity(state, config),
+        **housekeeping,
     }
 
     # The badge shows the PROFILE and the account, not the address — the
