@@ -1089,6 +1089,7 @@ class TestGetSessionCachePath:
         assert "inst_service-now_com" in path
         assert "alice_at_corp_com" in path
 
+    @pytest.mark.real_cache_dir
     def test_legacy_cache_dir_is_migrated_on_first_access(self, tmp_path):
         # Users on v1.12.4-v1.12.6 keep sessions under ``~/.servicenow_mcp/``.
         # The rename to ``~/.mfa_servicenow_mcp/`` (v1.12.7+) must move the
@@ -1106,6 +1107,7 @@ class TestGetSessionCachePath:
         assert (tmp_path / ".mfa_servicenow_mcp" / "session_x.json").exists()
         assert not legacy.exists()
 
+    @pytest.mark.real_cache_dir
     def test_migration_skipped_when_new_dir_already_exists(self, tmp_path):
         # If the user already has the new directory (e.g. they re-installed
         # cleanly), do NOT clobber it with legacy data.

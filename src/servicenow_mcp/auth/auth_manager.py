@@ -104,6 +104,26 @@ _SELF_HEAL_CIRCUIT_THRESHOLD = 3
 # least this many seconds must elapse between successive login attempts.
 _MIN_LOGIN_INTERVAL_SECONDS = 60.0
 
+# How often a proven-alive session may push its slid TTL out to the session
+# JSON. The slide itself is free (an in-memory float); the write is not —
+# siblings poll this file by mtime, so persisting on every 200 would have
+# every host in the group re-stat and re-read it dozens of times a minute.
+# Anything well under the TTL keeps the on-disk expiry honest enough that a
+# restarted process reads a live session as live, which is the entire point.
+_SESSION_DISK_SLIDE_INTERVAL_SECONDS = 60.0
+
+# The cookies whose ABSENCE explains a rejected restore. Logging what we sent
+# says nothing on its own: a jar holding four pre-auth cookies and a jar that
+# lost its session mid-flight look the same in that list. Which of these three
+# is gone separates "the server ended the session" from "the profile aged out
+# and the next login will have to ask for MFA" — and answering that from the
+# log is the difference between one grep and an afternoon in a cookie DB.
+_SESSION_MARKER_COOKIE_NAMES: tuple[str, ...] = (
+    "glide_session_store",
+    "glide_user_activity",
+    "glide_mfa_remembered_browser",
+)
+
 # v1.12.1: throttle interval for the circuit-breaker escape probe.
 # When the self-heal circuit is open, BEFORE refusing the next call we
 # attempt one cheap session probe to /sys_user_preference. If the session
@@ -266,6 +286,9 @@ class AuthManager:
         # (rotated g_ck, fresh re-auth) so we can adopt the update before
         # firing a request with our now-stale in-memory token.
         self._session_disk_mtime_ns: int = 0
+        # Last time a proven-alive response pushed the slid TTL out to disk.
+        # See _mark_browser_session_recently_valid for why this is throttled.
+        self._session_disk_slide_at: float = 0.0
         # v1.18.45: background server-session keep-alive (see _keepalive.py).
         # Started lazily from _mark_browser_session_recently_valid; never
         # opens a browser.
@@ -1021,10 +1044,18 @@ class AuthManager:
         logger.warning("Timed out waiting for other terminal to complete login.")
         return False
 
-    def _save_session_to_disk(self) -> None:
+    def _save_session_to_disk(self, *, refresh_only: bool = False) -> None:
         """Save the current browser session to disk.
 
         Skips the write if the serialized content matches the last saved hash.
+
+        ``refresh_only`` is for writes whose whole point is the timestamps:
+        the content hash below covers the cookie triple ONLY, so a TTL slide
+        with unchanged cookies hashes identical and would be skipped — which
+        is exactly how the on-disk ``expires_at`` came to sit frozen at
+        login time while the session stayed alive for hours. Such a write
+        also logs at debug: it happens on a timer, and at info it would bury
+        the handful of session events that actually mean something.
         """
         if self.config.type != AuthType.BROWSER or not self._browser_cookie_header:
             return
@@ -1046,7 +1077,7 @@ class AuthManager:
         }
         # Quick content-hash check to skip redundant writes
         content_hash = hash((data["cookie_header"], data["user_agent"], data["session_token"]))
-        if content_hash == self._session_disk_hash:
+        if content_hash == self._session_disk_hash and not refresh_only:
             return
         # Write to a private temp file, then os.replace() it into place. The
         # replace is atomic on POSIX and Windows, which matters because siblings
@@ -1074,7 +1105,10 @@ class AuthManager:
                 self._session_disk_mtime_ns = os.stat(self._session_cache_path).st_mtime_ns
             except OSError:
                 pass
-            logger.info("Browser session saved to disk: %s", self._session_cache_path)
+            if refresh_only:
+                logger.debug("Browser session TTL refreshed on disk: %s", self._session_cache_path)
+            else:
+                logger.info("Browser session saved to disk: %s", self._session_cache_path)
         except Exception as exc:
             logger.warning("Failed to save browser session to disk: %s", exc)
             # A failed write must not leave a 0600 credential fragment behind.
@@ -1256,6 +1290,13 @@ class AuthManager:
                     "Disk session TTL expired. Probing server to check if session is still valid..."
                 )
                 self._browser_user_agent = data.get("user_agent")
+                # Only a probe that came BACK and denied the session may delete
+                # the cache. A probe that never got an answer — laptop just woke,
+                # VPN not up yet, DNS blip — proves nothing about the server, and
+                # deleting on it threw away sessions that were fine and charged
+                # the user an MFA login for a network hiccup. Keeping the file
+                # costs one probe on the next spawn; deleting it costs a login.
+                denied = False
                 try:
                     if self.config.browser:
                         probe = self._probe_browser_api_with_cookie(
@@ -1276,13 +1317,25 @@ class AuthManager:
                                 self.config.browser.session_ttl_minutes or 30,
                             )
                             return
+                        denied = True
                         logger.info(
                             "Disk session expired probe returned login redirect (status=%s) — "
                             "discarding cached session and requiring fresh login.",
                             probe.status_code,
                         )
+                    else:
+                        logger.debug(
+                            "Disk session TTL expired but there is no browser config to "
+                            "probe with — keeping the cache for the next spawn."
+                        )
                 except Exception as exc:
-                    logger.debug("Disk session probe failed: %s", exc)
+                    logger.info(
+                        "Disk session probe did not complete (%s) — keeping the cached "
+                        "session; the server never said it was invalid.",
+                        exc,
+                    )
+                if not denied:
+                    return
                 logger.info("Disk session expired and server confirmed invalid.")
                 # Remove the dead cache so we don't probe-and-discard on every
                 # spawn. A fresh login will write a new file.
@@ -1980,6 +2033,15 @@ class AuthManager:
         the next request 401s and the normal self-heal re-login runs — so this
         never keeps a genuinely-dead session alive, it only stops us giving up
         on a live one early.
+
+        The slide is also PERSISTED, on a throttle. Until then it lived only
+        in memory, so the session JSON kept ``expires_at = login + TTL`` no
+        matter how long the session went on being used — a host that had been
+        working happily for hours still wrote a file that read as expired.
+        Every restart (and the MCP is restarted often) then re-probed a
+        session it had just proven alive, and a probe that failed for any
+        reason deleted the file and cost the user a full MFA login. Writing
+        the proven-alive horizon down is what makes a restart free.
         """
         now = time.time()
         self._browser_last_validated_at = now
@@ -1987,6 +2049,14 @@ class AuthManager:
         if self._browser_cookie_expires_at is not None and self.config.browser:
             ttl_seconds = (self.config.browser.session_ttl_minutes or 30) * 60
             self._browser_cookie_expires_at = now + ttl_seconds
+        if now - self._session_disk_slide_at >= _SESSION_DISK_SLIDE_INTERVAL_SECONDS:
+            # Stamp before the write, not after: a raising write must not turn
+            # into a retry on the very next response.
+            self._session_disk_slide_at = now
+            try:
+                self._save_session_to_disk(refresh_only=True)
+            except Exception as exc:  # noqa: BLE001 — a live session outranks its cache
+                logger.debug("Failed to persist slid session TTL: %s", exc)
         # v1.18.45: real request successes feed the keep-alive idle horizon
         # and lazily start the ping thread. Keepalive's own pings pass
         # from_keepalive=True so they slide the TTL without refreshing the
@@ -2308,10 +2378,14 @@ class AuthManager:
                 "Browser session restore probe rejected cached cookies: status=%s",
                 probe.status_code,
             )
+            present = set(_extract_cookie_names(cookie_header))
             self._auth_event(
                 "profile.restore.rejected",
                 logout_redirect=went_to_logout,
                 attempted_cookies=_format_cookie_values_for_log(cookie_header),
+                missing_markers=(
+                    ",".join(n for n in _SESSION_MARKER_COOKIE_NAMES if n not in present) or "-"
+                ),
                 **{f"resp_{k}": v for k, v in _format_response_diagnostic(probe).items()},
             )
             return False
@@ -2553,10 +2627,21 @@ class AuthManager:
                     logger.error("Cannot fall back to a visible login: %s", no_display)
                     raise ValueError(no_display) from exc
                 if mfa_required:
+                    # Say WHICH of the two it was. The gate bails on a missing
+                    # remembered-browser cookie without ever firing login.do —
+                    # milliseconds in, nothing asked, nothing answered — and
+                    # the server presenting a real challenge is a different
+                    # event with a different fix. One message for both read as
+                    # "the server wants MFA" in either case.
                     logger.info(
-                        "Headless login attempt detected MFA requirement "
-                        "(no remembered cookie or MFA prompt) — opening visible "
-                        "browser for interactive MFA/SSO."
+                        "Headless login attempt cannot proceed (%s) — opening visible "
+                        "browser for interactive MFA/SSO.",
+                        (
+                            "persistent profile has no valid remembered-browser cookie, "
+                            "so MFA is certain; login.do was not fired"
+                            if "no valid glide_mfa_remembered_browser" in error_text
+                            else "the server presented an MFA/TOTP challenge"
+                        ),
                     )
                 else:
                     logger.info(
@@ -2591,17 +2676,29 @@ class AuthManager:
         cookie wherever it lives in the jar (covers the ``.service-now.com``
         and bare-host duplicates ServiceNow sometimes ships).
 
-        Returns the number of cookie names successfully cleared.
+        Returns the number of cookies actually removed. Counting the loop
+        instead — which is what this did until the count was needed — reports
+        ``len(cookie_names)`` every single time, because ``clear_cookies`` on
+        a name the jar does not hold is a silent no-op, not an error. Two
+        identical ``cleared=9`` lines in a row is what a profile that had
+        nothing to purge looked like, and it hid exactly the fact one wants
+        from this log: whether the remembered-browser cookie was there.
         """
         full_purge = self._needs_full_profile_purge
         cookie_names: tuple[str, ...] = _STALE_PROFILE_COOKIE_NAMES
         if full_purge:
             cookie_names = cookie_names + ("glide_mfa_remembered_browser",)
-        cleared = 0
+        try:
+            before = {str(c.get("name", "")) for c in context.cookies()}
+        except Exception as exc:  # noqa: BLE001 — the purge matters, the tally does not
+            logger.debug("Could not read cookies before purge: %s (count will be nominal)", exc)
+            before = set(cookie_names)
+        removed: list[str] = []
         for cookie_name in cookie_names:
             try:
                 context.clear_cookies(name=cookie_name)
-                cleared += 1
+                if cookie_name in before:
+                    removed.append(cookie_name)
             except Exception as exc:  # noqa: BLE001
                 logger.debug(
                     "clear_cookies(name=%s) raised: %s (ignored)",
@@ -2612,16 +2709,18 @@ class AuthManager:
         # routine invalidation. v1.11.46.
         self._needs_full_profile_purge = False
         logger.info(
-            "Purged stale session cookies from persistent profile: " "host=%s cleared=%s (%s).",
+            "Purged stale session cookies from persistent profile: "
+            "host=%s cleared=%s names=%s (%s).",
             instance_host,
-            cleared,
+            len(removed),
+            ",".join(removed) or "<none present>",
             (
                 "full purge — mfa_remembered dropped, next login will force MFA"
                 if full_purge
                 else "mfa-remembered preserved — MFA prompt skipped if cookie still valid server-side"
             ),
         )
-        return cleared
+        return len(removed)
 
     def _try_profile_cookies_directly(self, browser_config: BrowserAuthConfig) -> bool:
         """v1.11.49: try the persistent profile's live cookies as a session,

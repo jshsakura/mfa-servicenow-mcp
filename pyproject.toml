@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.22.6"
+version = "1.22.7"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -125,6 +125,9 @@ markers = [
     # CI runs them in a separate, non-blocking `docs` job; regenerate with
     # `python scripts/regenerate_doc_counts.py` and resync mirrors.
     "docs: documentation/count consistency (non-blocking for deploy)",
+    # Opts out of the autouse auth-cache isolation in conftest. Only for tests
+    # that assert on where _get_cache_dir actually resolves to.
+    "real_cache_dir: exercises the real cache-dir resolver (see conftest)",
 ]
 
 [tool.coverage.run]
