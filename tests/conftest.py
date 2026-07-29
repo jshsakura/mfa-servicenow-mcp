@@ -53,6 +53,49 @@ def _isolate_write_journal(tmp_path, monkeypatch):
     monkeypatch.setattr(write_journal, "_journal_dir", lambda: tmp_path / "_write_journal")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_auth_cache(tmp_path, monkeypatch, request):
+    """Redirect the auth cache root — session JSON, login locks, Chromium
+    profiles — to a per-test dir.
+
+    Without this every AuthManager built in a test resolves the REAL
+    ``~/.mfa_servicenow_mcp/``, which costs three separate things:
+
+    - **Cross-test leakage.** A manager that saves a session leaves a file the
+      NEXT test's manager adopts through ``_maybe_adopt_sibling_session_update``
+      (a fresh manager starts at mtime 0, so any file on disk reads as a newer
+      sibling write). Tests then fail on the previous test's cookies, and only
+      in combination — each one passes alone, which is the worst way for a
+      suite to break.
+    - **Writes into the user's real state.** Fixture instances are fake, but
+      ``session_example_service-now_com.json`` lands beside the real ones.
+    - **Real browsers.** Anything that escapes its Playwright mocks launches
+      Chromium into a profile under this root and navigates to the fixture
+      URL — and ``example.service-now.com`` resolves, so that is a live page
+      load on someone else's instance from a unit test run.
+
+    Autouse, because the tests that need this are exactly the ones that would
+    not think to ask for it. Tests OF the resolver itself opt out with
+    ``@pytest.mark.real_cache_dir`` — they patch ``Path.home`` and assert on
+    what ``_get_cache_dir`` returns, so stubbing it would test the stub.
+    """
+    if request.node.get_closest_marker("real_cache_dir"):
+        return
+
+    real = AuthManager._get_cache_dir
+
+    def _cache_dir(self):
+        # Only the HOME-derived default is redirected. A test that configures
+        # user_data_dir is saying where the cache goes, and several assert on
+        # exactly that — swallowing the configured branch here would break them
+        # and, worse, would stop testing the resolver people actually override.
+        if self.config.browser and self.config.browser.user_data_dir:
+            return real(self)
+        return str(tmp_path / "_auth_cache")
+
+    monkeypatch.setattr(AuthManager, "_get_cache_dir", _cache_dir)
+
+
 # ---------------------------------------------------------------------------
 # Reusable fixtures
 # ---------------------------------------------------------------------------
