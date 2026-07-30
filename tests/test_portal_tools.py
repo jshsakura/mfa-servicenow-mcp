@@ -809,22 +809,56 @@ def test_download_portal_sources_persists_widget_dependency_graph(
     assert dep_graph == {"Quotation Widget": ["myStyles"]}
 
 
-@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
-def test_download_portal_sources_incremental_filters_by_sys_updated_on(
-    mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
-):
+def _seed_widget_anchor(scope_root, entries):
     import json
 
+    for name in entries:
+        (scope_root / "sp_widget" / name).mkdir(parents=True, exist_ok=True)
+    (scope_root / "sp_widget" / "_sync_meta.json").write_text(json.dumps(entries), encoding="utf-8")
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+def test_download_portal_sources_incremental_asks_the_server_not_a_max_watermark(
+    mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
+):
+    """A record whose own anchor lagged behind its siblings must still be fetched.
+
+    The old gate queried ``sys_updated_on >= max(local anchors)``. A widget whose
+    anchor never advanced (conflict / kept local edits / legacy tree) sits BELOW a
+    MAX that any freshly synced sibling has already pushed up, so the query never
+    returned it and the download reported nothing to fetch — forever, because a
+    max watermark only rises. The fetch set now comes from the server, per record.
+    """
     scope_root = tmp_path / "x_myapp"
-    sync_meta = scope_root / "sp_widget" / "_sync_meta.json"
-    sync_meta.parent.mkdir(parents=True, exist_ok=True)
-    sync_meta.write_text(
-        json.dumps({"old_widget": {"sys_id": "wid-0", "sys_updated_on": "2026-05-01 00:00:00"}}),
-        encoding="utf-8",
+    _seed_widget_anchor(
+        scope_root,
+        {
+            # Synced recently — this is what pushed the old MAX to 2026-07-01.
+            "fresh_widget": {
+                "sys_id": "wid-fresh",
+                "sys_updated_on": "2026-07-01 00:00:00",
+                "sys_mod_count": "9",
+            },
+            # Anchor lagged, and the server has since moved it.
+            "stale_widget": {
+                "sys_id": "wid-stale",
+                "sys_updated_on": "2026-05-01 00:00:00",
+                "sys_mod_count": "3",
+            },
+        },
     )
 
-    # widget query (incremental), then M2M, then provider-delta query
-    mock_sn_query_all.side_effect = [[], [], []]
+    mock_sn_query_all.side_effect = [
+        # 1. ledger: the live stamps for every widget in scope, no bodies
+        [
+            {"sys_id": "wid-fresh", "sys_updated_on": "2026-07-01 00:00:00", "sys_mod_count": "9"},
+            # Moved since ITS anchor, but older than the old MAX watermark.
+            {"sys_id": "wid-stale", "sys_updated_on": "2026-06-15 00:00:00", "sys_mod_count": "5"},
+        ],
+        [],  # 2. widget bodies for the stale set
+        [],  # 3. M2M
+        [],  # 4. provider ledger
+    ]
 
     result = download_portal_sources(
         mock_config,
@@ -840,10 +874,107 @@ def test_download_portal_sources_incremental_filters_by_sys_updated_on(
 
     assert result["success"] is True
     assert result["incremental"] is True
-    widget_query = mock_sn_query_all.call_args_list[0].kwargs["query"]
-    assert "sys_updated_on>=2026-05-01 00:00:00" in widget_query
-    assert "sys_scope.scope=x_myapp" in widget_query
+
+    ledger_call = mock_sn_query_all.call_args_list[0].kwargs
+    # The ledger is scoped but NOT watermark-filtered — that filter is what hid
+    # the lagging record. It reads stamps only, never bodies.
+    assert ledger_call["query"] == "sys_scope.scope=x_myapp"
+    assert "sys_updated_on>=" not in ledger_call["query"]
+    assert ledger_call["fields"] == "sys_id,sys_updated_on,sys_mod_count"
+
+    body_query = mock_sn_query_all.call_args_list[1].kwargs["query"]
+    assert body_query == "sys_idINwid-stale"  # fetched, not skipped
     assert any("incremental" in w for w in result["warnings"])
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+def test_download_portal_sources_incremental_fetches_nothing_when_server_matches_anchors(
+    mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
+):
+    """ "Nothing to fetch" must be the server's answer, not a local assumption."""
+    scope_root = tmp_path / "x_myapp"
+    _seed_widget_anchor(
+        scope_root,
+        {
+            "w1": {
+                "sys_id": "wid-1",
+                "sys_updated_on": "2026-07-01 00:00:00",
+                "sys_mod_count": "9",
+            }
+        },
+    )
+
+    mock_sn_query_all.side_effect = [
+        [{"sys_id": "wid-1", "sys_updated_on": "2026-07-01 00:00:00", "sys_mod_count": "9"}],
+        [],  # M2M
+        [],  # provider ledger
+    ]
+
+    result = download_portal_sources(
+        mock_config,
+        mock_auth_manager,
+        DownloadPortalSourcesParams(
+            output_dir=str(scope_root),
+            scope="x_myapp",
+            include_linked_script_includes=False,
+            include_linked_angular_providers=True,
+            incremental=True,
+        ),
+    )
+
+    assert result["success"] is True
+    # The widget table is touched exactly once — the stamps-only ledger. No body
+    # query, and no widening back into a full-scope fetch.
+    widget_calls = [
+        c.kwargs for c in mock_sn_query_all.call_args_list if c.kwargs.get("table") == "sp_widget"
+    ]
+    assert len(widget_calls) == 1
+    assert widget_calls[0]["fields"] == "sys_id,sys_updated_on,sys_mod_count"
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+def test_download_portal_sources_incremental_refetches_when_local_folder_is_gone(
+    mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
+):
+    """An anchor whose files were deleted is not evidence that the copy is current."""
+    import json
+
+    scope_root = tmp_path / "x_myapp"
+    (scope_root / "sp_widget").mkdir(parents=True, exist_ok=True)
+    # Anchor recorded, folder never created (or deleted by hand).
+    (scope_root / "sp_widget" / "_sync_meta.json").write_text(
+        json.dumps(
+            {
+                "w1": {
+                    "sys_id": "wid-1",
+                    "sys_updated_on": "2026-07-01 00:00:00",
+                    "sys_mod_count": "9",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    mock_sn_query_all.side_effect = [
+        [{"sys_id": "wid-1", "sys_updated_on": "2026-07-01 00:00:00", "sys_mod_count": "9"}],
+        [],  # widget bodies
+        [],  # M2M
+        [],  # provider ledger
+    ]
+
+    download_portal_sources(
+        mock_config,
+        mock_auth_manager,
+        DownloadPortalSourcesParams(
+            output_dir=str(scope_root),
+            scope="x_myapp",
+            include_linked_script_includes=False,
+            include_linked_angular_providers=True,
+            incremental=True,
+        ),
+    )
+
+    assert mock_sn_query_all.call_args_list[1].kwargs["query"] == "sys_idINwid-1"
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query_all")

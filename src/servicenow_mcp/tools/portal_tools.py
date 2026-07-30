@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
 from ..utils.config import ServerConfig
-from ..utils.download_map import map_sys_ids, max_sync_updated_on, merge_map_file, read_download_map
+from ..utils.download_map import map_sys_ids, merge_map_file, read_download_map, stale_sys_ids
 from ..utils.progress import emit_progress
 from ..utils.registry import register_tool
 from ..utils.source_layout import FIELD_FILENAME, field_filename, normalize_source_eol
@@ -829,6 +829,14 @@ def _chunked(values: List[str], size: int) -> List[List[str]]:
     if size <= 0:
         return [values]
     return [values[i : i + size] for i in range(0, len(values), size)]
+
+
+# sys_ids per body query when a remote-first incremental narrowed the fetch set.
+# Bounded so the encoded sys_idIN clause stays well inside URL length limits.
+_INCREMENTAL_ID_CHUNK = 50
+# Rows the angular-provider change ledger will read before it is declared
+# truncated (and said so out loud — see the INCOMPLETE CHANGE LIST warning).
+_PROVIDER_LEDGER_CAP = 1000
 
 
 def _parallel_chunked_query(
@@ -3406,13 +3414,47 @@ def download_portal_sources(
     widget_base_query = ""
     if params.scope:
         widget_base_query = f"sys_scope.scope={_escape_query(params.scope)}"
-    # Incremental (full-scope only): pull just records changed since last sync.
+    # Incremental (full-scope only): pull just the records the SERVER reports as
+    # moved. Remote-first and per record — a max(sys_updated_on) watermark could
+    # not see a widget whose own anchor had lagged behind its siblings, so the
+    # fetch quietly excluded it and the download reported nothing to get
+    # (download_map.stale_sys_ids). Ledger read is sys_id + stamps, no bodies.
     incremental_active = params.incremental and not targeted_widget_export
+    widget_id_chunks: Optional[List[List[str]]] = None
     if incremental_active:
-        widget_watermark = max_sync_updated_on(scope_root / "sp_widget" / "_sync_meta.json")
-        if widget_watermark:
-            clause = f"sys_updated_on>={_escape_query(widget_watermark)}"
-            widget_base_query = f"{widget_base_query}^{clause}" if widget_base_query else clause
+        widget_ledger = _sn_query_all(
+            config,
+            auth_manager,
+            table=WIDGET_TABLE,
+            query=widget_base_query,
+            fields="sys_id,sys_updated_on,sys_mod_count",
+            page_size=params.page_size,
+            max_records=max_widgets,
+            fail_silently=True,
+        )
+        # A truncated ledger would report the widgets past the cap as up to date.
+        # A change list that silently drops entries makes every verdict built on
+        # it worthless, so this is stated, not swallowed.
+        if len(widget_ledger) >= max_widgets:
+            warnings.append(
+                f"INCOMPLETE CHANGE LIST — the widget change ledger hit the max_widgets cap "
+                f"({max_widgets}), so widgets beyond it were NOT checked for changes and may "
+                f"be stale on disk. Re-run with a higher max_widgets."
+            )
+        # No ledger => the probe told us nothing; fall through to the full query.
+        # Over-fetching costs a round trip, missing a changed widget costs correctness.
+        if widget_ledger:
+            widget_id_chunks = _chunked(
+                sorted(
+                    stale_sys_ids(
+                        scope_root / "sp_widget" / "_sync_meta.json",
+                        widget_ledger,
+                        record_root=scope_root / "sp_widget",
+                        name_to_folder=_safe_name,
+                    )
+                ),
+                _INCREMENTAL_ID_CHUNK,
+            )
     widget_fields = _download_widget_fields(
         include_widget_template=params.include_widget_template,
         include_widget_server_script=params.include_widget_server_script,
@@ -3434,6 +3476,23 @@ def download_portal_sources(
                 widget_fields=widget_fields,
                 page_size=params.page_size,
             )
+        elif widget_id_chunks is not None:
+            # `is not None`, not truthiness: an empty chunk list is the ledger
+            # saying "every widget matches its anchor", which must stay a no-op
+            # rather than widening back into a full-scope fetch.
+            for _id_chunk in widget_id_chunks:
+                widgets.extend(
+                    _sn_query_all(
+                        config,
+                        auth_manager,
+                        table=WIDGET_TABLE,
+                        query=f"sys_idIN{','.join(_id_chunk)}",
+                        fields=widget_fields,
+                        page_size=params.page_size,
+                        max_records=max_widgets,
+                        fail_silently=False,
+                    )
+                )
         else:
             widgets = _sn_query_all(
                 config,
@@ -3639,27 +3698,38 @@ def download_portal_sources(
                         edge.append(provider_id)
 
         # Incremental: catch providers whose script changed without a widget edit
-        # (M2M-by-widget can't see those). Independent watermark query on providers.
+        # (M2M-by-widget can't see those). Same remote-first ledger as widgets —
+        # each provider judged against its own anchor, not a shared max watermark.
         if incremental_active:
-            provider_watermark = max_sync_updated_on(
-                scope_root / "sp_angular_provider" / "_sync_meta.json"
+            provider_delta_query = (
+                f"sys_scope.scope={_escape_query(params.scope)}" if params.scope else ""
             )
-            if provider_watermark:
-                provider_delta_query = f"sys_updated_on>={_escape_query(provider_watermark)}"
-                if params.scope:
-                    provider_delta_query += f"^sys_scope.scope={_escape_query(params.scope)}"
-                for row in _sn_query_all(
-                    config,
-                    auth_manager,
-                    table=ANGULAR_PROVIDER_TABLE,
-                    query=provider_delta_query,
-                    fields="sys_id",
-                    page_size=params.page_size,
-                    max_records=1000,
-                ):
-                    pid = str(row.get("sys_id") or "")
-                    if pid and pid not in m2m_ids:
-                        m2m_ids.append(pid)
+            provider_ledger = _sn_query_all(
+                config,
+                auth_manager,
+                table=ANGULAR_PROVIDER_TABLE,
+                query=provider_delta_query,
+                fields="sys_id,sys_updated_on,sys_mod_count",
+                page_size=params.page_size,
+                max_records=_PROVIDER_LEDGER_CAP,
+                fail_silently=True,
+            )
+            if len(provider_ledger) >= _PROVIDER_LEDGER_CAP:
+                warnings.append(
+                    f"INCOMPLETE CHANGE LIST — the angular-provider change ledger hit its "
+                    f"{_PROVIDER_LEDGER_CAP}-record cap; providers beyond it were NOT checked "
+                    f"for changes and may be stale on disk."
+                )
+            for pid in sorted(
+                stale_sys_ids(
+                    scope_root / "sp_angular_provider" / "_sync_meta.json",
+                    provider_ledger,
+                    record_root=scope_root / "sp_angular_provider",
+                    name_to_folder=_safe_name,
+                )
+            ):
+                if pid not in m2m_ids:
+                    m2m_ids.append(pid)
 
         if m2m_ids:
             if emit_phases:

@@ -37,9 +37,9 @@ from servicenow_mcp.utils.atomic_io import atomic_write_text
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.download_map import (
     map_sys_ids,
-    max_sync_updated_on,
     merge_map_file,
     read_download_map,
+    stale_sys_ids,
 )
 from servicenow_mcp.utils.progress import emit_progress
 from servicenow_mcp.utils.registry import register_tool
@@ -2026,6 +2026,9 @@ def _collect_downloaded_names_multi(base: Path, table: str, id_field: str) -> Se
 _DOWNLOAD_MAX_WORKERS = 4
 _DEP_MAX_WORKERS = _DOWNLOAD_MAX_WORKERS  # max concurrent API calls during dep resolution
 _DEP_CHUNK_SIZE = 30  # names per API query chunk (smaller = safer under rate limits)
+# sys_ids per body query when a remote-first incremental narrowed the fetch set.
+# Bounded so the encoded sys_idIN clause stays well inside URL length limits.
+_INCREMENTAL_ID_CHUNK = 50
 
 # Markers that mean "no point retrying or fanning out more requests": the
 # session/account can't authenticate to the API. Re-auth either already failed
@@ -2546,9 +2549,10 @@ def _download_source_types(
         query_override: Per-source_type full query replacement (replaces sys_scope filter).
         skip_empty_source_retry: Source types whose blank source fields are valid and
             should not trigger per-record retry.
-        incremental: Only fetch records changed since last sync (sys_updated_on watermark
-            read from each family's _sync_meta.json). Disables the resume-skip so changed
-            records overwrite stale local files.
+        incremental: Only fetch records the SERVER reports as moved since last sync —
+            a per-record sys_mod_count/sys_updated_on comparison against each record's
+            own anchor in _sync_meta.json, never a single max watermark. Disables the
+            resume-skip so changed records overwrite stale local files.
         reconcile_deletions: Warn (no auto-delete) about records present locally but gone
             remotely, via a sys_id-only list query per family.
 
@@ -2613,32 +2617,86 @@ def _download_source_types(
         if source_type in extra_query:
             base_filters.append(extra_query[source_type])
 
-        # Incremental: only fetch records changed since the last sync. Watermark
-        # uses server-side sys_updated_on (no client clock skew). Empty watermark
-        # (first run / no _sync_meta) falls back to a full download.
-        watermark = max_sync_updated_on(type_dir / "_sync_meta.json") if incremental else ""
-        if watermark:
-            base_filters.append(f"sys_updated_on>={watermark}")
-
         if query_override and source_type in query_override:
             parts = [query_override[source_type]] + base_filters
         else:
             parts = [f"sys_scope.scope={scope}"] + base_filters
         query = "^".join(parts)
 
+        recon_query = (
+            query_override[source_type]
+            if (query_override and source_type in query_override)
+            else f"sys_scope.scope={scope}"
+        )
+
+        # Incremental is REMOTE-FIRST: read the server's ledger for this family
+        # (sys_id + stamps, no bodies) and let each record's own anchor decide
+        # whether its body is worth fetching. The old gate asked the server for
+        # `sys_updated_on >= max(local anchors)`, so a record whose anchor had
+        # lagged (conflict / kept local edits / legacy tree / deleted folder) sat
+        # below a MAX its siblings had already pushed up, and the query simply
+        # never returned it — the download said "0 changed" and meant it, while
+        # the local copy stayed stale forever. See download_map.stale_sys_ids.
+        ledger: List[Dict[str, Any]] = []
+        ledger_query = query if incremental else recon_query
+        if incremental or reconcile_deletions:
+            try:
+                ledger = sn_query_all(
+                    config,
+                    auth_manager,
+                    table=table,
+                    query=ledger_query,
+                    fields="sys_id,sys_updated_on,sys_mod_count",
+                    page_size=page_size,
+                    max_records=max_per_type,
+                    display_value=False,
+                    fail_silently=True,
+                    # Serial paging: types already fan out under the
+                    # _DOWNLOAD_MAX_WORKERS cap, so this worker must not
+                    # also borrow the shared page pool (would stack >cap).
+                    parallel=False,
+                )
+            except Exception as exc:  # ledger is an optimizer, never a blocker
+                warnings.append(f"{source_type}: change ledger read failed — {exc}")
+                ledger = []
+            # A truncated ledger is worse than no ledger: the records past the cap
+            # are invisible to it, so it would report them as up to date. Say so
+            # LOUDLY — a list that silently drops entries makes every verdict
+            # downstream worthless.
+            if len(ledger) >= max_per_type:
+                warnings.append(
+                    f"{source_type}: INCOMPLETE CHANGE LIST — the change ledger hit the "
+                    f"max_records_per_type cap ({max_per_type}), so records beyond it were "
+                    f"NOT checked for changes and may be stale on disk. Re-run with a higher "
+                    f"max_records_per_type."
+                )
+
+        # Which records to pull bodies for. Empty ledger under incremental =>
+        # the probe told us nothing, so fall back to the full query: over-fetching
+        # is recoverable, silently skipping a changed record is not.
+        id_chunks: Optional[List[List[str]]] = None
+        nothing_stale = False
+        if incremental and ledger:
+            stale = stale_sys_ids(type_dir / "_sync_meta.json", ledger, record_root=type_dir)
+            # Proven, not assumed: every record the server currently holds matches
+            # its own anchor. Reconcile still runs below — "nothing changed" and
+            # "nothing was deleted" are different questions.
+            nothing_stale = not stale
+            id_chunks = _chunked(sorted(stale), _INCREMENTAL_ID_CHUNK) if stale else []
+
         # Deletion reconcile (warn-only): records present locally but gone remotely.
         if reconcile_deletions:
             local_ids = map_sys_ids(type_dir / "_map.json")
             if local_ids:
-                recon_query = (
-                    query_override[source_type]
-                    if (query_override and source_type in query_override)
-                    else f"sys_scope.scope={scope}"
-                )
                 try:
-                    remote_ids = {
-                        str(r.get("sys_id") or "")
-                        for r in sn_query_all(
+                    # The ledger already read this family. Reuse it when it was
+                    # taken over the same record set; re-read only when the
+                    # download filters (active / extra query) narrowed it, since
+                    # a filtered-out record is not a deleted one.
+                    if ledger and ledger_query == recon_query:
+                        recon_rows: List[Dict[str, Any]] = ledger
+                    else:
+                        recon_rows = sn_query_all(
                             config,
                             auth_manager,
                             table=table,
@@ -2648,13 +2706,9 @@ def _download_source_types(
                             max_records=max_per_type,
                             display_value=False,
                             fail_silently=True,
-                            # Serial paging: types already fan out under the
-                            # _DOWNLOAD_MAX_WORKERS cap, so this worker must not
-                            # also borrow the shared page pool (would stack >cap).
                             parallel=False,
                         )
-                        if r.get("sys_id")
-                    }
+                    remote_ids = {str(r.get("sys_id") or "") for r in recon_rows if r.get("sys_id")}
                     gone = sorted(local_ids - remote_ids)
                     if gone:
                         deletion_candidates[source_type] = gone
@@ -2666,24 +2720,43 @@ def _download_source_types(
                 except Exception as exc:  # reconcile is best-effort, never fatal
                     warnings.append(f"{source_type}: reconcile check failed — {exc}")
 
+        if nothing_stale:
+            type_results[source_type] = {"count": 0, "up_to_date": len(ledger)}
+            return type_results, manifest_entries, warnings, deletion_candidates, total_files
+
         _last_exc: Optional[Exception] = None
         records: List[Dict[str, Any]] = []
+        # One body query, or one per sys_id chunk when the ledger narrowed the set.
+        # `is not None`, not truthiness: an empty chunk list means "the ledger
+        # answered and nothing is stale", which is handled above — it must never
+        # silently widen back into a full-scope fetch.
+        body_queries = (
+            [f"sys_idIN{','.join(chunk)}" for chunk in id_chunks]
+            if id_chunks is not None
+            else [query]
+        )
         try:
-            records = sn_query_all_with_retry(
-                config,
-                auth_manager,
-                table=table,
-                query=query,
-                fields=",".join(all_fields),
-                page_size=effective_page_size,
-                max_records=max_per_type,
-                display_value=False,
-                # Serial paging — see reconcile call above. Per-type workers
-                # run under the cap; the shared page pool stays unused here.
-                parallel=False,
-                # Module-local reference so test patches on this module apply.
-                query_all_fn=sn_query_all,
-            )
+            for body_query in body_queries:
+                remaining = max_per_type - len(records)
+                if remaining <= 0:
+                    break
+                records.extend(
+                    sn_query_all_with_retry(
+                        config,
+                        auth_manager,
+                        table=table,
+                        query=body_query,
+                        fields=",".join(all_fields),
+                        page_size=effective_page_size,
+                        max_records=remaining,
+                        display_value=False,
+                        # Serial paging — see reconcile call above. Per-type workers
+                        # run under the cap; the shared page pool stays unused here.
+                        parallel=False,
+                        # Module-local reference so test patches on this module apply.
+                        query_all_fn=sn_query_all,
+                    )
+                )
         except Exception as exc:
             _last_exc = exc
         if _last_exc is not None:
@@ -4070,8 +4143,9 @@ def download_app_sources(
         summary["deletion_candidates"] = all_deletion_candidates
     if params.incremental:
         all_warnings.append(
-            "incremental: only records with a newer sys_updated_on were fetched per family; "
-            "unchanged local files preserved. Run a full download periodically."
+            "incremental: each family's records were compared to the live server "
+            "per record (sys_mod_count/sys_updated_on vs its own anchor); only the "
+            "ones the server reports as moved were fetched."
         )
     if scope_resolution:
         summary["scope_resolution"] = scope_resolution

@@ -875,16 +875,44 @@ class TestDownloadSourceTypes:
         assert result["type_results"]["script_include"]["count"] == 1
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
-    def test_incremental_filters_by_watermark(self, mock_all, tmp_path):
+    def test_incremental_asks_the_server_not_a_max_watermark(self, mock_all, tmp_path):
+        """A record whose own anchor lagged must still be fetched.
+
+        The old gate queried ``sys_updated_on >= max(local anchors)``, so a record
+        sitting below a MAX its siblings had raised was excluded from the query
+        outright — the download reported 0 changed and meant it, forever.
+        """
         config = _build_config()
         auth_manager = MagicMock()
-        # Prior sync_meta establishes the watermark.
         meta_dir = tmp_path / "sys_script_include"
         meta_dir.mkdir(parents=True)
+        (meta_dir / "Fresh").mkdir()
+        (meta_dir / "Lagging").mkdir()
         (meta_dir / "_sync_meta.json").write_text(
-            json.dumps({"MyHelper": {"sys_id": "si-1", "sys_updated_on": "2026-01-01 00:00:00"}})
+            json.dumps(
+                {
+                    "Fresh": {
+                        "sys_id": "si-1",
+                        "sys_updated_on": "2026-07-01 00:00:00",
+                        "sys_mod_count": "9",
+                    },
+                    "Lagging": {
+                        "sys_id": "si-2",
+                        "sys_updated_on": "2026-01-01 00:00:00",
+                        "sys_mod_count": "3",
+                    },
+                }
+            )
         )
-        mock_all.return_value = []
+        mock_all.side_effect = [
+            # 1. ledger: live stamps for the whole family, no bodies
+            [
+                {"sys_id": "si-1", "sys_updated_on": "2026-07-01 00:00:00", "sys_mod_count": "9"},
+                # Moved since its own anchor, but older than the old MAX watermark.
+                {"sys_id": "si-2", "sys_updated_on": "2026-06-15 00:00:00", "sys_mod_count": "5"},
+            ],
+            [],  # 2. bodies for the stale set
+        ]
 
         _download_source_types(
             config,
@@ -895,9 +923,100 @@ class TestDownloadSourceTypes:
             root=tmp_path,
             incremental=True,
         )
-        query = mock_all.call_args.kwargs["query"]
-        assert "sys_updated_on>=2026-01-01 00:00:00" in query
-        assert "sys_scope.scope=x_app" in query
+
+        ledger_call = mock_all.call_args_list[0].kwargs
+        assert ledger_call["query"] == "sys_scope.scope=x_app"
+        assert "sys_updated_on>=" not in ledger_call["query"]
+        assert ledger_call["fields"] == "sys_id,sys_updated_on,sys_mod_count"
+        # The lagging record is fetched; the one matching its anchor is not.
+        assert mock_all.call_args_list[1].kwargs["query"] == "sys_idINsi-2"
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_incremental_fetches_no_bodies_when_server_matches_anchors(self, mock_all, tmp_path):
+        config = _build_config()
+        auth_manager = MagicMock()
+        meta_dir = tmp_path / "sys_script_include"
+        meta_dir.mkdir(parents=True)
+        (meta_dir / "MyHelper").mkdir()
+        (meta_dir / "_sync_meta.json").write_text(
+            json.dumps(
+                {
+                    "MyHelper": {
+                        "sys_id": "si-1",
+                        "sys_updated_on": "2026-07-01 00:00:00",
+                        "sys_mod_count": "9",
+                    }
+                }
+            )
+        )
+        mock_all.side_effect = [
+            [{"sys_id": "si-1", "sys_updated_on": "2026-07-01 00:00:00", "sys_mod_count": "9"}],
+        ]
+
+        result = _download_source_types(
+            config,
+            auth_manager,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=tmp_path,
+            root=tmp_path,
+            incremental=True,
+        )
+
+        # One call — the ledger. "Nothing to fetch" is the server's answer here,
+        # and an empty fetch set must not widen back into a full-scope download.
+        assert mock_all.call_count == 1
+        assert result["type_results"]["script_include"] == {"count": 0, "up_to_date": 1}
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_truncated_change_ledger_is_reported_not_swallowed(self, mock_all, tmp_path):
+        """A change list that drops entries makes every verdict built on it useless."""
+        config = _build_config()
+        auth_manager = MagicMock()
+        (tmp_path / "sys_script_include").mkdir(parents=True)
+        mock_all.side_effect = [
+            [{"sys_id": "si-1", "sys_updated_on": "2026-07-01", "sys_mod_count": "1"}],
+            [],
+        ]
+
+        result = _download_source_types(
+            config,
+            auth_manager,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=tmp_path,
+            root=tmp_path,
+            incremental=True,
+            max_per_type=1,  # ledger returns exactly the cap => truncated
+        )
+
+        assert any("INCOMPLETE CHANGE LIST" in w for w in result["warnings"])
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_incremental_falls_back_to_full_query_when_the_ledger_read_fails(
+        self, mock_all, tmp_path
+    ):
+        """Over-fetching is recoverable; silently skipping a changed record is not."""
+        config = _build_config()
+        auth_manager = MagicMock()
+        meta_dir = tmp_path / "sys_script_include"
+        meta_dir.mkdir(parents=True)
+        (meta_dir / "_sync_meta.json").write_text(
+            json.dumps({"MyHelper": {"sys_id": "si-1", "sys_updated_on": "2026-01-01 00:00:00"}})
+        )
+        mock_all.side_effect = [[], []]  # ledger came back empty/unusable
+
+        _download_source_types(
+            config,
+            auth_manager,
+            scope="x_app",
+            source_types=["script_include"],
+            scope_root=tmp_path,
+            root=tmp_path,
+            incremental=True,
+        )
+
+        assert mock_all.call_args_list[-1].kwargs["query"] == "sys_scope.scope=x_app"
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_incremental_overwrites_instead_of_resume(self, mock_all, tmp_path):

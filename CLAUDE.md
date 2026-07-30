@@ -50,7 +50,18 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
    per-component verdicts + line counts, zero source bodies in context.
    Cross-instance comparison → `compare_instances` (live, both sides).
 5. **Push back to ServiceNow** → `diff_local_component` → `update_remote_from_local`.
-6. **Re-download is live-anchored (`utils/sync_anchor.py`)**: drift decisions use
+6. **Incremental download is REMOTE-FIRST, per record** (`download_map.stale_sys_ids`).
+   Never gate the fetch on a local aggregate. It used to query
+   `sys_updated_on >= max(local anchors)`: a record whose own anchor had lagged
+   (conflict, kept local edits, legacy tree, folder deleted) sat below a MAX any
+   freshly-synced sibling had already raised, so the query never returned it —
+   the download truthfully reported "0 changed" while the local copy stayed
+   stale, forever, because a max watermark only rises. Now every download reads a
+   live ledger (`sys_id,sys_updated_on,sys_mod_count`, no bodies) and compares
+   each record to ITS OWN anchor. Fetch more rather than miss one: an unreadable
+   ledger falls back to a full download, and a ledger that hits its record cap
+   says `INCOMPLETE CHANGE LIST` instead of implying everything is current.
+7. **Re-download is live-anchored (`utils/sync_anchor.py`)**: drift decisions use
    the live `sys_mod_count` (authority) plus a per-field content sha recorded in
    `_sync_meta` — there is NO frozen `_baseline/` snapshot anymore. Locally edited
    files are never overwritten; a true conflict keeps your working file and writes
