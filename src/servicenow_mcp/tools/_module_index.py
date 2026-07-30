@@ -75,4 +75,5 @@ TOOL_MODULE_INDEX = {
     "submit_change_for_approval": "change_tools",
     "trace_portal_route_targets": "portal_tools",
     "update_remote_from_local": "sync_tools",
+    "verify_deployment_xml": "deploy_verify_tools",
 }

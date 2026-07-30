@@ -62,6 +62,38 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
 Standard download root: `temp/<instance>/<scope>/_manifest.json`. Treat its
 presence as "already fetched"; check `downloaded_at` for freshness.
 
+## Deployment XML (LLM must follow)
+
+An `<unload>` file is just text, so a hand-assembled one is indistinguishable
+from a real export by inspection. That is not hypothetical: a set of day-old
+XMLs was built from local copies, shipped as current, never imported, and
+recorded as deployed — and importing them would have reverted two other
+developers' same-day work. The push gate (`update_remote_from_local`) never
+applied, because that path was never taken.
+
+**NEVER hand-write or hand-edit a deploy XML.** The only legal source is
+`export_record_xml`, which reads the live `sys_update_version` and has no
+local-file path. It issues an origin certificate (`<file>.xml.meta.json`,
+`utils/deploy_ledger.py`) recording the source instance and each record's live
+version stamp — that certificate is what makes "came from the live server"
+provable rather than claimed.
+
+Sequence, all three steps:
+
+1. `export_record_xml` — build from live. Never assemble by hand.
+2. `verify_deployment_xml(mode='preflight')` — **before** import. Run it against
+   the SOURCE to test the file's freshness (`live_newer` = someone edited after
+   your export; the import would revert them, so re-export). Against the TARGET
+   it previews what the import changes. `deployable: false` means stop.
+3. Import, then `verify_deployment_xml(mode='postflight')` against the TARGET —
+   `not_applied` means it never landed. Do not record a deployment as done on
+   anything else. Confirmation is written into the certificate.
+
+An XML with no certificate returns `unanchored` and is refused before any
+network call; `allow_unanchored=true` is a deliberate second approval, not a
+default. Unconfirmed exports surface on `sn_health` under `deployments` — same
+reason as step 0 above: nobody has to remember to ask.
+
 ## TLS Impersonation (curl_cffi, default-ON)
 
 Default-ON is a deliberate policy: JA3-hardened instances silently reject stock
