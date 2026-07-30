@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 
-from servicenow_mcp.utils.download_map import merge_map_file
+from servicenow_mcp.utils.download_map import merge_map_file, stale_sys_ids
 
 
 def _writer_compact(path: Path, payload):
@@ -177,3 +177,122 @@ class TestMergeMapFile:
         assert "added=0" in msg
         assert "updated=0" in msg
         assert "preserved=0" in msg
+
+
+class TestStaleSysIds:
+    """The remote-first incremental gate.
+
+    Each record is judged against ITS OWN anchor. The predecessor asked the
+    server for ``sys_updated_on >= max(local anchors)``, which structurally
+    cannot see a record whose anchor lagged behind its siblings — the query
+    excluded it, the download honestly reported "0 changed", and because a max
+    watermark only rises, that record stayed stale forever.
+    """
+
+    def _seed(self, tmp_path, entries, *, make_dirs=True):
+        path = tmp_path / "_sync_meta.json"
+        path.write_text(json.dumps(entries), encoding="utf-8")
+        if make_dirs:
+            for name in entries:
+                (tmp_path / name).mkdir(parents=True, exist_ok=True)
+        return path
+
+    def test_lagging_anchor_is_fetched_even_below_the_max_watermark(self, tmp_path):
+        path = self._seed(
+            tmp_path,
+            {
+                "fresh": {"sys_id": "a", "sys_updated_on": "2026-07-01", "sys_mod_count": "9"},
+                "lagging": {"sys_id": "b", "sys_updated_on": "2026-05-01", "sys_mod_count": "3"},
+            },
+        )
+        rows = [
+            {"sys_id": "a", "sys_updated_on": "2026-07-01", "sys_mod_count": "9"},
+            # Moved since its own anchor, but older than max(anchors) = 2026-07-01.
+            {"sys_id": "b", "sys_updated_on": "2026-06-15", "sys_mod_count": "5"},
+        ]
+
+        assert stale_sys_ids(path, rows, record_root=tmp_path) == {"b"}
+
+    def test_matching_mod_count_is_not_fetched(self, tmp_path):
+        path = self._seed(
+            tmp_path,
+            {"w": {"sys_id": "a", "sys_updated_on": "2026-07-01", "sys_mod_count": "9"}},
+        )
+        rows = [{"sys_id": "a", "sys_updated_on": "2026-07-01", "sys_mod_count": "9"}]
+
+        assert stale_sys_ids(path, rows, record_root=tmp_path) == set()
+
+    def test_mod_count_beats_the_timestamp(self, tmp_path):
+        """sys_mod_count is the server's own counter — the authority on movement."""
+        path = self._seed(
+            tmp_path,
+            {"w": {"sys_id": "a", "sys_updated_on": "2026-01-01", "sys_mod_count": "9"}},
+        )
+        # Stamp looks newer, but the counter says the record never moved.
+        rows = [{"sys_id": "a", "sys_updated_on": "2026-07-01", "sys_mod_count": "9"}]
+
+        assert stale_sys_ids(path, rows, record_root=tmp_path) == set()
+
+    def test_unanchored_record_is_fetched(self, tmp_path):
+        path = self._seed(tmp_path, {})
+        rows = [{"sys_id": "a", "sys_updated_on": "2026-07-01", "sys_mod_count": "9"}]
+
+        assert stale_sys_ids(path, rows, record_root=tmp_path) == {"a"}
+
+    def test_legacy_anchor_without_mod_count_falls_back_to_timestamps(self, tmp_path):
+        path = self._seed(
+            tmp_path,
+            {
+                "old": {"sys_id": "a", "sys_updated_on": "2026-05-01"},
+                "current": {"sys_id": "b", "sys_updated_on": "2026-07-01"},
+            },
+        )
+        rows = [
+            {"sys_id": "a", "sys_updated_on": "2026-06-15", "sys_mod_count": "5"},
+            {"sys_id": "b", "sys_updated_on": "2026-07-01", "sys_mod_count": "5"},
+        ]
+
+        assert stale_sys_ids(path, rows, record_root=tmp_path) == {"a"}
+
+    def test_unprovable_equality_is_fetched(self, tmp_path):
+        """Missing stamps on either side => fetch. Never guess in the skip direction."""
+        path = self._seed(tmp_path, {"w": {"sys_id": "a", "sys_updated_on": ""}})
+        rows = [{"sys_id": "a", "sys_updated_on": "", "sys_mod_count": ""}]
+
+        assert stale_sys_ids(path, rows, record_root=tmp_path) == {"a"}
+
+    def test_anchor_with_no_files_on_disk_is_fetched(self, tmp_path):
+        path = self._seed(
+            tmp_path,
+            {"w": {"sys_id": "a", "sys_updated_on": "2026-07-01", "sys_mod_count": "9"}},
+            make_dirs=False,
+        )
+        rows = [{"sys_id": "a", "sys_updated_on": "2026-07-01", "sys_mod_count": "9"}]
+
+        assert stale_sys_ids(path, rows, record_root=tmp_path) == {"a"}
+        # Without a record_root the caller opted out of the on-disk check.
+        assert stale_sys_ids(path, rows) == set()
+
+    def test_sanitized_folder_name_is_resolved(self, tmp_path):
+        path = self._seed(
+            tmp_path,
+            {"my widget": {"sys_id": "a", "sys_updated_on": "2026-07-01", "sys_mod_count": "9"}},
+            make_dirs=False,
+        )
+        (tmp_path / "my_widget").mkdir()
+        rows = [{"sys_id": "a", "sys_updated_on": "2026-07-01", "sys_mod_count": "9"}]
+
+        assert (
+            stale_sys_ids(
+                path,
+                rows,
+                record_root=tmp_path,
+                name_to_folder=lambda n: n.replace(" ", "_"),
+            )
+            == set()
+        )
+
+    def test_missing_sync_meta_fetches_everything(self, tmp_path):
+        rows = [{"sys_id": "a"}, {"sys_id": "b"}]
+
+        assert stale_sys_ids(tmp_path / "_sync_meta.json", rows) == {"a", "b"}

@@ -18,17 +18,89 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, Set
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set
 
 logger = logging.getLogger(__name__)
+
+
+def stale_sys_ids(
+    sync_meta_path: Path,
+    remote_rows: Iterable[Mapping[str, Any]],
+    *,
+    record_root: Optional[Path] = None,
+    name_to_folder: Optional[Callable[[str], str]] = None,
+) -> Set[str]:
+    """sys_ids the SERVER says are not reflected on disk — the incremental fetch set.
+
+    Remote-first, per record. ``remote_rows`` is the live ledger (sys_id +
+    sys_mod_count + sys_updated_on, no bodies); every id in it is judged against
+    THAT record's own anchor in _sync_meta.
+
+    This replaces a single ``sys_updated_on >= max(local anchors)`` query filter,
+    which could not see a record it had already skipped: a record whose anchor
+    never advanced (conflict, kept local edits, legacy/unanchored tree, deleted
+    folder) keeps an OLD stamp, while ANY freshly synced sibling raises the MAX
+    above it. The stale record then falls outside the query forever, and the
+    download truthfully reports "0 changed" — the illusion that there is nothing
+    to fetch. A max-watermark only ever rises, so that state never self-heals.
+
+    Per record, fetch when:
+      - no anchor for the id at all (never synced, or an unanchored legacy tree);
+      - ``record_root`` is given and the record's folder is gone (files deleted
+        out from under an anchor that still claims they are in sync);
+      - the live ``sys_mod_count`` differs from the anchored one — the server's own
+        monotonic counter is the authority (same basis as the diff/push gate);
+      - no anchored mod_count (legacy anchor) and the live ``sys_updated_on`` is
+        newer, or either stamp is missing so equality cannot be proven.
+
+    Anchors are keyed by the record's local folder name, and carry their sys_id.
+    ``name_to_folder`` maps that key to the on-disk folder when a downloader
+    sanitizes it (portal widgets); omit when the key IS the folder name.
+    """
+    anchors = _read_existing_map(sync_meta_path)
+    by_sys_id: Dict[str, Mapping[str, Any]] = {}
+    for name, entry in anchors.items():
+        if not isinstance(entry, dict):
+            continue
+        sid = str(entry.get("sys_id") or "")
+        if not sid:
+            continue
+        # An anchor whose files are gone is not evidence of anything.
+        if record_root is not None:
+            folder = name_to_folder(str(name)) if name_to_folder else str(name)
+            if not (record_root / folder).is_dir():
+                continue
+        by_sys_id[sid] = entry
+
+    stale: Set[str] = set()
+    for row in remote_rows:
+        sid = str(row.get("sys_id") or "")
+        if not sid:
+            continue
+        anchor = by_sys_id.get(sid)
+        if anchor is None:
+            stale.add(sid)
+            continue
+        local_count = str(anchor.get("sys_mod_count") or "")
+        remote_count = str(row.get("sys_mod_count") or "")
+        if local_count and remote_count:
+            if local_count != remote_count:
+                stale.add(sid)
+            continue
+        local_on = str(anchor.get("sys_updated_on") or "")
+        remote_on = str(row.get("sys_updated_on") or "")
+        if not local_on or not remote_on or remote_on > local_on:
+            stale.add(sid)
+    return stale
 
 
 def max_sync_updated_on(sync_meta_path: Path) -> str:
     """Return the newest sys_updated_on recorded in a _sync_meta.json file.
 
-    Used as the incremental-download watermark. Server-side timestamps avoid
-    client clock skew. Returns "" when the file is missing/empty so callers
-    fall back to a full download.
+    NOT a fetch gate — see ``stale_sys_ids`` for that; a MAX watermark silently
+    excludes any record whose own anchor lagged behind its siblings. Kept for
+    reporting the tree's newest known-good sync. Returns "" when the file is
+    missing/empty.
     """
     existing = _read_existing_map(sync_meta_path)
     stamps = [
