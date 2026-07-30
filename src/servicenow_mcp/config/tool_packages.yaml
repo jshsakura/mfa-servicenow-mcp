@@ -90,6 +90,10 @@ standard:
   - download_attachment
   # XML export (Read) — importable <unload> XML to disk (current sys_update_version)
   - export_record_xml
+  # Deploy XML verification (Read) — origin cert + live compare, both directions.
+  # Read-only, so it belongs in standard: the whole point is that nobody has to
+  # opt into a higher package to find out an import reverted someone's work.
+  - verify_deployment_xml
   # Local Sync (Read)
   - diff_local_component
 

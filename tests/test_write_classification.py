@@ -117,6 +117,10 @@ _READ_ONLY_TOOL_SNAPSHOT = frozenset(
         "sn_resolve_url",
         "sn_schema",
         "trace_portal_route_targets",
+        # Reads the live record and compares it to a deploy XML. The only thing
+        # it writes is the LOCAL origin sidecar (the applied-landing entry) —
+        # nothing reaches a ServiceNow write API.
+        "verify_deployment_xml",
     }
 )
 

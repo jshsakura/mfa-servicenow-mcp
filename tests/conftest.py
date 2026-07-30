@@ -45,6 +45,21 @@ def _isolate_workspace_roots(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_deploy_ledger(tmp_path, monkeypatch):
+    """Redirect the deploy-XML dir registry to a per-test file.
+
+    Every export_record_xml test records the dir it wrote to; without this they
+    would leak tmp paths into the REAL
+    ~/.mfa_servicenow_mcp/xml_dirs.json and make the sn_health deployments
+    snapshot scan a previous run's directories.
+    """
+    from servicenow_mcp.utils import deploy_ledger
+
+    state = tmp_path / "_deploy_ledger_state" / "xml_dirs.json"
+    monkeypatch.setattr(deploy_ledger, "_state_file", lambda: state)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_write_journal(tmp_path, monkeypatch):
     """Redirect the write journal to a per-test dir — confirmed-write tests
     must never append to the REAL ~/.mfa_servicenow_mcp/write_journal/."""

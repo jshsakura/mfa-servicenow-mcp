@@ -23,6 +23,14 @@ once; ElementTree decodes it once on parse, so ``payload.text`` is already the
 exact original payload string. Do NOT ``html.unescape`` it again — a real
 ``&lt;`` living inside a field value would be corrupted into ``<`` (verified: a
 second unescape changes real payloads).
+
+Origin certificate: because this path is remote-only by construction, an XML it
+writes is provably a live export — so it issues a sidecar recording the source
+instance and every record's live version stamp (``utils/deploy_ledger``). That
+certificate is what lets ``verify_deployment_xml`` refuse a hand-assembled file
+later. The XML bytes themselves are never touched: the importable format above
+is live-verified and not worth risking for an embedded comment, and a lost
+sidecar fails safe (reads as unanchored -> re-export).
 """
 
 import logging
@@ -38,7 +46,9 @@ from pydantic import BaseModel, Field
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.atomic_io import atomic_write_bytes
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.deploy_ledger import record_xml_dir, write_origin
 from servicenow_mcp.utils.registry import register_tool
+from servicenow_mcp.utils.sync_anchor import field_sha
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +79,14 @@ class ExportRecordXmlParams(BaseModel):
     )
 
 
+def _instance_name(config: ServerConfig) -> str:
+    return (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+
+
 def _xml_dir(config: ServerConfig, output_dir: Optional[str]) -> Path:
     if output_dir:
         return Path(output_dir).expanduser().resolve()
-    instance_name = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
-    return Path.cwd() / "temp" / instance_name / "xml"
+    return Path.cwd() / "temp" / _instance_name(config) / "xml"
 
 
 def _safe_name(name: str, fallback: str) -> str:
@@ -124,10 +137,37 @@ def _payload_to_inner(payload_text: str) -> Optional[str]:
     return inner or None
 
 
+def _record_stamp(name: str, inner: str) -> Dict[str, Any]:
+    """The live version stamp of one exported block, for the origin certificate.
+
+    Table and sys_id come from the parsed block itself, never from splitting the
+    ``<table>_<sys_id>`` name — table names contain underscores, so that split is
+    ambiguous, while the block's own tag and ``<sys_id>`` are authoritative.
+
+    Reading here is safe with respect to the no-double-unescape rule above: we
+    parse *inner* to read field VALUES and never write them back into the export.
+    """
+    stamp: Dict[str, Any] = {"name": name, "payload_sha": field_sha(inner)}
+    try:
+        # Wrap: inner may hold sibling record elements (e.g. a field + its docs).
+        frag = ET.fromstring(f"<_frag>{inner}</_frag>")
+    except ET.ParseError:
+        return stamp
+    primary = next(iter(frag), None)
+    if primary is None:
+        return stamp
+    stamp["table"] = primary.tag
+    for field in ("sys_id", "sys_updated_on", "sys_updated_by", "sys_mod_count"):
+        value = primary.findtext(field)
+        if value is not None and value.strip():
+            stamp[field] = value.strip()
+    return stamp
+
+
 @register_tool(
     "export_record_xml",
     params=ExportRecordXmlParams,
-    description="Export records as importable <unload> XML to disk (current sys_update_version). Read saved_path.",
+    description="Build deploy XML from the LIVE server — the only legal source. Issues an origin cert. Read saved_path.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -224,6 +264,17 @@ def export_record_xml(
     except Exception as exc:  # noqa: BLE001 — surfaced in the result
         return {"success": False, "message": f"Failed to write to disk: {exc}"}
 
+    # Issue the origin certificate: this file provably came from a live export,
+    # and verify_deployment_xml refuses any deploy XML that lacks one.
+    stamps = [_record_stamp(n, found[n]) for n in names if n in found]
+    sidecar = write_origin(
+        out_path,
+        source_instance=_instance_name(config),
+        source_instance_url=config.instance_url,
+        records=stamps,
+    )
+    record_xml_dir(out_path.parent)
+
     result: Dict[str, Any] = {
         "success": True,
         "saved_path": str(out_path),
@@ -234,6 +285,18 @@ def export_record_xml(
             "importable <unload>. Read the file to use for import."
         ),
     }
+    if sidecar:
+        result["origin_certificate"] = str(sidecar)
+        result["next"] = (
+            "Before importing: verify_deployment_xml(xml_path=saved_path, "
+            "mode='preflight'). After importing, mode='postflight' against the "
+            "target — an unverified import stays flagged on sn_health."
+        )
+    else:
+        result["warning_origin"] = (
+            "Could not write the origin certificate — this file will read as "
+            "unanchored. Re-export to a writable directory before deploying."
+        )
     if missing:
         result["missing"] = missing
         result["warning"] = (

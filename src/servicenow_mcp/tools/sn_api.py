@@ -1204,6 +1204,9 @@ def sn_health(
     workspace = _workspace_snapshot()
     if workspace:
         result["workspace"] = workspace
+    deployments = _deployments_snapshot()
+    if deployments:
+        result["deployments"] = deployments
     if params.deep:
         result["deep_probes"] = _deep_api_probes(config, auth_manager)
     return result
@@ -1348,6 +1351,24 @@ def _workspace_snapshot() -> Dict[str, Any]:
         return out
     except Exception as exc:  # noqa: BLE001 — a broken temp tree must not fail health
         logger.warning("sn_health: workspace snapshot skipped: %s", exc)
+        return {}
+
+
+def _deployments_snapshot() -> Dict[str, Any]:
+    """Offline glance at deploy XMLs nobody confirmed landing.
+
+    Same reason the workspace snapshot exists: an export that was built, mailed
+    on, and never verified against the target is unfinished work, and the state
+    "recorded as deployed, never imported" is invisible unless something says so
+    unprompted. Disk reads only, silent when there is nothing pending, and never
+    allowed to break the health check.
+    """
+    try:
+        from servicenow_mcp.utils.deploy_ledger import pending_exports
+
+        return pending_exports()
+    except Exception as exc:  # noqa: BLE001 — a broken ledger must not fail health
+        logger.warning("sn_health: deployments snapshot skipped: %s", exc)
         return {}
 
 
