@@ -2824,7 +2824,6 @@ def _download_source_types(
         # moved — kept local, server copy saved as a .remote sidecar).
         refreshed_records: List[str] = []
         conflict_records: List[Dict[str, str]] = []
-        now_iso = datetime.now(timezone.utc).isoformat()
         type_file_count = 0
         retry_records: List[tuple] = []
 
@@ -2890,6 +2889,8 @@ def _download_source_types(
                 if present:
                     name_map[safe_name] = sys_id
                     actions: Dict[str, str] = {}
+                    # field -> the anchor sha reconcile says is safe to record.
+                    reconciled_shas: Dict[str, str] = {}
                     backfilled = 0
                     still_missing: List[str] = []
                     remote_updated = str(record.get("sys_updated_on") or "")
@@ -2924,13 +2925,19 @@ def _download_source_types(
                                     name,
                                     warnings,
                                 ).get(sf, "")
-                            actions[sf] = reconcile_field(
+                            # Keep the sha reconcile hands back, not just the
+                            # outcome. It is the anchor the caller "may always
+                            # write back safely" (sync_anchor.reconcile_field) —
+                            # discarding it is what left mixed-outcome records
+                            # with no field_shas at all, and an unanchored record
+                            # is one the push gate cannot judge.
+                            actions[sf], reconciled_shas[sf] = reconcile_field(
                                 field_paths[sf],
                                 content_str,
                                 prior_field_shas.get(sf, ""),
                                 legacy_overwrite=incremental,
                                 blank_remote_is_unknown=True,
-                            )[0]
+                            )
                         elif content_str.strip():
                             _dl_write_file(field_paths[sf], content_str)
                             backfilled += 1
@@ -2977,7 +2984,11 @@ def _download_source_types(
                             "field_shas": _record_field_shas(
                                 record_dir, source_cfg["source_fields"]
                             ),
-                            "downloaded_at": now_iso,
+                            # Stamped AFTER this record's files are written.
+                            # A single timestamp taken before the loop predates
+                            # every file it claims to describe, which made a
+                            # freshly downloaded tree read as locally edited.
+                            "downloaded_at": datetime.now(timezone.utc).isoformat(),
                         }
                         manifest_entries.append(
                             {
@@ -3004,6 +3015,27 @@ def _download_source_types(
                                         "remote_sys_updated_on": remote_updated,
                                     }
                                 )
+                        # Anchor what we CAN prove, WITHOUT bumping the watermark.
+                        # A record that never earns a field_shas entry stays
+                        # unverifiable forever — and the push gate refuses an
+                        # unverifiable copy rather than guess. Recording the shas
+                        # reconcile vouched for lets a legacy/partially-conflicted
+                        # tree anchor itself field by field across downloads,
+                        # instead of needing the folder deleted to recover.
+                        proven = {sf: sha for sf, sha in reconciled_shas.items() if sha}
+                        if proven:
+                            merged_shas = dict(prior_field_shas)
+                            merged_shas.update(proven)
+                            sync_meta[safe_name] = {
+                                **prior_entry,
+                                "sys_id": sys_id,
+                                "name": name,
+                                # Deliberately the PRIOR stamps: only the content
+                                # anchor advanced, the record is not in sync.
+                                "sys_updated_on": prior_updated,
+                                "sys_mod_count": str(prior_entry.get("sys_mod_count") or ""),
+                                "field_shas": merged_shas,
+                            }
                     type_file_count += len(present) + backfilled
                     continue
 
@@ -3046,7 +3078,8 @@ def _download_source_types(
                 # Offline edit anchor: per-field content sha so a later diff can
                 # attribute yours/theirs with no network and no frozen snapshot.
                 "field_shas": _record_field_shas(record_dir, source_cfg["source_fields"]),
-                "downloaded_at": now_iso,
+                # After this record's writes — see the note above.
+                "downloaded_at": datetime.now(timezone.utc).isoformat(),
             }
             manifest_entries.append(
                 {

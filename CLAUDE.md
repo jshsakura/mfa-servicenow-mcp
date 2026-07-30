@@ -50,6 +50,14 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
    per-component verdicts + line counts, zero source bodies in context.
    Cross-instance comparison → `compare_instances` (live, both sides).
 5. **Push back to ServiceNow** → `diff_local_component` → `update_remote_from_local`.
+   **No anchor means no push.** A component with no `_sync_meta` entry cannot be
+   proven to descend from any version the server ever held, so the gate returns
+   `CONFLICT_NO_ANCHOR`. It used to pass: with no entry, the counter, the sha and
+   the timestamp are all empty, drift read as "nothing moved", and an arbitrarily
+   old local body overwrote another developer's current work at `risk_level:
+   none` — absence of evidence scored as evidence of absence. The fix is to
+   re-download (it anchors the record and keeps your edits; a real divergence
+   lands as a `.remote` sidecar), not to reach for `force`.
 6. **Incremental download is REMOTE-FIRST, per record** (`download_map.stale_sys_ids`).
    Never gate the fetch on a local aggregate. It used to query
    `sys_updated_on >= max(local anchors)`: a record whose own anchor had lagged

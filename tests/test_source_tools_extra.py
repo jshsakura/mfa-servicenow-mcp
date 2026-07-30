@@ -58,6 +58,7 @@ from servicenow_mcp.tools.source_tools import (
     search_server_code,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
+from servicenow_mcp.utils.sync_anchor import field_sha as _field_sha
 
 
 def _build_config() -> ServerConfig:
@@ -967,6 +968,58 @@ class TestDownloadSourceTypes:
         # and an empty fetch set must not widen back into a full-scope download.
         assert mock_all.call_count == 1
         assert result["type_results"]["script_include"] == {"count": 0, "up_to_date": 1}
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    def test_partially_reconciled_record_still_records_the_shas_it_can_prove(
+        self, mock_all, tmp_path
+    ):
+        """A record that never earns a field_shas entry stays unjudgeable forever.
+
+        Mixed reconcile outcomes discarded the sha reconcile_field hands back, so a
+        legacy record with one clean field and one edited field got NO anchor at
+        all — and the push gate refuses an unanchored copy rather than guess. The
+        provable fields must anchor themselves, WITHOUT bumping the watermark.
+        """
+        config = _build_config()
+        auth_manager = MagicMock()
+        rec_dir = tmp_path / "sp_angular_provider" / "MyProv"
+        rec_dir.mkdir(parents=True)
+        # Legacy tree: files on disk, no _sync_meta.json at all.
+        rec_dir.joinpath("script.js").write_text("SAME AS SERVER")
+        rec_dir.joinpath("client_script.js").write_text("MY LOCAL EDIT")
+        mock_all.return_value = [
+            {
+                "sys_id": "p-1",
+                "name": "MyProv",
+                "script": "SAME AS SERVER",
+                "client_script": "SERVER VERSION",
+                "sys_scope": "x_app",
+                "sys_updated_on": "2026-07-01 00:00:00",
+                "sys_mod_count": "7",
+            }
+        ]
+
+        _download_source_types(
+            config,
+            auth_manager,
+            scope="x_app",
+            source_types=["angular_provider"],
+            scope_root=tmp_path,
+            root=tmp_path,
+        )
+
+        meta = json.loads(
+            (tmp_path / "sp_angular_provider" / "_sync_meta.json").read_text(encoding="utf-8")
+        )
+        entry = meta["MyProv"]
+        # The clean field is now anchored; the edited one is not (nothing to prove).
+        assert entry["field_shas"]["script"] == _field_sha("SAME AS SERVER")
+        assert "client_script" not in entry["field_shas"]
+        # The record is NOT in sync, so its watermark must not advance.
+        assert entry["sys_updated_on"] == ""
+        assert entry["sys_mod_count"] == ""
+        # And the local edit is untouched.
+        assert rec_dir.joinpath("client_script.js").read_text() == "MY LOCAL EDIT"
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     def test_truncated_change_ledger_is_reported_not_swallowed(self, mock_all, tmp_path):

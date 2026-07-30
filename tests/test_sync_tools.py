@@ -642,6 +642,52 @@ class TestDiffLocalComponent:
         statuses = {c["name"]: c["status"] for c in result["components"]}
         assert statuses["my-widget"] == "local_modified"
 
+    @patch("servicenow_mcp.tools.sync_tools._batch_fetch_updated_on_multi")
+    def test_scan_judges_local_edits_by_content_sha_not_file_mtime(
+        self, mock_batch, mock_config, mock_auth, download_root
+    ):
+        """A freshly downloaded tree must not report itself as locally edited.
+
+        The scan used to compare file mtime against downloaded_at. The downloaders
+        stamp downloaded_at ONCE, before the loop that writes the files, so every
+        record written after that instant looked edited the moment the download
+        finished — and this surface then disagreed with sn_health and the push
+        gate, which both judge by the per-field content sha. Sha is the authority
+        here too now; mtime survives only for trees that have no sha to compare.
+        """
+        from servicenow_mcp.utils.sync_anchor import field_sha
+
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        table_dir = widget_dir.parent
+        meta = _read_sync_meta(table_dir)
+        meta["my-widget"]["field_shas"] = {
+            "template": field_sha((widget_dir / "template.html").read_text()),
+            "script": field_sha((widget_dir / "script.js").read_text()),
+            "client_script": field_sha((widget_dir / "client_script.js").read_text()),
+            "css": field_sha((widget_dir / "css.scss").read_text()),
+        }
+        # Deliberately ancient, and every file's mtime is "now" — the exact shape
+        # that produced the false positive.
+        meta["my-widget"]["downloaded_at"] = "2025-01-10T10:05:00+00:00"
+        _write_sync_meta(table_dir, meta)
+        mock_batch.return_value = {
+            "sp_widget": {"wid-1": {"on": "2025-01-10 10:00:00", "by": "alice"}}
+        }
+
+        result = diff_local_component(
+            mock_config, mock_auth, DiffLocalComponentParams(path=str(download_root))
+        )
+        statuses = {c["name"]: c["status"] for c in result["components"]}
+        assert statuses["my-widget"] == "unchanged"
+
+        # And a real edit is still caught, with no help from the clock.
+        (widget_dir / "script.js").write_text("var x = 999;", encoding="utf-8")
+        result2 = diff_local_component(
+            mock_config, mock_auth, DiffLocalComponentParams(path=str(download_root))
+        )
+        statuses2 = {c["name"]: c["status"] for c in result2["components"]}
+        assert statuses2["my-widget"] == "local_modified"
+
     def test_diff_nonexistent_path_returns_error(self, mock_config, mock_auth, tmp_path):
         result = diff_local_component(
             mock_config, mock_auth, DiffLocalComponentParams(path=str(tmp_path / "nope"))
@@ -2992,6 +3038,154 @@ class TestContentFirstDriftGate:
 
         assert result["error"] in ("CONFLICT", "CONFLICT_OTHER_USER")
         assert result["drift_verified_by"] == "timestamp"
+
+    @staticmethod
+    def _drop_anchor(widget_dir):
+        """The state a mixed-outcome / legacy download leaves: files, no anchor."""
+        table_dir = widget_dir.parent
+        meta = _read_sync_meta(table_dir)
+        meta.pop(widget_dir.name, None)
+        _write_sync_meta(table_dir, meta)
+
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_unanchored_local_copy_cannot_silently_overwrite_the_server(
+        self, mock_fetch, mock_update, mock_config, mock_auth, download_root
+    ):
+        """No anchor is not "no drift" — it is "no evidence", and it must block.
+
+        With no _sync_meta entry every signal reads empty: no mod_count, no sha,
+        and timestamp_moved is False because there is no local stamp to be older
+        than. The gate scored that as "nothing moved" and pushed an ancient local
+        body over another developer's current work at risk_level 'none'.
+        """
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        self._drop_anchor(widget_dir)
+        widget_dir.mkdir(parents=True, exist_ok=True)
+        (widget_dir / "script.js").write_text("var x = 1; // ANCIENT", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 999; // bob's current work",
+            "sys_updated_on": "2026-07-30 12:00:00",
+            "sys_updated_by": "bob",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+            "sys_mod_count": "42",
+        }
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        assert result["error"] == "CONFLICT_NO_ANCHOR"
+        mock_update.assert_not_called()
+        # The message must name the cheap fix, not just refuse.
+        assert "re-download" in result["message"].lower()
+        assert "force=true" in result["message"]
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_diff_says_no_anchor_rather_than_blaming_the_server(
+        self, mock_fetch, mock_config, mock_auth, download_root
+    ):
+        """ "No evidence" must not be reported as "the server changed"."""
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        self._drop_anchor(widget_dir)
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 999;",
+            "sys_updated_on": "2026-07-30 12:00:00",
+            "sys_updated_by": "bob",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+            "sys_mod_count": "42",
+        }
+
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        assert "no sync anchor" in result["conflict_warning"].lower()
+        assert "re-download" in result["conflict_warning"].lower()
+
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_unanchored_copy_identical_to_the_server_is_not_blocked(
+        self, mock_fetch, mock_update, mock_config, mock_auth, download_root
+    ):
+        """Nothing to overwrite => no decision to gate. The block must not be noise."""
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        self._drop_anchor(widget_dir)
+        widget_dir.mkdir(parents=True, exist_ok=True)
+        (widget_dir / "script.js").write_text("var x = 1;", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 1;",
+            "sys_updated_on": "2026-07-30 12:00:00",
+            "sys_updated_by": "bob",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+            "sys_mod_count": "42",
+        }
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        assert "error" not in result
+        mock_update.assert_not_called()  # no changes to push
+
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_unanchored_push_goes_through_on_the_deliberate_second_approval(
+        self, mock_fetch, mock_update, mock_config, mock_auth, download_root
+    ):
+        """A gate, not a wall: force + confirm still lets a human say "yes, overwrite"."""
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        self._drop_anchor(widget_dir)
+        widget_dir.mkdir(parents=True, exist_ok=True)
+        (widget_dir / "script.js").write_text("var x = 2;", encoding="utf-8")
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 999;",
+                "sys_updated_on": "2026-07-30 12:00:00",
+                "sys_updated_by": "bob",
+                "sys_created_by": "admin",
+                "sys_scope": "global",
+                "sys_mod_count": "42",
+            },
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 2;",
+                "sys_updated_on": "2026-07-30 13:00:00",
+                "sys_updated_by": "admin",
+                "sys_mod_count": "43",
+            },
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(widget_dir / "script.js"),
+                force=True,
+                confirm_overwrite_updated_on="2026-07-30 12:00:00",
+            ),
+        )
+
+        assert "error" not in result
+        mock_update.assert_called_once()
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_diff_reports_stale_watermark_instead_of_phantom_conflict(
