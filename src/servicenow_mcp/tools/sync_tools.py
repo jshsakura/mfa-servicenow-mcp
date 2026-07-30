@@ -1177,25 +1177,35 @@ def _scan_download_root(
 
             # Folder layout (<table>/<name>/<field>.<ext>, or
             # <table>/<qualifier>/<name>/<field>.<ext> for qualified types) is
-            # what the downloaders write for every table, so check it first.
-            # Single-file tables also accept the historical flat "<name>.<suffix>".
-            safe = _safe_rel_path(name)
-            folder = table_dir / safe
-            folder_map = _folder_layout_field_map(table_name) or {}
-            local_files = [str(folder / fn) for fn in folder_map if (folder / fn).exists()]
-            if not local_files and table_name in SINGLE_FILE_TABLES:
-                flat_map = TABLE_FILE_FIELD_MAP.get(table_name, {})
-                for suffix_pattern in flat_map:
-                    if suffix_pattern.startswith("."):
-                        fpath = table_dir / f"{safe}{suffix_pattern}"
-                        if fpath.exists():
-                            local_files.append(str(fpath))
+            # what the downloaders write for every table; single-file tables also
+            # accept the historical flat "<name>.<suffix>". Both shapes resolve here.
+            fields = _component_field_files(table_dir, name, table_name)
+            local_files = [str(p) for p in fields.values()]
 
             if not local_files:
                 continue
 
+            # "Did I edit this?" is answered by the per-field content sha — the same
+            # anchor sn_health and the push gate use. This surface used to answer it
+            # from file mtime vs downloaded_at, and disagreed with both: the
+            # downloaders stamp downloaded_at once, before the loop that writes the
+            # files, so every record written after that instant read as edited the
+            # moment the download finished. mtime survives only where there is no
+            # sha to compare (legacy trees) — it is evidence, not the authority.
+            stored_shas = meta.get("field_shas") or {}
             local_modified = False
-            if downloaded_at:
+            if stored_shas:
+                for field_name, fpath in fields.items():
+                    stored = stored_shas.get(field_name)
+                    if not stored:
+                        continue
+                    try:
+                        if field_sha(fpath.read_text(encoding="utf-8")) != stored:
+                            local_modified = True
+                            break
+                    except (OSError, UnicodeDecodeError):
+                        continue
+            elif downloaded_at:
                 try:
                     dl_time = datetime.fromisoformat(downloaded_at.replace("Z", "+00:00"))
                     for fp in local_files:
@@ -1476,26 +1486,42 @@ def _assess_server_drift(
     Authority order — LIVE beats a possibly-stale local copy:
       1. ``sys_mod_count`` (server-side monotonic counter) when both sides carry it,
       2. else content vs the recorded snapshot (legacy trees),
-      3. else the bare timestamp.
+      3. else the bare timestamp,
+      4. else NO anchor of any kind -> drifted, always.
     A local snapshot body-match NEVER suppresses a live mod_count advance — that
     over-trust of a stale anchor was the whole defect. ``timestamp_only`` (the
     stamp bumped but neither mod_count nor body moved) stays the benign case.
+
+    Step 4 is not a formality. With no _sync_meta entry at all, every signal above
+    is empty: no counter, no sha, and ``timestamp_moved`` is False because there is
+    no local stamp to be older than. The gate then read "nothing moved" and let an
+    arbitrarily old local body overwrite another developer's current work at
+    ``risk_level: none``. Absence of evidence was being scored as evidence of
+    absence. An unanchored copy cannot be proven to descend from anything the
+    server ever held, so it takes the same deliberate force+confirm approval as any
+    other conflict.
     """
     timestamp_moved = bool(
         local_updated_on and remote_updated_on and remote_updated_on > local_updated_on
     )
     mod_count_moved, mod_count_known = _mod_count_moved(local_mod_count, remote_mod_count)
     moved_fields, verifiable = _server_moved_fields(resolved, remote_record, field_shas or {})
+    # Any recorded evidence of a past sync, even a bare stamp from a legacy tree.
+    anchored = bool(local_updated_on or str(local_mod_count).strip() or (field_shas or {}))
+    unanchored = not anchored
     if mod_count_known:
         drifted = mod_count_moved
     elif verifiable:
         drifted = bool(moved_fields)
+    elif unanchored:
+        drifted = True
     else:
         drifted = timestamp_moved
     return {
         "drifted": drifted,
         "moved_fields": moved_fields,
         "verifiable": verifiable,
+        "unanchored": unanchored,
         "timestamp_moved": timestamp_moved,
         "mod_count_moved": mod_count_moved,
         "mod_count_known": mod_count_known,
@@ -2067,7 +2093,18 @@ def diff_local_component(
         field_shas=meta.get("field_shas", {}),
     )
     conflict_warning = None
-    if drift["drifted"]:
+    if drift["unanchored"]:
+        # Don't dress "no evidence" up as "the server changed": with no anchor
+        # there is nothing to have changed FROM. Say which one it is.
+        conflict_warning = (
+            f"No sync anchor recorded for this local copy (no _sync_meta entry), so there is "
+            f"no evidence of which server version it came from — the diff below cannot tell "
+            f"your edits from the server's (live: {remote_updated_on}"
+            f"{f' by {remote_updated_by}' if remote_updated_by else ''}). Re-download to anchor "
+            f"it; your local edits are preserved (a real divergence lands as a '.remote' "
+            f"sidecar to merge). A push is blocked until then unless forced."
+        )
+    elif drift["drifted"]:
         if attribution["self_edit"]:
             who = "You changed this on the server"
         elif remote_updated_by:
@@ -2412,6 +2449,10 @@ def update_remote_from_local(
     update_data, _changed_lines, _total_lines = _build_update_data_and_magnitude(
         resolved, remote_record
     )
+    # An unanchored copy that is byte-identical to the server has nothing to
+    # overwrite, so there is no decision to gate — blocking it would only be noise.
+    if drift["unanchored"] and not update_data:
+        drifted = False
     risk = assess_push_risk(
         me=me,
         remote_updated_by=remote_updated_by,
@@ -2463,7 +2504,12 @@ def update_remote_from_local(
                 "sys_id": resolved.sys_id,
                 "name": resolved.name,
             }
-            error_code = "CONFLICT_OTHER_USER" if confirmed_other else "CONFLICT"
+            if drift["unanchored"]:
+                error_code = "CONFLICT_NO_ANCHOR"
+            elif confirmed_other:
+                error_code = "CONFLICT_OTHER_USER"
+            else:
+                error_code = "CONFLICT"
             # LIVE re-check: the drift gate compares against the local download
             # baseline, which can be stale. Frame the decision on the CURRENT
             # remote hold, not on who held it at download time — a hold that was
@@ -2483,9 +2529,27 @@ def update_remote_from_local(
                     "committed/released). If your local copy is the intended final, this is a "
                     "clean fast-forward — force=true is safe."
                 )
+            if drift["unanchored"]:
+                # Nothing was recorded about where this copy came from, so "is it
+                # ahead of or behind the server" is not a question we can answer.
+                # Re-downloading is the cheap fix: it anchors the record, and its
+                # reconcile keeps your edits (a genuine divergence lands as a
+                # <field>.remote sidecar to merge) — so this is not "lose my work".
+                head = (
+                    f"No sync anchor recorded for this local copy (no _sync_meta entry), so "
+                    f"there is NO evidence of which server version it was taken from — it "
+                    f"could be older than what is live (server: {remote_updated_on}"
+                    f"{f' by {remote_updated_by}' if remote_updated_by else ''}). Re-download "
+                    f"this component first: that anchors it and preserves your local edits "
+                    f"(a real divergence is written next to it as a '.remote' sidecar to merge)."
+                )
+            else:
+                head = (
+                    f"{risk['message']} (server: {remote_updated_on}, your copy: "
+                    f"{local_updated_on})."
+                )
             message = (
-                f"{risk['message']} (server: {remote_updated_on}, your copy: {local_updated_on})."
-                f"{live_note} To overwrite exactly this reviewed version, push again with "
+                f"{head}{live_note} To overwrite exactly this reviewed version, push again with "
                 f"force=true confirm_overwrite_updated_on='{remote_updated_on}' (re-blocks if "
                 f"the server moves again; the overwritten body stays recoverable in the "
                 f"server's version history). Or re-download to take the latest instead."
