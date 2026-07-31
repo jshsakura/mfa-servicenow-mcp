@@ -165,3 +165,85 @@ provable common ancestor for 3-way comparison.
   confirmed other-user.
 - Bare `force=true` behavior is explicitly tested and documented.
 
+
+---
+
+# Resolution (v1.22.13)
+
+Checked each finding against the code rather than accepting or rejecting it on
+the description. Four of five were real; one was already stale.
+
+## Finding 1 — unconfirmed identity becomes false `CONFLICT_OTHER_USER` — CONFIRMED, fixed
+
+Real, and worse than described: `_resolve_push_actor()` returns `("", False)` by
+design when neither the configured username nor a live lookup resolves, so `who
+!= me` was true for **every** history row and the whole history read as other
+people. It re-entered the exact bug class `TestOwnEditIsNotAnAlarm` exists to
+prevent, through a side door that bypassed the `confirmed and ...` guard the rest
+of the gate uses.
+
+Fixed at the source: `_editors_since()` takes `me_confirmed` and reports
+`attributable`. Unattributable history names nobody, so `ownership_changed` stays
+False and `CONFLICT_OTHER_USER` cannot fire on it. The response says identity
+could not be confirmed instead.
+
+Pinned by `TestEditorHistoryLimits::test_unconfirmed_identity_names_nobody`.
+
+## Finding 2 — `limit=20` makes a false "no other editor" claim — CONFIRMED, fixed
+
+Real. The message asserted a positive safety claim from a capped read — the same
+"no silent caps" rule already applied to the download ledger, violated here.
+
+`complete` now travels with the result: True only when the page came back short,
+or when a version at/older than the anchor was reached (so the range is covered
+however many rows follow). "Clean fast-forward" prints only when `checked and
+complete and attributable`; otherwise the response names which limit was hit.
+
+Pinned by `test_a_full_page_that_never_reaches_the_anchor_is_incomplete`,
+`test_reaching_past_the_anchor_completes_the_range`,
+`test_inconclusive_history_never_prints_a_clean_fast_forward`.
+
+## Finding 3 — date query unproven / possibly malformed — CONFIRMED, removed
+
+Real. `sys_recorded_at>javascript:gs.dateGenerate('<full timestamp>')` appears
+nowhere else in this repo (the established idiom for a datetime field is the
+plain `sys_updated_on>=<value>` form, 10+ sites), and the field's type was never
+verified. The failure mode is the dangerous direction: a wrong filter returns no
+rows, which reads as "no other editor" — a broken query turning into a safety
+claim.
+
+Not "fixed" — deleted. The query carries no date filter at all; the range is cut
+client-side on `sys_created_on`, a plain datetime present on every table. Cutting
+locally cannot fail toward a false clearance.
+
+Pinned by `test_the_range_is_cut_locally_not_by_an_encoded_date_query`, which
+asserts the exact generated query.
+
+## Finding 4 — history check skipped on bare `force=true` — STALE, then decided
+
+The quoted code (`if drifted: if not params.force:`) no longer existed at review
+time: the call had been moved ahead of risk scoring, so it runs on forced pushes
+too. The substantive question stands and is now answered explicitly.
+
+Decision: **bare `force=true` remains an approval, not a re-gate.** Per this
+repo's "gate, don't block" rule, force is how a human says "yes, overwrite that";
+making it a wall pushes people to a cruder tool. The guard's job is to make the
+rejection accurate and the audit log truthful — the force-path warning now names
+the editors the *history* implicates, not `sys_updated_by`, which can be you while
+the work at stake is someone else's. Documented in CLAUDE.md as NOT covering
+forced pushes.
+
+Pinned by `TestBareForceIsStillTheApproval`.
+
+## Finding 5 — "server history covers recovery" overstated — CONFIRMED, softened
+
+Real. Reworded to "for a record tracked in an update set the overwritten body is
+normally recoverable from the server's version history, which is not guaranteed
+for every table". No local backup was ever skipped on the strength of that claim,
+so nothing else changed.
+
+## Note on the review's read of v1.22.11
+
+Its summary of the anchor model matches the code: local state is used only as a
+provable common ancestor, and every way that proof can fail (content differs,
+file missing, no recorded sha) falls to fetch.

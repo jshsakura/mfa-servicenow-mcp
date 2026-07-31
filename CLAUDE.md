@@ -67,9 +67,24 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
    `download v1 → bob edits v2 → you push anything` left bob in neither value, and
    reverting him scored as your own safe edit. WHO changed a record is now asked
    of its `sys_update_version` history over the range since your anchor
-   (`_editors_since`), on the conflict path only. An unread history is never a
-   clearance — and "no one is holding it, force is safe" is only ever said when
-   the history actually came back clean.
+   (`_editors_since`), on the conflict path only.
+
+   That read is bounded, so what it PROVES is carried with it and every limit is
+   a stop: `checked` (an unread history is never a clearance), `complete` (the
+   read is capped newest-first — a full page that never reaches back to your
+   anchor can hide a coworker's edit behind your own later versions), and
+   `attributable` (with an unresolved session every author trivially "is not
+   you", so unconfirmed identity names NOBODY — it must hedge, never accuse).
+   "Clean fast-forward" is printed only when all three hold; otherwise the
+   response says which limit was hit. The range is cut client-side on
+   `sys_created_on`, never by an encoded date filter: a wrong or unsupported
+   filter form fails by returning no rows, which would read as "no other editor"
+   — a broken query silently becoming a safety claim.
+
+   **`force=true` alone remains the approval, not a re-gate.** The history guard
+   makes the rejection accurate and the audit log name the right person; it is
+   deliberately not a second wall in front of force, so do not describe it as
+   protecting forced pushes.
 6. **Incremental download is REMOTE-FIRST, per record** (`download_map.stale_sys_ids`).
    Never gate the fetch on a local aggregate. It used to query
    `sys_updated_on >= max(local anchors)`: a record whose own anchor had lagged
