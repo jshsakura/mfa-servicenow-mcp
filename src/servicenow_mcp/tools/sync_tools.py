@@ -1032,7 +1032,11 @@ def _editors_since(
       more versions than that since your anchor can hide a coworker's edit behind
       a wall of your own later ones. When the page fills without reaching past
       the anchor, the range is NOT covered and "nobody else edited it" is not
-      available to say.
+      available to say. Zero versions in range is likewise NOT covered: this is
+      only ever called for a record the server has already told us moved, so a
+      history with no record of that change is not tracking it (``sys_update_version``
+      exists for records captured in update sets, not for every table) — and a
+      silent, empty history would otherwise read as the cleanest possible result.
     - ``attributable``: identity is confirmed. With an unresolved SSO/browser
       session ``me`` is "", every author trivially "is not me", and the whole
       history would read as other people — the exact false accusation the push
@@ -1092,7 +1096,9 @@ def _editors_since(
             others.append(who)
     return {
         "checked": True,
-        "complete": complete,
+        # The change we know happened has to be IN there for the answer to mean
+        # anything. Nothing in range => the history is not recording this record.
+        "complete": complete and counted > 0,
         "attributable": out["attributable"],
         "others": others,
         "versions": counted,
@@ -2728,6 +2734,12 @@ def update_remote_from_local(
                 # indistinguishable from "fine", and gets read as fine.
                 if not editors["checked"]:
                     why = "it could not be read"
+                elif not editors["versions"]:
+                    why = (
+                        "the server says this record changed, but no version of that change "
+                        "is recorded — this table is not tracked in update sets, so the "
+                        "history cannot say who made it"
+                    )
                 elif not editors["attributable"]:
                     why = (
                         "I could not confirm which user you are logged in as, so its authors "
