@@ -64,6 +64,9 @@ jobs:
           source .venv/bin/activate
           isort --check-only --diff src/ tests/
 
+      - name: Check for real identities (public repo)
+        run: uv run python scripts/check_real_identities.py --all
+
       - name: Run Ruff (linting)
         run: |
           source .venv/bin/activate
