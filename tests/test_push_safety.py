@@ -266,3 +266,58 @@ class TestOwnEditIsNotAnAlarm:
         assert r["self_edit"] is True
         assert r["level"] == "low"
         assert "your own" in r["message"].lower()
+
+
+class TestUnknownDriftIsNotAbsentDrift:
+    """Cross-instance promotion: the anchor describes the ORIGIN.
+
+    Drift against the TARGET was never determined, but `drifted=False` was passed
+    to stand in for "unknown" — and False is the reassuring branch. A promotion
+    that overwrote another developer's later work on the target was reported as
+    "Safe to push ... nothing unseen gets overwritten" at risk_level none.
+    """
+
+    def test_unknown_drift_never_says_safe(self):
+        r = assess_push_risk(
+            me="me",
+            remote_updated_by="other.dev",
+            drifted=False,  # not determined — see drift_known
+            changed_lines=340,
+            total_lines=961,
+            me_confirmed=True,
+            drift_known=False,
+        )
+
+        assert r["level"] != "none"
+        msg = r["message"].lower()
+        assert "safe to push" not in msg
+        assert "nobody changed it" not in msg
+        assert "identical to your baseline" not in msg
+        # Says what IS known: the size of the overwrite and who last touched it there.
+        assert "35%" in r["message"]
+        assert "other.dev" in r["message"]
+        assert any("cross-instance" in f for f in r["factors"])
+
+    def test_a_large_unknown_drift_is_high(self):
+        r = assess_push_risk(
+            me="me",
+            remote_updated_by="",
+            drifted=False,
+            changed_lines=900,
+            total_lines=961,
+            me_confirmed=True,
+            drift_known=False,
+        )
+        assert r["level"] == "high"
+
+    def test_known_no_drift_is_still_safe(self):
+        """The ordinary same-instance case must not become noisy."""
+        r = assess_push_risk(
+            me="me",
+            remote_updated_by="me",
+            drifted=False,
+            changed_lines=10,
+            total_lines=100,
+        )
+        assert r["level"] == "none"
+        assert "safe to push" in r["message"].lower()

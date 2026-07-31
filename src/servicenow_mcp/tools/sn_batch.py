@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.http_result import json_object
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def batch_get(
         return None
 
     try:
-        serviced = response.json().get("serviced_requests") or []
+        serviced = json_object(response, "batch API").get("serviced_requests") or []
     except ValueError as exc:
         logger.warning("batch_get: unparsable response (falling back): %s", exc)
         return None
