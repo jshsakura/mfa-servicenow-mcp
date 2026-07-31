@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 from servicenow_mcp.utils.atomic_io import atomic_write_text
-from servicenow_mcp.utils.source_layout import normalize_source_eol
+from servicenow_mcp.utils.source_layout import field_filename, normalize_source_eol
 
 MIRROR_MARKER = ".remote"
 LEGACY_BASELINE_DIRNAME = "_baseline"
@@ -52,6 +52,38 @@ def sweep_legacy_baseline(component_dir: Path) -> None:
     legacy = component_dir / LEGACY_BASELINE_DIRNAME
     if legacy.is_dir():
         shutil.rmtree(legacy, ignore_errors=True)
+
+
+def anchor_matches_disk(record_dir: Path, entry: Dict[str, Any]) -> bool:
+    """Do the files on disk still equal what this _sync_meta entry CLAIMS?
+
+    An anchor is a claim about local state, not proof of it. It may only be
+    allowed to suppress a download when it still describes the bytes actually
+    sitting in ``record_dir`` — otherwise "the server matches my anchor" says
+    nothing about the copy you would be left reading. Unverifiable in any way
+    (folder gone, a recorded field's file missing, no recorded shas at all)
+    returns False: fetch it and reconcile against real content, because
+    over-fetching is recoverable and skipping a needed record is not.
+
+    Cheap by construction — local reads only, no network.
+    """
+    if not record_dir.is_dir():
+        return False
+    shas = entry.get("field_shas") or {}
+    if not shas:
+        return False
+    for field_name, stored in shas.items():
+        if not stored:
+            continue
+        fpath = record_dir / field_filename(field_name)
+        if not fpath.is_file():
+            return False
+        try:
+            if field_sha(fpath.read_text(encoding="utf-8")) != stored:
+                return False
+        except (OSError, UnicodeDecodeError):
+            return False
+    return True
 
 
 def normalize_for_hash(text: str) -> str:

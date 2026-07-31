@@ -61,6 +61,23 @@ from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, S
 from servicenow_mcp.utils.sync_anchor import field_sha as _field_sha
 
 
+def _seed_si_anchors(scope_root, entries, *, body="BODY"):
+    """Write script_include anchors AND the files they claim to describe.
+
+    An anchor only earns the right to suppress a fetch while it still matches the
+    bytes on disk, so seeding one without real files vetoes nothing.
+    """
+    meta_dir = scope_root / "sys_script_include"
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    entries = {k: dict(v) for k, v in entries.items()}
+    for name, entry in entries.items():
+        (meta_dir / name).mkdir(parents=True, exist_ok=True)
+        (meta_dir / name / "script.js").write_text(body, encoding="utf-8")
+        entry.setdefault("field_shas", {"script": _field_sha(body)})
+    (meta_dir / "_sync_meta.json").write_text(json.dumps(entries), encoding="utf-8")
+    return meta_dir
+
+
 def _build_config() -> ServerConfig:
     return ServerConfig(
         instance_url="https://test.service-now.com",
@@ -885,25 +902,20 @@ class TestDownloadSourceTypes:
         """
         config = _build_config()
         auth_manager = MagicMock()
-        meta_dir = tmp_path / "sys_script_include"
-        meta_dir.mkdir(parents=True)
-        (meta_dir / "Fresh").mkdir()
-        (meta_dir / "Lagging").mkdir()
-        (meta_dir / "_sync_meta.json").write_text(
-            json.dumps(
-                {
-                    "Fresh": {
-                        "sys_id": "si-1",
-                        "sys_updated_on": "2026-07-01 00:00:00",
-                        "sys_mod_count": "9",
-                    },
-                    "Lagging": {
-                        "sys_id": "si-2",
-                        "sys_updated_on": "2026-01-01 00:00:00",
-                        "sys_mod_count": "3",
-                    },
-                }
-            )
+        _seed_si_anchors(
+            tmp_path,
+            {
+                "Fresh": {
+                    "sys_id": "si-1",
+                    "sys_updated_on": "2026-07-01 00:00:00",
+                    "sys_mod_count": "9",
+                },
+                "Lagging": {
+                    "sys_id": "si-2",
+                    "sys_updated_on": "2026-01-01 00:00:00",
+                    "sys_mod_count": "3",
+                },
+            },
         )
         mock_all.side_effect = [
             # 1. ledger: live stamps for the whole family, no bodies
@@ -936,19 +948,15 @@ class TestDownloadSourceTypes:
     def test_incremental_fetches_no_bodies_when_server_matches_anchors(self, mock_all, tmp_path):
         config = _build_config()
         auth_manager = MagicMock()
-        meta_dir = tmp_path / "sys_script_include"
-        meta_dir.mkdir(parents=True)
-        (meta_dir / "MyHelper").mkdir()
-        (meta_dir / "_sync_meta.json").write_text(
-            json.dumps(
-                {
-                    "MyHelper": {
-                        "sys_id": "si-1",
-                        "sys_updated_on": "2026-07-01 00:00:00",
-                        "sys_mod_count": "9",
-                    }
+        _seed_si_anchors(
+            tmp_path,
+            {
+                "MyHelper": {
+                    "sys_id": "si-1",
+                    "sys_updated_on": "2026-07-01 00:00:00",
+                    "sys_mod_count": "9",
                 }
-            )
+            },
         )
         mock_all.side_effect = [
             [{"sys_id": "si-1", "sys_updated_on": "2026-07-01 00:00:00", "sys_mod_count": "9"}],
