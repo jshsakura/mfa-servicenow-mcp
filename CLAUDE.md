@@ -235,9 +235,43 @@ Design history and the "why": issues #37 (TLS), #45 (headless-first), #62
 
 This saves ~25% context tokens across all tools. Don't bypass this.
 
-## No Company-Specific Data in Code
+## No Real Identities in Code — HARD STOP, NO EXCEPTIONS
 
-This is a **public open-source** repo. Never put real company names, scope namespaces, company codes, or any customer-identifiable information in source code, tests, examples, descriptions, or comments. Use generic placeholders instead (e.g. "my_app", "Old Flow", "New Flow").
+This is a **public open-source** repo. A commit is permanent: once pushed, the
+string is in the public history forever and stays reachable by SHA even after the
+file is "fixed" in a later commit. Deleting it later does NOT undo it — the only
+real remedy is a full history rewrite, a force-push, and asking GitHub to purge
+cached objects, which breaks every clone and every tag.
+
+**NEVER write any of these into source, tests, fixtures, docstrings, comments,
+commit messages, issues, or docs:**
+
+- a real person's name, user_name, login, or email (`jane.doe`, `Jane Doe`,
+  `jane.doe@realcompany.com`)
+- a real company name, domain, instance URL, scope namespace, or company code
+- anything else that identifies a real customer, colleague, or system
+
+This has already happened twice in this repo — a colleague's full name + login
+sat in a test fixture across ~150 commits, and a real work email sat in a source
+comment. Both came from pasting real debug output into code. **That is the
+failure mode: real data arrives by copy-paste from a live session.**
+
+Rules that follow from it:
+
+1. **Placeholders only**, always: `alice` / `bob` / `other.dev`, `my_app`,
+   `x_myapp`, `example.com`, `Sprint 12 fixes`, `https://test.service-now.com`.
+2. **Anything pasted from a live instance is contaminated until proven clean.**
+   Real logs, real records, real screenshots — rename every identifier before it
+   goes anywhere near a file.
+3. **Before every commit, grep the diff.** Names, `@`-emails, real domains. If
+   you are touching a file that already contains such a string, you are about to
+   commit it again in your tree — fix it in that same commit, do not "leave it
+   for later".
+4. **Never announce it in a commit message or issue.** "Removes a real name from
+   a fixture" is a public signpost to exactly what to look for in the history.
+   Scrub it silently and report the fix to the maintainer directly.
+5. If you find one, tell the maintainer **immediately and privately** — it is a
+   disclosure incident, not a cleanup chore.
 
 ## Pre-commit
 

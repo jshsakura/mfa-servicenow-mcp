@@ -303,8 +303,9 @@ def _run_step(
             raise ActionError(str(outcome.get("error")), index=index)
         if name == IMPERSONATE_ACTION:
             entry = {"impersonating": outcome.get("now"), "was": outcome.get("before")}
-            # Only when the caller's word was not the account's — "Dev User
-            # is dev.user@example.com" is the answer to the next question.
+            # Only when the caller's word was not the account's — mapping the
+            # display name the caller typed to the account it resolved to is the
+            # answer to the next question.
             if outcome.get("resolved"):
                 entry["resolved"] = outcome["resolved"]
             return entry
