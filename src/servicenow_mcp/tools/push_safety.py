@@ -236,7 +236,9 @@ def assess_push_risk(
             f"of what the target currently holds{editor}. Anything the target has that your "
             f"copy does not — another developer's later work, or fixes made directly there — "
             f"is overwritten and will not show up as a conflict, because there is no shared "
-            f"history to detect one. Review the diff against the TARGET before promoting."
+            f"history to detect one. See it first — compare_instances(source=<origin>, "
+            f"target=<this instance>, table=..., key_field=..., fields=...) reads both sides "
+            f"live; a local diff cannot, because your tree is the origin's copy."
         )
     elif not drifted:
         scale = f"this edit changes {magnitude}" if total_lines else "no magnitude available"

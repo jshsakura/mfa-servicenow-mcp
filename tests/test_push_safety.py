@@ -297,6 +297,9 @@ class TestUnknownDriftIsNotAbsentDrift:
         assert "35%" in r["message"]
         assert "other.dev" in r["message"]
         assert any("cross-instance" in f for f in r["factors"])
+        # An alarm with no way to check it gets ignored. Name the call that
+        # reads both sides live — a local diff cannot, the tree is the origin's.
+        assert "compare_instances" in r["message"]
 
     def test_a_large_unknown_drift_is_high(self):
         r = assess_push_risk(
