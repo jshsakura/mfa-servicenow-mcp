@@ -35,6 +35,14 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
    automation the LLM must remember to invoke is not automation. Drill down
    with `diff_local_component(path=<tree>, verdict=True)`.
 
+   A conflict is a QUESTION, not a notice — you and the server both changed the
+   same body and which wins is not the tool's call. `sn_health` carries
+   `decision_required` with the three options as calls (keep both / take theirs /
+   keep mine) and **every** conflicting path, not a sample; it keeps coming back
+   until the sidecar is gone, and nothing is overwritten meanwhile. The scan
+   budget bounds file HASHING only — spotting a conflict is one `exists()`, so a
+   speed guard must never be why one goes unlisted.
+
 1. **Reading one widget/SI body** → `get_widget_bundle` (widget only) or
    `get_portal_component_code` with `fetch_complete=True`. Do NOT loop on
    `script_offset` unless the field is genuinely >12KB and you only need a slice.
@@ -46,6 +54,14 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
    `download_server_sources(families=[...])` (SIs/BRs/UI/api/security/admin).
 4. **Already downloaded before** → `diff_local_component(path=...)` first.
    Re-download only if diff reports drift, or if `_manifest.json` is missing.
+   A `.remote` mirror is the SERVER's copy, so it is only worth anything while it
+   still IS the server's copy. Every surface that points at one holds the live
+   record and brings it up to date first (`sync_anchor.refresh_mirror`) — merging
+   from a frozen sidecar produces a body nobody has and a push the gate rejects.
+   Two hard rules: only an **untruncated** read may write a mirror (the bulk/Batch
+   path clips large fields, and a clipped mirror is worse than a stale one, so
+   `_component_field_verdicts` takes `remote_is_complete`); and an **offline**
+   surface may report a conflict as unresolved but never call the sidecar current.
    For "is any of this stale?" over a folder/scope, use `verdict=True` —
    per-component verdicts + line counts, zero source bodies in context.
    Cross-instance comparison → `compare_instances` (live, both sides).

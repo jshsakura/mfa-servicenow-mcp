@@ -27,6 +27,7 @@ from ..utils.sync_anchor import (
     IN_SYNC_OUTCOMES,
     KEPT_LOCAL,
     LEGACY_KEPT,
+    MIRROR_ABSENT,
     REFRESHED,
     UNCHANGED,
     WRITTEN,
@@ -37,6 +38,7 @@ from ..utils.sync_anchor import (
     is_mirror_artifact,
     mirror_path_for,
     reconcile_field,
+    refresh_mirror,
 )
 from .portal_tools import (
     UpdatePortalComponentParams,
@@ -1647,7 +1649,13 @@ def _three_way_by_anchor(
 ) -> Dict[str, Any]:
     """Separate YOUR local edits from the SERVER's changes using the recorded
     per-field content sha (normalized) as the last-known-good anchor. Empty dict
-    when no anchor exists (legacy tree) or nothing diverged. Field names only."""
+    when no anchor exists (legacy tree) or nothing diverged. Field names only.
+
+    CALLER INVARIANT: ``remote_record`` must come from an untruncated read
+    (``full=True``). This refreshes the ``.remote`` sidecar from those bodies, and
+    the bulk/Batch path clips large fields — writing a clipped body over a correct
+    mirror trades a stale server copy for a corrupt one. The single-component diff
+    is the only caller, and it fetches with full=True."""
     yours: List[str] = []
     theirs: List[str] = []
     both_applied: List[str] = []
@@ -1673,9 +1681,10 @@ def _three_way_by_anchor(
             both_applied.append(field_name)
         else:
             diverged.append(field_name)
-        mirror = mirror_path_for(fpath)
-        if mirror.exists():
-            sidecars.append(mirror.name)
+        # The live body is in hand here, so the sidecar this response is about to
+        # point at is made current instead of merely reported to exist.
+        if refresh_mirror(fpath, str(remote_record.get(field_name) or "")) != MIRROR_ABSENT:
+            sidecars.append(mirror_path_for(fpath).name)
     out: Dict[str, Any] = {}
     if yours:
         out["your_local_edits"] = yours
@@ -1706,9 +1715,10 @@ def _rebase_guidance(three_way: Dict[str, Any]) -> Optional[str]:
     fields = ", ".join(diverged)
     if three_way.get("conflict_sidecars_on_disk"):
         return (
-            f"Diverged (you AND the server changed): {fields}. The server's CURRENT body for "
-            f"each is in the matching *.remote.* sidecar beside your file. Merge THEIR change "
-            f"into your working file — never edit or push the sidecar — then "
+            f"Diverged (you AND the server changed): {fields}. The matching *.remote.* sidecar "
+            f"beside your file holds the server's body as of THIS call — it was re-verified "
+            f"against the live record just now, not left at whatever the download saw. Merge "
+            f"THEIR change into your working file — never edit or push the sidecar — then "
             f"update_remote_from_local; the sidecar clears itself once the two reconcile."
         )
     return (
@@ -1865,8 +1875,19 @@ def _component_field_verdicts(
     fields: Dict[str, Path],
     remote_record: Dict[str, Any],
     stored_field_shas: Dict[str, str],
+    *,
+    remote_is_complete: bool = False,
 ) -> Tuple[Dict[str, Any], Set[str], List[str]]:
-    """(non-in_sync field rows, their states, conflict mirror sidecars on disk)."""
+    """(non-in_sync field rows, their states, conflict mirror sidecars on disk).
+
+    ``remote_is_complete`` says whether ``remote_record`` came from an untruncated
+    read. ONLY then may a ``.remote`` sidecar be refreshed from it: the bulk/Batch
+    path clips large field bodies (the same asymmetry that produced false
+    WRITE_NOT_LANDED before ``full=True`` was forced on the push gate), and writing
+    a clipped body over a correct mirror would replace a merely stale server copy
+    with a corrupt one — strictly worse. Default False: a caller that has not
+    thought about it does not get the write.
+    """
     field_rows: Dict[str, Any] = {}
     states: Set[str] = set()
     sidecars: List[str] = []
@@ -1879,9 +1900,11 @@ def _component_field_verdicts(
             continue
         remote_text = str(remote_record.get(field_name) or "")
         state = _field_state(local, stored_field_shas.get(field_name), remote_text)
-        mirror = mirror_path_for(fpath)
-        if mirror.exists():
-            sidecars.append(mirror.name)
+        if remote_is_complete:
+            if refresh_mirror(fpath, remote_text) != MIRROR_ABSENT:
+                sidecars.append(mirror_path_for(fpath).name)
+        elif mirror_path_for(fpath).exists():
+            sidecars.append(mirror_path_for(fpath).name)
         if state == "in_sync":
             continue
         states.add(state)
@@ -2266,7 +2289,12 @@ def diff_local_component(
     # Verdict mode: status + line counts only, never diff bodies.
     if params.verdict:
         field_rows, states, sidecars = _component_field_verdicts(
-            resolved.fields, remote_record, _stored_shas
+            # This path fetched the record with full=True, so the bodies are
+            # untruncated and a sidecar may be brought up to date from them.
+            resolved.fields,
+            remote_record,
+            _stored_shas,
+            remote_is_complete=True,
         )
         vres: Dict[str, Any] = {
             "mode": "verdict",

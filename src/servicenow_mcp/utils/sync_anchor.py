@@ -137,6 +137,43 @@ def cleanup_mirror(file_path: Path) -> None:
         pass
 
 
+# refresh_mirror outcomes
+MIRROR_ABSENT = "absent"  # no sidecar on disk
+MIRROR_CURRENT = "current"  # sidecar already equals the live server body
+MIRROR_REFRESHED = "refreshed"  # sidecar had gone stale -> rewritten from live
+
+
+def refresh_mirror(file_path: Path, remote_content: str) -> str:
+    """Bring an existing ``.remote`` sidecar up to the CURRENT server body.
+
+    The mirror is written at reconcile time and then frozen, while the tools that
+    point at it say "the server's CURRENT body is in the sidecar". The server can
+    move again five minutes later: you then merge a body nobody has, and the push
+    gate rejects the result — the merge was wasted and the message was a lie. A
+    stale copy of the server has no reason to exist (see this module's header);
+    that only holds if something actually keeps it fresh.
+
+    Call this from any surface that HAS the live body in hand. Rewriting costs
+    nothing safety-wise: a mirror is the SERVER's copy, never your work, so
+    replacing it can only ever discard a version of theirs you had not merged yet
+    — and the fresh one is the version you actually need to merge.
+
+    Callers WITHOUT a live body must not claim the sidecar is current. There is
+    deliberately no offline "assume it's fine" path here.
+    """
+    mirror = mirror_path_for(file_path)
+    if not mirror.exists():
+        return MIRROR_ABSENT
+    remote = remote_content if isinstance(remote_content, str) else ""
+    try:
+        if field_sha(mirror.read_text(encoding="utf-8")) == field_sha(remote):
+            return MIRROR_CURRENT
+    except (OSError, UnicodeDecodeError):
+        pass  # unreadable => rewrite it rather than trust it
+    atomic_write_text(mirror, normalize_source_eol(remote))
+    return MIRROR_REFRESHED
+
+
 # reconcile_field outcomes
 WRITTEN = "written"  # no local file existed -> wrote the server body
 UNCHANGED = "unchanged"  # local already equals the live server body

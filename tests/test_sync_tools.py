@@ -9,10 +9,12 @@ import pytest
 
 from servicenow_mcp.tools.sync_tools import (
     _EDITOR_HISTORY_LIMIT,
+    _NO_EDITOR_HISTORY,
     DiffLocalComponentParams,
     PushLocalComponentParams,
     _alias_for_instance_url,
     _batch_fetch_updated_on,
+    _component_field_verdicts,
     _editors_since,
     _find_manifest_json,
     _find_settings_json,
@@ -32,6 +34,7 @@ from servicenow_mcp.tools.sync_tools import (
     update_remote_from_local,
 )
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.sync_anchor import field_sha, mirror_path_for
 
 
 # ---------------------------------------------------------------------------
@@ -3125,6 +3128,107 @@ class TestEditorHistoryLimits:
         assert "inconclusive" in result["message"]
         assert str(_EDITOR_HISTORY_LIMIT) in result["message"]  # says WHICH limit
         assert result["editor_history"]["covers_full_range"] is False
+
+
+class TestSidecarIsVerifiedNotAssumed:
+    """Every surface that points at a '.remote' sidecar holds the live body, so
+    the sidecar it points at is made current first — the claim and the file agree."""
+
+    @patch("servicenow_mcp.tools.sync_tools._editors_since")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_diff_refreshes_a_stale_sidecar_from_the_live_body(
+        self, mock_fetch, mock_editors, mock_config, mock_auth, download_root
+    ):
+        mock_editors.return_value = dict(_NO_EDITOR_HISTORY)
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        script = widget_dir / "script.js"
+        table_dir = widget_dir.parent
+        meta = _read_sync_meta(table_dir)
+        meta["my-widget"]["field_shas"] = {"script": field_sha("var x = 1;")}
+        _write_sync_meta(table_dir, meta)
+        script.write_text("var x = 2; // mine", encoding="utf-8")
+        # A sidecar left behind by an older download — the server has moved since.
+        mirror = mirror_path_for(script)
+        mirror.write_text("var x = 50; // YESTERDAY", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 99; // what the server has NOW",
+            "sys_updated_on": "2026-07-30 12:00:00",
+            "sys_updated_by": "bob",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+        }
+
+        result = diff_local_component(
+            mock_config, mock_auth, DiffLocalComponentParams(path=str(script))
+        )
+
+        # The file you are told to merge from is the server's CURRENT body...
+        assert mirror.read_text(encoding="utf-8") == "var x = 99; // what the server has NOW"
+        # ...and your own work was not touched on the way.
+        assert script.read_text(encoding="utf-8") == "var x = 2; // mine"
+        assert "diverged_both_changed" in result["three_way"]
+
+    @patch("servicenow_mcp.tools.sync_tools._editors_since")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_diff_does_not_invent_a_sidecar_that_was_not_there(
+        self, mock_fetch, mock_editors, mock_config, mock_auth, download_root
+    ):
+        mock_editors.return_value = dict(_NO_EDITOR_HISTORY)
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        script = widget_dir / "script.js"
+        script.write_text("var x = 2;", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 99;",
+            "sys_updated_on": "2026-07-30 12:00:00",
+            "sys_updated_by": "bob",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+        }
+
+        diff_local_component(mock_config, mock_auth, DiffLocalComponentParams(path=str(script)))
+
+        assert not mirror_path_for(script).exists()
+
+
+class TestATruncatedBodyNeverOverwritesAMirror:
+    """The bulk/Batch read clips large field bodies. Refreshing a sidecar from one
+    would replace a merely STALE server copy with a CORRUPT one — you would then
+    merge from a clipped body. Only an untruncated read may write the mirror."""
+
+    def test_verdict_scan_reads_the_sidecar_but_never_rewrites_it(self, tmp_path):
+        f = tmp_path / "script.js"
+        f.write_text("my local edit", encoding="utf-8")
+        mirror = mirror_path_for(f)
+        mirror.write_text("the full server body, all 80kb of it", encoding="utf-8")
+
+        # remote_is_complete defaults False — the bulk-scan caller's shape.
+        _rows, _states, sidecars = _component_field_verdicts(
+            {"script": f},
+            {"script": "the full server body, all 8"},  # clipped by the bulk read
+            {"script": field_sha("something else")},
+        )
+
+        assert sidecars == [mirror.name]  # still reported as unresolved
+        assert mirror.read_text(encoding="utf-8") == "the full server body, all 80kb of it"
+
+    def test_an_untruncated_read_may_refresh_it(self, tmp_path):
+        f = tmp_path / "script.js"
+        f.write_text("my local edit", encoding="utf-8")
+        mirror = mirror_path_for(f)
+        mirror.write_text("yesterday's server body", encoding="utf-8")
+
+        _component_field_verdicts(
+            {"script": f},
+            {"script": "today's server body"},
+            {"script": field_sha("something else")},
+            remote_is_complete=True,
+        )
+
+        assert mirror.read_text(encoding="utf-8") == "today's server body"
 
 
 class TestBareForceIsStillTheApproval:

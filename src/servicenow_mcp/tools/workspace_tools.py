@@ -58,39 +58,49 @@ def _scan_tree_local(tree: Path, component_budget: Optional[int] = None) -> Dict
     """Offline state of one tree: your edits, conflict mirrors, anchor coverage.
 
     Uses the per-field content-sha anchor in _sync_meta (``local sha != stored
-    sha`` = your unpushed edit) — no network, no frozen snapshot. ``component_budget``
-    caps how many components are content-checked (speed guard for advisory surfaces
-    like the health snapshot — the push gates re-verify live at upload time, so
-    stopping early never hides a conflict where it matters).
+    sha`` = your unpushed edit) — no network, no frozen snapshot.
+
+    ``component_budget`` caps the EXPENSIVE half only: hashing every file to find
+    your unpushed edits. Conflict sidecars keep being scanned to the end of the
+    tree regardless, because spotting one is a single ``exists()`` — and a
+    conflict is a decision somebody still has to make, so a speed guard must not
+    be the reason one goes unlisted. Edits, by contrast, are still there to be
+    found on the next call and are re-checked live by the push gate anyway.
     """
     dirty: List[str] = []
     sidecars: List[str] = []
+    hashed = 0
+    # Working-file paths behind those sidecars, so a caller can hand one straight
+    # to diff/push instead of reconstructing it from a label.
+    conflict_paths: List[str] = []
     components = 0
     with_anchor = 0
     for table_name in sorted(_all_supported_tables()):
         for table_dir in _find_table_dirs(tree, table_name):
             sync_meta = _read_sync_meta(table_dir)
             for name in sorted(_read_map_json(table_dir)):
-                if component_budget is not None and components >= component_budget:
-                    return {
-                        "components": components,
-                        "anchor_protected": with_anchor,
-                        "your_edits": dirty,
-                        "unresolved_conflicts": sidecars,
-                    }
                 fields = _component_field_files(table_dir, name, table_name)
                 if not fields:
                     continue
                 components += 1
+                # Over budget: stop READING file bodies, keep looking for conflicts.
+                hash_this = component_budget is None or hashed < component_budget
+                if hash_this:
+                    hashed += 1
                 stored_shas = sync_meta.get(name, {}).get("field_shas", {})
-                if stored_shas:
+                if stored_shas and hash_this:
                     with_anchor += 1
                 for field_name, fpath in sorted(fields.items()):
+                    # Presence only. This scan is offline by contract, so it can
+                    # say a conflict is UNRESOLVED but never that the sidecar
+                    # still holds the server's current body — that is established
+                    # only where the live record is in hand (sync_anchor.refresh_mirror).
                     mirror = mirror_path_for(fpath)
                     if mirror.exists():
                         sidecars.append(f"{table_name}/{name} ({mirror.name})")
+                        conflict_paths.append(str(fpath))
                     stored = stored_shas.get(field_name)
-                    if not stored:
+                    if not stored or not hash_this:
                         continue
                     try:
                         local = fpath.read_text(encoding="utf-8")
@@ -103,4 +113,7 @@ def _scan_tree_local(tree: Path, component_budget: Optional[int] = None) -> Dict
         "anchor_protected": with_anchor,
         "your_edits": dirty,
         "unresolved_conflicts": sidecars,
+        "conflict_paths": conflict_paths,
+        # Components whose bodies were actually read — what the budget bounds.
+        "hashed": hashed,
     }

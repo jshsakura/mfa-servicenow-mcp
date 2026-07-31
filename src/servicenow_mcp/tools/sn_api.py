@@ -1319,24 +1319,28 @@ def _workspace_snapshot() -> Dict[str, Any]:
             return {}
         edits = 0
         conflicts = 0
+        conflict_paths: List[str] = []
         trees = 0
         budget = _WORKSPACE_SCAN_BUDGET
         seen_trees: set = set()
+        # The budget bounds file HASHING, not tree coverage. Breaking out of the
+        # walk on it would stop looking for conflicts in every later tree — and a
+        # conflict is a decision somebody still owes, so it must not go unlisted
+        # because an earlier tree was large. Spotting one is an exists() call.
         for root in roots:
-            if budget <= 0 or trees >= 10:
+            if trees >= 10:
                 break
             for tree in _discover_trees(root, 10 - trees):
                 key = str(tree)
                 if key in seen_trees:
                     continue
                 seen_trees.add(key)
-                local = _scan_tree_local(tree, component_budget=budget)
-                budget -= local["components"]
+                local = _scan_tree_local(tree, component_budget=max(0, budget))
+                budget -= local["hashed"]
                 trees += 1
                 edits += len(local["your_edits"])
                 conflicts += len(local["unresolved_conflicts"])
-                if budget <= 0:
-                    break
+                conflict_paths.extend(local.get("conflict_paths") or [])
         if not edits and not conflicts:
             return {}
         out: Dict[str, Any] = {"downloaded_trees": trees}
@@ -1344,9 +1348,43 @@ def _workspace_snapshot() -> Dict[str, Any]:
             out["unpushed_local_edits"] = edits
         if conflicts:
             out["unresolved_conflicts"] = conflicts
+            # A conflict is a QUESTION nobody has answered yet — you and the
+            # server both changed the same body, and which one wins is not a call
+            # this tool gets to make. Warning about it and moving on is how it got
+            # forgotten until a push reverted somebody. So the choices are stated
+            # here, as calls, and they keep coming back on every health read until
+            # the sidecar is gone. Nothing is decided in the meantime: your file is
+            # untouched and the server's is untouched.
+            out["decision_required"] = {
+                # Every one of them, not a sample. A conflict list that stops at N
+                # reads as "these are all of them" and the rest go undecided —
+                # and the drill-down call needed to find the others costs far more
+                # than the paths would have.
+                "question": (
+                    f"{conflicts} component(s) changed on BOTH sides. Pick one per component "
+                    "— nothing is overwritten until you do."
+                ),
+                "components": conflict_paths,
+                "keep_both": (
+                    "diff_local_component(path='<file>') to re-verify the '.remote' sidecar "
+                    "against the live record, merge THEIR change into your working file, "
+                    "then update_remote_from_local(path='<file>')."
+                ),
+                "take_theirs": (
+                    "Copy the '.remote' sidecar over your working file (discarding your edit), "
+                    "then update_remote_from_local — or re-download the component."
+                ),
+                "keep_mine": (
+                    "Delete the '.remote' sidecar to discard the server's change, then "
+                    "update_remote_from_local(path='<file>') — it will still gate on who "
+                    "else has been in the record."
+                ),
+            }
         out["next"] = (
             "Details: diff_local_component(path='<tree root>', verdict=True) — "
-            "per-component verdicts vs the live server, no bodies."
+            "per-component verdicts vs the live server, no bodies. The counts above are "
+            "offline (sidecars on disk); that call is what re-verifies each one "
+            "against the live record before you merge from it."
         )
         return out
     except Exception as exc:  # noqa: BLE001 — a broken temp tree must not fail health
