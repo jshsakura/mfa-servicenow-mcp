@@ -833,3 +833,81 @@ def test_a_unique_hit_carries_its_application(mock_query):
     out = _resolve_update_set_by_name(_browser_config(), MagicMock(), "Pilot")
 
     assert out == {"sys_id": "us-1", "name": "Pilot", "application": "My App"}
+
+
+# --- the OTHER set is looked up, never inferred from its name -------------
+# Reported from a live session: the check announced "two in-progress update sets
+# share this name, your change is split" when the two same-named sets were
+# COMPLETE and belonged to a different application. It had the sys_id in hand and
+# described the set from a name match instead of reading it.
+@patch("servicenow_mcp.tools.session_context_tools.sn_query_page")
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_a_closed_earlier_set_is_not_a_split(mock_last, mock_page):
+    """You cannot capture into a completed set, so nothing is split to rejoin.
+
+    The old advice — switch back and re-save — was not just noise, it was
+    impossible to carry out.
+    """
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-new", "name": "Sprint 12 fixes"}}}
+    )
+    mock_last.return_value = {"sys_id": "us-old", "name": "Sprint 12 fixes"}
+    mock_page.return_value = (
+        [
+            {
+                "sys_id": "us-old",
+                "name": "Sprint 12 fixes",
+                "state": "complete",
+                "application": "Other App",
+            }
+        ],
+        1,
+    )
+
+    assert check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1") is None
+
+
+@patch("servicenow_mcp.tools.session_context_tools.sn_query_page")
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_two_genuinely_open_sets_sharing_a_name_still_warn(mock_last, mock_page):
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-new", "name": "Sprint 12 fixes"}}}
+    )
+    mock_last.return_value = {"sys_id": "us-old", "name": "Sprint 12 fixes"}
+    mock_page.return_value = (
+        [
+            {
+                "sys_id": "us-old",
+                "name": "Sprint 12 fixes",
+                "state": "in progress",
+                "application": "My App",
+            }
+        ],
+        1,
+    )
+
+    out = check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1")
+    assert out is not None
+    assert "in-progress" in out["note"]
+    assert "us-old" in out["note"] and "us-new" in out["note"]
+    assert out["last_worked_update_set_state"] == "in progress"
+
+
+@patch("servicenow_mcp.tools.session_context_tools.sn_query_page")
+@patch("servicenow_mcp.tools.session_context_tools.get_last_update_set_for_record")
+def test_an_unreadable_state_is_never_reported_as_in_progress(mock_last, mock_page):
+    """Unknown is not 'in progress'. The check may keep confirming, but it may
+    not assert a fact about a set it could not read."""
+    auth = MagicMock()
+    auth.make_request.return_value = _resp(
+        {"result": {"current": {"sysId": "us-new", "name": "Sprint 12 fixes"}}}
+    )
+    mock_last.return_value = {"sys_id": "us-old", "name": "Sprint 12 fixes"}
+    mock_page.side_effect = Exception("ACL")
+
+    out = check_update_set_for_push(_browser_config(), auth, "sp_widget", "wid-1")
+    assert out is not None
+    assert "in-progress" not in out["note"]
+    assert "us-old" in out["note"]

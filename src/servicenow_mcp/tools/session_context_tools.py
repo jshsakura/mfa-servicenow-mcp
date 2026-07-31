@@ -560,6 +560,50 @@ def is_default_update_set(update_set: Optional[Dict[str, str]]) -> bool:
     return name.strip().lower() == "default"
 
 
+# sys_update_set states that can still RECEIVE a capture. Anything else is closed:
+# you cannot switch to it and re-save, so recommending that is bad advice.
+_OPEN_UPDATE_SET_STATES = {"in progress"}
+
+
+def _read_update_set(
+    config: ServerConfig, auth_manager: AuthManager, sys_id: str
+) -> Optional[Dict[str, str]]:
+    """State + application for one update set, by sys_id. None when unreadable.
+
+    The push check used to describe the OTHER set — "two in-progress sets share
+    this name" — without ever looking it up. It had the sys_id in hand the whole
+    time and inferred the rest from a name match, so a pair of COMPLETED sets in
+    a DIFFERENT application got reported as a live split of the current work.
+    Raw values (display_value=False) so the state compares deterministically
+    against a fixed vocabulary rather than a localized label.
+    """
+    if not sys_id:
+        return None
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_update_set",
+            query=f"sys_id={sys_id}",
+            fields="sys_id,name,state,application",
+            limit=1,
+            offset=0,
+            display_value=False,
+        )
+    except Exception as exc:
+        logger.warning("Could not read update set %s: %s", sys_id, exc)
+        return None
+    if not rows:
+        return None
+    row = rows[0]
+    return {
+        "sys_id": str(row.get("sys_id") or ""),
+        "name": str(row.get("name") or ""),
+        "state": str(row.get("state") or "").strip().lower(),
+        "application": _display(row.get("application")),
+    }
+
+
 def check_update_set_for_push(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -633,6 +677,22 @@ def check_update_set_for_push(
     current_app = us.get("application") or split_app
     last_name, last_app = split_picker_label((last or {}).get("name") or last_id)
     last_app = (last or {}).get("application") or last_app
+
+    # Look the OTHER set up. We have had its sys_id all along; describing it from
+    # a name match instead is what turned two COMPLETED sets in a different
+    # application into "two in-progress sets are both named X, your change is
+    # split". Worse, the advice that followed — switch back and re-save — cannot
+    # be carried out on a closed set, so it sent the caller at an impossible fix.
+    last_record = _read_update_set(config, auth_manager, last_id)
+    last_state = (last_record or {}).get("state", "")
+    if last_record:
+        last_name = last_record.get("name") or last_name
+        last_app = last_record.get("application") or last_app
+        if last_state and last_state not in _OPEN_UPDATE_SET_STATES:
+            # Closed: it cannot receive this change, so nothing is being split
+            # that anyone could rejoin. Sequential work across releases is the
+            # normal case and stays silent.
+            return None
     by = (last or {}).get("by") or ""
     at = (last or {}).get("at") or ""
     # Attribute the earlier capture. A bare "the set differs" reads as "you
@@ -669,15 +729,25 @@ def check_update_set_for_push(
     if last_app:
         out["last_worked_update_set_application"] = last_app
 
+    if last_state:
+        out["last_worked_update_set_state"] = last_state
     if collides:
         # The nastiest shape: two sets, one name. Everything that identifies a
         # set by name — this confirmation, the picker label, a human reading a
         # release note — points at both, so the sys_id has to lead.
+        #
+        # "in progress" is only claimed for a set we actually read as such. The
+        # state is the whole difference between "your change is split across two
+        # live sets" and "a set with the same name shipped last month".
         apps = f" ('{current_app}' vs '{last_app}')" if current_app and last_app else ""
+        both_open = last_state in _OPEN_UPDATE_SET_STATES
+        which = "in-progress " if both_open else ""
         out["note"] = (
-            f"Two DIFFERENT in-progress update sets are both named '{current_name}'{apps} — "
-            f"current is {current_id}, the earlier capture went to {last_id}. Identify them by "
-            f"sys_id, not by name: update_set_name='{current_name}' cannot pick one."
+            f"Two DIFFERENT {which}update sets are both named '{current_name}'{apps} — "
+            f"current is {current_id}, the earlier capture went to {last_id}"
+            + (f" (state '{last_state}')" if last_state and not both_open else "")
+            + f". Identify them by sys_id, not by name: update_set_name='{current_name}' "
+            f"cannot pick one."
         )
     elif a and b and (a.startswith(b) or b.startswith(a)):
         # Near-identical names (a suffixed variant) read as one set, so a split
