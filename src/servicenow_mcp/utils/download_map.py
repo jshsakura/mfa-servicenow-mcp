@@ -20,6 +20,8 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set
 
+from servicenow_mcp.utils.sync_anchor import anchor_matches_disk
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,8 +48,11 @@ def stale_sys_ids(
 
     Per record, fetch when:
       - no anchor for the id at all (never synced, or an unanchored legacy tree);
-      - ``record_root`` is given and the record's folder is gone (files deleted
-        out from under an anchor that still claims they are in sync);
+      - ``record_root`` is given and the anchor no longer matches the files on
+        disk — deleted, edited, or never sha-recorded. The anchor is a claim about
+        local state; until it is checked against real bytes it may not veto a
+        fetch, or a record whose local copy is not what the anchor says gets
+        skipped as "up to date" and you never receive the body you needed;
       - the live ``sys_mod_count`` differs from the anchored one — the server's own
         monotonic counter is the authority (same basis as the diff/push gate);
       - no anchored mod_count (legacy anchor) and the live ``sys_updated_on`` is
@@ -65,10 +70,14 @@ def stale_sys_ids(
         sid = str(entry.get("sys_id") or "")
         if not sid:
             continue
-        # An anchor whose files are gone is not evidence of anything.
+        # An anchor may only suppress a fetch while it still describes the bytes
+        # on disk. It is a local claim, not proof: if the files are gone, changed
+        # under it, or were never sha-recorded, "the server matches my anchor"
+        # says nothing about the copy you would be left reading — so drop the
+        # claim and let the record be fetched and reconciled against real content.
         if record_root is not None:
             folder = name_to_folder(str(name)) if name_to_folder else str(name)
-            if not (record_root / folder).is_dir():
+            if not anchor_matches_disk(record_root / folder, entry):
                 continue
         by_sys_id[sid] = entry
 

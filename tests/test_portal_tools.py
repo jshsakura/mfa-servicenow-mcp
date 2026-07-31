@@ -809,11 +809,22 @@ def test_download_portal_sources_persists_widget_dependency_graph(
     assert dep_graph == {"Quotation Widget": ["myStyles"]}
 
 
-def _seed_widget_anchor(scope_root, entries):
+def _seed_widget_anchor(scope_root, entries, *, body="BODY"):
+    """Write the anchor AND the files it claims to describe.
+
+    An anchor only earns the right to suppress a fetch while it still matches the
+    bytes on disk, so seeding one without real files vetoes nothing.
+    """
     import json
 
-    for name in entries:
-        (scope_root / "sp_widget" / name).mkdir(parents=True, exist_ok=True)
+    from servicenow_mcp.utils.sync_anchor import field_sha
+
+    entries = {k: dict(v) for k, v in entries.items()}
+    for name, entry in entries.items():
+        wdir = scope_root / "sp_widget" / name
+        wdir.mkdir(parents=True, exist_ok=True)
+        (wdir / "script.js").write_text(body, encoding="utf-8")
+        entry.setdefault("field_shas", {"script": field_sha(body)})
     (scope_root / "sp_widget" / "_sync_meta.json").write_text(json.dumps(entries), encoding="utf-8")
 
 

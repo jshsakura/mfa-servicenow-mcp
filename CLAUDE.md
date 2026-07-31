@@ -69,6 +69,15 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
    each record to ITS OWN anchor. Fetch more rather than miss one: an unreadable
    ledger falls back to a full download, and a ledger that hits its record cap
    says `INCOMPLETE CHANGE LIST` instead of implying everything is current.
+
+   **An anchor may only veto a fetch while it still describes the files on disk**
+   (`sync_anchor.anchor_matches_disk`). `_sync_meta` is a local CLAIM, not proof:
+   "the server matches my anchor" says nothing about the copy you would be left
+   reading if that copy is not what the anchor describes. Deleted, edited, or
+   never sha-recorded ⇒ the claim is dropped and the record is fetched and
+   reconciled against real content. The anchor's real job is telling YOUR edit
+   from THEIR change (3-way) — that needs a local record; deciding what to
+   download does not.
 7. **Re-download is live-anchored (`utils/sync_anchor.py`)**: drift decisions use
    the live `sys_mod_count` (authority) plus a per-field content sha recorded in
    `_sync_meta` — there is NO frozen `_baseline/` snapshot anymore. Locally edited
