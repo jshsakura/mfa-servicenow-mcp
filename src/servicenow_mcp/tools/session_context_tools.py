@@ -560,9 +560,15 @@ def is_default_update_set(update_set: Optional[Dict[str, str]]) -> bool:
     return name.strip().lower() == "default"
 
 
-# sys_update_set states that can still RECEIVE a capture. Anything else is closed:
-# you cannot switch to it and re-save, so recommending that is bad advice.
-_OPEN_UPDATE_SET_STATES = {"in progress"}
+# sys_update_set states that provably cannot RECEIVE a capture any more. Only a
+# state on THIS list silences the warning.
+#
+# The inverse list ("open == 'in progress', everything else is closed") was the
+# wrong way round: an unrecognised value — a state this vocabulary does not know,
+# a localized or customized choice — would be read as closed and the warning
+# dropped. That fails toward the quiet answer, which is the one failure direction
+# this codebase does not accept. Unknown now keeps warning.
+_CLOSED_UPDATE_SET_STATES = {"complete", "committed", "closed", "ignore", "released"}
 
 
 def _read_update_set(
@@ -688,7 +694,7 @@ def check_update_set_for_push(
     if last_record:
         last_name = last_record.get("name") or last_name
         last_app = last_record.get("application") or last_app
-        if last_state and last_state not in _OPEN_UPDATE_SET_STATES:
+        if last_state in _CLOSED_UPDATE_SET_STATES:
             # Closed: it cannot receive this change, so nothing is being split
             # that anyone could rejoin. Sequential work across releases is the
             # normal case and stays silent.
@@ -740,7 +746,7 @@ def check_update_set_for_push(
         # state is the whole difference between "your change is split across two
         # live sets" and "a set with the same name shipped last month".
         apps = f" ('{current_app}' vs '{last_app}')" if current_app and last_app else ""
-        both_open = last_state in _OPEN_UPDATE_SET_STATES
+        both_open = bool(last_state) and last_state not in _CLOSED_UPDATE_SET_STATES
         which = "in-progress " if both_open else ""
         out["note"] = (
             f"Two DIFFERENT {which}update sets are both named '{current_name}'{apps} — "

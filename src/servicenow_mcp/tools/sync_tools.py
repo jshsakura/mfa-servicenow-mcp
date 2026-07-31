@@ -2696,6 +2696,40 @@ def update_remote_from_local(
                 "diffs": _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT),
             }
 
+    # A cross-instance promotion never reached the gate below: `drifted` is False
+    # there by construction, so it took no force, no confirmation of content, and
+    # no review — and the warning describing what it overwrote was attached to the
+    # SUCCESS ack, i.e. delivered after the write had already landed. That is the
+    # shape that carried three of another developer's revisions to a target and
+    # reported it afterwards.
+    #
+    # There is no anchor to gate on, so gate on the only evidence there is: the
+    # target's own body differs from what is about to replace it. Same second
+    # approval as any other overwrite — force=true — so this is a gate, not a wall.
+    if cross_instance_deploy and update_data and not params.force:
+        return {
+            "error": "CROSS_INSTANCE_UNREVIEWED",
+            "message": (
+                f"{risk['message']} Nothing was written. Re-run with force=true once you have "
+                f"seen the target's version — optionally with "
+                f"confirm_overwrite_updated_on='{remote_updated_on}', which re-blocks if the "
+                f"target moves between your review and the push."
+            ),
+            "risk": risk,
+            "target_instance": active,
+            "remote_updated_by": remote_updated_by,
+            "remote_updated_on": remote_updated_on,
+            "fields_to_overwrite": list(update_data.keys()),
+            "component": {
+                "table": resolved.table,
+                "sys_id": resolved.sys_id,
+                "name": resolved.name,
+            },
+            # The line-level view of what the target loses, from the record already
+            # fetched — so the decision does not need another round trip.
+            "diffs": _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT),
+        }
+
     if drifted:
         if not params.force:
             component_info = {
