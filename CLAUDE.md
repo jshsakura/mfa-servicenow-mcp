@@ -58,6 +58,18 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
    none` — absence of evidence scored as evidence of absence. The fix is to
    re-download (it anchors the record and keeps your edits; a real divergence
    lands as a `.remote` sidecar), not to reach for `force`.
+
+   **A server fact is read from the server, never from `_sync_meta`.** The anchor
+   records what YOU last received; it is not a cache of the record's state. The
+   gate used to answer "did someone take this over" by comparing the editor name
+   cached at download against the live `sys_updated_by` — a stale copy of a server
+   fact on one side, and on the other a field that names only the LAST editor. So
+   `download v1 → bob edits v2 → you push anything` left bob in neither value, and
+   reverting him scored as your own safe edit. WHO changed a record is now asked
+   of its `sys_update_version` history over the range since your anchor
+   (`_editors_since`), on the conflict path only. An unread history is never a
+   clearance — and "no one is holding it, force is safe" is only ever said when
+   the history actually came back clean.
 6. **Incremental download is REMOTE-FIRST, per record** (`download_map.stale_sys_ids`).
    Never gate the fetch on a local aggregate. It used to query
    `sys_updated_on >= max(local anchors)`: a record whose own anchor had lagged

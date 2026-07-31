@@ -15,29 +15,28 @@ from servicenow_mcp.tools.push_safety import assess_push_risk, describe_attribut
 
 
 class TestDescribeAttribution:
-    """Free corroboration from data already on hand: the download baseline owner
-    (_sync_meta, local), the current editor, and the creator (same fetch). No
-    extra API, no LLM — just don't trust one field."""
+    """Corroboration from the current record (editor, creator) plus the SERVER's
+    own version history for "who else has been in here since my copy". That last
+    signal used to come from _sync_meta — a server fact cached at download time
+    and never refreshed. No LLM — just don't trust one field."""
 
-    def test_ownership_changed_since_download(self):
-        # I downloaded when 'a' owned it; now 'b' does → someone took it over.
-        a = describe_attribution(baseline_by="a", current_by="b", created_by="a")
+    def test_other_editor_in_the_server_history_is_a_handoff(self):
+        a = describe_attribution(other_editors=["a"], current_by="b", created_by="a")
         assert a["attribution"] == "ownership_changed"
         assert a["ownership_changed"] is True
         assert "a" in a["note"] and "b" in a["note"]
 
     def test_shared_when_creator_differs_from_editor(self):
-        a = describe_attribution(baseline_by="b", current_by="b", created_by="a")
+        a = describe_attribution(other_editors=[], current_by="b", created_by="a")
         assert a["attribution"] == "shared"
 
     def test_consistent_when_all_align(self):
-        a = describe_attribution(baseline_by="a", current_by="a", created_by="a")
+        a = describe_attribution(other_editors=[], current_by="a", created_by="a")
         assert a["attribution"] == "consistent"
         assert a["ownership_changed"] is False
 
-    def test_missing_baseline_does_not_falsely_flag(self):
-        # No baseline owner recorded (older download) → cannot claim a change.
-        a = describe_attribution(baseline_by="", current_by="b", created_by="")
+    def test_no_other_editor_reported_does_not_falsely_flag(self):
+        a = describe_attribution(other_editors=[], current_by="b", created_by="")
         assert a["ownership_changed"] is False
 
 
@@ -147,25 +146,31 @@ class TestAssessPushRisk:
         )
         assert r["level"] == "none"
 
-    def test_ownership_change_escalates_and_is_named(self):
-        # Recorded owner changed since download → strong signal, surfaced in the
-        # message regardless of whether the editor matches 'me'.
+    def test_other_editor_escalates_even_when_i_hold_the_last_stamp(self):
+        """The case the last-editor field structurally cannot see.
+
+        Download v1 -> bob edits v2 -> I push anything -> sys_updated_by is me
+        again and bob has vanished from that one field while his change is still
+        on the server. Scoring off the last editor called that a safe self-edit;
+        pushing my v1-derived copy reverts him.
+        """
         r = assess_push_risk(
             me="alice",
-            remote_updated_by="bob",
+            remote_updated_by="alice",  # I hold the last stamp...
             drifted=True,
             changed_lines=10,
             total_lines=100,
             me_confirmed=True,
-            baseline_by="alice",
+            other_editors=["bob"],  # ...but the server says bob was in here too
             created_by="alice",
         )
         assert r["attribution"] == "ownership_changed"
+        assert r["ownership_changed"] is True
         assert r["level"] in ("high", "critical")
-        assert "alice" in r["message"] and "bob" in r["message"]
+        assert "bob" in r["message"]
 
     def test_attribution_defaults_consistent_without_extra_signals(self):
-        # Back-compat: callers that don't pass baseline/creator still work.
+        # Back-compat: callers that don't pass editors/creator still work.
         r = assess_push_risk(
             me="me",
             remote_updated_by="me",
@@ -195,9 +200,9 @@ class TestOwnEditIsNotAnAlarm:
     """
 
     def test_my_own_edit_is_not_an_ownership_handoff(self):
-        # Downloaded when 'admin' was the last editor; I have since edited it.
+        # The server reports no other editor since my copy; I am the last editor.
         # Old behaviour: "Ownership changed ... verify before trusting it".
-        a = describe_attribution(baseline_by="admin", current_by="me", created_by="admin", me="me")
+        a = describe_attribution(other_editors=[], current_by="me", created_by="admin", me="me")
         assert a["ownership_changed"] is False
         assert a["self_edit"] is True
         assert a["attribution"] == "self"
@@ -205,20 +210,26 @@ class TestOwnEditIsNotAnAlarm:
     def test_editing_someone_elses_record_is_not_shared_noise(self):
         # Created by 'admin', last changed by me — the normal state of every record
         # I maintain. It must not surface as a 'shared record' flag.
-        a = describe_attribution(baseline_by="me", current_by="me", created_by="admin", me="me")
+        a = describe_attribution(other_editors=[], current_by="me", created_by="admin", me="me")
         assert a["shared"] is False
         assert a["attribution"] == "self"
 
     def test_unconfirmed_identity_cannot_claim_self(self):
         # Never mute the alarm on an unverified 'that was probably me'.
         a = describe_attribution(
-            baseline_by="admin", current_by="me", created_by="admin", me="me", me_confirmed=False
+            other_editors=["admin"],
+            current_by="me",
+            created_by="admin",
+            me="me",
+            me_confirmed=False,
         )
         assert a["self_edit"] is False
         assert a["ownership_changed"] is True
 
     def test_real_handoff_still_flags_when_editor_is_not_me(self):
-        a = describe_attribution(baseline_by="admin", current_by="bob", created_by="admin", me="me")
+        a = describe_attribution(
+            other_editors=["admin"], current_by="bob", created_by="admin", me="me"
+        )
         assert a["ownership_changed"] is True
         assert a["attribution"] == "ownership_changed"
 
@@ -231,7 +242,7 @@ class TestOwnEditIsNotAnAlarm:
             drifted=False,
             changed_lines=320,
             total_lines=400,
-            baseline_by="admin",
+            other_editors=[],
             created_by="admin",
         )
         assert r["level"] == "none"
@@ -248,7 +259,7 @@ class TestOwnEditIsNotAnAlarm:
             drifted=True,
             changed_lines=5,
             total_lines=400,
-            baseline_by="admin",
+            other_editors=[],
             created_by="admin",
         )
         assert r["other_user"] is False

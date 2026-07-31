@@ -192,6 +192,9 @@ MAX_DIFF_LINES = 120
 # Context lines for the line diff embedded in a CONFLICT response (P1-1) — kept
 # tight so a blocked push shows what changed without bloating the rejection.
 _CONFLICT_DIFF_CONTEXT = 3
+# Versions to read back when asking the server who changed a record since your
+# anchor. Only needs enough to answer "was anyone but me in here", not a full log.
+_EDITOR_HISTORY_LIMIT = 20
 
 
 def _normalize_for_compare(text: str) -> str:
@@ -984,6 +987,64 @@ def _active_update_sets(
         }
         for row in (resp.get("results") or [])
     ]
+
+
+def _editors_since(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    sys_id: str,
+    since: str,
+    me: str,
+) -> Dict[str, Any]:
+    """WHO changed this record on the server after ``since`` — asked of the server.
+
+    ``sys_updated_by`` names only the LAST editor, and "last editor is me" was
+    being read as "nobody else's work is at stake". It isn't: download v1 ->
+    someone else edits v2 -> you push anything at all -> sys_updated_by is you
+    again, and their v2 has vanished from that one field while still sitting on
+    the server. Pushing your v1-derived copy then reverts them, scored as a safe
+    self-edit. The record's own version history answers the actual question over
+    the whole range, so nothing has to be inferred from a single field — or from
+    a name cached locally at download time, which is a stale copy of a server
+    fact and goes wrong exactly when it matters.
+
+    Returns {"checked": bool, "others": [...], "versions": n}. ``checked`` is
+    False when the history could not be read; callers must NOT downgrade a
+    conflict on an unread history — absence of evidence is not evidence here.
+    """
+    out: Dict[str, Any] = {"checked": False, "others": [], "versions": 0}
+    if not (table and sys_id):
+        return out
+    query = f"name={table}_{sys_id}"
+    if since:
+        # Server-side comparison against the server's own clock — no local clock
+        # enters this. Records are stamped when the version was recorded.
+        query += f"^sys_recorded_at>javascript:gs.dateGenerate('{since}')"
+    try:
+        resp = sn_query(
+            config,
+            auth_manager,
+            GenericQueryParams(
+                table="sys_update_version",
+                query=query,
+                fields="sys_created_by,sys_recorded_at,state",
+                orderby="-sys_recorded_at",
+                limit=_EDITOR_HISTORY_LIMIT,
+                offset=0,
+                display_value=False,
+            ),
+        )
+    except Exception as exc:  # best-effort: never mask the real failure
+        logger.warning("Could not read version history for %s/%s: %s", table, sys_id, exc)
+        return out
+    rows = resp.get("results") or []
+    others: List[str] = []
+    for row in rows:
+        who = _display_str(row.get("sys_created_by")).strip()
+        if who and who != me and who not in others:
+            others.append(who)
+    return {"checked": True, "others": others, "versions": len(rows)}
 
 
 def _record_update_set_hold(
@@ -2071,16 +2132,6 @@ def diff_local_component(
     # sys_updated_by is a string (user_name) field — readable as-is.
     remote_updated_by = _display_str(remote_record.get("sys_updated_by"))
     me, me_confirmed = _resolve_push_actor(config, auth_manager)
-    # Free attribution corroboration (same fetch + local baseline) so a handoff /
-    # spoofed editor is visible at REVIEW time, before any push. No extra API.
-    # 'me' is passed so YOUR OWN edit is never reported as an ownership handoff.
-    attribution = describe_attribution(
-        baseline_by=meta.get("sys_updated_by", ""),
-        current_by=remote_updated_by,
-        created_by=_display_str(remote_record.get("sys_created_by")),
-        me=me,
-        me_confirmed=me_confirmed,
-    )
     # The live sys_mod_count decides whether the server moved; content/timestamp
     # are fallbacks. A stale local snapshot can never mask a live mod_count advance.
     drift = _assess_server_drift(
@@ -2091,6 +2142,25 @@ def diff_local_component(
         local_mod_count=meta.get("sys_mod_count", ""),
         remote_mod_count=str(remote_record.get("sys_mod_count") or ""),
         field_shas=meta.get("field_shas", {}),
+    )
+    # Attribution corroboration so a handoff / spoofed editor is visible at REVIEW
+    # time, before any push. WHO else has been in the record comes from the
+    # server's own version history, not from the editor name cached in _sync_meta
+    # at download time — that is a server fact held locally and never refreshed,
+    # and it can only ever name one editor. Asked only when the server already
+    # said the record moved. 'me' is passed so YOUR OWN edit is never reported as
+    # a handoff.
+    editors = (
+        _editors_since(config, auth_manager, resolved.table, resolved.sys_id, local_updated_on, me)
+        if drift["drifted"]
+        else {"checked": False, "others": [], "versions": 0}
+    )
+    attribution = describe_attribution(
+        other_editors=editors["others"],
+        current_by=remote_updated_by,
+        created_by=_display_str(remote_record.get("sys_created_by")),
+        me=me,
+        me_confirmed=me_confirmed,
     )
     conflict_warning = None
     if drift["unanchored"]:
@@ -2453,6 +2523,17 @@ def update_remote_from_local(
     # overwrite, so there is no decision to gate — blocking it would only be noise.
     if drift["unanchored"] and not update_data:
         drifted = False
+    # WHO else has been in this record since your copy — asked of the server's own
+    # version history, and only when the server already told us it moved. The
+    # name cached in _sync_meta at download time cannot answer this: it is a
+    # server fact held locally and never refreshed, and it can only ever see one
+    # editor. Reading it costs one query on the path where a human is about to
+    # make a decision, and nothing at all on a clean push.
+    editors = (
+        _editors_since(config, auth_manager, resolved.table, resolved.sys_id, local_updated_on, me)
+        if drifted
+        else {"checked": False, "others": [], "versions": 0}
+    )
     risk = assess_push_risk(
         me=me,
         remote_updated_by=remote_updated_by,
@@ -2460,15 +2541,19 @@ def update_remote_from_local(
         changed_lines=_changed_lines,
         total_lines=_total_lines,
         me_confirmed=me_confirmed,
-        # Free corroboration from the SAME fetch + the local download baseline:
-        # who created it, and who owned it when you downloaded. No extra API.
-        baseline_by=meta.get("sys_updated_by", ""),
+        # Server-sourced corroboration: who created it (same fetch), and who the
+        # record's own history names as having changed it since your copy.
+        other_editors=editors["others"],
         created_by=str(remote_record.get("sys_created_by") or "").strip(),
     )
     # CONFLICT_OTHER_USER is asserted ONLY when identity is confirmed AND differs
     # — never on an unconfirmed guess (that was the false "someone else committed
     # your update set" bug). Unconfirmed-but-drifted still blocks as CONFLICT.
-    confirmed_other = risk["other_user"]
+    # ``ownership_changed`` counts too: the server's history naming another editor
+    # since your copy IS someone else's work at stake, even when you happen to
+    # hold the last stamp — which is precisely the case the last-editor field
+    # cannot see.
+    confirmed_other = risk["other_user"] or risk["ownership_changed"]
 
     # Force-CAS: force approves overwriting exactly the version the caller
     # REVIEWED. If the server moved again between review and push, the approval
@@ -2523,11 +2608,30 @@ def update_remote_from_local(
                     f"set '{live_hold['update_set']}' — force=true would overwrite their "
                     "in-progress work."
                 )
-            else:
+            elif editors["others"]:
+                # Nobody is HOLDING it, but the server's history says someone else
+                # has been in it since your anchor. Their work is committed, not
+                # in-progress — which makes it easier to revert, not safer to.
+                who = "', '".join(editors["others"])
                 live_note = (
-                    " LIVE: no one is holding this record now (the change that moved it is "
-                    "committed/released). If your local copy is the intended final, this is a "
-                    "clean fast-forward — force=true is safe."
+                    f" LIVE: no open update set holds this record, but the server's version "
+                    f"history shows '{who}' changed it after your copy was taken "
+                    f"({editors['versions']} version(s) since). Their change is committed — "
+                    f"pushing this copy would revert it."
+                )
+            else:
+                # Only claim a clean fast-forward when the SERVER agreed: no hold,
+                # and no other editor in the version history since your anchor.
+                # Asserting it off the last-editor field alone is how someone
+                # else's committed change got called safe to overwrite.
+                live_note = (
+                    " LIVE: no one is holding this record now, and the server's version history "
+                    "shows no other editor since your copy was taken. If your local copy is the "
+                    "intended final, this is a clean fast-forward — force=true is safe."
+                    if editors["checked"]
+                    else " LIVE: no one is holding this record now, but the server's version "
+                    "history could not be read — this is NOT confirmation that only you have "
+                    "been in it. Review the diff before forcing."
                 )
             if drift["unanchored"]:
                 # Nothing was recorded about where this copy came from, so "is it
@@ -2562,6 +2666,10 @@ def update_remote_from_local(
                 "remote_updated_on": remote_updated_on,
                 "local_downloaded_on": local_updated_on,
                 "record_hold": live_hold,
+                # Straight from the record's own version history — WHO has been in
+                # it since your anchor, not who happens to hold the last stamp.
+                "other_editors_since_your_copy": editors["others"],
+                "editor_history_read": editors["checked"],
                 "component": component_info,
                 # WHICH bodies the server actually moved (content-verified), so the
                 # block is never a bare timestamp assertion the caller must trust.
