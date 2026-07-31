@@ -10,6 +10,9 @@ from servicenow_mcp.utils.sync_anchor import (
     CONFLICT_MIRRORED,
     KEPT_LOCAL,
     LEGACY_KEPT,
+    MIRROR_ABSENT,
+    MIRROR_CURRENT,
+    MIRROR_REFRESHED,
     REFRESHED,
     UNCHANGED,
     WRITTEN,
@@ -18,6 +21,7 @@ from servicenow_mcp.utils.sync_anchor import (
     mirror_path_for,
     normalize_for_hash,
     reconcile_field,
+    refresh_mirror,
     sweep_legacy_baseline,
 )
 
@@ -160,3 +164,47 @@ class TestReconcileField:
         outcome, _ = reconcile_field(f, "merged", field_sha("something old"))
         assert outcome == UNCHANGED
         assert not mirror.exists()
+
+
+class TestMirrorFreshness:
+    """A '.remote' sidecar is the SERVER's copy — it is only worth anything while
+    it still IS the server's copy.
+
+    It used to be written once at reconcile and then frozen, while every surface
+    pointing at it said "the server's CURRENT body". The server can move five
+    minutes later: you merge a body nobody has, the push gate rejects the result,
+    and the merge was wasted on a message that was not true.
+    """
+
+    def test_a_stale_mirror_is_rewritten_from_the_live_body(self, tmp_path):
+        f = tmp_path / "script.js"
+        f.write_text("my local edit", encoding="utf-8")
+        mirror = mirror_path_for(f)
+        mirror.write_text("what the server had YESTERDAY", encoding="utf-8")
+
+        assert refresh_mirror(f, "what the server has NOW") == MIRROR_REFRESHED
+        assert mirror.read_text(encoding="utf-8") == "what the server has NOW"
+        # The working file is never touched — only the server's copy is replaced.
+        assert f.read_text(encoding="utf-8") == "my local edit"
+
+    def test_a_current_mirror_is_left_alone(self, tmp_path):
+        f = tmp_path / "script.js"
+        f.write_text("mine", encoding="utf-8")
+        mirror = mirror_path_for(f)
+        mirror.write_text("theirs", encoding="utf-8")
+
+        assert refresh_mirror(f, "theirs") == MIRROR_CURRENT
+
+    def test_eol_noise_is_not_a_stale_mirror(self, tmp_path):
+        f = tmp_path / "script.js"
+        f.write_text("mine", encoding="utf-8")
+        mirror_path_for(f).write_text("line1\r\nline2", encoding="utf-8")
+
+        assert refresh_mirror(f, "line1\nline2\n") == MIRROR_CURRENT
+
+    def test_no_mirror_is_not_invented(self, tmp_path):
+        f = tmp_path / "script.js"
+        f.write_text("mine", encoding="utf-8")
+
+        assert refresh_mirror(f, "theirs") == MIRROR_ABSENT
+        assert not mirror_path_for(f).exists()

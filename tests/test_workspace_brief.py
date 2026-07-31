@@ -217,7 +217,74 @@ class TestDownloadRootRegistry:
         _resolve_scope_root(mock_config, "x_app", str(custom))
         assert custom.resolve() in known_download_roots()
 
-    def test_scan_component_budget_stops_early(self, workspace):
+    def test_budget_stops_hashing_but_never_stops_looking_for_conflicts(self, workspace):
+        """The budget bounds the expensive half only.
+
+        Finding your unpushed edits means hashing every file; finding a conflict
+        is one exists(). A conflict is a decision somebody still owes, so a speed
+        guard must never be the reason one goes unlisted — those edits are still
+        there to be found next call, and the push gate re-checks them live anyway.
+        """
+        script = workspace / "test" / "x_app" / "sp_widget" / "my-widget" / "script.js"
+        script.write_text("var x = 1; // my edit", encoding="utf-8")
+        mirror_path_for(script).write_text("var x = 2;", encoding="utf-8")
+
         local = _scan_tree_local(workspace / "test" / "x_app", component_budget=0)
-        assert local["components"] == 0
-        assert local["your_edits"] == []
+
+        assert local["hashed"] == 0
+        assert local["your_edits"] == []  # not hashed, so not found — acceptable
+        assert local["unresolved_conflicts"]  # found anyway — not acceptable to miss
+        assert local["conflict_paths"] == [str(script)]
+
+
+class TestConflictIsAQuestionNotANotice:
+    """A conflict is a decision nobody has made yet. Reporting a count and moving
+    on is how it stayed unmade until a push reverted somebody."""
+
+    @staticmethod
+    def _with_conflict(workspace):
+        script = workspace / "test" / "x_app" / "sp_widget" / "my-widget" / "script.js"
+        script.write_text("var x = 1; // my edit", encoding="utf-8")
+        mirror_path_for(script).write_text("var x = 2;", encoding="utf-8")
+        return script
+
+    def test_health_states_the_choices_and_names_the_files(self, workspace, monkeypatch):
+        from servicenow_mcp.tools.sn_api import _workspace_snapshot
+
+        self._with_conflict(workspace)
+        monkeypatch.chdir(workspace.parent)
+
+        decision = _workspace_snapshot()["decision_required"]
+        assert "both" in decision["question"].lower()
+        # Every option is a call, not advice.
+        assert "update_remote_from_local" in decision["keep_both"]
+        assert "update_remote_from_local" in decision["keep_mine"]
+        assert decision["take_theirs"]
+        # And it names the WORKING file, not the sidecar and not a label the
+        # caller would have to reconstruct a path from.
+        assert decision["components"]
+        assert decision["components"][0].endswith("script.js")
+        assert ".remote." not in decision["components"][0]
+
+    def test_no_conflict_asks_nothing(self, workspace, monkeypatch):
+        from servicenow_mcp.tools.sn_api import _workspace_snapshot
+
+        script = workspace / "test" / "x_app" / "sp_widget" / "my-widget" / "script.js"
+        script.write_text("var x = 1; // my edit", encoding="utf-8")
+        monkeypatch.chdir(workspace.parent)
+
+        snap = _workspace_snapshot()
+        assert snap["unpushed_local_edits"] == 1  # edits alone are not a question
+        assert "decision_required" not in snap
+
+    def test_the_offline_count_does_not_claim_the_sidecar_is_current(self, workspace, monkeypatch):
+        """This scan never touches the network, so it must not imply freshness —
+        that is established only where the live record is in hand."""
+        from servicenow_mcp.tools.sn_api import _workspace_snapshot
+
+        self._with_conflict(workspace)
+        monkeypatch.chdir(workspace.parent)
+
+        nxt = _workspace_snapshot()["next"]
+        assert "offline" in nxt
+        assert "re-verifies" in nxt
