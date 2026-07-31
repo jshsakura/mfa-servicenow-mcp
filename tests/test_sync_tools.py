@@ -1612,7 +1612,11 @@ class TestUpdateRemoteFromLocal:
             "script": "var x = 99;",
             "sys_updated_on": "2025-01-15 12:00:00",  # newer than 2025-01-10 baseline
         }
-        mock_sn_query.return_value = {"results": []}  # no live hold
+        mock_sn_query.side_effect = [
+            # 1. version history: the change is recorded, and it was mine
+            {"results": [{"sys_created_by": "admin", "sys_created_on": "2025-01-15 12:00:00"}]},
+            {"results": []},  # 2. no live hold
+        ]
         path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
         result = update_remote_from_local(
             mock_config, mock_auth, PushLocalComponentParams(path=str(path))
@@ -1623,6 +1627,33 @@ class TestUpdateRemoteFromLocal:
         msg = result["message"].lower()
         assert "fast-forward" in msg
         assert "force=true" in msg
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_an_empty_history_is_not_a_clean_bill_of_health(
+        self, mock_fetch, mock_sn_query, mock_config, mock_auth, download_root
+    ):
+        """sys_update_version exists for records captured in update sets, not for
+        every table. We only ask about a record the server ALREADY said moved — so
+        a history with no record of that change is not tracking it, and an empty
+        result would otherwise read as the cleanest possible answer."""
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 99;",
+            "sys_updated_on": "2025-01-15 12:00:00",
+        }
+        mock_sn_query.return_value = {"results": []}  # untracked table, and no hold
+        path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        msg = result["message"].lower()
+        assert "fast-forward" not in msg
+        assert "not tracked in update sets" in msg
+        assert result["editor_history"]["covers_full_range"] is False
 
     @patch("servicenow_mcp.tools.sync_tools.sn_query")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
