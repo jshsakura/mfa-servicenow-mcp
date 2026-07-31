@@ -8,10 +8,15 @@ repos:
         language: system
         types: [python]
 
-      # Fast structural test gate for skill content changes
+      # Fast structural test gate for skill content changes.
+      # --no-cov: the coverage gate in pyproject addopts measures the WHOLE
+      # package, so a 76-test file scores ~18% and fails a threshold that has
+      # nothing to say about it. That failure blocked pushes while the full suite
+      # was green, and the way past it was --no-verify — which also switches off
+      # the identity guard. A gate that has to be bypassed is a hole.
       - id: pytest-skills
         name: pytest-skills
-        entry: ./.venv/bin/pytest tests/test_skills.py -q
+        entry: ./.venv/bin/pytest tests/test_skills.py -q --no-cov
         language: system
         pass_filenames: false
 

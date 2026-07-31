@@ -134,7 +134,11 @@ markers = [
 source = ["src/servicenow_mcp"]
 
 [tool.coverage.report]
-fail_under = 80
+# Measured 91% across the full suite. 80 left eleven points of slack a
+# regression could eat in silence, which is the same "absence read as fine"
+# shape this codebase keeps tripping over. Set just under the real number so
+# the gate reports a real loss; raise it when the real number rises.
+fail_under = 90
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
