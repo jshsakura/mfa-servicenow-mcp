@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
 from ..utils.config import ServerConfig
+from ..utils.http_result import json_result
 from ..utils.instances import INSTANCE_CONFIG_ENV, load_instance_config_env, safe_instance_url
 from ..utils.registry import register_tool
 from ..utils.sync_anchor import (
@@ -1973,7 +1974,7 @@ def _fetch_records_chunk(
         raise ValueError(
             f"Failed to fetch {table} chunk: HTTP {resp.status_code} — {resp.text[:200]}"
         )
-    return resp.json().get("result") or []
+    return json_result(resp, "batch record fetch") or []
 
 
 def _verdict_scan(config: ServerConfig, auth_manager: AuthManager, root: Path) -> Dict[str, Any]:
@@ -2652,6 +2653,12 @@ def update_remote_from_local(
         # record's own history names as having changed it since your copy.
         other_editors=editors["others"],
         created_by=str(remote_record.get("sys_created_by") or "").strip(),
+        # Cross-instance: the anchor describes the ORIGIN, so drift against the
+        # TARGET was never determined. Passing drifted=False for that stood in for
+        # "unknown" — and False is the reassuring branch, which is how a promotion
+        # that overwrote another developer's later work on the target reported
+        # "nothing unseen gets overwritten" at risk_level none.
+        drift_known=not cross_instance_deploy,
     )
     # CONFLICT_OTHER_USER is asserted ONLY when identity is confirmed AND differs
     # — never on an unconfirmed guess (that was the false "someone else committed

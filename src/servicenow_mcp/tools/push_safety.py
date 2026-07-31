@@ -118,6 +118,7 @@ def assess_push_risk(
     me_confirmed: bool = True,
     other_editors: Sequence[str] = (),
     created_by: str = "",
+    drift_known: bool = True,
 ) -> Dict[str, Any]:
     """Score the risk of pushing a local edit over the current remote.
 
@@ -134,6 +135,14 @@ def assess_push_risk(
             live from the session). When False we must NOT claim the editor is
             someone else — that is the false "another user committed your update
             set" bug. We hedge instead.
+        drift_known: whether `drifted` was actually determined. False for a
+            cross-instance deploy, where the anchor describes the ORIGIN and says
+            nothing about the target. `drifted=False` used to stand in for
+            "unknown", and False is the reassuring branch — so a promotion that
+            was about to overwrite three of someone else's revisions on the target
+            was reported as "Safe to push: identical to your baseline, nobody
+            changed it, nothing unseen gets overwritten", at risk_level none.
+            Unknown drift can never print that sentence.
 
     Risk here means "what could this push destroy that you have NOT seen". With no
     server-side drift there is nothing unseen to destroy, so the size of YOUR OWN
@@ -168,6 +177,11 @@ def assess_push_risk(
     moderate = ratio >= _MODERATE_CHANGE_RATIO
 
     factors: List[str] = []
+    if not drift_known:
+        factors.append(
+            "cross-instance: no shared baseline with the target, so changes made "
+            "there cannot be detected"
+        )
     if ownership_changed:
         factors.append(
             "server version history names another editor since your copy: "
@@ -190,9 +204,13 @@ def assess_push_risk(
     # ownership_changed upstream, so your own edit can never be cross_party.
     cross_party = other_user or ownership_changed
 
+    # Unknown drift is not absent drift: the target may hold work no baseline of
+    # yours has ever seen, and the line count is the only evidence available.
+    if not drift_known:
+        level = "high" if large else "medium"
     # No drift = nothing on the server you have not seen = nothing this push can
     # destroy unknowingly. Your own edit's size is magnitude, not risk.
-    if not drifted:
+    elif not drifted:
         level = "none"
     elif cross_party and large:
         level = "critical"
@@ -210,7 +228,17 @@ def assess_push_risk(
     score = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}[level]
 
     magnitude = f"~{round(ratio * 100)}% of the lines" if total_lines else "an unknown amount"
-    if not drifted:
+    if not drift_known:
+        editor = f" (last changed there by '{remote_editor}')" if remote_editor else ""
+        message = (
+            f"The target's copy CANNOT be compared to your baseline — your anchor describes "
+            f"the instance you downloaded from, not this one. This push replaces {magnitude} "
+            f"of what the target currently holds{editor}. Anything the target has that your "
+            f"copy does not — another developer's later work, or fixes made directly there — "
+            f"is overwritten and will not show up as a conflict, because there is no shared "
+            f"history to detect one. Review the diff against the TARGET before promoting."
+        )
+    elif not drifted:
         scale = f"this edit changes {magnitude}" if total_lines else "no magnitude available"
         message = (
             f"Safe to push: the server body is identical to your baseline — nobody changed it "

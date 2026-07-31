@@ -19,6 +19,7 @@ from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
 from ..utils.config import ServerConfig
 from ..utils.download_map import map_sys_ids, merge_map_file, read_download_map, stale_sys_ids
+from ..utils.http_result import json_result
 from ..utils.progress import emit_progress
 from ..utils.registry import register_tool
 from ..utils.source_layout import FIELD_FILENAME, field_filename, normalize_source_eol
@@ -295,7 +296,7 @@ def _fetch_portal_component_record(
             raise ValueError(
                 f"Failed to fetch {table}/{sys_id}: HTTP {direct.status_code} — {direct.text[:200]}"
             )
-        data = direct.json().get("result") or {}
+        data = json_result(direct, f"fetch {table}/{sys_id}") or {}
         if not data:
             raise ValueError(f"Component not found in {table} with sys_id {sys_id}")
         return data
