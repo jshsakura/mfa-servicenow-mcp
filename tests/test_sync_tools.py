@@ -2690,6 +2690,72 @@ class TestCrossInstanceDeploy:
         assert result["target_instance"] == "https://test.service-now.com"
         assert "cross_instance_deploy=true" in result["message"]
 
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_an_unreviewed_cross_instance_overwrite_is_stopped_before_the_write(
+        self, mock_resolve, mock_fetch, mock_update, mock_config, mock_auth, download_root
+    ):
+        """A promotion never reached the drift gate — `drifted` is False there by
+        construction — so it took no force, no content confirmation and no review,
+        and the warning describing what it replaced rode the SUCCESS ack: delivered
+        after the write had landed. That is how another developer's revisions went
+        to a target and were reported afterwards."""
+        self._set_origin_dev(download_root)
+        mock_resolve.return_value = [{"sys_id": "TEST-wid-99", "name": "my-widget"}]
+        mock_fetch.return_value = {
+            "sys_id": "TEST-wid-99",
+            "name": "my-widget",
+            "script": "var x = 0; // someone's work on the target",
+            "sys_updated_on": "2025-01-12 09:00:00",
+            "sys_updated_by": "other.dev",
+        }
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(self._widget_path(download_root)), cross_instance_deploy=True
+            ),
+        )
+
+        assert result["error"] == "CROSS_INSTANCE_UNREVIEWED"
+        mock_update.assert_not_called()  # BEFORE the write, not after
+        assert result["fields_to_overwrite"] == ["script"]
+        assert result["diffs"]  # what the target loses, without another round trip
+        assert result["risk"]["level"] != "none"
+        assert "compare_instances" in result["message"]
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_a_promotion_that_changes_nothing_is_not_gated(
+        self, mock_resolve, mock_fetch, mock_update, _meta, mock_config, mock_auth, download_root
+    ):
+        """Nothing to overwrite => no decision to gate. The block must not become
+        noise on an already-in-sync target."""
+        self._set_origin_dev(download_root)
+        mock_resolve.return_value = [{"sys_id": "TEST-wid-99", "name": "my-widget"}]
+        mock_fetch.return_value = {
+            "sys_id": "TEST-wid-99",
+            "name": "my-widget",
+            "script": "var x = 1;",  # identical to local
+            "sys_updated_on": "2025-01-12 09:00:00",
+            "sys_updated_by": "other.dev",
+        }
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(self._widget_path(download_root)), cross_instance_deploy=True
+            ),
+        )
+
+        assert "error" not in result
+        mock_update.assert_not_called()  # no changes to push
+
     @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
     def test_target_not_found(self, mock_resolve, mock_config, mock_auth, download_root):
         self._set_origin_dev(download_root)
@@ -2756,7 +2822,11 @@ class TestCrossInstanceDeploy:
             mock_config,
             mock_auth,
             PushLocalComponentParams(
-                path=str(self._widget_path(download_root)), cross_instance_deploy=True
+                path=str(self._widget_path(download_root)),
+                cross_instance_deploy=True,
+                # Overwriting content the target holds now takes the same second
+                # approval as any other overwrite (CROSS_INSTANCE_UNREVIEWED).
+                force=True,
             ),
         )
         assert result.get("success") is True
