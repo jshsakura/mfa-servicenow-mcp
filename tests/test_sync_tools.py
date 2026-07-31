@@ -1112,13 +1112,15 @@ class TestUpdateRemoteFromLocal:
         assert result["risk"]["other_user"] is False
         assert "confirm" in result["risk"]["message"].lower()
 
+    @patch("servicenow_mcp.tools.sync_tools._editors_since")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
-    def test_push_flags_ownership_changed_since_download(
-        self, mock_fetch, mock_config, mock_auth, download_root
+    def test_push_flags_another_editor_named_by_the_server(
+        self, mock_fetch, mock_editors, mock_config, mock_auth, download_root
     ):
-        # Free signal: the download baseline said 'alice' owned it; remote now
-        # says 'bob' → ownership changed under me. Surfaced from data already on
-        # hand (local baseline + the one fetch), no extra API call.
+        # The handoff is a SERVER fact, read from the record's own version
+        # history — not inferred from an editor name cached in _sync_meta at
+        # download time, which is stale by construction.
+        mock_editors.return_value = {"checked": True, "others": ["bob"], "versions": 2}
         si_meta = download_root / "global" / "sys_script_include" / "_sync_meta.json"
         si_meta.write_text(
             json.dumps(
@@ -1148,13 +1150,64 @@ class TestUpdateRemoteFromLocal:
         )
         assert result["risk"]["attribution"] == "ownership_changed"
         assert result["risk"]["ownership_changed"] is True
-        assert "alice" in result["risk"]["message"] and "bob" in result["risk"]["message"]
+        assert "bob" in result["risk"]["message"]
+        assert result["other_editors_since_your_copy"] == ["bob"]
 
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._editors_since")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_holding_the_last_stamp_yourself_does_not_clear_someone_elses_work(
+        self, mock_fetch, mock_editors, mock_update, mock_config, mock_auth, download_root
+    ):
+        """The case sys_updated_by structurally cannot see.
+
+        Download v1 -> bob edits v2 -> you push anything -> sys_updated_by is you
+        again and bob is gone from that one field, while his change is still on
+        the server. The gate read that as your own edit ("no one else's work is
+        at stake") and would revert him.
+        """
+        mock_editors.return_value = {"checked": True, "others": ["bob"], "versions": 3}
+        si_meta = download_root / "global" / "sys_script_include" / "_sync_meta.json"
+        si_meta.write_text(
+            json.dumps(
+                {
+                    "MyUtil": {
+                        "sys_id": "si-1",
+                        "sys_updated_on": "2025-01-10 10:00:00",
+                        "downloaded_at": "2025-01-10T10:05:00+00:00",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        mock_fetch.return_value = {
+            "sys_id": "si-1",
+            "name": "MyUtil",
+            "script": "// bob's change is in here\nvar a = 1;\n",
+            "sys_updated_on": "2025-01-12 10:00:00",
+            "sys_updated_by": "admin",  # the last stamp is MINE
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+        }
+        path = download_root / "global" / "sys_script_include" / "MyUtil.script.js"
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+        )
+
+        assert result["error"] == "CONFLICT_OTHER_USER"
+        assert result["other_editors_since_your_copy"] == ["bob"]
+        assert result["risk"]["level"] in ("high", "critical")
+        mock_update.assert_not_called()
+        # And the "clean fast-forward, force is safe" line must not appear.
+        assert "force=true is safe" not in result["message"]
+
+    @patch("servicenow_mcp.tools.sync_tools._editors_since")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_diff_surfaces_attribution_before_push(
-        self, mock_fetch, mock_config, mock_auth, download_root
+        self, mock_fetch, mock_editors, mock_config, mock_auth, download_root
     ):
         # The handoff must be visible at REVIEW time (diff), before any push.
+        mock_editors.return_value = {"checked": True, "others": ["bob"], "versions": 1}
         si_meta = download_root / "global" / "sys_script_include" / "_sync_meta.json"
         si_meta.write_text(
             json.dumps(
