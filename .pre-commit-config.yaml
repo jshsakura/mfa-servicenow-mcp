@@ -15,6 +15,16 @@ repos:
         language: system
         pass_filenames: false
 
+      # HARD STOP: real people / accounts / companies must never reach a public
+      # push. The rule used to live only in CLAUDE.md as prose, and prose is
+      # advisory — three real identifiers got committed anyway. Runs on every
+      # commit, not just review.
+      - id: no-real-identities
+        name: no-real-identities
+        entry: ./.venv/bin/python scripts/check_real_identities.py
+        language: system
+        pass_filenames: false
+
       # Fast doc/skill orphan tool-name check (Phase 4 deletion gate).
       # Fails if any markdown/yaml references a tool not in the live registry.
       - id: orphan-tool-refs

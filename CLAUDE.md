@@ -247,14 +247,16 @@ cached objects, which breaks every clone and every tag.
 commit messages, issues, or docs:**
 
 - a real person's name, user_name, login, or email (`jane.doe`, `Jane Doe`,
-  `jane.doe@realcompany.com`)
+  `jane.doe@<their-employer>.com`)
 - a real company name, domain, instance URL, scope namespace, or company code
 - anything else that identifies a real customer, colleague, or system
 
-This has already happened twice in this repo — a colleague's full name + login
-sat in a test fixture across ~150 commits, and a real work email sat in a source
-comment. Both came from pasting real debug output into code. **That is the
-failure mode: real data arrives by copy-paste from a live session.**
+This has already happened three times in this repo — a colleague's full name + login
+sat in a test fixture across ~150 commits, a real work email sat in a source
+comment, and a second colleague's login sat in two more fixtures. All three came
+from pasting real debug output into code. **That is the failure mode: real data
+arrives by copy-paste from a live session.** `scripts/check_real_identities.py`
+now blocks it at commit time — the rule below is why, not the enforcement.
 
 Rules that follow from it:
 
