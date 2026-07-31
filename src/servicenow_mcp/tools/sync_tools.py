@@ -1111,7 +1111,7 @@ def _record_update_set_hold(
     table: str,
     sys_id: str,
     me: str,
-) -> Optional[Dict[str, str]]:
+) -> Tuple[Optional[Dict[str, str]], bool]:
     """The newest update set that CURRENTLY holds a change to this record, if it
     is still open and owned by a DIFFERENT user.
 
@@ -1122,11 +1122,18 @@ def _record_update_set_hold(
     That is the whole point: a hold that was true at download but committed by
     push time must NOT keep reading as a conflict.
 
-    Returns None on any uncertainty (no entry, committed/released, same user,
-    read error) so it never masks the real failure or blocks a clean push.
+    Returns ``(hold, determined)``. ``determined`` is False when the question was
+    not actually answered — no table/sys_id to ask about, the query failed (ACL on
+    sys_update_xml is common on a locked-down instance), or the row came back
+    without a readable set name.
+
+    That split exists because this used to return a bare None for SIX different
+    reasons, three of which are "we could not find out", and the caller printed
+    all of them as "no one is holding this record now" — right before offering a
+    forced overwrite as safe. A denied read became a clearance.
     """
     if not (table and sys_id):
-        return None
+        return None, False
     try:
         resp = sn_query(
             config,
@@ -1143,10 +1150,10 @@ def _record_update_set_hold(
         )
     except Exception as exc:  # best-effort diagnostic; never mask the real failure
         logger.warning("Could not resolve update-set hold for %s/%s: %s", table, sys_id, exc)
-        return None
+        return None, False
     rows = resp.get("results") or []
     if not rows:
-        return None
+        return None, True  # asked, and this record has never been captured
     row = rows[0]
     state = _display_str(row.get("update_set.state")).strip().lower()
     set_name = _display_str(row.get("update_set.name")).strip()
@@ -1154,17 +1161,17 @@ def _record_update_set_hold(
     # A committed/closed set no longer holds the record — the change is released,
     # so this is NOT a live hold (the "A committed, nobody holds it now" case).
     if state in ("complete", "committed", "closed", "ignore"):
-        return None
+        return None, True  # released — genuinely not a live hold
     if not set_name:
-        return None
+        return None, False  # a row we could not read is not an all-clear
     # Your own open update set is not a cross-user hold.
     if me and holder and holder == me.strip():
-        return None
+        return None, True
     return {
         "update_set": set_name,
         "held_by": holder or "unknown",
         "state": state or "in progress",
-    }
+    }, True
 
 
 def _batch_fetch_updated_on(
@@ -2699,7 +2706,7 @@ def update_remote_from_local(
             # baseline, which can be stale. Frame the decision on the CURRENT
             # remote hold, not on who held it at download time — a hold that was
             # true at download but has since been committed must read as released.
-            live_hold = _record_update_set_hold(
+            live_hold, hold_known = _record_update_set_hold(
                 config, auth_manager, resolved.table, resolved.sys_id, me
             )
             if live_hold:
@@ -2718,6 +2725,15 @@ def update_remote_from_local(
                     f"history shows '{who}' changed it after your copy was taken "
                     f"({editors['versions']} version(s) since). Their change is committed — "
                     f"pushing this copy would revert it."
+                )
+            elif not hold_known:
+                # The hold question was not answered — no read, or an unreadable
+                # row. Saying "no one is holding it" here is how a denied query
+                # became a clearance right before offering a forced overwrite.
+                live_note = (
+                    " LIVE: could not determine whether an open update set holds this record "
+                    "(the read did not come back). That is NOT the same as nobody holding it — "
+                    "check it before forcing."
                 )
             elif editors["checked"] and editors["complete"] and editors["attributable"]:
                 # The ONLY branch allowed to call a force safe: nobody holds the
@@ -2938,7 +2954,7 @@ def update_remote_from_local(
         # the time-window concurrent guard misses when the edit is old.
         record_hold: Optional[Dict[str, str]] = None
         if is_acl:
-            record_hold = _record_update_set_hold(
+            record_hold, _ = _record_update_set_hold(
                 config, auth_manager, resolved.table, resolved.sys_id, me
             )
 

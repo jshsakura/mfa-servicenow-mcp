@@ -235,6 +235,42 @@ Design history and the "why": issues #37 (TLS), #45 (headless-first), #62
 
 This saves ~25% context tokens across all tools. Don't bypass this.
 
+## A Guard May Only Claim What It Actually Read
+
+Every safety bug in this repo has been the same shape, found seven times in one
+day: **a signal that was never read, rendered as a signal that came back clean.**
+
+- `max(local anchors)` decided nothing changed → a lagging record was never fetched
+- no `_sync_meta` entry → "no drift" → an ancient body overwrote current work
+- a cached `sys_updated_by` → "nobody else touched it" while their edit sat live
+- a 20-row history page → "no other editor since your copy"
+- an empty history (untracked table) → the cleanest possible answer
+- a `.remote` written once → "the server's CURRENT body"
+- six different `None`s from the hold check → "no one is holding this record"
+- two `complete` sets in another app → "two in-progress sets, your change is split"
+
+None of these were wrong logic. Each was an **absence** — unread, unanchored,
+capped, stale, closed — scored as **evidence of safety**, and every one of them
+printed a confident sentence on top of it.
+
+So, for anything a caller could act on:
+
+1. **Return what you PROVED, not just what you found.** A bounded or best-effort
+   read carries its limits with it: `checked` / `complete` / `attributable` /
+   `determined`. `_editors_since` and `_record_update_set_hold` are the pattern.
+2. **Never collapse "we could not find out" into "there is nothing."** If one
+   function returns `None` for six reasons, the caller cannot tell them apart —
+   and it will pick the reassuring one. Split the return.
+3. **The reassuring branch is the one that needs the guard.** Print "safe",
+   "clean fast-forward", "up to date", "no other editor" ONLY when every input
+   backing it came back and covered the whole question. Otherwise say which limit
+   was hit — a bare "could not confirm" reads as "fine".
+4. **Describe the other thing by reading it.** If you hold its sys_id, look it
+   up. Inferring its state from a name match is what turned closed sets into a
+   live conflict.
+5. **A failure must degrade toward the expensive answer**, never the quiet one:
+   fetch more, block, ask. Over-fetching is recoverable; a silent miss is not.
+
 ## No Real Identities in Code — HARD STOP, NO EXCEPTIONS
 
 This is a **public open-source** repo. A commit is permanent: once pushed, the

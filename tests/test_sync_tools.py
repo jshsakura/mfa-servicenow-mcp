@@ -22,6 +22,7 @@ from servicenow_mcp.tools.sync_tools import (
     _is_download_root,
     _read_map_json,
     _read_sync_meta,
+    _record_update_set_hold,
     _resolve_local_path,
     _resolve_origin_url,
     _resolve_target_by_name,
@@ -3124,7 +3125,7 @@ class TestEditorHistoryLimits:
         assert out["complete"] is False
         assert out["others"] == []
 
-    @patch("servicenow_mcp.tools.sync_tools._record_update_set_hold", return_value=None)
+    @patch("servicenow_mcp.tools.sync_tools._record_update_set_hold", return_value=(None, True))
     @patch("servicenow_mcp.tools.sync_tools._editors_since")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_inconclusive_history_never_prints_a_clean_fast_forward(
@@ -3260,6 +3261,78 @@ class TestATruncatedBodyNeverOverwritesAMirror:
         )
 
         assert mirror.read_text(encoding="utf-8") == "today's server body"
+
+
+class TestADeniedReadIsNotAClearance:
+    """ "We could not find out" and "there is nothing" must never render alike.
+
+    _record_update_set_hold returned a bare None for six reasons — three of them
+    "the read did not come back" (no ACL on sys_update_xml, a failed query, a row
+    with an unreadable set name) — and the caller printed all six as "no one is
+    holding this record now", immediately before offering a forced overwrite as a
+    clean fast-forward.
+    """
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_a_failed_hold_query_is_undetermined_not_unheld(
+        self, mock_query, mock_config, mock_auth
+    ):
+        mock_query.side_effect = RuntimeError("ACL: sys_update_xml")
+
+        hold, determined = _record_update_set_hold(
+            mock_config, mock_auth, "sp_widget", "wid-1", "me"
+        )
+
+        assert hold is None
+        assert determined is False
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_no_capture_at_all_is_determined(self, mock_query, mock_config, mock_auth):
+        mock_query.return_value = {"results": []}
+
+        hold, determined = _record_update_set_hold(
+            mock_config, mock_auth, "sp_widget", "wid-1", "me"
+        )
+
+        assert hold is None
+        assert determined is True  # asked, and the answer really is "nobody"
+
+    @patch("servicenow_mcp.tools.sync_tools._editors_since")
+    @patch("servicenow_mcp.tools.sync_tools._record_update_set_hold")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_an_undetermined_hold_never_reads_as_a_clean_fast_forward(
+        self, mock_fetch, mock_hold, mock_editors, mock_config, mock_auth, download_root
+    ):
+        mock_hold.return_value = (None, False)  # the read did not come back
+        mock_editors.return_value = {
+            "checked": True,
+            "complete": True,
+            "attributable": True,
+            "others": [],
+            "versions": 2,
+        }
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        (widget_dir / "script.js").write_text("var x = 2;", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 999;",
+            "sys_updated_on": "2026-07-30 12:00:00",
+            "sys_updated_by": "admin",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+        }
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        msg = result["message"]
+        assert "no one is holding" not in msg
+        assert "clean fast-forward" not in msg
+        assert "could not determine" in msg
 
 
 class TestBareForceIsStillTheApproval:
