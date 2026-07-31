@@ -33,6 +33,16 @@ repos:
         language: system
         pass_filenames: false
 
+      # LAST GATE before it leaves the machine. The pre-commit stage above only
+      # sees STAGED files and `--no-verify` walks straight past it — so the whole
+      # tracked tree is re-scanned here. A push cannot be taken back; a commit can.
+      - id: no-real-identities-all
+        name: no-real-identities-all
+        entry: ./.venv/bin/python scripts/check_real_identities.py --all
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
       # Full test suite before push to avoid CI-only surprises
       - id: pytest-all
         name: pytest-all
