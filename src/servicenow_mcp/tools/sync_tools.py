@@ -195,6 +195,14 @@ _CONFLICT_DIFF_CONTEXT = 3
 # Versions to read back when asking the server who changed a record since your
 # anchor. Only needs enough to answer "was anyone but me in here", not a full log.
 _EDITOR_HISTORY_LIMIT = 20
+# "Not asked" — never confused with "asked and came back clean".
+_NO_EDITOR_HISTORY: Dict[str, Any] = {
+    "checked": False,
+    "complete": False,
+    "attributable": False,
+    "others": [],
+    "versions": 0,
+}
 
 
 def _normalize_for_compare(text: str) -> str:
@@ -996,6 +1004,7 @@ def _editors_since(
     sys_id: str,
     since: str,
     me: str,
+    me_confirmed: bool,
 ) -> Dict[str, Any]:
     """WHO changed this record on the server after ``since`` — asked of the server.
 
@@ -1009,27 +1018,49 @@ def _editors_since(
     a name cached locally at download time, which is a stale copy of a server
     fact and goes wrong exactly when it matters.
 
-    Returns {"checked": bool, "others": [...], "versions": n}. ``checked`` is
-    False when the history could not be read; callers must NOT downgrade a
-    conflict on an unread history — absence of evidence is not evidence here.
+    Returns ``{"checked", "complete", "attributable", "others", "versions"}``.
+    Every one of those is a limit on what the answer proves, and callers must
+    treat them as such — this function exists to REMOVE a false safety claim, so
+    it must not manufacture a new one:
+
+    - ``checked``: the query came back at all. An unread history is not a
+      clearance.
+    - ``complete``: the whole range since ``since`` was covered. The read is
+      capped at ``_EDITOR_HISTORY_LIMIT`` rows newest-first, so a record with
+      more versions than that since your anchor can hide a coworker's edit behind
+      a wall of your own later ones. When the page fills without reaching past
+      the anchor, the range is NOT covered and "nobody else edited it" is not
+      available to say.
+    - ``attributable``: identity is confirmed. With an unresolved SSO/browser
+      session ``me`` is "", every author trivially "is not me", and the whole
+      history would read as other people — the exact false accusation the push
+      gate hedges against everywhere else. Unconfirmed identity yields NO named
+      others; the caller reports uncertainty instead of blame.
+
+    The range is cut client-side on ``sys_created_on``, a plain datetime present
+    on every table, rather than filtered server-side. An encoded-query date form
+    that is wrong (or unsupported on some instance) fails by returning nothing —
+    which would read as "no other editor", turning a broken query into a safety
+    claim. Cutting locally cannot fail that direction.
     """
-    out: Dict[str, Any] = {"checked": False, "others": [], "versions": 0}
+    out: Dict[str, Any] = {
+        "checked": False,
+        "complete": False,
+        "attributable": bool(me_confirmed and me),
+        "others": [],
+        "versions": 0,
+    }
     if not (table and sys_id):
         return out
-    query = f"name={table}_{sys_id}"
-    if since:
-        # Server-side comparison against the server's own clock — no local clock
-        # enters this. Records are stamped when the version was recorded.
-        query += f"^sys_recorded_at>javascript:gs.dateGenerate('{since}')"
     try:
         resp = sn_query(
             config,
             auth_manager,
             GenericQueryParams(
                 table="sys_update_version",
-                query=query,
-                fields="sys_created_by,sys_recorded_at,state",
-                orderby="-sys_recorded_at",
+                query=f"name={table}_{sys_id}",
+                fields="sys_created_by,sys_created_on,state",
+                orderby="-sys_created_on",
                 limit=_EDITOR_HISTORY_LIMIT,
                 offset=0,
                 display_value=False,
@@ -1038,13 +1069,32 @@ def _editors_since(
     except Exception as exc:  # best-effort: never mask the real failure
         logger.warning("Could not read version history for %s/%s: %s", table, sys_id, exc)
         return out
+
     rows = resp.get("results") or []
+    # Fewer rows than the cap => the server had no more to give => fully covered.
+    complete = len(rows) < _EDITOR_HISTORY_LIMIT
     others: List[str] = []
+    counted = 0
     for row in rows:
+        when = _display_str(row.get("sys_created_on")).strip()
+        if since and when and when <= since:
+            # Reached a version at/older than your anchor: everything after it has
+            # been seen, so the range IS covered however many rows follow.
+            complete = True
+            break
+        counted += 1
+        if not out["attributable"]:
+            continue
         who = _display_str(row.get("sys_created_by")).strip()
         if who and who != me and who not in others:
             others.append(who)
-    return {"checked": True, "others": others, "versions": len(rows)}
+    return {
+        "checked": True,
+        "complete": complete,
+        "attributable": out["attributable"],
+        "others": others,
+        "versions": counted,
+    }
 
 
 def _record_update_set_hold(
@@ -2151,9 +2201,17 @@ def diff_local_component(
     # said the record moved. 'me' is passed so YOUR OWN edit is never reported as
     # a handoff.
     editors = (
-        _editors_since(config, auth_manager, resolved.table, resolved.sys_id, local_updated_on, me)
+        _editors_since(
+            config,
+            auth_manager,
+            resolved.table,
+            resolved.sys_id,
+            local_updated_on,
+            me,
+            me_confirmed,
+        )
         if drift["drifted"]
-        else {"checked": False, "others": [], "versions": 0}
+        else _NO_EDITOR_HISTORY
     )
     attribution = describe_attribution(
         other_editors=editors["others"],
@@ -2530,9 +2588,17 @@ def update_remote_from_local(
     # editor. Reading it costs one query on the path where a human is about to
     # make a decision, and nothing at all on a clean push.
     editors = (
-        _editors_since(config, auth_manager, resolved.table, resolved.sys_id, local_updated_on, me)
+        _editors_since(
+            config,
+            auth_manager,
+            resolved.table,
+            resolved.sys_id,
+            local_updated_on,
+            me,
+            me_confirmed,
+        )
         if drifted
-        else {"checked": False, "others": [], "versions": 0}
+        else _NO_EDITOR_HISTORY
     )
     risk = assess_push_risk(
         me=me,
@@ -2619,19 +2685,36 @@ def update_remote_from_local(
                     f"({editors['versions']} version(s) since). Their change is committed — "
                     f"pushing this copy would revert it."
                 )
-            else:
-                # Only claim a clean fast-forward when the SERVER agreed: no hold,
-                # and no other editor in the version history since your anchor.
-                # Asserting it off the last-editor field alone is how someone
-                # else's committed change got called safe to overwrite.
+            elif editors["checked"] and editors["complete"] and editors["attributable"]:
+                # The ONLY branch allowed to call a force safe: nobody holds the
+                # record, the history was read, it covered the whole range since
+                # your anchor, and we know who you are. Anything less is evidence
+                # that ran out, not evidence of safety.
                 live_note = (
                     " LIVE: no one is holding this record now, and the server's version history "
-                    "shows no other editor since your copy was taken. If your local copy is the "
-                    "intended final, this is a clean fast-forward — force=true is safe."
-                    if editors["checked"]
-                    else " LIVE: no one is holding this record now, but the server's version "
-                    "history could not be read — this is NOT confirmation that only you have "
-                    "been in it. Review the diff before forcing."
+                    "covers every change since your copy was taken — no other editor in it. If "
+                    "your local copy is the intended final, this is a clean fast-forward."
+                )
+            else:
+                # Say WHICH limit was hit. "Could not confirm" with no reason is
+                # indistinguishable from "fine", and gets read as fine.
+                if not editors["checked"]:
+                    why = "it could not be read"
+                elif not editors["attributable"]:
+                    why = (
+                        "I could not confirm which user you are logged in as, so its authors "
+                        "cannot be told apart from you"
+                    )
+                else:
+                    why = (
+                        f"only the {_EDITOR_HISTORY_LIMIT} most recent versions were read and "
+                        f"they do not reach back to your copy — an older change by someone else "
+                        f"can sit behind them"
+                    )
+                live_note = (
+                    f" LIVE: no one is holding this record now, but the server's version history "
+                    f"is inconclusive: {why}. That is NOT confirmation that only you have been in "
+                    f"this record. Review the diff before forcing."
                 )
             if drift["unanchored"]:
                 # Nothing was recorded about where this copy came from, so "is it
@@ -2655,8 +2738,9 @@ def update_remote_from_local(
             message = (
                 f"{head}{live_note} To overwrite exactly this reviewed version, push again with "
                 f"force=true confirm_overwrite_updated_on='{remote_updated_on}' (re-blocks if "
-                f"the server moves again; the overwritten body stays recoverable in the "
-                f"server's version history). Or re-download to take the latest instead."
+                f"the server moves again; for a record tracked in an update set the overwritten "
+                f"body is normally recoverable from the server's version history, which is not "
+                f"guaranteed for every table). Or re-download to take the latest instead."
             )
             return {
                 "error": error_code,
@@ -2669,7 +2753,14 @@ def update_remote_from_local(
                 # Straight from the record's own version history — WHO has been in
                 # it since your anchor, not who happens to hold the last stamp.
                 "other_editors_since_your_copy": editors["others"],
-                "editor_history_read": editors["checked"],
+                # What the history read actually proves, so the caller never has
+                # to guess whether an empty list means "clean" or "ran out".
+                "editor_history": {
+                    "read": editors["checked"],
+                    "covers_full_range": editors["complete"],
+                    "attributable": editors["attributable"],
+                    "versions_seen": editors["versions"],
+                },
                 "component": component_info,
                 # WHICH bodies the server actually moved (content-verified), so the
                 # block is never a bare timestamp assertion the caller must trust.
@@ -2681,9 +2772,12 @@ def update_remote_from_local(
                 "diffs": _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT),
             }
         if confirmed_other:
+            # Name who the history actually implicates. The last-stamp holder can
+            # be you while the work at stake is someone else's — logging
+            # sys_updated_by would record the overwrite against the wrong person.
             logger.warning(
                 "force=true overwriting %s's edit on %s/%s (%s, updated %s)",
-                remote_updated_by,
+                ", ".join(editors["others"]) or remote_updated_by,
                 resolved.table,
                 resolved.name,
                 resolved.sys_id,

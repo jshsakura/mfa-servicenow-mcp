@@ -1,16 +1,19 @@
 """Tests for local source synchronization tools (sync_tools.py)."""
 
 import json
+import logging
 import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from servicenow_mcp.tools.sync_tools import (
+    _EDITOR_HISTORY_LIMIT,
     DiffLocalComponentParams,
     PushLocalComponentParams,
     _alias_for_instance_url,
     _batch_fetch_updated_on,
+    _editors_since,
     _find_manifest_json,
     _find_settings_json,
     _find_table_dirs,
@@ -1120,7 +1123,13 @@ class TestUpdateRemoteFromLocal:
         # The handoff is a SERVER fact, read from the record's own version
         # history — not inferred from an editor name cached in _sync_meta at
         # download time, which is stale by construction.
-        mock_editors.return_value = {"checked": True, "others": ["bob"], "versions": 2}
+        mock_editors.return_value = {
+            "checked": True,
+            "complete": True,
+            "attributable": True,
+            "others": ["bob"],
+            "versions": 2,
+        }
         si_meta = download_root / "global" / "sys_script_include" / "_sync_meta.json"
         si_meta.write_text(
             json.dumps(
@@ -1166,7 +1175,13 @@ class TestUpdateRemoteFromLocal:
         the server. The gate read that as your own edit ("no one else's work is
         at stake") and would revert him.
         """
-        mock_editors.return_value = {"checked": True, "others": ["bob"], "versions": 3}
+        mock_editors.return_value = {
+            "checked": True,
+            "complete": True,
+            "attributable": True,
+            "others": ["bob"],
+            "versions": 3,
+        }
         si_meta = download_root / "global" / "sys_script_include" / "_sync_meta.json"
         si_meta.write_text(
             json.dumps(
@@ -1199,7 +1214,7 @@ class TestUpdateRemoteFromLocal:
         assert result["risk"]["level"] in ("high", "critical")
         mock_update.assert_not_called()
         # And the "clean fast-forward, force is safe" line must not appear.
-        assert "force=true is safe" not in result["message"]
+        assert "clean fast-forward" not in result["message"]
 
     @patch("servicenow_mcp.tools.sync_tools._editors_since")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
@@ -1207,7 +1222,13 @@ class TestUpdateRemoteFromLocal:
         self, mock_fetch, mock_editors, mock_config, mock_auth, download_root
     ):
         # The handoff must be visible at REVIEW time (diff), before any push.
-        mock_editors.return_value = {"checked": True, "others": ["bob"], "versions": 1}
+        mock_editors.return_value = {
+            "checked": True,
+            "complete": True,
+            "attributable": True,
+            "others": ["bob"],
+            "versions": 1,
+        }
         si_meta = download_root / "global" / "sys_script_include" / "_sync_meta.json"
         si_meta.write_text(
             json.dumps(
@@ -2960,6 +2981,217 @@ class TestModCountDriftAuthority:
         )
         assert d["drifted"] is True
         assert d["mod_count_known"] is False
+
+
+class TestEditorHistoryLimits:
+    """What a bounded, best-effort history read is allowed to CLAIM.
+
+    This guard exists to remove a false safety claim ("last editor is me, so
+    nobody else is at stake"). It must not manufacture a new one out of a read
+    that was capped, unattributable, or never happened.
+    """
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_unconfirmed_identity_names_nobody(self, mock_query, mock_config, mock_auth):
+        """With an unresolved session every author trivially "is not me".
+
+        Counting them as other editors reintroduces the false accusation the push
+        gate hedges against everywhere else — a user whose SSO identity did not
+        resolve would get CONFLICT_OTHER_USER over their own history rows.
+        """
+        mock_query.return_value = {
+            "results": [
+                {"sys_created_by": "admin", "sys_created_on": "2026-07-30 10:00:00"},
+                {"sys_created_by": "bob", "sys_created_on": "2026-07-29 10:00:00"},
+            ]
+        }
+
+        out = _editors_since(
+            mock_config, mock_auth, "sp_widget", "wid-1", "2026-07-01 00:00:00", "", False
+        )
+
+        assert out["attributable"] is False
+        assert out["others"] == []  # never blame on an unconfirmed identity
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_a_full_page_that_never_reaches_the_anchor_is_incomplete(
+        self, mock_query, mock_config, mock_auth
+    ):
+        """A coworker edit can hide behind a wall of your own later versions.
+
+        Newest-first, capped: if the page fills without reaching back past your
+        anchor, "no other editor" is not available to say.
+        """
+        mock_query.return_value = {
+            "results": [
+                {"sys_created_by": "me", "sys_created_on": f"2026-07-{30 - i:02d} 10:00:00"}
+                for i in range(_EDITOR_HISTORY_LIMIT)
+            ]
+        }
+
+        out = _editors_since(
+            mock_config, mock_auth, "sp_widget", "wid-1", "2020-01-01 00:00:00", "me", True
+        )
+
+        assert out["checked"] is True
+        assert out["others"] == []
+        assert out["complete"] is False  # ran out of page, not out of history
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_reaching_past_the_anchor_completes_the_range(self, mock_query, mock_config, mock_auth):
+        mock_query.return_value = {
+            "results": [
+                {"sys_created_by": "me", "sys_created_on": "2026-07-30 10:00:00"},
+                # At/older than the anchor: everything after it has been seen.
+                {"sys_created_by": "bob", "sys_created_on": "2026-06-01 10:00:00"},
+            ]
+            + [
+                {"sys_created_by": "x", "sys_created_on": "2026-05-01 10:00:00"}
+                for _ in range(_EDITOR_HISTORY_LIMIT - 2)
+            ]
+        }
+
+        out = _editors_since(
+            mock_config, mock_auth, "sp_widget", "wid-1", "2026-07-01 00:00:00", "me", True
+        )
+
+        assert out["complete"] is True
+        assert out["versions"] == 1  # only the one version after the anchor counts
+        assert out["others"] == []  # bob's edit predates your copy — not a conflict
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_the_range_is_cut_locally_not_by_an_encoded_date_query(
+        self, mock_query, mock_config, mock_auth
+    ):
+        """Pin the query. A wrong/unsupported date form fails by returning NOTHING,
+        which would read as "no other editor" — a broken query becoming a safety
+        claim. So the query carries no date filter at all and the cut is local."""
+        mock_query.return_value = {"results": []}
+
+        _editors_since(
+            mock_config, mock_auth, "sp_widget", "wid-1", "2026-07-01 00:00:00", "me", True
+        )
+
+        params = mock_query.call_args.args[2]
+        assert params.query == "name=sp_widget_wid-1"
+        assert "javascript:" not in params.query
+        assert "sys_created_on" in params.fields
+        assert params.orderby == "-sys_created_on"
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_a_failed_read_is_not_a_clearance(self, mock_query, mock_config, mock_auth):
+        mock_query.side_effect = RuntimeError("ACL")
+
+        out = _editors_since(
+            mock_config, mock_auth, "sp_widget", "wid-1", "2026-07-01 00:00:00", "me", True
+        )
+
+        assert out["checked"] is False
+        assert out["complete"] is False
+        assert out["others"] == []
+
+    @patch("servicenow_mcp.tools.sync_tools._record_update_set_hold", return_value=None)
+    @patch("servicenow_mcp.tools.sync_tools._editors_since")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_inconclusive_history_never_prints_a_clean_fast_forward(
+        self, mock_fetch, mock_editors, _hold, mock_config, mock_auth, download_root
+    ):
+        mock_editors.return_value = {
+            "checked": True,
+            "complete": False,  # capped read
+            "attributable": True,
+            "others": [],
+            "versions": _EDITOR_HISTORY_LIMIT,
+        }
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        (widget_dir / "script.js").write_text("var x = 2;", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 999;",
+            "sys_updated_on": "2026-07-30 12:00:00",
+            "sys_updated_by": "admin",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+        }
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        assert "clean fast-forward" not in result["message"]
+        assert "inconclusive" in result["message"]
+        assert str(_EDITOR_HISTORY_LIMIT) in result["message"]  # says WHICH limit
+        assert result["editor_history"]["covers_full_range"] is False
+
+
+class TestBareForceIsStillTheApproval:
+    """Explicit decision: `force=true` alone REMAINS an approval, not a re-gate.
+
+    The history guard makes the REJECTION accurate and the audit log truthful; it
+    is deliberately not a second wall in front of force. Force is how a human says
+    "yes, overwrite that" — turning it into a block would just push people to a
+    cruder tool. What it must never do is overwrite someone quietly, or record the
+    overwrite against the wrong person.
+    """
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._editors_since")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_bare_force_pushes_but_logs_the_editor_the_history_names(
+        self,
+        mock_fetch,
+        mock_editors,
+        mock_update,
+        _meta,
+        mock_config,
+        mock_auth,
+        download_root,
+        caplog,
+    ):
+        mock_editors.return_value = {
+            "checked": True,
+            "complete": True,
+            "attributable": True,
+            "others": ["bob"],
+            "versions": 2,
+        }
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        (widget_dir / "script.js").write_text("var x = 2;", encoding="utf-8")
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "wid-1",
+                "name": "my-widget",
+                "script": "var x = 999;",
+                "sys_updated_on": "2026-07-30 12:00:00",
+                # The last stamp is MINE — logging this name would record the
+                # overwrite against the wrong person.
+                "sys_updated_by": "admin",
+                "sys_created_by": "admin",
+                "sys_scope": "global",
+            },
+            {
+                "sys_id": "wid-1",
+                "script": "var x = 2;",
+                "sys_updated_on": "2026-07-30 13:00:00",
+                "sys_updated_by": "admin",
+            },
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "wid-1"}
+
+        with caplog.at_level(logging.WARNING, logger="servicenow_mcp.tools.sync_tools"):
+            result = update_remote_from_local(
+                mock_config,
+                mock_auth,
+                PushLocalComponentParams(path=str(widget_dir / "script.js"), force=True),
+            )
+
+        assert "error" not in result
+        mock_update.assert_called_once()  # force remains an approval
+        assert any("bob" in r.getMessage() for r in caplog.records)
 
 
 class TestContentFirstDriftGate:
