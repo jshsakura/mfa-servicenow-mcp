@@ -20,10 +20,20 @@ Three constraints shape the implementation, all from the feature's own purpose:
   document, and it is re-injected on every attach.
 """
 
+import json
+import logging
 import os
-from typing import Any
+from typing import Any, Dict
+from urllib.parse import urlparse
 
-from ..utils.instances import ACTIVE_INSTANCE_ENV
+from ..utils.instances import (
+    ACTIVE_INSTANCE_ENV,
+    INSTANCE_CONFIG_ENV,
+    load_instance_config_env,
+    resolve_env_reference,
+)
+
+logger = logging.getLogger(__name__)
 
 BADGE_ELEMENT_ID = "__sn_mcp_debug_badge__"
 
@@ -79,14 +89,46 @@ _BADGE_TEMPLATE = """
 (() => {
   const HOST_ID = %(host_id)s;
   const PREFIX = %(prefix)s;
-  const PROFILE_NAME = %(profile_name)s;
-  const ACCENT = %(accent)s;
   const IDLE = %(idle)s;
   const ACCOUNT = %(account)s;
   const IMPERSONATING = %(impersonating)s;
   const NORMAL_USER = 'rgba(233,233,236,.62)';
   const COLLAPSED_KEY = %(collapsed_key)s;
+  const KNOWN_INSTANCES = %(instance_names)s;
+  const FALLBACK_NAME = %(fallback_name)s;
+  const PALETTE = %(palette)s;
   if (window[HOST_ID]) return;
+
+  // WHICH instance this is gets read from the DOCUMENT, not baked in from
+  // Python, for the same reason the signed-in user is (see above): a value
+  // fixed when the script was built is right for at most one tab. It used to
+  // be the process-wide SERVICENOW_ACTIVE_INSTANCE, so a window opened on
+  // another instance carried the ACTIVE instance's name — a prod window that
+  // said 'dev'. That is the precise mistake the badge exists to prevent.
+  //
+  // An unrecognised host says NOTHING rather than falling back to a name it
+  // did not establish: a wrong label here is worse than no label, because the
+  // badge is what the wrong-instance question gets answered by.
+  const pageHost = (() => {
+    try { return String(location.hostname || '').toLowerCase(); } catch (e) { return ''; }
+  })();
+  const knows = (host) =>
+    !!host && Object.prototype.hasOwnProperty.call(KNOWN_INSTANCES, host);
+  const PROFILE_NAME = knows(pageHost)
+    ? String(KNOWN_INSTANCES[pageHost])
+    : (Object.keys(KNOWN_INSTANCES).length ? '' : FALLBACK_NAME);
+
+  // FNV-1a, byte-identical to badge_accent() in Python and to the probe's
+  // hash. The colour has to survive being computed on either side.
+  const ACCENT = (() => {
+    const name = String(PROFILE_NAME || '').trim().toLowerCase();
+    let h = 0x811c9dc5;
+    for (let i = 0; i < name.length; i++) {
+      h ^= name.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return PALETTE[h %% PALETTE.length];
+  })();
 
 %(user_script)s
 
@@ -254,14 +296,69 @@ def _js_string(value: str) -> str:
     return f"'{escaped}'"
 
 
-def profile_label(config: Any = None) -> str:
-    """Which MCP profile this window belongs to.
+def instance_labels(raw: str | None = None) -> Dict[str, str]:
+    """host -> alias, for every configured instance.
 
-    The named-instance alias is the thing a person actually calls the profile
-    ("dev", "test", "prod") and the thing they switch between. In single-
-    instance mode there is no alias, so the account carries the identity on its
-    own and this stays 'default' — matching what the server reports.
+    Read from the environment rather than passed in, for the same reason
+    :func:`profile_label` reads it: the badge is built deep inside the capture
+    path, where no instance registry is in scope. Threading one through every
+    frame of that path to label a pill is not worth it.
+
+    Malformed config degrades to an empty map instead of raising. An empty map
+    makes the badge fall back to the label it was given; it never invents one.
     """
+    source = raw if raw is not None else os.environ.get(INSTANCE_CONFIG_ENV)
+    if not source or not str(source).strip():
+        return {}
+    try:
+        entries = load_instance_config_env(str(source))
+    except (ValueError, TypeError) as exc:  # noqa: BLE001 - a label never raises
+        logger.debug("Cannot read instance aliases for the badge: %s", exc)
+        return {}
+    labels: Dict[str, str] = {}
+    for alias, entry in entries.items():
+        raw_url = entry.get("url") or entry.get("instance_url") or ""
+        url = (resolve_env_reference(str(raw_url)) or str(raw_url)).strip()
+        # A schemeless entry parses as a path, not a netloc, and would drop the
+        # instance from the map — leaving a correctly configured tab unlabelled.
+        # The rest of the registry tolerates one (see instances.safe_instance_url).
+        if url and "://" not in url:
+            url = f"//{url}"
+        try:
+            host = (urlparse(url).hostname or "").lower()
+        except (TypeError, ValueError):
+            continue
+        if host:
+            labels[host] = alias
+    return labels
+
+
+def profile_label(config: Any = None) -> str:
+    """The label a tab falls back to when its own host is not a known instance.
+
+    NOT the answer to "which instance is this tab on" — that is resolved in the
+    page from ``location.hostname`` (see :func:`badge_init_script`), because one
+    window can hold tabs on more than one instance and a value baked in here is
+    right for at most one of them.
+
+    This used to read ONLY the process-wide ``SERVICENOW_ACTIVE_INSTANCE``,
+    while accepting a ``config`` it never looked at. A call routed to another
+    instance therefore opened a window there and labelled it with the ACTIVE
+    instance's name: a prod window drew 'dev'. The config it is called with now
+    wins, and the alias comes from the same registry the routing uses.
+
+    In single-instance mode there is no alias, so the account carries the
+    identity on its own and this stays 'default' — matching what the server
+    reports.
+    """
+    try:
+        host = (urlparse(str(getattr(config, "instance_url", "") or "")).hostname or "").lower()
+    except (TypeError, ValueError):
+        host = ""
+    if host:
+        alias = instance_labels().get(host)
+        if alias:
+            return alias
     alias = (os.environ.get(ACTIVE_INSTANCE_ENV) or "").strip()
     if alias:
         return alias
@@ -369,6 +466,10 @@ def badge_accent(profile: str) -> str:
 def badge_init_script(profile: str, account: str = "") -> str:
     """The badge for this window.
 
+    ``profile`` is only the FALLBACK label — the instance a tab is actually on
+    is resolved in the page from its own hostname, so a window holding tabs on
+    two instances labels each one correctly. See :func:`profile_label`.
+
     ``account`` is the user the window signed in as, when the server knows it.
     Anyone else showing up in the page is an impersonation and is drawn as
     ``account → impersonated`` in amber. Left empty (an OAuth or API-key profile
@@ -378,8 +479,9 @@ def badge_init_script(profile: str, account: str = "") -> str:
     return _BADGE_TEMPLATE % {
         "host_id": _js_string(BADGE_ELEMENT_ID),
         "prefix": _js_string(BADGE_PREFIX),
-        "profile_name": _js_string((profile or "").strip()),
-        "accent": _js_string(badge_accent(profile)),
+        "fallback_name": _js_string((profile or "").strip()),
+        "instance_names": json.dumps(instance_labels(), sort_keys=True),
+        "palette": json.dumps(list(_PALETTE)),
         "idle": _js_string(IDLE_COLOUR),
         "account": _js_string(account or ""),
         "impersonating": _js_string(IMPERSONATING_COLOUR),

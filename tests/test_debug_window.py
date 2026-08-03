@@ -677,8 +677,112 @@ def test_the_meaning_is_in_the_words_not_the_colour():
     """
     script = badge_init_script("prod")
 
-    assert "PROFILE_NAME = 'prod'" in script
+    # The name is resolved in the page (see the instance tests below), so what
+    # has to be present is the machinery that writes it into the pill.
+    assert "const PROFILE_NAME" in script
+    assert "nameEl.textContent = PROFILE_NAME" in script
     assert badge.badge_accent("prod") in script
+
+
+# ---------------------------------------------------------------------------
+# badge.py — WHICH instance. Read in the page, never from the active alias.
+# ---------------------------------------------------------------------------
+
+
+def test_the_instance_alias_comes_from_the_config_not_the_active_env(monkeypatch):
+    """The bug: a prod window drew 'dev'.
+
+    ``profile_label`` accepted a config it never looked at and returned the
+    process-wide active alias, so a call routed to another instance opened a
+    window there and labelled it with the ACTIVE instance's name — the precise
+    wrong-instance mistake the badge exists to prevent.
+    """
+    monkeypatch.setenv(
+        "SERVICENOW_INSTANCE_CONFIG",
+        json.dumps(
+            {
+                "dev": {"url": "https://dev.example.com"},
+                "prod": {"url": "https://prod.example.com"},
+            }
+        ),
+    )
+    monkeypatch.setenv("SERVICENOW_ACTIVE_INSTANCE", "dev")
+
+    prod_config = SimpleNamespace(instance_url="https://prod.example.com")
+
+    assert badge.profile_label(prod_config) == "prod"
+
+
+def test_a_single_instance_profile_still_says_default(monkeypatch):
+    """No aliases configured means the account carries the identity, as before."""
+    monkeypatch.delenv("SERVICENOW_INSTANCE_CONFIG", raising=False)
+    monkeypatch.delenv("SERVICENOW_ACTIVE_INSTANCE", raising=False)
+
+    config = SimpleNamespace(instance_url="https://only.example.com")
+
+    assert badge.profile_label(config) == "default"
+
+
+def test_instance_aliases_are_keyed_by_host(monkeypatch):
+    monkeypatch.setenv(
+        "SERVICENOW_INSTANCE_CONFIG",
+        json.dumps({"dev": {"url": "https://dev.example.com/"}, "t": {"url": "test.example.com"}}),
+    )
+
+    assert badge.instance_labels() == {"dev.example.com": "dev", "test.example.com": "t"}
+
+
+def test_unreadable_instance_config_labels_nothing_rather_than_raising():
+    """A label never takes the window down, and never invents a name either."""
+    assert badge.instance_labels("{not json") == {}
+    assert badge.instance_labels("") == {}
+
+
+def test_the_badge_resolves_its_instance_from_the_page_not_from_python(monkeypatch):
+    """One window may hold tabs on two instances; a baked-in name fits one.
+
+    The map goes into the script and the lookup happens against
+    ``location.hostname``, so the same script labels each tab correctly.
+    """
+    monkeypatch.setenv(
+        "SERVICENOW_INSTANCE_CONFIG",
+        json.dumps(
+            {
+                "dev": {"url": "https://dev.example.com"},
+                "prod": {"url": "https://prod.example.com"},
+            }
+        ),
+    )
+
+    script = badge_init_script("prod")
+
+    assert "location.hostname" in script
+    assert '"dev.example.com": "dev"' in script
+    assert '"prod.example.com": "prod"' in script
+    # Still no address on the badge — the address bar sits right above it.
+    assert "https://" not in script
+
+
+def test_an_unknown_host_is_left_unnamed_rather_than_given_the_fallback(monkeypatch):
+    """A wrong label is worse than no label on the thing that answers 'which one'."""
+    monkeypatch.setenv(
+        "SERVICENOW_INSTANCE_CONFIG", json.dumps({"dev": {"url": "https://dev.example.com"}})
+    )
+
+    script = badge_init_script("dev")
+
+    # Known host wins; otherwise the fallback is used ONLY when nothing is
+    # configured to compare against.
+    assert "Object.keys(KNOWN_INSTANCES).length ? '' : FALLBACK_NAME" in script
+
+
+def test_the_page_side_accent_is_the_same_hash_as_the_python_one():
+    """The colour is an identity channel; it cannot depend on which side drew it."""
+    script = badge_init_script("dev")
+
+    assert "0x811c9dc5" in script
+    for colour in badge._PALETTE:
+        assert colour in script
 
 
 def test_the_profile_name_is_the_part_that_carries_the_colour():
