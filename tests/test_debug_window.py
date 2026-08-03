@@ -776,13 +776,45 @@ def test_an_unknown_host_is_left_unnamed_rather_than_given_the_fallback(monkeypa
     assert "Object.keys(KNOWN_INSTANCES).length ? '' : FALLBACK_NAME" in script
 
 
-def test_the_page_side_accent_is_the_same_hash_as_the_python_one():
-    """The colour is an identity channel; it cannot depend on which side drew it."""
-    script = badge_init_script("dev")
+def test_the_colour_identifies_the_window_and_the_name_identifies_the_instance():
+    """Two channels, two questions. Hashing the name would collapse them.
 
-    assert "0x811c9dc5" in script
-    for colour in badge._PALETTE:
-        assert colour in script
+    The name is read per tab, so a window holding a dev tab and a test tab
+    labels each correctly — but the colour has to stay one per window, or
+    "is this the same window I was looking at?" goes unanswered.
+    """
+    one = badge_init_script("dev", window_id="/cache/debug_profile_alice")
+    two = badge_init_script("dev", window_id="/cache/debug_profile_bob")
+
+    assert badge.badge_accent("/cache/debug_profile_alice") in one
+    assert badge.badge_accent("/cache/debug_profile_bob") in two
+    # Same instance label, different windows — the colour is what tells them apart.
+    assert badge.badge_accent("/cache/debug_profile_alice") != badge.badge_accent(
+        "/cache/debug_profile_bob"
+    )
+    # And the colour is fixed for the window rather than recomputed per tab.
+    assert "const ACCENT = '" in one
+
+
+def test_one_window_wears_one_colour_across_every_instance_it_holds():
+    """The window colour cannot depend on which tab happens to be in front."""
+    script = badge_init_script("dev", window_id="/cache/debug_profile_alice")
+
+    assert script.count("const ACCENT = ") == 1
+    # No page-side palette lookup: nothing in the document may repaint it.
+    assert "PALETTE" not in script
+
+
+def test_the_badge_colour_comes_from_the_window_not_from_the_label(monkeypatch):
+    """A window is coloured by WHICH window it is, never by what it says."""
+    monkeypatch.delenv("SERVICENOW_INSTANCE_CONFIG", raising=False)
+
+    same_label_two_windows = {
+        badge_init_script("prod", window_id="/cache/debug_profile_alice"),
+        badge_init_script("prod", window_id="/cache/debug_profile_bob"),
+    }
+
+    assert len(same_label_two_windows) == 2
 
 
 def test_the_profile_name_is_the_part_that_carries_the_colour():
