@@ -96,7 +96,12 @@ _BADGE_TEMPLATE = """
   const COLLAPSED_KEY = %(collapsed_key)s;
   const KNOWN_INSTANCES = %(instance_names)s;
   const FALLBACK_NAME = %(fallback_name)s;
-  const PALETTE = %(palette)s;
+  // The colour identifies the WINDOW, so it is fixed when the script is built —
+  // every tab in one window wears it. The NAME below identifies the tab's
+  // instance and is read per document. Two channels, two questions: "same
+  // window I was looking at?" and "which instance is this tab on?". Deriving
+  // both from the instance name would collapse them into one.
+  const ACCENT = %(accent)s;
   if (window[HOST_ID]) return;
 
   // WHICH instance this is gets read from the DOCUMENT, not baked in from
@@ -117,18 +122,6 @@ _BADGE_TEMPLATE = """
   const PROFILE_NAME = knows(pageHost)
     ? String(KNOWN_INSTANCES[pageHost])
     : (Object.keys(KNOWN_INSTANCES).length ? '' : FALLBACK_NAME);
-
-  // FNV-1a, byte-identical to badge_accent() in Python and to the probe's
-  // hash. The colour has to survive being computed on either side.
-  const ACCENT = (() => {
-    const name = String(PROFILE_NAME || '').trim().toLowerCase();
-    let h = 0x811c9dc5;
-    for (let i = 0; i < name.length; i++) {
-      h ^= name.charCodeAt(i);
-      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
-    }
-    return PALETTE[h %% PALETTE.length];
-  })();
 
 %(user_script)s
 
@@ -433,12 +426,17 @@ _ACTIVITY_TEMPLATE = """
 
 
 def badge_accent(profile: str) -> str:
-    """A colour derived from the profile name. Same name, same colour, always.
+    """A colour derived from whatever string identifies the WINDOW.
 
     Colour is an IDENTITY channel here, not a severity one: it answers "is this
     the same window I was looking at a minute ago?" at a glance, across however
     many are open. It deliberately carries no meaning of its own — the meaning
-    is in the label right next to it, which spells the profile out in words.
+    is in the label right next to it, which spells the instance out in words.
+
+    What is hashed is the window, NOT the name on the badge. Hashing the name
+    would make the two halves of the badge answer the same question twice and
+    leave "which window" unanswered — two windows on one instance would be
+    indistinguishable, which is precisely the case the colour exists for.
 
     This replaced a keyword table (prod→red, dev→green, everything else→one
     blue). Profile names are whatever the person configuring them chose, so
@@ -463,12 +461,17 @@ def badge_accent(profile: str) -> str:
     return _PALETTE[digest % len(_PALETTE)]
 
 
-def badge_init_script(profile: str, account: str = "") -> str:
+def badge_init_script(profile: str, account: str = "", window_id: str = "") -> str:
     """The badge for this window.
 
     ``profile`` is only the FALLBACK label — the instance a tab is actually on
     is resolved in the page from its own hostname, so a window holding tabs on
     two instances labels each one correctly. See :func:`profile_label`.
+
+    ``window_id`` is what the COLOUR is drawn from — anything stable and unique
+    per window (the caller passes the Chromium profile directory, since one
+    directory is one window). Falls back to ``profile`` when the caller has no
+    window to point at, which is only ever a bare script build in a test.
 
     ``account`` is the user the window signed in as, when the server knows it.
     Anyone else showing up in the page is an impersonation and is drawn as
@@ -481,7 +484,7 @@ def badge_init_script(profile: str, account: str = "") -> str:
         "prefix": _js_string(BADGE_PREFIX),
         "fallback_name": _js_string((profile or "").strip()),
         "instance_names": json.dumps(instance_labels(), sort_keys=True),
-        "palette": json.dumps(list(_PALETTE)),
+        "accent": _js_string(badge_accent(window_id or profile)),
         "idle": _js_string(IDLE_COLOUR),
         "account": _js_string(account or ""),
         "impersonating": _js_string(IMPERSONATING_COLOUR),
