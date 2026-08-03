@@ -237,8 +237,8 @@ This saves ~25% context tokens across all tools. Don't bypass this.
 
 ## A Guard May Only Claim What It Actually Read
 
-Every safety bug in this repo has been the same shape, found seven times in one
-day: **a signal that was never read, rendered as a signal that came back clean.**
+Every safety bug in this repo has been the same shape, found ten times in two
+days: **a signal that was never read, rendered as a signal that came back clean.**
 
 - `max(local anchors)` decided nothing changed → a lagging record was never fetched
 - no `_sync_meta` entry → "no drift" → an ancient body overwrote current work
@@ -248,6 +248,8 @@ day: **a signal that was never read, rendered as a signal that came back clean.*
 - a `.remote` written once → "the server's CURRENT body"
 - six different `None`s from the hold check → "no one is holding this record"
 - two `complete` sets in another app → "two in-progress sets, your change is split"
+- a badge reading the ACTIVE instance env → "this window is dev" on a prod window
+- a PyPI JSON cache minutes behind the upload → "1.22.24 is not published"
 
 None of these were wrong logic. Each was an **absence** — unread, unanchored,
 capped, stale, closed — scored as **evidence of safety**, and every one of them
@@ -270,6 +272,15 @@ So, for anything a caller could act on:
    live conflict.
 5. **A failure must degrade toward the expensive answer**, never the quiet one:
    fetch more, block, ask. Over-fetching is recoverable; a silent miss is not.
+6. **A slow answer is not a negative answer, and a dead end is not a report.**
+   A source that lags — a CDN cache, an index written minutes after the thing it
+   indexes, a queue — can only say "not visible yet", never "not there". Ask the
+   AUTHORITATIVE source before you report: the install index rather than the JSON
+   API, the publishing JOB rather than the workflow that contains it. If it still
+   does not resolve, fall back, keep going, and warn — do not hand back a bare
+   failure. Rule 5 is about what to DO (block, ask); this is about what to SAY.
+   "Could not confirm, so I used X, treat Y as unverified" is actionable;
+   "failed" leaves the caller with nothing but the work of asking again.
 
 ## No Real Identities in Code — HARD STOP, NO EXCEPTIONS
 
