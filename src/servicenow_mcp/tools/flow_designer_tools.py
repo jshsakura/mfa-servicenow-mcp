@@ -9,14 +9,18 @@ Provides read-only tools for analyzing Flow Designer flows:
 """
 
 import hashlib
+import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import AuthType, ServerConfig
 
+from ..utils.response_budget import byte_len
 from .sn_api import invalidate_query_cache, sn_count, sn_count_by_group, sn_query_page
 from .sn_batch import batch_get, batch_rows, table_query_url
 
@@ -102,7 +106,7 @@ class GetFlowDetailsParams(BaseModel):
     flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
     include_structure: bool = Field(
         default=False,
-        description="Include flow structure (actions, logic, subflows with nesting tree)",
+        description="Include structure; a large tree goes to disk, exact counts stay inline",
     )
     include_triggers: bool = Field(
         default=False,
@@ -1220,6 +1224,73 @@ def _build_summary_index(
     }
 
 
+_STRUCTURE_INLINE_BUDGET_BYTES = 12_000
+
+# The node set, rendered three ways. Offloading only `tree` leaves the same bulk
+# behind under two other names — measured 78KB split 31/27/20 across them — so
+# they travel together. What stays inline is the part that is actually an answer:
+# counts, integrity, warnings.
+_BULK_STRUCTURE_KEYS = ("tree", "orphans", "tree_text", "summary_index")
+
+
+def _structure_file_path(config: ServerConfig, flow_id: str) -> Path:
+    """Where a flow's full structure lands, following the temp/<instance> layout."""
+    instance = (urlparse(config.instance_url).hostname or "instance").split(".")[0]
+    return Path.cwd() / "temp" / instance / "_flow_structure" / f"{flow_id}.json"
+
+
+def _offload_structure_if_large(
+    structure: Dict[str, Any], config: ServerConfig, flow_id: str
+) -> Dict[str, Any]:
+    """Keep the counts in context and put the node tree on disk.
+
+    A real flow's tree is not summary-shaped: 142 nodes measured 79KB, which is
+    over the response budget, past the client's own ceiling, and — the part that
+    matters — of no use to a reader who asked what the flow DOES. It is bulk
+    source, and this package already has one answer for bulk source: write it to
+    disk and return the summary, the way ``download_*`` does for a widget body.
+
+    Trimming it to fit was the wrong repair twice over. It spends the context it
+    is trying to save, and a tail cut off a tree is not a smaller tree, it is a
+    flow that appears to end early. Nothing is dropped here: the counts stay
+    exact, the whole tree is on disk, and the path says where.
+
+    Small structures are left inline — a flow with six nodes is an answer, not a
+    payload, and a file for it would be a round trip for nothing.
+    """
+    if byte_len(structure) <= _STRUCTURE_INLINE_BUDGET_BYTES:
+        return structure
+
+    tree = structure.get("tree")
+    orphans = structure.get("orphans")
+    compact = {k: v for k, v in structure.items() if k not in _BULK_STRUCTURE_KEYS}
+    node_count = (len(tree) if isinstance(tree, list) else 0) + (
+        len(orphans) if isinstance(orphans, list) else 0
+    )
+
+    path = _structure_file_path(config, flow_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(structure, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as exc:
+        # Degrade toward the expensive answer: say the tree exists and could not
+        # be written, rather than returning counts that read as the whole story.
+        compact["tree_omitted"] = True
+        compact["structure_file_error"] = (
+            f"{node_count} nodes could not be written to {path}: {exc}. "
+            "Re-run with include_structure=False, or fix the path, to proceed."
+        )
+        return compact
+
+    compact["tree_omitted"] = True
+    compact["structure_file"] = str(path)
+    compact["structure_file_note"] = (
+        f"{node_count} nodes written to disk in full — nothing was dropped. Read the file "
+        "for the tree; the counts above are exact and need no follow-up."
+    )
+    return compact
+
+
 def _build_flow_summary(structure: Dict[str, Any], include_scripts: bool = False) -> Dict[str, Any]:
     """Flat tree summary (depth + full conditions) for analysis use cases.
 
@@ -1819,8 +1890,10 @@ def get_flow_details(
                     "runtime": _flow_runtime_status(config, auth_manager, flow_id),
                 }
                 if params.include_structure:
-                    result["structure"] = (
-                        _build_flow_summary(detail) if params.summary_format else detail
+                    result["structure"] = _offload_structure_if_large(
+                        _build_flow_summary(detail) if params.summary_format else detail,
+                        config,
+                        flow_id,
                     )
                 if params.include_triggers:
                     # Compact by default; summary_format=False keeps the raw rows.
@@ -1874,9 +1947,11 @@ def get_flow_details(
         if params.include_structure:
             structure = _fetch_flow_structure(config, auth_manager, flow_id)
             if params.summary_format and structure.get("success") and "actions" in structure:
-                result["structure"] = _build_flow_summary(structure)
+                result["structure"] = _offload_structure_if_large(
+                    _build_flow_summary(structure), config, flow_id
+                )
             else:
-                result["structure"] = structure
+                result["structure"] = _offload_structure_if_large(structure, config, flow_id)
             if not structure.get("success"):
                 result["structure_error"] = structure.get("error", "unknown")
 
