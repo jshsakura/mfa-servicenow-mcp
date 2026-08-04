@@ -1071,21 +1071,39 @@ class ServiceNowMCP:
         schema_with_confirm["required"] = required
         return schema_with_confirm
 
-    def _inject_instance_schema(self, schema: Dict[str, Any]) -> Dict[str, Any]:
-        """Advertise the optional read-only `instance` arg on read tools.
+    def _inject_instance_schema(
+        self, schema: Dict[str, Any], *, writable: bool = False
+    ) -> Dict[str, Any]:
+        """Advertise the optional `instance` arg, and on write tools its approval.
 
-        Only called in multi-instance mode for non-write tools. Lets the LLM
-        target a named non-active instance for a single read without switching
-        the server's active instance. The enum is the configured alias list.
+        Only called in multi-instance mode. Lets the LLM target a named non-active
+        instance for a single call without switching the server's active instance.
+        The enum is the configured alias list.
+
+        ``writable`` adds ``confirm_instance``, which the call handler already
+        requires for a cross-instance write. It used to be advertised on read
+        tools ONLY, on the reasoning that writes "only ever run against the active
+        instance" — but that is not what the handler does. It routes a single
+        write to a named target given ``confirm_instance == instance``, guards and
+        echo scoped to that target, active restored afterwards.
+
+        So the capability was real and invisible, and the tool definitions said
+        the opposite. A session concluded from them that MCP writes cannot leave
+        the active instance and that changing it needs a config edit and a
+        restart, then hand-built a deployment XML instead — the one path this
+        repo documents as never safe to hand-assemble. Hiding a capability does
+        not make callers do without it; it makes them route around it.
         """
         aliases = sorted(self.instance_contexts)
         schema_with_instance = {**schema}
         properties = {**schema.get("properties", {})}
-        # No per-tool description — it would repeat on every read tool, every
-        # request. The field name + alias enum are self-explanatory, and the
-        # one-time multi-instance `instructions` block carries the steer
-        # (default-to-active, no fan-out). Keeps the per-request schema lean.
+        # No per-tool description — it would repeat on every tool, every request.
+        # The field name + alias enum are self-explanatory, and the one-time
+        # multi-instance `instructions` block carries the steer (default-to-
+        # active, no fan-out). Keeps the per-request schema lean.
         properties[INSTANCE_FIELD] = {"type": "string", "enum": aliases}
+        if writable:
+            properties[CONFIRM_INSTANCE_FIELD] = {"type": "string", "enum": aliases}
         schema_with_instance["properties"] = properties
         return schema_with_instance
 
@@ -1219,13 +1237,16 @@ class ServiceNowMCP:
                     if allowed is not None:
                         fields_by_action = getattr(params_model, "_FIELDS_BY_ACTION", None)
                         schema = _narrow_action_schema(schema, allowed, fields_by_action)
-                    if self._tool_requires_confirmation(tool_name):
+                    is_write = self._tool_requires_confirmation(tool_name)
+                    if is_write:
                         schema = self._inject_confirmation_schema(schema, tool_name)
-                    elif self.instance_contexts:
-                        # Multi-instance: let read tools target a named instance.
-                        # Write tools (confirmation-requiring) are excluded — they
-                        # only ever run against the active instance.
-                        schema = self._inject_instance_schema(schema)
+                    if self.instance_contexts:
+                        # Multi-instance: any tool may target a named instance.
+                        # Writes additionally get `confirm_instance`, which the
+                        # call handler already demands to route one write to a
+                        # non-active target. Advertising it on reads only is what
+                        # made cross-instance deploys look impossible.
+                        schema = self._inject_instance_schema(schema, writable=is_write)
                     tool_list.append(
                         types.Tool(
                             name=tool_name,
