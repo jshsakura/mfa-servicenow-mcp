@@ -398,7 +398,19 @@ def test_write_naming_active_instance_is_accepted(monkeypatch, tmp_path):
     assert seen["auth_manager"] is server.auth_manager
 
 
-def test_instance_schema_advertised_on_read_tools_only(monkeypatch, tmp_path):
+def test_instance_schema_advertised_on_reads_and_writes(monkeypatch, tmp_path):
+    """A write may target a named instance, so its schema has to say so.
+
+    `instance` was advertised on read tools only, on the reasoning that writes
+    "only ever run against the active instance". The call handler does not agree:
+    given `confirm_instance == instance` it routes one write to the named target,
+    scopes the guards and the echo to it, and restores the active instance after.
+
+    Withholding the field did not prevent cross-instance writes; it made them
+    undiscoverable. A session read these definitions, concluded that promoting
+    dev→test required editing config and restarting, and hand-assembled a deploy
+    XML instead — the one thing CLAUDE.md says never to hand-assemble.
+    """
     server = _build_multi_server(monkeypatch, tmp_path)
     # update_foo is enabled by the package but has no registered definition;
     # register one so it shows up in list_tools for the write-tool assertion.
@@ -408,10 +420,15 @@ def test_instance_schema_advertised_on_read_tools_only(monkeypatch, tmp_path):
 
     read_props = tools["sn_query"].inputSchema["properties"]
     assert read_props["instance"]["enum"] == ["dev", "test"]
+    # A read cannot write, so the write approval must not appear on it.
+    assert "confirm_instance" not in read_props
 
-    # Write tool: no instance arg (it only ever runs against the active instance).
     write_props = tools["update_foo"].inputSchema["properties"]
-    assert "instance" not in write_props
+    assert write_props["instance"]["enum"] == ["dev", "test"]
+    # ...and the approval the handler demands is advertised with it, from the
+    # same alias list, so the caller cannot learn its name only by being refused.
+    assert write_props["confirm_instance"]["enum"] == ["dev", "test"]
+    assert write_props["confirm"]["enum"] == ["approve"]
 
 
 def test_active_instance_allow_writes_blocks_mutating_tool(
