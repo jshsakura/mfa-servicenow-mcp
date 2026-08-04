@@ -15,6 +15,7 @@ from servicenow_mcp.tools.flow_designer_tools import (
     GetFlowExecutionsParams,
     ListFlowsParams,
     _action_type_name,
+    _bound_structure,
     _build_component_tree,
     _build_processflow_detail,
     _build_subflow_tree,
@@ -29,7 +30,6 @@ from servicenow_mcp.tools.flow_designer_tools import (
     _get_flow_for_compare,
     _get_snapshot_id,
     _is_browser_auth,
-    _offload_structure_if_large,
     _parse_label_cache,
     _resolve_flow_id,
     _safe_int,
@@ -1952,26 +1952,19 @@ class TestComponentTreeNesting(unittest.TestCase):
         self.assertEqual(len(roots), 1)
 
 
-class TestStructureBulkGoesToDiskNotIntoContext(unittest.TestCase):
-    """A flow's node tree is bulk source, and bulk source goes to disk.
+class TestAnOversizedFlowTreeIsNotReturnedAtAll(unittest.TestCase):
+    """Reading a flow is a targeted job, so the whole tree is never the answer.
 
-    Measured on a real flow: 142 nodes, 78,963 bytes — over the response budget,
-    past the client's own ceiling, and useless to a reader who asked what the
-    flow does. It arrived as an overflow file the agent then had to shell out and
-    parse, which spends more context than it saved.
+    A real flow measured 78,963 bytes of structure across 142 nodes: over the
+    response budget, past the client's own ceiling, and spilled to a file the
+    agent then shelled out to parse — more context spent than any of it saved.
 
-    Trimming the tree to fit was the wrong repair: a tail cut off a tree is not a
-    smaller tree, it is a flow that appears to end early. So the counts stay in
-    context, exact, and the tree goes to disk whole.
+    Trimming the tree would make a flow look like it ends early. Dumping it to
+    disk just relocates the dump, and the file is not even sliceable, since
+    `tree_text` is a single 26,787-character line. So an oversized tree is not
+    returned: the counts come back exact, with the measurement and the reads that
+    actually exist.
     """
-
-    def _cfg(self, tmp):
-        from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
-
-        return ServerConfig(
-            instance_url="https://test.service-now.com",
-            auth=AuthConfig(type=AuthType.BASIC, basic=BasicAuthConfig(username="u", password="p")),
-        )
 
     @staticmethod
     def _big_structure(nodes=200):
@@ -1987,67 +1980,41 @@ class TestStructureBulkGoesToDiskNotIntoContext(unittest.TestCase):
             "summary_index": {"state_changes": ["s" * 100 for _ in range(100)]},
         }
 
-    def test_a_small_structure_is_left_inline(self):
-        """A six-node flow is an answer, not a payload; a file for it is a round trip."""
-        import tempfile
+    def test_a_small_structure_is_returned_whole(self):
+        """A six-node flow IS the answer; withholding it would be a round trip."""
+        small = {"counts": {"actions": 1}, "tree": [{"ui_id": "u1"}]}
+        self.assertIs(_bound_structure(small), small)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            small = {"counts": {"actions": 1}, "tree": [{"ui_id": "u1"}]}
-            out = _offload_structure_if_large(small, self._cfg(tmp), "flow-1")
-            self.assertIs(out, small)
+    def test_every_bulk_rendering_is_withheld_together(self):
+        """tree/tree_text/summary_index are one node set rendered three ways."""
+        out = _bound_structure(self._big_structure())
+        for key in ("tree", "tree_text", "summary_index", "orphans"):
+            self.assertNotIn(key, out)
+        self.assertLess(byte_len(out), 2_000)
 
-    def test_every_bulk_rendering_travels_together(self):
-        """tree/tree_text/summary_index are one node set rendered three ways.
+    def test_the_counts_survive_exactly(self):
+        """What the caller actually asked — how big, how many — is not abridged."""
+        st = self._big_structure()
+        out = _bound_structure(st)
+        self.assertEqual(out["counts"], st["counts"])
+        self.assertEqual(out["integrity"], st["integrity"])
 
-        Offloading only `tree` leaves the same bulk behind under two other names.
+    def test_it_says_how_big_rather_than_going_quiet(self):
+        st = self._big_structure()
+        out = _bound_structure(st)
+        too_large = out["structure_too_large"]
+        self.assertTrue(out["tree_omitted"])
+        self.assertEqual(too_large["nodes"], len(st["tree"]))
+        self.assertEqual(too_large["bytes"], byte_len(st))
+
+    def test_it_only_points_at_calls_that_exist(self):
+        """A suggested call that does not exist is worse than saying no.
+
+        There is no node-range read on this tool, so nothing may imply one.
         """
-        import os
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmp:
-            cwd = os.getcwd()
-            os.chdir(tmp)
-            try:
-                st = self._big_structure()
-                out = _offload_structure_if_large(st, self._cfg(tmp), "flow-1")
-                for key in ("tree", "tree_text", "summary_index", "orphans"):
-                    self.assertNotIn(key, out)
-                self.assertEqual(out["counts"], st["counts"])
-                self.assertEqual(out["integrity"], st["integrity"])
-                self.assertTrue(out["tree_omitted"])
-                self.assertLess(byte_len(out), 2_000)
-            finally:
-                os.chdir(cwd)
-
-    def test_nothing_is_dropped_the_file_holds_the_whole_structure(self):
-        import json as _json
-        import os
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmp:
-            cwd = os.getcwd()
-            os.chdir(tmp)
-            try:
-                st = self._big_structure()
-                out = _offload_structure_if_large(st, self._cfg(tmp), "flow-1")
-                on_disk = _json.loads(open(out["structure_file"], encoding="utf-8").read())
-                self.assertEqual(on_disk, st)  # byte-for-byte the same structure
-                self.assertIn("142" if False else str(len(st["tree"])), out["structure_file_note"])
-            finally:
-                os.chdir(cwd)
-
-    def test_an_unwritable_path_says_so_rather_than_reporting_counts_alone(self):
-        """Counts with no tree and no warning would read as the whole story."""
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmp:
-            st = self._big_structure()
-            with patch(
-                "servicenow_mcp.tools.flow_designer_tools.Path.write_text",
-                side_effect=OSError("read-only"),
-            ):
-                out = _offload_structure_if_large(st, self._cfg(tmp), "flow-1")
-
-            self.assertTrue(out["tree_omitted"])
-            self.assertIn("read-only", out["structure_file_error"])
-            self.assertNotIn("structure_file", out)
+        out = _bound_structure(self._big_structure())
+        suggested = " ".join(out["structure_too_large"]["ask_instead"])
+        for action in ("get_action_source", "trace_pill", "compare", "get_executions"):
+            self.assertIn(action, suggested)
+        for invented in ("offset", "structure_offset", "page", "node_range"):
+            self.assertNotIn(invented, suggested)
