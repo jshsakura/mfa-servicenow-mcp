@@ -237,8 +237,9 @@ This saves ~25% context tokens across all tools. Don't bypass this.
 
 ## A Guard May Only Claim What It Actually Read
 
-Every safety bug in this repo has been the same shape, found ten times in two
-days: **a signal that was never read, rendered as a signal that came back clean.**
+Every safety bug in this repo has been the same shape, found eleven times in
+three days: **a signal that was never read, rendered as a signal that came back
+clean.**
 
 - `max(local anchors)` decided nothing changed → a lagging record was never fetched
 - no `_sync_meta` entry → "no drift" → an ancient body overwrote current work
@@ -250,6 +251,7 @@ days: **a signal that was never read, rendered as a signal that came back clean.
 - two `complete` sets in another app → "two in-progress sets, your change is split"
 - a badge reading the ACTIVE instance env → "this window is dev" on a prod window
 - a PyPI JSON cache minutes behind the upload → "1.22.24 is not published"
+- a live pid and an answering CDP port → "a window you can use", tabs never asked
 
 None of these were wrong logic. Each was an **absence** — unread, unanchored,
 capped, stale, closed — scored as **evidence of safety**, and every one of them

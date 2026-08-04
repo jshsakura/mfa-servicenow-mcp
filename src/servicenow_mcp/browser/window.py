@@ -345,10 +345,92 @@ def _cdp_responds(port: int, timeout_s: float = _PORT_PROBE_TIMEOUT_S) -> bool:
         return False
 
 
-def is_window_alive(state: Optional[WindowState]) -> bool:
+def _cdp_page_count(port: int, timeout_s: float = _PORT_PROBE_TIMEOUT_S) -> Optional[int]:
+    """How many real tabs the window has, or None when it could not be asked.
+
+    ``None`` and ``0`` are deliberately different answers. An unreadable target
+    list means the question did not get through; an empty one means the browser
+    answered and has nothing open. Collapsing them would put "we could not find
+    out" and "there is nothing" in the same bucket, which is the mistake this
+    whole check exists to correct.
+
+    ``devtools://`` targets are not tabs, matching ``capture._instance_page`` —
+    the inspector counting as a page is how a window with only its own DevTools
+    open would look occupied.
+    """
+    try:
+        with urllib.request.urlopen(  # noqa: S310 - fixed loopback URL
+            f"http://127.0.0.1:{port}/json/list", timeout=timeout_s
+        ) as response:
+            if not 200 <= response.status < 300:
+                return None
+            targets = json.loads(response.read().decode("utf-8", "replace"))
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+    if not isinstance(targets, list):
+        return None
+    return sum(
+        1
+        for target in targets
+        if isinstance(target, dict)
+        and target.get("type") == "page"
+        and not str(target.get("url") or "").startswith("devtools://")
+    )
+
+
+@dataclass(frozen=True)
+class Liveness:
+    """What was actually checked about a window, rather than a verdict alone.
+
+    ``pid alive AND port answers`` used to be reported as "this window can be
+    reused". It cannot: on macOS, closing the last browser window does not quit
+    Chromium. The process stays up, the CDP port keeps answering, and the caller
+    is handed a window with nowhere to look — so *closing* the window is what
+    creates the broken state, which is why "close it and reopen" does not
+    recover. Two signals were read and a third thing was claimed.
+
+    Each field is one signal, and ``pages`` distinguishes "no tabs" from "could
+    not ask". A window that cannot answer is not reusable: launching a spare
+    window is recoverable, attaching to a dead one is not.
+    """
+
+    process: bool  # the recorded pid is alive
+    port: bool  # CDP /json/version answered
+    pages: Optional[int]  # real tabs; None when the list could not be read
+
+    @property
+    def reusable(self) -> bool:
+        """True only when every signal came back and covered the question."""
+        return self.process and self.port and bool(self.pages)
+
+    @property
+    def reason(self) -> str:
+        """Why the window is not reusable, in the caller's words."""
+        if not self.process:
+            return "the recorded process is gone"
+        if not self.port:
+            return "the debugging port does not answer"
+        if self.pages is None:
+            return "the window did not report its tabs"
+        if self.pages == 0:
+            return "the window has no tabs left (it was closed)"
+        return f"reusable ({self.pages} tab(s))"
+
+
+def window_liveness(state: Optional[WindowState]) -> Liveness:
+    """Read each liveness signal in cheapest-first order, stopping at the first no."""
     if state is None:
-        return False
-    return _is_pid_alive(state.pid) and _cdp_responds(state.port)
+        return Liveness(process=False, port=False, pages=None)
+    if not _is_pid_alive(state.pid):
+        return Liveness(process=False, port=False, pages=None)
+    if not _cdp_responds(state.port):
+        return Liveness(process=True, port=False, pages=None)
+    return Liveness(process=True, port=True, pages=_cdp_page_count(state.port))
+
+
+def is_window_alive(state: Optional[WindowState]) -> bool:
+    """Can this window be attached to and used? See :class:`Liveness`."""
+    return window_liveness(state).reusable
 
 
 # ---------------------------------------------------------------------------
@@ -682,14 +764,15 @@ def ensure_window(
     against one instance) and against a launch-rate cap (see launch_budget.py).
     """
     existing = read_window_state(auth_manager)
-    if is_window_alive(existing):
+    if window_liveness(existing).reusable:
         return touch_window(auth_manager, existing), False  # type: ignore[arg-type]
 
     with launch_claim(window_claim_path(auth_manager)) as claimed:
         # Re-read inside the claim: a peer may have opened one while we waited,
         # and reusing theirs is the whole point of the claim.
         current = read_window_state(auth_manager)
-        if is_window_alive(current):
+        liveness = window_liveness(current)
+        if liveness.reusable:
             return touch_window(auth_manager, current), False  # type: ignore[arg-type]
         if not claimed:
             raise RuntimeError(
@@ -699,6 +782,15 @@ def ensure_window(
         if current is not None:
             # Stale state from a window the user closed (or a crash). Drop it so
             # a dead pid is never reported as a live session.
+            if liveness.process and liveness.pages == 0:
+                # A window whose last tab was closed keeps its process and its
+                # port alive, so dropping the state file alone would strand it:
+                # unreachable, un-reapable, and resident until reboot. Retire it
+                # here — but only on a CONFIRMED empty tab list. `pages is None`
+                # means the question never got through, and an unread signal is
+                # not permission to kill somebody's browser.
+                logger.info("Retiring a debug window with no tabs left (pid %s)", current.pid)
+                terminate_pid(current.pid)
             clear_window_state(auth_manager)
 
         history_path = window_history_path(auth_manager)
@@ -713,6 +805,7 @@ def ensure_window(
 __all__ = [
     "DEBUG_WINDOW_ALWAYS_HEADED",
     "DEFAULT_VIEWPORT",
+    "Liveness",
     "WindowState",
     "clear_window_state",
     "ensure_window",
@@ -731,6 +824,7 @@ __all__ = [
     "window_history_path",
     "window_impersonation_path",
     "window_login_path",
+    "window_liveness",
     "window_profile_dir",
     "window_state_path",
     "write_window_state",

@@ -42,6 +42,7 @@ from .session import EFFECTIVE_USER_SCRIPT, api_username, describe_window_user
 from .window import (
     DEBUG_WINDOW_ALWAYS_HEADED,
     DEFAULT_VIEWPORT,
+    Liveness,
     WindowState,
     ensure_window,
     find_window,
@@ -50,6 +51,7 @@ from .window import (
     read_window_state,
     stop_window,
     window_impersonation_path,
+    window_liveness,
     window_login_path,
     window_profile_dir,
     window_state_path,
@@ -84,6 +86,7 @@ __all__ = [
     "ensure_window",
     "find_window",
     "is_window_alive",
+    "Liveness",
     "launch_claim",
     "launch_window",
     "normalize",
@@ -96,5 +99,6 @@ __all__ = [
     "window_impersonation_path",
     "window_login_path",
     "window_profile_dir",
+    "window_liveness",
     "window_state_path",
 ]

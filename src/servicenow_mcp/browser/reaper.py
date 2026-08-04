@@ -52,9 +52,9 @@ from ._offload import PlaywrightUnavailable, require_playwright, run_off_loop
 from .probe import presence_script
 from .window import (
     WindowState,
-    is_window_alive,
     read_window_state,
     terminate_pid,
+    window_liveness,
     window_state_path,
 )
 
@@ -217,12 +217,21 @@ def _should_close(
     idle_after_s: float,
 ) -> Tuple[bool, str]:
     """All vetoes, in cheapest-first order. Returns (close?, why)."""
-    if not is_window_alive(state):
+    liveness = window_liveness(state)
+    if not liveness.process:
         return False, "not running"
     if now - state.last_used_at < idle_after_s:
         return False, "in use"
     if _impersonation_is_live(root, key, state):
         return False, "impersonating"
+    if liveness.pages == 0:
+        # The veto above is `reusable`-shaped elsewhere, but here it must not be:
+        # a window whose last tab was closed is exactly what should be reaped,
+        # and treating it as "not running" would leave it resident forever. There
+        # is no unsaved input to protect and no presence to ask — nobody can see
+        # it. `pages is None` is not this case and falls through to the read
+        # below, which will decline rather than guess.
+        return True, "no tabs left"
 
     presence = read_presence(state)
     if presence is None:

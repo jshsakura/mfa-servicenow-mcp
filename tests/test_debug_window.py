@@ -609,6 +609,153 @@ def test_a_live_pid_with_a_dead_port_is_not_a_live_window(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# window.py — liveness reads a tab, not just a pid and a port
+#
+# Closing the last window does not quit Chromium on macOS: the process stays up
+# and the CDP port keeps answering, so pid+port reported a window that had
+# nowhere to look as reusable. Measured on this machine — three such processes
+# resident, /json/version answering, /json/list empty.
+# ---------------------------------------------------------------------------
+
+
+def _json_endpoint(payload, status=200):
+    """Stand in for urlopen(), which window.py uses as a context manager."""
+
+    class _Response:
+        def __init__(self):
+            self.status = status
+
+        def read(self):
+            return json.dumps(payload).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _open(url, timeout=None):
+        return _Response()
+
+    return _open
+
+
+def _running(monkeypatch, pages):
+    """A window whose pid and port are fine; `pages` is what /json/list says."""
+    monkeypatch.setattr(window, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(window, "_cdp_responds", lambda port, timeout_s=1.0: True)
+    monkeypatch.setattr(window, "_cdp_page_count", lambda port, timeout_s=1.0: pages)
+    return window.WindowState(
+        pid=1, port=9333, profile_dir="/tmp/p", instance_url="", started_at=1.0
+    )
+
+
+def test_a_window_with_no_tabs_left_is_not_reusable(monkeypatch):
+    state = _running(monkeypatch, 0)
+
+    liveness = window.window_liveness(state)
+    assert (liveness.process, liveness.port, liveness.pages) == (True, True, 0)
+    assert liveness.reusable is False
+    assert "no tabs" in liveness.reason
+    assert window.is_window_alive(state) is False
+
+
+def test_a_window_that_cannot_report_its_tabs_is_not_reusable(monkeypatch):
+    # `None` is "the question did not get through", NOT "there is nothing".
+    # Failing toward a spare window is recoverable; attaching to a dead one is
+    # not (CLAUDE.md rule 5).
+    state = _running(monkeypatch, None)
+
+    liveness = window.window_liveness(state)
+    assert liveness.pages is None
+    assert liveness.reusable is False
+    assert "did not report" in liveness.reason
+
+
+def test_a_window_with_a_tab_is_reusable(monkeypatch):
+    state = _running(monkeypatch, 2)
+
+    liveness = window.window_liveness(state)
+    assert liveness.reusable is True
+    assert window.is_window_alive(state) is True
+
+
+def test_the_tab_count_ignores_devtools_and_non_page_targets(monkeypatch):
+    targets = [
+        {"type": "page", "url": "https://dev.example.com/nav_to.do"},
+        {"type": "page", "url": "devtools://devtools/bundled/inspector.html"},
+        {"type": "service_worker", "url": "https://dev.example.com/sw.js"},
+        {"type": "background_page", "url": "chrome-extension://abc/bg.html"},
+    ]
+    monkeypatch.setattr(window.urllib.request, "urlopen", _json_endpoint(targets))
+
+    assert window._cdp_page_count(9333) == 1
+
+
+def test_an_unreadable_target_list_is_none_not_zero(monkeypatch):
+    def _boom(url, timeout=None):
+        raise OSError("connection reset")
+
+    monkeypatch.setattr(window.urllib.request, "urlopen", _boom)
+
+    assert window._cdp_page_count(9333) is None
+
+
+def test_a_tabless_window_is_retired_instead_of_stranded(auth, monkeypatch):
+    # Dropping the state file alone would leave the process unreachable AND
+    # un-reapable — resident until reboot. It is killed only on a CONFIRMED
+    # empty tab list.
+    window.write_window_state(
+        auth,
+        window.WindowState(
+            pid=4242, port=9333, profile_dir="/tmp/p", instance_url="", started_at=1.0
+        ),
+    )
+    _running(monkeypatch, 0)
+    killed = []
+    monkeypatch.setattr(window, "terminate_pid", lambda pid: killed.append(pid) or True)
+    monkeypatch.setattr(window, "check_launch_allowed", lambda path: None)
+    monkeypatch.setattr(window, "record_launch", lambda path: None)
+    fresh = window.WindowState(
+        pid=77, port=9444, profile_dir="/tmp/p2", instance_url="", started_at=2.0
+    )
+    monkeypatch.setattr(window, "launch_window", lambda am, **kw: fresh)
+
+    state, opened = window.ensure_window(auth)
+
+    assert (state.pid, opened) == (77, True)
+    assert killed == [4242]
+
+
+def test_a_window_that_cannot_report_its_tabs_is_never_killed(auth, monkeypatch):
+    # Same path, unread signal: a new window is opened, but nobody else's
+    # browser gets terminated on a question that never got an answer.
+    window.write_window_state(
+        auth,
+        window.WindowState(
+            pid=4242, port=9333, profile_dir="/tmp/p", instance_url="", started_at=1.0
+        ),
+    )
+    _running(monkeypatch, None)
+    killed = []
+    monkeypatch.setattr(window, "terminate_pid", lambda pid: killed.append(pid) or True)
+    monkeypatch.setattr(window, "check_launch_allowed", lambda path: None)
+    monkeypatch.setattr(window, "record_launch", lambda path: None)
+    monkeypatch.setattr(
+        window,
+        "launch_window",
+        lambda am, **kw: window.WindowState(
+            pid=77, port=9444, profile_dir="/tmp/p2", instance_url="", started_at=2.0
+        ),
+    )
+
+    _, opened = window.ensure_window(auth)
+
+    assert opened is True
+    assert killed == []
+
+
+# ---------------------------------------------------------------------------
 # capture.py — picking the right tab
 # ---------------------------------------------------------------------------
 
