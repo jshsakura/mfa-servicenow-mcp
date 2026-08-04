@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import logging
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlencode
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils import json_fast
@@ -39,6 +40,55 @@ _STRUCTURAL_REJECTIONS = {400, 404, 405, 501}
 def reset_batch_support_cache() -> None:
     """Test hook: forget per-instance availability verdicts."""
     _batch_unsupported.clear()
+
+
+def table_query_url(
+    table: str,
+    query: str,
+    fields: str,
+    *,
+    limit: int,
+    display_value: bool = False,
+) -> str:
+    """Relative Table-API GET url for one arbitrary query — a batch sub-request.
+
+    ``sync_tools._table_chunk_url`` builds the same shape but only ever for a
+    ``sys_idIN`` chunk with display values off. Fusing reads that need labels
+    (the flow-structure fallback resolves reference fields to names) needs the
+    general form, so it lives here beside :func:`batch_get` rather than being
+    copied per call site.
+
+    Ordering is deliberately not a parameter: an ORDERBY clause belongs inside
+    ``query`` like any other encoded-query term. There is no `sysparm_orderby`
+    on this API — passing one is accepted and ignored, which is how ordered
+    reads silently came back unordered before v1.22.26.
+    """
+    return f"/api/now/table/{table}?" + urlencode(
+        {
+            "sysparm_query": query,
+            "sysparm_fields": fields,
+            "sysparm_limit": str(limit),
+            "sysparm_display_value": "true" if display_value else "false",
+            "sysparm_exclude_reference_link": "true",
+        }
+    )
+
+
+def batch_rows(served: Optional[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+    """The ``result`` rows of one serviced sub-request, or None to fall back.
+
+    None means "this sub-request did not come back usable" — absent id, non-200,
+    or a body that is not the expected object. Callers must then issue the plain
+    GET they would have made anyway; a batch that partly fails must never look
+    like a batch that returned nothing.
+    """
+    if not isinstance(served, dict) or served.get("status_code") != 200:
+        return None
+    body = served.get("body")
+    if not isinstance(body, dict):
+        return None
+    rows = body.get("result")
+    return rows if isinstance(rows, list) else None
 
 
 def batch_get(
