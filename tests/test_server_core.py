@@ -1099,3 +1099,56 @@ class TestLoadYamlConfigEdgeCases:
             os.environ.pop("TOOL_PACKAGE_CONFIG_PATH", None)
             config = _make_config()
             ServiceNowMCP(config)
+
+
+class TestPublishConfirmIsAdvertisedNotHidden:
+    """G7 wants a second approval, so the schema has to say the field exists.
+
+    No params model declares `confirm_publish` — it is a server-layer field, same
+    as `confirm`, but only `confirm` was ever injected into the schema. So the
+    guard demanded a parameter the tool definition never mentioned, and the only
+    way to learn its name was to make a call and be rejected. Seven publish-class
+    tools, one guaranteed wasted round trip each. A guard may stop you; it may
+    not hide the way through.
+    """
+
+    inject = staticmethod(ServiceNowMCP._inject_confirmation_schema)
+
+    def _schema(self, tool_name):
+        return self.inject(
+            {"properties": {"path": {"type": "string"}}, "required": ["path"]}, tool_name
+        )
+
+    @pytest.mark.parametrize(
+        "tool_name",
+        [
+            "publish_changeset",
+            "commit_changeset",
+            "update_remote_from_local",
+            "approve_change",
+            "submit_change_for_approval",
+        ],
+    )
+    def test_always_publish_class_tools_require_it(self, tool_name):
+        schema = self._schema(tool_name)
+        assert schema["properties"]["confirm_publish"]["enum"] == ["approve"]
+        assert "confirm_publish" in schema["required"]
+
+    @pytest.mark.parametrize("tool_name", ["manage_changeset", "manage_flow_designer"])
+    def test_action_dependent_tools_advertise_without_requiring(self, tool_name):
+        """These publish on SOME actions; requiring it would block their reads."""
+        schema = self._schema(tool_name)
+        assert "confirm_publish" in schema["properties"]
+        assert "confirm_publish" not in schema["required"]
+
+    def test_a_plain_write_tool_is_not_given_the_field(self):
+        schema = self._schema("manage_business_rule")
+        assert "confirm_publish" not in schema["properties"]
+        assert "confirm" in schema["properties"]  # still a normal write tool
+
+    def test_every_publish_class_tool_is_covered(self):
+        """The list lives in write_guards; this fails if one is added there only."""
+        from servicenow_mcp.policies.write_guards import _PUBLISH_CLASS_TOOLS
+
+        for tool_name in _PUBLISH_CLASS_TOOLS:
+            assert "confirm_publish" in self._schema(tool_name)["properties"], tool_name
