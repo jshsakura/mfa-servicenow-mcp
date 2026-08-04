@@ -32,6 +32,7 @@ from .sn_api import (
     _get_page_executor,
     apply_scope_namespace,
     invalidate_query_cache,
+    rows_of,
     sn_query,
     sn_query_all,
     sn_query_all_with_retry,
@@ -61,7 +62,21 @@ WIDGET_TABLE = "sp_widget"
 ANGULAR_PROVIDER_TABLE = "sp_angular_provider"
 WIDGET_DEPENDENCY_TABLE = "m2m_sp_widget_dependency"
 DEPENDENCY_TABLE = "sp_dependency"
+# Last-resort name only. The junction table differs by release and this spelling
+# does not exist on every instance — it 400s, the read returned [], and the
+# result was rendered as "this widget has no providers". Ask the dictionary.
 ANGULAR_PROVIDER_M2M_TABLE = "m2m_sp_widget_angular_provider"
+
+
+def _angular_provider_m2m(config: ServerConfig, auth_manager: AuthManager) -> str:
+    """The widget<->provider junction table THIS instance uses."""
+    from .portal_dev_tools import resolve_angular_provider_m2m
+
+    try:
+        return resolve_angular_provider_m2m(config, auth_manager)
+    except Exception:  # noqa: BLE001 — discovery is best-effort, fall back to the name
+        return ANGULAR_PROVIDER_M2M_TABLE
+
 
 # ---------------------------------------------------------------------------
 # Cached instance name extraction — avoids re-parsing the URL every call.
@@ -318,8 +333,8 @@ def _fetch_portal_component_record(
         display_value=False,
     )
     response = sn_query(config, auth_manager, query_params)
-    if response.get("success") and response.get("results"):
-        return response["results"][0]
+    if response.get("success") and rows_of(response):
+        return rows_of(response)[0]
 
     return _direct()
 
@@ -1916,10 +1931,10 @@ def get_widget_bundle(
     )
     response = sn_query(config, auth_manager, query_params)
 
-    if not response.get("success") or not response.get("results"):
+    if not response.get("success") or not rows_of(response):
         return {"error": f"Widget '{params.widget_id}' not found."}
 
-    widget = _strip_metadata(response["results"][0], widget_fields)
+    widget = _strip_metadata(rows_of(response)[0], widget_fields)
     # A >50KB body clipped by sn_query would be silently lost on an edit+push —
     # re-fetch raw when any body field came back truncated (shared guard).
     _body_fields = ["template", "script", "client_script", "css"]
@@ -1950,9 +1965,9 @@ def get_widget_bundle(
     # 2. Fetch Angular Provider list (minimal info to save context)
     if params.include_providers:
         providers_m2m: List[Dict[str, Any]] = []
-        if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE):
+        if not _table_known_absent(config, _angular_provider_m2m(config, auth_manager)):
             m2m_query_params = GenericQueryParams(
-                table=ANGULAR_PROVIDER_M2M_TABLE,
+                table=_angular_provider_m2m(config, auth_manager),
                 query=f"sp_widget={widget['sys_id']}",
                 fields="sp_angular_provider",
                 limit=100,
@@ -1960,8 +1975,8 @@ def get_widget_bundle(
                 display_value=False,
             )
             m2m_response = sn_query(config, auth_manager, m2m_query_params)
-            _note_table_response(config, ANGULAR_PROVIDER_M2M_TABLE, m2m_response)
-            providers_m2m = m2m_response.get("results", [])
+            _note_table_response(config, _angular_provider_m2m(config, auth_manager), m2m_response)
+            providers_m2m = rows_of(m2m_response)
 
         provider_ids: List[str] = []
         for provider_row in providers_m2m:
@@ -1981,7 +1996,7 @@ def get_widget_bundle(
             prov_response = sn_query(config, auth_manager, prov_query_params)
             bundle["angular_providers"] = [
                 {"name": p["name"], "sys_id": p["sys_id"], "type": p.get("type", "")}
-                for p in prov_response.get("results", [])
+                for p in rows_of(prov_response)
             ]
         else:
             bundle["angular_providers"] = []
@@ -2002,7 +2017,7 @@ def get_widget_bundle(
         dep_m2m_response = sn_query(config, auth_manager, dep_m2m_params)
 
         dependency_ids: List[str] = []
-        for dep_row in dep_m2m_response.get("results", []):
+        for dep_row in rows_of(dep_m2m_response):
             dep_id = _as_ref_sys_id(dep_row.get("sp_dependency"))
             if dep_id:
                 dependency_ids.append(dep_id)
@@ -2024,7 +2039,7 @@ def get_widget_bundle(
                     "module": d.get("module", ""),
                     "page_load": d.get("page_load", ""),
                 }
-                for d in dep_response.get("results", [])
+                for d in rows_of(dep_response)
             ]
         else:
             bundle["dependencies"] = []
@@ -2053,11 +2068,11 @@ def get_portal_component_code(
     )
     response = sn_query(config, auth_manager, query_params)
 
-    if not response.get("success") or not response.get("results"):
+    if not response.get("success") or not rows_of(response):
         return {"error": f"Component not found in {params.table} with sys_id {params.sys_id}"}
 
     # Only return requested code fields to keep context clean
-    result = _strip_metadata(response["results"][0], params.fields)
+    result = _strip_metadata(rows_of(response)[0], params.fields)
 
     # A clipped body would corrupt both the returned source AND the sha/length/
     # chunk-offset metadata below (fetch_complete=True would then label a capped
@@ -2435,14 +2450,14 @@ def search_portal_regex_matches(
                 _parallel_chunked_query(
                     config,
                     auth_manager,
-                    table=ANGULAR_PROVIDER_M2M_TABLE,
+                    table=_angular_provider_m2m(config, auth_manager),
                     chunks=escaped_chunks,
                     query_template="sp_widgetIN{ids}",
                     fields="sp_angular_provider",
                     page_size=page_size,
                     max_records=1000,
                 )
-                if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE)
+                if not _table_known_absent(config, _angular_provider_m2m(config, auth_manager))
                 else []
             )
             for row in relation_rows:
@@ -2645,13 +2660,13 @@ def trace_portal_route_targets(
                 _sn_query_all(
                     config,
                     auth_manager,
-                    table=ANGULAR_PROVIDER_M2M_TABLE,
+                    table=_angular_provider_m2m(config, auth_manager),
                     query=f"sp_angular_providerIN{','.join(resolved_provider_ids)}",
                     fields="sp_widget,sp_angular_provider",
                     page_size=page_size,
                     max_records=1000,
                 )
-                if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE)
+                if not _table_known_absent(config, _angular_provider_m2m(config, auth_manager))
                 else []
             )
             for row in relation_rows:
@@ -2712,14 +2727,14 @@ def trace_portal_route_targets(
             _parallel_chunked_query(
                 config,
                 auth_manager,
-                table=ANGULAR_PROVIDER_M2M_TABLE,
+                table=_angular_provider_m2m(config, auth_manager),
                 chunks=escaped_chunks,
                 query_template="sp_widgetIN{ids}",
                 fields="sp_widget,sp_angular_provider",
                 page_size=page_size,
                 max_records=1000,
             )
-            if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE)
+            if not _table_known_absent(config, _angular_provider_m2m(config, auth_manager))
             else []
         )
         for row in relation_rows:
@@ -3677,12 +3692,12 @@ def download_portal_sources(
     if include_linked_angular_providers and (widgets or incremental_active):
         widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
         m2m_ids: List[str] = []
-        m2m_available = not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE)
+        m2m_available = not _table_known_absent(config, _angular_provider_m2m(config, auth_manager))
         for sys_id_chunk in _chunked(widget_sys_ids, 100) if m2m_available else []:
             m2m_rows = _sn_query_all(
                 config,
                 auth_manager,
-                table=ANGULAR_PROVIDER_M2M_TABLE,
+                table=_angular_provider_m2m(config, auth_manager),
                 query=f"sp_widgetIN{','.join(_escape_query(value) for value in sys_id_chunk)}",
                 fields="sp_widget,sp_angular_provider",
                 page_size=params.page_size,
@@ -4006,10 +4021,10 @@ def resolve_widget_chain(
     except Exception as exc:
         return {"success": False, "error": f"Failed to fetch widget: {exc}"}
 
-    if not w_resp.get("success") or not w_resp.get("results"):
+    if not w_resp.get("success") or not rows_of(w_resp):
         return {"success": False, "error": f"Widget '{params.widget_id}' not found."}
 
-    widget = w_resp["results"][0]
+    widget = rows_of(w_resp)[0]
     # Truncate source fields
     for f in params.include_fields:
         if f in widget and isinstance(widget[f], str):
@@ -4026,13 +4041,13 @@ def resolve_widget_chain(
     # --- Step 2: Fetch linked Angular Providers with full script ---
     widget_sys_id = widget.get("sys_id", "")
     m2m_resp: Dict[str, Any] = {"results": []}
-    if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE):
+    if not _table_known_absent(config, _angular_provider_m2m(config, auth_manager)):
         try:
             m2m_resp = sn_query(
                 config,
                 auth_manager,
                 GenericQueryParams(
-                    table=ANGULAR_PROVIDER_M2M_TABLE,
+                    table=_angular_provider_m2m(config, auth_manager),
                     query=f"sp_widget={widget_sys_id}",
                     fields="sp_angular_provider",
                     limit=100,
@@ -4040,7 +4055,7 @@ def resolve_widget_chain(
                     display_value=False,
                 ),
             )
-            _note_table_response(config, ANGULAR_PROVIDER_M2M_TABLE, m2m_resp)
+            _note_table_response(config, _angular_provider_m2m(config, auth_manager), m2m_resp)
             result["api_calls"] += 1
         except Exception as exc:
             result["warnings"] = [f"Failed to fetch provider M2M: {exc}"]
@@ -4048,7 +4063,7 @@ def resolve_widget_chain(
             return result
 
     provider_ids = []
-    for row in m2m_resp.get("results", []):
+    for row in rows_of(m2m_resp):
         pid = _as_ref_sys_id(row.get("sp_angular_provider"))
         if pid:
             provider_ids.append(pid)
@@ -4074,7 +4089,7 @@ def resolve_widget_chain(
             result["success"] = True
             return result
 
-        for prov in prov_resp.get("results", []):
+        for prov in rows_of(prov_resp):
             if "script" in prov and isinstance(prov["script"], str):
                 prov["script"] = _truncate_source(prov["script"], max_src)
             if "client_script" in prov and isinstance(prov["client_script"], str):
@@ -4121,7 +4136,7 @@ def resolve_widget_chain(
             result["success"] = True
             return result
 
-        for si in si_resp.get("results", []):
+        for si in rows_of(si_resp):
             if "script" in si and isinstance(si["script"], str):
                 si["script"] = _truncate_source(si["script"], max_src)
             result["script_includes"].append(si)
@@ -4298,7 +4313,7 @@ def resolve_page_dependencies(
     except Exception as exc:
         return {"success": False, "error": f"Failed to fetch widgets: {exc}"}
 
-    widgets = w_resp.get("results", [])
+    widgets = rows_of(w_resp)
     for w in widgets:
         for f in params.include_fields:
             if f in w and isinstance(w[f], str):
@@ -4324,13 +4339,13 @@ def resolve_page_dependencies(
 
     if all_widget_sys_ids:
         m2m_resp: Dict[str, Any] = {"results": []}
-        if not _table_known_absent(config, ANGULAR_PROVIDER_M2M_TABLE):
+        if not _table_known_absent(config, _angular_provider_m2m(config, auth_manager)):
             try:
                 m2m_resp = sn_query(
                     config,
                     auth_manager,
                     GenericQueryParams(
-                        table=ANGULAR_PROVIDER_M2M_TABLE,
+                        table=_angular_provider_m2m(config, auth_manager),
                         query=f"sp_widgetIN{','.join(all_widget_sys_ids)}",
                         fields="sp_widget,sp_angular_provider",
                         limit=500,
@@ -4338,14 +4353,14 @@ def resolve_page_dependencies(
                         display_value=False,
                     ),
                 )
-                _note_table_response(config, ANGULAR_PROVIDER_M2M_TABLE, m2m_resp)
+                _note_table_response(config, _angular_provider_m2m(config, auth_manager), m2m_resp)
                 api_calls += 1
             except Exception as exc:
                 warnings.append(f"Failed to fetch provider M2M: {exc}")
                 m2m_resp = {"results": []}
 
         all_provider_ids: Set[str] = set()
-        for row in m2m_resp.get("results", []):
+        for row in rows_of(m2m_resp):
             w_id = _as_ref_sys_id(row.get("sp_widget"))
             p_id = _as_ref_sys_id(row.get("sp_angular_provider"))
             if w_id and p_id:
@@ -4373,7 +4388,7 @@ def resolve_page_dependencies(
                 warnings.append(f"Failed to fetch providers: {exc}")
                 prov_resp = {"results": []}
 
-            for prov in prov_resp.get("results", []):
+            for prov in rows_of(prov_resp):
                 if "script" in prov and isinstance(prov["script"], str):
                     prov["script"] = _truncate_source(prov["script"], max_src)
                 if "client_script" in prov and isinstance(prov["client_script"], str):
@@ -4418,7 +4433,7 @@ def resolve_page_dependencies(
             warnings.append(f"Failed to fetch script includes: {exc}")
             si_resp = {"results": []}
 
-        for si in si_resp.get("results", []):
+        for si in rows_of(si_resp):
             if "script" in si and isinstance(si["script"], str):
                 si["script"] = _truncate_source(si["script"], max_src)
             result["script_includes"].append(si)

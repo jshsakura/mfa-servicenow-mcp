@@ -102,8 +102,16 @@ def _widget_ok():
     return {"success": True, "results": [{"sys_id": "w1", "name": "W1"}]}
 
 
+# The junction table is DISCOVERED per instance now, so these cache tests pin the
+# resolver to one name. What is under test here is the availability cache, not
+# discovery — letting the real resolver run would make the cache key depend on a
+# live dictionary read and the assertions non-deterministic.
+@patch(
+    "servicenow_mcp.tools.portal_tools._angular_provider_m2m",
+    return_value=ANGULAR_PROVIDER_M2M_TABLE,
+)
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_bundle_caches_absent_and_skips_second_m2m(mock_q, cfg, auth):
+def test_bundle_caches_absent_and_skips_second_m2m(mock_q, _mock_m2m, cfg, auth):
     # Call 1: widget OK, then m2m 400 -> cache absent. Call 2: widget OK only;
     # the m2m query must be skipped entirely (no third sn_query for it).
     mock_q.side_effect = [_widget_ok(), BAD_400, _widget_ok()]
@@ -124,8 +132,12 @@ def test_bundle_caches_absent_and_skips_second_m2m(mock_q, cfg, auth):
     assert mock_q.call_count == 3
 
 
+@patch(
+    "servicenow_mcp.tools.portal_tools._angular_provider_m2m",
+    return_value=ANGULAR_PROVIDER_M2M_TABLE,
+)
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_bundle_runs_m2m_when_table_present(mock_q, cfg, auth):
+def test_bundle_runs_m2m_when_table_present(mock_q, _mock_m2m, cfg, auth):
     # Healthy instance: m2m returns rows -> providers resolved, cache=present.
     mock_q.side_effect = [
         _widget_ok(),

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
-from .sn_api import GenericQueryParams, sn_query
+from .sn_api import GenericQueryParams, rows_of, sn_query
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def _resolve_widget_names(
         limit=max(20, len(ids)),
     )
     result: Dict[str, Dict[str, str]] = {}
-    for w in resp.get("results", []):
+    for w in rows_of(resp):
         wid = str(w.get("sys_id") or "")
         if wid:
             result[wid] = {"id": w.get("id", ""), "name": w.get("name", "")}
@@ -133,9 +133,9 @@ def get_portal(
         response = _query(
             config, auth_manager, PORTAL_TABLE, query, fields, limit=1, display_value=True
         )
-        if not response.get("success") or not response.get("results"):
+        if not response.get("success") or not rows_of(response):
             return {"success": False, "message": f"Portal not found: {params.portal_id}"}
-        r = response["results"][0]
+        r = rows_of(response)[0]
         return {
             "success": True,
             "portal": {
@@ -185,7 +185,7 @@ def get_portal(
             "theme": r.get("theme"),
             "is_default": r.get("default_") == "true",
         }
-        for r in response.get("results", [])
+        for r in rows_of(response)
     ]
     return {"success": True, "portals": portals, "total": response.get("total_count")}
 
@@ -229,9 +229,9 @@ def get_page(
         fields = "sys_id,id,title,internal,public,draft,css,sys_scope"
         query = f"sys_id={params.page_id}^ORid={params.page_id}"
         response = _query(config, auth_manager, PAGE_TABLE, query, fields, limit=1)
-        if not response.get("success") or not response.get("results"):
+        if not response.get("success") or not rows_of(response):
             return {"success": False, "message": f"Page not found: {params.page_id}"}
-        r = response["results"][0]
+        r = rows_of(response)[0]
         page: Dict[str, Any] = {
             "sys_id": r.get("sys_id"),
             "id": r.get("id"),
@@ -273,7 +273,7 @@ def get_page(
             "draft": r.get("draft") == "true",
             "scope": r.get("sys_scope"),
         }
-        for r in response.get("results", [])
+        for r in rows_of(response)
     ]
     return {"success": True, "pages": pages, "total": response.get("total_count")}
 
@@ -291,7 +291,7 @@ def _get_page_layout(
         limit=50,
         orderby="order",
     )
-    containers = container_resp.get("results", [])
+    containers = rows_of(container_resp)
     if not containers:
         return []
 
@@ -305,7 +305,7 @@ def _get_page_layout(
         limit=max(50, len(container_ids) * 10),
         orderby="order",
     )
-    rows = row_resp.get("results", [])
+    rows = rows_of(row_resp)
 
     row_ids = [str(row.get("sys_id") or "") for row in rows if row.get("sys_id")]
     col_resp = (
@@ -321,7 +321,7 @@ def _get_page_layout(
         if row_ids
         else {"results": []}
     )
-    columns = col_resp.get("results", [])
+    columns = rows_of(col_resp)
 
     column_ids = [str(col.get("sys_id") or "") for col in columns if col.get("sys_id")]
     inst_resp = (
@@ -337,7 +337,7 @@ def _get_page_layout(
         if column_ids
         else {"results": []}
     )
-    instances = inst_resp.get("results", [])
+    instances = rows_of(inst_resp)
 
     # Bulk-resolve widget names/IDs so callers don't need extra round-trips.
     widget_ref_ids = list(
@@ -455,9 +455,9 @@ def get_widget_instance(
             fields,
             limit=1,
         )
-        if not response.get("success") or not response.get("results"):
+        if not response.get("success") or not rows_of(response):
             return {"success": False, "message": f"Widget instance not found: {params.instance_id}"}
-        r = response["results"][0]
+        r = rows_of(response)[0]
         # Resolve widget name in one extra query
         widget_meta = _resolve_widget_names(config, auth_manager, [str(r.get("sp_widget") or "")])
         meta = widget_meta.get(str(r.get("sp_widget") or ""), {})
@@ -499,7 +499,7 @@ def get_widget_instance(
             "instances": [],
         }
 
-    results = response.get("results", [])
+    results = rows_of(response)
     # Bulk-resolve widget names
     widget_refs = list({str(r.get("sp_widget") or "") for r in results if r.get("sp_widget")})
     widget_meta = _resolve_widget_names(config, auth_manager, widget_refs)
