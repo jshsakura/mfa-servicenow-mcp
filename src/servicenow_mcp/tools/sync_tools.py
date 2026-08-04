@@ -397,6 +397,67 @@ def _alias_for_instance_url(url: str) -> str:
     return ""
 
 
+def _promotion_verdict(
+    field_diffs: List[Dict[str, Any]], target_last_editor: str
+) -> Dict[str, Any]:
+    """Is this push bringing the target up to date, or taking something off it?
+
+    A cross-instance push has no shared baseline, so the usual conflict machinery
+    cannot run and the gate could only say "go and look". But the unified diff is
+    already computed by then, and it answers the question that actually matters:
+
+      only additions            -> the target is simply behind. A catch-up.
+      additions AND removals    -> the target holds lines this copy does not.
+                                   Someone put them there. Removing them may be
+                                   the intent, or may be the accident.
+
+    Counting is all this does — it does not know WHOSE lines those are, and it
+    says so rather than implying the last editor wrote them. `sys_updated_by`
+    names only the last person to touch the record, which is exactly the claim
+    that has misled this codebase before.
+    """
+    added = removed = 0
+    fields_removing: List[str] = []
+    for entry in field_diffs:
+        body = entry.get("diff") or ""
+        field_removed = 0
+        for line in body.split("\n"):
+            if line.startswith("+++") or line.startswith("---"):
+                continue
+            if line.startswith("+"):
+                added += 1
+            elif line.startswith("-"):
+                removed += 1
+                field_removed += 1
+        if field_removed:
+            fields_removing.append(str(entry.get("field") or ""))
+
+    if removed == 0:
+        return {
+            "verdict": "target_is_behind",
+            "lines_added": added,
+            "lines_removed": 0,
+            "intent": (
+                "BRINGING THE TARGET UP TO DATE: this push only adds lines; nothing the "
+                "target currently holds is removed."
+            ),
+        }
+    return {
+        "verdict": "replaces_target_content",
+        "lines_added": added,
+        "lines_removed": removed,
+        "fields_losing_lines": fields_removing,
+        "target_last_editor": target_last_editor,
+        "intent": (
+            f"THIS REMOVES {removed} LINE(S) THE TARGET HAS: not a pure catch-up. Someone "
+            f"wrote them on the target — the last editor there is "
+            f"'{target_last_editor or 'unknown'}', which names only the LAST writer, not "
+            f"necessarily the author of these lines. Read the diff below and confirm the "
+            f"removal is intended before forcing."
+        ),
+    }
+
+
 def _routing_hint(url: str) -> str:
     """The literal ``instance=`` pair that routes a call to *url*, alias filled in.
 
@@ -2729,14 +2790,20 @@ def update_remote_from_local(
     # target's own body differs from what is about to replace it. Same second
     # approval as any other overwrite — force=true — so this is a gate, not a wall.
     if cross_instance_deploy and update_data and not params.force:
+        field_diffs = _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT)
+        verdict = _promotion_verdict(field_diffs, remote_updated_by)
         return {
             "error": "CROSS_INSTANCE_UNREVIEWED",
             "message": (
-                f"{risk['message']} Nothing was written. Re-run with force=true once you have "
-                f"seen the target's version — optionally with "
+                f"{verdict['intent']} {risk['message']} Nothing was written. Re-run with "
+                f"force=true once you have seen the target's version — optionally with "
                 f"confirm_overwrite_updated_on='{remote_updated_on}', which re-blocks if the "
                 f"target moves between your review and the push."
             ),
+            # The question a promotion actually asks — am I bringing the target up
+            # to date, or removing something only it has — answered from the diff
+            # already computed here, instead of being named as a tool to go run.
+            "promotion": verdict,
             "risk": risk,
             "target_instance": active,
             "remote_updated_by": remote_updated_by,

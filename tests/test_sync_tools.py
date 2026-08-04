@@ -2762,6 +2762,46 @@ class TestCrossInstanceDeploy:
         # Direction 2: promote into the active instance, still offered.
         assert "cross_instance_deploy=true" in result["message"]
 
+    def test_the_gate_answers_the_question_instead_of_naming_a_tool(self):
+        """ "Am I overwriting someone, or catching the target up" is answerable here.
+
+        A cross-instance push has no shared baseline, so the conflict machinery
+        cannot run and the gate could only say "go run compare_instances". But the
+        unified diff is already computed at that point, and pure-addition vs
+        also-removes-lines is the whole question — a real promotion today was
+        classified by hand across four extra round trips to learn exactly this.
+        """
+        from servicenow_mcp.tools.sync_tools import _promotion_verdict
+
+        catch_up = _promotion_verdict(
+            [{"field": "script", "diff": "--- a\n+++ b\n@@ -1,1 +1,3 @@\n ctx\n+one\n+two"}],
+            "bob",
+        )
+        assert catch_up["verdict"] == "target_is_behind"
+        assert catch_up["lines_removed"] == 0
+        assert "UP TO DATE" in catch_up["intent"]
+
+        replaces = _promotion_verdict(
+            [{"field": "script", "diff": "--- a\n+++ b\n@@ -1,2 +1,2 @@\n ctx\n-theirs\n+mine"}],
+            "bob",
+        )
+        assert replaces["verdict"] == "replaces_target_content"
+        assert replaces["lines_removed"] == 1
+        assert replaces["fields_losing_lines"] == ["script"]
+        # It must not claim the last editor wrote those lines — sys_updated_by
+        # names only the last writer, the claim that has misled this repo before.
+        assert "not necessarily the author" in replaces["intent"]
+
+    def test_the_diff_header_lines_are_not_counted_as_changes(self):
+        """`---`/`+++` are the diff's own header, not content."""
+        from servicenow_mcp.tools.sync_tools import _promotion_verdict
+
+        v = _promotion_verdict(
+            [{"field": "script", "diff": "--- remote/script\n+++ local/script\n@@ -1 +1 @@\n ctx"}],
+            "bob",
+        )
+        assert (v["lines_added"], v["lines_removed"]) == (0, 0)
+
     def test_blocked_without_optin_informs_not_walls(self, mock_config, mock_auth, download_root):
         self._set_origin_dev(download_root)
         result = update_remote_from_local(
