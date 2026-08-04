@@ -480,8 +480,22 @@ def sn_query_page(
     if fields:
         params["sysparm_fields"] = fields
     if orderby:
-        key = "sysparm_orderby_desc" if orderby.startswith("-") else "sysparm_orderby"
-        params[key] = orderby[1:] if orderby.startswith("-") else orderby
+        # Ordering lives in the ENCODED QUERY. The Table API has no
+        # `sysparm_orderby` / `sysparm_orderby_desc` parameter, and an unknown
+        # parameter is accepted and ignored rather than rejected — so every
+        # "newest first" read in this repo was in fact arbitrary order, silently,
+        # for as long as the parameter has been there.
+        #
+        # Measured on a live instance: `-sys_created_on` over `syslog` returned
+        # rows a month older than the newest, while `ORDERBYDESCsys_created_on`
+        # in `sysparm_query` returned the current ones. The failure direction is
+        # the dangerous one — the rows come back and look like an answer, so a
+        # capped read that calls itself "newest-first" bounds nothing, and a
+        # layout read ordered by `order` renders in whatever sequence it got.
+        descending = orderby.startswith("-")
+        clause = f"ORDERBY{'DESC' if descending else ''}{orderby[1:] if descending else orderby}"
+        existing = str(params.get("sysparm_query") or "")
+        params["sysparm_query"] = f"{existing.rstrip('^')}^{clause}" if existing else clause
     try:
         response = auth_manager.make_request(
             "GET",
