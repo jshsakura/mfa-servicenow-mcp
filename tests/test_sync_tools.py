@@ -2722,6 +2722,46 @@ class TestCrossInstanceDeploy:
         # It has to point at the routing that would actually deploy it.
         assert "instance=" in result["message"] and "confirm_instance=" in result["message"]
 
+    def test_the_refusal_names_the_alias_and_both_directions(
+        self, mock_config, mock_auth, download_root, monkeypatch
+    ):
+        """A hint the caller has to resolve first is a hint they will skip.
+
+        The refusal used to name one option — promote INTO the active instance —
+        and told nobody that the usual intent, pushing a downloaded copy back to
+        where it came from, is a single parameter away. A session read it,
+        concluded cross-instance deploys were impossible from MCP, and
+        hand-assembled a deploy XML: the one path this repo forbids outright.
+
+        And "pass the alias of that instance" is not usable as written. The
+        measured failure for that shape is not looking the alias up, it is
+        retrying the same call, so the alias is resolved and printed.
+        """
+        monkeypatch.setenv(
+            "SERVICENOW_INSTANCE_CONFIG",
+            json.dumps(
+                {
+                    "dev": {"url": "https://dev.service-now.com", "allow_writes": True},
+                    "test": {"url": "https://test.service-now.com", "allow_writes": True},
+                }
+            ),
+        )
+        self._set_origin_dev(download_root)
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(self._widget_path(download_root))),
+        )
+
+        assert result["error"] == "CROSS_INSTANCE"
+        assert result["origin_alias"] == "dev"
+        # Direction 1: back to where it came from, spelled out, alias filled in.
+        assert "instance='dev'" in result["message"]
+        assert "confirm_instance='dev'" in result["message"]
+        # Direction 2: promote into the active instance, still offered.
+        assert "cross_instance_deploy=true" in result["message"]
+
     def test_blocked_without_optin_informs_not_walls(self, mock_config, mock_auth, download_root):
         self._set_origin_dev(download_root)
         result = update_remote_from_local(
