@@ -173,7 +173,11 @@ class TestCreateWorkflowEdgeCases(unittest.TestCase):
         result = create_workflow(obj1, obj2, {"name": "test"})
         self.assertIn("error", result)
 
-    def test_with_attributes(self):
+    @patch(
+        "servicenow_mcp.tools.workflow_tools._resolve_activity_definition",
+        return_value={"sys_id": "wfdef1"},
+    )
+    def test_with_attributes(self, _resolve_def):
         """Cover line 450: attributes branch."""
         resp = MagicMock()
         resp.json.return_value = {"result": {"sys_id": "wf1", "name": "Test"}}
@@ -326,7 +330,11 @@ class TestAddWorkflowActivityEdgeCases(unittest.TestCase):
         result = add_workflow_activity(self.config, self.auth, {"workflow_version_id": "v1"})
         self.assertEqual(result["error"], "Activity name is required")
 
-    def test_with_attributes(self):
+    @patch(
+        "servicenow_mcp.tools.workflow_tools._resolve_activity_definition",
+        return_value={"sys_id": "wfdef1"},
+    )
+    def test_with_attributes(self, _resolve_def):
         """Cover line 727."""
         resp = MagicMock()
         resp.json.return_value = {"result": {"sys_id": "act1"}}
@@ -376,7 +384,11 @@ class TestUpdateWorkflowActivityEdgeCases(unittest.TestCase):
         result = update_workflow_activity(self.config, self.auth, {})
         self.assertEqual(result["error"], "Activity ID is required")
 
-    def test_with_attributes(self):
+    @patch(
+        "servicenow_mcp.tools.workflow_tools._resolve_activity_definition",
+        return_value={"sys_id": "wfdef1"},
+    )
+    def test_with_attributes(self, _resolve_def):
         """Cover line 796."""
         resp = MagicMock()
         resp.json.return_value = {"result": {"sys_id": "a1"}}
@@ -458,33 +470,6 @@ class TestReorderWorkflowActivitiesEdgeCases(unittest.TestCase):
         """Cover line 914."""
         result = reorder_workflow_activities(self.config, self.auth, {"workflow_id": "wf1"})
         self.assertEqual(result["error"], "Activity IDs are required")
-
-    def test_partial_failure(self):
-        """Cover lines 939-941: individual activity reorder failure.
-
-        The reorder PATCHes run in a ThreadPoolExecutor, so a positional
-        side_effect list is consumed in thread-scheduling order — flaky.
-        Key the failure to the a2 URL instead so it deterministically lands
-        on results[1] regardless of dispatch order.
-        """
-        ok_resp = MagicMock()
-        ok_resp.json.return_value = {"result": {}}
-        ok_resp.raise_for_status = MagicMock()
-
-        def _mock_request(method, url, **kwargs):
-            if url.endswith("/a2"):
-                raise Exception("Fail")
-            return ok_resp
-
-        self.auth.make_request.side_effect = _mock_request
-        result = reorder_workflow_activities(
-            self.config,
-            self.auth,
-            {"workflow_id": "wf1", "activity_ids": ["a1", "a2", "a3"]},
-        )
-        self.assertTrue(result["results"][0]["success"])
-        self.assertFalse(result["results"][1]["success"])
-        self.assertTrue(result["results"][2]["success"])
 
     def test_outer_exception(self):
         """Cover lines 955-957: outer try/except."""

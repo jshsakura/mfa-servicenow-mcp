@@ -46,7 +46,10 @@ class TestCreate(unittest.TestCase):
         self.assertTrue(result["success"])
         args, kwargs = auth.make_request.call_args
         self.assertEqual(kwargs["json"]["description"], "d")
-        self.assertEqual(kwargs["json"]["developer"], "dev")
+        # sys_update_set has no `developer` column — probed live: a filter on it
+        # returns every row, so the write was being discarded. The server
+        # records the author in sys_created_by.
+        self.assertNotIn("developer", kwargs["json"])
 
     @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
     def test_error(self, mock_inv):

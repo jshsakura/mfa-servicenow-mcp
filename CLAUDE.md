@@ -252,6 +252,9 @@ clean.**
 - a badge reading the ACTIVE instance env → "this window is dev" on a prod window
 - a PyPI JSON cache minutes behind the upload → "1.22.24 is not published"
 - a live pid and an answering CDP port → "a window you can use", tabs never asked
+- a `sysparm_orderby` the Table API does not have → 21 "newest first" reads, unordered
+- a filter on a column that does not exist → the condition is DROPPED, 808 rows
+  come back, and one of them is returned as *this* flow's structure
 
 None of these were wrong logic. Each was an **absence** — unread, unanchored,
 capped, stale, closed — scored as **evidence of safety**, and every one of them
@@ -283,6 +286,17 @@ So, for anything a caller could act on:
    failure. Rule 5 is about what to DO (block, ask); this is about what to SAY.
    "Could not confirm, so I used X, treat Y as unverified" is actionable;
    "failed" leaves the caller with nothing but the work of asking again.
+7. **A mock cannot tell you what the server does with your request.** ServiceNow
+   accepts what it does not understand and moves on: an unknown `sysparm_*` is
+   ignored, an unknown field in an encoded query has its **condition dropped**
+   (so the read returns the WHOLE TABLE), and an unknown field in
+   `sysparm_fields` is simply absent from the payload. None of these raise, and
+   a fixture answers with whatever key it was written with — so every one of
+   them passes a full green suite. Field and parameter names are only ever
+   proven against a live instance. `scripts/audit_query_fields.py` sweeps every
+   literal field name in the package against a real schema; run it after
+   touching a query, and treat a table it could not read as **unchecked**, not
+   as passed.
 
 ## No Real Identities in Code — HARD STOP, NO EXCEPTIONS
 

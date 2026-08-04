@@ -297,9 +297,14 @@ class TestCreateVariable(unittest.TestCase):
         self.assertEqual(body["description"], "DESC")
         self.assertEqual(body["reference"], "sys_user")
         self.assertEqual(body["reference_qual"], "active=true")
-        self.assertEqual(body["max_length"], 50)
-        self.assertEqual(body["min"], 0)
-        self.assertEqual(body["max"], 100)
+        # item_option_new has no `max_length` column — the platform keeps it in
+        # the `attributes` string (measured: 14 live variables carry
+        # `max_length=NN` exactly like this). Asserting the old key made the
+        # test agree with a write the server was silently discarding.
+        self.assertEqual(body["attributes"], "max_length=50")
+        self.assertNotIn("max_length", body)
+        self.assertEqual(body["scale_min"], 0)
+        self.assertEqual(body["scale_max"], 100)
         self.assertEqual(body["order"], 10)
 
     @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
@@ -344,9 +349,9 @@ class TestUpdateVariable(unittest.TestCase):
         self.assertEqual(body["description"], "D")
         self.assertEqual(body["order"], 5)
         self.assertEqual(body["reference_qual"], "Q")
-        self.assertEqual(body["max_length"], 10)
-        self.assertEqual(body["min"], 1)
-        self.assertEqual(body["max"], 100)
+        self.assertEqual(body["attributes"], "max_length=10")  # not a column; see create()
+        self.assertEqual(body["scale_min"], 1)
+        self.assertEqual(body["scale_max"], 100)
 
     def test_no_fields(self):
         result = svc.update_variable(_config(), _auth(), variable_id="v1")

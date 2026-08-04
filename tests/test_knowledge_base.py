@@ -136,8 +136,13 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.assertEqual("POST", call_args[0][0])
         self.assertEqual(f"{self.server_config.api_url}/table/kb_category", call_args[0][1])
         self.assertEqual("Test Category", call_args[1]["json"]["label"])
-        self.assertEqual("Test Category Description", call_args[1]["json"]["description"])
-        self.assertEqual("kb001", call_args[1]["json"]["kb_knowledge_base"])
+        # kb_category has no `description` column (its columns are label, value,
+        # active, full_category, parent_id, parent_table). The value was being
+        # sent and discarded; `label` is the human-readable field.
+        self.assertNotIn("description", call_args[1]["json"])
+        # The knowledge base is the polymorphic parent, not a column of its own.
+        self.assertEqual("kb001", call_args[1]["json"]["parent_id"])
+        self.assertEqual("kb_knowledge_base", call_args[1]["json"]["parent_table"])
         self.assertEqual("true", call_args[1]["json"]["active"])
         mock_invalidate_query_cache.assert_called_once_with(table="kb_category")
 

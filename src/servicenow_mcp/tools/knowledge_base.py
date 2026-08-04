@@ -147,9 +147,12 @@ def create_knowledge_base(
     if params.managers:
         data["kb_managers"] = params.managers
     if params.publish_workflow:
-        data["workflow_publish"] = params.publish_workflow
+        # The column is `kb_publish_flow`; `workflow_publish` is not on the table
+        # (probe: ISNOTEMPTY and ISEMPTY both return every row, i.e. dropped),
+        # so the publish workflow was never actually set.
+        data["kb_publish_flow"] = params.publish_workflow
     if params.retire_workflow:
-        data["workflow_retire"] = params.retire_workflow
+        data["kb_retire_flow"] = params.retire_workflow  # not `workflow_retire`
 
     # Make request
     try:
@@ -311,18 +314,26 @@ def create_category(
     api_url = f"{config.api_url}/table/kb_category"
 
     # Build request data
+    # kb_category's parent is POLYMORPHIC: `parent_id` holds the sys_id and
+    # `parent_table` says what it points at — a knowledge base or another
+    # category. The old code sent `kb_knowledge_base` and `parent`, neither of
+    # which is a column here (probe: ISNOTEMPTY and ISEMPTY each return every
+    # row, the signature of a dropped condition), so every category was created
+    # unattached while the call reported success. `description` is not a column
+    # either; the human-readable field is `label`.
     data = {
         "label": params.title,
-        "kb_knowledge_base": params.knowledge_base,
         # Convert boolean to string "true"/"false" as ServiceNow expects
         "active": str(params.active).lower(),
     }
 
-    if params.description:
-        data["description"] = params.description
     if params.parent_category:
-        data["parent"] = params.parent_category
-    if params.parent_table:
+        data["parent_id"] = params.parent_category
+        data["parent_table"] = params.parent_table or "kb_category"
+    elif params.knowledge_base:
+        data["parent_id"] = params.knowledge_base
+        data["parent_table"] = params.parent_table or "kb_knowledge_base"
+    elif params.parent_table:
         data["parent_table"] = params.parent_table
 
     # Log the request data for debugging

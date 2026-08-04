@@ -1,10 +1,14 @@
 """Performance / token-economy batch: script-body stubbing in the structure
-tree (T1), parallel reorder concurrency (L1), and parallel post-PUT save calls
-(L2). These pin behavior that saves context tokens and round-trips without
+tree (T1), parallel post-PUT save calls (L2), and the fused flow-structure read
+(L3). These pin behavior that saves context tokens and round-trips without
 losing information or weakening the safety guards.
+
+The old L1 group covered `reorder_workflow_activities`, which was removed: it
+PATCHed an `order` column `wf_activity` does not have. Its round-trip and
+parallelism tests all passed against a mock that echoed the field back, while
+the tool changed nothing on a real instance.
 """
 
-import threading
 from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
@@ -16,7 +20,6 @@ from servicenow_mcp.tools.flow_designer_tools import (
     render_flow_compact,
 )
 from servicenow_mcp.tools.flow_edit_tools import ManageFlowEditParams, manage_flow_edit
-from servicenow_mcp.tools.workflow_tools import _REORDER_MAX_PARALLEL, reorder_workflow_activities
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig, ServerConfig
 
 
@@ -188,99 +191,11 @@ def test_get_detail_compacts_triggers_by_default_raw_when_summary_off():
     assert raw["triggers"][0]["some_verbose_field"] == "x" * 500
 
 
-# ---------------------------------------------------------------------------
-# L1 — parallel reorder (wall-clock, order preserved, per-item report intact)
-# ---------------------------------------------------------------------------
-
-
 def _config():
     return ServerConfig(
         instance_url="https://dev.service-now.com",
         auth=AuthConfig(type=AuthType.BROWSER, browser=BrowserAuthConfig()),
     )
-
-
-def test_reorder_runs_patches_in_parallel_preserving_order():
-    """Parallelism is proven by concurrency, not by a stopwatch.
-
-    This assertion used to be `elapsed < 0.20` around six real 50ms sleeps. It
-    passes alone and fails on a loaded machine — and it sits in the pre-push
-    hook, so the way past it is `--no-verify`, which also switches off the
-    identity guard. A gate that has to be bypassed is a hole in the gate beside
-    it. The barrier below cannot be released unless `cap` PATCHes are genuinely
-    in flight at the same moment, so a sequential implementation fails on
-    evidence rather than on timing.
-    """
-    ids = [f"act{i}" for i in range(6)]
-    cap = min(_REORDER_MAX_PARALLEL, len(ids))
-
-    # Only the first `cap` arrivals wait: the executor has exactly `cap` workers,
-    # so those `cap` tasks must overlap to release each other. The remaining
-    # tasks run afterwards and must not wait on a barrier nobody else will reach.
-    gate = threading.Barrier(cap, timeout=10)
-    lock = threading.Lock()
-    arrivals = 0
-    in_flight = 0
-    peak_in_flight = 0
-
-    def _concurrent_patch(method, url, **kwargs):
-        nonlocal arrivals, in_flight, peak_in_flight
-        with lock:
-            arrivals += 1
-            in_flight += 1
-            peak_in_flight = max(peak_in_flight, in_flight)
-            waits = arrivals <= cap
-        try:
-            if waits:
-                gate.wait()  # BrokenBarrierError if the caller is sequential
-        finally:
-            with lock:
-                in_flight -= 1
-        resp = MagicMock()
-        resp.raise_for_status = MagicMock()
-        return resp
-
-    auth = MagicMock(spec=AuthManager)
-    auth.make_request = MagicMock(side_effect=_concurrent_patch)
-    auth.get_headers = MagicMock(return_value={})
-
-    result = reorder_workflow_activities(
-        _config(), auth, {"workflow_id": "wf1", "activity_ids": ids}
-    )
-
-    # A sequential run never releases the barrier: every PATCH raises, and
-    # _patch_one turns that into success=False.
-    assert result["success"] is True, f"reorder did not parallelize: {result}"
-    assert peak_in_flight == cap, f"expected {cap} concurrent PATCHes, saw {peak_in_flight}"
-    # executor.map preserves order → results align to input ids with rising order.
-    assert [r["activity_id"] for r in result["results"]] == ids
-    assert [r["new_order"] for r in result["results"]] == [100, 200, 300, 400, 500, 600]
-
-
-def test_reorder_partial_failure_still_reported_under_parallel():
-    def _mr(method, url, **kwargs):
-        resp = MagicMock()
-        if "act2" in url:
-            resp.raise_for_status.side_effect = RuntimeError("denied")
-        else:
-            resp.raise_for_status = MagicMock()
-        return resp
-
-    auth = MagicMock(spec=AuthManager)
-    auth.make_request = MagicMock(side_effect=_mr)
-    auth.get_headers = MagicMock(return_value={})
-    result = reorder_workflow_activities(
-        _config(), auth, {"workflow_id": "wf1", "activity_ids": ["act1", "act2", "act3"]}
-    )
-    assert result["success"] is False
-    assert "INCOMPLETE" in result["message"]
-    failed = [r for r in result["results"] if not r["success"]]
-    assert len(failed) == 1 and failed[0]["activity_id"] == "act2"
-
-
-# ---------------------------------------------------------------------------
-# L2 — parallel post-PUT create_version + verify on save
-# ---------------------------------------------------------------------------
 
 
 def test_save_verify_still_correct_with_parallel_version_row():
