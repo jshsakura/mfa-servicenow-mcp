@@ -22,9 +22,9 @@ Solo lectura — seguro para cualquier entorno, sin herramientas de escritura:
 | Paquete | Herramientas | ~Tokens | Cuándo usarlo |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.2K | ⚠️ Agentes de mesa de servicio que necesitan actualizar/cerrar incidentes y cambios |
-| `portal_developer` | 46 | ~10.6K | ⚠️ Desarrolladores de portal que despliegan widgets, changesets y script includes |
-| `platform_developer` | 43 | ~10.8K | ⚠️ Ingenieros de plataforma que gestionan flujos de trabajo, Flow Designer y scripts |
-| `full` | 57 | ~13.8K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
+| `portal_developer` | 47 | ~10.6K | ⚠️ Desarrolladores de portal que despliegan widgets, changesets y script includes |
+| `platform_developer` | 44 | ~10.8K | ⚠️ Ingenieros de plataforma que gestionan flujos de trabajo, Flow Designer y scripts |
+| `full` | 58 | ~13.8K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
 
 > **~Tokens** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken cl100k_base; el conteo real de Claude varía ligeramente). Usar el paquete más reducido ahorra contexto y costo.
 
