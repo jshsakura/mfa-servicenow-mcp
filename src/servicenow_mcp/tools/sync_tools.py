@@ -48,7 +48,7 @@ from .portal_tools import (
     update_portal_component,
 )
 from .push_safety import assess_push_risk, describe_attribution
-from .sn_api import GenericQueryParams, resolve_live_username, sn_query
+from .sn_api import GenericQueryParams, resolve_live_username, rows_of, sn_query
 from .sn_batch import batch_get
 
 logger = logging.getLogger(__name__)
@@ -881,11 +881,11 @@ def _resolve_target_by_name(
                 display_value=False,
             ),
         )
-        rows = resp.get("results", []) if isinstance(resp, dict) else []
+        rows = rows_of(resp)
     except Exception:
         logger.debug("Target name lookup failed for %s name=%s", table, name, exc_info=True)
         return []
-    return [r for r in rows if isinstance(r, dict)]
+    return rows
 
 
 def _push_actor_username(config: ServerConfig, auth_manager: AuthManager) -> str:
@@ -996,7 +996,7 @@ def _active_update_sets(
             "updated_by": _display_str(row.get("sys_updated_by")),
             "updated_on": _display_str(row.get("sys_updated_on")),
         }
-        for row in (resp.get("results") or [])
+        for row in rows_of(resp)
     ]
 
 
@@ -1077,7 +1077,7 @@ def _editors_since(
         logger.warning("Could not read version history for %s/%s: %s", table, sys_id, exc)
         return out
 
-    rows = resp.get("results") or []
+    rows = rows_of(resp)
     # Fewer rows than the cap => the server had no more to give => fully covered.
     complete = len(rows) < _EDITOR_HISTORY_LIMIT
     others: List[str] = []
@@ -1152,7 +1152,7 @@ def _record_update_set_hold(
     except Exception as exc:  # best-effort diagnostic; never mask the real failure
         logger.warning("Could not resolve update-set hold for %s/%s: %s", table, sys_id, exc)
         return None, False
-    rows = resp.get("results") or []
+    rows = rows_of(resp)
     if not rows:
         return None, True  # asked, and this record has never been captured
     row = rows[0]
@@ -1227,7 +1227,7 @@ def _batch_fetch_updated_on_multi(
                 offset=0,
                 display_value=False,
             )
-            rows = sn_query(config, auth_manager, params).get("results") or []
+            rows = rows_of(sn_query(config, auth_manager, params))
         per_table = result.setdefault(table, {})
         for row in rows:
             sid = str(row.get("sys_id") or "")
