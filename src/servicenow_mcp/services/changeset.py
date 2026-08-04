@@ -16,7 +16,11 @@ from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
 
-_CHANGESET_UPDATE_FIELDS = ("name", "description", "state", "developer")
+# `developer` is NOT a sys_update_set column — probed on a live instance, a
+# filter on it returns all 177 rows, i.e. the condition is dropped, and a write
+# setting it is accepted and ignored. Update sets record their author in
+# sys_created_by, which the server sets.
+_CHANGESET_UPDATE_FIELDS = ("name", "description", "state")
 
 
 def create(
@@ -29,12 +33,11 @@ def create(
     developer: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Create a new update set."""
+    # `developer` is accepted for call compatibility and deliberately NOT sent —
+    # see _CHANGESET_UPDATE_FIELDS. The server records the author itself.
     data: Dict[str, Any] = {"name": name, "application": application}
     if description:
         data["description"] = description
-    if developer:
-        data["developer"] = developer
-
     url = f"{config.api_url}/table/sys_update_set"
     headers = auth_manager.get_headers()
     headers["Content-Type"] = "application/json"
@@ -73,9 +76,6 @@ def update(
         data["description"] = description
     if state:
         data["state"] = state
-    if developer:
-        data["developer"] = developer
-
     if not data:
         return {"success": False, "message": "No fields to update"}
 
@@ -257,7 +257,6 @@ def get(
         query_parts.append(f"state={state}")
     if application:
         query_parts.append(f"application={application}")
-    if developer:
         query_parts.append(f"developer={developer}")
     if timeframe:
         if timeframe == "recent":

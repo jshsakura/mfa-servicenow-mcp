@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.workflow_tools import (
     ManageWorkflowParams,
+    activate_workflow,
+    deactivate_workflow,
     delete_workflow,
     manage_workflow,
     reorder_workflow_activities,
@@ -92,31 +94,126 @@ class TestDeleteWorkflowLiveGuard:
             assert inner["force"] is True
 
 
-class TestReorderHonesty:
-    def _auth_failing_on(self, bad_id):
-        def _mr(method, url, **kwargs):
-            if bad_id in url:
-                raise RuntimeError("PATCH denied")
-            return _resp({"result": {}})
+class TestReorderRefusesInsteadOfPretending:
+    """`wf_activity` has no `order` column, so there was never anything to set.
 
-        auth = MagicMock(spec=AuthManager)
-        auth.make_request = MagicMock(side_effect=_mr)
-        auth.get_headers = MagicMock(return_value={})
-        return auth
+    Measured on a live instance: `order=999999` matches all 786 rows, because
+    ServiceNow drops a condition naming a field the table does not have; a PATCH
+    setting one is accepted and ignored the same way. The tool sent its PATCHes,
+    every one returned 200, and it reported "Activities reordered" having changed
+    nothing — with tests for round-trips, parallelism and partial-failure honesty
+    all green against a mock that echoed the field back.
 
-    def test_partial_failure_is_not_reported_as_success(self):
-        auth = self._auth_failing_on("act2")
-        result = reorder_workflow_activities(
-            _config(), auth, {"workflow_id": "wf1", "activity_ids": ["act1", "act2", "act3"]}
-        )
+    Execution order in a legacy workflow is the wf_transition graph. Until that
+    is built, refusing is the only honest answer.
+    """
+
+    def _call(self, **over):
+        args = {"workflow_id": "wf1", "activity_ids": ["a1", "a2"]}
+        args.update(over)
+        return reorder_workflow_activities(_config(), MagicMock(spec=AuthManager), args)
+
+    def test_it_refuses_and_names_the_reason(self):
+        result = self._call()
+
         assert result["success"] is False
-        assert "INCOMPLETE" in result["message"]
-        assert "1 of 3" in result["message"]
+        assert result["error"] == "REORDER_NOT_SUPPORTED"
+        assert "wf_transition" in result["message"]
 
-    def test_full_success_keeps_plain_message(self):
-        auth = self._auth_failing_on("no-such-id")
-        result = reorder_workflow_activities(
-            _config(), auth, {"workflow_id": "wf1", "activity_ids": ["act1", "act2"]}
-        )
+    def test_it_writes_nothing(self):
+        auth = MagicMock(spec=AuthManager)
+        reorder_workflow_activities(_config(), auth, {"workflow_id": "wf1", "activity_ids": ["a1"]})
+        auth.make_request.assert_not_called()
+
+    def test_a_dry_run_is_refused_too(self):
+        # A preview of writes that cannot land is the same false report, one step
+        # earlier — it would still print a plan somebody could act on.
+        result = self._call(dry_run=True)
+
+        assert result["success"] is False
+        assert result["error"] == "REORDER_NOT_SUPPORTED"
+
+    def test_missing_arguments_are_still_reported_first(self):
+        assert "Workflow ID" in self._call(workflow_id="")["error"]
+        assert "Activity IDs" in self._call(activity_ids=[])["error"]
+
+
+class TestWorkflowActivationTargetsTheVersion:
+    """`wf_workflow` has no `active` column; the live marker is on the VERSION.
+
+    Measured across 51 workflows on a live instance: `wf_workflow_version.published`
+    is true on exactly one version per workflow (48) or none (3) — never two.
+    `active` on the same table is not that signal; one workflow carried four
+    active versions with none published. The old code PATCHed
+    `wf_workflow.active`, which does not exist: accepted, dropped, answered 200,
+    and reported "Workflow activated successfully".
+    """
+
+    def _auth(self, versions, patched=None):
+        auth = MagicMock(spec=AuthManager)
+        auth.get_headers.return_value = {}
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"result": patched or {"sys_id": "v1", "published": "true"}}
+        auth.make_request.return_value = resp
+        return auth, versions
+
+    def test_activate_publishes_the_newest_version(self):
+        auth, versions = self._auth([{"sys_id": "v2"}, {"sys_id": "v1"}])
+        with patch("servicenow_mcp.tools.workflow_tools.sn_query_page", return_value=(versions, 2)):
+            result = activate_workflow(_config(), auth, {"workflow_id": "wf1"})
+
         assert result["success"] is True
-        assert result["message"] == "Activities reordered"
+        method, url = auth.make_request.call_args[0][:2]
+        assert method == "PATCH"
+        assert "/wf_workflow_version/v2" in url  # newest first
+        assert auth.make_request.call_args.kwargs["json"] == {"published": "true"}
+
+    def test_activate_is_a_no_op_when_a_version_is_already_published(self):
+        rows = [{"sys_id": "v1", "published": "true"}]
+        auth, _ = self._auth(rows)
+        with patch("servicenow_mcp.tools.workflow_tools.sn_query_page", return_value=(rows, 1)):
+            result = activate_workflow(_config(), auth, {"workflow_id": "wf1"})
+
+        assert result["success"] is True
+        assert result["already_published"] == "v1"
+        auth.make_request.assert_not_called()
+
+    def test_deactivate_unpublishes_the_live_version(self):
+        rows = [{"sys_id": "v1", "published": "true"}]
+        auth, _ = self._auth(rows, patched={"sys_id": "v1", "published": "false"})
+        with patch("servicenow_mcp.tools.workflow_tools.sn_query_page", return_value=(rows, 1)):
+            result = deactivate_workflow(_config(), auth, {"workflow_id": "wf1"})
+
+        assert result["success"] is True
+        assert auth.make_request.call_args.kwargs["json"] == {"published": "false"}
+
+    def test_deactivate_says_so_when_nothing_is_published(self):
+        rows = [{"sys_id": "v1", "published": "false"}]
+        auth, _ = self._auth(rows)
+        with patch("servicenow_mcp.tools.workflow_tools.sn_query_page", return_value=(rows, 1)):
+            result = deactivate_workflow(_config(), auth, {"workflow_id": "wf1"})
+
+        assert result["success"] is True
+        auth.make_request.assert_not_called()
+
+    def test_two_published_versions_are_refused_rather_than_guessed(self):
+        # The invariant says at most one. If an instance breaks it, retiring an
+        # arbitrary one of them could take down the wrong workflow version.
+        rows = [{"sys_id": "v2", "published": "true"}, {"sys_id": "v1", "published": "true"}]
+        auth, _ = self._auth(rows)
+        with patch("servicenow_mcp.tools.workflow_tools.sn_query_page", return_value=(rows, 2)):
+            result = deactivate_workflow(_config(), auth, {"workflow_id": "wf1"})
+
+        assert result["success"] is False
+        assert result["error"] == "AMBIGUOUS_PUBLISHED_VERSION"
+        auth.make_request.assert_not_called()
+
+    def test_a_workflow_with_no_versions_is_not_reported_as_activated(self):
+        auth, _ = self._auth([])
+        with patch("servicenow_mcp.tools.workflow_tools.sn_query_page", return_value=([], 0)):
+            result = activate_workflow(_config(), auth, {"workflow_id": "wf1"})
+
+        assert result["success"] is False
+        assert result["error"] == "NO_VERSIONS"
+        auth.make_request.assert_not_called()

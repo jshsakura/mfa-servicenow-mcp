@@ -256,6 +256,37 @@ def move_items(
         return {"success": False, "message": f"Error moving catalog items: {str(e)}", "data": None}
 
 
+def _apply_variable_constraints(
+    data: Dict[str, Any],
+    *,
+    max_length: Any = None,
+    min: Any = None,
+    max: Any = None,
+) -> None:
+    """Put length/range constraints where item_option_new actually keeps them.
+
+    None of `max_length`, `min` or `max` is a column on item_option_new —
+    filtering on any of them returns all 718 rows, i.e. the condition is dropped.
+    Writing them was accepted, ignored, and reported as saved.
+
+    Measured on a live instance:
+      * `max_length` lives in the `attributes` string as `max_length=NN`. 14
+        variables carry exactly that (`max_length=10`, `=200`, `=255`) on the
+        text types — the platform's own convention.
+      * `scale_min` / `scale_max` ARE columns, but they are populated on all 718
+        rows with the default 0/5: they are the rating-scale range, not a bound
+        on text input. They are set only when asked for, and never inferred.
+    """
+    if max_length:
+        existing = str(data.get("attributes") or "")
+        clause = f"max_length={max_length}"
+        data["attributes"] = f"{existing},{clause}" if existing else clause
+    if min is not None:
+        data["scale_min"] = min
+    if max is not None:
+        data["scale_max"] = max
+
+
 def create_variable(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -295,12 +326,7 @@ def create_variable(
         data["reference"] = reference_table
     if reference_qualifier:
         data["reference_qual"] = reference_qualifier
-    if max_length:
-        data["max_length"] = max_length
-    if min is not None:
-        data["min"] = min
-    if max is not None:
-        data["max"] = max
+    _apply_variable_constraints(data, max_length=max_length, min=min, max=max)
 
     try:
         response = auth_manager.make_request(
@@ -356,12 +382,7 @@ def update_variable(
         data["order"] = order
     if reference_qualifier is not None:
         data["reference_qual"] = reference_qualifier
-    if max_length is not None:
-        data["max_length"] = max_length
-    if min is not None:
-        data["min"] = min
-    if max is not None:
-        data["max"] = max
+    _apply_variable_constraints(data, max_length=max_length, min=min, max=max)
 
     if not data:
         return {"success": False, "message": "No update parameters provided"}

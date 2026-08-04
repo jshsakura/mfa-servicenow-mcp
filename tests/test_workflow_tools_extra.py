@@ -2,7 +2,7 @@
 1336, 1338, 1345, 1347."""
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.workflow_tools import (
@@ -168,7 +168,11 @@ class TestGetWorkflowActivities:
 
 
 class TestManageWorkflowOptionalFields:
-    def test_add_activity_with_description_and_attributes(self):
+    @patch(
+        "servicenow_mcp.tools.workflow_tools._resolve_activity_definition",
+        return_value={"sys_id": "wfdef1"},
+    )
+    def test_add_activity_with_description_and_attributes(self, _resolve_def):
         config = _make_config()
         auth = _make_auth()
 
@@ -199,7 +203,11 @@ class TestManageWorkflowOptionalFields:
         )
         assert result["activity"]["sys_id"] == "act1"
 
-    def test_add_activity_without_optional_fields(self):
+    @patch(
+        "servicenow_mcp.tools.workflow_tools._resolve_activity_definition",
+        return_value={"sys_id": "wfdef1"},
+    )
+    def test_add_activity_without_optional_fields(self, _resolve_def):
         config = _make_config()
         auth = _make_auth()
 

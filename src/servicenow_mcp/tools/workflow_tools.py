@@ -5,7 +5,7 @@ This module provides tools for viewing and managing workflows in ServiceNow.
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+import re
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Type, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 # Concurrent activity-order PATCHes per reorder — capped to stay within SN rate
 # limits (mirrors sn_api._MAX_PARALLEL_PAGES).
-_REORDER_MAX_PARALLEL = 4
 
 # Type variable for Pydantic models
 T = TypeVar("T", bound=BaseModel)
@@ -427,8 +426,11 @@ def create_workflow(
     if params.get("table"):
         data["table"] = params["table"]
 
-    if params.get("active") is not None:
-        data["active"] = str(params["active"]).lower()
+    # `active` is NOT sent: wf_workflow has no such column, so it was accepted,
+    # dropped and reported as saved. Activation is a property of a VERSION —
+    # see activate_workflow / _published_version — and quietly writing nothing
+    # here is what made that invisible.
+    ignored_active = params.get("active") is not None
 
     if params.get("attributes"):
         # Add any additional attributes
@@ -447,10 +449,16 @@ def create_workflow(
 
         result = response.json()
         invalidate_query_cache(table="wf_workflow")
-        return {
+        response_body: Dict[str, Any] = {
             "workflow": result.get("result", {}),
             "message": "Workflow created successfully",
         }
+        if ignored_active:
+            response_body["notice"] = (
+                "active is not a wf_workflow column and was not written — a legacy "
+                "workflow is activated by publishing a version (activate_workflow)."
+            )
+        return response_body
     except Exception as e:
         logger.error(f"Error creating workflow: {e}")
         return {"success": False, "error": str(e)}
@@ -491,8 +499,11 @@ def update_workflow(
     if params.get("table"):
         data["table"] = params["table"]
 
-    if params.get("active") is not None:
-        data["active"] = str(params["active"]).lower()
+    # `active` is NOT sent: wf_workflow has no such column, so it was accepted,
+    # dropped and reported as saved. Activation is a property of a VERSION —
+    # see activate_workflow / _published_version — and quietly writing nothing
+    # here is what made that invisible.
+    ignored_active = params.get("active") is not None
 
     if params.get("attributes"):
         # Add any additional attributes
@@ -521,13 +532,71 @@ def update_workflow(
 
         result = response.json()
         invalidate_query_cache(table="wf_workflow")
-        return {
+        response_body: Dict[str, Any] = {
             "workflow": result.get("result", {}),
             "message": "Workflow updated successfully",
         }
+        if ignored_active:
+            response_body["notice"] = (
+                "active is not a wf_workflow column and was not written — a legacy "
+                "workflow is activated by publishing a version (activate_workflow)."
+            )
+        return response_body
     except Exception as e:
         logger.error(f"Error updating workflow: {e}")
         return {"success": False, "error": str(e)}
+
+
+def _published_version(
+    server_config: ServerConfig, auth_manager: AuthManager, workflow_id: str
+) -> Dict[str, Any]:
+    """The live version of a legacy workflow, and the versions available.
+
+    `wf_workflow` has NO `active` column. Activation lives on
+    `wf_workflow_version.published`, and it is genuinely the marker: measured
+    across 51 workflows on a live instance, `published` is true on exactly ONE
+    version per workflow (48 of them) or none (3) — never two. `active` on the
+    same table is not that signal at all; one workflow carried four active
+    versions with none published.
+
+    So activate/deactivate must move `published` on a VERSION, and the
+    zero-or-one invariant has to be preserved rather than assumed.
+    """
+    try:
+        versions, _ = sn_query_page(
+            server_config,
+            auth_manager,
+            table="wf_workflow_version",
+            query=f"workflow={workflow_id}^ORDERBYDESCsys_created_on",
+            fields="sys_id,name,published,active,sys_created_on",
+            limit=50,
+            offset=0,
+            display_value=False,
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced to the caller
+        return {"error": f"Could not read workflow versions: {exc}"}
+    published = [v for v in versions if str(v.get("published")).lower() == "true"]
+    return {"versions": versions, "published": published}
+
+
+def _set_version_published(
+    server_config: ServerConfig, auth_manager: AuthManager, version_id: str, value: bool
+) -> Dict[str, Any]:
+    """PATCH one version's `published` flag and read the result back."""
+    url = f"{server_config.instance_url}/api/now/table/wf_workflow_version/{version_id}"
+    response = auth_manager.make_request(
+        "PATCH",
+        url,
+        headers=auth_manager.get_headers(),
+        json={"published": str(value).lower()},
+    )
+    response.raise_for_status()
+    body = response.json()
+    if not isinstance(body, dict) or "result" not in body:
+        return {"error": "The response was not the expected JSON — re-authenticate and retry."}
+    invalidate_query_cache(table="wf_workflow_version")
+    return {"result": body["result"]}
 
 
 def activate_workflow(
@@ -535,56 +604,52 @@ def activate_workflow(
     auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """
-    Activate a workflow in ServiceNow.
-
-    Args:
-        auth_manager: Authentication manager
-        server_config: Server configuration
-        params: Parameters for activating a workflow
-
-    Returns:
-        Dict[str, Any]: Activated workflow details
-    """
-    # Unwrap parameters if needed
+    """Publish a legacy workflow's newest version. See :func:`_published_version`."""
     params = _unwrap_params(params, ActivateWorkflowParams)
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
         return {"success": False, "error": "Workflow ID is required"}
 
-    # Prepare data for the API request
-    data = {
-        "active": "true",
-    }
-
-    if params.get("dry_run"):
-        return build_update_preview(
-            server_config,
-            auth_manager,
-            table="wf_workflow",
-            sys_id=workflow_id,
-            proposed=data,
-            identifier_fields=["name", "active"],
-        )
-
-    # Make the API request
-    try:
-        headers = auth_manager.get_headers()
-        url = f"{server_config.instance_url}/api/now/table/wf_workflow/{workflow_id}"
-
-        response = auth_manager.make_request("PATCH", url, headers=headers, json=data)
-        response.raise_for_status()
-
-        result = response.json()
-        invalidate_query_cache(table="wf_workflow")
+    state = _published_version(server_config, auth_manager, workflow_id)
+    if "error" in state:
+        return {"success": False, **state}
+    versions, published = state["versions"], state["published"]
+    if not versions:
         return {
-            "workflow": result.get("result", {}),
-            "message": "Workflow activated successfully",
+            "success": False,
+            "error": "NO_VERSIONS",
+            "message": f"No wf_workflow_version rows for workflow {workflow_id}.",
         }
-    except Exception as e:
-        logger.error(f"Error activating workflow: {e}")
-        return {"success": False, "error": str(e)}
+    if published:
+        return {
+            "success": True,
+            "already_published": published[0]["sys_id"],
+            "message": "Already active: a version of this workflow is published.",
+        }
+
+    target = versions[0]  # newest first
+    if params.get("dry_run"):
+        return {
+            "dry_run": True,
+            "table": "wf_workflow_version",
+            "sys_id": target["sys_id"],
+            "proposed_changes": {"published": "true"},
+            "note": f"newest of {len(versions)} version(s), created {target.get('sys_created_on')}",
+        }
+
+    try:
+        written = _set_version_published(server_config, auth_manager, target["sys_id"], True)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Error activating workflow: {exc}")
+        return {"success": False, "error": str(exc)}
+    if "error" in written:
+        return {"success": False, **written}
+    return {
+        "success": True,
+        "version": written["result"],
+        "message": f"Published version {target['sys_id']} of {len(versions)}.",
+    }
 
 
 def deactivate_workflow(
@@ -592,56 +657,111 @@ def deactivate_workflow(
     auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """
-    Deactivate a workflow in ServiceNow.
-
-    Args:
-        auth_manager: Authentication manager
-        server_config: Server configuration
-        params: Parameters for deactivating a workflow
-
-    Returns:
-        Dict[str, Any]: Deactivated workflow details
-    """
-    # Unwrap parameters if needed
+    """Unpublish the live version of a legacy workflow."""
     params = _unwrap_params(params, DeactivateWorkflowParams)
 
     workflow_id = params.get("workflow_id")
     if not workflow_id:
         return {"success": False, "error": "Workflow ID is required"}
 
-    # Prepare data for the API request
-    data = {
-        "active": "false",
+    state = _published_version(server_config, auth_manager, workflow_id)
+    if "error" in state:
+        return {"success": False, **state}
+    published = state["published"]
+    if not published:
+        return {
+            "success": True,
+            "message": "Already inactive: no published version for this workflow.",
+        }
+    if len(published) > 1:
+        # The measured invariant is one published version. More than one means
+        # this instance does not hold to it, and guessing which to retire could
+        # take down the wrong one.
+        return {
+            "success": False,
+            "error": "AMBIGUOUS_PUBLISHED_VERSION",
+            "message": f"{len(published)} published versions; expected at most one.",
+            "candidates": [v["sys_id"] for v in published],
+        }
+
+    target = published[0]
+    if params.get("dry_run"):
+        return {
+            "dry_run": True,
+            "table": "wf_workflow_version",
+            "sys_id": target["sys_id"],
+            "proposed_changes": {"published": "false"},
+        }
+
+    try:
+        written = _set_version_published(server_config, auth_manager, target["sys_id"], False)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Error deactivating workflow: {exc}")
+        return {"success": False, "error": str(exc)}
+    if "error" in written:
+        return {"success": False, **written}
+    return {
+        "success": True,
+        "version": written["result"],
+        "message": f"Unpublished version {target['sys_id']}.",
     }
 
-    if params.get("dry_run"):
-        return build_update_preview(
+
+_SYS_ID_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
+
+
+def _resolve_activity_definition(
+    server_config: ServerConfig, auth_manager: AuthManager, activity_type: str
+) -> Dict[str, Any]:
+    """Turn an activity TYPE NAME into the reference wf_activity actually stores.
+
+    The column is `activity_definition`, a reference to `wf_element_definition`.
+    The old code assigned the name to `activity_type`, which is not a column on
+    wf_activity at all: ServiceNow accepted the write, dropped the field, and the
+    tool reported an activity created with a type it never had.
+
+    A name that matches nothing, or matches several definitions, returns the
+    candidates rather than a guess — picking one would attach the wrong
+    behaviour to a workflow step, which is not something to be casual about.
+    """
+    if _SYS_ID_RE.match(activity_type.strip()):
+        return {"sys_id": activity_type.strip()}
+    try:
+        exact, _ = sn_query_page(
             server_config,
             auth_manager,
-            table="wf_workflow",
-            sys_id=workflow_id,
-            proposed=data,
-            identifier_fields=["name", "active"],
+            table="wf_element_definition",
+            query=f"name={activity_type}",
+            fields="sys_id,name",
+            limit=5,
+            offset=0,
+            display_value=False,
+            fail_silently=False,
         )
-
-    # Make the API request
-    try:
-        headers = auth_manager.get_headers()
-        url = f"{server_config.instance_url}/api/now/table/wf_workflow/{workflow_id}"
-
-        response = auth_manager.make_request("PATCH", url, headers=headers, json=data)
-        response.raise_for_status()
-
-        result = response.json()
-        invalidate_query_cache(table="wf_workflow")
+    except Exception as exc:  # noqa: BLE001 - surfaced to the caller
+        return {"error": f"Could not resolve activity_type: {exc}"}
+    if len(exact) == 1:
+        return {"sys_id": exact[0]["sys_id"]}
+    if len(exact) > 1:
         return {
-            "workflow": result.get("result", {}),
-            "message": "Workflow deactivated successfully",
+            "error": f"'{activity_type}' matches {len(exact)} activity definitions",
+            "candidates": [r.get("name") for r in exact],
         }
-    except Exception as e:
-        logger.error(f"Error deactivating workflow: {e}")
-        return {"success": False, "error": str(e)}
+    near, _ = sn_query_page(
+        server_config,
+        auth_manager,
+        table="wf_element_definition",
+        query=f"nameLIKE{activity_type}",
+        fields="sys_id,name",
+        limit=8,
+        offset=0,
+        display_value=False,
+        fail_silently=True,
+    )
+    return {
+        "error": f"No activity definition named '{activity_type}'",
+        "candidates": [r.get("name") for r in near],
+    }
 
 
 def add_workflow_activity(
@@ -679,10 +799,17 @@ def add_workflow_activity(
     }
 
     if params.get("description"):
-        data["description"] = params["description"]
+        # wf_activity keeps free text in `notes`; `description` is not a column
+        # on it and was dropped from the write without any error.
+        data["notes"] = params["description"]
 
     if params.get("activity_type"):
-        data["activity_type"] = params["activity_type"]
+        resolved = _resolve_activity_definition(
+            server_config, auth_manager, str(params["activity_type"])
+        )
+        if "sys_id" not in resolved:
+            return {"success": False, **resolved}
+        data["activity_definition"] = resolved["sys_id"]
 
     if params.get("attributes"):
         # Add any additional attributes
@@ -740,7 +867,8 @@ def update_workflow_activity(
         data["name"] = params["name"]
 
     if params.get("description") is not None:
-        data["description"] = params["description"]
+        # wf_activity keeps free text in `notes` — see add_workflow_activity().
+        data["notes"] = params["description"]
 
     if params.get("attributes"):
         # Add any additional attributes
@@ -828,52 +956,38 @@ def delete_workflow_activity(
         return {"success": False, "error": str(e)}
 
 
-def _build_reorder_preview(
-    server_config: ServerConfig,
-    auth_manager: AuthManager,
-    workflow_id: str,
-    activity_ids: List[str],
-) -> Dict[str, Any]:
-    """Dry-run preview for reorder_activities: the exact order PATCHes planned,
-    diffed against the current order of each activity."""
-    preview: Dict[str, Any] = {
-        "dry_run": True,
-        "operation": "reorder_activities",
-        "target": {"table": "wf_activity", "workflow_id": workflow_id},
-        "planned_updates": [],
-        "warnings": [],
-        "precision_notes": {
-            "count_source": "table_api",
-            "dependency_check": False,
-            "acl_checked": False,
-        },
-    }
-    current: Dict[str, Dict[str, Any]] = {}
-    try:
-        rows, _ = sn_query_page(
-            server_config,
-            auth_manager,
-            table="wf_activity",
-            query="sys_idIN" + ",".join(activity_ids),
-            fields="sys_id,name,order",
-            limit=len(activity_ids),
-            offset=0,
-            display_value=False,
-            no_count=True,
-        )
-        current = {str(row["sys_id"]): row for row in rows if row.get("sys_id")}
-    except Exception as exc:  # noqa: BLE001 — preview stays useful without the diff
-        preview["warnings"].append(f"current-order lookup failed: {exc}")
-    for i, activity_id in enumerate(activity_ids):
-        row = current.get(activity_id)
-        entry: Dict[str, Any] = {"activity_id": activity_id, "new_order": (i + 1) * 100}
-        if row:
-            entry["name"] = row.get("name")
-            entry["current_order"] = row.get("order")
-        elif current:
-            preview["warnings"].append(f"activity not found: {activity_id}")
-        preview["planned_updates"].append(entry)
-    return preview
+# `wf_activity` has no `order` column — not on the table and not anywhere on its
+# inheritance chain. Measured on a live instance: filtering `order=999999`
+# returns all 786 rows, because ServiceNow drops a condition naming a field it
+# does not have, and a PATCH setting one is accepted and ignored.
+#
+# So this tool sent N PATCHes, every one returned 200, `raise_for_status` passed,
+# and it reported "Activities reordered" having changed nothing. It had tests —
+# for round-trip counts, for parallelism, for partial-failure honesty — and all
+# of them passed against a mock that echoed the field back.
+#
+# Legacy workflow execution order is not a scalar. It is the `wf_transition`
+# graph (from -> to, with conditions); `x`/`y` on wf_activity are canvas
+# coordinates, not sequence. Reordering therefore means rewiring transitions —
+# a different and considerably more dangerous operation than this signature
+# describes — so this refuses rather than pretending, and names what actually
+# decides the order.
+_WF_ACTIVITY_HAS_NO_ORDER: Dict[str, Any] = {
+    "success": False,
+    "error": "REORDER_NOT_SUPPORTED",
+    "message": (
+        "wf_activity has no 'order' field, so there is nothing to set: the PATCHes "
+        "this tool used to send were accepted and ignored, and it reported success "
+        "for a change that never happened. Execution order in a legacy workflow is "
+        "the wf_transition graph (from -> to), not a number on the activity. Rewire "
+        "the transitions in the Workflow Editor, or ask for transition editing to "
+        "be built."
+    ),
+    "next": (
+        "manage_workflow(action='get_activities', workflow_id=...) lists the "
+        "activities; wf_transition holds the order."
+    ),
+}
 
 
 def reorder_workflow_activities(
@@ -881,73 +995,16 @@ def reorder_workflow_activities(
     auth_manager: AuthManager,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """
-    Reorder activities in a workflow.
-
-    Args:
-        auth_manager: Authentication manager
-        server_config: Server configuration
-        params: Parameters for reordering workflow activities
-
-    Returns:
-        Dict[str, Any]: Result of the reordering operation
-    """
-    # Unwrap parameters if needed
+    """Refuse to 'reorder' legacy workflow activities. See the note above."""
     params = _unwrap_params(params, ReorderWorkflowActivitiesParams)
 
-    workflow_id = params.get("workflow_id")
-    if not workflow_id:
+    if not params.get("workflow_id"):
         return {"success": False, "error": "Workflow ID is required"}
-
-    activity_ids = params.get("activity_ids")
-    if not activity_ids:
+    if not params.get("activity_ids"):
         return {"success": False, "error": "Activity IDs are required"}
-
-    if params.get("dry_run"):
-        return _build_reorder_preview(server_config, auth_manager, workflow_id, activity_ids)
-
-    # Each activity's order is an independent PATCH — run them concurrently so a
-    # 12-step reorder is ~1 round-trip of wall-clock, not 12 sequential ones.
-    # Order is independent per record, so parallel writes are safe.
-    try:
-        headers = auth_manager.get_headers()
-
-        def _patch_one(i: int, activity_id: str) -> Dict[str, Any]:
-            new_order = (i + 1) * 100  # 100, 200, 300, …
-            url = f"{server_config.instance_url}/api/now/table/wf_activity/{activity_id}"
-            try:
-                response = auth_manager.make_request(
-                    "PATCH", url, headers=headers, json={"order": new_order}
-                )
-                response.raise_for_status()
-                return {"activity_id": activity_id, "new_order": new_order, "success": True}
-            except Exception as e:
-                logger.error(f"Error updating activity order: {e}")
-                return {"activity_id": activity_id, "error": str(e), "success": False}
-
-        max_workers = min(_REORDER_MAX_PARALLEL, len(activity_ids))
-        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="wf-reorder") as ex:
-            # executor.map preserves input order, so results stay aligned to
-            # activity_ids for the per-item report.
-            results = list(ex.map(lambda p: _patch_one(*p), enumerate(activity_ids)))
-
-        invalidate_query_cache(table="wf_activity")
-        failed = [r for r in results if not r.get("success")]
-        return {
-            "success": not failed,
-            "message": (
-                "Activities reordered"
-                if not failed
-                else f"Reorder INCOMPLETE — {len(failed)} of {len(results)} activity "
-                "updates failed; order values are now inconsistent. Inspect results "
-                "and re-run reorder_activities to repair."
-            ),
-            "workflow_id": workflow_id,
-            "results": results,
-        }
-    except Exception as e:
-        logger.error(f"Unexpected error reordering workflow activities: {e}")
-        return {"success": False, "error": str(e)}
+    # dry_run is not honoured separately: a preview of writes that cannot land
+    # is the same false report one step earlier.
+    return dict(_WF_ACTIVITY_HAS_NO_ORDER)
 
 
 def delete_workflow(
@@ -1114,7 +1171,7 @@ class ManageWorkflowParams(BaseModel):
       add_activity:       workflow_version_id, activity_name, activity_type
       update_activity:    activity_id, at least one activity field
       delete_activity:    activity_id
-      reorder_activities: workflow_id, activity_ids (list)
+      reorder_activities: NOT SUPPORTED — wf_activity has no order field
     """
 
     action: Literal[

@@ -25,7 +25,7 @@ def auth(mock_auth):
 # ---------------------------------------------------------------------------
 
 
-def test_update_description_and_developer_branches(mock_config, auth):
+def test_update_sends_only_columns_that_exist(mock_config, auth):
     """Cover the if-description and if-developer branches."""
 
     captured: dict = {}
@@ -48,7 +48,8 @@ def test_update_description_and_developer_branches(mock_config, auth):
             developer="user.dev",
         )
     assert result["success"] is True
-    assert captured["json"] == {"description": "updated desc", "developer": "user.dev"}
+    # `developer` is not a column on sys_update_set and is no longer sent.
+    assert captured["json"] == {"description": "updated desc"}
 
 
 # ---------------------------------------------------------------------------

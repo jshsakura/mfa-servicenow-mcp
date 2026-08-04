@@ -103,7 +103,11 @@ def create_page(
 
     body: Dict[str, Any] = {"id": page_id, "title": title, "sys_scope": scope}
     if description:
-        body["description"] = description
+        # sp_page has `short_description`, not `description` — the latter is not a
+        # column, and ServiceNow drops an unknown field from a write without
+        # complaining, so every description set through this tool was discarded
+        # while the call reported success.
+        body["short_description"] = description
     if css:
         body["css"] = css
     if internal:
@@ -147,7 +151,7 @@ def update_page(
     if title is not None:
         body["title"] = title
     if description is not None:
-        body["description"] = description
+        body["short_description"] = description  # see create(): sp_page has no `description`
     if css is not None:
         body["css"] = css
     if internal is not None:

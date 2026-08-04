@@ -519,10 +519,24 @@ class TestGetSnapshotId(unittest.TestCase):
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_returns_published_snapshot(self, mock_qp):
+        """Rows must now belong to the flow, and `published` is matched raw.
+
+        Both changes come from measuring the live table. The filter named
+        `master_flow`, which does not exist on sys_hub_flow_snapshot — ServiceNow
+        DROPS an unknown condition instead of rejecting it, so the query returned
+        the whole table (808 rows) and this function handed back a stranger's
+        snapshot. The rows therefore carry `parent_flow` now and are checked
+        against the flow that was asked for.
+
+        The status is also compared case-insensitively against the RAW value:
+        the stored value is `published`, and only the display label is
+        capitalised, so `== "Published"` silently depended on display_value being
+        on.
+        """
         mock_qp.return_value = (
             [
-                {"sys_id": "snap1", "status": "Draft"},
-                {"sys_id": "snap2", "status": "Published"},
+                {"sys_id": "snap1", "status": "draft", "parent_flow": "flow1"},
+                {"sys_id": "snap2", "status": "published", "parent_flow": "flow1"},
             ],
             2,
         )
@@ -531,9 +545,34 @@ class TestGetSnapshotId(unittest.TestCase):
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_fallback_to_first(self, mock_qp):
-        mock_qp.return_value = ([{"sys_id": "snap1", "status": "Draft"}], 1)
+        mock_qp.return_value = ([{"sys_id": "snap1", "status": "draft", "parent_flow": "flow1"}], 1)
         result = _get_snapshot_id(self.config, self.auth_manager, "flow1")
         self.assertEqual(result, "snap1")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_the_snapshot_may_be_addressed_by_its_own_sys_id(self, mock_qp):
+        # A snapshot with no parent_flow is still reachable by its own id — the
+        # `^ORsys_id=` branch — and must not be rejected by the ownership check.
+        mock_qp.return_value = ([{"sys_id": "flow1", "status": "published"}], 1)
+        self.assertEqual(_get_snapshot_id(self.config, self.auth_manager, "flow1"), "flow1")
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_rows_that_belong_to_another_flow_are_not_handed_back(self, mock_qp):
+        """The live failure, in one assertion.
+
+        A filter that silently stops filtering returns rows — plausible, ordered,
+        published rows — for a flow that has nothing to do with them. Reporting
+        another flow's structure is worse than reporting none, so an unrelated
+        result set is no snapshot at all.
+        """
+        mock_qp.return_value = (
+            [
+                {"sys_id": "snapA", "status": "published", "parent_flow": "someone_else"},
+                {"sys_id": "snapB", "status": "published", "parent_flow": "also_not_mine"},
+            ],
+            808,
+        )
+        self.assertIsNone(_get_snapshot_id(self.config, self.auth_manager, "flow1"))
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_no_snapshots(self, mock_qp):
@@ -1465,7 +1504,7 @@ class TestFetchSubflowBindings(unittest.TestCase):
             (
                 [
                     {
-                        "sys_id": "inst1",
+                        "sys_id": {"value": "inst1", "display_value": "inst1"},
                         "name": {"value": "Sub Instance", "display_value": "Sub Instance Display"},
                         "order": {"value": "100"},
                         "position": {"value": "100"},
@@ -1480,12 +1519,12 @@ class TestFetchSubflowBindings(unittest.TestCase):
             (
                 [
                     {
-                        "sys_id": "snap_s1",
+                        "sys_id": {"value": "snap_s1", "display_value": "snap_s1"},
                         "name": {
                             "value": "Sub Flow Snapshot",
                             "display_value": "Sub Flow Snapshot Display",
                         },
-                        "master_flow": {"value": "master1", "display_value": "Master Flow"},
+                        "parent_flow": {"value": "master1", "display_value": "Master Flow"},
                     },
                 ],
                 1,
@@ -1559,7 +1598,7 @@ class TestFetchSubflowBindings(unittest.TestCase):
                     {
                         "sys_id": "snap_s1",
                         "name": "Sub1 Snap",
-                        "master_flow": "master1",
+                        "parent_flow": "master1",
                     },
                 ],
                 1,
@@ -1801,3 +1840,111 @@ class TestCompareFlowsAdvanced(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestComponentFieldsMatchTheLiveSchema(unittest.TestCase):
+    """The v2 instance tables do not have the columns this code used to ask for.
+
+    Measured against a live instance: `sys_hub_action_instance_v2`,
+    `sys_hub_flow_logic_instance_v2` and `sys_hub_sub_flow_instance_v2` carry
+    NONE of `name`, `position`, `nesting_parent`, `compilable_type`, and the
+    logic table has no `type`. ServiceNow omits an unknown field from the
+    payload rather than failing, so every component came back unnamed, untyped
+    and unparented — a flat, blank tree reported as a success.
+
+    Mocks cannot see this: a fixture returns whatever key it was written with.
+    These tests pin the column names instead, so a rename has to be deliberate.
+    """
+
+    # Measured on a live instance. Both spellings are requested deliberately —
+    # a column name belongs to the release, not to this repo, and an unknown one
+    # is omitted from the response rather than rejected, so asking for both is
+    # free and survives a rename in either direction.
+    MEASURED = {
+        "sys_hub_action_instance_v2": {
+            "display_text",
+            "order",
+            "action_type",
+            "ui_id",
+            "parent_ui_id",
+        },
+        "sys_hub_flow_logic_instance_v2": {
+            "display_text",
+            "order",
+            "logic_definition",
+            "ui_id",
+            "parent_ui_id",
+        },
+        "sys_hub_sub_flow_instance_v2": {
+            "display_text",
+            "order",
+            "subflow",
+            "ui_id",
+            "parent_ui_id",
+        },
+    }
+    LEGACY_TOLERATED = {"name", "nesting_parent", "type"}
+    NEVER_ASK_AGAIN = {"position", "compilable_type"}
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    @patch("servicenow_mcp.tools.flow_designer_tools.batch_get", return_value=None)
+    @patch("servicenow_mcp.tools.flow_designer_tools._fetch_subflow_bindings")
+    @patch("servicenow_mcp.tools.flow_designer_tools._get_snapshot_id", return_value="snap1")
+    @patch("servicenow_mcp.tools.flow_designer_tools._try_processflow_api", return_value=None)
+    def test_only_columns_that_exist_are_requested(self, _pf, _snap, bindings, _batch, mock_qp):
+        bindings.return_value = {
+            "subflow_bindings": [],
+            "mismatch_summary": {"mismatch_count": 0, "mismatches": []},
+        }
+        mock_qp.side_effect = [([{"sys_id": "flow1", "label_cache": ""}], 1)] + [([], 0)] * 3
+
+        _fetch_flow_structure(_make_basic_config(), MagicMock(spec=AuthManager), "flow1")
+
+        asked = {
+            call.kwargs["table"]: set(call.kwargs["fields"].split(","))
+            for call in mock_qp.call_args_list
+            if call.kwargs.get("table") in self.MEASURED
+        }
+        self.assertEqual(len(asked), 3, "all three component families must be read")
+        for table, fields in asked.items():
+            missing = self.MEASURED[table] - fields
+            self.assertFalse(missing, f"{table} stopped asking for {missing}")
+            # Columns that exist on NO release of these tables buy nothing and
+            # were the original defect; the legacy spellings are kept on purpose.
+            self.assertFalse(
+                fields & self.NEVER_ASK_AGAIN,
+                f"{table} asks for a column no release has",
+            )
+            self.assertTrue(fields >= {"sys_id"}, f"{table} must always select sys_id")
+
+
+class TestComponentTreeNesting(unittest.TestCase):
+    def test_nesting_uses_ui_id_not_sys_id(self):
+        """Every component used to come back a root: the parent link is ui_id."""
+        components = [
+            {"sys_id": "s1", "ui_id": "u1", "parent_ui_id": "", "order": "1"},
+            {"sys_id": "s2", "ui_id": "u2", "parent_ui_id": "u1", "order": "2"},
+            {"sys_id": "s3", "ui_id": "u3", "parent_ui_id": "u2", "order": "3"},
+        ]
+
+        roots = _build_component_tree(components)
+
+        self.assertEqual([r["sys_id"] for r in roots], ["s1"])
+        self.assertEqual([c["sys_id"] for c in roots[0]["children"]], ["s2"])
+        self.assertEqual([c["sys_id"] for c in roots[0]["children"][0]["children"]], ["s3"])
+
+    def test_a_component_is_never_its_own_parent(self):
+        roots = _build_component_tree([{"sys_id": "s1", "ui_id": "u1", "parent_ui_id": "u1"}])
+        self.assertEqual(len(roots), 1)
+        self.assertEqual(roots[0]["children"], [])
+
+    def test_an_unresolvable_parent_falls_back_to_root(self):
+        roots = _build_component_tree(
+            [{"sys_id": "s1", "ui_id": "u1", "parent_ui_id": "gone", "order": "1"}]
+        )
+        self.assertEqual(len(roots), 1)
+
+    def test_a_non_numeric_order_does_not_raise(self):
+        # `order` arrives as a string and can be empty; int("") used to throw.
+        roots = _build_component_tree([{"sys_id": "s1", "ui_id": "u1", "order": ""}])
+        self.assertEqual(len(roots), 1)

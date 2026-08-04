@@ -4,22 +4,19 @@ Tests for the workflow management tools.
 
 import json
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.sn_api import invalidate_query_cache
 from servicenow_mcp.tools.workflow_tools import (
-    activate_workflow,
     add_workflow_activity,
     create_workflow,
-    deactivate_workflow,
     delete_workflow,
     delete_workflow_activity,
     get_workflow_details,
     list_workflows,
-    reorder_workflow_activities,
     update_workflow,
     update_workflow_activity,
 )
@@ -399,57 +396,11 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["workflow"]["name"], "Updated Workflow")
         self.assertEqual(result["message"], "Workflow updated successfully")
 
-    def test_activate_workflow_success(self):
-        """Test activating a workflow successfully."""
-        # Mock the response
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "result": {
-                "sys_id": "workflow123",
-                "name": "Incident Approval",
-                "active": "true",
-            }
-        }
-        mock_response.raise_for_status = MagicMock()
-        self.auth_manager.make_request.return_value = mock_response
-
-        # Call the function
-        params = {
-            "workflow_id": "workflow123",
-        }
-        result = activate_workflow(self.server_config, self.auth_manager, params)
-
-        # Verify the result
-        self.assertEqual(result["workflow"]["sys_id"], "workflow123")
-        self.assertEqual(result["workflow"]["active"], "true")
-        self.assertEqual(result["message"], "Workflow activated successfully")
-
-    def test_deactivate_workflow_success(self):
-        """Test deactivating a workflow successfully."""
-        # Mock the response
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "result": {
-                "sys_id": "workflow123",
-                "name": "Incident Approval",
-                "active": "false",
-            }
-        }
-        mock_response.raise_for_status = MagicMock()
-        self.auth_manager.make_request.return_value = mock_response
-
-        # Call the function
-        params = {
-            "workflow_id": "workflow123",
-        }
-        result = deactivate_workflow(self.server_config, self.auth_manager, params)
-
-        # Verify the result
-        self.assertEqual(result["workflow"]["sys_id"], "workflow123")
-        self.assertEqual(result["workflow"]["active"], "false")
-        self.assertEqual(result["message"], "Workflow deactivated successfully")
-
-    def test_add_workflow_activity_success(self):
+    @patch(
+        "servicenow_mcp.tools.workflow_tools._resolve_activity_definition",
+        return_value={"sys_id": "wfdef1"},
+    )
+    def test_add_workflow_activity_success(self, _resolve_def):
         """Test adding a workflow activity successfully."""
         # Mock the response for activity creation
         activity_response = MagicMock()
@@ -479,12 +430,21 @@ class TestWorkflowTools(unittest.TestCase):
         self.assertEqual(result["activity"]["name"], "New Activity")
         self.assertEqual(result["message"], "Workflow activity added successfully")
 
-    def test_update_workflow_activity_dry_run_no_op(self):
-        """dry_run with identical values flags no-op fields."""
+    @patch(
+        "servicenow_mcp.tools.workflow_tools._resolve_activity_definition",
+        return_value={"sys_id": "wfdef1"},
+    )
+    def test_update_workflow_activity_dry_run_no_op(self, _resolve_def):
+        """dry_run with identical values flags no-op fields.
+
+        The fixture and the assertion say `notes`, not `description`: wf_activity
+        has no `description` column, so the value used to be written to a field
+        the table does not have — accepted, dropped, and reported as saved.
+        """
         invalidate_query_cache()
         fetch_response = MagicMock()
         fetch_response.json.return_value = {
-            "result": [{"sys_id": "act_dry", "name": "Same", "description": "Same desc"}]
+            "result": [{"sys_id": "act_dry", "name": "Same", "notes": "Same desc"}]
         }
         self._finalize_response(fetch_response)
         self.auth_manager.make_request.return_value = fetch_response
@@ -499,7 +459,7 @@ class TestWorkflowTools(unittest.TestCase):
 
         self.assertTrue(result["dry_run"])
         self.assertIn("name", result["no_op_fields"])
-        self.assertIn("description", result["no_op_fields"])
+        self.assertIn("notes", result["no_op_fields"])
         self.assertEqual(result["proposed_changes"], {})
 
     def test_update_workflow_activity_success(self):
@@ -601,34 +561,3 @@ class TestWorkflowTools(unittest.TestCase):
         # No DELETE request was issued
         for call in self.auth_manager.make_request.call_args_list:
             self.assertEqual(call.args[0], "GET")
-
-    def test_reorder_workflow_activities_success(self):
-        """Test reordering workflow activities successfully."""
-        # Mock the response
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"result": {}}
-        mock_response.raise_for_status = MagicMock()
-        self.auth_manager.make_request.return_value = mock_response
-
-        # Call the function
-        params = {
-            "workflow_id": "workflow123",
-            "activity_ids": ["activity1", "activity2", "activity3"],
-        }
-        result = reorder_workflow_activities(self.server_config, self.auth_manager, params)
-
-        # Verify the result
-        self.assertEqual(result["message"], "Activities reordered")
-        self.assertEqual(result["workflow_id"], "workflow123")
-        self.assertEqual(len(result["results"]), 3)
-        self.assertTrue(all(item["success"] for item in result["results"]))
-        self.assertEqual(result["results"][0]["activity_id"], "activity1")
-        self.assertEqual(result["results"][0]["new_order"], 100)
-        self.assertEqual(result["results"][1]["activity_id"], "activity2")
-        self.assertEqual(result["results"][1]["new_order"], 200)
-        self.assertEqual(result["results"][2]["activity_id"], "activity3")
-        self.assertEqual(result["results"][2]["new_order"], 300)
-
-
-if __name__ == "__main__":
-    unittest.main()

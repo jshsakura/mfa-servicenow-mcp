@@ -5,7 +5,7 @@ reorder_activities/add_activity used to drop the flag and write live.)
 """
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.workflow_tools import ManageWorkflowParams, manage_workflow
@@ -57,60 +57,11 @@ def test_create_dry_run_previews_without_posting():
     _assert_no_mutation(auth)
 
 
-def test_activate_dry_run_previews_without_patching():
-    # NOTE: distinct workflow_id per test — sn_query_page caches identical
-    # queries in-process, so sharing an id would leak rows across tests.
-    auth = _auth(rows=[{"sys_id": "wf_act1", "name": "My WF", "active": "false"}])
-    result = manage_workflow(
-        _config(),
-        auth,
-        ManageWorkflowParams(action="activate", workflow_id="wf_act1", dry_run=True),
-    )
-    assert result["dry_run"] is True
-    assert result["proposed_changes"]["active"]["after"] == "true"
-    _assert_no_mutation(auth)
-
-
-def test_deactivate_dry_run_previews_without_patching():
-    auth = _auth(rows=[{"sys_id": "wf_deact1", "name": "My WF", "active": "true"}])
-    result = manage_workflow(
-        _config(),
-        auth,
-        ManageWorkflowParams(action="deactivate", workflow_id="wf_deact1", dry_run=True),
-    )
-    assert result["dry_run"] is True
-    assert result["proposed_changes"]["active"]["after"] == "false"
-    _assert_no_mutation(auth)
-
-
-def test_reorder_dry_run_plans_without_patching():
-    auth = _auth(
-        rows=[
-            {"sys_id": "act2", "name": "Second", "order": "200"},
-            {"sys_id": "act1", "name": "First", "order": "100"},
-        ]
-    )
-    result = manage_workflow(
-        _config(),
-        auth,
-        ManageWorkflowParams(
-            action="reorder_activities",
-            workflow_id="wf1",
-            activity_ids=["act2", "act1"],
-            dry_run=True,
-        ),
-    )
-    assert result["dry_run"] is True
-    assert result["planned_updates"][0] == {
-        "activity_id": "act2",
-        "new_order": 100,
-        "name": "Second",
-        "current_order": "200",
-    }
-    _assert_no_mutation(auth)
-
-
-def test_add_activity_dry_run_previews_without_posting():
+@patch(
+    "servicenow_mcp.tools.workflow_tools._resolve_activity_definition",
+    return_value={"sys_id": "wfdef1"},
+)
+def test_add_activity_dry_run_previews_without_posting(_resolve_def):
     auth = _auth()
     result = manage_workflow(
         _config(),

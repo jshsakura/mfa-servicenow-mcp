@@ -184,8 +184,12 @@ class TestCreateCategoryEdgeCases:
         result = create_category(config, auth, params)
         assert result.success is True
         call_data = auth.make_request.call_args[1]["json"]
-        assert call_data["parent"] == "parent001"
+        # The parent is polymorphic: parent_id holds the sys_id, parent_table
+        # says what it points at. `parent` is not a column on kb_category, so
+        # the old payload created every category unattached.
+        assert call_data["parent_id"] == "parent001"
         assert call_data["parent_table"] == "kb_category"
+        assert "parent" not in call_data
         assert call_data["active"] == "false"
 
 
