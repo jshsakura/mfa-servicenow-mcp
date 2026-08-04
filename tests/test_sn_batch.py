@@ -12,10 +12,16 @@ Pinned invariants:
 import base64
 import json
 from unittest.mock import MagicMock, patch
+from urllib.parse import unquote
 
 import pytest
 
-from servicenow_mcp.tools.sn_batch import batch_get, reset_batch_support_cache
+from servicenow_mcp.tools.sn_batch import (
+    batch_get,
+    batch_rows,
+    reset_batch_support_cache,
+    table_query_url,
+)
 from servicenow_mcp.utils.config import ServerConfig
 
 
@@ -210,3 +216,61 @@ class TestVerdictScanFusion:
         assert result["http_requests"] == 1  # one fallback chunk GET
         mock_query.assert_not_called()  # fallback no longer routes through sn_query
         assert any(c.args and c.args[0] == "GET" for c in auth.make_request.call_args_list)
+
+
+# ---------------------------------------------------------------------------
+# table_query_url / batch_rows — the general sub-request builder and reader
+# ---------------------------------------------------------------------------
+
+
+class TestTableQueryUrl:
+    def test_builds_a_relative_table_url(self):
+        url = table_query_url("sys_script", "collection=x_app_t", "sys_id,name", limit=100)
+
+        assert url.startswith("/api/now/table/sys_script?")
+        assert "sysparm_query=collection%3Dx_app_t" in url
+        assert "sysparm_fields=sys_id%2Cname" in url
+        assert "sysparm_limit=100" in url
+        assert "sysparm_display_value=false" in url
+
+    def test_display_values_are_opt_in(self):
+        assert "sysparm_display_value=true" in table_query_url(
+            "t", "q=1", "sys_id", limit=1, display_value=True
+        )
+
+    def test_ordering_travels_inside_the_query_not_as_a_parameter(self):
+        # There is no sysparm_orderby on this API; one would be accepted and
+        # ignored, which is how ordered reads came back unordered before
+        # v1.22.26. An ORDERBY clause is just another encoded-query term.
+        url = table_query_url("t", "active=true^ORDERBYDESCsys_created_on", "sys_id", limit=5)
+
+        assert "ORDERBYDESCsys_created_on" in unquote(url)
+        assert "sysparm_orderby" not in url
+
+
+class TestBatchRows:
+    def test_returns_the_result_rows(self):
+        assert batch_rows({"status_code": 200, "body": {"result": [{"sys_id": "1"}]}}) == [
+            {"sys_id": "1"}
+        ]
+
+    def test_an_empty_result_is_believed(self):
+        # A genuine 200 with no rows means "nothing matched" — refetching it
+        # would double the cost of every legitimately empty family.
+        assert batch_rows({"status_code": 200, "body": {"result": []}}) == []
+
+    @pytest.mark.parametrize(
+        "served",
+        [
+            None,  # id absent from the response
+            {"status_code": 403, "body": None},  # denied
+            {"status_code": 500, "body": None},  # server error
+            {"status_code": 200, "body": None},  # unparsable body
+            {"status_code": 200, "body": {"error": "x"}},  # error payload, no result
+            {"status_code": 200, "body": {"result": "not a list"}},
+        ],
+    )
+    def test_anything_unusable_is_none_so_the_caller_refetches(self, served):
+        # None and [] must stay distinguishable: "did not come back" is not
+        # "came back empty", and only the first one earns a second request.
+        assert batch_rows(served) is None

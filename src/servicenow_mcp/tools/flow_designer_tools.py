@@ -18,6 +18,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import AuthType, ServerConfig
 
 from .sn_api import invalidate_query_cache, sn_count, sn_count_by_group, sn_query_page
+from .sn_batch import batch_get, batch_rows, table_query_url
 
 logger = logging.getLogger(__name__)
 
@@ -2123,44 +2124,66 @@ def _fetch_flow_structure(
         )
         label_cache = flow_records[0].get("label_cache", "") if flow_records else ""
 
-        actions, _ = sn_query_page(
+        # The three component families differ only by table and field list — same
+        # snapshot, same limit — so they ride ONE round trip instead of three.
+        # Each still falls back to its own GET if the batch is unavailable or
+        # that sub-request did not come back: a fused read must return exactly
+        # what the sequential one did, never a shorter tree that looks like a
+        # flow with fewer steps.
+        families = (
+            (
+                "actions",
+                ACTION_V2_TABLE,
+                "sys_id,name,order,action_type,position,nesting_parent,compilable_type",
+                "action",
+            ),
+            (
+                "logic",
+                LOGIC_V2_TABLE,
+                "sys_id,name,order,type,position,nesting_parent,compilable_type",
+                "logic",
+            ),
+            (
+                "subflows",
+                SUBFLOW_V2_TABLE,
+                "sys_id,name,order,position,nesting_parent,compilable_type",
+                "subflow",
+            ),
+        )
+        snapshot_query = f"flow={snapshot_id}"
+        served = batch_get(
             config,
             auth_manager,
-            table=ACTION_V2_TABLE,
-            query=f"flow={snapshot_id}",
-            fields="sys_id,name,order,action_type,position,nesting_parent,compilable_type",
-            limit=100,
-            offset=0,
-            display_value=True,
+            [
+                (
+                    rid,
+                    table_query_url(table, snapshot_query, fields, limit=100, display_value=True),
+                )
+                for rid, table, fields, _kind in families
+            ],
         )
-        for a in actions:
-            a["component_type"] = "action"
 
-        logic_nodes, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=LOGIC_V2_TABLE,
-            query=f"flow={snapshot_id}",
-            fields="sys_id,name,order,type,position,nesting_parent,compilable_type",
-            limit=100,
-            offset=0,
-            display_value=True,
-        )
-        for node in logic_nodes:
-            node["component_type"] = "logic"
+        fetched: Dict[str, List[Dict[str, Any]]] = {}
+        for rid, table, fields, kind in families:
+            rows = batch_rows((served or {}).get(rid))
+            if rows is None:
+                rows, _ = sn_query_page(
+                    config,
+                    auth_manager,
+                    table=table,
+                    query=snapshot_query,
+                    fields=fields,
+                    limit=100,
+                    offset=0,
+                    display_value=True,
+                )
+            for row in rows:
+                row["component_type"] = kind
+            fetched[rid] = rows
 
-        subflows, _ = sn_query_page(
-            config,
-            auth_manager,
-            table=SUBFLOW_V2_TABLE,
-            query=f"flow={snapshot_id}",
-            fields="sys_id,name,order,position,nesting_parent,compilable_type",
-            limit=100,
-            offset=0,
-            display_value=True,
-        )
-        for s in subflows:
-            s["component_type"] = "subflow"
+        actions = fetched["actions"]
+        logic_nodes = fetched["logic"]
+        subflows = fetched["subflows"]
 
         all_components = actions + logic_nodes + subflows
         all_components.sort(key=lambda c: int(c.get("order", 0)))
