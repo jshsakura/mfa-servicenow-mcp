@@ -2826,6 +2826,7 @@ def update_remote_from_local(
                 "sys_id": resolved.sys_id,
                 "name": resolved.name,
             }
+            conflict_diffs = _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT)
             if drift["unanchored"]:
                 error_code = "CONFLICT_NO_ANCHOR"
             elif confirmed_other:
@@ -2955,7 +2956,11 @@ def update_remote_from_local(
                 # P1-1: the line-level diff of what THIS push would overwrite, from
                 # the already-fetched remote_record (no extra round-trip). Lets the
                 # caller decide force=true vs re-download without re-diffing.
-                "diffs": _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT),
+                "diffs": conflict_diffs,
+                # Same question a promotion asks, and just as relevant here: does
+                # this push only add, or does it take lines off what the server
+                # holds. Computed from the diff already in hand.
+                "promotion": _promotion_verdict(conflict_diffs, remote_updated_by),
             }
         if confirmed_other:
             # Name who the history actually implicates. The last-stamp holder can
