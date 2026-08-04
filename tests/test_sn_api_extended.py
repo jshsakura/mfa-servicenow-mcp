@@ -200,25 +200,41 @@ class TestSnQueryPage:
                 fail_silently=False,
             )
 
-    def test_orderby_desc(self):
+    def _params_for(self, **kwargs):
         config = _make_config()
         auth = MagicMock()
-        resp = _mock_response({"result": [{"sys_id": "1"}]}, headers={"X-Total-Count": "1"})
-        auth.make_request.return_value = resp
-        rows, total = sn_query_page(
-            config,
-            auth,
-            table="incident",
-            query="",
-            fields="",
-            limit=10,
-            offset=0,
-            orderby="-created_on",
+        auth.make_request.return_value = _mock_response(
+            {"result": [{"sys_id": "1"}]}, headers={"X-Total-Count": "1"}
         )
-        assert rows == [{"sys_id": "1"}]
+        sn_query_page(config, auth, table="incident", fields="", limit=10, offset=0, **kwargs)
         call_kwargs = auth.make_request.call_args
-        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
-        assert "sysparm_orderby_desc" in params
+        return call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
+
+    def test_orderby_desc_goes_into_the_encoded_query(self):
+        """`sysparm_orderby` is not a Table API parameter — ordering is a query clause.
+
+        The old form sent `sysparm_orderby_desc=<field>`, which the server
+        accepts and ignores, so the rows came back unordered while every caller
+        read them as "newest first". Confirmed against a live instance before
+        this was changed.
+        """
+        params = self._params_for(query="", orderby="-created_on")
+
+        assert params["sysparm_query"] == "ORDERBYDESCcreated_on"
+        assert not any(key.startswith("sysparm_orderby") for key in params)
+
+    def test_orderby_ascending_uses_the_plain_clause(self):
+        assert self._params_for(query="", orderby="order")["sysparm_query"] == "ORDERBYorder"
+
+    def test_orderby_is_appended_to_an_existing_query(self):
+        params = self._params_for(query="active=true^state=1", orderby="-sys_updated_on")
+
+        assert params["sysparm_query"] == "active=true^state=1^ORDERBYDESCsys_updated_on"
+
+    def test_a_trailing_separator_is_not_doubled(self):
+        params = self._params_for(query="active=true^", orderby="name")
+
+        assert params["sysparm_query"] == "active=true^ORDERBYname"
 
     def test_no_count_mode(self):
         config = _make_config()
