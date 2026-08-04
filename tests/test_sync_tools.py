@@ -7,11 +7,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from servicenow_mcp.tools.sn_api import _COLUMNAR_MIN_ROWS, rows_of, to_columnar
 from servicenow_mcp.tools.sync_tools import (
     _EDITOR_HISTORY_LIMIT,
     _NO_EDITOR_HISTORY,
     DiffLocalComponentParams,
     PushLocalComponentParams,
+    _active_update_sets,
     _alias_for_instance_url,
     _batch_fetch_updated_on,
     _component_field_verdicts,
@@ -3230,6 +3232,86 @@ class TestEditorHistoryLimits:
         assert "inconclusive" in result["message"]
         assert str(_EDITOR_HISTORY_LIMIT) in result["message"]  # says WHICH limit
         assert result["editor_history"]["covers_full_range"] is False
+
+
+class TestGuardsReadTheShapeSnQueryActuallyReturns:
+    """The guards must survive the wire shape ``sn_query`` really produces.
+
+    ``sn_query`` re-encodes results as ``{columns, data}`` from three rows up and
+    leaves them a list of dicts below it, so the payload shape depends on the row
+    COUNT. Every fixture in this file hand-wrote the list form with one or two
+    rows, which no amount of green could distinguish from correct: iterating the
+    columnar dict yields its two KEYS as strings, and ``row.get(...)`` raises.
+    Live, that took down the conflict attribution on any record with a second
+    version and the update-set hold in any scope with three open sets.
+
+    So these fixtures are built by ``to_columnar`` — the encoder ``sn_query``
+    itself calls — instead of by hand. A fixture written independently of the
+    producer is exactly what let the shapes drift apart.
+    """
+
+    @staticmethod
+    def _as_sn_query_would(rows):
+        """Encode rows the way sn_query does, thresholding on the same constant."""
+        if len(rows) >= _COLUMNAR_MIN_ROWS:
+            return {"format": "columnar", "results": to_columnar(rows)}
+        return {"results": rows}
+
+    def test_round_trip_through_the_real_encoder(self):
+        rows = [{"a": "1", "b": "2"}, {"a": "3", "b": "4"}, {"a": "5", "b": "6"}]
+        assert self._as_sn_query_would(rows)["format"] == "columnar"
+        assert rows_of(self._as_sn_query_would(rows)) == rows
+
+    def test_a_ragged_row_reads_as_empty_not_as_a_crash(self):
+        rows = [{"a": "1", "b": "2"}, {"a": "3"}, {"a": "5", "b": "6"}]
+        assert rows_of(self._as_sn_query_would(rows)) == [
+            {"a": "1", "b": "2"},
+            {"a": "3", "b": None},
+            {"a": "5", "b": "6"},
+        ]
+
+    def test_non_dict_and_empty_payloads_yield_no_rows(self):
+        for payload in (None, [], "results", {}, {"results": None}):
+            assert rows_of(payload) == []
+
+    @pytest.mark.parametrize("n_versions", [1, 2, _COLUMNAR_MIN_ROWS, 7])
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_editors_since_survives_every_row_count(
+        self, mock_query, n_versions, mock_config, mock_auth
+    ):
+        """The crossing of the threshold must not change the answer."""
+        rows = [
+            {"sys_created_by": "bob", "sys_created_on": f"2026-07-{30 - i:02d} 10:00:00"}
+            for i in range(n_versions)
+        ]
+        mock_query.return_value = self._as_sn_query_would(rows)
+
+        out = _editors_since(
+            mock_config, mock_auth, "sp_widget", "wid-1", "2026-07-01 00:00:00", "alice", True
+        )
+
+        assert out["checked"] is True
+        assert out["others"] == ["bob"]
+        assert out["versions"] == n_versions
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_update_set_hold_survives_three_open_sets(self, mock_query, mock_config, mock_auth):
+        """Three in-progress sets in a scope is ordinary, and it was the trigger."""
+        rows = [
+            {
+                "name": f"set-{i}",
+                "sys_created_by": f"dev{i}",
+                "sys_updated_by": f"dev{i}",
+                "sys_updated_on": "2026-08-01 10:00:00",
+            }
+            for i in range(_COLUMNAR_MIN_ROWS)
+        ]
+        mock_query.return_value = self._as_sn_query_would(rows)
+
+        out = _active_update_sets(mock_config, mock_auth, "scope-sys-id")
+
+        assert [s["name"] for s in out] == ["set-0", "set-1", "set-2"]
+        assert out[0]["created_by"] == "dev0"
 
 
 class TestSidecarIsVerifiedNotAssumed:
