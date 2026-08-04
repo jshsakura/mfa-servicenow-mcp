@@ -397,6 +397,19 @@ def _alias_for_instance_url(url: str) -> str:
     return ""
 
 
+def _routing_hint(url: str) -> str:
+    """The literal ``instance=`` pair that routes a call to *url*, alias filled in.
+
+    A hint that says "pass the alias of that instance" is one the caller has to
+    resolve before it is usable, and the measured failure mode for that is not
+    resolving it — it is retrying the same call. So the alias goes in the string.
+    """
+    alias = _alias_for_instance_url(url)
+    if not alias:
+        return "instance=<alias of that instance> and confirm_instance=<the same alias>"
+    return f"instance='{alias}' and confirm_instance='{alias}'"
+
+
 def _instance_retry_hint(url: str) -> str:
     """The routing fix as one clause: the exact alias when we can name it, the
     lookup instruction only when we genuinely cannot."""
@@ -2491,14 +2504,23 @@ def update_remote_from_local(
         if not params.cross_instance_deploy:
             return {
                 "error": "CROSS_INSTANCE",
+                # Two different intentions land here and they need different
+                # calls, so both are spelled out with the alias filled in. Naming
+                # only the promote-to-active option is what sent a caller into a
+                # hand-built deploy XML: the thing they actually wanted — push
+                # this back to where it came from — was never mentioned.
                 "message": (
-                    f"Local source is from '{origin}', but the target is '{active}'. To deploy "
-                    f"across instances pass cross_instance_deploy=true — the target record is "
-                    f"re-resolved BY NAME on '{active}' (its own sys_id), so it works whether or "
-                    f"not the instances share sys_ids and never hits the wrong record. (Or "
-                    f"re-download from '{active}' to edit it there directly.)"
+                    f"Local source is from '{origin}', but the active target is '{active}'.\n"
+                    f"- To push it back to '{origin}' (usually what you want after editing a "
+                    f"copy downloaded from there): pass {_routing_hint(origin)}.\n"
+                    f"- To promote it INTO '{active}': pass cross_instance_deploy=true — the "
+                    f"target record is re-resolved BY NAME on '{active}' (its own sys_id), so it "
+                    f"works whether or not the instances share sys_ids and never hits the wrong "
+                    f"record.\n"
+                    f"(Or re-download from '{active}' to edit it there directly.)"
                 ),
                 "origin_instance": origin,
+                "origin_alias": _alias_for_instance_url(origin),
                 "target_instance": active,
                 "component": {"table": resolved.table, "name": resolved.name},
             }
@@ -2903,11 +2925,16 @@ def update_remote_from_local(
             result_nc["nothing_was_deployed"] = True
             result_nc["compared_against"] = active
             result_nc["local_came_from"] = origin
+            # Name the alias rather than telling the caller to go find it. The
+            # observed failure mode for "look it up and retry" is not looking it
+            # up — it is re-issuing the same broken call. Same reasoning as
+            # _alias_for_instance_url's own docstring.
+            result_nc["origin_alias"] = _alias_for_instance_url(origin)
+            route = _routing_hint(origin)
             result_nc["message"] = (
                 f"No changes to push — but this was compared against '{active}', NOT "
                 f"'{origin}' where the local copy came from. Nothing was deployed "
-                f"anywhere. To push to '{origin}', route the call to it: pass "
-                f"instance=<its alias> and confirm_instance=<the same alias>."
+                f"anywhere. To push to '{origin}', route the call to it: pass {route}."
             )
         # The watermark lagged while the bodies never diverged (a stamp bump from
         # your own push / an unrelated field). Local provably equals remote here —
