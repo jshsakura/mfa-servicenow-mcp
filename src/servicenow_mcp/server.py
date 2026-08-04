@@ -8,7 +8,7 @@ import contextlib
 import logging
 import os
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anyio
 import mcp.types as types
@@ -18,6 +18,7 @@ from pydantic import AnyUrl, ValidationError
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.resources.skill_resources import build_tool_to_skills_map, load_skills
+from servicenow_mcp.tools.sync_tools import set_instance_resolver
 from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.chromium import check_chromium_install_hint
 from servicenow_mcp.utils.config import (
@@ -580,6 +581,11 @@ class ServiceNowMCP:
         )
         self.instance_contexts: Dict[str, Dict[str, Any]] = self._build_instance_contexts()
         self.active_instance_meta = self._active_instance_meta()
+        # The push path holds only the write target, so a promotion had no way to
+        # ask its ORIGIN whether the copy being shipped is still current. Hand the
+        # sync guards a read-only lookup for the other configured instances; they
+        # report "not checked" when it is absent rather than assuming freshness.
+        set_instance_resolver(self._instance_read_context)
 
         self.package_definitions: Dict[str, List[str]] = {}
         # Per-package per-tool action allowlists. Populated when YAML uses the
@@ -653,6 +659,18 @@ class ServiceNowMCP:
         self.mcp_server.read_resource()(self._read_resource_impl)
         self.mcp_server.list_resource_templates()(self._list_resource_templates_impl)
         logger.info("Registered list_tools, call_tool, and resource handlers.")
+
+    def _instance_read_context(self, alias: str) -> Optional[Tuple[Any, Any]]:
+        """(config, auth_manager) for a configured alias, or None if unusable.
+
+        Read-only helper for the sync guards. Returns None — never a partially
+        built pair — for an unknown alias or one that failed to initialize, so
+        the caller reports "could not check" instead of silently proceeding.
+        """
+        ctx = self.instance_contexts.get(alias)
+        if not ctx or "config_error" in ctx:
+            return None
+        return ctx["config"], ctx["auth_manager"]
 
     def _build_instance_contexts(self) -> Dict[str, Dict[str, Any]]:
         """Build named instance contexts for read-only comparison helpers.

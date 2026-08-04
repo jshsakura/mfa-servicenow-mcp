@@ -2802,6 +2802,168 @@ class TestCrossInstanceDeploy:
         )
         assert (v["lines_added"], v["lines_removed"]) == (0, 0)
 
+    def test_a_copy_behind_its_own_origin_is_named_before_the_promotion(self, monkeypatch):
+        """A promotion ships whatever the local tree holds, however old that is.
+
+        The drift check is off on this path by construction — there is no shared
+        baseline with the TARGET — which also left "my copy is behind its ORIGIN"
+        undetectable. That is not hypothetical: a promotion run today was three
+        days behind its origin and carried a crash the origin had already fixed,
+        and the push path had nothing that could see it.
+        """
+        import servicenow_mcp.tools.sync_tools as st
+
+        monkeypatch.setenv(
+            "SERVICENOW_INSTANCE_CONFIG",
+            json.dumps({"dev": {"url": "https://dev.service-now.com", "allow_writes": True}}),
+        )
+        monkeypatch.setattr(st, "_INSTANCE_RESOLVER", lambda alias: (MagicMock(), MagicMock()))
+        monkeypatch.setattr(
+            st,
+            "sn_query_page",
+            lambda *a, **k: (
+                [
+                    {
+                        "sys_id": "s1",
+                        "sys_mod_count": "9",
+                        "sys_updated_on": "2026-08-04 10:00:00",
+                        "sys_updated_by": "bob",
+                    }
+                ],
+                1,
+            ),
+        )
+
+        out = st._origin_freshness(
+            "https://dev.service-now.com",
+            "sp_widget",
+            "s1",
+            {"sys_mod_count": "6", "sys_updated_on": "2026-08-01 10:00:00"},
+        )
+
+        assert out["checked"] is True
+        assert out["stale"] is True
+        assert out["origin_alias"] == "dev"
+        assert out["origin_last_editor"] == "bob"
+
+    def test_a_bumped_counter_alone_is_not_called_a_source_change(self, monkeypatch):
+        """mod_count rises for an unrelated field, a stamp, or your own last push.
+
+        Reading "the body moved" off the counter is an inference presented as a
+        reading. With a per-field sha in the anchor the origin's actual body is
+        compared, and the verdict says which field moved and that it was proven
+        by content.
+        """
+        import servicenow_mcp.tools.sync_tools as st
+        from servicenow_mcp.utils.sync_anchor import field_sha
+
+        monkeypatch.setenv(
+            "SERVICENOW_INSTANCE_CONFIG",
+            json.dumps({"dev": {"url": "https://dev.service-now.com", "allow_writes": True}}),
+        )
+        monkeypatch.setattr(st, "_INSTANCE_RESOLVER", lambda alias: (MagicMock(), MagicMock()))
+        body = "unchanged body"
+        # Counter jumped 6 -> 99, body identical: NOT a source change.
+        monkeypatch.setattr(
+            st,
+            "sn_query_page",
+            lambda *a, **k: ([{"sys_id": "s1", "sys_mod_count": "99", "script": body}], 1),
+        )
+
+        out = st._origin_freshness(
+            "https://dev.service-now.com",
+            "sp_widget",
+            "s1",
+            {"sys_mod_count": "6", "field_shas": {"script": field_sha(body)}},
+            ["script"],
+        )
+
+        assert out["verified_by"] == "content"
+        assert out["stale"] is False  # the counter moved; the source did not
+        assert out["fields_changed_on_origin"] == []
+
+    def test_without_a_sha_the_counter_verdict_is_labelled_as_such(self, monkeypatch):
+        """A legacy tree still gets an answer — flagged as stamp-level, not content."""
+        import servicenow_mcp.tools.sync_tools as st
+
+        monkeypatch.setenv(
+            "SERVICENOW_INSTANCE_CONFIG",
+            json.dumps({"dev": {"url": "https://dev.service-now.com", "allow_writes": True}}),
+        )
+        monkeypatch.setattr(st, "_INSTANCE_RESOLVER", lambda alias: (MagicMock(), MagicMock()))
+        monkeypatch.setattr(
+            st, "sn_query_page", lambda *a, **k: ([{"sys_id": "s1", "sys_mod_count": "9"}], 1)
+        )
+
+        out = st._origin_freshness(
+            "https://dev.service-now.com", "sp_widget", "s1", {"sys_mod_count": "6"}, ["script"]
+        )
+
+        assert out["verified_by"] == "stamp"
+        assert out["stale"] is True
+
+    def test_a_current_copy_is_not_called_stale(self, monkeypatch):
+        import servicenow_mcp.tools.sync_tools as st
+
+        monkeypatch.setenv(
+            "SERVICENOW_INSTANCE_CONFIG",
+            json.dumps({"dev": {"url": "https://dev.service-now.com", "allow_writes": True}}),
+        )
+        monkeypatch.setattr(st, "_INSTANCE_RESOLVER", lambda alias: (MagicMock(), MagicMock()))
+        monkeypatch.setattr(
+            st,
+            "sn_query_page",
+            lambda *a, **k: ([{"sys_id": "s1", "sys_mod_count": "6"}], 1),
+        )
+
+        out = st._origin_freshness(
+            "https://dev.service-now.com", "sp_widget", "s1", {"sys_mod_count": "6"}
+        )
+        assert (out["checked"], out["stale"]) == (True, False)
+
+    @pytest.mark.parametrize(
+        "setup,expected",
+        [
+            ("no_resolver", "no instance registry"),
+            ("unknown_alias", "not a configured alias"),
+            ("no_anchor", "no anchor"),
+            ("read_failed", "could not read"),
+            ("not_there", "not on"),
+        ],
+    )
+    def test_every_failure_says_not_checked_never_current(self, setup, expected, monkeypatch):
+        """ "We could not ask" and "the origin has not moved" must not be one value.
+
+        Five distinct reasons collapse to the same empty result if the return is
+        a bare bool, and the caller picks the reassuring reading — the exact shape
+        this codebase keeps finding.
+        """
+        import servicenow_mcp.tools.sync_tools as st
+
+        monkeypatch.setenv(
+            "SERVICENOW_INSTANCE_CONFIG",
+            json.dumps({"dev": {"url": "https://dev.service-now.com", "allow_writes": True}}),
+        )
+        url, meta = "https://dev.service-now.com", {"sys_mod_count": "6"}
+        if setup == "no_resolver":
+            monkeypatch.setattr(st, "_INSTANCE_RESOLVER", None)
+        else:
+            monkeypatch.setattr(st, "_INSTANCE_RESOLVER", lambda a: (MagicMock(), MagicMock()))
+        if setup == "unknown_alias":
+            url = "https://elsewhere.service-now.com"
+        if setup == "no_anchor":
+            meta = {}
+        if setup == "read_failed":
+            monkeypatch.setattr(st, "sn_query_page", MagicMock(side_effect=RuntimeError("boom")))
+        if setup == "not_there":
+            monkeypatch.setattr(st, "sn_query_page", lambda *a, **k: ([], 0))
+
+        out = st._origin_freshness(url, "sp_widget", "s1", meta)
+
+        assert out["checked"] is False
+        assert "stale" not in out  # never a verdict it did not earn
+        assert expected in out["reason"]
+
     def test_blocked_without_optin_informs_not_walls(self, mock_config, mock_auth, download_root):
         self._set_origin_dev(download_root)
         result = update_remote_from_local(
