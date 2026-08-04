@@ -2891,6 +2891,24 @@ def update_remote_from_local(
                 "name": resolved.name,
             },
         }
+        if cross_instance_deploy:
+            # "No changes" is the most reassuring sentence this tool can print,
+            # and on a cross-instance deploy it is the one most likely to be
+            # about the wrong server. The target is the ACTIVE instance unless
+            # the call was routed with instance=<alias>, which write tools did
+            # not advertise until v1.23.5 — so a deploy meant for the origin ran
+            # against the active instance, found the change already there, and
+            # reported this. Observed exactly once, on a real promotion that
+            # never landed and was recorded as done.
+            result_nc["nothing_was_deployed"] = True
+            result_nc["compared_against"] = active
+            result_nc["local_came_from"] = origin
+            result_nc["message"] = (
+                f"No changes to push — but this was compared against '{active}', NOT "
+                f"'{origin}' where the local copy came from. Nothing was deployed "
+                f"anywhere. To push to '{origin}', route the call to it: pass "
+                f"instance=<its alias> and confirm_instance=<the same alias>."
+            )
         # The watermark lagged while the bodies never diverged (a stamp bump from
         # your own push / an unrelated field). Local provably equals remote here —
         # update_data is empty — so advancing it is safe and stops the phantom

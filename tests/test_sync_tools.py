@@ -2680,6 +2680,48 @@ class TestCrossInstanceDeploy:
             encoding="utf-8",
         )
 
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_no_changes_on_a_cross_instance_deploy_names_what_it_compared(
+        self, mock_resolve, mock_fetch, mock_config, mock_auth, download_root
+    ):
+        """ "No changes to push" must not read as "the deploy is done".
+
+        The target of a push is the ACTIVE instance unless the call is routed
+        with instance=<alias>, and write tools did not advertise that field until
+        v1.23.5. So a promotion of a test-origin file ran against dev, found the
+        change already there, and answered "No changes to push — local files
+        match remote." Nothing reached test. It was recorded as deployed.
+
+        This is the most reassuring sentence the tool can print, which is exactly
+        why it has to say which server it is about.
+        """
+        self._set_origin_dev(download_root)
+        path = self._widget_path(download_root)
+        body = path.read_text(encoding="utf-8")
+        mock_resolve.return_value = [{"sys_id": "target-sys-id", "name": "my-widget"}]
+        # Target already holds the identical body -> nothing to push.
+        mock_fetch.return_value = {
+            "sys_id": "target-sys-id",
+            "name": "my-widget",
+            "script": body,
+            "sys_updated_on": "2026-08-04 00:00:00",
+            "sys_updated_by": "alice",
+            "sys_mod_count": "3",
+        }
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(path), cross_instance_deploy=True),
+        )
+
+        assert result.get("nothing_was_deployed") is True
+        assert result["compared_against"] == "https://test.service-now.com"
+        assert result["local_came_from"] == "https://dev.service-now.com"
+        # It has to point at the routing that would actually deploy it.
+        assert "instance=" in result["message"] and "confirm_instance=" in result["message"]
+
     def test_blocked_without_optin_informs_not_walls(self, mock_config, mock_auth, download_root):
         self._set_origin_dev(download_root)
         result = update_remote_from_local(
