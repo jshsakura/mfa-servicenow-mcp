@@ -203,23 +203,42 @@ class TestFetchWidgetBundle:
 
 
 class TestFetchAngularProviders:
+    """Every empty list here also has to say WHY it is empty.
+
+    These three used to assert `result == []` and nothing more, which is exactly
+    the hole: a failed junction read and a widget with no providers produced the
+    identical value, and the caller picked the reassuring reading. The reason is
+    now part of the return, so the two cases are told apart at the boundary.
+    """
+
+    @patch("servicenow_mcp.tools.portal_dev_tools.resolve_angular_provider_m2m")
     @patch("servicenow_mcp.tools.performance_tools.sn_query")
-    def test_m2m_query_failure(self, mock_sn_query, config, auth):
-        """Cover line 328: m2m query not successful."""
+    def test_m2m_query_failure_says_it_could_not_read(
+        self, mock_sn_query, mock_resolve, config, auth
+    ):
+        mock_resolve.return_value = "m2m_junction"
         mock_sn_query.return_value = {"success": False}
-        result = _fetch_angular_providers(config, auth, "wid1")
-        assert result == []
+        providers, reason = _fetch_angular_providers(config, auth, "wid1")
+        assert providers == []
+        assert reason and "m2m_junction" in reason
 
+    @patch("servicenow_mcp.tools.portal_dev_tools.resolve_angular_provider_m2m")
     @patch("servicenow_mcp.tools.performance_tools.sn_query")
-    def test_no_provider_refs(self, mock_sn_query, config, auth):
-        """Cover line 341: empty provider refs."""
+    def test_no_provider_refs_is_a_real_answer(self, mock_sn_query, mock_resolve, config, auth):
+        """Read the table, found nothing: empty with no reason attached."""
+        mock_resolve.return_value = "m2m_junction"
         mock_sn_query.return_value = {"success": True, "results": []}
-        result = _fetch_angular_providers(config, auth, "wid1")
-        assert result == []
+        providers, reason = _fetch_angular_providers(config, auth, "wid1")
+        assert providers == []
+        assert reason is None
 
+    @patch("servicenow_mcp.tools.portal_dev_tools.resolve_angular_provider_m2m")
     @patch("servicenow_mcp.tools.performance_tools.sn_query")
-    def test_provider_query_failure(self, mock_sn_query, config, auth):
-        """Cover line 355: provider query not successful."""
+    def test_provider_query_failure_says_bodies_were_not_read(
+        self, mock_sn_query, mock_resolve, config, auth
+    ):
+        """The links resolved; the bodies did not. That is not "no providers"."""
+        mock_resolve.return_value = "m2m_junction"
         mock_sn_query.side_effect = [
             {
                 "success": True,
@@ -227,8 +246,9 @@ class TestFetchAngularProviders:
             },
             {"success": False},
         ]
-        result = _fetch_angular_providers(config, auth, "wid1")
-        assert result == []
+        providers, reason = _fetch_angular_providers(config, auth, "wid1")
+        assert providers == []
+        assert reason and "bodies" in reason
 
 
 # ---------------------------------------------------------------------------

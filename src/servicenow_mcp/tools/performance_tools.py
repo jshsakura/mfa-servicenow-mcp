@@ -4,7 +4,7 @@ Performance analysis tools for ServiceNow widgets and scripts.
 
 import logging
 import re
-from typing import Any, Dict, List, Literal, Optional, Set, cast
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, cast
 
 from pydantic import BaseModel, Field
 
@@ -12,7 +12,7 @@ from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
 from .log_tools import GetLogsParams, get_logs
-from .sn_api import GenericQueryParams, sn_query
+from .sn_api import GenericQueryParams, rows_of, sn_query
 from .source_tools import get_metadata_source
 
 logger = logging.getLogger(__name__)
@@ -167,6 +167,9 @@ class PerformanceReport(BaseModel):
     auto_fix_available: bool = False
     analysis_depth: str = "standard"
     sources_analyzed: List[str] = Field(default_factory=list)
+    # Sources that were meant to be analyzed and were not. Empty is the only
+    # honest way to say "everything asked for was actually read".
+    not_analyzed: List[str] = Field(default_factory=list)
 
 
 def _extract_script_references(script: str) -> Set[str]:
@@ -249,7 +252,7 @@ def _analyze_transaction_logs(
     if not log_result.get("success"):
         return result
 
-    transactions = log_result.get("results", [])
+    transactions = rows_of(log_result)
     if not transactions:
         return result
 
@@ -301,10 +304,10 @@ def _fetch_widget_bundle(
         ),
     )
 
-    if not response.get("success") or not response.get("results"):
+    if not response.get("success") or not rows_of(response):
         return {}
 
-    widget = response["results"][0]
+    widget = rows_of(response)[0]
     # Performance analysis must scan the WHOLE script or it silently misses
     # patterns in the tail of a >50k widget — re-fetch raw if a body came back
     # clipped (shared guard). The explicit max_script_length bound still applies.
@@ -325,13 +328,33 @@ def _fetch_angular_providers(
     config: ServerConfig,
     auth_manager: AuthManager,
     widget_sys_id: str,
-) -> List[Dict[str, Any]]:
-    """Fetch Angular providers linked to widget."""
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """Angular providers linked to *widget_sys_id*, and why the list may be short.
+
+    Returns ``(providers, unavailable_reason)``. The reason is None only when the
+    junction table was actually read; otherwise it names what stopped the read, so
+    the caller can say "not checked" instead of "none found".
+
+    Both halves of that were wrong. The junction table name is not uniform across
+    releases — this one hardcoded ``m2m_sp_widget_angular_provider``, which does
+    not exist on every instance and hard-fails with 400. And the failure collapsed
+    into ``[]``, which the report then presented as a clean result. Measured on a
+    live widget with eight linked providers: zero found, no warning, "no
+    significant performance issues detected", and the provider scripts — the ones
+    most likely to hold the slow code — never read at all.
+    """
+    from .portal_dev_tools import resolve_angular_provider_m2m
+
+    try:
+        m2m_table = resolve_angular_provider_m2m(config, auth_manager)
+    except Exception as exc:  # noqa: BLE001 — discovery is best-effort
+        return [], f"could not resolve the widget-provider junction table: {exc}"
+
     m2m_response = sn_query(
         config,
         auth_manager,
         GenericQueryParams(
-            table="m2m_sp_widget_angular_provider",
+            table=m2m_table,
             query=f"sp_widget={widget_sys_id}",
             fields="sp_angular_provider",
             limit=50,
@@ -340,10 +363,10 @@ def _fetch_angular_providers(
     )
 
     if not m2m_response.get("success"):
-        return []
+        return [], f"could not read '{m2m_table}': {m2m_response.get('message', 'query failed')}"
 
     provider_refs = []
-    for m2m in m2m_response.get("results", []):
+    for m2m in rows_of(m2m_response):
         prov = m2m.get("sp_angular_provider", {})
         if isinstance(prov, dict):
             prov_id = prov.get("value")
@@ -353,7 +376,7 @@ def _fetch_angular_providers(
             provider_refs.append(str(prov_id))
 
     if not provider_refs:
-        return []
+        return [], None
 
     prov_response = sn_query(
         config,
@@ -367,7 +390,12 @@ def _fetch_angular_providers(
         ),
     )
 
-    return prov_response.get("results", []) if prov_response.get("success") else []
+    if not prov_response.get("success"):
+        return (
+            [],
+            f"provider bodies could not be read: {prov_response.get('message', 'query failed')}",
+        )
+    return rows_of(prov_response), None
 
 
 @register_tool(
@@ -399,6 +427,7 @@ def analyze_widget_performance(
 
     sources_analyzed: List[str] = []
     all_patterns: List[PatternMatch] = []
+    provider_warnings: List[str] = []
 
     tx_analysis = _analyze_transaction_logs(
         config,
@@ -439,7 +468,15 @@ def analyze_widget_performance(
         sources_analyzed.append(f"sp_widget/{widget_name}/client_script")
 
     if params.include_angular_providers and params.analysis_depth in ("standard", "deep"):
-        providers = _fetch_angular_providers(config, auth_manager, widget_sys_id)
+        providers, providers_unavailable = _fetch_angular_providers(
+            config, auth_manager, widget_sys_id
+        )
+        if providers_unavailable:
+            # Say it was not checked. A silent [] here reads as "this widget has
+            # no providers", and the report then calls the widget clean.
+            provider_warnings.append(
+                f"Angular providers were NOT analyzed — {providers_unavailable}"
+            )
         for prov in providers[:10]:
             prov_name = prov.get("name") or prov.get("sys_id") or "unknown"
             prov_script = str(prov.get("script") or "")[: params.max_script_length]
@@ -509,6 +546,15 @@ def analyze_widget_performance(
                 if suggestions:
                     recommendations.append(f"[{pattern_type}] {suggestions[0]}")
 
+    # A clean verdict is only available when everything asked for was read. With
+    # a provider unread, "no issues detected" is a claim about sources nobody
+    # looked at — and provider scripts are where the slow code tends to live.
+    if provider_warnings:
+        report.not_analyzed = provider_warnings
+        recommendations.extend(provider_warnings)
+    elif not recommendations:
+        recommendations.append("No significant performance issues detected.")
+
     if not recommendations:
         recommendations.append("No significant performance issues detected.")
 
@@ -525,6 +571,7 @@ def analyze_widget_performance(
             "critical_issues": len(critical_patterns),
             "high_issues": len(high_patterns),
             "sources_analyzed": len(sources_analyzed),
+            "sources_not_analyzed": len(provider_warnings),
         },
         "quick_actions": (
             [
