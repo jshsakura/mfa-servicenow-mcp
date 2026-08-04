@@ -13,6 +13,7 @@ from servicenow_mcp.tools.portal_dev_tools import (
     _compact_record,
     _escape_query,
     _extract_si_refs,
+    _sn_get,
     get_developer_changes,
     get_developer_daily_summary,
     get_provider_dependency_map,
@@ -621,3 +622,70 @@ class TestGetDeveloperDailySummary:
 
         assert result["success"] is True
         assert result["api_calls_made"] == 3
+
+
+class TestReferenceKeysAreReadRaw:
+    """A reference used as a map KEY has to be a sys_id, not its label.
+
+    `_sn_get` asks for display values, which most callers here want — they render
+    names to a human. The widget↔provider join does not: it keys
+    `widget_provider_map` by `sp_widget` and then looks it up by the widget's
+    sys_id. With display values on, the key was 'myWidgetA' and the
+    lookup was a sys_id, so every join missed.
+
+    Live, that made `manage_widget_dependency` answer with `summary.providers: 9`
+    and `providers: []` on the same widget in the same response — a count from the
+    ids it collected, and an empty list from the join that could never match. The
+    follow-up detail read then queried `sys_idIN<provider NAMES>`.
+
+    No mock could see it: a fixture returns whatever shape it was written with, so
+    both spellings of a reference look identical in tests. What is pinned here is
+    the REQUEST — that this call asks for raw values — because that is the part
+    the server's answer depends on.
+    """
+
+    def _call_kwargs(self, mock_page):
+        return [c.kwargs for c in mock_page.call_args_list]
+
+    @patch("servicenow_mcp.tools.portal_dev_tools._sn_query_page_shared")
+    def test_sn_get_still_defaults_to_display_values(self, mock_page):
+        mock_page.return_value = ([], 0)
+        _sn_get(MagicMock(), MagicMock(), "sp_widget", "", "sys_id,name")
+        assert self._call_kwargs(mock_page)[0]["display_value"] is True
+
+    @patch("servicenow_mcp.tools.portal_dev_tools._sn_query_page_shared")
+    def test_raw_values_are_requestable(self, mock_page):
+        mock_page.return_value = ([], 0)
+        _sn_get(MagicMock(), MagicMock(), "m2m", "", "sp_widget", display_value=False)
+        assert self._call_kwargs(mock_page)[0]["display_value"] is False
+
+    def test_both_widget_provider_joins_ask_for_raw_values(self):
+        """Source-level: every m2m join selecting sp_widget must pass raw.
+
+        Asserted on the source because the two joins sit behind live discovery
+        and paging that a unit test would have to fake wholesale — and faking it
+        is exactly what hid the bug.
+        """
+        import inspect
+
+        from servicenow_mcp.tools import portal_dev_tools
+
+        source = inspect.getsource(portal_dev_tools)
+        joins = [
+            block
+            for block in source.split("_sn_get(")[1:]
+            if "sp_angular_provider" in block[:400] and "sp_widget" in block[:400]
+        ]
+        assert joins, "no widget<->provider join found — did the helper get renamed?"
+        for block in joins:
+            # Cut at the call's OWN closing paren: nested calls like
+            # '",".join(id_chunk)' carry one of their own, and stopping at the
+            # first ')' truncated the call before its keyword arguments.
+            depth, end = 1, len(block)
+            for idx, ch in enumerate(block):
+                depth += (ch == "(") - (ch == ")")
+                if depth == 0:
+                    end = idx
+                    break
+            call = block[:end]
+            assert "display_value=False" in call, f"join reads display values:\n{call}"

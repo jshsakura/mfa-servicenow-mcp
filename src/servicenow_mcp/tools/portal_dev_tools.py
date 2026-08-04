@@ -140,8 +140,15 @@ def _sn_get(
     limit: int = 20,
     offset: int = 0,
     orderby: Optional[str] = None,
+    display_value: bool = True,
 ) -> tuple[List[Dict[str, Any]], Optional[int]]:
-    """Lightweight ServiceNow table GET via shared cached page helper."""
+    """Lightweight ServiceNow table GET via shared cached page helper.
+
+    ``display_value`` defaults True because most callers here render names to a
+    human. Pass False when a reference field is used as a KEY: with display
+    values on, ``sp_widget`` comes back as 'myWidgetA' rather than a
+    sys_id, and joining that against a sys_id silently matches nothing.
+    """
     return _sn_query_page_shared(
         config,
         auth_manager,
@@ -151,7 +158,7 @@ def _sn_get(
         limit=limit,
         offset=offset,
         orderby=orderby,
-        display_value=True,
+        display_value=display_value,
         no_count=False,
         fail_silently=False,
     )
@@ -741,6 +748,10 @@ def get_provider_dependency_map(
                 m2m_query,
                 "sys_id,sp_widget,sp_angular_provider",
                 limit=500,
+                # These reference values are used as map KEYS below, so they have
+                # to be sys_ids. Display values made them names, and joining a
+                # name against a sys_id matched nothing without erroring.
+                display_value=False,
             )
             total_api_calls += 1
             m2m_rows.extend(chunk_rows)
@@ -1159,6 +1170,7 @@ def get_developer_daily_summary(
                     "sp_widgetIN" + ",".join(id_chunk),
                     "sp_widget,sp_angular_provider",
                     limit=500,
+                    display_value=False,  # keys, not labels — see _sn_get
                 )
                 total_api_calls += 1
                 m2m_rows.extend(chunk_rows)
