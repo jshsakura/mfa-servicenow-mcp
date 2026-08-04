@@ -1,10 +1,10 @@
 """Performance / token-economy batch: script-body stubbing in the structure
-tree (T1), parallel reorder wall-clock (L1), and parallel post-PUT save calls
+tree (T1), parallel reorder concurrency (L1), and parallel post-PUT save calls
 (L2). These pin behavior that saves context tokens and round-trips without
 losing information or weakening the safety guards.
 """
 
-import time
+import threading
 from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
@@ -16,7 +16,7 @@ from servicenow_mcp.tools.flow_designer_tools import (
     render_flow_compact,
 )
 from servicenow_mcp.tools.flow_edit_tools import ManageFlowEditParams, manage_flow_edit
-from servicenow_mcp.tools.workflow_tools import reorder_workflow_activities
+from servicenow_mcp.tools.workflow_tools import _REORDER_MAX_PARALLEL, reorder_workflow_activities
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig, ServerConfig
 
 
@@ -201,27 +201,57 @@ def _config():
 
 
 def test_reorder_runs_patches_in_parallel_preserving_order():
-    ids = [f"act{i}" for i in range(6)]
+    """Parallelism is proven by concurrency, not by a stopwatch.
 
-    def _slow_patch(method, url, **kwargs):
-        time.sleep(0.05)  # each PATCH takes 50ms
+    This assertion used to be `elapsed < 0.20` around six real 50ms sleeps. It
+    passes alone and fails on a loaded machine — and it sits in the pre-push
+    hook, so the way past it is `--no-verify`, which also switches off the
+    identity guard. A gate that has to be bypassed is a hole in the gate beside
+    it. The barrier below cannot be released unless `cap` PATCHes are genuinely
+    in flight at the same moment, so a sequential implementation fails on
+    evidence rather than on timing.
+    """
+    ids = [f"act{i}" for i in range(6)]
+    cap = min(_REORDER_MAX_PARALLEL, len(ids))
+
+    # Only the first `cap` arrivals wait: the executor has exactly `cap` workers,
+    # so those `cap` tasks must overlap to release each other. The remaining
+    # tasks run afterwards and must not wait on a barrier nobody else will reach.
+    gate = threading.Barrier(cap, timeout=10)
+    lock = threading.Lock()
+    arrivals = 0
+    in_flight = 0
+    peak_in_flight = 0
+
+    def _concurrent_patch(method, url, **kwargs):
+        nonlocal arrivals, in_flight, peak_in_flight
+        with lock:
+            arrivals += 1
+            in_flight += 1
+            peak_in_flight = max(peak_in_flight, in_flight)
+            waits = arrivals <= cap
+        try:
+            if waits:
+                gate.wait()  # BrokenBarrierError if the caller is sequential
+        finally:
+            with lock:
+                in_flight -= 1
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
         return resp
 
     auth = MagicMock(spec=AuthManager)
-    auth.make_request = MagicMock(side_effect=_slow_patch)
+    auth.make_request = MagicMock(side_effect=_concurrent_patch)
     auth.get_headers = MagicMock(return_value={})
 
-    start = time.monotonic()
     result = reorder_workflow_activities(
         _config(), auth, {"workflow_id": "wf1", "activity_ids": ids}
     )
-    elapsed = time.monotonic() - start
 
-    assert result["success"] is True
-    # 6 × 50ms sequential = 300ms; parallel (cap 4) must be well under that.
-    assert elapsed < 0.20, f"reorder did not parallelize (took {elapsed:.3f}s)"
+    # A sequential run never releases the barrier: every PATCH raises, and
+    # _patch_one turns that into success=False.
+    assert result["success"] is True, f"reorder did not parallelize: {result}"
+    assert peak_in_flight == cap, f"expected {cap} concurrent PATCHes, saw {peak_in_flight}"
     # executor.map preserves order → results align to input ids with rising order.
     assert [r["activity_id"] for r in result["results"]] == ids
     assert [r["new_order"] for r in result["results"]] == [100, 200, 300, 400, 500, 600]

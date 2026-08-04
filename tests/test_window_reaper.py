@@ -56,11 +56,17 @@ def _plant(auth, *, instance_url, username, pid=4242, last_used_at=0.0, started_
     return other, state
 
 
-def _all_alive(monkeypatch, alive=True):
+def _all_alive(monkeypatch, alive=True, pages=1):
     # reaper.py binds these at import, so patching window.* would leave the
     # reaper on the real ones — and every "survives" test below would then pass
     # for the wrong reason (a fake pid is not running).
-    monkeypatch.setattr(reaper, "is_window_alive", lambda state: alive)
+    #
+    # `pages=1` keeps the existing cases meaning what they meant: a running
+    # window with something open in it. The reaper judges on `.process`, not on
+    # `.reusable` — a window whose last tab is gone is precisely what it should
+    # collect, so calling that "not running" would strand it forever.
+    liveness = window.Liveness(process=alive, port=alive, pages=pages if alive else None)
+    monkeypatch.setattr(reaper, "window_liveness", lambda state: liveness)
 
 
 def _presence(monkeypatch, value):
@@ -250,6 +256,49 @@ def test_an_idle_untouched_window_is_closed_and_reported(mine, tmp_path, monkeyp
     assert [entry["instance"] for entry in closed] == ["test.example.com"]
     assert closed[0]["idle_minutes"] >= 30
     assert not os.path.exists(tmp_path / "debug_window_test_example_com_alice_at_ex_com.json")
+
+
+def test_a_window_whose_last_tab_was_closed_is_collected(mine, tmp_path, monkeypatch, now):
+    """The tab-less browser is the reaper's job, not something it steps over.
+
+    Chromium survives its last window on macOS, so this state is created by the
+    user closing the window — measured here as three resident processes, one of
+    them since the previous Friday. It has no unsaved input to protect and no
+    presence to ask, so the presence read below is deliberately absent: reaching
+    it would mean the reaper tried to talk to a window with nothing open.
+    """
+    _plant(
+        mine,
+        instance_url="https://test.example.com",
+        username="alice@ex.com",
+        pid=778,
+        last_used_at=now - LONG_AGO,
+    )
+    _all_alive(monkeypatch, pages=0)
+    _presence(monkeypatch, None)  # "could not ask" — must NOT be what decides
+    killed = _killed(monkeypatch)
+
+    closed = reap_idle_windows(mine, now=now)
+
+    assert killed == [778]
+    assert [entry["instance"] for entry in closed] == ["test.example.com"]
+
+
+def test_a_window_that_cannot_report_its_tabs_is_left_alone(mine, tmp_path, monkeypatch, now):
+    """`pages is None` is not `pages == 0`; an unread signal closes nothing."""
+    _plant(
+        mine,
+        instance_url="https://test.example.com",
+        username="alice@ex.com",
+        pid=779,
+        last_used_at=now - LONG_AGO,
+    )
+    _all_alive(monkeypatch, pages=None)
+    _presence(monkeypatch, None)
+    killed = _killed(monkeypatch)
+
+    assert reap_idle_windows(mine, now=now) == []
+    assert killed == []
 
 
 def test_a_dead_window_leaves_no_state_behind(mine, tmp_path, monkeypatch, now):
