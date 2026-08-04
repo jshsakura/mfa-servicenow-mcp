@@ -105,6 +105,7 @@ portal_developer:
     - manage_changeset
     - manage_session_context
     - manage_script_include
+    - manage_business_rule
     - manage_portal_layout
     - manage_portal_component
     - manage_widget_dependency
@@ -147,6 +148,7 @@ platform_developer:
     - manage_change
     - manage_workflow
     - manage_script_include
+    - manage_business_rule
     - manage_changeset
     - manage_session_context
     - manage_ui_policy
@@ -183,6 +185,7 @@ full:
     - manage_kb_article
     - manage_changeset
     - manage_script_include
+    - manage_business_rule
     - manage_workflow
     - manage_user
     - manage_group

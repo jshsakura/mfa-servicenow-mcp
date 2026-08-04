@@ -809,6 +809,66 @@ def test_g9_skips_when_name_missing() -> None:
         mocked.assert_not_called()
 
 
+def test_g9_scopes_the_clash_to_the_table_for_business_rules() -> None:
+    """A rule name repeats across tables by design; the clash is name AND table.
+
+    A family of same-named rules, one per interface table, is the intended
+    pattern. Matching on the name alone would fire on every sibling, and a guard
+    that is wrong every time is one people learn to pass allow_duplicate to.
+    """
+    captured: Dict[str, Any] = {}
+
+    def _fake_fetch(ctx, table, column, name, scope_column=None, scope_value=None):
+        captured.update(
+            table=table,
+            column=column,
+            name=name,
+            scope_column=scope_column,
+            scope_value=scope_value,
+        )
+        return None
+
+    with patch("servicenow_mcp.policies.write_guards._fetch_existing_by_name", _fake_fetch):
+        run_post_confirm_guards(
+            _SERVER,
+            "manage_business_rule",
+            {"action": "create", "name": "Update Group Count", "collection": "x_myapp_billing_if"},
+        )
+
+    assert captured["table"] == "sys_script"
+    assert captured["scope_column"] == "collection"
+    assert captured["scope_value"] == "x_myapp_billing_if"
+
+
+def test_g9_blocks_a_second_rule_with_the_same_name_on_the_same_table() -> None:
+    """Both would fire, ordered only by `order` — the duplicate is silent."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_existing_by_name",
+        return_value={"sys_id": "br-1", "name": "Update Group Count"},
+    ):
+        with pytest.raises(PolicyViolation, match=r"(?s)\[G9\].*already exists"):
+            run_post_confirm_guards(
+                _SERVER,
+                "manage_business_rule",
+                {
+                    "action": "create",
+                    "name": "Update Group Count",
+                    "collection": "x_myapp_billing_if",
+                },
+            )
+
+
+def test_g9_skips_a_scoped_check_with_no_scope_value() -> None:
+    """Without the table this check could only ask a broader question than the
+    one it is registered for, and a name-only match would block a legitimate
+    same-name sibling."""
+    with patch("servicenow_mcp.policies.write_guards._fetch_existing_by_name") as mocked:
+        run_post_confirm_guards(
+            _SERVER, "manage_business_rule", {"action": "create", "name": "Update Group Count"}
+        )
+        mocked.assert_not_called()
+
+
 def test_strip_post_confirm_fields_removes_allow_duplicate() -> None:
     from servicenow_mcp.policies.write_guards import strip_post_confirm_fields
 

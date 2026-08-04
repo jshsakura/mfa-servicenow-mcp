@@ -37,6 +37,7 @@ TOOL_MODULE_INDEX = {
     "get_widget_bundle": "portal_tools",
     "get_widget_instance": "portal_management_tools",
     "inspect_debug_window": "browser_debug_tools",
+    "manage_business_rule": "business_rule_tools",
     "manage_catalog": "catalog_tools",
     "manage_change": "change_tools",
     "manage_changeset": "changeset_tools",

@@ -136,6 +136,14 @@ class _CreateDupTarget:
     table: str
     name_arg: str  # argument key holding the new record's name
     name_column: str  # ServiceNow column to match on
+    # Optional narrowing: some tables scope a name rather than globally owning
+    # it. A business rule name repeats once per table BY DESIGN — a family of
+    # five rules called "Update Group Count", one per interface table, is the
+    # intended pattern. Matching on the name alone would fire on every one of
+    # them, and a guard that is wrong every time is a guard people learn to
+    # switch off with allow_duplicate. The clash is name AND scope.
+    scope_arg: Optional[str] = None  # argument key holding the scope value
+    scope_column: Optional[str] = None  # ServiceNow column for the scope
 
 
 # G9 — block CREATE of a record whose name already exists, ONLY for tables where
@@ -148,6 +156,12 @@ _CREATE_DUP_REGISTRY: Dict[str, _CreateDupTarget] = {
     "manage_workflow": _CreateDupTarget("wf_workflow", "name", "name"),
     "manage_group": _CreateDupTarget("sys_user_group", "name", "name"),
     "manage_user": _CreateDupTarget("sys_user", "user_name", "user_name"),
+    # Two rules with the same name on the SAME table both fire, in an order set
+    # by `order` alone — the duplicate is silent and shows up as work happening
+    # twice.
+    "manage_business_rule": _CreateDupTarget(
+        "sys_script", "name", "name", scope_arg="collection", scope_column="collection"
+    ),
 }
 
 ALLOW_DUPLICATE_FIELD = "allow_duplicate"
@@ -304,6 +318,7 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_group": frozenset({"list"}),
     "manage_workflow": frozenset({"list", "get", "list_versions", "get_activities"}),
     "manage_script_include": frozenset({"list", "get"}),
+    "manage_business_rule": frozenset({"list", "get"}),
     "manage_widget_dependency": frozenset({"list", "get"}),
     "manage_catalog": frozenset(
         {"list_items", "get_item", "list_categories", "list_item_variables"}
@@ -717,7 +732,12 @@ def _g8_registry_concurrent_edit(ctx: WriteGuardContext) -> None:
 
 
 def _fetch_existing_by_name(
-    ctx: WriteGuardContext, table: str, column: str, name: str
+    ctx: WriteGuardContext,
+    table: str,
+    column: str,
+    name: str,
+    scope_column: Optional[str] = None,
+    scope_value: Optional[str] = None,
 ) -> Optional[Dict[str, str]]:
     """LIVE remote check for an existing record with this name. Returns the first
     match (sys_id + name) or None. None ALSO on any failure — including a read
@@ -728,12 +748,18 @@ def _fetch_existing_by_name(
 
         # name values shouldn't contain encoded-query operators; strip to be safe.
         safe = name.replace("^", "").replace("=", "")
+        query = f"{column}={safe}"
+        fields = f"sys_id,{column}"
+        if scope_column and scope_value:
+            safe_scope = str(scope_value).replace("^", "").replace("=", "")
+            query += f"^{scope_column}={safe_scope}"
+            fields += f",{scope_column}"
         records, _ = sn_query_page(
             ctx.server.config,
             ctx.server.auth_manager,
             table=table,
-            query=f"{column}={safe}",
-            fields=f"sys_id,{column}",
+            query=query,
+            fields=fields,
             limit=1,
             offset=0,
             display_value=False,
@@ -762,13 +788,30 @@ def _g9_duplicate_create(ctx: WriteGuardContext) -> None:
     if str(ctx.arguments.get(ALLOW_DUPLICATE_FIELD) or "").lower().strip() in _ALLOW_DUPLICATE_TRUE:
         return  # explicit, deliberate duplicate
 
-    existing = _fetch_existing_by_name(ctx, target.table, target.name_column, name)
+    scope_value: Optional[str] = None
+    if target.scope_arg:
+        scope_value = str(ctx.arguments.get(target.scope_arg) or "").strip() or None
+        if scope_value is None:
+            # The clash is name AND scope; without the scope this check can only
+            # ask a broader question than the one it is registered for, and a
+            # name-only match here would block a legitimate same-name sibling.
+            return
+
+    existing = _fetch_existing_by_name(
+        ctx,
+        target.table,
+        target.name_column,
+        name,
+        scope_column=target.scope_column,
+        scope_value=scope_value,
+    )
     if existing is None:
         return  # none found, or check couldn't run — fail-open
 
+    where = f" on {target.scope_column}='{scope_value}'" if scope_value else ""
     raise PolicyViolation(
         "G9",
-        f"A {target.table} with {target.name_column}='{name}' already exists "
+        f"A {target.table} with {target.name_column}='{name}'{where} already exists "
         f"(sys_id={existing.get('sys_id')}). Creating another would make a silent "
         f"duplicate. If that is intended, add {ALLOW_DUPLICATE_FIELD}='true'; "
         f"otherwise update the existing record instead.",
