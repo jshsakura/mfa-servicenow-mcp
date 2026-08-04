@@ -202,8 +202,13 @@ def list_br(
     encoded = "^".join(parts)
 
     if count_only:
-        total = sn_count(config, auth_manager, table="sys_script", query=encoded)
-        return {"success": True, "count": total, "table": "sys_script"}
+        # Not sharing a name with the paged read's total below: that one is
+        # Optional[int] (absent X-Total-Count) and this one is not.
+        return {
+            "success": True,
+            "count": sn_count(config, auth_manager, table="sys_script", query=encoded),
+            "table": "sys_script",
+        }
 
     try:
         records, total = sn_query_page(

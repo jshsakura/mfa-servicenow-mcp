@@ -55,6 +55,19 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+      # The SAME command CI runs. The mypy hook below is scoped to changed files
+      # with --follow-imports=skip, which types every imported symbol as Any — so
+      # it cannot see an error that depends on another module's signature. v1.22.27
+      # was green locally and failed CI on exactly that (a variable bound to both
+      # an int and an Optional[int] return). A local gate weaker than the remote
+      # one does not fail safe: it reports clean and lets the break through.
+      - id: mypy-all
+        name: mypy-all
+        entry: ./.venv/bin/mypy src/
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
   # isort - import sorting
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
