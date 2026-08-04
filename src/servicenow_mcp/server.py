@@ -104,6 +104,9 @@ TOOL_PACKAGE_CONFIG_PATH = os.getenv("TOOL_PACKAGE_CONFIG_PATH", "config/tool_pa
 # truth shared with the guard pipeline. It was duplicated here once and the
 # copies drifted (get_action_source); see tests/test_write_classification.py.
 from servicenow_mcp.policies.write_guards import (  # noqa: E402
+    _PUBLISH_CLASS_TOOLS,
+    CONFIRM_PUBLISH_FIELD,
+    CONFIRM_PUBLISH_VALUE,
     MANAGE_READ_ACTIONS,
     MUTATING_TOOL_NAMES,
     MUTATING_TOOL_PREFIXES,
@@ -1028,7 +1031,7 @@ class ServiceNowMCP:
         return ServiceNowMCP._is_blocked_mutating_tool(tool_name)
 
     @staticmethod
-    def _inject_confirmation_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _inject_confirmation_schema(schema: Dict[str, Any], tool_name: str = "") -> Dict[str, Any]:
         # Shallow copy top-level and only the mutable sub-keys we modify,
         # avoiding an expensive copy.deepcopy of the entire Pydantic schema.
         schema_with_confirm = {**schema}
@@ -1041,10 +1044,30 @@ class ServiceNowMCP:
             "type": "string",
             "enum": [CONFIRM_VALUE],
         }
-        schema_with_confirm["properties"] = properties
         required = list(schema.get("required", []))
         if CONFIRM_FIELD not in required:
             required.append(CONFIRM_FIELD)
+
+        # G7 demands a SECOND approval on publish-class tools, and no params model
+        # declares it — so the schema never mentioned it and the caller could not
+        # know it existed. Every push, publish and commit therefore cost one
+        # guaranteed rejected call to discover a field the server already knew the
+        # name of. A guard is allowed to stop you; it is not allowed to hide the
+        # way through.
+        publish_condition = _PUBLISH_CLASS_TOOLS.get(tool_name, "__not_publish__")
+        if publish_condition != "__not_publish__":
+            properties[CONFIRM_PUBLISH_FIELD] = {
+                "type": "string",
+                "enum": [CONFIRM_PUBLISH_VALUE],
+            }
+            # None means the tool is publish-class on every call, so the field is
+            # simply required. A condition dict/list means only some actions
+            # publish (manage_changeset get, manage_flow_designer list), and
+            # marking it required would block the reads that share the tool.
+            if publish_condition is None and CONFIRM_PUBLISH_FIELD not in required:
+                required.append(CONFIRM_PUBLISH_FIELD)
+
+        schema_with_confirm["properties"] = properties
         schema_with_confirm["required"] = required
         return schema_with_confirm
 
@@ -1197,7 +1220,7 @@ class ServiceNowMCP:
                         fields_by_action = getattr(params_model, "_FIELDS_BY_ACTION", None)
                         schema = _narrow_action_schema(schema, allowed, fields_by_action)
                     if self._tool_requires_confirmation(tool_name):
-                        schema = self._inject_confirmation_schema(schema)
+                        schema = self._inject_confirmation_schema(schema, tool_name)
                     elif self.instance_contexts:
                         # Multi-instance: let read tools target a named instance.
                         # Write tools (confirmation-requiring) are excluded — they
