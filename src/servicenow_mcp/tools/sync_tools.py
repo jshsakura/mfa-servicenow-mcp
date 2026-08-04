@@ -48,7 +48,7 @@ from .portal_tools import (
     update_portal_component,
 )
 from .push_safety import assess_push_risk, describe_attribution
-from .sn_api import GenericQueryParams, resolve_live_username, rows_of, sn_query
+from .sn_api import GenericQueryParams, resolve_live_username, rows_of, sn_query, sn_query_page
 from .sn_batch import batch_get
 
 logger = logging.getLogger(__name__)
@@ -478,6 +478,123 @@ def _instance_retry_hint(url: str) -> str:
     if alias:
         return f"instance='{alias}'"
     return "instance=<alias> (run list_instances to find it)"
+
+
+# Set by the server at startup in multi-instance mode: alias -> (config, auth).
+# The push path only ever holds ONE instance — the write target — so a promotion
+# could not ask its ORIGIN anything, and the origin drift check was switched off
+# wholesale (`drifted = not cross_instance_deploy and ...`). That is the hole a
+# real promotion fell into today: the local tree was three days behind the origin
+# and carried a crash the origin had already fixed, and nothing on the push path
+# could see it. The guard stays here with the other guards; this only hands it
+# the means to read the other side. Absent (single-instance, offline, tests) the
+# check reports that it could not run — never that the copy is current.
+_INSTANCE_RESOLVER: Optional[Any] = None
+
+
+def set_instance_resolver(resolver: Optional[Any]) -> None:
+    """Install the alias -> (config, auth_manager) lookup used by origin checks."""
+    global _INSTANCE_RESOLVER
+    _INSTANCE_RESOLVER = resolver
+
+
+def _origin_freshness(
+    origin_url: str,
+    table: str,
+    sys_id: str,
+    meta: SyncMeta,
+    field_names: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Has the ORIGIN's BODY moved since this copy was taken? Carries what it proved.
+
+    ``sys_mod_count`` is not the question. It rises for an unrelated field, for a
+    workflow stamp, for your own last push — so a bumped counter says something
+    changed, never that the SOURCE changed, and reporting "stale" off it alone is
+    an inference dressed as a reading. The anchor stores a per-field sha, so when
+    it has one this compares the origin's actual bodies and reports
+    ``verified_by: "content"`` plus the fields that really moved.
+
+    The counter is the fallback for a legacy tree with no shas, and it is labelled
+    ``verified_by: "stamp"`` and phrased as "something changed" — never as proof
+    the body did.
+
+    Every failure — no resolver, unknown alias, unreadable record, missing anchor
+    — comes back ``checked: False`` with a reason, because "we could not ask" and
+    "the origin has not moved" must not collapse into the same answer. Rule 2 of
+    "A Guard May Only Claim What It Actually Read".
+    """
+    out: Dict[str, Any] = {"checked": False, "origin_instance": origin_url}
+    alias = _alias_for_instance_url(origin_url)
+    out["origin_alias"] = alias
+    if not alias:
+        out["reason"] = "the origin instance is not a configured alias"
+        return out
+    if _INSTANCE_RESOLVER is None:
+        out["reason"] = "no instance registry available in this process"
+        return out
+    anchor_mod = str(meta.get("sys_mod_count") or "")
+    anchor_on = str(meta.get("sys_updated_on") or "")
+    if not (anchor_mod or anchor_on):
+        out["reason"] = "the local copy has no anchor to compare the origin against"
+        return out
+    try:
+        resolved = _INSTANCE_RESOLVER(alias)
+        if not resolved:
+            out["reason"] = f"instance '{alias}' is configured but unusable"
+            return out
+        origin_config, origin_auth = resolved
+        anchor_shas = {
+            k: v for k, v in (meta.get("field_shas") or {}).items() if isinstance(v, str) and v
+        }
+        # Ask for the bodies only when there is a sha to check them against.
+        body_fields = [f for f in (field_names or []) if f in anchor_shas]
+        wanted = "sys_id,sys_updated_on,sys_updated_by,sys_mod_count" + (
+            "," + ",".join(body_fields) if body_fields else ""
+        )
+        rows, _total = sn_query_page(
+            origin_config,
+            origin_auth,
+            table=table,
+            query=f"sys_id={sys_id}",
+            fields=wanted,
+            limit=1,
+            offset=0,
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001 — a failed read is "unknown", not "fine"
+        out["reason"] = f"could not read the record on '{alias}': {exc}"
+        return out
+    if not rows:
+        out["reason"] = f"the record is not on '{alias}' under this sys_id"
+        return out
+
+    row = rows[0]
+    live_mod = _display_str(row.get("sys_mod_count"))
+    live_on = _display_str(row.get("sys_updated_on"))
+
+    if body_fields:
+        moved = [f for f in body_fields if field_sha(_display_str(row.get(f))) != anchor_shas[f]]
+        stale, verified_by = bool(moved), "content"
+    else:
+        # No sha to check against. The counter can only say SOMETHING changed.
+        moved, verified_by = [], "stamp"
+        if anchor_mod and live_mod:
+            stale = live_mod != anchor_mod
+        else:
+            stale = bool(anchor_on and live_on and live_on > anchor_on)
+
+    out.update(
+        {
+            "checked": True,
+            "stale": stale,
+            "verified_by": verified_by,
+            "fields_changed_on_origin": moved,
+            "your_copy_from": anchor_on or f"mod_count {anchor_mod}",
+            "origin_now": live_on or f"mod_count {live_mod}",
+            "origin_last_editor": _display_str(row.get("sys_updated_by")),
+        }
+    )
+    return out
 
 
 # Surfaced (not raised) when a local source has no recorded origin instance.
@@ -2792,9 +2909,40 @@ def update_remote_from_local(
     if cross_instance_deploy and update_data and not params.force:
         field_diffs = _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT)
         verdict = _promotion_verdict(field_diffs, remote_updated_by)
+        # Is the body being promoted still the origin's current one? The drift
+        # check is off on this path by construction (no shared baseline with the
+        # target), which left "my copy is stale" undetectable in EITHER direction.
+        origin_state = _origin_freshness(
+            origin, resolved.table, resolved.sys_id, meta, list(resolved.fields)
+        )
+        if origin_state.get("checked") and origin_state.get("stale"):
+            if origin_state.get("verified_by") == "content":
+                what = f"its source changed there ({', '.join(origin_state['fields_changed_on_origin'])})"
+            else:
+                # Counter only: it proves a change, not a change to the BODY.
+                what = (
+                    "its record changed there (no per-field anchor, so this may not be the source)"
+                )
+            stale_note = (
+                f"YOUR COPY IS BEHIND ITS ORIGIN: on '{origin_state['origin_alias']}' {what} "
+                f"since you downloaded it (yours: {origin_state['your_copy_from']}, origin now: "
+                f"{origin_state['origin_now']}, last changed there by "
+                f"'{origin_state['origin_last_editor'] or 'unknown'}'). Promoting this would "
+                f"ship an old body and silently leave the newer origin work behind. "
+                f"Re-download from '{origin_state['origin_alias']}' first. "
+            )
+        elif not origin_state.get("checked"):
+            stale_note = (
+                f"ORIGIN NOT CHECKED ({origin_state.get('reason', 'unknown')}) — whether your "
+                f"copy is still current on '{origin}' was not established. "
+            )
+        else:
+            stale_note = ""
         return {
             "error": "CROSS_INSTANCE_UNREVIEWED",
+            "origin_freshness": origin_state,
             "message": (
+                f"{stale_note}"
                 f"{verdict['intent']} {risk['message']} Nothing was written. Re-run with "
                 f"force=true once you have seen the target's version — optionally with "
                 f"confirm_overwrite_updated_on='{remote_updated_on}', which re-blocks if the "
