@@ -384,7 +384,7 @@ def act(
     profile: str,
     account: str = "",
     actions: Sequence[Dict[str, Any]] = (),
-    after_seq: int = 0,
+    marks: Any = 0,
     settle_ms: int = 0,
     screenshot: str = "none",
     selector: Optional[str] = None,
@@ -483,7 +483,7 @@ def act(
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("Could not detach the dialog listener: %s", exc)
 
-                drained = page.evaluate(drain_script(after_seq)) or {}
+                drained = page.evaluate(drain_script(marks)) or {}
                 shot, shot_note = _screenshot(
                     page, mode=screenshot, selector=selector, destination=screenshot_path
                 )
@@ -491,6 +491,7 @@ def act(
                     "url": str(page.url),
                     "title": str(drained.get("title") or page.title()),
                     "seq": int(drained.get("seq") or 0),
+                    "tab_id": str(drained.get("tabId") or ""),
                     "dropped": int(drained.get("dropped") or 0),
                     "events": list(drained.get("events") or []),
                     "styles": {},

@@ -234,6 +234,10 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
         "console": console,
         "network": network,
         "next_seq": int(raw.get("seq") or 0),
+        # Which tab those numbers belong to. The caller keys its high-water mark
+        # by this: seq counts from 1 in every tab, so a mark without a tab is a
+        # number waiting to be applied to the wrong one. See browser/cursor.py.
+        "tab_id": str(raw.get("tab_id") or ""),
         "new_events": len(events),
     }
 

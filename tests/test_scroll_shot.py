@@ -247,6 +247,71 @@ class ShotPage(FakePage):
         return _png(120, 60, (200, 30, 30))
 
 
+class TrimTab:
+    """A tab that may or may not be holding somebody's input."""
+
+    def __init__(self, url, dirty=()):
+        self.url = url
+        self.dirty = list(dirty)
+        self.closed = False
+
+    def evaluate(self, script, *args):
+        if "p.dirty()" in script:
+            return {"fields": self.dirty, "observedFromStart": True}
+        return None
+
+    def close(self):
+        self.closed = True
+
+
+class TrimContext:
+    def __init__(self, pages):
+        self.pages = list(pages)
+
+
+def test_tabs_below_the_cap_are_left_alone():
+    tabs = [TrimTab(f"https://dev.example.com/{i}.do") for i in range(3)]
+
+    assert capture_module._trim_tabs(TrimContext(tabs), keep=tabs[-1]) == {}
+    assert not any(tab.closed for tab in tabs)
+
+
+def test_the_oldest_empty_tabs_are_closed_once_over_the_cap():
+    # Tabs accumulated forever: navigate opens them, and nothing removed them.
+    tabs = [TrimTab(f"https://dev.example.com/{i}.do") for i in range(capture_module.MAX_TABS + 2)]
+
+    note = capture_module._trim_tabs(TrimContext(tabs), keep=tabs[-1])
+
+    assert len(note["closed_tabs"]) == 2
+    assert [tab.closed for tab in tabs[:2]] == [True, True]
+    assert tabs[-1].closed is False, "never the tab just opened"
+
+
+def test_a_tab_holding_input_is_never_closed():
+    # Closing is destructive, so even a GUESSED dirty field protects the tab —
+    # a stricter bar than the "a guess only steps aside" rule for opening one.
+    tabs = [TrimTab(f"https://dev.example.com/{i}.do") for i in range(capture_module.MAX_TABS + 2)]
+    tabs[0].dirty = ["short_description"]
+
+    note = capture_module._trim_tabs(TrimContext(tabs), keep=tabs[-1])
+
+    assert tabs[0].closed is False
+    assert tabs[0].url not in note["closed_tabs"]
+
+
+def test_a_cap_that_could_not_bite_says_so():
+    # A cap that silently gives up looks identical to one that worked.
+    tabs = [
+        TrimTab(f"https://dev.example.com/{i}.do", dirty=["x"])
+        for i in range(capture_module.MAX_TABS + 2)
+    ]
+
+    note = capture_module._trim_tabs(TrimContext(tabs), keep=tabs[-1])
+
+    assert "closed_tabs" not in note
+    assert "none could be closed" in note["tabs_note"]
+
+
 def _badge_calls(page):
     return [s for s in page.evaluated if "badge" in s.lower()]
 

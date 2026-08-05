@@ -19,6 +19,9 @@ keeps a runaway error loop (the same error 40,000 times) from ever becoming a
 payload we have to receive, parse, and pay for.
 """
 
+import json
+from typing import Any
+
 # Ring buffer size. 400 events comfortably covers a form submit plus its
 # fallout while staying a few hundred KB at worst.
 MAX_EVENTS = 400
@@ -52,6 +55,13 @@ PROBE_SCRIPT = """
   // navigation, somebody actively browsing would look untouched on every new
   // document, which is exactly backwards.
   let lastHuman = 0;
+  // WHOSE seq numbers these are. `seq` counts from 1 in every tab, while the
+  // caller's high-water mark used to be one number per WINDOW — so a mark of
+  // 120 taken in one tab, applied to a second tab sitting at 40, filtered away
+  // every event it had and reported a clean page nobody had read. Lives in
+  // sessionStorage, which is per tab and survives navigation, exactly like the
+  // buffer whose numbering it identifies.
+  let tabId = '';
 
   try {
     const saved = sessionStorage.getItem(KEY);
@@ -59,15 +69,23 @@ PROBE_SCRIPT = """
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed.events)) { events = parsed.events; seq = parsed.seq || 0; }
       lastHuman = parsed.lastHuman || 0;
+      tabId = parsed.tabId || '';
     }
   } catch (e) { /* storage blocked or corrupt — start fresh */ }
+
+  if (!tabId) {
+    tabId = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
 
   const mirror = (force) => {
     const now = Date.now();
     if (!force && now - lastMirror < MIRROR_MS) return;
     lastMirror = now;
-    try { sessionStorage.setItem(KEY, JSON.stringify({ events, seq, lastHuman })); } catch (e) {}
+    try {
+      sessionStorage.setItem(KEY, JSON.stringify({ events, seq, lastHuman, tabId }));
+    } catch (e) {}
   };
+  mirror(true);
 
   // Cheap, stable string hash (FNV-1a). Only used to decide "same payload?",
   // never for anything security-bearing.
@@ -259,17 +277,26 @@ PROBE_SCRIPT = """
       now: Date.now(),
       lastHuman: lastHuman,
       seq: seq,
+      tabId: tabId,
       dirty: dirtyFields().fields.length
     }),
-    // Harvest everything newer than `afterSeq`. The caller keeps the high-water
-    // mark, so a repeat call costs only what actually changed.
-    drain: (afterSeq) => ({
-      seq: seq,
-      url: location.href,
-      title: document.title,
-      dropped: Math.max(0, seq - events.length - (afterSeq || 0)),
-      events: events.filter((ev) => ev.seq > (afterSeq || 0))
-    }),
+    // Harvest everything newer than this TAB's high-water mark. `marks` is the
+    // caller's whole map of tabId -> seq, and the tab picks its own entry: the
+    // caller cannot know which tab it is about to reach until it has reached
+    // it, and applying another tab's number here is precisely the bug this
+    // replaces. An unknown tab starts from 0 — everything it buffered, which
+    // over-fetches rather than reporting a page it never read as clean.
+    drain: (marks) => {
+      const after = (marks && typeof marks === 'object' && marks[tabId]) || 0;
+      return {
+        seq: seq,
+        tabId: tabId,
+        url: location.href,
+        title: document.title,
+        dropped: Math.max(0, seq - events.length - after),
+        events: events.filter((ev) => ev.seq > after)
+      };
+    },
     reset: () => { events = []; seq = 0; mirror(true); }
   };
 })();
@@ -294,11 +321,23 @@ def dirty_script() -> str:
     )
 
 
-def drain_script(after_seq: int) -> str:
-    """Expression that returns every buffered event newer than ``after_seq``."""
+def drain_script(marks: Any) -> str:
+    """Expression returning this tab's events newer than ITS high-water mark.
+
+    ``marks`` is the whole ``{tabId: seq}`` map and the tab picks its own entry,
+    because which tab this lands on is not knowable until it lands. A plain int
+    is still accepted for a probe installed before v1.24.5 — it predates tab ids
+    and its ``drain`` reads the argument as a number, so passing the map to one
+    of those would be read as `0` and re-send its whole buffer. Over-fetching,
+    which is the direction this is allowed to fail in.
+    """
+    if isinstance(marks, int):
+        payload = str(int(marks))
+    else:
+        payload = json.dumps({str(k): int(v) for k, v in dict(marks or {}).items()})
     return (
         f"(() => {{ const p = window['{PROBE_GLOBAL}'];"
-        f" return p ? p.drain({int(after_seq)}) : null; }})()"
+        f" return p ? p.drain({payload}) : null; }})()"
     )
 
 
