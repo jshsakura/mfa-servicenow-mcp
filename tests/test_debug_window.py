@@ -442,11 +442,33 @@ def test_the_drain_script_hands_the_page_the_whole_map():
     assert "p.drain(" in script
 
 
-def test_the_drain_script_still_speaks_int_to_an_older_probe():
-    # A probe installed before v1.24.5 reads the argument as a number. Handing
-    # one of those a map would read as 0 and re-send its whole buffer — over-
-    # fetching, which is the direction this may fail in.
-    assert "p.drain(7)" in drain_script(7)
+def test_the_probe_in_the_page_decides_which_shape_it_gets():
+    # Found on a live window minutes after v1.24.5 shipped, and not by CI: a
+    # window open across the upgrade still runs the OLD probe (the script
+    # returns early when its global exists). Its drain treats the argument as a
+    # number, so a map made `seq - events.length - {object}` = NaN, which came
+    # back as a float NaN and took down EVERY inspect on that window until the
+    # page was reloaded — worse than the bug being fixed.
+    script = drain_script({"tab-a": 120})
+
+    assert "(p.version || 0) >= 4" in script
+    # Old probe: start of buffer. Over-fetches rather than misreporting.
+    assert script.rstrip().endswith(": 0); })()")
+
+
+def test_an_explicit_mark_reaches_an_older_probe_intact():
+    # A number is a number in either dialect, so it is not reset to 0.
+    script = drain_script(7)
+
+    assert "7 : 7" in script.replace("? ", "").replace(" :", " :")
+
+
+def test_a_count_the_page_could_not_compute_does_not_take_down_the_report():
+    # JavaScript yields NaN where Python raises. A malformed count is worth 0.
+    assert report._whole(float("nan")) == 0
+    assert report._whole(None) == 0
+    assert report._whole("12") == 12
+    assert report._whole(-4) == 0
 
 
 def test_a_tab_the_map_forgot_re_reads_rather_than_reporting_nothing(tmp_path):
@@ -1110,7 +1132,9 @@ def test_the_probe_records_a_payload_hash_not_the_payload():
 
 
 def test_drain_reads_only_events_after_the_high_water_mark():
-    assert "drain(12)" in drain_script(12)
+    # An explicit mark is a plain number, and reaches either probe version as
+    # itself — see test_an_explicit_mark_reaches_an_older_probe_intact.
+    assert "12 : 12" in drain_script(12)
     assert PROBE_GLOBAL in drain_script(0)
 
 
