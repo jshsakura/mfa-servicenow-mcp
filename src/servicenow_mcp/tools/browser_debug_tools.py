@@ -370,10 +370,15 @@ def open_debug_window(
     # Sign the window in with what the server already knows, once per window.
     # Runs after arming so the login round-trip is itself recorded, and after
     # navigation so the form it looks at is the one on the target page.
+    #
+    # ``driven_url`` is which tab that was. The window is shared with the person
+    # using it, and their tabs are not places to type an instance password —
+    # login.py fills the tab we pointed at the instance, or none at all.
     login = auto_login(
         state,
         credentials=saved_credentials(config),
         marker_path=window_login_path(auth_manager),
+        driven_url=str(result.get("url") or ""),
     )
     if login.get("status") not in (None, "no_credentials", "no_login_form", "no_page"):
         result["auto_login"] = login.get("status")
@@ -622,6 +627,11 @@ def act_in_debug_window(
                 "instance_host": state.instance_host,
                 "login_user": (saved_credentials(config) or ("", ""))[0],
                 "allow_discard": params.discard_unsaved_input,
+                # Where to make the switch from when the tab is off the instance
+                # and a relative POST would go to somebody else's site. The
+                # instance root, because it is the one URL every instance has —
+                # a deeper page would be a guess about this customer's menu.
+                "carrier_url": str(config.instance_url or "").rstrip("/") + "/",
             },
             allow_server_script=allow_server_script,
         )

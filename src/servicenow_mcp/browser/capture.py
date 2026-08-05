@@ -19,7 +19,7 @@ from ._offload import require_playwright, run_off_loop
 from .badge import badge_activity_script, badge_init_script, hide_badge_script, show_badge_script
 from .evaluate import run_in_page
 from .probe import PROBE_SCRIPT, dirty_script, drain_script, presence_script
-from .session import EFFECTIVE_USER_SCRIPT
+from .session import read_effective_user
 from .window import WindowState
 
 logger = logging.getLogger(__name__)
@@ -291,12 +291,11 @@ def _screenshot(
 
 
 def _effective_user(page: Any) -> Optional[Dict[str, Any]]:
-    try:
-        result = page.evaluate(EFFECTIVE_USER_SCRIPT)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Effective-user read failed: %s", exc)
-        return None
-    return dict(result) if isinstance(result, dict) else None
+    # Frame-aware: the Next Experience shell names nobody, and reporting that as
+    # "could not read a signed-in user — the window may still need a login" sent
+    # people to look for a login problem on a signed-in window. See
+    # session.read_effective_user.
+    return read_effective_user(page)
 
 
 def capture(

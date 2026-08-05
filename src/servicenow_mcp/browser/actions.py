@@ -292,6 +292,7 @@ def _run_step(
             "started_at": float(context.get("started_at") or 0.0),
             "instance_host": str(context.get("instance_host") or ""),
             "allow_discard": bool(context.get("allow_discard")),
+            "carrier_url": str(context.get("carrier_url") or ""),
             "timeout_ms": timeout_ms,
         }
         login_user = str(context.get("login_user") or "")

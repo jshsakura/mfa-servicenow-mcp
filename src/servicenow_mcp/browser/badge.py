@@ -47,17 +47,62 @@ COLLAPSED_KEY = "__sn_mcp_debug_badge_collapsed__"
 # is the point: this window has its OWN ServiceNow session. A name captured
 # when the script was built would go stale the moment someone impersonates —
 # which is exactly the moment the badge needs to be right.
+#
+# Read from THIS document, and failing that from the frames inside it. The
+# second half is load-bearing on Next Experience, measured on a live instance:
+# the `/now/nav/ui/...` shell has `g_ck` but no user at all, because the classic
+# UI it wraps sits in an iframe **inside a shadow root** and `g_user` lives in
+# there. A badge that only read its own document showed a blank user on every
+# Next Experience page — on the surface whose whole job is saying who you are.
 _USER_RESOLVER = """
-  const resolveUser = () => {
-    try { if (window.NOW && NOW.user && NOW.user.userName) return String(NOW.user.userName); } catch (e) {}
-    try { if (window.g_user && g_user.userName) return String(g_user.userName); } catch (e) {}
-    try { if (window.NOW && NOW.user_name) return String(NOW.user_name); } catch (e) {}
+  const readFrom = (w) => {
+    try { if (w.NOW && w.NOW.user && w.NOW.user.userName) return String(w.NOW.user.userName); } catch (e) {}
+    try { if (w.g_user && w.g_user.userName) return String(w.g_user.userName); } catch (e) {}
+    try { if (w.NOW && w.NOW.user_name) return String(w.NOW.user_name); } catch (e) {}
     return '';
+  };
+  // The frame a name came from, so the re-read below costs one property access
+  // instead of another walk. Cleared when it stops answering.
+  let userSource = null;
+  const findSource = () => {
+    if (readFrom(window)) { userSource = window; return; }
+    const seen = new Set();
+    const walk = (root, depth) => {
+      if (depth > 6 || !root || !root.querySelectorAll) return false;
+      let els;
+      try { els = root.querySelectorAll('*'); } catch (e) { return false; }
+      for (const el of els) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        if (el.tagName === 'IFRAME') {
+          let w = null;
+          try { w = el.contentWindow; } catch (e) { w = null; }
+          if (w && readFrom(w)) { userSource = w; return true; }
+        }
+        if (el.shadowRoot && walk(el.shadowRoot, depth + 1)) return true;
+      }
+      return false;
+    };
+    walk(document, 0);
+  };
+  const resolveUser = () => {
+    let name = '';
+    try { name = userSource ? readFrom(userSource) : ''; } catch (e) { name = ''; }
+    if (name) return name;
+    userSource = null;
+    findSource();
+    try { return userSource ? readFrom(userSource) : ''; } catch (e) { return ''; }
   };
   // The globals land well after DOMContentLoaded on Next Experience and the
   // portal, so a single read at mount would almost always come up empty.
-  // Polling stops once a name appears: an impersonation reloads the page, and
-  // this whole script runs again on the new document.
+  //
+  // Once a name appears the watch SLOWS DOWN rather than stopping. It used to
+  // stop, on the reasoning that an impersonation reloads the page and re-runs
+  // this whole script on the new document — true on a classic page or the
+  // portal, and false on Next Experience, where the shell survives and only the
+  // inner frame navigates. There the badge would have kept displaying the
+  // account long after the session had become somebody else: precisely the
+  // wrong-user confusion this badge exists to prevent.
   //
   // ACCOUNT is the user this window SIGNED IN as. Anyone else on screen is an
   // impersonation — including one done by hand through the avatar menu — so the
@@ -65,9 +110,11 @@ _USER_RESOLVER = """
   // name for another and letting the ACLs of a different user look like a bug.
   const trackUser = (sep, userEl, paint) => {
     let tries = 0;
+    let shown = null;
     const tick = () => {
       const user = resolveUser();
-      if (user) {
+      if (user && user !== shown) {
+        shown = user;
         const acting = ACCOUNT && user.toLowerCase() !== ACCOUNT.toLowerCase();
         userEl.textContent = acting ? (ACCOUNT + ' \\u2192 ' + user) : user;
         userEl.style.color = acting ? IMPERSONATING : NORMAL_USER;
@@ -75,8 +122,10 @@ _USER_RESOLVER = """
         // paint() decides visibility, so a name arriving while the badge is
         // collapsed does not pop it back open behind the user's decision.
         paint();
-        return;
       }
+      // A document that never names anybody is not a ServiceNow UI; stop
+      // looking. One that did keeps being watched, so a switch shows up.
+      if (shown) { setTimeout(tick, 2000); return; }
       if (++tries < 40) setTimeout(tick, 500);
     };
     tick();
