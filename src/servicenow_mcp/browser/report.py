@@ -218,6 +218,23 @@ def write_artifacts(directory: str, events: Sequence[Dict[str, Any]]) -> Optiona
     return path
 
 
+def _whole(value: Any) -> int:
+    """A count from the page, or 0 — never an exception.
+
+    The page is JavaScript, where arithmetic on the wrong type yields NaN
+    instead of raising, and ``int(float('nan'))`` raises here. That is how a
+    single mismatched argument to the probe took down every ``inspect`` on a
+    live window (see probe.drain_script). A malformed count is worth 0 and a
+    debug line; it is not worth the whole report.
+    """
+    try:
+        number = int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        logger.debug("Unusable count from the page: %r", value)
+        return 0
+    return max(0, number)
+
+
 def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
     """Full compaction pass: raw drain in, context-sized report out."""
     events: Iterable[Dict[str, Any]] = raw.get("events") or []
@@ -233,7 +250,7 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
         "verdict": build_verdict(console, network, watched=watched),
         "console": console,
         "network": network,
-        "next_seq": int(raw.get("seq") or 0),
+        "next_seq": _whole(raw.get("seq")),
         # Which tab those numbers belong to. The caller keys its high-water mark
         # by this: seq counts from 1 in every tab, so a mark without a tab is a
         # number waiting to be applied to the wrong one. See browser/cursor.py.
@@ -241,7 +258,7 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
         "new_events": len(events),
     }
 
-    dropped = int(raw.get("dropped") or 0)
+    dropped = _whole(raw.get("dropped"))
     if dropped:
         # Never let truncation pass for completeness.
         report["dropped_events"] = dropped

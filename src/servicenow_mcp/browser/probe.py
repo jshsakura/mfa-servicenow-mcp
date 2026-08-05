@@ -268,7 +268,12 @@ PROBE_SCRIPT = """
   };
 
   window[G] = {
-    version: 3,
+    // Bumped when the SHAPE of a call changes, so a caller can tell what the
+    // probe in front of it understands. A window open across an upgrade keeps
+    // its old probe until the page reloads (the script returns early when the
+    // global exists), so "the code shipped" never means "the page has it".
+    // 4: drain() takes a {tabId: seq} map instead of a bare number.
+    version: 4,
     dirty: dirtyFields,
     // Everything the reaper needs to decide "is this window in use?", in one
     // evaluate. `now` is the PAGE's clock so the caller subtracts two readings
@@ -325,19 +330,32 @@ def drain_script(marks: Any) -> str:
     """Expression returning this tab's events newer than ITS high-water mark.
 
     ``marks`` is the whole ``{tabId: seq}`` map and the tab picks its own entry,
-    because which tab this lands on is not knowable until it lands. A plain int
-    is still accepted for a probe installed before v1.24.5 — it predates tab ids
-    and its ``drain`` reads the argument as a number, so passing the map to one
-    of those would be read as `0` and re-send its whole buffer. Over-fetching,
-    which is the direction this is allowed to fail in.
+    because which tab this lands on is not knowable until it lands.
+
+    **The probe in the page decides which shape it gets.** A window that was
+    open across the upgrade still runs the OLD probe — the script returns early
+    when its global exists, so nothing changes until that document reloads —
+    and the old ``drain`` treats its argument as a number. Handed a map it
+    computed ``seq - events.length - {object}`` = NaN, which came back to Python
+    as a float NaN and took the whole call down with it. Measured on a live
+    window minutes after shipping v1.24.5: every ``inspect`` on that window
+    failed until the page was reloaded, which is worse than the bug being fixed.
+
+    So the version is asked at call time and an older probe is handed ``0``: it
+    re-sends its whole buffer, which over-fetches rather than misreports. An
+    explicit int from the caller is passed through for the same reason.
     """
     if isinstance(marks, int):
         payload = str(int(marks))
+        # An explicit mark is a number in either dialect, so an old probe gets
+        # the real one rather than being reset to the start of its buffer.
+        legacy = payload
     else:
         payload = json.dumps({str(k): int(v) for k, v in dict(marks or {}).items()})
+        legacy = "0"
     return (
-        f"(() => {{ const p = window['{PROBE_GLOBAL}'];"
-        f" return p ? p.drain({payload}) : null; }})()"
+        f"(() => {{ const p = window['{PROBE_GLOBAL}']; if (!p) return null;"
+        f" return p.drain((p.version || 0) >= 4 ? {payload} : {legacy}); }})()"
     )
 
 
