@@ -79,6 +79,65 @@ EFFECTIVE_USER_SCRIPT = """
 """
 
 
+def _read_user_in(target: Any) -> Optional[Dict[str, Any]]:
+    """Run the reader against one document. None when it does not say."""
+    try:
+        result = target.evaluate(EFFECTIVE_USER_SCRIPT)
+    except Exception as exc:  # noqa: BLE001 - an unbooted document is not an error
+        logger.debug("Effective-user read failed: %s", exc)
+        return None
+    return dict(result) if isinstance(result, dict) and result.get("user") else None
+
+
+def read_effective_user(page: Any) -> Optional[Dict[str, Any]]:
+    """Who this page says it is — its own document first, then its frames.
+
+    The frame half is not a nicety, and it is measured rather than reasoned
+    about: on Next Experience (``/now/nav/ui/...``) the shell document carries
+    ``g_ck`` but names NO user, because the classic UI it wraps sits in an
+    iframe **inside a shadow root** and ``g_user`` lives in there. Playwright
+    lists that frame even though a DOM query on the light document finds nothing.
+
+    Reading only the main document is why three different surfaces reported the
+    same absence as a fact: the badge showed a blank user, ``inspect`` said
+    "could not read a signed-in user — the window may still need a login", and
+    impersonation turned a switch that HAD happened into "the page never
+    reported a signed-in user". One document was read; the window was described.
+
+    Frames on another host are skipped — a third-party widget's globals are not
+    this session's and must not get to answer who we are. The answering frame's
+    url is returned under ``frame`` so a caller can see where it came from.
+    """
+    own = _read_user_in(page)
+    if own:
+        return own
+
+    try:
+        main_host = (urlparse(str(page.url)).hostname or "").lower()
+    except (AttributeError, ValueError):  # pragma: no cover - defensive
+        main_host = ""
+    try:
+        frames = list(page.frames)
+        main = page.main_frame
+    except Exception as exc:  # noqa: BLE001 - a page without frames is normal
+        logger.debug("Could not enumerate frames for the user read: %s", exc)
+        return None
+
+    for frame in frames:
+        if frame is main:
+            continue
+        try:
+            frame_url = str(frame.url)
+        except Exception:  # noqa: BLE001 - a detached frame does not answer
+            continue
+        if main_host and (urlparse(frame_url).hostname or "").lower() != main_host:
+            continue
+        reading = _read_user_in(frame)
+        if reading:
+            return {**reading, "frame": frame_url}
+    return None
+
+
 def describe_window_user(
     detected: Optional[Dict[str, Any]], api_user: Optional[str]
 ) -> Dict[str, Any]:
@@ -119,4 +178,5 @@ __all__ = [
     "api_username",
     "describe_window_user",
     "instance_host",
+    "read_effective_user",
 ]

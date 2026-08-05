@@ -8,13 +8,43 @@ is filled and submitted automatically.
 
 Two things are load-bearing here.
 
-**One attempt per window.** A wrong password retried on every open_debug_window
-call is how an account gets locked out, and the second attempt would be no more
-likely to succeed than the first: nothing changed between them. So the attempt
-is claimed on disk against the window's ``started_at`` BEFORE the submit, not
-after — a crash mid-login must not come back as a retry loop either. Closing
-the window and opening a new one is the deliberate way to try again, and it is
-also exactly what a person does after fixing a typo in their config.
+**One REJECTED attempt per window.** A wrong password retried on every
+open_debug_window call is how an account gets locked out, and the second attempt
+would be no more likely to succeed than the first: nothing changed between them.
+So the attempt is claimed on disk against the window's ``started_at`` BEFORE the
+submit — a crash mid-login must not come back as a retry loop either — and then
+GIVEN BACK when the instance turns out not to have rejected it.
+
+That second half was missing until v1.24.1, and its absence was the bug: the
+marker recorded "we tried" and every later call read it as "trying again would
+be a retry loop", without anything ever reading whether the login had worked. A
+window that signed in perfectly at 09:00 and whose session expired at 14:00 had
+no attempt left, and the tool told the user to close their window and reopen it
+— for a login that never failed. What the lockout guard is actually protecting
+against is a credential the server REFUSES, so that is what now spends the shot.
+
+The verdict is read from the login form itself: gone means the server did not
+refuse (it either signed us in or moved on to an MFA challenge, and replaying an
+accepted credential cannot lock anything), still standing means refused. An
+unreadable page proves neither and leaves the attempt spent — the expensive
+answer, per the repo's guard rule. Nothing here spams a challenge either: while
+MFA is pending there is no password field on the page, so the next call finds no
+form to fill and does nothing.
+
+**The password only ever goes into a tab we drove.** This used to fill
+``pages[0]`` — whatever tab happened to be first — and there was no origin check
+anywhere in this module. The window is shared with the person using it, so tab 0
+is routinely one of *their* pages; if it held a password field belonging to some
+other site, the instance credentials were typed into that form and submitted.
+Wasting the one attempt was the mild version of that bug.
+
+So the tab is chosen, not assumed (:func:`_login_page`): a tab on the instance
+host, or else the tab this very call pointed at the instance (``driven_url``,
+which is why a single freshly-launched tab still qualifies after it redirects).
+When neither can be identified, auto-login declines rather than guessing —
+saying so, because a silent no-op is what let this go unnoticed. SSO is
+unaffected: the IdP lives on a foreign host, but it is reached by driving OUR
+tab there, and a form inside that tab's frames is still that tab's.
 
 **MFA is the user's.** The submit is where automation stops. Everything past it
 — the code, the push prompt, the remembered-device checkbox — happens in a
@@ -48,7 +78,8 @@ nothing to fill and the window asks for a login as before.
 import json
 import logging
 import os
-from typing import Any, Dict, Optional, Sequence, Tuple
+import time
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..auth._browser_dom import (
     PASSWORD_SELECTORS,
@@ -71,6 +102,14 @@ LOGIN_FORM_WAIT_S = 5.0
 
 # Attaching, filling, submitting. Deliberately does NOT cover MFA.
 LOGIN_TIMEOUT_S = 90.0
+
+# How long to watch the form for the instance's answer to the credentials, and
+# how long it has to stay gone before that counts. A submit navigates, and a
+# page mid-navigation briefly has no fields at all — reading that single frame
+# as "accepted" would hand the attempt back to a password the server refused.
+CREDENTIAL_VERDICT_S = 8.0
+_VERDICT_POLL_S = 0.5
+_VERDICT_STABLE_READS = 3
 
 # CSS unions of the shared selector tuples — one wait_for_selector instead of
 # one per candidate, which would multiply the timeout above by six.
@@ -118,6 +157,21 @@ def already_attempted(marker_path: str, state: WindowState) -> bool:
         return False
 
 
+def release_attempt(marker_path: str) -> None:
+    """Give the attempt back — the instance did not refuse these credentials.
+
+    Called only on a proven non-refusal. Every other outcome, including one that
+    could not be read, leaves the shot spent: the guard exists for a credential
+    the server rejects, and "we could not tell" is not evidence it did not.
+    """
+    try:
+        os.remove(marker_path)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:  # pragma: no cover - best effort
+        logger.debug("Could not release the auto-login attempt at %s: %s", marker_path, exc)
+
+
 def record_attempt(marker_path: str, state: WindowState) -> None:
     """Spend this window's single auto-login attempt."""
     os.makedirs(os.path.dirname(marker_path), exist_ok=True)
@@ -133,6 +187,46 @@ def record_attempt(marker_path: str, state: WindowState) -> None:
 # ---------------------------------------------------------------------------
 # Filling the form
 # ---------------------------------------------------------------------------
+
+
+def _real_pages(pages: Sequence[Any]) -> List[Any]:
+    return [page for page in pages if not str(page.url).startswith("devtools://")]
+
+
+def _login_page(
+    pages: Sequence[Any], *, instance_host: str = "", driven_url: str = ""
+) -> Tuple[Optional[Any], str]:
+    """The one tab this may type a password into, or (None, why not).
+
+    In order: a tab on the instance host; else the tab this call just pointed at
+    the instance. The second is what keeps SSO working — the redirect lands the
+    tab on the IdP's host, so there is nothing on the instance host to find, but
+    it is still the tab we drove and a freshly launched window has only that one.
+
+    A tab nobody here navigated is never a candidate, however convincing its
+    login form looks. See the module docstring.
+    """
+    real = _real_pages(pages)
+    if not real:
+        return None, "no_page"
+
+    host = (instance_host or "").lower()
+    if host:
+        for page in real:
+            if host in str(page.url).lower():
+                return page, ""
+
+    if driven_url:
+        exact = [page for page in real if str(page.url) == driven_url]
+        if len(exact) == 1:
+            return exact[0], ""
+        # The launch case: the URL was handed to Chromium rather than to a goto,
+        # so what came back after the redirect was never seen here. One tab means
+        # there is nothing to confuse it with.
+        if len(real) == 1:
+            return real[0], ""
+
+    return None, "no_instance_page"
 
 
 def _login_targets(page: Any) -> Sequence[Any]:
@@ -202,11 +296,41 @@ def _fill_and_submit(page: Any, username: str, password: str) -> Dict[str, Any]:
     return {"filled": False, "submitted": False, "via": None}
 
 
+def _credentials_accepted(page: Any) -> Optional[bool]:
+    """Did the instance refuse what we submitted? True=no, False=yes, None=unread.
+
+    The login form is the answer. Gone means accepted — signed in, or standing at
+    an MFA challenge, and a credential the server already accepted cannot lock
+    the account by being replayed. Still standing after the wait means refused.
+
+    ``_selector_exists`` answers False for a page it could not read at all, which
+    is the same shape as "the form is gone" and would hand the attempt back on no
+    evidence. So each poll first proves the document still answers, and a page
+    that stops answering returns None rather than the reassuring one.
+    """
+    deadline = time.time() + CREDENTIAL_VERDICT_S
+    clear_reads = 0
+    while True:
+        try:
+            page.evaluate("1")
+        except Exception as exc:  # noqa: BLE001 - an unreadable page proves nothing
+            logger.debug("Could not read the page after submitting the login: %s", exc)
+            return None
+        standing = any(_selector_exists(target, _PASSWORD_UNION) for target in _login_targets(page))
+        clear_reads = 0 if standing else clear_reads + 1
+        if clear_reads >= _VERDICT_STABLE_READS:
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(_VERDICT_POLL_S)
+
+
 def auto_login(
     state: WindowState,
     *,
     credentials: Optional[Tuple[str, str]],
     marker_path: str,
+    driven_url: str = "",
 ) -> Dict[str, Any]:
     """Fill and submit the login form in the window, at most once per window.
 
@@ -231,14 +355,13 @@ def auto_login(
                 contexts = browser.contexts
                 if not contexts:
                     return {"status": "no_page"}
-                pages = [
-                    page
-                    for page in contexts[0].pages
-                    if not str(page.url).startswith("devtools://")
-                ]
-                if not pages:
-                    return {"status": "no_page"}
-                page = pages[0]
+                page, refusal = _login_page(
+                    contexts[0].pages,
+                    instance_host=state.instance_host,
+                    driven_url=driven_url,
+                )
+                if page is None:
+                    return {"status": refusal}
 
                 if not _wait_for_login_form(page):
                     return {"status": "no_login_form", "url": str(page.url)}
@@ -252,6 +375,13 @@ def auto_login(
                     return {"status": "fields_not_found", "url": str(page.url)}
                 if not outcome["submitted"]:
                     return {"status": "filled", "user": username}
+
+                accepted = _credentials_accepted(page)
+                if accepted is None:
+                    return {"status": "unverified", "user": username, "via": outcome["via"]}
+                if not accepted:
+                    return {"status": "rejected", "user": username, "url": str(page.url)}
+                release_attempt(marker_path)
                 return {"status": "submitted", "user": username, "via": outcome["via"]}
             finally:
                 # Disconnects from the window; does not close it.
@@ -277,12 +407,31 @@ def describe(result: Dict[str, Any]) -> Optional[str]:
             f"Filled the credentials for '{result.get('user')}' but found no submit "
             "button — press Enter in the window."
         )
+    if status == "rejected":
+        return (
+            f"The instance did not accept the saved credentials for '{result.get('user')}' — "
+            "the login form is still showing. Fix the password in the config, then close "
+            "the window and open it again."
+        )
+    if status == "unverified":
+        return (
+            f"Submitted the credentials for '{result.get('user')}' but could not read whether "
+            "the instance accepted them — look at the window. The attempt is held as spent "
+            "until a new window; closing this one and reopening frees it."
+        )
     if status == "fields_not_found":
         return "A login form is showing but its fields were not recognized — sign in manually."
+    if status == "no_instance_page":
+        return (
+            "Auto-login did not run: no tab in this window is on the instance, and it will "
+            "not type the instance password into a form on some other site. Open an "
+            "instance page (open_debug_window url=...) and it will sign in there."
+        )
     if status == "already_attempted":
         return (
-            "Auto-login already ran once for this window. If it failed, close the window "
-            "and open it again (one attempt per window avoids locking the account)."
+            "Auto-login already ran for this window and the login was not accepted. Close "
+            "the window and open it again to try once more (a refused password is not "
+            "retried, to avoid locking the account)."
         )
     if status == "error":
         return f"Auto-login could not run ({result.get('error')}) — sign in manually."
@@ -291,11 +440,13 @@ def describe(result: Dict[str, Any]) -> Optional[str]:
 
 
 __all__ = [
+    "CREDENTIAL_VERDICT_S",
     "LOGIN_FORM_WAIT_S",
     "LOGIN_TIMEOUT_S",
     "already_attempted",
     "auto_login",
     "describe",
     "record_attempt",
+    "release_attempt",
     "saved_credentials",
 ]

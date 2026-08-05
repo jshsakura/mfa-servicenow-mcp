@@ -31,11 +31,35 @@ from inside the window so it carries that window's cookies and its ``g_ck``.
 Ending an impersonation is the same call aimed back at the original user, which
 is how the OOB widget does it too.
 
-Because it is an HTTP call and not a menu, it works from wherever the window
+Because it is an HTTP call and not a menu, it is made from wherever the window
 already is — a portal page, a workspace, a classic form, a list — and the page
 comes back on the SAME url, re-rendered for the new user. No navigating to a
 dialog and no clicking through a localized menu ('가장' / 'Impersonate'), which
 would be a different DOM on every one of those screens.
+
+Where the window is still decides three things, all of them measured on a live
+instance rather than reasoned about:
+
+- **off the instance entirely** (the window is a shared screen; somebody's
+  intranet tab is a normal thing to find it on) — a relative POST would go to
+  THAT site. The tab is driven to the instance, the switch is made and verified
+  there, and the tab goes back where it was. It used to just hand back a
+  sentence saying to open an instance page.
+- **signed out** — the login page carries a ``g_ck`` of its own, because the
+  guest session has one. So a signed-out window did not trip the "no token"
+  branch; it POSTed, got a 401, and was told the account needs the impersonator
+  role. Asked explicitly now, and it stops rather than relocating: no page on
+  the instance can carry a session that does not exist.
+- **Next Experience** (``/now/nav/ui/...``) — the shell has the token but names
+  no user at all; the classic UI it wraps is an iframe inside a shadow root, and
+  ``g_user`` is in there. The POST always worked here. The read after it did
+  not, so a switch that HAD happened came back as "the page never reported a
+  signed-in user" — see :func:`current_identity`.
+
+And what the page becomes afterwards is nobody's to predict: the same url is a
+different experience for every user, and a redirect away from it is the instance
+saying this one may not see it. Reported (``landing_note``) rather than left for
+the caller to notice.
 
 What guards it
 --------------
@@ -66,7 +90,7 @@ from urllib.parse import urlparse
 
 from .capture import _dirty_fields
 from .evaluate import run_in_page
-from .session import EFFECTIVE_USER_SCRIPT
+from .session import read_effective_user
 
 logger = logging.getLogger(__name__)
 
@@ -223,18 +247,24 @@ def post_script(target: str) -> str:
 def current_identity(page: Any) -> Dict[str, Any]:
     """Who the page says it is, and whether it admits to impersonating.
 
-    ``impersonating`` is None when the page does not expose the flag at all
-    (an older UI, a document that has not booted) — which is not the same as
-    False and must not be read as "this is definitely the real account".
+    Reads the document AND its frames (``session.read_effective_user``), which
+    is what makes this work on Next Experience: the shell names nobody, and a
+    main-frame-only read turned a switch that HAD happened into "the page never
+    reported a signed-in user" — a false failure on a state-changing action, and
+    worse than a false success, because the next step is someone retrying a
+    switch that already took effect.
+
+    ``impersonating`` is None when nothing exposes the flag (an older UI, a
+    document that has not booted) — which is not the same as False and must not
+    be read as "this is definitely the real account".
     """
-    try:
-        result = page.evaluate(EFFECTIVE_USER_SCRIPT)
-    except Exception as exc:  # noqa: BLE001 - an unbooted page is not an error here
-        logger.debug("Effective-user read failed during impersonation: %s", exc)
+    reading = read_effective_user(page)
+    if not reading:
         return {"user": "", "impersonating": None}
-    if isinstance(result, dict) and result.get("user"):
-        return {"user": str(result["user"]), "impersonating": result.get("impersonating")}
-    return {"user": "", "impersonating": None}
+    identity = {"user": str(reading["user"]), "impersonating": reading.get("impersonating")}
+    if reading.get("frame"):
+        identity["frame"] = reading["frame"]
+    return identity
 
 
 def current_user(page: Any) -> str:
@@ -282,6 +312,47 @@ def _explain(outcome: Dict[str, Any], target: str) -> str:
     return f"The impersonate call failed ({status}){f': {body}' if body else '.'}"
 
 
+# Whether this document is a signed-out one. Deliberately separate from
+# EFFECTIVE_USER_SCRIPT, which answers "who are we" and is used by the badge and
+# every read: a signed-out page answers that with nothing, and "nothing" is also
+# what an unbooted page answers.
+_GUEST_SCRIPT = """
+(() => {
+  try {
+    const name =
+      (window.NOW && NOW.user && (NOW.user.userName || NOW.user.name)) ||
+      (window.g_user && g_user.userName) ||
+      (window.NOW && NOW.user_name) || null;
+    if (!name) return null;
+    return String(name).trim().toLowerCase() === 'guest';
+  } catch (e) {
+    return null;
+  }
+})()
+"""
+
+
+def signed_out(page: Any) -> Optional[bool]:
+    """True when this page is a signed-out one, None when it does not say.
+
+    Measured on a live instance and the reason this exists: **the login page
+    carries a g_ck.** The guest session has a token like any other, so the
+    "page carried no g_ck" branch in :func:`_explain` never fires on the one
+    page it was written for, and a signed-out window came back as
+    "the account needs the impersonator or admin role" — sending whoever read
+    it to an admin to fix a permission that was never the problem.
+
+    Only an explicit ``guest`` blocks. None means the page did not say, which is
+    not evidence of being signed in and must not be reported as such.
+    """
+    try:
+        result = page.evaluate(_GUEST_SCRIPT)
+    except Exception as exc:  # noqa: BLE001 - an unbooted page is not a verdict
+        logger.debug("Signed-out read failed: %s", exc)
+        return None
+    return bool(result) if isinstance(result, bool) else None
+
+
 def _wrong_origin(page: Any, instance_host: str) -> Optional[str]:
     """Why this page cannot carry the call, or None when it can.
 
@@ -309,6 +380,15 @@ def _wrong_origin(page: Any, instance_host: str) -> Optional[str]:
     return None
 
 
+def _goto(page: Any, url: str, timeout_ms: int) -> Optional[str]:
+    """Point the tab at ``url``. Returns why it could not, or None."""
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+        return None
+    except Exception as exc:  # noqa: BLE001 - reported, never raised at the caller
+        return f"Could not open {url} in the window: {str(exc)[:160]}"
+
+
 def _switch(
     page: Any,
     *,
@@ -316,19 +396,28 @@ def _switch(
     timeout_ms: int,
     instance_host: str = "",
     allow_discard: bool = False,
+    carrier_url: str = "",
 ) -> Dict[str, Any]:
-    """POST, reload, and read back who the session actually became."""
+    """POST, reload, and read back who the session actually became.
+
+    When the tab is not on the instance at all, the call cannot be carried from
+    there — a relative POST would go to whatever site the window is on. Rather
+    than handing back a sentence and stopping, the tab is driven to
+    ``carrier_url`` on the instance, the switch is made and VERIFIED there, and
+    then the tab goes back to where it was. The window is a shared screen, so it
+    is put back the way it was found.
+
+    Relocating is not offered as a way around the unsaved-input refusal: moving
+    the tab destroys input exactly like the reload does, which is why that check
+    now runs first, before anything moves.
+    """
     before = current_user(page)
     if not target.strip():
         return {"ok": False, "error": "No user given to impersonate.", "before": before}
 
-    misplaced = _wrong_origin(page, instance_host)
-    if misplaced:
-        return {"ok": False, "error": misplaced, "before": before}
-
-    # The switch reloads the page, so it destroys unsaved input exactly like a
-    # navigation does — and gets the same refusal. The user is mid-task by
-    # definition when there is something to lose.
+    # The switch reloads the page — and relocating moves it — so either way this
+    # destroys unsaved input exactly like a navigation does, and gets the same
+    # refusal. The user is mid-task by definition when there is something to lose.
     if not allow_discard:
         dirty, basis = _dirty_fields(page)
         if dirty:
@@ -351,6 +440,75 @@ def _switch(
                 ),
             }
 
+    return_url = ""
+    misplaced = _wrong_origin(page, instance_host)
+    if misplaced:
+        if not carrier_url:
+            return {"ok": False, "error": misplaced, "before": before}
+        return_url = _url(page)
+        problem = _goto(page, carrier_url, timeout_ms)
+        if problem:
+            return {"ok": False, "error": f"{misplaced} {problem}", "before": before}
+        still_misplaced = _wrong_origin(page, instance_host)
+        if still_misplaced:
+            return {"ok": False, "error": still_misplaced, "before": before}
+        # Read on a page that can actually answer; the foreign one never could.
+        before = current_user(page)
+
+    # A signed-out window has a g_ck all the same (the guest session carries
+    # one), so this cannot be left to the HTTP status to explain — see
+    # :func:`signed_out`. Moving the tab does not fix it, so it is a stop.
+    if signed_out(page) is True:
+        return {
+            "ok": False,
+            "before": before,
+            "error": (
+                "The debug window is not signed in — the page is running as 'guest'. "
+                "Impersonation runs in the window's own session, so sign in there "
+                "first (the window has its own login, separate from the API's)."
+            ),
+            **({"relocated_to": _url(page)} if return_url else {}),
+        }
+
+    result = _switch_here(page, target=target, timeout_ms=timeout_ms, before=before)
+    if return_url:
+        result = _come_back(page, result, return_url=return_url, timeout_ms=timeout_ms)
+    return result
+
+
+def _come_back(
+    page: Any, result: Dict[str, Any], *, return_url: str, timeout_ms: int
+) -> Dict[str, Any]:
+    """Put the tab back where it was, and say what the new user got there.
+
+    The switch was made and verified on the carrier, so this cannot turn a
+    successful switch into a failure — it is reported alongside, never instead.
+
+    What the page becomes here is the part nobody can predict: the same URL is a
+    different experience for every user, and a redirect away from it is the
+    instance saying this one may not see it. That is worth reporting on its own,
+    because a caller who asked to look at a screen as somebody else is now
+    looking at a different screen.
+    """
+    returned = dict(result)
+    returned["switched_on"] = _url(page)
+    problem = _goto(page, return_url, timeout_ms)
+    if problem:
+        returned["return_failed"] = problem
+        return returned
+    landed = _url(page)
+    returned["returned_to"] = landed
+    if landed.split("#")[0] != return_url.split("#")[0]:
+        returned["landing_note"] = (
+            f"Going back to {return_url} as this user ended up at {landed} — the "
+            "instance redirected it, so that page is probably not one they may see."
+        )
+    return returned
+
+
+def _switch_here(page: Any, *, target: str, timeout_ms: int, before: str) -> Dict[str, Any]:
+    """The switch itself, on a page already established as able to carry it."""
+    url_before = _url(page)
     sent = run_in_page(page, body=post_script(target))
     if not sent.get("ok"):
         return {
@@ -408,14 +566,25 @@ def _switch(
             break
         time.sleep(_VERIFY_POLL_S)
 
+    landed = _url(page)
     result: Dict[str, Any] = {
         "ok": True,
         "before": before,
         "now": now or became,
-        "url": _url(page),
+        "url": landed,
     }
     if resolved:
         result["resolved"] = resolved
+    # The reload is meant to bring this screen back as itself, rendered for the
+    # new user. When it comes back as a DIFFERENT url, the instance sent them
+    # somewhere else — the same page is a different experience for every user,
+    # and this one may not be theirs to see. Said, because the caller asked to
+    # look at a specific screen as somebody else and is no longer on it.
+    if url_before and landed.split("#")[0] != url_before.split("#")[0]:
+        result["landing_note"] = (
+            f"Reloading {url_before} as this user ended up at {landed} — the instance "
+            "redirected it, so that page is probably not one they may see."
+        )
 
     if not now:
         # The server said it switched and the page has not said anything yet:
@@ -484,6 +653,7 @@ def become(
     instance_host: str = "",
     allow_discard: bool = False,
     login_user: str = "",
+    carrier_url: str = "",
 ) -> Dict[str, Any]:
     """Impersonate ``target`` in the window, and record who to go back to.
 
@@ -500,6 +670,7 @@ def become(
         timeout_ms=timeout_ms,
         instance_host=instance_host,
         allow_discard=allow_discard,
+        carrier_url=carrier_url,
     )
     if not result.get("ok"):
         return result
@@ -527,6 +698,7 @@ def restore(
     timeout_ms: int = 10_000,
     instance_host: str = "",
     allow_discard: bool = False,
+    carrier_url: str = "",
 ) -> Dict[str, Any]:
     """End the impersonation and go back to the account the window signed in as.
 
@@ -564,6 +736,7 @@ def restore(
         timeout_ms=timeout_ms,
         instance_host=instance_host,
         allow_discard=allow_discard,
+        carrier_url=carrier_url,
     )
     if result.get("ok"):
         clear_marker(marker_path)
