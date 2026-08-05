@@ -10,6 +10,7 @@ import io
 
 import pytest
 
+from servicenow_mcp.browser import capture as capture_module
 from servicenow_mcp.browser import scroll_shot
 
 PIL = pytest.importorskip("PIL.Image", reason="stitching needs the browser extra")
@@ -138,7 +139,9 @@ def test_the_screens_are_stitched_into_one_taller_image(tmp_path):
     # Each screen was really scrolled to, and the clip followed the frame's box.
     assert frame.scrolls[:3] == [0.0, 100.0, 200.0]
     assert page.shots[0]["y"] == 40.0
-    with PIL.open(destination) as image:
+    # Written as lossless WebP: same pixels, ~60% fewer bytes.
+    assert summary["path"].endswith(".webp")
+    with PIL.open(summary["path"]) as image:
         assert image.size == (100, 300)
         assert image.getpixel((50, 50)) == (255, 0, 0)
         assert image.getpixel((50, 150)) == (0, 255, 0)
@@ -167,7 +170,7 @@ def test_a_last_screen_that_overlaps_is_not_shown_twice(tmp_path):
 
     assert frame.scrolls[:3] == [0.0, 100.0, 150.0]
     assert summary["height"] == 250
-    with PIL.open(destination) as image:
+    with PIL.open(summary["path"]) as image:
         assert image.size == (100, 250)
 
 
@@ -182,7 +185,7 @@ def test_a_device_pixel_ratio_does_not_shift_the_seam(tmp_path):
     summary = scroll_shot.capture(page, destination=destination)
 
     assert summary["height"] == 500
-    with PIL.open(destination) as image:
+    with PIL.open(summary["path"]) as image:
         assert image.size == (200, 500)
 
 
@@ -219,3 +222,75 @@ def test_no_scrolling_frame_means_fall_back_rather_than_a_wrong_image(tmp_path):
     page = FakePage(frames=[_frame(scroll_h=100, client_h=100)])
 
     assert scroll_shot.capture(page, destination=str(tmp_path / "shot.png")) is None
+
+
+# ---------------------------------------------------------------------------
+# capture._screenshot — bytes on disk, and who is in the picture
+# ---------------------------------------------------------------------------
+
+
+class ShotPage(FakePage):
+    """A page whose only job is to hand over screenshot bytes."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.evaluated = []
+
+    def evaluate(self, script, *args):
+        self.evaluated.append(script)
+        return super().evaluate(script, *args)
+
+    def screenshot(self, clip=None, full_page=False, **kwargs):
+        self.shots.append({"clip": clip, "full_page": full_page})
+        if clip:
+            return super().screenshot(clip=clip, **kwargs)
+        return _png(120, 60, (200, 30, 30))
+
+
+def _badge_calls(page):
+    return [s for s in page.evaluated if "badge" in s.lower()]
+
+
+def test_a_screenshot_is_written_as_lossless_webp(tmp_path):
+    # Measured on a real ServiceNow screenshot: 64KB PNG -> 26KB WebP at a
+    # maximum per-channel difference of zero. Nothing is resampled, so the text
+    # is exactly as sharp as it was.
+    page = ShotPage(scroll_h=2000, frames=[_frame(scroll_h=100, client_h=100)])
+
+    path, note = capture_module._screenshot(
+        page, mode="viewport", selector=None, destination=str(tmp_path / "shot.png")
+    )
+
+    assert path.endswith(".webp")
+    assert note is None
+    with PIL.open(path) as image:
+        assert image.size == (120, 60)
+        assert image.getpixel((60, 30)) == (200, 30, 30)
+
+
+def test_a_single_shot_keeps_the_badge_in_the_picture(tmp_path):
+    # Which window, which instance, which account, impersonating or not — that
+    # is what the badge answers, and cropping it out threw it away every time.
+    page = ShotPage(scroll_h=2000, frames=[_frame(scroll_h=100, client_h=100)])
+
+    capture_module._screenshot(
+        page, mode="viewport", selector=None, destination=str(tmp_path / "shot.png")
+    )
+
+    assert _badge_calls(page) == []
+
+
+def test_a_scrolling_capture_hides_the_badge_for_the_whole_scroll(tmp_path):
+    # position:fixed rides every screen, so it would come out stamped down the
+    # stitched image once per tile.
+    frame = _frame(scroll_h=300, client_h=100, colours=[(1, 2, 3)] * 3)
+    page = ShotPage(scroll_h=743, frames=[frame])
+
+    path, note = capture_module._screenshot(
+        page, mode="full", selector=None, destination=str(tmp_path / "shot.png")
+    )
+
+    assert note["tiles"] == 3
+    assert path.endswith(".webp")
+    hides = _badge_calls(page)
+    assert len(hides) == 2, "hidden once before the scroll, restored once after"

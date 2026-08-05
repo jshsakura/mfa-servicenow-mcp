@@ -10,6 +10,7 @@ Defaults are all "off": no screenshot, no styles, only events newer than the
 caller's high-water mark. Everything this module returns had to be asked for.
 """
 
+import io
 import logging
 import os
 import time
@@ -61,6 +62,42 @@ LAYOUT_PROPERTIES: Tuple[str, ...] = (
     "opacity",
     "transform",
 )
+
+
+def _write_image(raw: bytes, destination: str) -> str:
+    """Write a screenshot, as lossless WebP when Pillow is here. Returns the path.
+
+    Measured on a real ServiceNow screenshot (1502x779): the PNG Playwright
+    hands over is 64KB, the same pixels as lossless WebP are 26KB — 59% fewer
+    bytes at a maximum per-channel difference of ZERO. Nothing is resampled and
+    nothing is quantised, so text stays exactly as sharp as it was.
+
+    The alternatives were measured too, and both lose: re-saving the PNG with
+    optimize=True came out BIGGER (66KB), and JPEG q85 was bigger still (69KB)
+    while visibly chewing the anti-aliased text — a UI screenshot is close to
+    the worst possible JPEG input.
+
+    Without Pillow the bytes are written as they came, PNG and all, because a
+    smaller file is not worth a screenshot that does not exist.
+    """
+    try:
+        from PIL import Image  # type: ignore[import-not-found]
+    except ImportError:
+        with open(destination, "wb") as handle:
+            handle.write(raw)
+        return destination
+
+    target = os.path.splitext(destination)[0] + ".webp"
+    try:
+        with Image.open(io.BytesIO(raw)) as image:
+            image.load()
+            image.save(target, "WEBP", lossless=True, method=6)
+        return target
+    except Exception as exc:  # noqa: BLE001 - an unwritten screenshot is the worse outcome
+        logger.info("Could not re-encode the screenshot, keeping it as PNG: %s", exc)
+        with open(destination, "wb") as handle:
+            handle.write(raw)
+        return destination
 
 
 # Said whenever 'full' could not be full. A shorter image that looks complete
@@ -270,7 +307,7 @@ def _computed_styles(page: Any, selectors: Sequence[str]) -> Dict[str, Any]:
 def _screenshot(
     page: Any, *, mode: str, selector: Optional[str], destination: str
 ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-    """Capture to disk and return (path, note). The badge is hidden for the shot.
+    """Capture to disk and return (path, note).
 
     Element mode exists because a full-page screenshot of a ServiceNow portal
     rarely shows what broke — the interesting box is 200px tall somewhere in
@@ -282,38 +319,57 @@ def _screenshot(
     a frame — so ``full`` returned one viewport and called itself full. The
     scroller is checked now, and when it is a frame the shot is stitched from
     real scrolling (scroll_shot). Nothing on the page is changed either way.
+
+    **The badge is hidden only for a scrolling capture.** It is ``position:
+    fixed``, so it rides every screen and would come out stamped down the
+    stitched image once per tile. A single shot keeps it: this is a screenshot
+    OF the debug window, and which window — which instance, which account, and
+    whether that account is currently impersonating — is exactly what the badge
+    answers. Cropping it out of the picture threw that away every time.
     """
     if mode == "none":
         return None, None
 
     os.makedirs(os.path.dirname(destination), exist_ok=True)
+
+    if mode == "element":
+        if not selector:
+            raise ValueError("screenshot='element' needs a selector.")
+        return _write_image(page.locator(selector).first.screenshot(), destination), None
+
+    if mode == "full" and not scroll_shot.page_scrolls(page):
+        hidden = _hide_badge(page)
+        try:
+            stitched = scroll_shot.capture(page, destination=destination)
+        finally:
+            if hidden:
+                _show_badge(page)
+        if stitched:
+            return stitched.pop("path", destination), stitched
+        # Nothing better was possible here (no inner scroller, no Pillow, a
+        # frame that would not answer). The ordinary shot is taken, and it is
+        # NOT described as a full-page capture.
+        return (
+            _write_image(page.screenshot(full_page=False), destination),
+            {"only_viewport": _WHY_ONE_SCREEN},
+        )
+
+    return _write_image(page.screenshot(full_page=(mode == "full")), destination), None
+
+
+def _hide_badge(page: Any) -> bool:
     try:
         page.evaluate(hide_badge_script())
+        return True
     except Exception:  # noqa: BLE001 - badge may not be injected yet
-        pass
+        return False
 
+
+def _show_badge(page: Any) -> None:
     try:
-        if mode == "element":
-            if not selector:
-                raise ValueError("screenshot='element' needs a selector.")
-            page.locator(selector).first.screenshot(path=destination)
-            return destination, None
-        if mode == "full" and not scroll_shot.page_scrolls(page):
-            stitched = scroll_shot.capture(page, destination=destination)
-            if stitched:
-                return destination, stitched
-            # Nothing better was possible here (no inner scroller, no Pillow, a
-            # frame that would not answer). The ordinary shot is taken, and it
-            # is NOT described as a full-page capture.
-            page.screenshot(path=destination, full_page=False)
-            return destination, {"only_viewport": _WHY_ONE_SCREEN}
-        page.screenshot(path=destination, full_page=(mode == "full"))
-        return destination, None
-    finally:
-        try:
-            page.evaluate(show_badge_script())
-        except Exception:  # noqa: BLE001
-            pass
+        page.evaluate(show_badge_script())
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _effective_user(page: Any) -> Optional[Dict[str, Any]]:

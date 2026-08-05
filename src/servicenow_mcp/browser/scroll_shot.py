@@ -35,6 +35,7 @@ What is deliberate here:
 
 import io
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -209,6 +210,7 @@ def capture(page: Any, *, destination: str, max_tiles: int = MAX_TILES) -> Optio
     after = _metrics(frame)
     grew_to = after["scrollH"] if after and after["scrollH"] > scroll_h + 1 else 0.0
     summary: Dict[str, Any] = {
+        "path": size["path"],
         "tiles": len(tiles),
         "width": size["width"],
         "height": size["height"],
@@ -229,7 +231,7 @@ def capture(page: Any, *, destination: str, max_tiles: int = MAX_TILES) -> Optio
 
 def _stitch_tiles(
     tiles: List[bytes], *, crops: List[float], css_tile_height: float, destination: str
-) -> Optional[Dict[str, int]]:
+) -> Optional[Dict[str, Any]]:
     """Join tiles top to bottom, cropping each one's repeated band."""
     try:
         from PIL import Image  # type: ignore[import-not-found]
@@ -262,8 +264,12 @@ def _stitch_tiles(
         for image in images:
             canvas.paste(image, (0, cursor))
             cursor += image.height
-        canvas.save(destination)
-        return {"width": width, "height": height}
+        # Lossless WebP: identical pixels, ~60% fewer bytes than the PNG. It
+        # matters most here — a stitched page is several screens tall. See
+        # capture._write_image for the measurements.
+        target = os.path.splitext(destination)[0] + ".webp"
+        canvas.save(target, "WEBP", lossless=True, method=6)
+        return {"width": width, "height": height, "path": target}
     except Exception as exc:  # noqa: BLE001 - a failed stitch falls back, never raises
         logger.info("Could not stitch a scrolling capture: %s", exc)
         return None
