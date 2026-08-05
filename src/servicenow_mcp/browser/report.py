@@ -244,6 +244,10 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
 
     if raw.get("screenshot"):
         report["screenshot"] = raw["screenshot"]
+        # Only the summary — how many screens, how tall, what was left out. The
+        # image itself stays on disk and never enters the response.
+        if raw.get("screenshot_note"):
+            report["screenshot_note"] = raw["screenshot_note"]
     if raw.get("styles"):
         report["styles"] = raw["styles"]
 

@@ -15,6 +15,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from . import scroll_shot
 from ._offload import require_playwright, run_off_loop
 from .badge import badge_activity_script, badge_init_script, hide_badge_script, show_badge_script
 from .evaluate import run_in_page
@@ -59,6 +60,15 @@ LAYOUT_PROPERTIES: Tuple[str, ...] = (
     "visibility",
     "opacity",
     "transform",
+)
+
+
+# Said whenever 'full' could not be full. A shorter image that looks complete
+# is the failure this whole path exists to stop.
+_WHY_ONE_SCREEN = (
+    "this page does not scroll in its top document, and the frame that scrolls "
+    "could not be captured (install the 'browser' extra for stitching) — this is "
+    "one screen, not the whole page"
 )
 
 
@@ -259,15 +269,22 @@ def _computed_styles(page: Any, selectors: Sequence[str]) -> Dict[str, Any]:
 
 def _screenshot(
     page: Any, *, mode: str, selector: Optional[str], destination: str
-) -> Optional[str]:
-    """Capture to disk and return the path. The badge is hidden for the shot.
+) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """Capture to disk and return (path, note). The badge is hidden for the shot.
 
     Element mode exists because a full-page screenshot of a ServiceNow portal
     rarely shows what broke — the interesting box is 200px tall somewhere in
     the middle.
+
+    ``full`` used to hand ``full_page=True`` to Playwright and be done. That
+    grows the TOP document, which is right on a portal page and a no-op on Next
+    Experience, where the shell never scrolls and the classic UI scrolls inside
+    a frame — so ``full`` returned one viewport and called itself full. The
+    scroller is checked now, and when it is a frame the shot is stitched from
+    real scrolling (scroll_shot). Nothing on the page is changed either way.
     """
     if mode == "none":
-        return None
+        return None, None
 
     os.makedirs(os.path.dirname(destination), exist_ok=True)
     try:
@@ -280,9 +297,18 @@ def _screenshot(
             if not selector:
                 raise ValueError("screenshot='element' needs a selector.")
             page.locator(selector).first.screenshot(path=destination)
-        else:
-            page.screenshot(path=destination, full_page=(mode == "full"))
-        return destination
+            return destination, None
+        if mode == "full" and not scroll_shot.page_scrolls(page):
+            stitched = scroll_shot.capture(page, destination=destination)
+            if stitched:
+                return destination, stitched
+            # Nothing better was possible here (no inner scroller, no Pillow, a
+            # frame that would not answer). The ordinary shot is taken, and it
+            # is NOT described as a full-page capture.
+            page.screenshot(path=destination, full_page=False)
+            return destination, {"only_viewport": _WHY_ONE_SCREEN}
+        page.screenshot(path=destination, full_page=(mode == "full"))
+        return destination, None
     finally:
         try:
             page.evaluate(show_badge_script())
@@ -352,7 +378,7 @@ def capture(
                     if evaluate_expression
                     else None
                 )
-                shot = _screenshot(
+                shot, shot_note = _screenshot(
                     page,
                     mode=screenshot,
                     selector=selector,
@@ -367,6 +393,7 @@ def capture(
                     "events": list(drained.get("events") or []),
                     "styles": _computed_styles(page, style_selectors),
                     "screenshot": shot,
+                    "screenshot_note": shot_note,
                     "effective_user": _effective_user(page),
                     "watched_seconds": wait_s,
                 }
