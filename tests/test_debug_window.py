@@ -3506,6 +3506,74 @@ def test_an_ordinary_page_is_not_a_script_runner():
     assert server_scripts.surface_for_url("") is None
 
 
+def test_pointing_the_window_at_a_script_runner_is_refused_before_it_moves(monkeypatch):
+    # v1.24.4 reversal: opening these pages used to be free, on the reasoning
+    # that looking is not running. Nobody navigates to Background Scripts to
+    # read it — it is an empty textarea — and arriving there is the first move
+    # of running something.
+    def _explode(*args, **kwargs):
+        raise AssertionError("the window must not open or move before the question")
+
+    monkeypatch.setattr(tools, "ensure_window", _explode)
+
+    result = tools.open_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.OpenDebugWindowParams(url="/sys.scripts.do"),
+    )
+
+    assert result["success"] is False
+    assert result["script_exec_surface"] == "Background Scripts"
+    # A wall, not a door, and the only one in the repo: an approval field here
+    # would read as "ask and you shall receive", when the answer is always no.
+    assert "retry_with" not in result
+    assert "confirm_script_exec" not in result["error"]
+
+
+def test_an_encoded_script_runner_url_does_not_walk_through_the_door(monkeypatch):
+    monkeypatch.setattr(
+        tools,
+        "ensure_window",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not open")),
+    )
+
+    result = tools.open_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.OpenDebugWindowParams(url="/nav_to.do?uri=%2Fsys.scripts.do"),
+    )
+
+    assert result["success"] is False
+
+
+def test_the_navigation_refusal_does_not_claim_a_script_ran():
+    # Nothing has run. Saying "this would run a script" about a navigation
+    # would be exactly the kind of false claim this repo hunts.
+    note = server_scripts.navigation_rejection("Background Scripts", url="/sys.scripts.do")
+
+    assert "RUN a server-side script" not in note
+    assert "run it themselves" in note
+
+
+def test_the_navigation_refusal_offers_no_way_through():
+    # An approval field here would read as "ask and you shall receive". The
+    # answer is always no, so it does not offer one.
+    note = server_scripts.navigation_rejection("Background Scripts")
+
+    assert "confirm_script_exec" not in note
+    assert "approve" not in note
+
+
+def test_an_ordinary_url_opens_without_any_approval():
+    assert tools._script_surface_refusal("https://dev.example.com/incident_list.do") is None
+    assert tools._script_surface_refusal("") is None
+
+
+def test_no_argument_gets_the_window_onto_a_script_runner():
+    # The escape hatch that exists for RUNNING does not open this door.
+    assert tools._script_surface_refusal("https://dev.example.com/sys.scripts.do") is not None
+
+
 def test_the_run_verb_is_recognised_without_any_url():
     # A Fix Script run from a list view's context menu never loads its form,
     # so the URL half of the check has nothing to look at.

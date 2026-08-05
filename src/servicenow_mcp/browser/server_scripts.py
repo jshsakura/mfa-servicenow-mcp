@@ -23,9 +23,26 @@ Two axes, because either one alone has a hole:
     the verb says everything. Cheap enough to check before the browser is
     touched at all.
 
-Opening these pages is deliberately NOT gated. Someone asking to look at
-Background Scripts is asking to look; the window is on their screen and the
-address bar is right there. Only running is a decision.
+Driving the window ONTO these pages is blocked outright as of v1.24.4, and that
+is a reversal of the paragraph that used to sit here ("opening is not running;
+the address bar is right there"). Two things were wrong with it.
+
+The first is who does the looking. Nobody opens Background Scripts to read it —
+it is an empty textarea. Arriving there is the first move of running something,
+and in practice it is a move the model makes by itself.
+
+The second is that this is the one capability where the repo's usual rule —
+gate it, never block it — does not apply. That rule buys the person watching
+the screen a chance to see the thing before it happens, and it is worth the
+friction when they might reasonably say yes. Here they would not: the platform
+keeps this page for a human who genuinely needs it, and that is a different
+question from whether a tool may steer there. A gate whose answer is always no
+is not a gate, it is a prompt the model learns to fill in for itself — and by
+the time it is answered the runner is already on the user's screen.
+
+So: no approval field, and ``navigation_rejection`` deliberately hands back no
+retry arguments. Running (below) keeps its second approval, because that path
+starts with a person who is already on the page. See ``open_debug_window``.
 """
 
 from typing import Any, Dict, Optional
@@ -144,12 +161,34 @@ def rejection(surface: str, *, steps: Any = None) -> str:
     )
 
 
+def navigation_rejection(surface: str, *, url: str = "") -> str:
+    """The stop text for POINTING the window at a script runner.
+
+    Deliberately different words from :func:`rejection`: nothing has run, and
+    saying "this would run a script" about a navigation would be a false claim
+    of the kind this repo keeps hunting. And no retry arguments, because there
+    is no approval that opens this one — offering a field to fill in would read
+    as "ask and you shall receive", which is the opposite of what it is.
+    """
+    where = f" ({url})" if url else ""
+    return (
+        f"{surface}{where} is off through MCP — the debug window is not driven onto a "
+        "server-script runner, and there is no approval flag that changes that. The "
+        "platform keeps that page for a person who genuinely needs it; whether a tool "
+        "may steer there is a different question, and the answer is no. Do the work "
+        "through the API tools, which leave a record to point at afterwards. If it "
+        "truly has to be a background script, say what it would do and let the user "
+        "run it themselves — the window is already on their screen."
+    )
+
+
 __all__ = [
     "ACTIVATING_ACTIONS",
     "CONFIRM_FIELD",
     "CONFIRM_VALUE",
     "ServerScriptBlocked",
     "approved",
+    "navigation_rejection",
     "rejection",
     "surface_for_step",
     "surface_for_url",

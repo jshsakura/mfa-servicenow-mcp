@@ -31,13 +31,17 @@ Running JavaScript is graded in two, because "read a value off the page" and
 ``act_in_debug_window`` action ``eval``  arbitrary source, and therefore
     confirm='approve' AND confirm_eval='approve'.
 
-Running SERVER-side code is graded above both, because a click on Run in
-Background Scripts is not a click a person's ACLs constrain — see
-browser/server_scripts.py. Reaching those pages costs nothing; pulling the
-trigger on one costs confirm_script_exec='approve'. That gate is enforced twice:
-here, against the verb a step names, before the browser is touched — and in
-actions.py against the window's live URL, which is the only place a click that
-navigates onto Background Scripts mid-batch can be caught.
+Running SERVER-side code is not graded above both — it is off, and it is the one
+capability in this repo that is refused rather than priced. ``open_debug_window``
+will not point the window at Background Scripts, a Fix Script, a scheduled job or
+an ATF run at all, and there is no approval argument that changes it
+(_script_surface_refusal). The platform keeps those pages for a person who
+genuinely needs one; whether a tool may steer there is a different question.
+
+The older gates stay behind that block, for the window a person navigated by
+hand: confirm_script_exec='approve' on the verb a step names, checked here before
+the browser is touched, and in actions.py against the window's live URL — the
+only place a click that lands on a runner mid-batch can be caught.
 
 Impersonation is a step, not a tool, for the same reason: testing "what does
 this user see" is never one call. It changes the whole window's session — which
@@ -73,7 +77,7 @@ from ..browser.login import describe as describe_login
 from ..browser.login import saved_credentials
 from ..browser.reaper import reap_idle_windows
 from ..browser.report import compact
-from ..browser.server_scripts import ServerScriptBlocked
+from ..browser.server_scripts import ServerScriptBlocked, navigation_rejection, surface_for_url
 from ..browser.session import api_username, describe_window_user
 from ..browser.window import (
     ensure_window,
@@ -104,6 +108,36 @@ MAX_STYLE_SELECTORS = 5
 def _numbered(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Steps with their 1-based position, so a rejection can name which one."""
     return [{**step, "step": index} for index, step in enumerate(steps, start=1)]
+
+
+def _script_surface_refusal(target_url: str) -> Optional[Dict[str, Any]]:
+    """Refuse to point the window at a server-script runner. No approval argument.
+
+    A wall, not a door, and that is deliberate here — the one place in this
+    repo where the usual "gate it, never block it" rule does not apply, on the
+    maintainer's instruction. The rule buys something specific: the person
+    watching the screen sees the thing before it happens, in cases where they
+    might reasonably say yes. Here they would not. Background Scripts via MCP is
+    off, not expensive; the platform keeps the page for a human who really needs
+    it, which is a different question from whether a tool may drive there.
+
+    So there is no approval field to fill in. A gate whose answer is always no
+    is just a prompt the model learns to answer for itself, and meanwhile the
+    window has already moved onto the runner.
+
+    Checked before anything opens or moves. This does not touch the window a
+    person is driving by hand: they can navigate wherever they like.
+    """
+    if not target_url:
+        return None
+    surface = surface_for_url(target_url)
+    if not surface:
+        return None
+    return {
+        "success": False,
+        "error": navigation_rejection(surface, url=target_url),
+        "script_exec_surface": surface,
+    }
 
 
 class OpenDebugWindowParams(BaseModel):
@@ -267,6 +301,12 @@ def open_debug_window(
     params: OpenDebugWindowParams,
 ) -> Dict[str, Any]:
     target_url = _resolve_url(config, params.url)
+
+    # Checked before the window is opened or moved. See _script_surface_refusal:
+    # this one is a block rather than a gate, and it is the only one.
+    landing = _script_surface_refusal(target_url)
+    if landing:
+        return landing
 
     # Before the population grows, retire whatever is provably unused. Never
     # fatal: an unusable reaper must not stand between the user and a window.
