@@ -484,7 +484,7 @@ def act(
                     logger.debug("Could not detach the dialog listener: %s", exc)
 
                 drained = page.evaluate(drain_script(after_seq)) or {}
-                shot = _screenshot(
+                shot, shot_note = _screenshot(
                     page, mode=screenshot, selector=selector, destination=screenshot_path
                 )
                 return {
@@ -495,6 +495,7 @@ def act(
                     "events": list(drained.get("events") or []),
                     "styles": {},
                     "screenshot": shot,
+                    "screenshot_note": shot_note,
                     "effective_user": _effective_user(page),
                     "watched_seconds": settle_s,
                     "steps": results,
