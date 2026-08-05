@@ -67,7 +67,7 @@ from ..browser._offload import PlaywrightUnavailable
 from ..browser.actions import EVAL_ACTION, MAX_ACTIONS, act, normalize
 from ..browser.badge import profile_label
 from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate
-from ..browser.cursor import resolve_after_seq, write_cursor
+from ..browser.cursor import resolve_marks, write_mark
 from ..browser.impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION
 from ..browser.impersonate import describe_detected as describe_impersonation
 from ..browser.impersonate import read_marker
@@ -381,6 +381,11 @@ def open_debug_window(
         if moved.get("new_tab"):
             result["new_tab"] = True
             result["tabs"] = moved.get("tabs")
+        # Said, never silent: a tab disappearing from the user's screen is
+        # their tab, and a cap that gave up must not look like one that worked.
+        for key in ("closed_tabs_note", "tabs_note"):
+            if moved.get(key):
+                result[key] = moved[key]
         if moved.get("kept_input"):
             # Said, not silent: a tab appeared that the caller did not ask for,
             # and the reason is fields that merely look edited.
@@ -495,9 +500,7 @@ def inspect_debug_window(
         }
 
     cursor_path = window_cursor_path(auth_manager)
-    after_seq = resolve_after_seq(
-        cursor_path, since_last=params.since_last, explicit=params.after_seq
-    )
+    marks = resolve_marks(cursor_path, since_last=params.since_last, explicit=params.after_seq)
     artifacts_dir = window_artifacts_dir(auth_manager)
     shot_path = (
         os.path.join(artifacts_dir, f"shot-{int(time.time() * 1000)}.png")
@@ -510,7 +513,7 @@ def inspect_debug_window(
             state,
             profile=profile_label(config),
             account=_window_account(config, auth_manager, state),
-            after_seq=after_seq,
+            marks=marks,
             watch_seconds=min(float(params.watch_seconds), MAX_WATCH_SECONDS),
             screenshot=params.screenshot,
             selector=params.selector,
@@ -525,7 +528,7 @@ def inspect_debug_window(
         return {"success": False, "window_open": True, "error": str(exc)}
 
     report = compact(raw, artifacts_dir=artifacts_dir)
-    write_cursor(cursor_path, report.get("next_seq", 0))
+    write_mark(cursor_path, report.get("tab_id", ""), report.get("next_seq", 0))
 
     identity = describe_window_user(raw.get("effective_user"), api_username(config))
     result: Dict[str, Any] = {
@@ -639,7 +642,7 @@ def act_in_debug_window(
         }
 
     cursor_path = window_cursor_path(auth_manager)
-    after_seq = resolve_after_seq(cursor_path, since_last=params.since_last)
+    marks = resolve_marks(cursor_path, since_last=params.since_last)
     artifacts_dir = window_artifacts_dir(auth_manager)
     shot_path = (
         os.path.join(artifacts_dir, f"shot-{int(time.time() * 1000)}.png")
@@ -653,7 +656,7 @@ def act_in_debug_window(
             profile=profile_label(config),
             account=_window_account(config, auth_manager, state),
             actions=steps,
-            after_seq=after_seq,
+            marks=marks,
             settle_ms=params.settle_ms,
             screenshot=params.screenshot,
             selector=params.selector,
@@ -691,7 +694,7 @@ def act_in_debug_window(
         return {"success": False, "window_open": True, "error": str(exc)}
 
     report = compact(raw, artifacts_dir=artifacts_dir)
-    write_cursor(cursor_path, report.get("next_seq", 0))
+    write_mark(cursor_path, report.get("tab_id", ""), report.get("next_seq", 0))
 
     failed_step = raw.get("failed_step")
     result: Dict[str, Any] = {

@@ -370,27 +370,92 @@ def test_a_fresh_claim_held_by_a_live_process_is_not_stale(tmp_path):
 
 def test_cursor_round_trips(tmp_path):
     path = str(tmp_path / "c.json")
-    cursor.write_cursor(path, 42)
+    cursor.write_mark(path, "tab-a", 42)
 
+    assert cursor.read_marks(path) == {"tab-a": 42}
     assert cursor.read_cursor(path) == 42
+
+
+def test_each_tab_keeps_its_own_mark(tmp_path):
+    # The bug: seq counts from 1 in every tab, but the mark was one number per
+    # WINDOW. A mark of 120 from one tab, applied to a second tab sitting at 40,
+    # filtered away every event it had — and `dropped` computed to 0, so the
+    # answer was "no errors" over a tab nobody had read.
+    path = str(tmp_path / "c.json")
+    cursor.write_mark(path, "tab-a", 120)
+    cursor.write_mark(path, "tab-b", 40)
+
+    assert cursor.resolve_marks(path, since_last=True) == {"tab-a": 120, "tab-b": 40}
 
 
 def test_since_last_false_reads_from_the_beginning(tmp_path):
     path = str(tmp_path / "c.json")
-    cursor.write_cursor(path, 42)
+    cursor.write_mark(path, "tab-a", 42)
 
-    assert cursor.resolve_after_seq(path, since_last=False) == 0
+    assert cursor.resolve_marks(path, since_last=False) == {}
 
 
 def test_an_explicit_after_seq_overrides_the_cursor(tmp_path):
     path = str(tmp_path / "c.json")
-    cursor.write_cursor(path, 42)
+    cursor.write_mark(path, "tab-a", 42)
 
-    assert cursor.resolve_after_seq(path, since_last=True, explicit=7) == 7
+    # Stays an int: it is aimed at whatever tab the call lands on, by definition.
+    assert cursor.resolve_marks(path, since_last=True, explicit=7) == 7
 
 
 def test_a_missing_cursor_reads_everything(tmp_path):
-    assert cursor.resolve_after_seq(str(tmp_path / "nope.json"), since_last=True) == 0
+    assert cursor.resolve_marks(str(tmp_path / "nope.json"), since_last=True) == {}
+
+
+def test_a_pre_tab_cursor_file_is_not_applied_to_a_real_tab(tmp_path):
+    # {"seq": N} was written before tab ids existed. It belongs to whichever tab
+    # was inspected last and nothing records which, so it must not match one.
+    path = str(tmp_path / "c.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write('{"seq": 99}')
+
+    marks = cursor.resolve_marks(path, since_last=True)
+
+    assert marks == {cursor.LEGACY_KEY: 99}
+    assert "tab-a" not in marks
+
+
+def test_the_tab_map_stays_bounded(tmp_path):
+    path = str(tmp_path / "c.json")
+    for index in range(cursor.MAX_TRACKED_TABS + 5):
+        cursor.write_mark(path, f"tab-{index}", index + 1)
+
+    marks = cursor.read_marks(path)
+
+    assert len(marks) == cursor.MAX_TRACKED_TABS
+    # The least advanced went first; the most recent survive.
+    assert f"tab-{cursor.MAX_TRACKED_TABS + 4}" in marks
+    assert "tab-0" not in marks
+
+
+def test_the_drain_script_hands_the_page_the_whole_map():
+    # The page picks its own entry, because which tab this lands on is not
+    # knowable until it lands — applying another tab's number is the bug.
+    script = drain_script({"tab-a": 120, "tab-b": 40})
+
+    assert '"tab-a": 120' in script and '"tab-b": 40' in script
+    assert "p.drain(" in script
+
+
+def test_the_drain_script_still_speaks_int_to_an_older_probe():
+    # A probe installed before v1.24.5 reads the argument as a number. Handing
+    # one of those a map would read as 0 and re-send its whole buffer — over-
+    # fetching, which is the direction this may fail in.
+    assert "p.drain(7)" in drain_script(7)
+
+
+def test_a_tab_the_map_forgot_re_reads_rather_than_reporting_nothing(tmp_path):
+    path = str(tmp_path / "c.json")
+    cursor.write_mark(path, "tab-a", 40)
+
+    # An unknown tab has no entry, so drain() sees 0 and hands back everything
+    # it buffered. Over-fetching is the direction this may fail in.
+    assert cursor.resolve_marks(path, since_last=True).get("tab-z", 0) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -539,7 +604,7 @@ def test_pointer_and_key_events_are_watched_for_presence():
 
 def test_human_presence_survives_a_navigation():
     """Clicking a link IS an interaction; losing it per document inverts the signal."""
-    assert "JSON.stringify({ events, seq, lastHuman })" in PROBE_SCRIPT
+    assert "JSON.stringify({ events, seq, lastHuman, tabId })" in PROBE_SCRIPT
     assert "lastHuman = parsed.lastHuman || 0;" in PROBE_SCRIPT
 
 
@@ -3552,7 +3617,7 @@ def test_the_navigation_refusal_does_not_claim_a_script_ran():
     note = server_scripts.navigation_rejection("Background Scripts", url="/sys.scripts.do")
 
     assert "RUN a server-side script" not in note
-    assert "run it themselves" in note
+    assert "WRITE THE SCRIPT TO A FILE" in note
 
 
 def test_the_navigation_refusal_offers_no_way_through():

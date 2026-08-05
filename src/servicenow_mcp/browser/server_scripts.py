@@ -172,13 +172,17 @@ def navigation_rejection(surface: str, *, url: str = "") -> str:
     """
     where = f" ({url})" if url else ""
     return (
-        f"{surface}{where} is off through MCP — the debug window is not driven onto a "
-        "server-script runner, and there is no approval flag that changes that. The "
-        "platform keeps that page for a person who genuinely needs it; whether a tool "
-        "may steer there is a different question, and the answer is no. Do the work "
-        "through the API tools, which leave a record to point at afterwards. If it "
-        "truly has to be a background script, say what it would do and let the user "
-        "run it themselves — the window is already on their screen."
+        f"{surface}{where} is not a page this drives the window onto, and no approval "
+        "flag changes that. Reaching for it first is the habit being stopped: the "
+        "runner is not where a script starts.\n"
+        "Do this instead: WRITE THE SCRIPT TO A FILE and show the user that file. "
+        "Then it can be read before anything runs, changed without retyping into a "
+        "textarea, and kept afterwards — none of which a page that forgets everything "
+        "on reload gives you. From there the user runs it themselves in the window "
+        "already on their screen, or it goes in as a Fix Script record through the "
+        "API tools, which leaves something to point at.\n"
+        "Most of the time the file turns out not to be needed either: the API tools "
+        "do the same job with ACLs still on and a record per change."
     )
 
 
