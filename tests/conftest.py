@@ -158,3 +158,21 @@ def make_mock_response(data, *, status_code=200, headers=None):
     mock.content = json.dumps(data).encode("utf-8")
     mock.headers = headers or {}
     return mock
+
+
+@pytest.fixture(autouse=True)
+def _forget_resolved_columns():
+    """Clear the schema memo between tests.
+
+    ``utils/query_fields`` keeps a process-global map of (instance, table) ->
+    columns, because a table's schema does not change during a session. Across
+    TESTS it very much does: one test resolves `incident` to a two-column mock
+    schema, and the next one's perfectly ordinary query is then reported as
+    naming columns that do not exist. Each passes alone and they fail in
+    combination, which is the worst way for a suite to break.
+    """
+    from servicenow_mcp.utils.query_fields import forget_columns
+
+    forget_columns()
+    yield
+    forget_columns()

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.query_fields import near_matches, table_columns, unknown_query_fields
 from servicenow_mcp.utils.registry import register_tool
 from servicenow_mcp.version import __version__
 
@@ -1093,12 +1094,24 @@ def _generate_query_hint(query: str, error_msg: str) -> Optional[str]:
         )
     if "403" in error_lower or "forbidden" in error_lower or "security constraint" in error_lower:
         hints.append(
-            "403 / ACL Exception. Two distinct causes — check SCOPE before assuming permissions: "
-            "(1) SCOPE CONTEXT (common right after a fresh login / cross-instance write): writing a "
+            # (1) is first because it is the cheapest to rule out and, measured on a
+            # live instance, the one this hint used to omit entirely. It said "Two
+            # distinct causes — check SCOPE before assuming permissions" and named
+            # only scope and ACL. A scoped table queried with a column it does not
+            # have answers 403, so the reader was handed a search space the answer
+            # was not in: three days went into ACL scripts, admin_overrides, seven
+            # sibling tables and a role that turned out to be irrelevant. An
+            # enumeration that excludes the answer is worse than no hint.
+            "403 / ACL Exception. Three causes, cheapest first: "
+            "(1) A FIELD THE TABLE DOES NOT HAVE in the query — on a scoped table this "
+            "answers 403 rather than being dropped. Check the query's field names against "
+            "sn_schema BEFORE touching roles; sn_query now checks this itself and refuses "
+            "up front, so a 403 here means the check could not run or the field is real. "
+            "(2) SCOPE CONTEXT (common right after a fresh login / cross-instance write): writing a "
             "record whose sys_scope is a scoped app (x_*) while the session's current application is "
             "a different scope is blocked cross-scope. Set the session app to that scope via "
             "manage_session_context, then retry — no role change needed. "
-            "(2) ACCOUNT ACL: the user genuinely lacks write access to the table/scope — grant the "
+            "(3) ACCOUNT ACL: the user genuinely lacks write access to the table/scope — grant the "
             "app role, or promote the change via an Update Set (admin import bypasses the per-table ACL)."
         )
     return " | ".join(hints) if hints else None
@@ -1634,6 +1647,41 @@ def sn_query(
     safe_limit, safe_fields, safety_notice = apply_payload_safety(
         params.table, params.limit, params.fields
     )
+
+    # Before the request, not after it. A condition naming a column the table
+    # does not have has two symptoms and neither one says so: on a normal table
+    # the condition is DROPPED and the whole table comes back as `success: true`,
+    # and on a scoped table with a role-gated ACL the same mistake comes back
+    # 403 — which the hint below then explains as a permissions problem. That
+    # combination cost three days on the wrong branch once. Checking first also
+    # means a query that cannot do what was asked never runs.
+    #
+    # `None` is "could not check", and is deliberately not treated as clean; it
+    # simply does not block. Only a PROVEN absence stops the call.
+    unknown_fields = unknown_query_fields(config, auth_manager, params.table, params.query or "")
+    if unknown_fields:
+        columns = table_columns(config, auth_manager, params.table) or set()
+        suggestions = {name: near_matches(name, sorted(columns)) for name in unknown_fields}
+        return {
+            "success": False,
+            "error": "unknown_query_fields",
+            "table": params.table,
+            "unknown_fields": unknown_fields,
+            "did_you_mean": {k: v for k, v in suggestions.items() if v},
+            "query_echo": params.query,
+            "message": (
+                f"{params.table} has no column named "
+                + ", ".join(repr(name) for name in unknown_fields)
+                + ". The query was not sent."
+            ),
+            "hint": (
+                "ServiceNow would not have refused this: it DROPS a condition it cannot "
+                "parse, so the read returns the whole table and reads as an answer — or, "
+                "on a scoped table, returns 403 that looks like a permissions problem. "
+                "Checked against sys_dictionary for this table and everything it extends. "
+                "Use sn_schema to list the real columns."
+            ),
+        }
 
     try:
         result, total_count = sn_query_page(
