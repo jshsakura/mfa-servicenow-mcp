@@ -336,6 +336,72 @@ def window_profile_dir(auth_manager: Any) -> str:
     return os.path.join(_cache_root(auth_manager), f"debug_profile_{_window_key(auth_manager)}")
 
 
+def _legacy_profile_dir(auth_manager: Any) -> str:
+    """The pre-v1.24.7 profile for THIS instance (``{host}_{account}``), or "".
+
+    Only the one for the instance being opened. There may be several — one per
+    instance the account uses — and picking among them would be a guess; picking
+    the one this call is about is not.
+    """
+    host = _window_host(auth_manager)
+    account = _window_account(auth_manager)
+    if not host or not account:
+        return ""
+    legacy_key = f"{host}_{account.replace('@', '_at_').replace('.', '_')}"
+    if legacy_key == _window_key(auth_manager):
+        return ""
+    return os.path.join(_cache_root(auth_manager), f"debug_profile_{legacy_key}")
+
+
+def adopt_legacy_profile(auth_manager: Any) -> str:
+    """Carry a pre-merge cookie jar into the merged window. "" when nothing moved.
+
+    The profile directory is keyed by the window key, so v1.24.7 renaming that
+    key silently renamed the SESSION with it: the merged window came up on a
+    brand-new profile, an empty cookie jar, and a login page — while the jar it
+    had been using sat right beside it under the old name. That cost was never
+    in the change; it arrived with it. Measured on the maintainer's machine the
+    day it shipped, which is the only reason this exists.
+
+    Moved rather than copied: two directories holding the same session is a
+    second window waiting to happen, and Chromium profiles are hundreds of MB.
+
+    Three conditions, all of them provable:
+
+    - the merged profile must be **absent or empty**. A directory with anything
+      in it is a session somebody may already be signed into, and overwriting it
+      is exactly the failure this is repairing.
+    - nothing may hold either directory's ``SingletonLock``. Renaming a profile
+      out from under a running Chromium is how one of the two dies mid-write.
+    - the legacy directory must exist. Nothing to adopt is the normal case, and
+      it is silent.
+    """
+    legacy = _legacy_profile_dir(auth_manager)
+    if not legacy or not os.path.isdir(legacy):
+        return ""
+    target = window_profile_dir(auth_manager)
+    try:
+        if os.path.exists(target) and os.listdir(target):
+            return ""
+    except OSError as exc:
+        logger.debug("Could not read the merged profile dir, leaving it alone: %s", exc)
+        return ""
+    for held in (legacy, target):
+        if _singleton_holder_pid(held) is not None:
+            logger.info("Not adopting %s: a browser is holding a profile", legacy)
+            return ""
+    try:
+        if os.path.exists(target):
+            os.rmdir(target)  # empty, checked above
+        os.rename(legacy, target)
+    except OSError as exc:
+        # A window with a fresh profile is a login, not a failure. Never fatal.
+        logger.info("Could not adopt the pre-merge debug profile %s: %s", legacy, exc)
+        return ""
+    logger.info("Adopted the pre-merge debug profile %s into %s", legacy, target)
+    return legacy
+
+
 # ---------------------------------------------------------------------------
 # State file
 # ---------------------------------------------------------------------------
@@ -679,6 +745,9 @@ def launch_window(
     """
     executable = _chromium_executable()
     profile_dir = window_profile_dir(auth_manager)
+    # Before the directory is created: adoption only fires on an absent or empty
+    # profile, and makedirs would make it exist.
+    adopt_legacy_profile(auth_manager)
     os.makedirs(profile_dir, mode=0o700, exist_ok=True)
     # Before the launch, not after: a restored tab exists the moment the window
     # opens, and then something has to guess which of two identical tabs is the

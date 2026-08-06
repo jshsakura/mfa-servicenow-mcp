@@ -1669,9 +1669,39 @@ def test_the_already_attempted_message_says_how_to_retry():
     assert "close the window" in note.lower()
 
 
-def test_nothing_is_said_when_nothing_happened():
-    assert login.describe({"status": "no_login_form"}) is None
+def test_nothing_is_said_when_there_was_nothing_to_fill():
+    """An OAuth or API-key profile has no password. That is not a finding."""
     assert login.describe({"status": "no_credentials"}) is None
+
+
+def test_no_password_field_says_not_visible_yet_rather_than_going_quiet():
+    """A cold profile's first launch is slow, and this was silent through it.
+
+    The window came up on a login page with no ``auto_login`` field at all, and
+    the missing key read as "it did not need to run" — a lagging source scored
+    as a negative answer.
+    """
+    note = login.describe({"status": "no_login_form"})
+
+    assert note is not None
+    assert "had not finished loading" in note
+    assert "NOT been spent" in note, "the caller has to know a retry is free"
+
+
+def test_no_tab_to_look_at_is_also_said(monkeypatch, tmp_path):
+    note = login.describe({"status": "no_page"})
+
+    assert note is not None and "no tab" in note
+
+
+def test_a_quiet_auto_login_status_still_reaches_the_caller(monkeypatch, tmp_path):
+    state = _state()
+    _reset_wiring(monkeypatch, tmp_path, state)
+    monkeypatch.setattr(tools, "auto_login", lambda state, **kw: {"status": "no_login_form"})
+
+    result = tools.open_debug_window(_open_config(), MagicMock(), _open_params())
+
+    assert result["auto_login"] == "no_login_form"
 
 
 # ---------------------------------------------------------------------------
@@ -4384,3 +4414,80 @@ def test_a_window_already_showing_this_instance_is_not_given_a_second_tab(monkey
 
     assert result["recording"] is True
     assert "opened_tab" not in result
+
+
+# ---------------------------------------------------------------------------
+# The merge renamed the profile dir, and a profile dir IS the session
+# ---------------------------------------------------------------------------
+
+
+def _legacy_profile(tmp_path, host="dev_example_com", account="alice_at_example_com"):
+    directory = tmp_path / f"debug_profile_{host}_{account}"
+    (directory / "Default").mkdir(parents=True)
+    (directory / "Default" / "Cookies").write_text("jar", encoding="utf-8")
+    return directory
+
+
+def test_the_pre_merge_cookie_jar_is_carried_into_the_merged_window(tmp_path):
+    """v1.24.7 renamed the window key, and the profile dir goes by that key.
+
+    So the merged window came up on an empty jar and a login page while the jar
+    it had been using sat beside it under the old name. Measured, not imagined.
+    """
+    auth = FakeAuthManager(str(tmp_path), "p", "https://dev.example.com", "alice@example.com")
+    legacy = _legacy_profile(tmp_path)
+
+    moved = window.adopt_legacy_profile(auth)
+
+    assert moved == str(legacy)
+    assert not legacy.exists(), "moved, not copied — two jars is a second window waiting"
+    adopted = tmp_path / "debug_profile_alice_at_example_com"
+    assert (adopted / "Default" / "Cookies").read_text(encoding="utf-8") == "jar"
+
+
+def test_a_merged_profile_that_already_holds_a_session_is_never_overwritten(tmp_path):
+    auth = FakeAuthManager(str(tmp_path), "p", "https://dev.example.com", "alice@example.com")
+    _legacy_profile(tmp_path)
+    live = tmp_path / "debug_profile_alice_at_example_com"
+    (live / "Default").mkdir(parents=True)
+    (live / "Default" / "Cookies").write_text("mine", encoding="utf-8")
+
+    assert window.adopt_legacy_profile(auth) == ""
+    assert (live / "Default" / "Cookies").read_text(encoding="utf-8") == "mine"
+
+
+def test_a_profile_a_browser_is_holding_is_left_where_it_is(tmp_path, monkeypatch):
+    """Renaming a profile out from under a running Chromium kills one of the two."""
+    auth = FakeAuthManager(str(tmp_path), "p", "https://dev.example.com", "alice@example.com")
+    legacy = _legacy_profile(tmp_path)
+    monkeypatch.setattr(window, "_singleton_holder_pid", lambda directory: 4242)
+
+    assert window.adopt_legacy_profile(auth) == ""
+    assert legacy.exists()
+
+
+def test_nothing_to_adopt_is_the_normal_case_and_is_silent(tmp_path):
+    auth = FakeAuthManager(str(tmp_path), "p", "https://dev.example.com", "alice@example.com")
+
+    assert window.adopt_legacy_profile(auth) == ""
+
+
+def test_a_profile_with_no_account_has_no_legacy_name_to_look_for(tmp_path):
+    """With no account the key never changed, so there is nothing to carry over."""
+    auth = FakeAuthManager(str(tmp_path), "p", "https://dev.example.com", "")
+
+    assert window.adopt_legacy_profile(auth) == ""
+
+
+def test_a_failed_adoption_is_never_fatal(tmp_path, monkeypatch):
+    """A window with a fresh profile is a login, not a failure."""
+    auth = FakeAuthManager(str(tmp_path), "p", "https://dev.example.com", "alice@example.com")
+    legacy = _legacy_profile(tmp_path)
+
+    def _refuse(src, dst):
+        raise OSError("cross-device link")
+
+    monkeypatch.setattr(window.os, "rename", _refuse)
+
+    assert window.adopt_legacy_profile(auth) == ""
+    assert legacy.exists()

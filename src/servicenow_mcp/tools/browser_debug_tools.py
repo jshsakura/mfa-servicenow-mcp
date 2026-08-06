@@ -542,7 +542,12 @@ def open_debug_window(
         marker_path=window_login_path(auth_manager),
         driven_url=str(result.get("url") or ""),
     )
-    if login.get("status") not in (None, "no_credentials", "no_login_form", "no_page"):
+    # Only "no credentials configured" stays out of the response. The other two
+    # quiet statuses — no form, no tab — used to be suppressed as "nothing
+    # happened and nothing is wrong", which is what made a window that came up
+    # signed out with no auto_login field at all impossible to diagnose: the
+    # absence of the key read as "it did not need to run".
+    if login.get("status") not in (None, "no_credentials"):
         result["auto_login"] = login.get("status")
     login_note = describe_login(login)
 

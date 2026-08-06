@@ -435,7 +435,24 @@ def describe(result: Dict[str, Any]) -> Optional[str]:
         )
     if status == "error":
         return f"Auto-login could not run ({result.get('error')}) — sign in manually."
-    # no_credentials / no_login_form / no_page: nothing happened and nothing is wrong.
+    if status == "no_login_form":
+        # This used to be silent, on the reading that no form means the window is
+        # already signed in. A COLD profile says otherwise: the first launch on a
+        # fresh profile dir is slow, the tab was still on its way to the login
+        # page when this looked, and "no password field" got reported as nothing
+        # to report. A source that lags can only say NOT VISIBLE YET.
+        return (
+            "Auto-login found no password field, so it did nothing. If the window is "
+            "showing a login page it had not finished loading yet — call "
+            "open_debug_window again and it will sign in. If it is already signed in, "
+            "this is the expected answer. The one attempt has NOT been spent either way."
+        )
+    if status == "no_page":
+        return (
+            "Auto-login had no tab to look at, so it did nothing. Open a page "
+            "(open_debug_window url=...) and it will sign in there."
+        )
+    # no_credentials: nothing to fill, and nothing is wrong.
     return None
 
 
