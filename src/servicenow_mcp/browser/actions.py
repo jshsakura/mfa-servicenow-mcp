@@ -71,6 +71,7 @@ from .capture import (
     _install_probe,
     _screenshot,
     _set_activity,
+    no_page_message,
 )
 from .evaluate import run_in_page
 from .impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, become, restore
@@ -415,9 +416,7 @@ def act(
                 _arm_tabs(context.pages, state, profile, account)
                 page = _active_instance_page(context.pages, state.instance_host)
                 if page is None:
-                    raise NoPageFound(
-                        "The debug window has no open tab. Open a page in it and retry."
-                    )
+                    raise NoPageFound(no_page_message(context.pages, state.instance_host))
 
                 # The window may already be sitting on Background Scripts, in
                 # which case the whole batch is refused rather than half-run:

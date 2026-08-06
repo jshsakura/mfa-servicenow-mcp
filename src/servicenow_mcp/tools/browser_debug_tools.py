@@ -49,6 +49,13 @@ every MCP session and the person watching the screen share — so both tools
 report who the window is afterwards, and open_debug_window says so on the way in
 when it reuses a window someone left impersonating. See browser/impersonate.py.
 
+One window per ACCOUNT, and every instance that account can reach lives in it as
+a tab (window.py::_window_key). So three things this module does are about
+whose tab is whose rather than about the window: a tab on another configured
+instance is never read, driven or navigated away from; a reused window with no
+tab on this instance gets one opened beside the others; and ``reset`` clears one
+instance's session out of the shared jar, never the window's.
+
 Closing is not a tool: the user closes the window with the mouse, and a closed
 window is simply reopened on the next explicit request.
 """
@@ -68,7 +75,7 @@ from ..browser.actions import EVAL_ACTION, MAX_ACTIONS, act, normalize
 from ..browser.badge import profile_label
 from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate
 from ..browser.cursor import resolve_marks, write_mark
-from ..browser.impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION
+from ..browser.impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, clear_marker
 from ..browser.impersonate import describe_detected as describe_impersonation
 from ..browser.impersonate import read_marker
 from ..browser.launch_budget import LaunchBudgetExceeded, budget_status
@@ -77,6 +84,7 @@ from ..browser.login import describe as describe_login
 from ..browser.login import saved_credentials
 from ..browser.reaper import reap_idle_windows
 from ..browser.report import compact
+from ..browser.reset import reset_session
 from ..browser.server_scripts import ServerScriptBlocked, navigation_rejection, surface_for_url
 from ..browser.session import api_username, describe_window_user
 from ..browser.window import (
@@ -153,6 +161,13 @@ class OpenDebugWindowParams(BaseModel):
     new_tab: bool = Field(
         default=False,
         description="Open in a new tab, leaving the current page untouched.",
+    )
+    reset: bool = Field(
+        default=False,
+        description="Sign this instance out first: cookies, storage, tabs. Needs confirm_reset.",
+    )
+    confirm_reset: Optional[str] = Field(
+        default=None, description="Required ('approve') when reset=true."
     )
 
 
@@ -308,6 +323,29 @@ def open_debug_window(
     if landing:
         return landing
 
+    # A gate, not a wall: resetting is a thing people legitimately want before a
+    # test, and it is also the one option here that destroys somebody else's
+    # signed-in session in a window they are looking at. So it costs a second
+    # approval and nothing more. Checked before the window is touched.
+    if params.reset and str(params.confirm_reset or "").strip().lower() != CONFIRM_EVAL_VALUE:
+        return {
+            "success": False,
+            "error": (
+                "reset=true signs this instance out of the shared window — its cookies, "
+                "web storage and tabs — and the person watching loses their session with "
+                f"it. That needs confirm_reset='{CONFIRM_EVAL_VALUE}'. Other instances' "
+                "tabs in the same window are not touched."
+            ),
+        }
+    if params.reset and not str(config.instance_url or "").strip():
+        return {
+            "success": False,
+            "error": (
+                "reset=true needs a configured instance_url: with no host to scope by, "
+                "the only reset available would clear every session in the window."
+            ),
+        }
+
     # Before the population grows, retire whatever is provably unused. Never
     # fatal: an unusable reaper must not stand between the user and a window.
     try:
@@ -348,6 +386,58 @@ def open_debug_window(
     profile = profile_label(config)
     account = _window_account(config, auth_manager, state)
 
+    # Before anything is navigated or armed: the point of a reset is that what
+    # comes after it starts from nothing.
+    if params.reset and not opened:
+        try:
+            wiped = reset_session(
+                state,
+                landing_url=str(config.instance_url or "").rstrip("/") + "/",
+                allow_discard=params.discard_unsaved_input,
+            )
+        except (PlaywrightUnavailable, RuntimeError, TimeoutError, OSError) as exc:
+            # A reset that did not happen must never be reported as one — the
+            # caller is about to run a test on the state it claims to have made.
+            return {
+                **result,
+                "success": False,
+                "reset": False,
+                "error": f"The reset failed: {exc}",
+            }
+        if not wiped.get("reset"):
+            return {**result, "success": False, **wiped}
+        # The marker describes a session that no longer exists. Cleared here
+        # rather than inside reset_session, which knows about pages and cookies
+        # and deliberately not about where this window keeps its files.
+        clear_marker(window_impersonation_path(auth_manager))
+        # The badge compares against the account this window signed in as, and
+        # the marker it was reading a moment ago is now describing a session
+        # that was just cleared.
+        account = (saved_credentials(config) or ("", ""))[0]
+        result["reset"] = {
+            key: wiped[key]
+            for key in (
+                "closed_tabs",
+                "cookies_cleared",
+                "cookies_kept",
+                "cookies_note",
+                "storage_cleared",
+                "cache_cleared",
+            )
+            if key in wiped
+        }
+        result["url"] = wiped.get("url")
+        result["reset_note"] = (
+            "This instance is signed out; other instances' tabs in this window kept "
+            "their sessions. The HTTP cache is per-browser and was emptied for all of "
+            "them. The one auto-login attempt is NOT given back — it is only ever spent "
+            "by a password the server refused, and a reset does not make one correct."
+        )
+    elif params.reset:
+        # A window that did not exist a moment ago has nothing to reset, and
+        # saying "reset" about a fresh profile would be a claim nobody verified.
+        result["reset"] = {"skipped": "the window was just opened, so it was already blank"}
+
     # A brand new window navigates via the command line; an existing one has to
     # be told, and that is where unsaved input can be destroyed.
     if target_url and not opened:
@@ -381,6 +471,15 @@ def open_debug_window(
         if moved.get("new_tab"):
             result["new_tab"] = True
             result["tabs"] = moved.get("tabs")
+        if moved.get("opened_beside_url"):
+            # One window holds every instance this account can reach, so the tab
+            # that was active is routinely another instance's — or the person's
+            # own page. Never navigated away from; said, not silent.
+            result["opened_beside"] = (
+                f"Opened in a new tab: the active one was on {moved['opened_beside_url']}, "
+                "not on this instance, and taking it over would end a session nobody "
+                "asked to end."
+            )
         # Said, never silent: a tab disappearing from the user's screen is
         # their tab, and a cap that gave up must not look like one that worked.
         for key in ("closed_tabs_note", "tabs_note"):
@@ -402,6 +501,24 @@ def open_debug_window(
     # that caused the bug happens before anything is watching it.
     try:
         armed = arm(state, profile=profile, account=account)
+        if not armed.get("armed") and not target_url and not opened and config.instance_url:
+            # A reused window is shared across instances now, so "open the debug
+            # window" for one of them can land on a window that has no tab HERE —
+            # the person would be looking at another instance and nothing would
+            # have happened. Give this instance a tab of its own, beside the
+            # others rather than instead of them. Only when no url was asked for:
+            # with one, the navigation above has already put a tab here.
+            home = str(config.instance_url or "").rstrip("/") + "/"
+            try:
+                moved = navigate(state, url=home, profile=profile, account=account, new_tab=True)
+                result["url"] = moved.get("url")
+                result["opened_tab"] = (
+                    "This window had no tab on this instance, so one was opened beside "
+                    "the tabs already in it."
+                )
+                armed = arm(state, profile=profile, account=account)
+            except (NoPageFound, RuntimeError, TimeoutError) as exc:
+                logger.info("Could not give this instance a tab in the shared window: %s", exc)
         result["recording"] = bool(armed.get("armed"))
         if not armed.get("armed"):
             result["recording_note"] = (

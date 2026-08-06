@@ -15,10 +15,17 @@ import logging
 import os
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib.parse import urlparse
 
 from . import scroll_shot
 from ._offload import require_playwright, run_off_loop
-from .badge import badge_activity_script, badge_init_script, hide_badge_script, show_badge_script
+from .badge import (
+    badge_activity_script,
+    badge_init_script,
+    hide_badge_script,
+    instance_labels,
+    show_badge_script,
+)
 from .evaluate import run_in_page
 from .probe import PROBE_SCRIPT, dirty_script, drain_script, presence_script
 from .session import read_effective_user
@@ -118,13 +125,78 @@ class NoPageFound(RuntimeError):
     """The window is open but has no inspectable page."""
 
 
+def _on_instance(page: Any, instance_host: str) -> bool:
+    """Is this tab on the instance the call is about?
+
+    An empty host means the question cannot be asked (an unconfigured instance
+    URL), and an unaskable question is not a negative answer: everything the
+    window has is then the only thing it has.
+    """
+    if not instance_host:
+        return True
+    return instance_host in str(getattr(page, "url", ""))
+
+
+def _foreign_instance(page: Any, instance_host: str) -> bool:
+    """Is this tab on a DIFFERENT configured instance?
+
+    The fallback below — "no tab on the instance, so take the first real one" —
+    was written when a window held one instance, so the only thing it could fall
+    back to was a page the person had wandered off to. Since v1.24.7 one window
+    holds every instance the account can reach, and the same line would hand a
+    dev question a test tab, then report the answer under the dev label.
+
+    This is not guessed from the URL's shape: the configured instances are a
+    list this process has (``instance_labels``), so a known host is PROVEN to be
+    someone else's session rather than suspected of it. An unconfigured host is
+    left alone — falling back to somebody's intranet tab is the behaviour the
+    shared window is supposed to have.
+    """
+    if _on_instance(page, instance_host):
+        return False
+    try:
+        host = (urlparse(str(getattr(page, "url", ""))).hostname or "").lower()
+    except (TypeError, ValueError):
+        return False
+    return bool(host) and host in instance_labels()
+
+
+def _usable(pages: Sequence[Any], instance_host: str) -> List[Any]:
+    """Tabs this call may read or drive: real, and not another instance's."""
+    return [
+        page
+        for page in pages
+        if not str(page.url).startswith("devtools://")
+        and not _foreign_instance(page, instance_host)
+    ]
+
+
+def no_page_message(pages: Sequence[Any], instance_host: str) -> str:
+    """Why there is nothing to work with. "No tab" and "not YOUR tab" differ.
+
+    Told apart because the fix differs: one is "open a page", the other is "this
+    window is busy with another instance and you need a tab on yours". A single
+    message for both would send someone looking for a window that is right in
+    front of them, full of tabs.
+    """
+    others = sum(1 for page in pages if _foreign_instance(page, instance_host))
+    if others:
+        return (
+            f"This window has no tab on {instance_host}. Its {others} other tab(s) are on "
+            "different configured instances, and driving one of those would act on "
+            "somebody else's session. Call open_debug_window with a url to get a tab here."
+        )
+    return "The debug window has no open tab. Open a page in it and retry."
+
+
 def _instance_page(pages: Sequence[Any], instance_host: str) -> Optional[Any]:
-    """Prefer a tab actually on the instance; fall back to the first real tab.
+    """Prefer a tab actually on the instance; fall back to the first usable tab.
 
     With several tabs open, guessing wrong means reporting another page's
-    errors — worse than reporting none.
+    errors — worse than reporting none. Another configured instance's tab is
+    never the fallback at all; see :func:`_foreign_instance`.
     """
-    real_pages = [page for page in pages if not str(page.url).startswith("devtools://")]
+    real_pages = _usable(pages, instance_host)
     if not real_pages:
         return None
     if instance_host:
@@ -154,7 +226,7 @@ def _active_instance_page(pages: Sequence[Any], instance_host: str) -> Optional[
     Falls back to the first instance tab whenever the probe cannot answer: an
     unarmed document is not a reason to pick the wrong page.
     """
-    candidates = [page for page in pages if not str(page.url).startswith("devtools://")]
+    candidates = _usable(pages, instance_host)
     if instance_host:
         on_instance = [page for page in candidates if instance_host in str(page.url)]
         candidates = on_instance or candidates
@@ -418,9 +490,7 @@ def capture(
                 _arm_tabs(context.pages, state, profile, account)
                 page = _active_instance_page(context.pages, state.instance_host)
                 if page is None:
-                    raise NoPageFound(
-                        "The debug window has no open tab. Open a page in it and retry."
-                    )
+                    raise NoPageFound(no_page_message(context.pages, state.instance_host))
 
                 _install_probe(context, page, state, profile, account)
                 _set_activity(page, True)
@@ -498,7 +568,10 @@ def arm(state: WindowState, *, profile: str, account: str = "") -> Dict[str, Any
                 _arm_tabs(context.pages, state, profile, account)
                 page = _active_instance_page(context.pages, state.instance_host)
                 if page is None:
-                    return {"armed": False, "reason": "no open tab"}
+                    return {
+                        "armed": False,
+                        "reason": no_page_message(context.pages, state.instance_host),
+                    }
                 _install_probe(context, page, state, profile, account)
                 return {"armed": True, "url": str(page.url)}
             finally:
@@ -510,7 +583,7 @@ def arm(state: WindowState, *, profile: str, account: str = "") -> Dict[str, Any
     return run_off_loop(_work, timeout_s=60.0)
 
 
-def _trim_tabs(context: Any, *, keep: Any) -> Dict[str, Any]:
+def _trim_tabs(context: Any, *, keep: Any, instance_host: str = "") -> Dict[str, Any]:
     """Close the oldest tabs holding nothing, once the window has too many.
 
     Tabs accumulate and nothing used to remove them: ``navigate`` opens one on
@@ -527,6 +600,10 @@ def _trim_tabs(context: Any, *, keep: Any) -> Dict[str, Any]:
       for that.
     - oldest first (``context.pages`` is creation order), never the tab just
       opened.
+    - THIS instance's tabs first. One window holds every instance the account
+      can reach, and the duplicates that made the window hard to work in are the
+      ones piling up on the instance being driven. Another instance's single tab
+      is the last thing to take, not the first thing older than ours.
     - when nothing qualifies, nothing is closed and the count is REPORTED. A
       cap that silently gives up looks identical to a cap that worked.
     """
@@ -539,8 +616,12 @@ def _trim_tabs(context: Any, *, keep: Any) -> Dict[str, Any]:
     if excess <= 0:
         return {}
 
+    # Stable within each group, so "oldest first" still holds inside them.
+    ordered = [page for page in pages if _on_instance(page, instance_host)]
+    ordered += [page for page in pages if not _on_instance(page, instance_host)]
+
     closed: List[str] = []
-    for page in pages:
+    for page in ordered:
         if len(closed) >= excess:
             break
         if page is keep:
@@ -606,6 +687,13 @@ def navigate(
 
     Observed input (``typed``/``partial``) still refuses, because there the
     evidence is a real person's keystrokes.
+
+    A tab that is not on this instance is never taken over at all — new tab,
+    every time, no dirty check needed because nothing of ours is being
+    displaced. One window holds every instance the account can reach (see
+    window.py), so the tab that happens to be active is routinely another
+    instance's work or the person's own page, and navigating it away would end
+    a session nobody asked to end.
     """
     require_playwright()
 
@@ -626,6 +714,13 @@ def navigate(
                 # tab, observed input still refuses. See the docstring.
                 stepped_aside: Dict[str, Any] = {}
                 use_new_tab = new_tab
+                if existing is not None and not _on_instance(existing, state.instance_host):
+                    # The window holds every instance this account can reach, so
+                    # the tab we would otherwise take over is routinely ANOTHER
+                    # instance's — or the person's own page. Taking it would end
+                    # a session nobody asked to end. Instances are tabs: open one.
+                    use_new_tab = True
+                    stepped_aside = {"opened_beside_url": str(existing.url)}
                 if existing is not None and not use_new_tab and not allow_discard:
                     dirty, basis = _dirty_fields(existing)
                     if dirty and basis == "guessed":
@@ -655,7 +750,7 @@ def navigate(
                         "previous_url": (str(existing.url) if existing else None),
                         "tabs": len(context.pages),
                         **stepped_aside,
-                        **_trim_tabs(context, keep=page),
+                        **_trim_tabs(context, keep=page, instance_host=state.instance_host),
                     }
 
                 page = existing
