@@ -24,6 +24,7 @@ from servicenow_mcp.browser import (
     launch_budget,
     login,
     report,
+    reset,
     server_scripts,
     session,
     window,
@@ -511,13 +512,49 @@ def test_the_debug_profile_is_never_the_login_profile(auth):
     assert os.path.basename(profile) != f"profile_{auth._get_instance_user_suffix()}"
 
 
-def test_two_instances_get_separate_windows(tmp_path):
-    dev = FakeAuthManager(str(tmp_path), "dev_example_com_alice", "https://dev.example.com")
-    test = FakeAuthManager(str(tmp_path), "test_example_com_alice", "https://test.example.com")
+def test_two_instances_share_one_window(tmp_path):
+    """Instances are TABS, not windows (v1.24.7).
+
+    Cookie isolation is the browser's job and it does it per domain, so a dev
+    jar and a test jar live in one profile without ever touching. Keying the
+    window on the host bought that isolation a second time and paid a whole
+    Chromium for it.
+    """
+    dev = FakeAuthManager(
+        str(tmp_path), "dev_example_com_alice", "https://dev.example.com", "alice@example.com"
+    )
+    test = FakeAuthManager(
+        str(tmp_path), "test_example_com_alice", "https://test.example.com", "alice@example.com"
+    )
+
+    assert window.window_state_path(dev) == window.window_state_path(test)
+    assert window.window_profile_dir(dev) == window.window_profile_dir(test)
+    assert window.window_artifacts_dir(dev) == window.window_artifacts_dir(test)
+
+
+def test_one_window_still_keeps_one_login_budget_and_marker_per_instance(tmp_path):
+    """A session is per host; the window is not. The sidecars follow the session.
+
+    Sharing these would let a dev rejection spend test's only login attempt, and
+    would announce a dev impersonation on a test tab.
+    """
+    dev = FakeAuthManager(str(tmp_path), "p", "https://dev.example.com", "alice@example.com")
+    test = FakeAuthManager(str(tmp_path), "p", "https://test.example.com", "alice@example.com")
+
+    assert window.window_login_path(dev) != window.window_login_path(test)
+    assert window.window_impersonation_path(dev) != window.window_impersonation_path(test)
+
+
+def test_an_unnamed_profile_is_not_merged_with_anything(tmp_path):
+    """No account to key on ⇒ fall back to the host, never to a shared window.
+
+    An OAuth or API-key config has no name to merge on, and merging two windows
+    nobody can identify is a guess, not a saving.
+    """
+    dev = FakeAuthManager(str(tmp_path), "p_dev", "https://dev.example.com", "")
+    test = FakeAuthManager(str(tmp_path), "p_test", "https://test.example.com", "")
 
     assert window.window_state_path(dev) != window.window_state_path(test)
-    assert window.window_profile_dir(dev) != window.window_profile_dir(test)
-    assert window.window_artifacts_dir(dev) != window.window_artifacts_dir(test)
 
 
 def test_two_accounts_on_one_instance_get_separate_windows(tmp_path):
@@ -554,10 +591,17 @@ def test_a_profile_label_cannot_split_one_instance_into_two_windows(tmp_path):
 
 
 def test_the_window_key_survives_an_instance_url_it_cannot_parse(tmp_path):
-    """No host to key on falls back rather than raising — paths must never throw."""
-    broken = FakeAuthManager(str(tmp_path), "fallback_key", "", "alice@example.com")
+    """Nothing to key on falls back rather than raising — paths must never throw."""
+    broken = FakeAuthManager(str(tmp_path), "fallback_key", "", "")
 
     assert "fallback_key" in window.window_state_path(broken)
+
+
+def test_an_unparseable_instance_url_still_keys_on_the_account(tmp_path):
+    """The account is the key, so a URL that cannot be parsed does not cost one."""
+    broken = FakeAuthManager(str(tmp_path), "fallback_key", "", "alice@example.com")
+
+    assert "alice_at_example_com" in window.window_state_path(broken)
 
 
 # ---------------------------------------------------------------------------
@@ -652,7 +696,36 @@ def test_window_state_round_trips_through_disk(auth):
 
     window.write_window_state(auth, state)
 
-    assert window.read_window_state(auth) == state
+    # caller_url is the one field that is NOT persisted — it says which instance
+    # the reader asked about, and the file cannot know that.
+    assert window.read_window_state(auth) == window.replace_state(
+        state, caller_url=auth.instance_url
+    )
+
+
+def test_the_host_a_call_gets_is_the_callers_not_the_windows(tmp_path):
+    """One window serves every instance, so the launch URL answers nothing.
+
+    Reading the call's host out of the state file is the shape this repo keeps
+    finding: a stale copy of a fact standing in for the live one. Here it would
+    hand a dev question a test tab.
+    """
+    dev = FakeAuthManager(str(tmp_path), "p", "https://dev.example.com", "alice@example.com")
+    test = FakeAuthManager(str(tmp_path), "p", "https://test.example.com", "alice@example.com")
+    window.write_window_state(
+        dev,
+        window.WindowState(
+            pid=1,
+            port=2,
+            profile_dir="/tmp/p",
+            instance_url="https://dev.example.com",
+            started_at=1.0,
+        ),
+    )
+
+    # Same file, same window — and each caller is told about its own instance.
+    assert window.read_window_state(dev).instance_host == "dev.example.com"
+    assert window.read_window_state(test).instance_host == "test.example.com"
 
 
 def test_malformed_state_is_ignored_rather_than_raised(auth):
@@ -3849,3 +3922,465 @@ def test_an_ordinary_expression_still_reads_freely(monkeypatch, tmp_path):
 
     assert result["success"] is True
     assert result["evaluation"]["value"] == 7
+
+
+# ---------------------------------------------------------------------------
+# One window, many instances (v1.24.7) — tabs, not windows
+# ---------------------------------------------------------------------------
+
+
+class CdpTab:
+    """A tab in the shared window, good enough for the probe and the dirty read."""
+
+    def __init__(self, url, dirty=(), last_human=0.0):
+        self.url = url
+        self.dirty = list(dirty)
+        self.last_human = last_human
+        self.closed = False
+        self.goto_urls = []
+        self.calls = []
+
+    def evaluate(self, script, *args):
+        if "p.dirty()" in script:
+            return {"fields": self.dirty, "observedFromStart": True}
+        if "lastHuman" in script:
+            return {"lastHuman": self.last_human}
+        return None
+
+    def goto(self, url, wait_until=None):
+        self.goto_urls.append(url)
+        self.url = url
+
+    def bring_to_front(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+class CdpContext:
+    def __init__(self, pages, cookies=()):
+        self.pages = list(pages)
+        self._cookies = [dict(cookie) for cookie in cookies]
+        self.init_scripts = []
+        self.cleared_all_cookies = 0
+
+    def add_init_script(self, script):
+        self.init_scripts.append(script)
+
+    def new_page(self):
+        page = CdpTab("about:blank")
+        page.context = self
+        self.pages.append(page)
+        return page
+
+    def cookies(self):
+        return [dict(cookie) for cookie in self._cookies]
+
+    def clear_cookies(self):
+        self.cleared_all_cookies += 1
+        self._cookies = []
+
+    def add_cookies(self, cookies):
+        self._cookies.extend(dict(cookie) for cookie in cookies)
+
+    def new_cdp_session(self, page):
+        raise RuntimeError("no CDP in tests")
+
+
+def _attach(monkeypatch, module, context):
+    """Point one browser module's CDP attach at a fake window."""
+    browser = SimpleNamespace(contexts=[context], close=lambda: None)
+
+    class _PW:
+        chromium = SimpleNamespace(connect_over_cdp=staticmethod(lambda endpoint: browser))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(module, "require_playwright", lambda: None)
+    import sys
+    import types
+
+    fake = types.ModuleType("playwright.sync_api")
+    fake.sync_playwright = lambda: _PW()
+    package = types.ModuleType("playwright")
+    package.sync_api = fake
+    monkeypatch.setitem(sys.modules, "playwright", package)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake)
+
+
+def test_navigating_never_takes_over_another_instances_tab(monkeypatch):
+    """The active tab is routinely somebody else's session now.
+
+    One window holds every instance the account can reach, so navigating "the
+    active tab" would sign the person out of the instance they were working in
+    — for a call that was about a different one.
+    """
+    theirs = CdpTab("https://test.example.com/nav_to.do")
+    context = CdpContext([theirs])
+    _attach(monkeypatch, capture_module, context)
+
+    moved = capture_module.navigate(_state(), url="https://dev.example.com/sp")
+
+    assert moved["navigated"] is True
+    assert moved["new_tab"] is True
+    assert moved["opened_beside_url"] == "https://test.example.com/nav_to.do"
+    assert theirs.goto_urls == [], "the other instance's tab was never driven"
+    assert theirs.closed is False
+
+
+def test_a_tab_on_this_instance_is_still_reused_in_place(monkeypatch):
+    """The cross-instance rule must not turn every navigation into a new tab."""
+    mine = CdpTab("https://dev.example.com/home.do")
+    context = CdpContext([mine])
+    _attach(monkeypatch, capture_module, context)
+
+    moved = capture_module.navigate(_state(), url="https://dev.example.com/sp")
+
+    assert moved["new_tab"] is False
+    assert mine.goto_urls == ["https://dev.example.com/sp"]
+
+
+# ---------------------------------------------------------------------------
+# reset — one instance's session, never the window's
+# ---------------------------------------------------------------------------
+
+
+def test_a_cookie_on_the_parent_domain_is_not_this_instances_to_clear():
+    """`.service-now.com` is every instance's cookie; taking it signs them all out."""
+    assert reset.belongs_to({"domain": "dev.example.com"}, "dev.example.com") is True
+    assert reset.belongs_to({"domain": ".dev.example.com"}, "dev.example.com") is True
+    assert reset.belongs_to({"domain": ".example.com"}, "dev.example.com") is False
+    assert reset.belongs_to({"domain": "test.example.com"}, "dev.example.com") is False
+    # No host to scope by is not "everything is mine".
+    assert reset.belongs_to({"domain": "dev.example.com"}, "") is False
+
+
+def test_a_reset_keeps_every_other_instances_session(monkeypatch):
+    context = CdpContext(
+        [],
+        cookies=[
+            {"name": "glide_user_session", "domain": "dev.example.com", "value": "a"},
+            {"name": "JSESSIONID", "domain": "dev.example.com", "value": "b"},
+            {"name": "glide_user_session", "domain": "test.example.com", "value": "c"},
+        ],
+    )
+
+    outcome = reset._clear_cookies(context, "dev.example.com")
+
+    assert outcome == {"cookies_cleared": 2, "cookies_kept": 1}
+    assert [cookie["domain"] for cookie in context.cookies()] == ["test.example.com"]
+
+
+def test_a_cookie_jar_that_could_not_be_read_is_never_reported_as_cleared():
+    class Hostile:
+        def cookies(self):
+            raise RuntimeError("detached")
+
+    outcome = reset._clear_cookies(Hostile(), "dev.example.com")
+
+    assert outcome["cookies_cleared"] is None
+    assert "Could not read cookies" in outcome["cookies_note"]
+
+
+def test_a_reset_closes_this_instances_tabs_and_leaves_the_others(monkeypatch):
+    mine = CdpTab("https://dev.example.com/home.do")
+    theirs = CdpTab("https://test.example.com/home.do")
+    context = CdpContext(
+        [mine, theirs],
+        cookies=[{"name": "s", "domain": "dev.example.com", "value": "a"}],
+    )
+    _attach(monkeypatch, reset, context)
+
+    outcome = reset.reset_session(_state(), landing_url="https://dev.example.com/")
+
+    assert outcome["reset"] is True
+    assert mine.closed is True
+    assert theirs.closed is False
+    assert outcome["cookies_cleared"] == 1
+    assert outcome["closed_tabs"] == 1
+    # Reported as unread rather than as done: there is no CDP session in tests.
+    assert outcome["cache_cleared"] is None
+
+
+def test_a_reset_refuses_while_a_tab_holds_input(monkeypatch):
+    """A reset closes tabs AND clears the session behind them — no stepping aside."""
+    mine = CdpTab("https://dev.example.com/incident.do", dirty=["short_description"])
+    context = CdpContext([mine], cookies=[{"name": "s", "domain": "dev.example.com"}])
+    _attach(monkeypatch, reset, context)
+
+    outcome = reset.reset_session(_state(), landing_url="https://dev.example.com/")
+
+    assert outcome["reset"] is False
+    assert outcome["blocked_by_unsaved_input"][0]["fields"] == ["short_description"]
+    assert mine.closed is False
+    assert context.cookies(), "nothing was cleared"
+
+
+def _open_params(**kwargs):
+    return tools.OpenDebugWindowParams(**kwargs)
+
+
+def _open_config():
+    return SimpleNamespace(instance_url="https://dev.example.com", auth=SimpleNamespace())
+
+
+def test_a_reset_costs_a_second_approval(monkeypatch):
+    called = []
+    monkeypatch.setattr(tools, "ensure_window", lambda *a, **k: called.append("opened"))
+
+    result = tools.open_debug_window(_open_config(), MagicMock(), _open_params(reset=True))
+
+    assert result["success"] is False
+    assert "confirm_reset" in result["error"]
+    assert called == [], "the window is not touched by a refused reset"
+
+
+def test_a_reset_with_no_instance_to_scope_by_is_refused():
+    result = tools.open_debug_window(
+        SimpleNamespace(instance_url="", auth=SimpleNamespace()),
+        MagicMock(),
+        _open_params(reset=True, confirm_reset="approve"),
+    )
+
+    assert result["success"] is False
+    assert "instance_url" in result["error"]
+
+
+def _reset_wiring(monkeypatch, tmp_path, state):
+    monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, False))
+    monkeypatch.setattr(tools, "arm", lambda state, **kw: {"armed": True})
+    monkeypatch.setattr(tools, "auto_login", lambda state, **kw: {"status": "no_credentials"})
+    monkeypatch.setattr(tools, "window_history_path", lambda a: str(tmp_path / "h.json"))
+    monkeypatch.setattr(tools, "window_login_path", lambda a: str(tmp_path / "l.json"))
+    monkeypatch.setattr(tools, "window_impersonation_path", lambda a: _marker(tmp_path))
+    monkeypatch.setattr(tools, "reap_idle_windows", lambda a: [])
+
+
+def test_a_reset_clears_the_impersonation_marker_it_invalidated(monkeypatch, tmp_path):
+    state = _state()
+    impersonate.write_marker(
+        _marker(tmp_path), started_at=state.started_at, original="alice", impersonated="bob"
+    )
+    _reset_wiring(monkeypatch, tmp_path, state)
+    monkeypatch.setattr(
+        tools,
+        "reset_session",
+        lambda state, **kw: {"reset": True, "closed_tabs": 2, "cookies_cleared": 3, "url": "u"},
+    )
+
+    result = tools.open_debug_window(
+        _open_config(), MagicMock(), _open_params(reset=True, confirm_reset="approve")
+    )
+
+    assert result["success"] is True
+    assert result["reset"]["cookies_cleared"] == 3
+    assert impersonate.read_marker(_marker(tmp_path), state.started_at) is None
+    assert "impersonating" not in result
+
+
+def test_a_reset_does_not_hand_back_the_one_login_attempt(monkeypatch, tmp_path):
+    """A reset does not make a refused password correct — see login.py."""
+    state = _state()
+    budget = tmp_path / "l.json"
+    budget.write_text(json.dumps({"started_at": state.started_at}), encoding="utf-8")
+    _reset_wiring(monkeypatch, tmp_path, state)
+    monkeypatch.setattr(tools, "reset_session", lambda state, **kw: {"reset": True, "url": "u"})
+
+    result = tools.open_debug_window(
+        _open_config(), MagicMock(), _open_params(reset=True, confirm_reset="approve")
+    )
+
+    assert budget.exists(), "the attempt marker survives the reset"
+    assert "NOT given back" in result["reset_note"]
+
+
+def test_a_reset_that_was_refused_is_never_reported_as_done(monkeypatch, tmp_path):
+    state = _state()
+    _reset_wiring(monkeypatch, tmp_path, state)
+    monkeypatch.setattr(
+        tools,
+        "reset_session",
+        lambda state, **kw: {
+            "reset": False,
+            "blocked_by_unsaved_input": [{"url": "u", "fields": ["x"], "basis": "typed"}],
+            "error": "tabs hold input",
+        },
+    )
+
+    result = tools.open_debug_window(
+        _open_config(), MagicMock(), _open_params(reset=True, confirm_reset="approve")
+    )
+
+    assert result["success"] is False
+    assert result["blocked_by_unsaved_input"]
+    assert result["reset"] is False, "a refusal says so rather than going quiet"
+
+
+def test_a_reset_that_raised_is_never_reported_as_done(monkeypatch, tmp_path):
+    state = _state()
+    _reset_wiring(monkeypatch, tmp_path, state)
+
+    def _boom(state, **kw):
+        raise TimeoutError("the window never answered")
+
+    monkeypatch.setattr(tools, "reset_session", _boom)
+
+    result = tools.open_debug_window(
+        _open_config(), MagicMock(), _open_params(reset=True, confirm_reset="approve")
+    )
+
+    assert result["success"] is False
+    assert "The reset failed" in result["error"]
+    assert result["reset"] is False
+
+
+def test_a_window_that_had_to_be_opened_is_not_claimed_as_reset(monkeypatch, tmp_path):
+    state = _state()
+    _reset_wiring(monkeypatch, tmp_path, state)
+    monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, True))
+
+    def _never(state, **kw):
+        raise AssertionError("a fresh window has nothing to reset")
+
+    monkeypatch.setattr(tools, "reset_session", _never)
+
+    result = tools.open_debug_window(
+        _open_config(), MagicMock(), _open_params(reset=True, confirm_reset="approve")
+    )
+
+    assert result["reset"]["skipped"]
+
+
+# ---------------------------------------------------------------------------
+# Another instance's tab is never this call's to read, drive or fall back to
+# ---------------------------------------------------------------------------
+
+
+def _registry(monkeypatch):
+    monkeypatch.setenv(
+        "SERVICENOW_INSTANCE_CONFIG",
+        json.dumps(
+            {
+                "dev": {"url": "https://dev.example.com"},
+                "test": {"url": "https://test.example.com"},
+            }
+        ),
+    )
+
+
+def test_another_configured_instances_tab_is_never_the_fallback(monkeypatch):
+    """The fallback was "first real tab" — which is now somebody else's session.
+
+    Reading it would report a test tab's console errors under the dev label:
+    the exact shape this repo keeps finding, an absence answered confidently.
+    """
+    _registry(monkeypatch)
+    theirs = CdpTab("https://test.example.com/incident_list.do")
+
+    assert capture_module._instance_page([theirs], "dev.example.com") is None
+    assert capture_module._active_instance_page([theirs], "dev.example.com") is None
+
+
+def test_an_unconfigured_page_is_still_a_usable_fallback(monkeypatch):
+    """The window is a shared screen; somebody's intranet tab is normal to find.
+
+    Only a PROVEN other instance is excluded — a host the registry does not
+    know is not evidence of anything, and refusing on it would break the "just
+    tell me what is on the screen" case the window exists for.
+    """
+    _registry(monkeypatch)
+    theirs = CdpTab("https://intranet.example.org/wiki")
+
+    assert capture_module._instance_page([theirs], "dev.example.com") is theirs
+
+
+def test_with_no_registry_nothing_can_be_proven_foreign(monkeypatch):
+    """Single-instance mode has no list, so behaviour is exactly as before."""
+    monkeypatch.delenv("SERVICENOW_INSTANCE_CONFIG", raising=False)
+    other = CdpTab("https://test.example.com/incident.do")
+
+    assert capture_module._instance_page([other], "dev.example.com") is other
+
+
+def test_no_tab_of_mine_and_no_tab_at_all_are_different_answers(monkeypatch):
+    """One message for both would send someone hunting for a window full of tabs."""
+    _registry(monkeypatch)
+    theirs = CdpTab("https://test.example.com/incident.do")
+
+    busy = capture_module.no_page_message([theirs], "dev.example.com")
+    empty = capture_module.no_page_message([], "dev.example.com")
+
+    assert "no tab on dev.example.com" in busy
+    assert "somebody else's session" in busy
+    assert "no open tab" in empty
+
+
+def test_a_batch_never_falls_through_onto_another_instances_tab(monkeypatch):
+    """act() drives the page it is given, so the wrong page is a click on it."""
+    _registry(monkeypatch)
+    theirs = CdpTab("https://test.example.com/incident.do")
+    context = CdpContext([theirs])
+    _attach(monkeypatch, actions, context)
+
+    with pytest.raises(capture_module.NoPageFound) as raised:
+        actions.act(
+            _state(),
+            profile="dev",
+            actions=actions.normalize([{"action": "click", "selector": "#save"}]),
+        )
+
+    assert "somebody else's session" in str(raised.value)
+    assert theirs.calls == []
+
+
+def test_reusing_a_window_gives_this_instance_a_tab_of_its_own(monkeypatch, tmp_path):
+    """A merge that leaves an instance with no tab is a feature that did nothing.
+
+    The window is shared, so "open the debug window" for test can land on one
+    showing only dev. A tab is opened BESIDE the others, never instead of them.
+    """
+    state = _state()
+    _reset_wiring(monkeypatch, tmp_path, state)
+    armings = [{"armed": False, "reason": "no open tab"}, {"armed": True}]
+    monkeypatch.setattr(tools, "arm", lambda state, **kw: armings.pop(0))
+    moves = []
+
+    def _navigate(state, **kw):
+        moves.append(kw)
+        return {"navigated": True, "url": kw["url"], "new_tab": True}
+
+    monkeypatch.setattr(tools, "navigate", _navigate)
+
+    result = tools.open_debug_window(_open_config(), MagicMock(), _open_params())
+
+    assert moves == [
+        {
+            "url": "https://dev.example.com/",
+            "profile": moves[0]["profile"],
+            "account": moves[0]["account"],
+            "new_tab": True,
+        }
+    ]
+    assert result["recording"] is True
+    assert "beside" in result["opened_tab"]
+
+
+def test_a_window_already_showing_this_instance_is_not_given_a_second_tab(monkeypatch, tmp_path):
+    state = _state()
+    _reset_wiring(monkeypatch, tmp_path, state)
+    monkeypatch.setattr(tools, "arm", lambda state, **kw: {"armed": True})
+
+    def _never(state, **kw):
+        raise AssertionError("nothing to open — the instance already has a tab")
+
+    monkeypatch.setattr(tools, "navigate", _never)
+
+    result = tools.open_debug_window(_open_config(), MagicMock(), _open_params())
+
+    assert result["recording"] is True
+    assert "opened_tab" not in result

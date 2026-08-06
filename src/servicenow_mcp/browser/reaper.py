@@ -124,6 +124,33 @@ class _StateFile:
         return self.key
 
 
+def _marker_paths(root: str, key: str) -> List[str]:
+    """Every impersonation marker belonging to this window.
+
+    One window holds one session per instance now, so it holds up to one marker
+    per instance: ``{key}.{host}.impersonation.json``. Listed rather than
+    computed, because the reaper does not know which instances this window has
+    tabs on — and asking only about the one host it could guess at is how a
+    parked impersonation on another tab would be reaped as an idle window.
+
+    The un-suffixed legacy name is included: a window opened before v1.24.7 is
+    still running, and its marker is still the reason not to close it.
+    """
+    names = [f"{_STATE_PREFIX}{key}.impersonation.json"]
+    try:
+        entries = sorted(os.listdir(root))
+    except OSError as exc:
+        logger.debug("Cannot list impersonation markers in %s: %s", root, exc)
+        return [os.path.join(root, name) for name in names]
+    prefix = f"{_STATE_PREFIX}{key}."
+    names += [
+        name
+        for name in entries
+        if name.startswith(prefix) and name.endswith(".impersonation.json") and name not in names
+    ]
+    return [os.path.join(root, name) for name in names]
+
+
 def _impersonation_is_live(root: str, key: str, state: WindowState) -> bool:
     """True when this exact window is currently pretending to be someone.
 
@@ -132,22 +159,27 @@ def _impersonation_is_live(root: str, key: str, state: WindowState) -> bool:
     such a window would be technically harmless — the session dies with it — but
     a window deliberately parked as another user is the clearest possible signal
     that somebody set it up on purpose.
+
+    ANY of the window's markers is enough: it is parked as somebody on at least
+    one of its tabs, and that is the whole question.
     """
-    path = os.path.join(root, f"{_STATE_PREFIX}{key}.impersonation.json")
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            marker = json.load(handle)
-    except FileNotFoundError:
-        return False
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        logger.debug("Unreadable impersonation marker at %s: %s", path, exc)
-        return True  # unreadable is not evidence of absence
-    if not marker.get("as"):
-        return False
-    try:
-        return abs(float(marker.get("started_at", -1.0)) - float(state.started_at)) < 0.001
-    except (TypeError, ValueError):
-        return True
+    for path in _marker_paths(root, key):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                marker = json.load(handle)
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            logger.debug("Unreadable impersonation marker at %s: %s", path, exc)
+            return True  # unreadable is not evidence of absence
+        if not marker.get("as"):
+            continue
+        try:
+            if abs(float(marker.get("started_at", -1.0)) - float(state.started_at)) < 0.001:
+                return True
+        except (TypeError, ValueError):
+            return True
+    return False
 
 
 def read_presence(state: WindowState) -> Optional[Dict[str, Any]]:

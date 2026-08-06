@@ -299,6 +299,25 @@ def test_a_tab_holding_input_is_never_closed():
     assert tabs[0].url not in note["closed_tabs"]
 
 
+def test_trimming_takes_this_instances_duplicates_before_another_instances_tab():
+    """One window holds every instance now, so "oldest" is not enough.
+
+    The tabs that made the window hard to work in are the ones piling up on the
+    instance being driven; another instance's single tab happening to be older
+    is not a reason to take it first.
+    """
+    other = TrimTab("https://test.example.com/home.do")
+    mine = [TrimTab(f"https://dev.example.com/{i}.do") for i in range(capture_module.MAX_TABS + 1)]
+
+    note = capture_module._trim_tabs(
+        TrimContext([other, *mine]), keep=mine[-1], instance_host="dev.example.com"
+    )
+
+    assert len(note["closed_tabs"]) == 2
+    assert other.closed is False, "the other instance's only tab was the oldest, and survives"
+    assert [tab.closed for tab in mine[:2]] == [True, True]
+
+
 def test_a_cap_that_could_not_bite_says_so():
     # A cap that silently gives up looks identical to one that worked.
     tabs = [

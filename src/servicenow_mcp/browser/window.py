@@ -2,9 +2,14 @@
 
 The window is launched as a plain OS process rather than a Playwright-managed
 browser so it outlives the tool call that opened it. State (pid + port +
-profile) lives in a small JSON file keyed by instance and user, mirroring how
-the auth layer keys its session files — so a dev window and a test window never
-collide with each other, nor with the login profile.
+profile) lives in a small JSON file keyed by the ACCOUNT the window signs in as
+(:func:`_window_key`) — one window per person, with every instance they can
+reach living in it as a tab. Cookie isolation between those instances is the
+browser's job and it does it per domain, so a second Chromium bought nothing
+and cost ~200MB.
+
+Anything that describes one SESSION rather than one window — the auto-login
+budget, the impersonation marker — keeps a host axis (:func:`_session_key`).
 
 The window signs in on its own (see session.py); nothing about the API's
 session is copied into it.
@@ -67,6 +72,17 @@ class WindowState:
     # rather than as "idle since 1970" — the difference decides whether the
     # reaper may close it.
     last_used_at: float = 0.0
+    # The instance THIS call is about, set from the caller's config on every
+    # read (see :func:`read_window_state`) and deliberately NOT persisted.
+    #
+    # One window now serves every instance one account can reach — instances get
+    # tabs, not windows (see :func:`_window_key`). So "which host" stopped being
+    # a property of the window the moment that landed: ``instance_url`` records
+    # whichever instance the window happened to be launched for, and reading the
+    # call's host out of it would answer a dev question with a test tab. That is
+    # the shape this repo keeps finding — a stale copy of a fact used where the
+    # live one was meant.
+    caller_url: str = ""
 
     @property
     def cdp_endpoint(self) -> str:
@@ -74,7 +90,15 @@ class WindowState:
 
     @property
     def instance_host(self) -> str:
-        return (urlparse(self.instance_url).hostname or "").lower()
+        """The host of the instance this CALL is about — never the launch host.
+
+        Every consumer (tab choice, arming, impersonation, the identity echo)
+        means "the instance I was asked about", so that is what this answers.
+        Falls back to the launch URL only for a state nobody attributed to a
+        caller, which in practice means the reaper describing someone else's
+        window.
+        """
+        return (urlparse(self.caller_url or self.instance_url).hostname or "").lower()
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -166,8 +190,24 @@ def _window_account(auth_manager: Any) -> str:
     return ""
 
 
+def _caller_url(auth_manager: Any) -> str:
+    """The instance URL this call is pointed at, for ``WindowState.caller_url``."""
+    return str(getattr(auth_manager, "instance_url", "") or "")
+
+
+def _window_host(auth_manager: Any) -> str:
+    """The instance host, sanitized for a filename. "" when unconfigured."""
+    try:
+        raw_url = str(getattr(auth_manager, "instance_url", "") or "")
+        host = (urlparse(raw_url).hostname or "").lower()
+    except (TypeError, ValueError) as exc:
+        logger.debug("Could not read the instance host: %s", exc)
+        return ""
+    return host.replace(".", "_")
+
+
 def _window_key(auth_manager: Any) -> str:
-    """Identity of one window: the instance host plus the account it signs in as.
+    """Identity of one window: the ACCOUNT it signs in as. Instances get tabs.
 
     Deliberately NOT ``_get_instance_user_suffix``. That helper keys SESSION and
     PROFILE files, and for those the profile label is rightly the identity unit
@@ -177,30 +217,49 @@ def _window_key(auth_manager: Any) -> str:
     produce two different keys, so neither finds the other's window and a second
     one opens. That is a duplicate, not a second session.
 
-    What actually has to stay separate is a SESSION, and a ServiceNow session is
-    a cookie jar: one per host per account. So that is what is keyed here, and a
-    profile label — a naming convenience in someone's config — cannot split it.
-    Impersonation is unaffected: it re-points a session at another user, so two
-    people at once still needs two windows, which host+account still gives.
+    It is not keyed on the host either, and that is the v1.24.7 change. The host
+    axis was there to keep sessions apart — but **cookie isolation is a property
+    of the domain, and the browser gives it for free inside one profile**: one
+    profile holds a dev jar and a test jar simultaneously and they cannot
+    collide, because the server that set a cookie is the only server it is ever
+    sent to. So keying on the host bought nothing and cost a whole Chromium
+    (~200MB, its own profile dir, its own CDP port) per instance, for windows
+    that were never in each other's way. Dev and test are two TABS.
 
-    Falls back to the suffix helper only when there is no host to key on, which
-    in practice means an unconfigured instance URL.
+    Impersonation is the one thing that genuinely needs a second window, and it
+    is an ACCOUNT axis rather than a host one: it re-points a session at another
+    user, so holding two identities at once needs two cookie jars ⇒ two profiles
+    ⇒ two windows. Keying on the account is exactly what gives that, and keying
+    on the host never did.
+
+    What still carries a host axis is the per-SESSION sidecars — the auto-login
+    budget and the impersonation marker (see the path helpers below). Those
+    describe one cookie jar, and one window now holds several.
+
+    Falls back to the host, then to the suffix helper, when there is no account
+    to key on — an OAuth or API-key profile has no name to merge on, and merging
+    two windows nobody can identify is not a saving worth guessing for.
     """
-    try:
-        raw_url = str(getattr(auth_manager, "instance_url", "") or "")
-        host = (urlparse(raw_url).hostname or "").lower()
-    except (TypeError, ValueError) as exc:
-        logger.debug("Falling back to the suffix helper for the window key: %s", exc)
-        host = ""
-    if not host:
-        return _instance_suffix(auth_manager)
-    key = host.replace(".", "_")
     account = _window_account(auth_manager)
     if account:
         # `@` before `.` so alice@corp.com and alice.corp.com stay distinct —
         # the same ordering the auth layer's suffix uses, for the same reason.
-        key += f"_{account.replace('@', '_at_').replace('.', '_')}"
-    return key
+        return account.replace("@", "_at_").replace(".", "_")
+    host = _window_host(auth_manager)
+    return host or _instance_suffix(auth_manager)
+
+
+def _session_key(auth_manager: Any) -> str:
+    """Window key plus host — one ServiceNow SESSION, i.e. one cookie jar.
+
+    The window is shared across instances now; a session is not. Anything that
+    describes what the server thinks of this window on ONE host is keyed with
+    this rather than with the window key, or a dev fact would be reported as a
+    test one.
+    """
+    host = _window_host(auth_manager)
+    key = _window_key(auth_manager)
+    return f"{key}.{host}" if host else key
 
 
 def window_state_path(auth_manager: Any) -> str:
@@ -230,11 +289,14 @@ def window_cursor_path(auth_manager: Any) -> str:
 def window_login_path(auth_manager: Any) -> str:
     """Records that this window already spent its one auto-login attempt.
 
-    Keyed by window, not by instance — see login.py for why a second attempt is
-    a lockout risk rather than a second chance.
+    Keyed by window AND host (``_session_key``): the budget exists because a
+    REFUSED credential must not be replayed at the same server (see login.py),
+    and a dev login is not a test login. Merging the two would let one instance's
+    rejection spend the other instance's only attempt — and, worse, let a
+    successful dev login stand in for a test one that never happened.
     """
     return os.path.join(
-        _cache_root(auth_manager), f"debug_window_{_window_key(auth_manager)}.login.json"
+        _cache_root(auth_manager), f"debug_window_{_session_key(auth_manager)}.login.json"
     )
 
 
@@ -246,10 +308,15 @@ def window_impersonation_path(auth_manager: Any) -> str:
     routinely not the one that started it. Keyed to the window's ``started_at``
     inside the file (see impersonate.py), so a closed window leaves nothing that
     could describe the next one.
+
+    Keyed by window AND host (``_session_key``), because impersonation is
+    server-side SESSION state and the window now holds one session per host.
+    Sharing this file across them would announce a dev impersonation on a test
+    tab — a claim about a session nobody re-pointed.
     """
     return os.path.join(
         _cache_root(auth_manager),
-        f"debug_window_{_window_key(auth_manager)}.impersonation.json",
+        f"debug_window_{_session_key(auth_manager)}.impersonation.json",
     )
 
 
@@ -278,12 +345,19 @@ def read_window_state(auth_manager: Any) -> Optional[WindowState]:
     path = window_state_path(auth_manager)
     try:
         with open(path, "r", encoding="utf-8") as handle:
-            return WindowState.from_dict(json.load(handle))
+            state = WindowState.from_dict(json.load(handle))
     except FileNotFoundError:
         return None
     except (OSError, json.JSONDecodeError) as exc:
         logger.debug("Unreadable debug-window state at %s: %s", path, exc)
         return None
+    if state is None:
+        return None
+    # Stamped here, at the one place every caller goes through, rather than
+    # threaded through four signatures: the window is shared across instances,
+    # so the host every consumer wants is the CALLER's, and the file only knows
+    # which instance the window was launched for.
+    return replace_state(state, caller_url=_caller_url(auth_manager))
 
 
 def write_window_state(auth_manager: Any, state: WindowState) -> None:
@@ -614,7 +688,7 @@ def launch_window(
     orphan = _orphan_window_pid(profile_dir)
     if orphan is not None:
         raise RuntimeError(
-            f"A debug window for this instance is already open (pid {orphan}) but this "
+            f"A debug window for this account is already open (pid {orphan}) but this "
             "server lost track of its debugging port. Close that window and try again."
         )
 
@@ -633,14 +707,16 @@ def launch_window(
     while time.time() < deadline:
         if _cdp_responds(port):
             now = time.time()
+            launched_for = _caller_url(auth_manager)
             state = WindowState(
                 pid=process.pid,
                 port=port,
                 profile_dir=profile_dir,
-                instance_url=str(getattr(auth_manager, "instance_url", "") or ""),
+                instance_url=launched_for,
                 started_at=now,
                 executable_path=executable,
                 last_used_at=now,
+                caller_url=launched_for,
             )
             write_window_state(auth_manager, state)
             return state
