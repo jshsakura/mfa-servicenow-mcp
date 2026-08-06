@@ -46,7 +46,6 @@ opencode.json
 .claude/
 .codex/
 .mcp.json
-AGENTS.md
 
 # Environment files
 .env
