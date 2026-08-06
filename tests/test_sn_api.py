@@ -50,19 +50,32 @@ def test_sn_query_reuses_cached_page_for_identical_requests():
     )
     auth_manager = MagicMock()
     response = MagicMock()
-    response.content = b'{"result": [{"sys_id": "1"}]}'
+    # `name` and `element` are here so the field check (utils/query_fields.py)
+    # can resolve the table's columns from this same mock and memoize them —
+    # otherwise it correctly refuses to cache a lookup it could not complete and
+    # retries on the second call, which is not what this test is measuring.
+    response.content = b'{"result": [{"sys_id": "1", "name": "incident", "element": "active"}]}'
     response.headers = {"X-Total-Count": "1"}
     response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "result": [{"sys_id": "1", "name": "incident", "element": "active"}]
+    }
     auth_manager.make_request.return_value = response
 
     params = GenericQueryParams(table="incident", query="active=true", orderby="number")
 
     first = sn_query(config, auth_manager, params)
+    after_first = auth_manager.make_request.call_count
     second = sn_query(config, auth_manager, params)
 
     assert first["success"] is True
     assert second["success"] is True
-    assert auth_manager.make_request.call_count == 1
+    # A DELTA, not an absolute. The first call also resolves the table's columns
+    # to check the query's field names (see utils/query_fields.py), and pinning
+    # the total would make this test fail for a reason it has nothing to say
+    # about. What it is actually about is that the second identical query costs
+    # nothing — and that is still exactly zero requests.
+    assert auth_manager.make_request.call_count == after_first, "the page cache served it"
 
 
 def test_sn_query_cache_key_keeps_orderby_distinct():
