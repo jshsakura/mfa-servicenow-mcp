@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
+from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
@@ -276,8 +276,7 @@ def get(
     query_str = "^".join(query_parts) if query_parts else ""
 
     if count_only:
-        count = sn_count(config, auth_manager, "sys_update_set", query_str)
-        return {"success": True, "count": count}
+        return count_response(config, auth_manager, "sys_update_set", query_str, what="update sets")
 
     try:
         records, _ = sn_query_page(

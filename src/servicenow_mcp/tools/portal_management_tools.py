@@ -158,10 +158,9 @@ def get_portal(
     # portals by suffix (e.g. "sp") without a separate detail call.
     query = f"titleLIKE{params.query}^ORurl_suffixLIKE{params.query}" if params.query else ""
     if params.count_only:
-        from .sn_api import sn_count
+        from .sn_api import count_response
 
-        count = sn_count(config, auth_manager, PORTAL_TABLE, query)
-        return {"success": True, "count": count}
+        return count_response(config, auth_manager, PORTAL_TABLE, query, what="portals")
 
     fields = "sys_id,title,url_suffix,homepage,theme,css,default_,logo,sp_rectangle"
     response = _query(

@@ -4,7 +4,7 @@ repos:
     hooks:
       - id: black
         name: black
-        entry: ./.venv/bin/black
+        entry: ./scripts/hook_python.sh -m black
         language: system
         types: [python]
 
@@ -16,7 +16,7 @@ repos:
       # the identity guard. A gate that has to be bypassed is a hole.
       - id: pytest-skills
         name: pytest-skills
-        entry: ./.venv/bin/pytest tests/test_skills.py -q --no-cov
+        entry: ./scripts/hook_python.sh -m pytest tests/test_skills.py -q --no-cov
         language: system
         pass_filenames: false
 
@@ -26,7 +26,7 @@ repos:
       # commit, not just review.
       - id: no-real-identities
         name: no-real-identities
-        entry: ./.venv/bin/python scripts/check_real_identities.py
+        entry: ./scripts/hook_python.sh scripts/check_real_identities.py
         language: system
         pass_filenames: false
 
@@ -34,7 +34,7 @@ repos:
       # Fails if any markdown/yaml references a tool not in the live registry.
       - id: orphan-tool-refs
         name: orphan-tool-refs
-        entry: ./.venv/bin/python scripts/check_orphan_tool_refs.py
+        entry: ./scripts/hook_python.sh scripts/check_orphan_tool_refs.py
         language: system
         pass_filenames: false
 
@@ -43,7 +43,7 @@ repos:
       # tracked tree is re-scanned here. A push cannot be taken back; a commit can.
       - id: no-real-identities-all
         name: no-real-identities-all
-        entry: ./.venv/bin/python scripts/check_real_identities.py --all
+        entry: ./scripts/hook_python.sh scripts/check_real_identities.py --all
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -51,7 +51,7 @@ repos:
       # Full test suite before push to avoid CI-only surprises
       - id: pytest-all
         name: pytest-all
-        entry: ./.venv/bin/pytest tests/ -q
+        entry: ./scripts/hook_python.sh -m pytest tests/ -q
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -64,7 +64,7 @@ repos:
       # one does not fail safe: it reports clean and lets the break through.
       - id: mypy-all
         name: mypy-all
-        entry: ./.venv/bin/mypy src/
+        entry: ./scripts/hook_python.sh -m mypy src/
         language: system
         pass_filenames: false
         stages: [pre-push]

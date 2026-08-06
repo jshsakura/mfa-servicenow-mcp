@@ -273,7 +273,7 @@ class TestListSI:
         assert "client_callable=true" in q
         assert "nameLIKEMy" in q
 
-    @patch("servicenow_mcp.services.script_include.sn_count")
+    @patch("servicenow_mcp.tools.sn_api.sn_count")
     def test_count_only(self, mock_cnt, config, auth):
         mock_cnt.return_value = 10
         result = list_si(config, auth, count_only=True)

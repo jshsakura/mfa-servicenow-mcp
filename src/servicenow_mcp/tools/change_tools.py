@@ -15,7 +15,7 @@ from servicenow_mcp.services import change as change_service
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from .sn_api import invalidate_query_cache, sn_count, sn_query_page
+from .sn_api import count_response, invalidate_query_cache, sn_query_page
 
 logger = logging.getLogger(__name__)
 
@@ -178,8 +178,9 @@ def get_change_request_details(
         query = "^".join(query_parts) if query_parts else ""
 
         if params.count_only:
-            count = sn_count(config, auth_manager, "change_request", query)
-            return {"success": True, "count": count}
+            return count_response(
+                config, auth_manager, "change_request", query, what="change requests"
+            )
 
         try:
             rows, total = sn_query_page(

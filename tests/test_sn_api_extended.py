@@ -391,11 +391,15 @@ class TestSnCount:
         auth.make_request.return_value = resp
         assert sn_count(config, auth, "incident", query="active=true") == 10
 
-    def test_error_returns_zero(self):
+    def test_error_raises_rather_than_answering_zero(self):
+        """A count that could not be taken is not a count of zero. See sn_count."""
+        import pytest
+
         config = _make_config()
         auth = MagicMock()
         auth.make_request.side_effect = Exception("fail")
-        assert sn_count(config, auth, "incident") == 0
+        with pytest.raises(Exception, match="fail"):
+            sn_count(config, auth, "incident")
 
 
 # ---------------------------------------------------------------------------

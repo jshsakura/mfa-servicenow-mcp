@@ -14,7 +14,7 @@ from servicenow_mcp.services import catalog as _cat_svc
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from .sn_api import sn_count, sn_query_page
+from .sn_api import count_response, sn_query_page
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +70,9 @@ def list_catalog_items(
     query_string = "^".join(filters) if filters else ""
 
     if params.count_only:
-        count = sn_count(config, auth_manager, "sc_cat_item", query_string)
-        return {"success": True, "count": count}
+        return count_response(
+            config, auth_manager, "sc_cat_item", query_string, what="catalog items"
+        )
 
     try:
         records, total_count = sn_query_page(

@@ -444,7 +444,15 @@ def test_sn_query_page_still_silences_non_auth_errors():
     assert rows == [] and total is None
 
 
-def test_sn_count_raises_auth_errors_but_returns_zero_otherwise():
+def test_sn_count_never_reports_a_failed_read_as_zero():
+    """0 is a perfectly good count, which is exactly why it cannot mean "I could not look".
+
+    It used to return 0 on any non-auth error, so a timeout came back as
+    ``{"success": true, "count": 0}`` and the model said there were none. Two
+    callers had already written ``except`` blocks around this and were silently
+    getting the wrong value through them — the delete-safety dependency count in
+    _preview and the running-context check before a workflow delete.
+    """
     import pytest
 
     from servicenow_mcp.tools.sn_api import sn_count
@@ -457,4 +465,56 @@ def test_sn_count_raises_auth_errors_but_returns_zero_otherwise():
 
     am_net = MagicMock()
     am_net.make_request.side_effect = RuntimeError("timeout")
-    assert sn_count(cfg, am_net, "incident") == 0
+    with pytest.raises(RuntimeError, match="timeout"):
+        sn_count(cfg, am_net, "incident")
+
+
+# ---------------------------------------------------------------------------
+# A failed read must never leave the shape of a successful empty one
+# ---------------------------------------------------------------------------
+
+
+def test_a_silenced_page_says_so_in_the_log(caplog):
+    """An empty page is indistinguishable from end-of-data to every caller.
+
+    So a swallowed read that left no trace anywhere was unreconstructable after
+    the fact: the only evidence a page had been dropped was rows that were never
+    there.
+    """
+    import logging
+
+    from servicenow_mcp.tools.sn_api import sn_query_page
+
+    cfg = _browser_cfg_for("https://silentpage.service-now.com")
+    am = MagicMock()
+    am.make_request.side_effect = RuntimeError("connection reset")
+
+    with caplog.at_level(logging.WARNING, logger="servicenow_mcp.tools.sn_api"):
+        rows, total = sn_query_page(
+            cfg, am, table="incident", query="", fields="", limit=10, offset=40
+        )
+
+    assert (rows, total) == ([], None)
+    assert any("silenced a failure" in record.getMessage() for record in caplog.records)
+
+
+def test_a_count_only_tool_reports_a_failure_instead_of_zero(monkeypatch):
+    """`{"success": true, "count": 0}` over an unread count is the whole bug."""
+    from servicenow_mcp.tools import catalog_tools
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("stats endpoint timed out")
+
+    # Patched where count_response calls it, not where the tool imports from —
+    # the tool now imports count_response, and sn_count lives in sn_api.
+    monkeypatch.setattr("servicenow_mcp.tools.sn_api.sn_count", _boom)
+
+    result = catalog_tools.list_catalog_items(
+        _browser_cfg_for("https://countonly.service-now.com"),
+        MagicMock(),
+        catalog_tools.ListCatalogItemsParams(count_only=True),
+    )
+
+    assert result["success"] is False
+    assert "timed out" in result["message"]
+    assert "count" not in result, "a count that was never taken must not be in the answer"

@@ -366,7 +366,12 @@ def _cache_put(key: _CacheKey, value: Any, *, ttl: float = _CACHE_TTL_SECONDS) -
 def invalidate_query_cache(*, table: Optional[str] = None) -> int:
     """Invalidate cached query pages.
 
-    When ``table`` is provided, only entries for that table are removed.
+    When ``table`` is provided, only entries for that table are removed —
+    **across every instance**, because the key's instance is not compared. That
+    is over-invalidation, which costs a re-fetch and can never serve a stale row,
+    so it is the safe direction; it is written down because "only entries for
+    that table" reads narrower than what happens.
+
     Otherwise the full in-memory query cache is cleared.
     Returns the number of removed entries.
     """
@@ -376,10 +381,15 @@ def invalidate_query_cache(*, table: Optional[str] = None) -> int:
             _query_cache.clear()
             return removed
 
+        # ``key[0] == table`` used to ride along here and could not ever be true:
+        # _cache_key puts the instance URL at [0] and the table at [1]. A ghost
+        # of some earlier key shape, and the kind of thing that later hides a
+        # real cache/instance-separation bug by looking like it already handles
+        # one.
         keys_to_delete = [
             key
             for key in _query_cache
-            if isinstance(key, tuple) and len(key) > 1 and (key[1] == table or key[0] == table)
+            if isinstance(key, tuple) and len(key) > 1 and key[1] == table
         ]
         for key in keys_to_delete:
             del _query_cache[key]
@@ -557,6 +567,18 @@ def sn_query_page(
     except Exception as exc:
         if not fail_silently or _is_auth_error(exc):
             raise
+        # Logged, never silent. An empty page is indistinguishable from
+        # end-of-data to every caller above this, so a swallowed read that left
+        # no trace anywhere was unreconstructable after the fact: the only
+        # evidence a page had been dropped was rows that were never there.
+        logger.warning(
+            "sn_query_page silenced a failure (table=%s offset=%s limit=%s): %s — "
+            "returning an EMPTY page, which callers cannot tell from end-of-data",
+            table,
+            offset,
+            limit,
+            exc,
+        )
         return [], None
 
 
@@ -880,21 +902,63 @@ def sn_count(
     table: str,
     query: str = "",
 ) -> int:
-    """Return record count via Aggregate API — single lightweight call, no bodies."""
+    """Return record count via Aggregate API — single lightweight call, no bodies.
+
+    **Raises on failure. It used to return 0.** A count is the one read whose
+    failure mode is indistinguishable from its success mode: a transient 502, a
+    field the instance does not have, a table this session cannot read — every
+    one of them came back as ``0``, and ``0`` is a perfectly good count. So the
+    tool answered ``{"success": true, "count": 0}`` and the model said "there
+    are none". That is the failure this repo has now found twelve times: an
+    absence scored as evidence of absence.
+
+    Two callers had already written the correct handling and were getting the
+    wrong value through it, which is how this was found:
+
+    - ``_preview.py`` wraps this in try/except to record a dependency count as
+      ``None`` with a warning. The except was dead, so "nothing depends on this
+      record" was printed over an unread count — on the path that decides
+      whether a delete is safe.
+    - ``workflow_tools`` counts RUNNING contexts before deleting a workflow and
+      comments "fail-open when the count can't run". It got 0, which is falsy,
+      so the guard passed and the workflow was deleted out from under them.
+
+    There is deliberately no ``fail_silently`` switch. Nobody wants a count that
+    might mean "I could not look"; adding the option would only let the bug be
+    re-introduced by whoever needed the call not to raise.
+    """
     url = f"{config.instance_url}/api/now/stats/{table}"
     params: Dict[str, str] = {"sysparm_count": "true"}
     if query:
         params["sysparm_query"] = query
+    resp = auth_manager.make_request("GET", url, params=params, timeout=config.timeout)
+    data = resp.json() if hasattr(resp, "json") else {}
+    result = data.get("result", {})
+    stats = result.get("stats", result)
+    return int(stats.get("count", 0))
+
+
+def count_response(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    query: str = "",
+    *,
+    what: str = "records",
+) -> Dict[str, Any]:
+    """``count_only``'s answer, including when the count could not be taken.
+
+    Every ``count_only`` branch in this repo was the same two lines —
+    ``count = sn_count(...)`` then ``return {"success": True, "count": count}`` —
+    written out eleven times, and all eleven turned a failed read into
+    ``count: 0``. Hand-wrapping eleven copies would leave the twelfth to whoever
+    adds the next tool. So the correct handling is the short path now.
+    """
     try:
-        resp = auth_manager.make_request("GET", url, params=params, timeout=config.timeout)
-        data = resp.json() if hasattr(resp, "json") else {}
-        result = data.get("result", {})
-        stats = result.get("stats", result)
-        return int(stats.get("count", 0))
-    except Exception as exc:
-        if _is_auth_error(exc):
-            raise
-        return 0
+        return {"success": True, "count": sn_count(config, auth_manager, table, query)}
+    except Exception as exc:  # noqa: BLE001 - reported, never rendered as zero
+        logger.error("Failed to count %s: %s", what, exc)
+        return {"success": False, "message": f"Failed to count {what}: {exc}"}
 
 
 def sn_count_by_group(

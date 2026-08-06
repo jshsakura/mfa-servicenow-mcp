@@ -20,8 +20,9 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
+from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.encoded_query import safe_value
 
 logger = logging.getLogger(__name__)
 
@@ -398,20 +399,28 @@ def get(
             logger.error(f"Failed to fetch incident: {e}")
             return {"success": False, "message": f"Failed to fetch incident: {str(e)}"}
 
+    # Every value goes through safe_value: a caller value carrying `^` stops
+    # being a value and becomes query STRUCTURE, and ServiceNow answers a
+    # condition it cannot parse by DROPPING it — so the widened query comes back
+    # as rows, not as an error. See utils/encoded_query.py.
     filters = []
-    if state:
-        filters.append(f"state={state}")
-    if assigned_to:
-        filters.append(f"assigned_to={assigned_to}")
-    if category:
-        filters.append(f"category={category}")
+    notes = []
+    for field, raw in (("state", state), ("assigned_to", assigned_to), ("category", category)):
+        if not raw:
+            continue
+        safe = safe_value(raw)
+        filters.append(f"{field}={safe.value}")
+        if safe.changed:
+            notes.append(safe.note(field=field))
     if query:
-        filters.append(f"short_descriptionLIKE{query}^ORdescriptionLIKE{query}")
+        safe_q = safe_value(query)
+        filters.append(f"short_descriptionLIKE{safe_q.value}^ORdescriptionLIKE{safe_q.value}")
+        if safe_q.changed:
+            notes.append(safe_q.note(field="query"))
     query_string = "^".join(filters) if filters else ""
 
     if count_only:
-        count = sn_count(config, auth_manager, "incident", query_string)
-        return {"success": True, "count": count}
+        return count_response(config, auth_manager, "incident", query_string, what="incidents")
 
     try:
         records, _ = sn_query_page(
@@ -445,11 +454,16 @@ def get(
                     "updated_on": d.get("sys_updated_on"),
                 }
             )
-        return {
+        answer: Dict[str, Any] = {
             "success": True,
             "message": f"Found {len(incidents)} incidents",
             "incidents": incidents,
         }
+        # Said, not silent: a cleaned filter answers a different question than
+        # the one asked, and this is the only layer that can say which.
+        if notes:
+            answer["filter_notes"] = notes
+        return answer
     except Exception as e:
         logger.error(f"Failed to list incidents: {e}")
         return {"success": False, "message": f"Failed to list incidents: {str(e)}", "incidents": []}
