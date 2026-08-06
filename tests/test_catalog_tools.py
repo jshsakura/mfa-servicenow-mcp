@@ -72,7 +72,7 @@ class TestListCatalogItems(unittest.TestCase):
         self.assertIn("short_descriptionLIKElaptop^ORnameLIKElaptop", call_kwargs["query"])
         self.assertTrue(call_kwargs["display_value"])
 
-    @patch("servicenow_mcp.tools.catalog_tools.sn_count")
+    @patch("servicenow_mcp.tools.sn_api.sn_count")
     def test_list_items_count_only(self, mock_cnt):
         mock_cnt.return_value = 42
 

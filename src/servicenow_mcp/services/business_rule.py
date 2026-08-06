@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
+from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
@@ -204,11 +204,8 @@ def list_br(
     if count_only:
         # Not sharing a name with the paged read's total below: that one is
         # Optional[int] (absent X-Total-Count) and this one is not.
-        return {
-            "success": True,
-            "count": sn_count(config, auth_manager, table="sys_script", query=encoded),
-            "table": "sys_script",
-        }
+        answer = count_response(config, auth_manager, "sys_script", encoded, what="business rules")
+        return {**answer, "table": "sys_script"} if answer.get("success") else answer
 
     try:
         records, total = sn_query_page(

@@ -4,11 +4,46 @@
 
 Tool definitions are sent to the LLM on every request. Every character costs tokens.
 
-### Description Limits
-- Tool `description`: max 120 chars. State what it does + one usage hint.
-- Parameter `description`: max 80 chars. No examples unless critical.
+### Description Limits — a target, with a floor underneath it
+
+- Tool `description`: aim for 120 chars. State what it does + one usage hint.
+- Parameter `description`: aim for 80 chars. No examples unless critical.
 - Good: `"List Flow Designer custom action definitions. Use list_actions to find sys_ids."`
 - Bad: `"This tool allows you to list all of the custom action definitions that have been created in the Flow Designer interface of ServiceNow, returning their names, statuses, and other metadata."`
+
+**These are budgets to write against, not a limit to retrofit.** Descriptions
+have a FLOOR: cut below it and tool selection gets worse, so trimming is not a
+pure saving — it is a token-vs-accuracy trade, and past the floor it loses. This
+was measured, not assumed: truncating param descriptions dropped routing hints
+("use portal tracing/search tools when …") and changed meaning (dropped "or
+sys_id of the parent table"), and the model mis-routed calls. That is why the
+schema compactor forwards them verbatim (`server.py::_get_tool_schema`) and
+truncates defaults instead.
+
+So: **do not open a PR that compresses existing descriptions to hit the number.**
+An automated length sweep will find ~28 params over 80 chars. Those are known,
+and shortening them is not the win — every one was written long because the short
+version routed worse.
+
+Nothing enforces the number, deliberately. A hard check would have exactly one
+effect: descriptions written to satisfy a linter rather than a reader.
+
+**Where the real savings are**, in order — all functional, none of them string
+length:
+
+1. **Package layering.** `standard` is the no-config base every package
+   `_extends`, so a specialist cluster added there is paid for by every session
+   that will never call it (~2-3k tokens/request for the portal/source-analysis
+   set alone). Move clusters out to opt-in read layers.
+2. **Action multiplex + `_FIELDS_BY_ACTION`.** One `manage_*` tool with narrowed
+   per-action fields beats N tools. Applied to 7 tools; a `manage_*` tool without
+   the map exposes every field on every action. Merging user-facing *getters* is
+   NOT safe — it degrades selection; internal resolver merges are.
+3. **Output projection.** Read tools defaulting to `fields=""` return whole
+   records. This is the largest remaining win and it costs no accuracy.
+
+Never save tokens by under-fetching a field a caller needs — a re-query costs far
+more than the projection saved.
 
 ### Parameter Model Rules
 - `Optional[str]` is fine — the schema compactor strips `anyOf` noise automatically.

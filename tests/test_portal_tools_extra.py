@@ -2066,9 +2066,14 @@ class TestHelperFunctions:
         assert _looks_like_regex("simple_text") is False
 
     def test_escape_query(self):
-        assert "^^" in _escape_query("test^value")
-        assert "\\=" in _escape_query("test=val")
-        assert "\\@" in _escape_query("test@val")
+        """`^` cannot survive in a value; `=` and `@` are left alone.
+
+        `=` cannot start a new condition, so removing it only corrupts values.
+        See utils/encoded_query.py for why nothing here escapes.
+        """
+        assert _escape_query("test^value") == "testvalue"
+        assert _escape_query("test=val") == "test=val"
+        assert _escape_query("test@val") == "test@val"
 
     def test_extract_click_handlers(self):
         template = '<button ng-click="doSave()">Save</button>'

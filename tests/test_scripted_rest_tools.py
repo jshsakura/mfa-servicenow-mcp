@@ -63,7 +63,9 @@ class TestManageScriptedRest(unittest.TestCase):
         self.assertEqual("active=true^nameLIKEMy", kwargs["query"])
         self.assertEqual("sys_ws_definition", kwargs["table"])
 
-    @patch(f"{SVC}.sn_count")
+    # Patched in sn_api, where count_response calls it — the service imports
+    # count_response now, so a failed count can never be answered as 0.
+    @patch("servicenow_mcp.tools.sn_api.sn_count")
     def test_list_count_only(self, mock_count):
         mock_count.return_value = 7
         result = self._run(action="list", count_only=True, active=True)
@@ -72,6 +74,16 @@ class TestManageScriptedRest(unittest.TestCase):
         mock_count.assert_called_once_with(
             self.config, self.auth, "sys_ws_definition", "active=true"
         )
+
+    @patch("servicenow_mcp.tools.sn_api.sn_count")
+    def test_list_count_only_reports_a_read_that_failed(self, mock_count):
+        mock_count.side_effect = RuntimeError("stats endpoint timed out")
+
+        result = self._run(action="list", count_only=True, active=True)
+
+        self.assertFalse(result["success"])
+        self.assertIn("timed out", result["message"])
+        self.assertNotIn("count", result)
 
     # --- get ---
 

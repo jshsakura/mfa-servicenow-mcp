@@ -114,7 +114,7 @@ def test_get_single_error_path(mock_config, auth):
 
 
 def test_get_list_count_only(mock_config, auth):
-    with patch("servicenow_mcp.services.change.sn_count") as mock_count:
+    with patch("servicenow_mcp.tools.sn_api.sn_count") as mock_count:
         mock_count.return_value = 42
         result = change_service.get(mock_config, auth, state="2", count_only=True)
     assert result == {"success": True, "count": 42}

@@ -124,7 +124,7 @@ class TestChangeTools(unittest.TestCase):
         query = call_kwargs.kwargs.get("query", "")
         self.assertIn("end_date<", query)
 
-    @patch("servicenow_mcp.tools.change_tools.sn_count")
+    @patch("servicenow_mcp.tools.sn_api.sn_count")
     def test_list_change_requests_count_only(self, mock_count):
         mock_count.return_value = 42
         params = GetChangeRequestDetailsParams(count_only=True)

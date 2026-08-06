@@ -16,7 +16,12 @@ from servicenow_mcp.tools._preview import (
     build_delete_preview,
     build_update_preview,
 )
-from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
+from servicenow_mcp.tools.sn_api import (
+    count_response,
+    invalidate_query_cache,
+    sn_count,
+    sn_query_page,
+)
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -253,8 +258,9 @@ def list_workflows(
     query_string = "^".join(query_parts) if query_parts else ""
 
     if params.get("count_only"):
-        count = sn_count(server_config, auth_manager, "wf_workflow", query_string)
-        return {"success": True, "count": count}
+        return count_response(
+            server_config, auth_manager, "wf_workflow", query_string, what="workflows"
+        )
 
     # Make the API request
     try:

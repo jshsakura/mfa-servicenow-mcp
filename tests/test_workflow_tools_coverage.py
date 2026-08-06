@@ -79,7 +79,7 @@ class TestListWorkflowsEdgeCases(unittest.TestCase):
 
     def test_count_only(self):
         """Cover line 246-247: count_only branch."""
-        with patch("servicenow_mcp.tools.workflow_tools.sn_count", return_value=42):
+        with patch("servicenow_mcp.tools.sn_api.sn_count", return_value=42):
             result = list_workflows(self.config, self.auth, {"count_only": True})
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 42)

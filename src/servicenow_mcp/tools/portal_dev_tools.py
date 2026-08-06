@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from servicenow_mcp.utils.encoded_query import encoded_value
+
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
@@ -118,7 +120,12 @@ IGNORED_CONSTRUCTORS = {
 
 
 def _escape_query(value: str) -> str:
-    return str(value).replace("^", "^^").replace("=", r"\=").replace("@", r"\@")
+    # Was `^`→`^^`, `=`→`\=`, `@`→`\@` — an escape syntax invented here and never
+    # proven against a live instance, in four copies. A condition ServiceNow
+    # cannot parse is DROPPED and the whole table comes back, so an escape that
+    # is wrong fails toward over-fetch and looks like an answer. Deletion cannot
+    # be wrong about the server. See utils/encoded_query.py.
+    return encoded_value(value)
 
 
 def _sn_count(

@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
+from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -342,7 +342,9 @@ def list_si(
         parts.append(f"nameLIKE{query}")
     qs = "^".join(parts)
     if count_only:
-        return {"success": True, "count": sn_count(config, auth_manager, "sys_script_include", qs)}
+        return count_response(
+            config, auth_manager, "sys_script_include", qs, what="script includes"
+        )
     try:
         records, _ = sn_query_page(
             config,

@@ -88,7 +88,7 @@ class TestListAndGet(unittest.TestCase):
             f"collection={_TABLE}^when=after^active=true^nameLIKEGroup"
         )
 
-    @patch("servicenow_mcp.services.business_rule.sn_count")
+    @patch("servicenow_mcp.tools.sn_api.sn_count")
     def test_count_only_never_fetches_records(self, count):
         count.return_value = 5
 

@@ -12,8 +12,9 @@ from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
+from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.encoded_query import safe_value
 
 logger = logging.getLogger(__name__)
 
@@ -420,16 +421,26 @@ def list_items(
     offset: int = 0,
     count_only: bool = False,
 ) -> Dict[str, Any]:
+    # See utils/encoded_query.py: a `^` in a caller value stops being a value and
+    # becomes query structure, and a condition ServiceNow cannot parse is dropped
+    # rather than refused — so the widened query comes back as rows.
     filters = []
+    notes = []
     if active:
         filters.append("active=true")
     if category:
-        filters.append(f"category={category}")
+        safe_category = safe_value(category)
+        filters.append(f"category={safe_category.value}")
+        if safe_category.changed:
+            notes.append(safe_category.note(field="category"))
     if query:
-        filters.append(f"short_descriptionLIKE{query}^ORnameLIKE{query}")
+        safe_q = safe_value(query)
+        filters.append(f"short_descriptionLIKE{safe_q.value}^ORnameLIKE{safe_q.value}")
+        if safe_q.changed:
+            notes.append(safe_q.note(field="query"))
     qs = "^".join(filters)
     if count_only:
-        return {"success": True, "count": sn_count(config, auth_manager, "sc_cat_item", qs)}
+        return count_response(config, auth_manager, "sc_cat_item", qs, what="catalog items")
     try:
         records, _ = sn_query_page(
             config,
@@ -454,7 +465,7 @@ def list_items(
             }
             for r in records
         ]
-        return {
+        answer: Dict[str, Any] = {
             "success": True,
             "message": f"Retrieved {len(items)} catalog items",
             "items": items,
@@ -462,6 +473,11 @@ def list_items(
             "limit": limit,
             "offset": offset,
         }
+        # Said, not silent: a cleaned filter searched for something other than
+        # what the caller typed.
+        if notes:
+            answer["filter_notes"] = notes
+        return answer
     except Exception as e:
         return {
             "success": False,

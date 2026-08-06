@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_count, sn_query_page
+from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,9 @@ def list_services(
     query_string = "^".join(parts)
 
     if count_only:
-        return {"success": True, "count": sn_count(config, auth_manager, DEF_TABLE, query_string)}
+        return count_response(
+            config, auth_manager, DEF_TABLE, query_string, what="scripted REST definitions"
+        )
 
     records, _ = sn_query_page(
         config,

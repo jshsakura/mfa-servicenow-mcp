@@ -330,8 +330,15 @@ def _compact_schema(schema: Any, *, _top_level: bool = False) -> Any:
         # dropped routing hints (e.g. "use portal tracing/search tools when ...")
         # and changed semantic meaning (e.g. dropped "or sys_id of the parent
         # table" from a parent-id description), causing the LLM to mis-route
-        # tool calls. CLAUDE.md asks authors to keep descriptions ≤80 chars,
-        # but enforce that at author time, not by silent truncation here.
+        # tool calls.
+        #
+        # This used to add "CLAUDE.md asks authors to keep descriptions ≤80
+        # chars, but enforce that at author time" — and nothing enforces it, at
+        # author time or anywhere else. A comment claiming a guard that does not
+        # exist is the same defect this repo keeps finding in its data paths, so
+        # it is gone rather than backed by a linter: descriptions have a floor,
+        # and a length check would only produce ones written for the checker.
+        # CLAUDE.md carries the budget and where the real savings actually are.
         # Recurse into properties with per-field filler stripping
         if k == "properties" and isinstance(v, dict):
             result[k] = {

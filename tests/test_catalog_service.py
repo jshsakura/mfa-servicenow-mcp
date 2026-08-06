@@ -377,7 +377,7 @@ class TestListItems(unittest.TestCase):
         self.assertIn("active=true", mock_qp.call_args.kwargs["query"])
         self.assertIn("category=c1", mock_qp.call_args.kwargs["query"])
 
-    @patch("servicenow_mcp.services.catalog.sn_count")
+    @patch("servicenow_mcp.tools.sn_api.sn_count")
     def test_count_only(self, mock_cnt):
         mock_cnt.return_value = 5
         result = svc.list_items(_config(), _auth(), count_only=True)

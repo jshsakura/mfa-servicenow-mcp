@@ -75,8 +75,15 @@ def _mock_stats_response(count):
 
 class TestHelpers:
     def test_escape_query(self):
-        assert _escape_query("user@company.co.kr") == r"user\@company.co.kr"
-        assert _escape_query("a^b=c") == r"a^^b\=c"
+        """Deletes `^` instead of inventing an escape for it.
+
+        The old expectations (`^`→`^^`, `=`→`\\=`, `@`→`\\@`) pinned a syntax
+        written here and never proven against a live instance — and ServiceNow
+        DROPS a condition it cannot parse, returning the whole table, so a wrong
+        escape fails toward over-fetch and looks like an answer.
+        """
+        assert _escape_query("user@company.co.kr") == "user@company.co.kr"
+        assert _escape_query("a^b=c") == "ab=c", "only the condition separator goes"
 
     def test_compact_record_strips_empty_and_flattens_display_value(self):
         record = {
