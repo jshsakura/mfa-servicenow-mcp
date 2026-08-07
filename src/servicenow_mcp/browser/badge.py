@@ -144,13 +144,27 @@ _BADGE_TEMPLATE = """
   const NORMAL_USER = 'rgba(233,233,236,.62)';
   const COLLAPSED_KEY = %(collapsed_key)s;
   const KNOWN_INSTANCES = %(instance_names)s;
+  const KNOWN_ACCENTS = %(instance_accents)s;
   const FALLBACK_NAME = %(fallback_name)s;
-  // The colour identifies the WINDOW, so it is fixed when the script is built —
-  // every tab in one window wears it. The NAME below identifies the tab's
-  // instance and is read per document. Two channels, two questions: "same
-  // window I was looking at?" and "which instance is this tab on?". Deriving
-  // both from the instance name would collapse them into one.
-  const ACCENT = %(accent)s;
+  // The colour used to identify the WINDOW, fixed when the script was built, on
+  // the reasoning that the name answers "which instance" and the colour answers
+  // "which window" — two channels, two questions.
+  //
+  // v1.24.7 spent one of them. One window per ACCOUNT now, with every instance
+  // in it as a tab, so "which window am I looking at" is a question nobody has
+  // and every tab wore the same colour: the channel carried nothing, while the
+  // thing you actually need at a glance — dev or prod — was left to reading
+  // text. So the colour follows the INSTANCE now, resolved per document from
+  // location.hostname exactly like the name is, and never baked in (a value
+  // fixed at build time is right for at most one tab — that is the 'prod window
+  // drew dev' bug).
+  //
+  // The window accent stays as the fallback for a host the registry does not
+  // know, so an unrecognised page is still coloured rather than colourless.
+  // Two windows on ONE instance only happen while impersonating, and that case
+  // already has its own channel: the badge draws `account → impersonated` in
+  // amber, which is louder than a hue either way.
+  const WINDOW_ACCENT = %(accent)s;
   if (window[HOST_ID]) return;
 
   // WHICH instance this is gets read from the DOCUMENT, not baked in from
@@ -171,6 +185,10 @@ _BADGE_TEMPLATE = """
   const PROFILE_NAME = knows(pageHost)
     ? String(KNOWN_INSTANCES[pageHost])
     : (Object.keys(KNOWN_INSTANCES).length ? '' : FALLBACK_NAME);
+  const ACCENT =
+    (pageHost && Object.prototype.hasOwnProperty.call(KNOWN_ACCENTS, pageHost))
+      ? String(KNOWN_ACCENTS[pageHost])
+      : WINDOW_ACCENT;
 
 %(user_script)s
 
@@ -474,18 +492,37 @@ _ACTIVITY_TEMPLATE = """
 """
 
 
-def badge_accent(profile: str) -> str:
-    """A colour derived from whatever string identifies the WINDOW.
+def instance_accents(raw: "str | None" = None) -> Dict[str, str]:
+    """host -> colour, for every configured instance.
+
+    Built from the same registry the names come from, so a tab labelled `test`
+    and a tab labelled `dev` cannot end up the same colour by accident — and a
+    host the registry does not know simply is not in here, which the page reads
+    as "use the window colour" rather than as a colour of its own.
+    """
+    return {host: badge_accent(host) for host in instance_labels(raw)}
+
+
+def badge_accent(seed: str) -> str:
+    """A colour derived from whatever string identifies the thing being coloured.
 
     Colour is an IDENTITY channel here, not a severity one: it answers "is this
-    the same window I was looking at a minute ago?" at a glance, across however
-    many are open. It deliberately carries no meaning of its own — the meaning
-    is in the label right next to it, which spells the instance out in words.
+    the same thing I was looking at a minute ago?" at a glance. It carries no
+    meaning of its own — the meaning is in the label right next to it, which
+    spells the instance out in words.
 
-    What is hashed is the window, NOT the name on the badge. Hashing the name
-    would make the two halves of the badge answer the same question twice and
-    leave "which window" unanswered — two windows on one instance would be
-    indistinguishable, which is precisely the case the colour exists for.
+    **What gets seeded changed in v1.24.12, and the reason is worth keeping.**
+    It used to be the WINDOW, on the argument that the name answers "which
+    instance" and so the colour should answer the other question, "which
+    window". That was right while a window was one instance. v1.24.7 merged
+    windows by account and put every instance in one of them as a tab — so
+    "which window" stopped being a question anybody had, and every tab wore one
+    colour. The channel carried nothing, while dev-or-prod was left to reading
+    text. It is seeded per INSTANCE now (see the template), with the window
+    accent kept as the fallback for a host the registry does not know.
+
+    Two windows on one instance still happen, but only while impersonating, and
+    that case has its own channel already: `account → impersonated` in amber.
 
     This replaced a keyword table (prod→red, dev→green, everything else→one
     blue). Profile names are whatever the person configuring them chose, so
@@ -502,7 +539,7 @@ def badge_accent(profile: str) -> str:
     cheap means. Collisions are possible and harmless — two windows sharing a
     hue still carry different names beside it.
     """
-    name = (profile or "").strip().lower()
+    name = (seed or "").strip().lower()
     digest = 0x811C9DC5
     for char in name:
         digest ^= ord(char)
@@ -517,10 +554,12 @@ def badge_init_script(profile: str, account: str = "", window_id: str = "") -> s
     is resolved in the page from its own hostname, so a window holding tabs on
     two instances labels each one correctly. See :func:`profile_label`.
 
-    ``window_id`` is what the COLOUR is drawn from — anything stable and unique
-    per window (the caller passes the Chromium profile directory, since one
-    directory is one window). Falls back to ``profile`` when the caller has no
-    window to point at, which is only ever a bare script build in a test.
+    ``window_id`` is the FALLBACK colour seed — the colour itself follows the
+    instance the tab is on, resolved in the page from its hostname, and this is
+    only what an unrecognised host draws. The caller passes the Chromium profile
+    directory (one directory is one window); it falls back to ``profile`` when
+    there is no window to point at, which is only ever a bare script build in a
+    test.
 
     ``account`` is the user the window signed in as, when the server knows it.
     Anyone else showing up in the page is an impersonation and is drawn as
@@ -533,6 +572,7 @@ def badge_init_script(profile: str, account: str = "", window_id: str = "") -> s
         "prefix": _js_string(BADGE_PREFIX),
         "fallback_name": _js_string((profile or "").strip()),
         "instance_names": json.dumps(instance_labels(), sort_keys=True),
+        "instance_accents": json.dumps(instance_accents(), sort_keys=True),
         "accent": _js_string(badge_accent(window_id or profile)),
         "idle": _js_string(IDLE_COLOUR),
         "account": _js_string(account or ""),

@@ -1084,37 +1084,36 @@ def test_an_unknown_host_is_left_unnamed_rather_than_given_the_fallback(monkeypa
     assert "Object.keys(KNOWN_INSTANCES).length ? '' : FALLBACK_NAME" in script
 
 
-def test_the_colour_identifies_the_window_and_the_name_identifies_the_instance():
-    """Two channels, two questions. Hashing the name would collapse them.
-
-    The name is read per tab, so a window holding a dev tab and a test tab
-    labels each correctly — but the colour has to stay one per window, or
-    "is this the same window I was looking at?" goes unanswered.
+def test_the_colour_identifies_the_INSTANCE_now_not_the_window(monkeypatch):
+    """It used to identify the window, and that was right while a window was one
+    instance. v1.24.7 put every instance in one window as a tab, so every tab
+    wore one colour: the channel carried nothing, while dev-or-prod was left to
+    reading text.
     """
-    one = badge_init_script("dev", window_id="/cache/debug_profile_alice")
-    two = badge_init_script("dev", window_id="/cache/debug_profile_bob")
-
-    assert badge.badge_accent("/cache/debug_profile_alice") in one
-    assert badge.badge_accent("/cache/debug_profile_bob") in two
-    # Same instance label, different windows — the colour is what tells them apart.
-    assert badge.badge_accent("/cache/debug_profile_alice") != badge.badge_accent(
-        "/cache/debug_profile_bob"
+    monkeypatch.setenv(
+        "SERVICENOW_INSTANCE_CONFIG",
+        json.dumps(
+            {"dev": {"url": "https://dev.example.com"}, "test": {"url": "https://test.example.com"}}
+        ),
     )
-    # And the colour is fixed for the window rather than recomputed per tab.
-    assert "const ACCENT = '" in one
 
-
-def test_one_window_wears_one_colour_across_every_instance_it_holds():
-    """The window colour cannot depend on which tab happens to be in front."""
     script = badge_init_script("dev", window_id="/cache/debug_profile_alice")
 
-    assert script.count("const ACCENT = ") == 1
-    # No page-side palette lookup: nothing in the document may repaint it.
-    assert "PALETTE" not in script
+    assert badge.badge_accent("dev.example.com") in script
+    assert badge.badge_accent("test.example.com") in script
+    assert badge.badge_accent("dev.example.com") != badge.badge_accent("test.example.com")
 
 
-def test_the_badge_colour_comes_from_the_window_not_from_the_label(monkeypatch):
-    """A window is coloured by WHICH window it is, never by what it says."""
+def test_the_window_colour_survives_as_the_fallback_for_an_unknown_host():
+    """Colourless is not an improvement on coloured by the wrong axis."""
+    script = badge_init_script("dev", window_id="/cache/debug_profile_alice")
+
+    assert "const WINDOW_ACCENT = '" in script
+    assert badge.badge_accent("/cache/debug_profile_alice") in script
+
+
+def test_with_no_registry_the_window_still_colours_two_windows_apart(monkeypatch):
+    """Nothing to resolve per host leaves the old axis, which still answers something."""
     monkeypatch.delenv("SERVICENOW_INSTANCE_CONFIG", raising=False)
 
     same_label_two_windows = {
