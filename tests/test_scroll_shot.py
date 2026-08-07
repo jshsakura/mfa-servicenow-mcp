@@ -454,3 +454,29 @@ def test_an_unknown_host_still_gets_the_window_colour(monkeypatch):
 
     assert "WINDOW_ACCENT" in script
     assert badge.instance_accents() == {}
+
+
+def test_the_one_screen_note_names_the_reason_that_applied(tmp_path):
+    """It was one fixed sentence telling the reader to install Pillow.
+
+    Measured live against a Next Experience analytics page, with Pillow
+    installed and working — every other screenshot that session came back as
+    WebP, which needs it — and the note still said to install it. A note that
+    misnames the cause sends the reader to fix something that is not broken.
+    """
+    page = ShotPage(scroll_h=743, frames=[])  # nothing scrolls anywhere
+
+    note = capture_module._why_one_screen(page)
+
+    assert "not installed" not in note, "Pillow is here; do not send anyone to install it"
+    assert "no same-origin FRAME" in note
+    assert "shadow root" in note, "the reader needs to know why this one cannot be driven"
+
+
+def test_a_frame_that_scrolls_but_could_not_be_shot_says_that_instead(tmp_path):
+    page = ShotPage(scroll_h=743, frames=[_frame(scroll_h=4000, client_h=700)])
+
+    note = capture_module._why_one_screen(page)
+
+    assert "could not be captured" in note
+    assert "no same-origin FRAME" not in note

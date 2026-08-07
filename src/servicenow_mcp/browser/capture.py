@@ -112,13 +112,39 @@ def _write_image(raw: bytes, destination: str) -> str:
         return destination
 
 
-# Said whenever 'full' could not be full. A shorter image that looks complete
-# is the failure this whole path exists to stop.
-_WHY_ONE_SCREEN = (
-    "this page does not scroll in its top document, and the frame that scrolls "
-    "could not be captured (install the 'browser' extra for stitching) — this is "
-    "one screen, not the whole page"
-)
+def _why_one_screen(page: Any) -> str:
+    """Why 'full' came back as one screen — the reason that actually applied.
+
+    This was one fixed sentence, and it named a cause nobody had checked:
+    "install the 'browser' extra for stitching". Measured on a live instance
+    against a Next Experience analytics page, with Pillow installed and working
+    (every other screenshot that session came back as WebP, which needs it), the
+    note still told the reader to install it. A shorter image that looks
+    complete is the failure this path exists to stop; a note that misnames the
+    cause sends the reader to fix something that is not broken, which is the
+    same failure with an extra errand attached.
+
+    So the branches are separated and each says only what it established.
+    """
+    tail = " — this is one screen, not the whole page"
+    try:
+        from PIL import Image  # type: ignore[import-not-found]  # noqa: F401
+    except ImportError:
+        return (
+            "this page does not scroll in its top document, and stitching needs Pillow, "
+            "which is not installed (pip install 'mfa-servicenow-mcp[browser]')" + tail
+        )
+    if scroll_shot.find_scrolling_frame(page) is None:
+        return (
+            "this page does not scroll in its top document, and no same-origin FRAME "
+            "scrolls either — on Next Experience the scroller is often a component "
+            "inside a shadow root rather than an iframe, and this cannot drive that" + tail
+        )
+    return (
+        "this page does not scroll in its top document, and the frame that does "
+        "scroll could not be captured (it stopped answering, or its box could not "
+        "be measured)" + tail
+    )
 
 
 class NoPageFound(RuntimeError):
@@ -432,7 +458,7 @@ def _screenshot(
             # NOT described as a full-page capture.
             return (
                 _write_image(page.screenshot(full_page=False), destination),
-                {"only_viewport": _WHY_ONE_SCREEN},
+                {"only_viewport": _why_one_screen(page)},
             )
 
         return _write_image(page.screenshot(full_page=(mode == "full")), destination), None
