@@ -7,9 +7,11 @@ called itself full.
 """
 
 import io
+import json
 
 import pytest
 
+from servicenow_mcp.browser import badge
 from servicenow_mcp.browser import capture as capture_module
 from servicenow_mcp.browser import scroll_shot
 
@@ -378,3 +380,53 @@ def test_a_scrolling_capture_hides_the_badge_for_the_whole_scroll(tmp_path):
     assert path.endswith(".webp")
     hides = _badge_calls(page)
     assert len(hides) == 2, "hidden once before the scroll, restored once after"
+
+
+# ---------------------------------------------------------------------------
+# The badge colours the INSTANCE, not the window (v1.24.12)
+# ---------------------------------------------------------------------------
+
+
+def test_each_configured_instance_gets_its_own_colour(monkeypatch):
+    """Before the window merge the colour identified the WINDOW, which was fine
+    while a window was one instance. v1.24.7 put every instance in one window as
+    a tab, so every tab wore one colour and the channel carried nothing."""
+    monkeypatch.setenv(
+        "SERVICENOW_INSTANCE_CONFIG",
+        json.dumps(
+            {
+                "dev": {"url": "https://dev.example.com"},
+                "test": {"url": "https://test.example.com"},
+            }
+        ),
+    )
+
+    accents = badge.instance_accents()
+
+    assert set(accents) == {"dev.example.com", "test.example.com"}
+    assert accents["dev.example.com"] != accents["test.example.com"]
+
+
+def test_the_colour_is_resolved_in_the_page_not_baked_in(monkeypatch):
+    """A colour fixed when the script was built is right for at most one tab —
+    the same mistake that once drew 'dev' on a prod window."""
+    monkeypatch.setenv(
+        "SERVICENOW_INSTANCE_CONFIG",
+        json.dumps({"dev": {"url": "https://dev.example.com"}}),
+    )
+
+    script = badge.badge_init_script("dev", account="alice", window_id="/tmp/p")
+
+    assert "KNOWN_ACCENTS" in script
+    assert "location.hostname" in script
+    assert "dev.example.com" in script
+
+
+def test_an_unknown_host_still_gets_the_window_colour(monkeypatch):
+    """Colourless is not an improvement on 'coloured by the wrong axis'."""
+    monkeypatch.delenv("SERVICENOW_INSTANCE_CONFIG", raising=False)
+
+    script = badge.badge_init_script("dev", window_id="/tmp/p")
+
+    assert "WINDOW_ACCENT" in script
+    assert badge.instance_accents() == {}
