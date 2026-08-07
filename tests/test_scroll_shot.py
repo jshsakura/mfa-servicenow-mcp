@@ -8,6 +8,7 @@ called itself full.
 
 import io
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -354,16 +355,39 @@ def test_a_screenshot_is_written_as_lossless_webp(tmp_path):
         assert image.getpixel((60, 30)) == (200, 30, 30)
 
 
-def test_a_single_shot_keeps_the_badge_in_the_picture(tmp_path):
-    # Which window, which instance, which account, impersonating or not — that
-    # is what the badge answers, and cropping it out threw it away every time.
+def test_every_capture_hides_the_badge(tmp_path):
+    """v1.24.3 kept the badge in a single shot, so that a screenshot OF the
+    debug window would say which window it was. But it is ``position: fixed``
+    over the page: in an image it is not information, it is an occlusion, and
+    what it covers is a row on a list or a field on a form. The fact it carried
+    was already in every response as ``instance_target``, and on screen for the
+    person watching, which is the badge's actual job.
+    """
     page = ShotPage(scroll_h=2000, frames=[_frame(scroll_h=100, client_h=100)])
 
     capture_module._screenshot(
         page, mode="viewport", selector=None, destination=str(tmp_path / "shot.png")
     )
 
-    assert _badge_calls(page) == []
+    assert len(_badge_calls(page)) == 2, "hidden before the shot, restored after"
+
+
+def test_an_element_shot_hides_it_too(tmp_path):
+    """An element crop is the mode most likely to sit under the badge."""
+
+    class WithLocator(ShotPage):
+        def locator(self, selector):
+            return SimpleNamespace(
+                first=SimpleNamespace(screenshot=lambda: _png(40, 20, (7, 7, 7)))
+            )
+
+    page = WithLocator(scroll_h=743, frames=[_frame(scroll_h=100, client_h=100)])
+
+    capture_module._screenshot(
+        page, mode="element", selector="#thing", destination=str(tmp_path / "shot.png")
+    )
+
+    assert len(_badge_calls(page)) == 2
 
 
 def test_a_scrolling_capture_hides_the_badge_for_the_whole_scroll(tmp_path):
