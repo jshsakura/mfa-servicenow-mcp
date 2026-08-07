@@ -223,7 +223,13 @@ class ActInDebugWindowParams(BaseModel):
     settle_ms: int = Field(
         default=500, description="Pause after the last step so the page can react."
     )
-    screenshot: str = Field(default="none", description="none | viewport | full | element.")
+    screenshot: str = Field(
+        default="none",
+        description=(
+            "none | viewport | full | element. full can come back as one screen — "
+            "the reply says why."
+        ),
+    )
     selector: Optional[str] = Field(
         default=None, description="CSS selector for screenshot='element'."
     )
@@ -247,7 +253,16 @@ class InspectDebugWindowParams(BaseModel):
         description="Record while the user clicks. 0 reads what already happened.",
     )
     screenshot: str = Field(
-        default="none", description="none | viewport | full | element (needs selector)."
+        default="none",
+        # Over the 80-char target on purpose. `full` is the one value here that
+        # can quietly not do what its name says: the page's scroller is often a
+        # component in a shadow root, which cannot be driven, so the capture
+        # falls back to one screen. The reply carries the reason (`only_viewport`
+        # / `truncated`) — this is the line that stops it being a surprise.
+        description=(
+            "none | viewport | full | element (needs selector). "
+            "full can come back as one screen — the reply says why."
+        ),
     )
     selector: Optional[str] = Field(
         default=None, description="CSS selector for screenshot='element'."
