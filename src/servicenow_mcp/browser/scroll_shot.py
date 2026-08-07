@@ -43,7 +43,23 @@ logger = logging.getLogger(__name__)
 
 # Enough for a long list without turning one screenshot into hundreds of
 # megabytes of Python image work. When it bites, the caller is told.
-MAX_TILES = 12
+#
+# Lowered from 12, from measurements rather than taste. Each tile costs a
+# SETTLE_S pause plus its share of the encode, and the encode is superlinear in
+# canvas area: at a 763px viewport on a retina screen, 8 tiles encode in ~370ms
+# and 12 do not encode at all — 18312px is past WebP's 16383px side limit, so
+# the whole capture was thrown away at the last step (see _MAX_IMAGE_SIDE).
+#
+# 8 screens is past the point where a stitched image is something a person
+# reads; beyond it the honest answer is "here is the top of it, and here is how
+# much was left", which is what `truncated` says. Keeping the cap under the
+# encoder limit also means the limit is a backstop rather than a normal outcome.
+MAX_TILES = 8
+
+# WebP stores at most 16383px on a side. It is a hard encoder limit, not a
+# preference, and the save is the last thing a stitch does — so overrunning it
+# wasted the entire capture. Checked before the canvas is allocated.
+_MAX_IMAGE_SIDE = 16383
 
 # Layout settles and sticky headers re-paint after a scroll; without this the
 # seam between two tiles catches a half-drawn row.
@@ -216,11 +232,21 @@ def capture(page: Any, *, destination: str, max_tiles: int = MAX_TILES) -> Optio
         "height": size["height"],
         "css_height": round(scroll_h),
     }
-    if planned < wanted or len(tiles) < wanted:
+    # A tile dropped by the encoder's size limit is as absent from the image as
+    # one the tile cap never took, so it counts the same way here rather than
+    # being mentioned separately (or, worse, not at all).
+    kept = len(tiles) - int(size.get("dropped_tiles") or 0)
+    if planned < wanted or kept < wanted:
+        summary["tiles"] = kept
         summary["truncated"] = (
-            f"captured {len(tiles)} of {wanted} screens ({round(len(tiles) * tile_h)}px "
+            f"captured {kept} of {wanted} screens ({round(kept * tile_h)}px "
             f"of {round(scroll_h)}px) — the rest of the page is not in this image"
         )
+        if size.get("dropped_tiles"):
+            summary["truncated"] += (
+                f"; {size['dropped_tiles']} screen(s) were cut because the stitched "
+                f"image would have passed WebP's {_MAX_IMAGE_SIDE}px limit"
+            )
     if grew_to:
         summary["grew_while_scrolling"] = (
             f"the frame grew from {round(scroll_h)}px to {round(grew_to)}px while "
@@ -241,43 +267,95 @@ def _stitch_tiles(
     if not tiles:
         return None
 
-    images: List[Any] = []
-    try:
-        for index, raw in enumerate(tiles):
-            opened = Image.open(io.BytesIO(raw))
-            opened.load()
-            image: Any = opened.convert("RGB")
-            cut = crops[index] if index < len(crops) else 0.0
-            if cut > 0:
-                # Screenshots come back at the device pixel ratio, so the crop
-                # is computed in the image's own pixels, not in CSS ones.
-                scale = image.height / max(1.0, css_tile_height)
-                offset = int(round(cut * scale))
-                if 0 < offset < image.height:
-                    image = image.crop((0, offset, image.width, image.height))
-            images.append(image)
+    def _decode(index: int) -> Any:
+        """One tile, cropped of its repeated band. Caller owns the result."""
+        opened = Image.open(io.BytesIO(tiles[index]))
+        opened.load()
+        image: Any = opened.convert("RGB")
+        cut = crops[index] if index < len(crops) else 0.0
+        if cut > 0:
+            # Screenshots come back at the device pixel ratio, so the crop
+            # is computed in the image's own pixels, not in CSS ones.
+            scale = image.height / max(1.0, css_tile_height)
+            offset = int(round(cut * scale))
+            if 0 < offset < image.height:
+                image = image.crop((0, offset, image.width, image.height))
+        return image
 
-        width = max(image.width for image in images)
-        height = sum(image.height for image in images)
+    canvas: Any = None
+    try:
+        # Decoded ONE AT A TIME, pasted, and dropped. Holding all of them and
+        # then building the canvas doubled the peak: measured at the cap
+        # (12 tiles, a 763px viewport at DPR 2) that is a 2870x18312 canvas at
+        # 150MB with another 150MB of decoded tiles beside it — 300MB for one
+        # screenshot. The canvas alone is unavoidable; the second copy was not.
+        #
+        # The first tile establishes the geometry, so the canvas can be sized
+        # before anything else is decoded. Every tile is the same clip, so the
+        # only one that differs is a cropped one, and that is subtracted here
+        # rather than measured later.
+        first = _decode(0)
+        width = first.width
+        scale = first.height / max(1.0, css_tile_height - (crops[0] if crops else 0.0))
+        heights = [
+            max(1, int(round((css_tile_height - (crops[i] if i < len(crops) else 0.0)) * scale)))
+            for i in range(len(tiles))
+        ]
+
+        # WebP cannot store a side longer than 16383px, and the save is the LAST
+        # step — so a stitch that overran it built the whole canvas, threw at the
+        # end, returned None, and the caller fell back to a single viewport with
+        # a note blaming a missing Pillow that was installed the whole time. A
+        # 12-tile capture of a 763px viewport at DPR 2 is 18312px, so the cap was
+        # reachable on an ordinary retina screen, and the failure named the wrong
+        # cause. Cut here instead: before the memory is spent, and reported.
+        usable = len(heights)
+        while usable > 1 and sum(heights[:usable]) > _MAX_IMAGE_SIDE:
+            usable -= 1
+        dropped = len(heights) - usable
+        heights = heights[:usable]
+        height = sum(heights)
+
         canvas = Image.new("RGB", (width, height), (255, 255, 255))
         cursor = 0
-        for image in images:
-            canvas.paste(image, (0, cursor))
-            cursor += image.height
+        for index in range(usable):
+            image = first if index == 0 else _decode(index)
+            first = None  # released with the rest, not held for the whole loop
+            try:
+                canvas.paste(image, (0, cursor))
+                cursor += image.height
+                width = max(width, image.width)
+            finally:
+                try:
+                    image.close()
+                except Exception:  # noqa: BLE001 - already gone
+                    pass
+
+        # A tile that came back shorter than planned (a clip the browser
+        # trimmed) leaves unpainted canvas at the bottom. Cropping to what was
+        # actually painted beats shipping a white band that reads as page.
+        if 0 < cursor < height:
+            canvas = canvas.crop((0, 0, width, cursor))
+        height = canvas.height
         # Lossless WebP: identical pixels, ~60% fewer bytes than the PNG. It
         # matters most here — a stitched page is several screens tall. See
         # capture._write_image for the measurements.
         target = os.path.splitext(destination)[0] + ".webp"
         canvas.save(target, "WEBP", lossless=True, method=6)
-        return {"width": width, "height": height, "path": target}
+        result: Dict[str, Any] = {"width": width, "height": height, "path": target}
+        if dropped:
+            result["dropped_tiles"] = dropped
+        return result
     except Exception as exc:  # noqa: BLE001 - a failed stitch falls back, never raises
         logger.info("Could not stitch a scrolling capture: %s", exc)
         return None
     finally:
-        for image in images:
+        # Only the canvas outlives the loop now; every tile is closed as it is
+        # pasted. A failure part-way through still frees it here.
+        if canvas is not None:
             try:
-                image.close()
-            except Exception:  # noqa: BLE001
+                canvas.close()
+            except Exception:  # noqa: BLE001 - already gone
                 pass
 
 

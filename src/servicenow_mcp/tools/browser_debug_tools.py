@@ -72,6 +72,7 @@ from ..browser import server_scripts
 from ..browser._launch_lock import LaunchBusy
 from ..browser._offload import PlaywrightUnavailable
 from ..browser.actions import EVAL_ACTION, MAX_ACTIONS, act, normalize
+from ..browser.artifacts import prune as prune_artifacts
 from ..browser.badge import profile_label
 from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate
 from ..browser.cursor import resolve_marks, write_mark
@@ -650,6 +651,10 @@ def inspect_debug_window(
         return {"success": False, "window_open": True, "error": str(exc)}
 
     report = compact(raw, artifacts_dir=artifacts_dir)
+    # After the write, so this call's own artifact is the newest and can never
+    # be the one removed. Housekeeping — never fatal, and silent unless it did
+    # something (see browser/artifacts.py).
+    report.update(prune_artifacts(artifacts_dir))
     write_mark(cursor_path, report.get("tab_id", ""), report.get("next_seq", 0))
 
     identity = describe_window_user(raw.get("effective_user"), api_username(config))
@@ -816,6 +821,10 @@ def act_in_debug_window(
         return {"success": False, "window_open": True, "error": str(exc)}
 
     report = compact(raw, artifacts_dir=artifacts_dir)
+    # After the write, so this call's own artifact is the newest and can never
+    # be the one removed. Housekeeping — never fatal, and silent unless it did
+    # something (see browser/artifacts.py).
+    report.update(prune_artifacts(artifacts_dir))
     write_mark(cursor_path, report.get("tab_id", ""), report.get("next_seq", 0))
 
     failed_step = raw.get("failed_step")
