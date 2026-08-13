@@ -46,6 +46,7 @@ TOOL_MODULE_INDEX = {
     "manage_group": "user_tools",
     "manage_incident": "incident_tools",
     "manage_kb_article": "knowledge_base",
+    "manage_notification": "notification_tools",
     "manage_portal_component": "portal_crud_tools",
     "manage_portal_layout": "portal_crud_tools",
     "manage_project": "project_tools",

@@ -114,6 +114,8 @@ portal_developer:
     - manage_ui_policy
     # UX Workspace list config CRUD (sys_ux_list — view/columns/fixed_query)
     - manage_ux_list
+    # Notification + email template CRUD (sysevent_email_action/sysevent_email_template)
+    - manage_notification
     # Scripted REST API CRUD (sys_ws_definition/sys_ws_operation)
     - manage_scripted_rest
     # Portal debugging (specialized read — used by portal analysis/audit skills)
@@ -199,6 +201,7 @@ full:
     - manage_ui_policy
     - manage_scripted_rest
     - manage_ux_list
+    - manage_notification
     # Change Management orchestrators (manage_change covers create/update/add_task)
     - submit_change_for_approval
     - approve_change
