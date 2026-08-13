@@ -56,6 +56,7 @@ TOOL_MODULE_INDEX = {
     "manage_story": "story_tools",
     "manage_ui_policy": "ui_policy_tools",
     "manage_user": "user_tools",
+    "manage_ux_list": "ux_list_tools",
     "manage_widget_dependency": "widget_dependency_tools",
     "manage_workflow": "workflow_tools",
     "open_debug_window": "browser_debug_tools",
