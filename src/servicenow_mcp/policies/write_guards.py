@@ -46,6 +46,7 @@ Deferred:
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -320,6 +321,7 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_script_include": frozenset({"list", "get"}),
     "manage_business_rule": frozenset({"list", "get"}),
     "manage_widget_dependency": frozenset({"list", "get"}),
+    "manage_ux_list": frozenset({"list", "get"}),
     "manage_catalog": frozenset(
         {"list_items", "get_item", "list_categories", "list_item_variables"}
     ),
@@ -931,11 +933,33 @@ def _resolve_write_record(
     return (table, sys_id) if (table and sys_id) else None
 
 
+# ServiceNow auto-names each user's personal update set "<Display Name> <N>"
+# (e.g. "Jane Doe 1") the first time they touch one. Matched by shape, not a
+# fixed list — display names are unbounded, so this can only ever say "looks
+# like" one. A renamed personal set or a shared set that happens to end in a
+# number is a false negative or false positive this stays silent about either
+# way; that is the same trade `is_default_update_set` already makes on 'Default'.
+_PERSONAL_UPDATE_SET_NAME_RE = re.compile(r"^.+\s\d+$")
+
+
+def _looks_like_personal_update_set(name: str) -> bool:
+    return bool(_PERSONAL_UPDATE_SET_NAME_RE.match((name or "").strip()))
+
+
 def update_set_context(
     server: Any, tool_name: str, arguments: Dict[str, Any], result: Any
 ) -> Optional[Dict[str, Any]]:
     """Awareness stamp merged into a write's result: which update set (+ scope)
-    the change is captured into, and whether that scope matches the record.
+    the change is captured into, whether that scope matches the record, and
+    whether the set looks like someone else's personal working set.
+
+    The scope check alone misses a real incident: current update set and the
+    record you are writing both sitting in the SAME (wrong) scope reads as
+    `aligned=True` — internally consistent, but silent about whose update set
+    that scope's records are landing in. A personal set left current by an
+    earlier, unrelated task reads as perfectly aligned right up until someone
+    else's "<Name> <N>" set is promoted or discarded and every change captured
+    into it goes with it.
 
     Browser auth only (the current update set is session state). Never raises —
     returns None to skip on any uncertainty so a write is never affected.
@@ -956,7 +980,10 @@ def update_set_context(
             return None
 
         usrec = _fetch_one(
-            server, "sys_update_set", f"sys_id={us['sys_id']}", "sys_id,name,application"
+            server,
+            "sys_update_set",
+            f"sys_id={us['sys_id']}",
+            "sys_id,name,application,sys_created_by",
         )
         us_scope_id, us_scope_name = _ref_pair(usrec.get("application")) if usrec else ("", "")
 
@@ -983,15 +1010,16 @@ def update_set_context(
                     aligned = rec_scope_id == us_scope_id
                     ctx["record_scope"] = rec_scope_name or rec_scope_id
 
+        notes: List[str] = []
         if is_default_update_set(us):
             ctx["aligned"] = False
-            ctx["note"] = (
+            notes.append(
                 "⚠ Current update set is 'Default' — changes are usually captured here by "
                 "accident. Verify this is where you want them before relying on it."
             )
         elif aligned is False:
             ctx["aligned"] = False
-            ctx["note"] = (
+            notes.append(
                 f"⚠ Captured into update set '{ctx['update_set']}' (scope "
                 f"{ctx['update_set_scope']}), but the record is in scope "
                 f"{ctx.get('record_scope')}. Another session may have changed your current "
@@ -999,11 +1027,34 @@ def update_set_context(
             )
         elif aligned is True:
             ctx["aligned"] = True
+
+        # Orthogonal to the scope check above: a personal set can sit in the
+        # RIGHT scope (so `aligned` reads True or is never even resolvable) and
+        # still be the WRONG set, because it belongs to someone else. Scope
+        # agreement only proves internal consistency between the set and the
+        # record — never that this is the set you meant to be working in.
+        owner = str((usrec or {}).get("sys_created_by") or "").strip()
+        me = _current_username(server)
+        if (
+            owner
+            and me
+            and owner.lower() != me.lower()
+            and _looks_like_personal_update_set(us_name)
+        ):
+            ctx["update_set_owner"] = owner
+            notes.append(
+                f"⚠ '{ctx['update_set']}' looks like {owner}'s personal update set, not "
+                f"yours ('{me}') — changes captured here can be lost or reverted when "
+                "they close or promote it. Verify this is the update set you meant to be in."
+            )
+
         # No note in the benign case: it only ever restated update_set and
         # update_set_scope, which are right here. A note in this stamp MEANS
         # "something is off" — spending it on "everything is fine" both costs
-        # every single write and dulls the two cases above, which are the ones
+        # every single write and dulls the cases above, which are the ones
         # that must read as alarming.
+        if notes:
+            ctx["note"] = " ".join(notes)
         return ctx
     except Exception:
         logger.debug("update_set_context computation failed", exc_info=True)

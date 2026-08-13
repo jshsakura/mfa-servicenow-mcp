@@ -216,6 +216,143 @@ def test_the_stamp_always_carries_the_sys_id():
     assert ctx["update_set_id"] == "us-1"
 
 
+# --- ownership: a set can be scope-aligned and still be someone else's ---
+# Two devices sharing the exact same (correct) scope proves nothing about
+# whose personal update set the current session landed in — that incident is
+# what these pin: current update set "belongs" to another user by both
+# sys_created_by AND ServiceNow's own "<Name> <N>" personal-set naming shape.
+
+
+def test_owner_mismatch_on_a_personal_set_is_loud():
+    server = _browser_server()
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value={"sys_id": "us-1", "name": "Bob Smith 1"},
+        ),
+        patch(
+            "servicenow_mcp.policies.write_guards._fetch_one",
+            side_effect=lambda srv, table, query, fields: {
+                "sys_update_set": {
+                    "name": "Bob Smith 1",
+                    "application": {"value": "bpm-scope", "display_value": "BPM"},
+                    "sys_created_by": "bob",
+                },
+                "sys_script_include": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+            }.get(table),
+        ),
+        patch("servicenow_mcp.policies.write_guards._current_username", return_value="alice"),
+    ):
+        ctx = update_set_context(
+            server,
+            "manage_script_include",
+            {"script_include_id": "si-1", "action": "update"},
+            {"sys_id": "si-1"},
+        )
+    # Scope agrees (both BPM) — the scope check alone would stay quiet here.
+    assert ctx["aligned"] is True
+    assert ctx["update_set_owner"] == "bob"
+    assert "⚠" in ctx["note"]
+    assert "bob" in ctx["note"] and "alice" in ctx["note"]
+
+
+def test_owner_mismatch_on_a_non_personal_set_stays_quiet():
+    """A shared/named set (no trailing '<space><digits>') not created by the
+    current user is routine team practice, not this incident's shape — do not
+    flag every set someone else happened to create."""
+    server = _browser_server()
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value={"sys_id": "us-1", "name": "Sprint 12 Release"},
+        ),
+        patch(
+            "servicenow_mcp.policies.write_guards._fetch_one",
+            side_effect=lambda srv, table, query, fields: {
+                "sys_update_set": {
+                    "name": "Sprint 12 Release",
+                    "application": {"value": "bpm-scope", "display_value": "BPM"},
+                    "sys_created_by": "bob",
+                },
+                "sys_script_include": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+            }.get(table),
+        ),
+        patch("servicenow_mcp.policies.write_guards._current_username", return_value="alice"),
+    ):
+        ctx = update_set_context(
+            server,
+            "manage_script_include",
+            {"script_include_id": "si-1", "action": "update"},
+            {"sys_id": "si-1"},
+        )
+    assert "note" not in ctx
+    assert "update_set_owner" not in ctx
+
+
+def test_owner_match_on_a_personal_set_stays_quiet():
+    server = _browser_server()
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value={"sys_id": "us-1", "name": "Alice Doe 1"},
+        ),
+        patch(
+            "servicenow_mcp.policies.write_guards._fetch_one",
+            side_effect=lambda srv, table, query, fields: {
+                "sys_update_set": {
+                    "name": "Alice Doe 1",
+                    "application": {"value": "bpm-scope", "display_value": "BPM"},
+                    "sys_created_by": "alice",
+                },
+                "sys_script_include": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+            }.get(table),
+        ),
+        patch("servicenow_mcp.policies.write_guards._current_username", return_value="alice"),
+    ):
+        ctx = update_set_context(
+            server,
+            "manage_script_include",
+            {"script_include_id": "si-1", "action": "update"},
+            {"sys_id": "si-1"},
+        )
+    assert "note" not in ctx
+    assert "update_set_owner" not in ctx
+
+
+def test_owner_mismatch_combines_with_scope_mismatch():
+    """Both facts are true at once here — the note must carry both, not just
+    whichever the elif chain happened to reach first."""
+    server = _browser_server()
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value={"sys_id": "us-1", "name": "Bob Smith 1"},
+        ),
+        patch(
+            "servicenow_mcp.policies.write_guards._fetch_one",
+            side_effect=lambda srv, table, query, fields: {
+                "sys_update_set": {
+                    "name": "Bob Smith 1",
+                    "application": {"value": "hbpm-scope", "display_value": "HBPM"},
+                    "sys_created_by": "bob",
+                },
+                "sp_widget": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+            }.get(table),
+        ),
+        patch("servicenow_mcp.policies.write_guards._current_username", return_value="alice"),
+    ):
+        ctx = update_set_context(
+            server,
+            "manage_portal_component",
+            {"table": "sp_widget", "sys_id": "w-1", "action": "update_code"},
+            {"sys_id": "w-1"},
+        )
+    assert ctx["aligned"] is False
+    assert ctx["update_set_owner"] == "bob"
+    assert "scope" in ctx["note"]
+    assert "bob" in ctx["note"]
+
+
 def test_an_unreadable_set_record_falls_back_to_the_picker_name():
     # Fail-open: a name from the picker beats no name at all.
     server = _browser_server()
