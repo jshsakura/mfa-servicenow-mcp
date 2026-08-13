@@ -71,8 +71,46 @@ _FLOW = {
 def test_compact_meta_and_counts():
     r = render_flow_compact(_FLOW)
     assert r["flow_id"] == "f1" and r["type"] == "flow"
-    assert r["counts"] == {"actions": 2, "logic": 3, "subflows": 0}
+    assert r["counts"] == {
+        "actions": 2,
+        "logic": 3,
+        "subflows": 0,
+        "deleted_actions": 0,
+        "deleted_logic": 0,
+        "deleted_subflows": 0,
+    }
     assert isinstance(r["tree"], str)
+
+
+def test_compact_counts_exclude_deleted_tombstones():
+    """A tombstoned node does not draw on the Flow Designer canvas — the
+    headline `counts` must match what a person counts on screen, with the
+    deleted ones broken out rather than dropped.
+    """
+    flow = {
+        "id": "f2",
+        "actionInstances": [
+            {"uiUniqueIdentifier": "a1", "name": "Live", "order": "1", "parent": ""},
+            {
+                "uiUniqueIdentifier": "a2",
+                "name": "Gone",
+                "order": "2",
+                "parent": "",
+                "deleted": True,
+            },
+        ],
+        "flowLogicInstances": [],
+        "subFlowInstances": [],
+    }
+    r = render_flow_compact(flow)
+    assert r["counts"] == {
+        "actions": 1,
+        "logic": 0,
+        "subflows": 0,
+        "deleted_actions": 1,
+        "deleted_logic": 0,
+        "deleted_subflows": 0,
+    }
 
 
 def test_compact_order_and_nesting():

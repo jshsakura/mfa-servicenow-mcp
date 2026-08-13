@@ -17,6 +17,7 @@ from servicenow_mcp.tools.flow_designer_tools import (
     _action_type_name,
     _bound_structure,
     _build_component_tree,
+    _build_flow_summary,
     _build_processflow_detail,
     _build_subflow_tree,
     _diff_flows,
@@ -276,6 +277,88 @@ class TestBuildProcessflowDetail(unittest.TestCase):
         self.assertEqual(detail["counts"]["outputs"], 1)
         self.assertEqual(detail["counts"]["variables"], 1)
         self.assertEqual(len(detail["label_cache"]), 1)
+
+    def test_deleted_nodes_are_kept_but_not_counted_live(self):
+        """A tombstoned action/logic/subflow does not draw on the Flow Designer
+        canvas, so `counts` must not blend it in with live nodes — that was the
+        actual bug: `counts.actions` included every `deleted: true` row, so the
+        number the tool reported never matched what a person counted on screen.
+        The row itself is still returned (nothing here should ever drop data),
+        just marked and excluded from the live tally.
+        """
+        flow_data = {
+            "actionInstances": [
+                {"order": "1", "uiUniqueIdentifier": "a1", "parent": "", "name": "Live"},
+                {
+                    "order": "2",
+                    "uiUniqueIdentifier": "a2",
+                    "parent": "",
+                    "name": "Gone",
+                    "deleted": True,
+                },
+            ],
+            "flowLogicInstances": [
+                {
+                    "order": "3",
+                    "uiUniqueIdentifier": "l1",
+                    "parent": "",
+                    "flowLogicDefinition": {"type": "if"},
+                    "name": "Live If",
+                    "inputs": [{"name": "condition_name", "value": "Live If"}],
+                    "deleted": False,
+                },
+                {
+                    "order": "4",
+                    "uiUniqueIdentifier": "l2",
+                    "parent": "",
+                    "flowLogicDefinition": {"type": "if"},
+                    "name": "Gone If",
+                    "inputs": [{"name": "condition_name", "value": "Gone If"}],
+                    "deleted": True,
+                },
+            ],
+            "subFlowInstances": [
+                {
+                    "order": "5",
+                    "uiUniqueIdentifier": "s1",
+                    "parent": "",
+                    "subFlow": {"name": "Gone Sub"},
+                    "deleted": True,
+                },
+            ],
+        }
+        detail = _build_processflow_detail(flow_data)
+        # Nothing is dropped from the lists themselves.
+        self.assertEqual(len(detail["actions"]), 2)
+        self.assertEqual(len(detail["logic"]), 2)
+        self.assertEqual(len(detail["subflows"]), 1)
+        # But the headline counts only tally what the canvas actually draws.
+        self.assertEqual(detail["counts"]["actions"], 1)
+        self.assertEqual(detail["counts"]["logic"], 1)
+        self.assertEqual(detail["counts"]["subflows"], 0)
+        self.assertEqual(detail["counts"]["deleted_actions"], 1)
+        self.assertEqual(detail["counts"]["deleted_logic"], 1)
+        self.assertEqual(detail["counts"]["deleted_subflows"], 1)
+
+        # get_flow_details(summary_format=True) serves _build_flow_summary's
+        # counts, not _build_processflow_detail's — both must agree, and the
+        # tree text must mark the LOGIC/SUBFLOW tombstones too (previously only
+        # ACTION rows carried a [DELETED] tag; LOGIC/SUBFLOW were silent).
+        summary = _build_flow_summary(detail)
+        self.assertEqual(summary["counts"]["actions"], 1)
+        self.assertEqual(summary["counts"]["logic"], 1)
+        self.assertEqual(summary["counts"]["subflows"], 0)
+        self.assertEqual(summary["counts"]["deleted_actions"], 1)
+        self.assertEqual(summary["counts"]["deleted_logic"], 1)
+        self.assertEqual(summary["counts"]["deleted_subflows"], 1)
+        tree_text = summary["tree_text"]
+        self.assertIn("[1] ACTION : Live\n", tree_text)
+        self.assertIn("[2] ACTION : Gone [DELETED]\n", tree_text)
+        self.assertIn("[3] LOGIC if: Live If\n", tree_text)
+        # Previously only ACTION rows carried a [DELETED] tag; LOGIC/SUBFLOW
+        # tombstones rendered indistinguishably from live nodes.
+        self.assertIn("[4] LOGIC if: Gone If [DELETED]\n", tree_text)
+        self.assertIn("SUBFLOW→ Gone Sub (sys_id=) [DELETED]", tree_text)
 
     def test_empty_flow_data(self):
         detail = _build_processflow_detail({})

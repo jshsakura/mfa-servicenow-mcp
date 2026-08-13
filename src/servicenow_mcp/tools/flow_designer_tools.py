@@ -317,6 +317,21 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
+def _live_and_deleted(items: List[Dict[str, Any]]) -> Tuple[int, int]:
+    """(#live, #deleted) for a list of action/logic/subflow instances.
+
+    An inline `deleted` flag is a tombstone the Flow Designer canvas does not
+    draw — a headline count that includes it never matches what a person
+    counts on screen. This is the ONE place that decision is made; every
+    counts block (raw instances in render_flow_compact, or the processed
+    actions/logic/subflows lists in _build_processflow_detail and
+    _build_flow_summary) calls through here instead of re-deriving it, so the
+    three call sites cannot silently diverge the way they did before.
+    """
+    deleted = sum(1 for item in items if item.get("deleted"))
+    return len(items) - deleted, deleted
+
+
 def _action_type_name(action: Dict[str, Any]) -> str:
     """Return a stable action type label from processflow action data."""
     action_type = action.get("actionType")
@@ -411,6 +426,7 @@ def _build_processflow_detail(
                 "flow_block_id": node.get("flowBlockId", ""),
                 "definition_id": node.get("definitionId", ""),
                 "inputs": node.get("inputs", []),
+                "deleted": node.get("deleted", False),
             }
         )
 
@@ -430,6 +446,7 @@ def _build_processflow_detail(
                 or subflow.get("internalName", ""),
                 "subflow_scope": sub_meta.get("scopeName", "") or sub_meta.get("scope", ""),
                 "inputs": subflow.get("inputs", []) if include_subflow_inputs else [],
+                "deleted": subflow.get("deleted", False),
             }
         )
 
@@ -439,6 +456,10 @@ def _build_processflow_detail(
     triggers = flow_data.get("triggerInstances", []) or []
     label_cache = flow_data.get("label_cache") or flow_data.get("labelCache", []) or []
     deleted_logic = flow_data.get("deletedFlowLogicInstances", []) or []
+
+    live_actions, deleted_actions = _live_and_deleted(actions)
+    live_logic_nodes, deleted_logic_nodes = _live_and_deleted(logic_nodes)
+    live_subflow_instances, deleted_subflows = _live_and_deleted(subflow_instances)
 
     return {
         "triggers": triggers,
@@ -458,9 +479,12 @@ def _build_processflow_detail(
             "label_cache": (
                 len(label_cache) if isinstance(label_cache, list) else len(str(label_cache))
             ),
-            "actions": len(actions),
-            "logic": len(logic_nodes),
-            "subflows": len(subflow_instances),
+            "actions": live_actions,
+            "logic": live_logic_nodes,
+            "subflows": live_subflow_instances,
+            "deleted_actions": deleted_actions,
+            "deleted_logic": deleted_logic_nodes,
+            "deleted_subflows": deleted_subflows,
         },
     }
 
@@ -542,6 +566,8 @@ def _build_logic_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, Any
         row["connected_to"] = node["connected_to"]
     if node.get("outputs_to_assign"):
         row["outputs_to_assign"] = node["outputs_to_assign"]
+    if node.get("deleted"):
+        row["deleted"] = True
     return row
 
 
@@ -561,6 +587,8 @@ def _build_subflow_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, A
         row["subflow_internal_name"] = node["subflow_internal_name"]
     if node.get("subflow_scope"):
         row["subflow_scope"] = node["subflow_scope"]
+    if node.get("deleted"):
+        row["deleted"] = True
     return row
 
 
@@ -825,9 +853,10 @@ def _render_row_lines(
         else ""
     )
     lines: List[str] = []
+    deleted_tag = " [DELETED]" if row.get("deleted") else ""
     if kind == "LOGIC":
         label = row.get("label") or row.get("type") or "logic"
-        head = f"[{order}] {indent}LOGIC {row.get('type','')}: {label}{marker}"
+        head = f"[{order}] {indent}LOGIC {row.get('type','')}: {label}{deleted_tag}{marker}"
         lines.append(head)
         if row.get("condition"):
             cond = _humanize_input("condition", row["condition"], label_map, include_scripts)
@@ -846,7 +875,7 @@ def _render_row_lines(
         head = (
             f"[{order}] {indent}SUBFLOW→ {row.get('name','')} "
             f"(sys_id={row.get('subflow_sys_id','')}{scope_part}{internal_part})"
-            f"{marker}"
+            f"{deleted_tag}{marker}"
         )
         lines.append(head)
         for k, v in (row.get("inputs") or {}).items():
@@ -854,7 +883,6 @@ def _render_row_lines(
                 f"     {indent}  in.{k}= {_humanize_input(k, v, label_map, include_scripts)}"
             )
     else:  # ACTION
-        deleted_tag = " [DELETED]" if row.get("deleted") else ""
         head = (
             f"[{order}] {indent}ACTION {row.get('type','')}: "
             f"{row.get('name','')}{deleted_tag}{marker}"
@@ -965,13 +993,16 @@ def render_flow_compact(flow_data: Dict[str, Any], include_scripts: bool = False
     label_map = _build_label_map(flow_data)
     triggers = _compact_triggers(flow_data.get("triggerInstances", []) or [], label_map)
 
-    def _count(coll: str) -> int:
-        return sum(1 for n in flow_data.get(coll, []) or [] if not n.get("deleted"))
-
+    live_a, deleted_a = _live_and_deleted(flow_data.get("actionInstances") or [])
+    live_l, deleted_l = _live_and_deleted(flow_data.get("flowLogicInstances") or [])
+    live_s, deleted_s = _live_and_deleted(flow_data.get("subFlowInstances") or [])
     counts = {
-        "actions": _count("actionInstances"),
-        "logic": _count("flowLogicInstances"),
-        "subflows": _count("subFlowInstances"),
+        "actions": live_a,
+        "logic": live_l,
+        "subflows": live_s,
+        "deleted_actions": deleted_a,
+        "deleted_logic": deleted_l,
+        "deleted_subflows": deleted_s,
     }
     try:
         detail = _build_processflow_detail(flow_data)
@@ -1396,14 +1427,26 @@ def _build_flow_summary(structure: Dict[str, Any], include_scripts: bool = False
     warnings = _detect_flow_warnings(tree, orphans, deleted_logic)
     index = _build_summary_index(tree, orphans)
 
+    # A tombstoned node still appears in the tree (tagged [DELETED], see
+    # _render_row_lines) so nothing is hidden, but it must not inflate the
+    # headline count nobody double-checks against the screen. This is a
+    # different thing from `deleted_flow_logic_instances`, which the API
+    # already removed from `flowLogicInstances` into its own array.
+    live_actions, deleted_actions = _live_and_deleted(actions)
+    live_logic, deleted_logic_nodes = _live_and_deleted(logic)
+    live_subflows, deleted_subflows = _live_and_deleted(subflows)
+
     summary: Dict[str, Any] = {
         "tree": tree,
         "summary_index": index,
         "warnings": warnings,
         "counts": {
-            "actions": len(actions),
-            "logic": len(logic),
-            "subflows": len(subflows),
+            "actions": live_actions,
+            "logic": live_logic,
+            "subflows": live_subflows,
+            "deleted_actions": deleted_actions,
+            "deleted_logic": deleted_logic_nodes,
+            "deleted_subflows": deleted_subflows,
             "deleted_flow_logic_instances": len(deleted_logic),
             "approvals": len(index["approvals"]),
             "state_changes": len(index["state_changes"]),
