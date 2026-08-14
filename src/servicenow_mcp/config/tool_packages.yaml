@@ -127,6 +127,9 @@ portal_developer:
     - open_debug_window
     - inspect_debug_window
     - act_in_debug_window
+    # Excel without boilerplate (read trackers, write styled sheets, fill
+    # forms w/ screenshots) — the sign-off-document legwork, generic
+    - manage_workbook
     # Portal writes
     - route_portal_component_edit
     - analyze_portal_component_update

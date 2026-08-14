@@ -22,7 +22,7 @@ Read-only — safe for any environment, no write tools:
 | Package | Tools | ~Tokens | When to use |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.2K | ⚠️ Service desk agents who need to update/close incidents and changes |
-| `portal_developer` | 49 | ~10.6K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
+| `portal_developer` | 50 | ~10.6K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
 | `platform_developer` | 44 | ~10.8K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
 | `full` | 60 | ~13.8K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
 

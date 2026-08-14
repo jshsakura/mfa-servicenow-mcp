@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.24.22"
+version = "1.24.23"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -61,6 +61,12 @@ browser = [
     # so this belongs beside playwright rather than in the base install; the
     # code degrades to a single screen (and says so) when it is absent.
     "pillow>=10.0.0,<14",
+]
+excel = [
+    # Test sign-off export (manage_test_evidence). Optional like the browser
+    # extra: the tool degrades to a clear install message when it is absent,
+    # and image embedding additionally wants pillow (browser extra).
+    "openpyxl>=3.1.0",
 ]
 dev = [
     "pytest>=7.0.0",

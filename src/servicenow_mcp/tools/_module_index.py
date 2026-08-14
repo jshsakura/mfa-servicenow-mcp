@@ -59,6 +59,7 @@ TOOL_MODULE_INDEX = {
     "manage_user": "user_tools",
     "manage_ux_list": "ux_list_tools",
     "manage_widget_dependency": "widget_dependency_tools",
+    "manage_workbook": "workbook_tools",
     "manage_workflow": "workflow_tools",
     "open_debug_window": "browser_debug_tools",
     "preview_portal_component_update": "portal_tools",
