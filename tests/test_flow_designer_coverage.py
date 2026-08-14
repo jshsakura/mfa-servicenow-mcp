@@ -953,7 +953,16 @@ class TestGetFlowDetailsAdvanced(unittest.TestCase):
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_triggers_included(self, mock_qp, mock_triggers):
         mock_qp.return_value = ([{"sys_id": "flow1", "name": "Flow One"}], 1)
-        mock_triggers.return_value = [{"sys_id": "trig1"}]
+        mock_triggers.return_value = [
+            {
+                "sys_id": "trig1",
+                "trigger_type": "record_update",
+                "inputs": [
+                    {"name": "table", "label": "Table", "value": "incident"},
+                    {"name": "condition", "label": "Condition", "value": "state=1"},
+                ],
+            }
+        ]
 
         result = get_flow_details(
             self.config,
@@ -961,6 +970,30 @@ class TestGetFlowDetailsAdvanced(unittest.TestCase):
             GetFlowDetailsParams(
                 flow_id="flow1",
                 include_triggers=True,
+            ),
+        )
+        # Compacted to {id, type, table, condition} — the same shape the
+        # processflow path has always returned, so which auth mode fetched a
+        # trigger no longer changes how it reads.
+        trigger = result["triggers"][0]
+        self.assertEqual(trigger["id"], "trig1")
+        self.assertEqual(trigger["type"], "record_update")
+        self.assertEqual(trigger["table"], "incident")
+        self.assertIn("state", trigger["condition"])
+
+    @patch("servicenow_mcp.tools.flow_designer_tools._fetch_flow_triggers")
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_raw_trigger_rows_survive_summary_format_false(self, mock_qp, mock_triggers):
+        mock_qp.return_value = ([{"sys_id": "flow1", "name": "Flow One"}], 1)
+        mock_triggers.return_value = [{"sys_id": "trig1", "trigger_type": "record_update"}]
+
+        result = get_flow_details(
+            self.config,
+            self.auth_manager,
+            GetFlowDetailsParams(
+                flow_id="flow1",
+                include_triggers=True,
+                summary_format=False,
             ),
         )
         self.assertEqual(result["triggers"][0]["sys_id"], "trig1")
@@ -1170,9 +1203,15 @@ class TestFetchFlowTriggers(unittest.TestCase):
 
         triggers = _fetch_flow_triggers(self.config, self.auth_manager, "flow1")
         self.assertEqual(len(triggers), 1)
-        query = mock_qp.call_args[1]["query"]
+        # call_args is the LAST call, and there are two now: the trigger rows,
+        # then the sys_variable_value join that gives them their table and
+        # condition (those are not columns on the trigger record).
+        query = mock_qp.call_args_list[0][1]["query"]
         self.assertIn("flow=flow1", query)
         self.assertIn("flow=snap1", query)
+        join_query = mock_qp.call_args_list[1][1]["query"]
+        self.assertIn("document=sys_hub_trigger_instance", join_query)
+        self.assertIn("trig1", join_query)
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     @patch("servicenow_mcp.tools.flow_designer_tools._get_snapshot_id")
@@ -1181,8 +1220,10 @@ class TestFetchFlowTriggers(unittest.TestCase):
         mock_qp.return_value = ([], 0)
 
         _fetch_flow_triggers(self.config, self.auth_manager, "flow1")
-        query = mock_qp.call_args[1]["query"]
+        query = mock_qp.call_args_list[0][1]["query"]
         self.assertEqual(query, "flow=flow1")
+        # No triggers came back, so no join was attempted for them.
+        self.assertEqual(len(mock_qp.call_args_list), 1)
 
 
 class TestBuildSubflowTree(unittest.TestCase):

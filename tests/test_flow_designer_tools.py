@@ -198,7 +198,10 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["source"], "table_api")
         self.assertEqual(result["flow"]["sys_id"], "flow1")
-        self.assertEqual(result["triggers"][0]["sys_id"], "t1")
+        # Triggers now compact to the same {id, type, table, condition} the
+        # processflow path returns, so a trigger reads identically on either
+        # auth mode. Raw rows remain behind summary_format=False.
+        self.assertEqual(result["triggers"][0]["id"], "t1")
         self.assertEqual(result["executions_summary"]["counts"]["total"], 2)
         self.assertEqual(result["subflow_tree"]["flow_id"], "flow1")
         self.assertEqual(result["pill_trace"]["pill"], "trigger.current")
