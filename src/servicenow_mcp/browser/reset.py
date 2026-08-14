@@ -46,7 +46,7 @@ stale bundle is the more expensive kind of wrong. Reported as what it is.
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
-from ._offload import require_playwright, run_off_loop
+from ._offload import cdp_browser, require_playwright, run_off_loop
 from .capture import _dirty_fields, _on_instance
 from .window import WindowState
 
@@ -184,78 +184,70 @@ def reset_session(
     host = state.instance_host
 
     def _work() -> Dict[str, Any]:
-        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+        with cdp_browser(state.cdp_endpoint) as browser:
+            contexts = browser.contexts
+            if not contexts:
+                return {"reset": False, "error": "The debug window has no browser context."}
+            context = contexts[0]
 
-        browser = None
-        with sync_playwright() as pw:
-            browser = pw.chromium.connect_over_cdp(state.cdp_endpoint)
+            pages = [
+                page
+                for page in context.pages
+                if not str(page.url).startswith("devtools://") and _on_instance(page, host)
+                # With no host to scope by there is nothing to scope: an
+                # unconfigured instance URL makes every tab "ours", and
+                # clearing everything is not a scoped reset. Refused above.
+            ]
+
+            if not allow_discard:
+                holding = _holding_input(pages)
+                if holding:
+                    return {
+                        "reset": False,
+                        "blocked_by_unsaved_input": holding,
+                        "error": (
+                            f"{len(holding)} tab(s) on this instance hold input. A reset "
+                            "closes them and clears the session behind them — pass "
+                            "discard_unsaved_input=true to do it anyway."
+                        ),
+                    }
+
+            # A tab on the origin has to outlive the cookie clear to wipe
+            # storage, so the blank one is opened FIRST and everything else
+            # closed around it.
+            landing = context.new_page()
             try:
-                contexts = browser.contexts
-                if not contexts:
-                    return {"reset": False, "error": "The debug window has no browser context."}
-                context = contexts[0]
+                landing.goto(landing_url, wait_until="domcontentloaded")
+            except Exception as exc:  # noqa: BLE001 - a signed-out redirect is normal
+                logger.debug("Reset landing page did not settle: %s", exc)
 
-                pages = [
-                    page
-                    for page in context.pages
-                    if not str(page.url).startswith("devtools://") and _on_instance(page, host)
-                    # With no host to scope by there is nothing to scope: an
-                    # unconfigured instance URL makes every tab "ours", and
-                    # clearing everything is not a scoped reset. Refused above.
-                ]
-
-                if not allow_discard:
-                    holding = _holding_input(pages)
-                    if holding:
-                        return {
-                            "reset": False,
-                            "blocked_by_unsaved_input": holding,
-                            "error": (
-                                f"{len(holding)} tab(s) on this instance hold input. A reset "
-                                "closes them and clears the session behind them — pass "
-                                "discard_unsaved_input=true to do it anyway."
-                            ),
-                        }
-
-                # A tab on the origin has to outlive the cookie clear to wipe
-                # storage, so the blank one is opened FIRST and everything else
-                # closed around it.
-                landing = context.new_page()
+            closed = 0
+            for page in pages:
                 try:
-                    landing.goto(landing_url, wait_until="domcontentloaded")
-                except Exception as exc:  # noqa: BLE001 - a signed-out redirect is normal
-                    logger.debug("Reset landing page did not settle: %s", exc)
-
-                closed = 0
-                for page in pages:
-                    try:
-                        page.close()
-                        closed += 1
-                    except Exception as exc:  # noqa: BLE001
-                        logger.debug("Could not close a tab during reset: %s", exc)
-
-                result: Dict[str, Any] = {"reset": True, "closed_tabs": closed}
-                result.update(_clear_cookies(context, host))
-                result["storage_cleared"] = _clear_storage(landing)
-                if clear_cache:
-                    result["cache_cleared"] = _clear_cache(landing)
-
-                # Reloaded after the jar was emptied: until it is, the tab is
-                # still showing the signed-in page and "blank state" would be a
-                # screenshot away from being contradicted.
-                try:
-                    landing.goto(landing_url, wait_until="domcontentloaded")
+                    page.close()
+                    closed += 1
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("Could not reload the landing tab after reset: %s", exc)
-                try:
-                    landing.bring_to_front()
-                except Exception:  # noqa: BLE001 - cosmetic
-                    pass
-                result["url"] = str(landing.url)
-                return result
-            finally:
-                if browser is not None:
-                    browser.close()
+                    logger.debug("Could not close a tab during reset: %s", exc)
+
+            result: Dict[str, Any] = {"reset": True, "closed_tabs": closed}
+            result.update(_clear_cookies(context, host))
+            result["storage_cleared"] = _clear_storage(landing)
+            if clear_cache:
+                result["cache_cleared"] = _clear_cache(landing)
+
+            # Reloaded after the jar was emptied: until it is, the tab is
+            # still showing the signed-in page and "blank state" would be a
+            # screenshot away from being contradicted.
+            try:
+                landing.goto(landing_url, wait_until="domcontentloaded")
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Could not reload the landing tab after reset: %s", exc)
+            try:
+                landing.bring_to_front()
+            except Exception:  # noqa: BLE001 - cosmetic
+                pass
+            result["url"] = str(landing.url)
+            return result
 
     return run_off_loop(_work, timeout_s=_RESET_TIMEOUT_S)
 

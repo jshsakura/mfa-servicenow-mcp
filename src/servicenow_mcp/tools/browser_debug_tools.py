@@ -515,6 +515,7 @@ def open_debug_window(
 
     # Arm the collector NOW, not on the first inspect. Otherwise the submit
     # that caused the bug happens before anything is watching it.
+    landed_user = None
     try:
         armed = arm(state, profile=profile, account=account)
         if not armed.get("armed") and not target_url and not opened and config.instance_url:
@@ -536,7 +537,13 @@ def open_debug_window(
             except (NoPageFound, RuntimeError, TimeoutError) as exc:
                 logger.info("Could not give this instance a tab in the shared window: %s", exc)
         result["recording"] = bool(armed.get("armed"))
-        if not armed.get("armed"):
+        if armed.get("armed"):
+            # The landed truth, read from the page while attached — so the
+            # caller does not spend a follow-up inspect confirming the open.
+            if armed.get("url"):
+                result["url"] = armed["url"]
+            landed_user = armed.get("user")
+        else:
             result["recording_note"] = (
                 f"Not recording yet ({armed.get('reason')}). Open a page in the window; "
                 "inspect_debug_window will arm it on the next call."
@@ -566,6 +573,16 @@ def open_debug_window(
     if login.get("status") not in (None, "no_credentials"):
         result["auto_login"] = login.get("status")
     login_note = describe_login(login)
+
+    # Who the window was signed in as, read at arm time. Only attached when
+    # auto_login did not run a submit afterwards — a user read BEFORE a login
+    # that then landed would be a stale claim about the session it changed.
+    if landed_user and login.get("status") in (None, "no_credentials", "already_attempted"):
+        identity = describe_window_user(landed_user, api_username(config))
+        if identity.get("window_user"):
+            result["window_user"] = identity["window_user"]
+            if identity.get("note"):
+                result["session_note"] = identity["note"]
 
     used, allowance = budget_status(window_history_path(auth_manager))
     if used >= allowance - 1:

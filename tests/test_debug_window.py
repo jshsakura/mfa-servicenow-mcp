@@ -1315,6 +1315,71 @@ def test_opening_arms_the_collector_before_the_user_clicks_anything(monkeypatch)
     assert result["recording"] is True
 
 
+def test_open_reports_the_landed_url_and_user_without_a_follow_up_inspect(monkeypatch):
+    # Measured pattern: every open was followed by an inspect whose only job
+    # was "did it land, and as whom?". The arm attach already holds the page,
+    # so the open answers both itself.
+    state = window.WindowState(
+        pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=0.0
+    )
+    monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, True))
+    monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
+    monkeypatch.setattr(tools, "window_history_path", lambda auth_manager: "/tmp/h.json")
+    monkeypatch.setattr(
+        tools,
+        "arm",
+        lambda state, **kw: {
+            "armed": True,
+            "url": "https://dev.example.com/sp?id=my_page",
+            "user": {"user": "alice", "source": "g_user"},
+        },
+    )
+
+    result = tools.open_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.OpenDebugWindowParams(url="/sp?id=my_page"),
+    )
+
+    assert result["url"] == "https://dev.example.com/sp?id=my_page"
+    assert result["window_user"] == "alice"
+
+
+def test_open_never_reports_a_user_read_before_a_login_that_then_landed(monkeypatch):
+    # The user was read at arm time; if auto_login SUBMITTED afterwards, that
+    # read describes the session the login just replaced — a stale claim about
+    # a server fact. Say nothing rather than the wrong thing.
+    state = window.WindowState(
+        pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=0.0
+    )
+    monkeypatch.setattr(tools, "ensure_window", lambda auth_manager, **kw: (state, True))
+    monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
+    monkeypatch.setattr(tools, "window_history_path", lambda auth_manager: "/tmp/h.json")
+    monkeypatch.setattr(
+        tools,
+        "arm",
+        lambda state, **kw: {
+            "armed": True,
+            "url": "https://dev.example.com/login.do",
+            "user": None,
+        },
+    )
+    monkeypatch.setattr(tools, "saved_credentials", lambda config: ("alice", "pw"))
+    monkeypatch.setattr(tools, "window_login_path", lambda auth_manager: "/tmp/l.json")
+    monkeypatch.setattr(
+        tools, "auto_login", lambda *a, **kw: {"status": "submitted", "user": "alice"}
+    )
+
+    result = tools.open_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.OpenDebugWindowParams(),
+    )
+
+    assert "window_user" not in result
+    assert result["auto_login"] == "submitted"
+
+
 def test_a_window_with_no_tab_reports_that_it_is_not_recording(monkeypatch):
     state = window.WindowState(
         pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=0.0

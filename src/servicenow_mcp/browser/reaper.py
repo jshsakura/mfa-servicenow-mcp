@@ -48,7 +48,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from ._offload import PlaywrightUnavailable, require_playwright, run_off_loop
+from ._offload import PlaywrightUnavailable, cdp_browser, require_playwright, run_off_loop
 from .probe import presence_script
 from .window import (
     WindowState,
@@ -192,45 +192,39 @@ def read_presence(state: WindowState) -> Optional[Dict[str, Any]]:
     """
 
     def _work() -> Optional[Dict[str, Any]]:
-        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+        with cdp_browser(state.cdp_endpoint) as browser:
+            pages = [page for context in browser.contexts for page in context.pages]
+            pages = [p for p in pages if not str(p.url).startswith("devtools://")]
+            if not pages:
+                # An open window with no page is nothing to protect, but it
+                # is also nothing to read — report it as answered-and-empty
+                # rather than as no-evidence.
+                return {"idle_ms": None, "dirty": 0, "answered": True}
 
-        with sync_playwright() as pw:
-            browser = pw.chromium.connect_over_cdp(state.cdp_endpoint)
-            try:
-                pages = [page for context in browser.contexts for page in context.pages]
-                pages = [p for p in pages if not str(p.url).startswith("devtools://")]
-                if not pages:
-                    # An open window with no page is nothing to protect, but it
-                    # is also nothing to read — report it as answered-and-empty
-                    # rather than as no-evidence.
-                    return {"idle_ms": None, "dirty": 0, "answered": True}
-
-                # The SMALLEST elapsed time wins: the most recent touch anywhere
-                # in the window is what protects it.
-                idle_ms: Optional[float] = None
-                dirty = 0
-                answered = False
-                for page in pages:
-                    try:
-                        reading = page.evaluate(presence_script())
-                    except Exception as exc:  # noqa: BLE001 - a page can be mid-navigation
-                        logger.debug("Presence read failed on %s: %s", page.url, exc)
-                        return None
-                    if not reading:
-                        continue  # no probe on THIS tab, or one too old to answer
-                    answered = True
-                    dirty += int(reading.get("dirty") or 0)
-                    page_now = float(reading.get("now") or 0.0)
-                    last_human = float(reading.get("lastHuman") or 0.0)
-                    if last_human <= 0 or page_now <= 0:
-                        continue  # nobody has ever touched this tab
-                    elapsed = max(0.0, page_now - last_human)
-                    idle_ms = elapsed if idle_ms is None else min(idle_ms, elapsed)
-                if not answered:
+            # The SMALLEST elapsed time wins: the most recent touch anywhere
+            # in the window is what protects it.
+            idle_ms: Optional[float] = None
+            dirty = 0
+            answered = False
+            for page in pages:
+                try:
+                    reading = page.evaluate(presence_script())
+                except Exception as exc:  # noqa: BLE001 - a page can be mid-navigation
+                    logger.debug("Presence read failed on %s: %s", page.url, exc)
                     return None
-                return {"idle_ms": idle_ms, "dirty": dirty, "answered": True}
-            finally:
-                browser.close()
+                if not reading:
+                    continue  # no probe on THIS tab, or one too old to answer
+                answered = True
+                dirty += int(reading.get("dirty") or 0)
+                page_now = float(reading.get("now") or 0.0)
+                last_human = float(reading.get("lastHuman") or 0.0)
+                if last_human <= 0 or page_now <= 0:
+                    continue  # nobody has ever touched this tab
+                elapsed = max(0.0, page_now - last_human)
+                idle_ms = elapsed if idle_ms is None else min(idle_ms, elapsed)
+            if not answered:
+                return None
+            return {"idle_ms": idle_ms, "dirty": dirty, "answered": True}
 
     try:
         require_playwright()

@@ -62,7 +62,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from ._offload import require_playwright, run_off_loop
+from ._offload import cdp_browser, require_playwright, run_off_loop
 from .capture import (
     NoPageFound,
     _active_instance_page,
@@ -404,10 +404,8 @@ def act(
     settle_s = max(0, min(int(settle_ms), MAX_WAIT_MS)) / 1000.0
 
     def _work() -> Dict[str, Any]:
-        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
-
-        with sync_playwright() as pw:
-            browser = pw.chromium.connect_over_cdp(state.cdp_endpoint)
+        with cdp_browser(state.cdp_endpoint) as browser:
+            page = None
             try:
                 contexts = browser.contexts
                 if not contexts:
@@ -505,10 +503,10 @@ def act(
                 }
             finally:
                 try:
-                    _set_activity(page, False)
+                    if page is not None:
+                        _set_activity(page, False)
                 except Exception:  # noqa: BLE001 - page may be gone
                     pass
-                browser.close()
 
     return run_off_loop(_work, timeout_s=budget_seconds(steps) + settle_s)
 

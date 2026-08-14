@@ -90,7 +90,7 @@ from ..auth._browser_dom import (
     _selector_exists,
     _target_label,
 )
-from ._offload import require_playwright, run_off_loop
+from ._offload import cdp_browser, require_playwright, run_off_loop
 from .window import WindowState
 
 logger = logging.getLogger(__name__)
@@ -347,45 +347,38 @@ def auto_login(
     require_playwright()
 
     def _work() -> Dict[str, Any]:
-        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+        with cdp_browser(state.cdp_endpoint) as browser:
+            contexts = browser.contexts
+            if not contexts:
+                return {"status": "no_page"}
+            page, refusal = _login_page(
+                contexts[0].pages,
+                instance_host=state.instance_host,
+                driven_url=driven_url,
+            )
+            if page is None:
+                return {"status": refusal}
 
-        with sync_playwright() as pw:
-            browser = pw.chromium.connect_over_cdp(state.cdp_endpoint)
-            try:
-                contexts = browser.contexts
-                if not contexts:
-                    return {"status": "no_page"}
-                page, refusal = _login_page(
-                    contexts[0].pages,
-                    instance_host=state.instance_host,
-                    driven_url=driven_url,
-                )
-                if page is None:
-                    return {"status": refusal}
+            if not _wait_for_login_form(page):
+                return {"status": "no_login_form", "url": str(page.url)}
 
-                if not _wait_for_login_form(page):
-                    return {"status": "no_login_form", "url": str(page.url)}
+            # Claimed BEFORE the submit: if this call dies between the
+            # click and the response, the next one must not try again.
+            record_attempt(marker_path, state)
 
-                # Claimed BEFORE the submit: if this call dies between the
-                # click and the response, the next one must not try again.
-                record_attempt(marker_path, state)
+            outcome = _fill_and_submit(page, username, password)
+            if not outcome["filled"]:
+                return {"status": "fields_not_found", "url": str(page.url)}
+            if not outcome["submitted"]:
+                return {"status": "filled", "user": username}
 
-                outcome = _fill_and_submit(page, username, password)
-                if not outcome["filled"]:
-                    return {"status": "fields_not_found", "url": str(page.url)}
-                if not outcome["submitted"]:
-                    return {"status": "filled", "user": username}
-
-                accepted = _credentials_accepted(page)
-                if accepted is None:
-                    return {"status": "unverified", "user": username, "via": outcome["via"]}
-                if not accepted:
-                    return {"status": "rejected", "user": username, "url": str(page.url)}
-                release_attempt(marker_path)
-                return {"status": "submitted", "user": username, "via": outcome["via"]}
-            finally:
-                # Disconnects from the window; does not close it.
-                browser.close()
+            accepted = _credentials_accepted(page)
+            if accepted is None:
+                return {"status": "unverified", "user": username, "via": outcome["via"]}
+            if not accepted:
+                return {"status": "rejected", "user": username, "url": str(page.url)}
+            release_attempt(marker_path)
+            return {"status": "submitted", "user": username, "via": outcome["via"]}
 
     try:
         return run_off_loop(_work, timeout_s=LOGIN_TIMEOUT_S)

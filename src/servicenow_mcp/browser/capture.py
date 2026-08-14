@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from . import scroll_shot
-from ._offload import require_playwright, run_off_loop
+from ._offload import cdp_browser, require_playwright, run_off_loop
 from .badge import (
     badge_activity_script,
     badge_init_script,
@@ -508,10 +508,8 @@ def capture(
     wait_s = max(0.0, min(float(watch_seconds), MAX_WATCH_SECONDS))
 
     def _work() -> Dict[str, Any]:
-        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
-
-        with sync_playwright() as pw:
-            browser = pw.chromium.connect_over_cdp(state.cdp_endpoint)
+        with cdp_browser(state.cdp_endpoint) as browser:
+            page = None
             try:
                 contexts = browser.contexts
                 if not contexts:
@@ -563,13 +561,13 @@ def capture(
                     "watched_seconds": wait_s,
                 }
             finally:
-                # Cleared before detaching, so the dot never outlives the
+                # Cleared before returning, so the dot never outlives the
                 # attachment it is reporting.
                 try:
-                    _set_activity(page, False)
+                    if page is not None:
+                        _set_activity(page, False)
                 except Exception:  # noqa: BLE001 - page may be gone
                     pass
-                browser.close()
 
     # The offload budget has to outlast the watch itself, plus attach/capture.
     return run_off_loop(_work, timeout_s=wait_s + 90.0)
@@ -586,32 +584,26 @@ def arm(state: WindowState, *, profile: str, account: str = "") -> Dict[str, Any
     require_playwright()
 
     def _work() -> Dict[str, Any]:
-        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
-
-        with sync_playwright() as pw:
-            browser = pw.chromium.connect_over_cdp(state.cdp_endpoint)
-            try:
-                contexts = browser.contexts
-                if not contexts:
-                    return {"armed": False, "reason": "no browser context"}
-                context = contexts[0]
-                # Arm first, choose second: an unarmed tab has no say in which
-                # tab is being worked in, and staying unarmed is how it keeps
-                # not having one.
-                _arm_tabs(context.pages, state, profile, account)
-                page = _active_instance_page(context.pages, state.instance_host)
-                if page is None:
-                    return {
-                        "armed": False,
-                        "reason": no_page_message(context.pages, state.instance_host),
-                    }
-                _install_probe(context, page, state, profile, account)
-                return {"armed": True, "url": str(page.url)}
-            finally:
-                # Disconnects from the browser; it does NOT terminate the
-                # window (Playwright: a connected browser is disconnected, a
-                # launched one is closed).
-                browser.close()
+        with cdp_browser(state.cdp_endpoint) as browser:
+            contexts = browser.contexts
+            if not contexts:
+                return {"armed": False, "reason": "no browser context"}
+            context = contexts[0]
+            # Arm first, choose second: an unarmed tab has no say in which
+            # tab is being worked in, and staying unarmed is how it keeps
+            # not having one.
+            _arm_tabs(context.pages, state, profile, account)
+            page = _active_instance_page(context.pages, state.instance_host)
+            if page is None:
+                return {
+                    "armed": False,
+                    "reason": no_page_message(context.pages, state.instance_host),
+                }
+            _install_probe(context, page, state, profile, account)
+            # Read while attached: the landed url and signed-in user answer the
+            # "did the open land where I asked, as whom?" question the caller
+            # used to spend a follow-up inspect on.
+            return {"armed": True, "url": str(page.url), "user": _effective_user(page)}
 
     return run_off_loop(_work, timeout_s=60.0)
 
@@ -731,77 +723,71 @@ def navigate(
     require_playwright()
 
     def _work() -> Dict[str, Any]:
-        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+        with cdp_browser(state.cdp_endpoint) as browser:
+            contexts = browser.contexts
+            if not contexts:
+                raise NoPageFound("The debug window has no browser context.")
+            context = contexts[0]
+            _arm_tabs(context.pages, state, profile, account)
+            existing = _active_instance_page(context.pages, state.instance_host)
 
-        with sync_playwright() as pw:
-            browser = pw.chromium.connect_over_cdp(state.cdp_endpoint)
-            try:
-                contexts = browser.contexts
-                if not contexts:
-                    raise NoPageFound("The debug window has no browser context.")
-                context = contexts[0]
-                _arm_tabs(context.pages, state, profile, account)
-                existing = _active_instance_page(context.pages, state.instance_host)
-
-                # Decided before anything moves: a guess steps aside into a new
-                # tab, observed input still refuses. See the docstring.
-                stepped_aside: Dict[str, Any] = {}
-                use_new_tab = new_tab
-                if existing is not None and not _on_instance(existing, state.instance_host):
-                    # The window holds every instance this account can reach, so
-                    # the tab we would otherwise take over is routinely ANOTHER
-                    # instance's — or the person's own page. Taking it would end
-                    # a session nobody asked to end. Instances are tabs: open one.
+            # Decided before anything moves: a guess steps aside into a new
+            # tab, observed input still refuses. See the docstring.
+            stepped_aside: Dict[str, Any] = {}
+            use_new_tab = new_tab
+            if existing is not None and not _on_instance(existing, state.instance_host):
+                # The window holds every instance this account can reach, so
+                # the tab we would otherwise take over is routinely ANOTHER
+                # instance's — or the person's own page. Taking it would end
+                # a session nobody asked to end. Instances are tabs: open one.
+                use_new_tab = True
+                stepped_aside = {"opened_beside_url": str(existing.url)}
+            if existing is not None and not use_new_tab and not allow_discard:
+                dirty, basis = _dirty_fields(existing)
+                if dirty and basis == "guessed":
                     use_new_tab = True
-                    stepped_aside = {"opened_beside_url": str(existing.url)}
-                if existing is not None and not use_new_tab and not allow_discard:
-                    dirty, basis = _dirty_fields(existing)
-                    if dirty and basis == "guessed":
-                        use_new_tab = True
-                        stepped_aside = {"kept_input": dirty, "input_basis": basis}
-                    elif dirty:
-                        return {
-                            "navigated": False,
-                            "url": str(existing.url),
-                            "blocked_by_unsaved_input": dirty,
-                            "input_basis": basis,
-                        }
-
-                if use_new_tab or existing is None:
-                    # Register the init scripts BEFORE the tab exists, so the
-                    # new document is instrumented from its first byte — which
-                    # is also what makes its unsaved-input record trustworthy
-                    # later (see _dirty_fields).
-                    _install_probe_scripts(context, state, profile, account)
-                    page = context.new_page()
-                    page.goto(url, wait_until="domcontentloaded")
-                    page.bring_to_front()
+                    stepped_aside = {"kept_input": dirty, "input_basis": basis}
+                elif dirty:
                     return {
-                        "navigated": True,
-                        "url": str(page.url),
-                        "new_tab": True,
-                        "previous_url": (str(existing.url) if existing else None),
-                        "tabs": len(context.pages),
-                        **stepped_aside,
-                        **_trim_tabs(context, keep=page, instance_host=state.instance_host),
+                        "navigated": False,
+                        "url": str(existing.url),
+                        "blocked_by_unsaved_input": dirty,
+                        "input_basis": basis,
                     }
 
-                page = existing
-                previous_url = str(page.url)
-
-                # Register BEFORE navigating: add_init_script only reaches
-                # documents created after it lands, so arming after goto would
-                # miss everything the page does while loading.
-                _install_probe(context, page, state, profile, account)
+            if use_new_tab or existing is None:
+                # Register the init scripts BEFORE the tab exists, so the
+                # new document is instrumented from its first byte — which
+                # is also what makes its unsaved-input record trustworthy
+                # later (see _dirty_fields).
+                _install_probe_scripts(context, state, profile, account)
+                page = context.new_page()
                 page.goto(url, wait_until="domcontentloaded")
+                page.bring_to_front()
                 return {
                     "navigated": True,
                     "url": str(page.url),
-                    "new_tab": False,
-                    "previous_url": previous_url,
+                    "new_tab": True,
+                    "previous_url": (str(existing.url) if existing else None),
+                    "tabs": len(context.pages),
+                    **stepped_aside,
+                    **_trim_tabs(context, keep=page, instance_host=state.instance_host),
                 }
-            finally:
-                browser.close()
+
+            page = existing
+            previous_url = str(page.url)
+
+            # Register BEFORE navigating: add_init_script only reaches
+            # documents created after it lands, so arming after goto would
+            # miss everything the page does while loading.
+            _install_probe(context, page, state, profile, account)
+            page.goto(url, wait_until="domcontentloaded")
+            return {
+                "navigated": True,
+                "url": str(page.url),
+                "new_tab": False,
+                "previous_url": previous_url,
+            }
 
     return run_off_loop(_work, timeout_s=120.0)
 
