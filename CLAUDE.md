@@ -372,8 +372,21 @@ from pasting real debug output into code. **That is the failure mode: real data
 arrives by copy-paste from a live session.** `scripts/check_real_identities.py`
 now blocks it at commit time — the rule below is why, not the enforcement.
 
+**Run the checker BEFORE you write, not only at commit.** Anything authored
+from a live read — a log analysis, a captured payload, an instance query — is
+contaminated at the moment it is drafted, and a pre-commit block found at push
+time means the string already exists in a file and in your head. When a fixture,
+doc or test is derived from live data, run
+`python scripts/check_real_identities.py` on the way in and rename there.
+Enforcement at the end is the backstop; the rule running first is the practice.
+
 Rules that follow from it:
 
+0. **Names must not evoke the real thing either.** A placeholder that mirrors
+   the customer's business — `x_myapp_billing_request_header`, a page called
+   `..._budget_manhour` — leaks the same structure the identifier did: which
+   app, which process, what the system does. `x_myapp_alpha`, `sample_page_one`.
+   The test does not get more readable by naming a real workflow.
 1. **Placeholders only**, always: `alice` / `bob` / `other.dev`, `my_app`,
    `x_myapp`, `example.com`, `Sprint 12 fixes`, `https://test.service-now.com`.
 2. **Anything pasted from a live instance is contaminated until proven clean.**

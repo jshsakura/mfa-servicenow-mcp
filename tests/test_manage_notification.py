@@ -44,7 +44,7 @@ class TestManageNotification(unittest.TestCase):
                 {
                     "sys_id": "n1",
                     "subject": "Returned to request",
-                    "collection": "x_myapp_billing_request_header",
+                    "collection": "x_myapp_alpha",
                     "event_name": "activate.life.cycle.migration",
                     "condition": "stateCHANGESFROM4^stateCHANGESTO3",
                     "category": {"display_value": "Misc"},
@@ -64,14 +64,14 @@ class TestManageNotification(unittest.TestCase):
             ],
             1,
         )
-        result = self._run(action="list", collection="x_myapp_billing_request_header")
+        result = self._run(action="list", collection="x_myapp_alpha")
         self.assertTrue(result["success"])
         self.assertEqual(1, len(result["notifications"]))
         self.assertEqual("n1", result["notifications"][0]["sys_id"])
         self.assertEqual("Misc", result["notifications"][0]["category"])
         self.assertFalse(result["notifications"][0]["active"])
         _, kwargs = mock_query.call_args
-        self.assertEqual("collection=x_myapp_billing_request_header", kwargs["query"])
+        self.assertEqual("collection=x_myapp_alpha", kwargs["query"])
         self.assertEqual("sysevent_email_action", kwargs["table"])
 
     @patch("servicenow_mcp.tools.sn_api.sn_count")
@@ -116,7 +116,7 @@ class TestManageNotification(unittest.TestCase):
             action="create",
             category="Misc",
             template="returned.to.request YKO OM",
-            collection="x_myapp_billing_request_header",
+            collection="x_myapp_alpha",
             subject="Returned",
         )
         self.assertTrue(result["success"])

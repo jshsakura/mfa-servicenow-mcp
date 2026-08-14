@@ -167,13 +167,13 @@ def test_get_widget_bundle_matches_widget_name(mock_sn_query, mock_config, mock_
             "success": True,
             "results": [
                 {
-                    "name": "Budget Widget",
+                    "name": "Sample Widget",
                     "sys_id": "wid-123",
                     "template": "<div></div>",
                     "script": "",
                     "client_script": "",
                     "css": "",
-                    "id": "budget_widget",
+                    "id": "sample_widget",
                 }
             ],
         },
@@ -184,13 +184,13 @@ def test_get_widget_bundle_matches_widget_name(mock_sn_query, mock_config, mock_
     result = get_widget_bundle(
         mock_config,
         mock_auth_manager,
-        GetWidgetBundleParams(widget_id="Budget Widget"),
+        GetWidgetBundleParams(widget_id="Sample Widget"),
     )
 
-    assert result["widget"]["name"] == "Budget Widget"
+    assert result["widget"]["name"] == "Sample Widget"
     assert result["dependencies"] == []
     first_params = mock_sn_query.call_args_list[0].args[2]
-    assert "ORname=Budget Widget" in first_params.query
+    assert "ORname=Sample Widget" in first_params.query
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
@@ -1471,13 +1471,11 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
         [
             {
                 "sys_id": "wid-1",
-                "name": "Budget Widget",
-                "id": "budget_widget",
-                "template": '<button ng-click="branchToBudget()">Budget</button>',
+                "name": "Sample Widget",
+                "id": "sample_widget",
+                "template": '<button ng-click="branchToSample()">Sample</button>',
                 "script": "",
-                "client_script": (
-                    "function branchToBudget(){ return '/sp?id=myapp_init_budget_page'; }"
-                ),
+                "client_script": ("function branchToSample(){ return '/sp?id=sample_page_one'; }"),
                 "link": "",
             }
         ],
@@ -1485,10 +1483,8 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
         [
             {
                 "sys_id": "prov-1",
-                "name": "budgetProvider",
-                "script": (
-                    "function resolveBudgetRoute(){ return '/sp?id=myapp_init_budget_page'; }"
-                ),
+                "name": "sampleProvider",
+                "script": ("function resolveSampleRoute(){ return '/sp?id=sample_page_one'; }"),
             }
         ],
     ]
@@ -1497,8 +1493,8 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
         mock_config,
         mock_auth_manager,
         TracePortalRouteTargetsParams(
-            regex=r"myapp_init_budget_page",
-            widget_ids=["budget_widget"],
+            regex=r"sample_page_one",
+            widget_ids=["sample_widget"],
             output_mode="minimal",
         ),
     )
@@ -1509,13 +1505,13 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
     assert result["summary"]["trace_count"] == 1
 
     trace = result["traces"][0]
-    assert trace["widget"]["name"] == "Budget Widget"
-    assert trace["service_names"] == ["budgetProvider"]
-    assert "branchToBudget()" in trace["button_handlers"]
-    assert "branchToBudget" in trace["button_handlers"]
-    assert "branchToBudget" in trace["branch_names"]
-    assert "resolveBudgetRoute" in trace["branch_names"]
-    assert trace["route_targets"][0]["page_id"] == "myapp_init_budget_page"
+    assert trace["widget"]["name"] == "Sample Widget"
+    assert trace["service_names"] == ["sampleProvider"]
+    assert "branchToSample()" in trace["button_handlers"]
+    assert "branchToSample" in trace["button_handlers"]
+    assert "branchToSample" in trace["branch_names"]
+    assert "resolveSampleRoute" in trace["branch_names"]
+    assert trace["route_targets"][0]["page_id"] == "sample_page_one"
     assert {"location", "line", "match"} <= set(trace["evidence"][0].keys())
     assert result["filters"]["effective_match_mode"] == "literal"
     assert (
@@ -1533,10 +1529,10 @@ def test_trace_portal_route_targets_full_mode_includes_provider_details(
         [
             {
                 "sys_id": "wid-1",
-                "name": "Budget Widget",
-                "id": "budget_widget",
+                "name": "Sample Widget",
+                "id": "sample_widget",
                 "template": "",
-                "script": "function openBudget(){ return '/sp?id=myapp_init_budget_page'; }",
+                "script": "function openSample(){ return '/sp?id=sample_page_one'; }",
                 "client_script": "",
                 "link": "",
             }
@@ -1545,8 +1541,8 @@ def test_trace_portal_route_targets_full_mode_includes_provider_details(
         [
             {
                 "sys_id": "prov-1",
-                "name": "budgetProvider",
-                "script": "function resolveBudgetRoute(){ return '/sp?id=myapp_init_budget_page'; }",
+                "name": "sampleProvider",
+                "script": "function resolveSampleRoute(){ return '/sp?id=sample_page_one'; }",
             }
         ],
     ]
@@ -1555,8 +1551,8 @@ def test_trace_portal_route_targets_full_mode_includes_provider_details(
         mock_config,
         mock_auth_manager,
         TracePortalRouteTargetsParams(
-            regex=r"myapp_init_budget_page",
-            widget_ids=["budget_widget"],
+            regex=r"sample_page_one",
+            widget_ids=["sample_widget"],
             output_mode="full",
         ),
     )
@@ -1564,12 +1560,12 @@ def test_trace_portal_route_targets_full_mode_includes_provider_details(
     trace = result["traces"][0]
     assert trace["matched_provider_count"] == 1
     assert trace["matched_widget_field_count"] == 1
-    assert trace["linked_providers"] == [{"sys_id": "prov-1", "name": "budgetProvider"}]
+    assert trace["linked_providers"] == [{"sys_id": "prov-1", "name": "sampleProvider"}]
     assert trace["provider_matches"][0]["provider"] == {
         "sys_id": "prov-1",
-        "name": "budgetProvider",
+        "name": "sampleProvider",
     }
-    assert trace["provider_matches"][0]["context_name"] == "resolveBudgetRoute"
+    assert trace["provider_matches"][0]["context_name"] == "resolveSampleRoute"
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
@@ -1582,7 +1578,7 @@ def test_trace_portal_route_targets_regex_mode_preserves_route_pattern(
         mock_config,
         mock_auth_manager,
         TracePortalRouteTargetsParams(
-            regex=r"myapp(init|legacy)planbudgetmanhour",
+            regex=r"sample(one|two)page",
             match_mode="regex",
             max_widgets=5,
             max_traces=5,
@@ -1591,7 +1587,7 @@ def test_trace_portal_route_targets_regex_mode_preserves_route_pattern(
 
     assert result["success"] is True
     assert result["filters"]["effective_match_mode"] == "regex"
-    assert result["filters"]["resolved_pattern"] == r"myapp(init|legacy)planbudgetmanhour"
+    assert result["filters"]["resolved_pattern"] == r"sample(one|two)page"
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query_all")
