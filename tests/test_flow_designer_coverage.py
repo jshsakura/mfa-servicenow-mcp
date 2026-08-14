@@ -1475,7 +1475,13 @@ class TestFetchFlowStructure(unittest.TestCase):
             result = _fetch_flow_structure(self.config, self.auth_manager, "flow1")
 
         self.assertTrue(result["success"])
-        self.assertIn("basic auth", result["note"])
+        self.assertIn("Table API", result["note"])
+        # The note used to say conditions and variable mappings were incomplete
+        # here and to switch to browser auth for them. They are decoded from the
+        # `values` column this path already fetches, so the note must no longer
+        # send anyone to a browser for something it now returns.
+        self.assertNotIn("browser auth", result["note"])
+        self.assertIn("inputs", result["note"])
 
     @patch("servicenow_mcp.tools.flow_designer_tools._fetch_subflow_bindings")
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")

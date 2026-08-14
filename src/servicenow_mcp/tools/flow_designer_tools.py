@@ -8,7 +8,11 @@ Provides read-only tools for analyzing Flow Designer flows:
 - Get action/logic detail with input/output variables
 """
 
+import base64
+import binascii
+import gzip
 import hashlib
+import json
 import logging
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
@@ -65,6 +69,29 @@ VARIABLE_VALUE_TABLE = "sys_variable_value"
 SCRIPT_STEP_VAR_SYSID = "71aa7f6647032200b4fad7527c9a719b"
 _MIN_SCRIPT_LEN = 40
 
+# What a step is CONFIGURED to do — the table a Look Up Records reads, the
+# condition an If branch tests, the data pill feeding an input — lives in the
+# `values` column of the v2 snapshot row, as gzip'd base64 JSON. Live-verified:
+# 6190 of 6190 action instances carry it, and `sys_hub_flow_logic_instance_v2`
+# carries it too (that is where branch conditions are).
+#
+# This was the gap that made get_detail answer "there is a Look Up Records step
+# here" and nothing more, and its own closing note used to send the caller to
+# browser auth for "conditions and variable mappings". They were one already-
+# fetched column away. NOTE the document/table split that hid it: the sibling
+# `sys_variable_value` rows key on the V1 names (`sys_hub_action_instance`),
+# never on `*_v2`, so the obvious join returns zero rows against the snapshot
+# ids this reader holds — decoding the column beats joining, and costs no
+# round trip at all.
+_VALUES_FIELD = "values"
+# Per-step and per-response caps. Inputs are small (a name and a binding), but
+# a 66-step flow can carry hundreds; every cap that bites is reported.
+_MAX_INPUTS_PER_STEP = 25
+_MAX_INPUTS_PER_RESPONSE = 300
+# A single binding that runs long is almost always an inline script or a long
+# encoded query. Keep the head — enough to see what it does — and say it was cut.
+_MAX_INPUT_VALUE_CHARS = 400
+
 # ---------------------------------------------------------------------------
 # Parameter Models
 # ---------------------------------------------------------------------------
@@ -103,7 +130,13 @@ class GetFlowDetailsParams(BaseModel):
     flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
     include_structure: bool = Field(
         default=False,
-        description="Include structure; a large tree goes to disk, exact counts stay inline",
+        # Says "bindings" on purpose: the reason to ask for structure is usually
+        # "which table does this look up, on what condition" — and until v1.24.25
+        # this returned step names only, so callers went looking in a browser.
+        description=(
+            "Include structure + each step's bindings (looked-up table, conditions, "
+            "data pills); a large tree goes to disk, exact counts stay inline"
+        ),
     )
     include_triggers: bool = Field(
         default=False,
@@ -2066,6 +2099,73 @@ def _extract_processflow_structure(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _decode_values_blob(blob: Any) -> Optional[List[Dict[str, Any]]]:
+    """gzip+base64 JSON → the raw input list, or None if it is not that.
+
+    Returns None rather than raising, and None is NOT "no inputs": the caller
+    must be able to tell "this step binds nothing" from "this column did not
+    decode", because only one of those is safe to report as a finished answer.
+    """
+    if not blob or not isinstance(blob, str):
+        return None
+    try:
+        raw = gzip.decompress(base64.b64decode(blob, validate=True))
+    except (binascii.Error, OSError, ValueError, EOFError) as exc:
+        logger.debug("Step values did not decode as gzip+base64: %s", exc)
+        return None
+    try:
+        parsed = json.loads(raw.decode("utf-8", "replace"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        logger.debug("Step values decoded but were not JSON: %s", exc)
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
+def _project_step_inputs(blob: Any, budget: List[int]) -> Tuple[Dict[str, Any], Optional[str]]:
+    """One step's bound inputs, compacted to {input_name: bound_value}.
+
+    Kept: the binding itself, verbatim — a literal, or a ``{{uuid.field}}``
+    data pill, which is what makes the step traceable (see ``trace_pill``).
+    Dropped: the ``parameter`` metadata block on every entry (label, type,
+    maxsize, hints — roughly nine tenths of the bytes and none of the answer),
+    and inputs with no value at all, which are the ones nobody configured.
+
+    ``budget`` is a one-element list used as a shared counter across the whole
+    response; when it runs out the remaining steps say so instead of quietly
+    thinning out.
+    """
+    entries = _decode_values_blob(blob)
+    if entries is None:
+        return {}, ("unreadable" if blob else None)
+
+    inputs: Dict[str, Any] = {}
+    dropped_for_budget = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        value = entry.get("value")
+        if not name or value in (None, "", [], {}):
+            continue
+        if len(inputs) >= _MAX_INPUTS_PER_STEP or budget[0] <= 0:
+            dropped_for_budget += 1
+            continue
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        if len(text) > _MAX_INPUT_VALUE_CHARS:
+            text = text[:_MAX_INPUT_VALUE_CHARS] + f"…(+{len(text) - _MAX_INPUT_VALUE_CHARS} chars)"
+        # displayValue is the human form of a reference (a sys_id's name). Keep
+        # it only when it says something the raw value does not — for a pill the
+        # two are identical and repeating it would double the cost for nothing.
+        display = entry.get("displayValue")
+        if isinstance(display, str) and display and display != value:
+            text = f"{text} ({display[:80]})"
+        inputs[name] = text
+        budget[0] -= 1
+
+    note = f"{dropped_for_budget} more input(s) not shown" if dropped_for_budget else None
+    return inputs, note
+
+
 def _parse_label_cache(label_cache: str) -> List[str]:
     """Parse label_cache into a list of individual label strings."""
     if not label_cache:
@@ -2361,13 +2461,14 @@ def _fetch_flow_structure(
             (
                 "actions",
                 ACTION_V2_TABLE,
-                "sys_id,display_text,name,order,action_type,ui_id,parent_ui_id,nesting_parent",
+                "sys_id,display_text,name,order,action_type,ui_id,parent_ui_id,nesting_parent,values",
                 "action",
             ),
             (
                 "logic",
                 LOGIC_V2_TABLE,
-                "sys_id,display_text,name,order,logic_definition,type,ui_id,parent_ui_id,nesting_parent",
+                "sys_id,display_text,name,order,logic_definition,type,ui_id,parent_ui_id,"
+                "nesting_parent,values",
                 "logic",
             ),
             (
@@ -2417,6 +2518,11 @@ def _fetch_flow_structure(
 
         tree = _build_component_tree(all_components)
 
+        # Shared across every step, so a wide flow cannot quietly spend the
+        # whole response on its first few nodes.
+        input_budget = [_MAX_INPUTS_PER_RESPONSE]
+        unreadable_values = 0
+
         flat_summary = []
         for comp in all_components:
             kind = str(comp.get("component_type") or "")
@@ -2452,6 +2558,16 @@ def _fetch_flow_structure(
             parent = comp.get("parent_ui_id") or comp.get("nesting_parent")
             if parent:
                 entry["parent"] = parent
+            # WHAT the step is configured to do, not just that it exists: the
+            # table a lookup reads, the condition a branch tests, the pill an
+            # input is fed from. Decoded from the row already in hand.
+            step_inputs, input_note = _project_step_inputs(comp.get(_VALUES_FIELD), input_budget)
+            if step_inputs:
+                entry["inputs"] = step_inputs
+            if input_note:
+                entry["inputs_note"] = input_note
+                if input_note == "unreadable":
+                    unreadable_values += 1
             flat_summary.append(entry)
 
         result: Dict[str, Any] = {
@@ -2465,6 +2581,23 @@ def _fetch_flow_structure(
             "flat_summary": flat_summary,
             "tree": tree,
         }
+
+        # What the input read actually PROVED, carried with it. A step with no
+        # `inputs` key means "binds nothing"; a column that would not decode is
+        # counted here instead, because those two must never read alike.
+        if unreadable_values:
+            result["inputs_unreadable"] = unreadable_values
+            result["inputs_note"] = (
+                f"{unreadable_values} step(s) had a `values` column that did not decode as "
+                "gzip+base64 JSON — their bound inputs are NOT reported below and their "
+                "absence is not evidence they bind nothing."
+            )
+        if input_budget[0] <= 0:
+            result["inputs_truncated"] = (
+                f"The per-response input cap ({_MAX_INPUTS_PER_RESPONSE}) was reached, so later "
+                "steps show fewer inputs than they have. Read a single step with node_id=<ui_id> "
+                "to see all of its bindings."
+            )
 
         # Include subflow binding details when subflows exist
         if subflows:
@@ -2484,10 +2617,16 @@ def _fetch_flow_structure(
                     "label_cache and actual references are consistent."
                 )
         else:
+            # This used to read "Conditions and variable mappings are
+            # incomplete. Switch to browser auth for full detail" — and it sent
+            # people to open a browser for something that was one already-
+            # fetched column away. Each step's bindings are decoded above; say
+            # what IS missing on this path instead of what no longer is.
             result["note"] = (
-                "Retrieved via Table API (basic auth). "
-                "Conditions and variable mappings are incomplete. "
-                "Switch to browser auth for full detail via processflow API."
+                "Retrieved via Table API. Step bindings (`inputs`) are decoded from each "
+                "node's compiled values — conditions, looked-up tables and data pills "
+                "included. Runtime-only detail (what a pill RESOLVED to on a given "
+                "execution) still needs get_executions."
             )
 
         return result
