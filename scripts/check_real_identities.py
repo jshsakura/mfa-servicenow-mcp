@@ -148,7 +148,7 @@ _SURNAME_LOGIN = re.compile(rf"\b[a-z]{{3,12}}[._-](?:{_SURNAMES})\b", re.IGNORE
 # system does. The person rules above could not see any of that, which is how a
 # real scope sat in four test files.
 #
-# Default-deny on the VENDOR segment only, so `x_myapp_billing_request_header`
+# Default-deny on the VENDOR segment only, so `x_myapp_alpha`
 # passes on its prefix and the table half stays free — inventing an allowlist of
 # table names would fail on the first fixture nobody thought of.
 ALLOWED_SCOPE_VENDORS = {
@@ -172,6 +172,35 @@ ALLOWED_SCOPE_VENDORS = {
     "bar",
 }
 _SCOPE_NAMESPACE = re.compile(r"\bx_([a-z0-9]{2,})_[a-z0-9_]+\b")
+
+# A Service Portal lives at a URL suffix the customer chose, so a path like
+# `/<suffix>?id=...` names their portal as surely as the scope names their
+# company. Only the OOB defaults are free.
+#
+# This is deliberately a SHAPE rule, not a word list. Chasing business
+# vocabulary — rfq, billing, budget, manhour — took three passes and still left
+# residue, because the next fixture invents a word nobody listed. A structural
+# signal has no vocabulary to keep up with.
+ALLOWED_PORTAL_SUFFIXES = {
+    # ServiceNow ships these; they name no one.
+    "sp",
+    "sp_config",
+    "esc",
+    "now",
+    "hr",
+    "hrportal",
+    "csm",
+    "nav_to",
+    # Obvious placeholders.
+    "portal",
+    "sample",
+    "test",
+    "demo",
+    "custom",
+    "example",
+    "my",
+}
+_PORTAL_PATH = re.compile(r"['\"/]([a-z][a-z0-9_-]{1,20})\?id=")
 
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "site", "dist", "build"}
 SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".pdf", ".lock", ".bundle"}
@@ -238,6 +267,12 @@ def scan(path: Path) -> list[str]:
             hits.append(
                 f"{path.relative_to(REPO)}:{num}: '{match}' looks like a real person's login"
             )
+        for suffix in _PORTAL_PATH.findall(line):
+            if suffix.lower() not in ALLOWED_PORTAL_SUFFIXES:
+                hits.append(
+                    f"{path.relative_to(REPO)}:{num}: portal suffix '/{suffix}' is not a "
+                    "placeholder — a portal URL names a real customer's site"
+                )
         for vendor in _SCOPE_NAMESPACE.findall(line):
             if vendor.lower() not in ALLOWED_SCOPE_VENDORS:
                 hits.append(

@@ -682,8 +682,8 @@ _QUERY_OPERATORS: List[tuple] = [
 
 
 def _readable_pill(value: str, label_map: Optional[Dict[str, str]] = None) -> Optional[str]:
-    """Turn a data-pill token '{{subflow.rfq1.division.name}}' into the canvas
-    breadcrumb 'subflow ▸ rfq1 ▸ division ▸ name'. If the leading segment is a
+    """Turn a data-pill token '{{subflow.step1.division.name}}' into the canvas
+    breadcrumb 'subflow ▸ step1 ▸ division ▸ name'. If the leading segment is a
     step's uiUniqueIdentifier, resolve it to that step's label."""
     if not isinstance(value, str):
         return None

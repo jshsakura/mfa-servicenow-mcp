@@ -383,8 +383,8 @@ Enforcement at the end is the backstop; the rule running first is the practice.
 Rules that follow from it:
 
 0. **Names must not evoke the real thing either.** A placeholder that mirrors
-   the customer's business — `x_myapp_billing_request_header`, a page called
-   `..._budget_manhour` — leaks the same structure the identifier did: which
+   the customer's business — `x_myapp_alpha`, a page called
+   `..._sample_page` — leaks the same structure the identifier did: which
    app, which process, what the system does. `x_myapp_alpha`, `sample_page_one`.
    The test does not get more readable by naming a real workflow.
 1. **Placeholders only**, always: `alice` / `bob` / `other.dev`, `my_app`,
