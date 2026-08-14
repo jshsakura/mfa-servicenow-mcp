@@ -522,12 +522,22 @@ def _build_processflow_detail(
     }
 
 
-def _summarize_node_inputs(node: Dict[str, Any]) -> Dict[str, str]:
+def _summarize_node_inputs(
+    node: Dict[str, Any], label_map: Optional[Dict[str, str]] = None
+) -> Dict[str, str]:
     """Flatten a node's inputs into {name: value} preserving full values verbatim.
 
     When `value` and `displayValue` differ (raw pill vs. human label), keep both
     in the form ``"<value> / <displayValue>"`` — the UI shows both, so the
     summary should too. Never truncate.
+
+    A data pill gets the same treatment against its CANVAS form: the token
+    stays (trace_pill and every edit path match on it) and the breadcrumb the
+    designer shows is appended — ``{{<uuid>.x}} / Get Catalog Variables ▸ x``.
+    Without the map the leading segment is a bare uuid, so the answer and the
+    screen disagreed about which step produced a value, on the path most people
+    actually read (browser auth). Verified live: this summary already carried
+    every binding, and every pill in it was unreadable.
     """
     flat: Dict[str, str] = {}
     for inp in node.get("inputs", []) or []:
@@ -540,6 +550,12 @@ def _summarize_node_inputs(node: Dict[str, Any]) -> Dict[str, str]:
         display = inp.get("displayValue")
         value_str = "" if value in (None, "") else str(value)
         display_str = "" if display in (None, "") else str(display)
+        if not display_str and value_str:
+            # A pill is its own display value; resolve it to the canvas
+            # breadcrumb so the pairing below prints token / readable form.
+            readable = _readable_pill(value_str, label_map)
+            if readable and readable != value_str:
+                display_str = readable
         if value_str and display_str and value_str != display_str:
             flat[name] = f"{value_str} / {display_str}"
         elif value_str:
@@ -553,7 +569,9 @@ class FlowSummaryIntegrityError(ValueError):
     """Raised when a flow structure cannot be summarized without data loss."""
 
 
-def _build_action_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, Any]:
+def _build_action_row(
+    node: Dict[str, Any], ui: str, depth: int, label_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
     """Action row — keeps every semantically meaningful field, drops verbose IDs."""
     row: Dict[str, Any] = {
         "order": node.get("order", ""),
@@ -562,7 +580,7 @@ def _build_action_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, An
         "ui_id": ui,
         "type": node.get("action_type_name") or "",
         "name": node.get("name") or "",
-        "inputs": _summarize_node_inputs(node),
+        "inputs": _summarize_node_inputs(node, label_map),
     }
     outputs = node.get("outputs") or []
     output_names = [o.get("name", "") for o in outputs if isinstance(o, dict) and o.get("name")]
@@ -577,7 +595,9 @@ def _build_action_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, An
     return row
 
 
-def _build_logic_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, Any]:
+def _build_logic_row(
+    node: Dict[str, Any], ui: str, depth: int, label_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
     """Logic row — branching context, full condition verbatim."""
     row: Dict[str, Any] = {
         "order": node.get("order", ""),
@@ -590,7 +610,7 @@ def _build_logic_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, Any
     }
     extra_inputs = {
         k: v
-        for k, v in _summarize_node_inputs(node).items()
+        for k, v in _summarize_node_inputs(node, label_map).items()
         if k not in ("condition_name", "condition")
     }
     if extra_inputs:
@@ -604,7 +624,9 @@ def _build_logic_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, Any
     return row
 
 
-def _build_subflow_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, Any]:
+def _build_subflow_row(
+    node: Dict[str, Any], ui: str, depth: int, label_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
     """Subflow row — exposes sys_id + scope so caller can chain into the subflow."""
     row: Dict[str, Any] = {
         "order": node.get("order", ""),
@@ -614,7 +636,7 @@ def _build_subflow_row(node: Dict[str, Any], ui: str, depth: int) -> Dict[str, A
         "type": "Call Subflow",
         "name": node.get("subflow_name") or "",
         "subflow_sys_id": node.get("subflow_sys_id") or "",
-        "inputs": _summarize_node_inputs(node),
+        "inputs": _summarize_node_inputs(node, label_map),
     }
     if node.get("subflow_internal_name"):
         row["subflow_internal_name"] = node["subflow_internal_name"]
@@ -1055,7 +1077,7 @@ def render_flow_compact(flow_data: Dict[str, Any], include_scripts: bool = False
     }
     try:
         detail = _build_processflow_detail(flow_data)
-        summary = _build_flow_summary(detail)
+        summary = _build_flow_summary(detail, label_map=label_map)
         tree = _render_tree_text(
             summary["tree"],
             summary.get("orphans", []),
@@ -1368,7 +1390,11 @@ def _bound_structure(structure: Dict[str, Any]) -> Dict[str, Any]:
     return bounded
 
 
-def _build_flow_summary(structure: Dict[str, Any], include_scripts: bool = False) -> Dict[str, Any]:
+def _build_flow_summary(
+    structure: Dict[str, Any],
+    include_scripts: bool = False,
+    label_map: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """Flat tree summary (depth + full conditions) for analysis use cases.
 
     Works on processflow-shape structure (actions/logic/subflows with parent_ui_id).
@@ -1432,10 +1458,10 @@ def _build_flow_summary(structure: Dict[str, Any], include_scripts: bool = False
         node = nodes_by_ui[ui]
         kind = node["_kind"]
         if kind == "LOGIC":
-            return _build_logic_row(node, ui, depth)
+            return _build_logic_row(node, ui, depth, label_map)
         if kind == "SUBFLOW":
-            return _build_subflow_row(node, ui, depth)
-        return _build_action_row(node, ui, depth)
+            return _build_subflow_row(node, ui, depth, label_map)
+        return _build_action_row(node, ui, depth, label_map)
 
     visited: set = set()
 
@@ -1980,7 +2006,9 @@ def get_flow_details(
                 }
                 if params.include_structure:
                     result["structure"] = _bound_structure(
-                        _build_flow_summary(detail) if params.summary_format else detail
+                        _build_flow_summary(detail, label_map=_build_label_map(pf_data))
+                        if params.summary_format
+                        else detail
                     )
                 if params.include_triggers:
                     # Compact by default; summary_format=False keeps the raw rows.

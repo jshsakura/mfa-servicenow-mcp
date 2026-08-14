@@ -316,3 +316,47 @@ class TestReadAndEditJoinUp:
         comp = {"sys_id": "s9", "order": "1", "display_text": "Legacy"}
         handle = comp.get("ui_id") or comp.get("sys_id") or ""
         assert handle == "s9"
+
+
+class TestProcessflowSummaryReadsPillsToo:
+    """The path most people are actually on had unreadable pills.
+
+    Live check (v1.24.26): browser auth already returned every step binding —
+    the v1.24.25 premise that they were missing was only true of the Table API
+    fallback. What WAS missing there is the thing that matters when a person
+    reads a flow with the designer open: every pill printed as a bare uuid.
+    """
+
+    def test_a_pill_gains_its_canvas_breadcrumb_and_keeps_its_token(self):
+        from servicenow_mcp.tools.flow_designer_tools import _summarize_node_inputs
+
+        node = {
+            "inputs": [
+                {"name": "selected_roles", "value": "{{step-uuid.delegate_roles_roles}}"},
+                {"name": "close_code", "value": "successful"},
+            ]
+        }
+        flat = _summarize_node_inputs(node, {"step-uuid": "Get Catalog Variables"})
+        # The token survives — trace_pill and the edit paths match on it.
+        assert flat["selected_roles"].startswith("{{step-uuid.delegate_roles_roles}}")
+        assert "Get Catalog Variables ▸ delegate_roles_roles" in flat["selected_roles"]
+        # A literal is left exactly alone.
+        assert flat["close_code"] == "successful"
+
+    def test_an_existing_display_value_is_never_overwritten_by_a_breadcrumb(self):
+        from servicenow_mcp.tools.flow_designer_tools import _summarize_node_inputs
+
+        node = {
+            "inputs": [
+                {"name": "item", "value": "1bc63274", "displayValue": "Delegate roles to member"}
+            ]
+        }
+        flat = _summarize_node_inputs(node, {"1bc63274": "Should Not Be Used"})
+        assert flat["item"] == "1bc63274 / Delegate roles to member"
+
+    def test_no_label_map_still_produces_a_breadcrumb_rather_than_a_raw_token(self):
+        from servicenow_mcp.tools.flow_designer_tools import _summarize_node_inputs
+
+        node = {"inputs": [{"name": "r", "value": "{{abc.record.number}}"}]}
+        flat = _summarize_node_inputs(node)
+        assert flat["r"] == "{{abc.record.number}} / abc ▸ record ▸ number"
