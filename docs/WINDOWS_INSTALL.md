@@ -359,11 +359,11 @@ Set `MCP_TOOL_PACKAGE` to choose a tool set. Default: `standard` (read-only).
 | Package | Tools | Description |
 |---------|:-----:|-------------|
 | `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key lookups |
-| `standard` | 27 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
-| `service_desk` | 29 | standard + incident and change operational writes |
-| `portal_developer` | 38 | standard + portal, changeset, script include, and local-sync delivery workflows |
-| `platform_developer` | 43 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 57 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
+| `standard` | 31 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
+| `service_desk` | 33 | standard + incident and change operational writes |
+| `portal_developer` | 50 | standard + portal, changeset, script include, and local-sync delivery workflows |
+| `platform_developer` | 44 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 61 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
 
 To change, update the `MCP_TOOL_PACKAGE` value:
 

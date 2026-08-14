@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.24.23"
+version = "1.24.24"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -52,6 +52,14 @@ dependencies = [
     # install — small enough not to gate the feature behind extras when
     # the symptom is "real browser works, MCP doesn't, no recovery path".
     "curl_cffi>=0.7.0,<1",
+    # v1.24.24: openpyxl promoted from the [excel] extra to a regular
+    # dependency. Same reasoning as curl_cffi above, and a seventh of its
+    # weight: 0.24MB universal wheel (py2.py3-none-any, no platform matrix,
+    # no C extension), one tiny dep. As an extra, manage_workbook shipped
+    # REGISTERED BUT ALWAYS FAILING for every uvx user, and the fix was a
+    # client-config edit plus a restart — a recovery path nobody discovers
+    # from the error. Bundling costs less than documenting the workaround.
+    "openpyxl>=3.1.0,<4",
 ]
 
 [project.optional-dependencies]
@@ -61,12 +69,6 @@ browser = [
     # so this belongs beside playwright rather than in the base install; the
     # code degrades to a single screen (and says so) when it is absent.
     "pillow>=10.0.0,<14",
-]
-excel = [
-    # Test sign-off export (manage_test_evidence). Optional like the browser
-    # extra: the tool degrades to a clear install message when it is absent,
-    # and image embedding additionally wants pillow (browser extra).
-    "openpyxl>=3.1.0",
 ]
 dev = [
     "pytest>=7.0.0",

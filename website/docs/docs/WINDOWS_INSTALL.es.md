@@ -359,11 +359,11 @@ Establece `MCP_TOOL_PACKAGE` para elegir un conjunto de herramientas. Predetermi
 | Paquete | Herramientas | Descripción |
 |---------|:-----:|-------------|
 | `core` | 12 | Elementos esenciales mínimos de solo lectura para estado, esquema, descubrimiento y búsquedas clave |
-| `standard` | 27 | **(Predeterminado)** Paquete de solo lectura para incidentes, cambios, portal, registros y análisis de fuentes |
-| `service_desk` | 29 | standard + escrituras operativas de incidentes y cambios |
-| `portal_developer` | 38 | standard + flujos de trabajo de portal, changeset, script include y entrega de sincronización local |
-| `platform_developer` | 43 | standard + escrituras de flujos de trabajo, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 57 | La superficie empaquetada más amplia: todos los flujos de trabajo `manage_*` más operaciones avanzadas |
+| `standard` | 31 | **(Predeterminado)** Paquete de solo lectura para incidentes, cambios, portal, registros y análisis de fuentes |
+| `service_desk` | 33 | standard + escrituras operativas de incidentes y cambios |
+| `portal_developer` | 50 | standard + flujos de trabajo de portal, changeset, script include y entrega de sincronización local |
+| `platform_developer` | 44 | standard + escrituras de flujos de trabajo, Flow Designer, UI policy, incidentes/cambios y scripts |
+| `full` | 61 | La superficie empaquetada más amplia: todos los flujos de trabajo `manage_*` más operaciones avanzadas |
 
 Para cambiarlo, actualiza el valor de `MCP_TOOL_PACKAGE`:
 

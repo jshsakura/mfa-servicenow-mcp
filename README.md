@@ -194,7 +194,7 @@ TLS-inspecting proxies (Zscaler and friends) and blocked PyPI access have their 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **66 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **75 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **4 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
@@ -202,6 +202,7 @@ TLS-inspecting proxies (Zscaler and friends) and blocked PyPI access have their 
 - **Incremental sync** (`incremental=True`) — re-download only records changed since last sync (`sys_updated_on` watermark), like `git pull`; `reconcile_deletions=True` flags records deleted on the instance
 - **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
 - **Attachment download** (`download_attachment`) — fetch a record's attachment file(s) (xlsx, PDF, Word, …) to local disk by attachment sys_id or by parent `table`+`record`; resolves a record's attachments automatically and writes bytes to disk so the LLM reads them from `saved_path`
+- **Excel without boilerplate** (`manage_workbook`) — list sheets, read rows, regex-find across a tracking workbook; write styled sheets from a plain data spec (house header/border/wrap applied server-side); or fill a COPY of a company form, screenshots embedded. Built for test sign-off and hand-over documents; the form itself is an input and is never written to
 - **Dry-run preview** on every write tool (`dry_run=True`) — returns field-level diff, dependency counts, and precision notes before any side effect. Uses read-only APIs, works under all auth modes.
 - Write intent gate: every mutation requires an explicit `confirm='approve'` (accidental-write guardrail, not an adversarial boundary — see [Safety Policy](#safety-policy))
 - Payload safety limits, per-field truncation, and total response budget (200K chars)
@@ -490,16 +491,16 @@ Read-only (safe defaults):
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | Disabled profile for intentionally turning tools off |
 | `core` | 12 | ~3.0K | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 29 | ~7.3K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `standard` | 31 | ~7.3K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
 
 ⚠️ Write-capable (advanced — grants create/update/delete):
 
 | Package | Tools | ~Tokens | Description |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 31 | ~8.2K | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 41 | ~10.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
-| `platform_developer` | 41 | ~10.8K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 55 | ~13.8K | ⚠️ **Most advanced** — all write tools across all domains at once |
+| `service_desk` | 33 | ~8.2K | ⚠️ standard + incident and change operational writes |
+| `portal_developer` | 50 | ~10.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `platform_developer` | 44 | ~10.8K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 61 | ~13.8K | ⚠️ **Most advanced** — all write tools across all domains at once |
 
 > **~Tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down.
 
@@ -743,6 +744,7 @@ The server includes several layers of performance optimization to minimize laten
 - **Session keep-alive (browser auth)**: While you're actively working, a background thread pings the instance every 5 minutes with the same lightweight probe the restore path uses, so ServiceNow's sliding idle timeout never kills the session between tool calls — no more surprise MFA windows after a lunch break. It never opens a browser (a dead session just waits for the next real call to re-auth), stops after 6 hours without real activity, and is tunable via `SERVICENOW_SESSION_KEEPALIVE=off`, `SERVICENOW_SESSION_KEEPALIVE_INTERVAL_S` (default 300, min 60), and `SERVICENOW_SESSION_KEEPALIVE_MAX_IDLE_S` (default 21600).
 - **HTTP session pooling**: Persistent session with TCP keep-alive and gzip/deflate compression (60-80% payload reduction on large JSON). The stock-`requests` opt-out path mounts a 20-connection `HTTPAdapter`.
 - **Parallel pagination**: `sn_query_all` fetches the first page sequentially for total count, then retrieves remaining pages concurrently via `ThreadPoolExecutor` (up to 4 workers).
+- **Persistent debug-browser connection**: The shared debug window is driven over one long-lived worker thread that owns the Playwright driver and a per-endpoint CDP connection, instead of spawning a driver subprocess and a fresh websocket on every tool call. Measured against a real Chromium: ~2ms per warm call vs ~750ms under the old per-call model. A cached connection is revalidated against the window's own DevTools endpoint before every reuse — a killed window reconnects instead of answering from a stale handle.
 - **Dynamic page sizing**: When remaining records fit in a single page (<=100), the page size is enlarged to avoid extra round-trips.
 - **Batch API**: `sn_batch` combines multiple REST sub-requests into a single `/api/now/batch` POST, with automatic chunking at the 150-request limit.
 - **Parallel chunked M2M queries**: Widget-to-provider M2M lookups split into 100-ID chunks are executed concurrently rather than sequentially.

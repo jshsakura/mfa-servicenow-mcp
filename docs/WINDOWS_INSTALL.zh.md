@@ -359,11 +359,11 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 | 包 | 工具数 | 描述 |
 |---------|:-----:|-------------|
 | `core` | 12 | 用于健康检查、schema、发现和关键查询的极简只读基础工具 |
-| `standard` | 27 | **（默认）** 覆盖 incident、change、门户、日志和源码分析的只读包 |
-| `service_desk` | 29 | standard + 事件与变更的操作性写入 |
-| `portal_developer` | 38 | standard + 门户、变更集、script include 和本地同步交付工作流 |
-| `platform_developer` | 43 | standard + 工作流、Flow Designer、UI policy、incident/change 和脚本写入 |
-| `full` | 57 | 最广泛的打包功能面：所有 `manage_*` 工作流加上高级操作 |
+| `standard` | 31 | **（默认）** 覆盖 incident、change、门户、日志和源码分析的只读包 |
+| `service_desk` | 33 | standard + 事件与变更的操作性写入 |
+| `portal_developer` | 50 | standard + 门户、变更集、script include 和本地同步交付工作流 |
+| `platform_developer` | 44 | standard + 工作流、Flow Designer、UI policy、incident/change 和脚本写入 |
+| `full` | 61 | 最广泛的打包功能面：所有 `manage_*` 工作流加上高级操作 |
 
 要更改，更新 `MCP_TOOL_PACKAGE` 的值：
 

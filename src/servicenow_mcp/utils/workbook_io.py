@@ -47,12 +47,21 @@ class OpenpyxlUnavailable(RuntimeError):
 
 
 def require_openpyxl() -> None:
+    """Guard for an install whose base dependency went missing.
+
+    openpyxl is a REGULAR dependency (v1.24.24), so this should never fire on
+    a normal install — no extra to enable, no `--with` flag to add. It stays
+    because "the import failed" and "the workbook is broken" must not reach
+    the caller as the same sentence.
+    """
     try:
         import openpyxl  # type: ignore[import-untyped]  # noqa: F401
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise OpenpyxlUnavailable(
-            "openpyxl is not installed. Install the excel extra "
-            "(`pip install 'mfa-servicenow-mcp[excel]'`) or `pip install openpyxl`."
+            "openpyxl is missing from this interpreter even though it is a "
+            "required dependency — the install is incomplete. Reinstall the "
+            "server (`pip install --upgrade mfa-servicenow-mcp`) or "
+            "`pip install openpyxl`."
         ) from exc
 
 
@@ -231,8 +240,61 @@ def _pillow_available() -> bool:
         return False
 
 
+def _png_size(path: str) -> Optional[Tuple[int, int]]:
+    """(width, height) from a PNG's IHDR chunk. No image library involved.
+
+    A PNG header is fixed-layout: 8-byte signature, then a 25-byte IHDR chunk
+    whose width and height are big-endian uint32 at offsets 16 and 20.
+    """
+    import struct
+
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(24)
+    except OSError:
+        return None
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    width, height = struct.unpack(">II", head[16:24])
+    return (int(width), int(height)) if width and height else None
+
+
+def _raw_png_image(path: str, size: Tuple[int, int]) -> Any:
+    """An openpyxl image for a PNG, built without Pillow.
+
+    openpyxl's Image needs Pillow for exactly two things — the pixel size and
+    the format — and for png/jpeg/gif its ``_data()`` hands back the original
+    file bytes untouched. Both are known here, so the Pillow round-trip buys
+    nothing for a screenshot. Bypassing it keeps a 14MB C-extension
+    dependency out of the base install for the case that matters most:
+    Playwright screenshots, which are always PNG.
+
+    The subclass reaches into openpyxl's private ``_data`` — pinned by a test
+    that round-trips real bytes through a saved workbook, so an upstream
+    change fails loudly here instead of writing a corrupt image.
+    """
+    from openpyxl.drawing.image import Image as XLImage
+
+    class _PngImage(XLImage):  # type: ignore[misc,valid-type]
+        def __init__(self, ref: str, dimensions: Tuple[int, int]) -> None:
+            self.ref = ref
+            self.width, self.height = dimensions
+            self.format = "png"
+
+        def _data(self) -> bytes:
+            with open(self.ref, "rb") as fh:
+                return fh.read()
+
+    return _PngImage(path, size)
+
+
 def _thumbnail(source: str, work_dir: str) -> Optional[str]:
-    """A resized copy for embedding; the original file is never touched."""
+    """A resized COPY for embedding; the original file is never touched.
+
+    Only shrinks the bytes stored in the workbook — display size is set on
+    the drawing either way — so this is a file-size optimisation, not a
+    requirement. Returns None when Pillow cannot read the image.
+    """
     try:
         from PIL import Image as PILImage
 
@@ -250,24 +312,45 @@ def _thumbnail(source: str, work_dir: str) -> Optional[str]:
         return None
 
 
+def _scaled_image(path: str, work_dir: str) -> Tuple[Any, Optional[str]]:
+    """(image, note). Pillow when present, raw-PNG otherwise, never a raise."""
+    if _pillow_available():
+        thumb = _thumbnail(path, work_dir)
+        if thumb is None:
+            return None, "unreadable image"
+        from openpyxl.drawing.image import Image as XLImage
+
+        return XLImage(thumb), None
+
+    size = _png_size(path)
+    if size is None:
+        # Non-PNG without Pillow is the one case that genuinely cannot be
+        # embedded — say which limit was hit rather than "image failed".
+        return None, "not a PNG and Pillow is not installed"
+    image = _raw_png_image(path, size)
+    if image.width > IMAGE_WIDTH_PX:
+        # Display-size scaling: the drawing's extent shrinks, the stored bytes
+        # do not. Visually identical to a resample at this scale.
+        ratio = IMAGE_WIDTH_PX / float(image.width)
+        image.width = IMAGE_WIDTH_PX
+        image.height = max(1, int(image.height * ratio))
+    return image, None
+
+
 def _place_image(ws: Any, spec: Dict[str, Any], work_dir: str) -> Optional[str]:
-    """Embed one image. Returns an error string instead of raising."""
+    """Embed one image. Returns a note string instead of raising."""
     path = str(spec.get("path") or "")
     cell = str(spec.get("cell") or "")
     if not path or not cell:
         return "image needs {path, cell}"
     if not os.path.isfile(path):
         return f"image not found: {path}"
-    if not _pillow_available():
-        ws[cell] = f"{os.path.basename(path)} (Pillow 미설치 — 파일 참조)"
-        return f"Pillow missing — {os.path.basename(path)} linked as text"
-    from openpyxl.drawing.image import Image as XLImage
 
-    thumb = _thumbnail(path, work_dir)
-    if thumb is None:
-        ws[cell] = f"{os.path.basename(path)} (이미지 열기 실패 — 파일 참조)"
-        return f"unreadable image — {os.path.basename(path)} linked as text"
-    image = XLImage(thumb)
+    image, why = _scaled_image(path, work_dir)
+    if image is None:
+        ws[cell] = f"{os.path.basename(path)} ({why} — 파일 참조)"
+        return f"{why} — {os.path.basename(path)} linked as text"
+
     image.anchor = cell
     ws.add_image(image)
     row = int("".join(ch for ch in cell if ch.isdigit()) or 1)

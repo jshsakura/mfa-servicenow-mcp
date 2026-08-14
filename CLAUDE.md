@@ -55,9 +55,25 @@ more than the projection saved.
 1. Follow existing patterns in the same file — don't invent new structures.
 2. Register in `config/tool_packages.yaml` under the correct package(s).
 3. Read-only tools go in `standard`. Write tools go in domain packages only.
+   `full` claims to hold **every** `manage_*` workflow — a new one that skips it
+   makes that sentence false (`manage_workbook` did, for one release).
 4. Add `"Use <list_tool> first to find the sys_id."` to get-detail tool descriptions.
 5. Add tests: happy path, error, not-found (for detail), count_only (for list), filters.
-6. Run `python -m pytest tests/ -x` before committing.
+6. **Regenerate the docs, don't hand-count them.** Three generators, then the
+   mirrors — the whole set, because each covers different files:
+   ```
+   python scripts/regenerate_tool_module_index.py   # lazy-discovery map
+   python scripts/regenerate_tool_inventory.py      # docs/TOOL_INVENTORY.md
+   python scripts/regenerate_doc_counts.py          # every OTHER stated count
+   ```
+   `regenerate_doc_counts.py` owns ~32 files across six languages (READMEs,
+   WINDOWS_INSTALL, translated inventories, llm-setup, the website landing
+   pages) and resyncs `website/docs/docs/`. It exists because those numbers
+   were four releases stale and nobody could have noticed: a count in thirty
+   hand-maintained files is a count that is wrong. If a doc states a number the
+   generator does not know about, **add a rule to `PROSE_RULES` rather than
+   editing the file** — a hand-fixed number is stale again by the next release.
+7. Run `python -m pytest tests/ -x` before committing.
 
 ## Download / Sync Flow (LLM must follow)
 

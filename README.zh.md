@@ -194,7 +194,7 @@ TLS 检查代理（Zscaler 之类）和被封锁的 PyPI 访问各有对应的�
 
 - 面向 MFA/SSO 环境（Okta、Entra ID、SAML、MFA）的**浏览器认证**
 - **4 种认证模式**：Browser、Basic、OAuth、API Key
-- **66 个已注册工具**，含 **6 个活动工具包配置**外加禁用的 `none`——从最简只读到广泛的捆绑式 CRUD
+- **75 个已注册工具**，含 **6 个活动工具包配置**外加禁用的 `none`——从最简只读到广泛的捆绑式 CRUD
 - **4 个工作流技能**，带安全门、子代理委派和经过验证的流水线
 - **可流式 HTTP 传输**——保留 stdio 作为默认值，或为支持 HTTP 的客户端和桥接器暴露 `/mcp`
 - **本地源代码审计**，带 HTML 报告、交叉引用图、死代码检测和自动生成的领域知识
@@ -202,6 +202,7 @@ TLS 检查代理（Zscaler 之类）和被封锁的 PyPI 访问各有对应的�
 - **增量同步**（`incremental=True`）——仅重新下载自上次同步以来更改的记录（`sys_updated_on` 水位线），类似 `git pull`；`reconcile_deletions=True` 会标记在实例上已删除的记录
 - `download_app_sources` 中的**跨作用域依赖自动解析**——拉取应用引用的全局作用域 Script Includes、Widgets、Angular Providers 和 UI Macros，使本地包自成一体，便于分析
 - **附件下载**（`download_attachment`）——通过附件 sys_id 或父级 `table`+`record` 将某条记录的附件文件（xlsx、PDF、Word 等）获取到本地磁盘；自动解析记录的附件并将字节写入磁盘，使 LLM 从 `saved_path` 读取它们
+- **无样板代码的 Excel**（`manage_workbook`）——列出工作表、读取行、正则检索台账；只需给出数据规格，表头/边框/换行等样式由服务端套用并生成工作表；公司模板则在**副本上**填值并嵌入截图。为验收确认书与交接文档而建，模板本身是输入，绝不会被写入
 - 每个写入工具上的**试运行预览**（`dry_run=True`）——在产生任何副作用之前返回字段级差异、依赖计数和精度提示。使用只读 API，在所有认证模式下均可工作。
 - 通过 `confirm='approve'` 进行安全的写入确认
 - 负载安全限制、逐字段截断和总响应预算（200K 字符）
@@ -490,16 +491,16 @@ python -m servicenow_mcp \
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | 用于有意关闭工具的禁用配置 |
 | `core` | 12 | ~3.0K | 用于健康检查、schema、发现和关键工件查找的最简只读必需项 |
-| `standard` | 29 | ~7.3K | **（默认）** 跨 incidents、changes、portal、logs 和源码分析的只读 |
+| `standard` | 31 | ~7.3K | **（默认）** 跨 incidents、changes、portal、logs 和源码分析的只读 |
 
 ⚠️ 具备写入能力（高级——授予创建/更新/删除）：
 
 | 工具包 | 工具数 | ~令牌 | 说明 |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 31 | ~8.2K | ⚠️ standard + incident 和 change 运营写入 |
-| `portal_developer` | 41 | ~10.6K | ⚠️ standard + portal、changeset、script include 和本地同步交付写入 |
-| `platform_developer` | 41 | ~10.8K | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
-| `full` | 55 | ~13.8K | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
+| `service_desk` | 33 | ~8.2K | ⚠️ standard + incident 和 change 运营写入 |
+| `portal_developer` | 50 | ~10.6K | ⚠️ standard + portal、changeset、script include 和本地同步交付写入 |
+| `platform_developer` | 44 | ~10.8K | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
+| `full` | 61 | ~13.8K | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
 
 > **~令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）；使用更窄的包可节省上下文与成本。
 
@@ -730,6 +731,7 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 - **默认浏览器级 TLS**：HTTP 层通过带 Chrome 伪装配置（默认 `chrome120`）的 `curl_cffi` 路由，因此 TLS 握手与真实浏览器逐字节一致——位于 Cloudflare/Akamai 后面或拒绝原生 Python `requests` 的 JA3 机器人检测的实例，无需额外配置即可工作。用 `SERVICENOW_TLS_IMPERSONATE=off` 退出。
 - **HTTP 会话池化**：带 TCP keep-alive 和 gzip/deflate 压缩的持久会话（大型 JSON 负载减少 60-80%）。原生 `requests` 退出路径会挂载一个 20 连接的 `HTTPAdapter`。
 - **并行分页**：`sn_query_all` 顺序获取第一页以得到总数，然后通过 `ThreadPoolExecutor`（最多 4 个工作线程）并发检索剩余页。
+- **调试浏览器常驻连接**：共享调试窗口不再在每次工具调用时派生驱动子进程和新建 WebSocket，而是由一个持有 Playwright 驱动与按端点缓存的 CDP 连接的长生命周期工作线程驱动。在真实 Chromium 上实测：热调用约 2ms，旧的每次调用模式约 750ms。缓存连接在每次复用前都会向窗口自身的 DevTools 端点校验，因此窗口被关闭后会重新连接，而不是用陈旧句柄作答。
 - **动态页大小**：当剩余记录能容纳在单页内（<=100）时，页大小会被扩大以避免额外的往返。
 - **批量 API**：`sn_batch` 将多个 REST 子请求合并到单次 `/api/now/batch` POST 中，并在 150 请求上限处自动分块。
 - **并行分块 M2M 查询**：拆分为 100-ID 块的 widget-to-provider M2M 查找会并发执行，而非顺序执行。

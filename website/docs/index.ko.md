@@ -345,7 +345,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">66</span>
+    <span class="hero-stat-value">75</span>
     <span class="hero-stat-label">등록 도구</span>
   </div>
   <div class="hero-stat">
@@ -386,7 +386,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>연결</h3>
-        <p>Claude, Cursor, Zed 또는 모든 MCP 클라이언트에 연결하세요. 등록 도구 66개가 활성 패키지 프로필을 통해 준비됩니다.</p>
+        <p>Claude, Cursor, Zed 또는 모든 MCP 클라이언트에 연결하세요. 등록 도구 75개가 활성 패키지 프로필을 통해 준비됩니다.</p>
       </div>
     </div>
   </div>

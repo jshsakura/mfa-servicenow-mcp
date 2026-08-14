@@ -193,7 +193,7 @@ TLS 검사 프록시(Zscaler 등)나 PyPI 차단 환경은 별도 안내가 있�
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **등록 도구 66개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
+- **등록 도구 75개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
 - **4개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **Streamable HTTP transport** — 기본 stdio는 그대로 두고, HTTP 지원 클라이언트/브리지에는 `/mcp` 엔드포인트 제공
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
@@ -201,6 +201,7 @@ TLS 검사 프록시(Zscaler 등)나 PyPI 차단 환경은 별도 안내가 있�
 - **증분 동기화** (`incremental=True`) — 지난 동기화 이후 바뀐 레코드만 다시 받음(`sys_updated_on` 워터마크, `git pull` 방식); `reconcile_deletions=True`로 인스턴스에서 삭제된 레코드 경고
 - **크로스-스코프 의존성 자동 해석** — `download_app_sources`가 앱 코드에서 참조하는 글로벌 스코프의 Script Include, Widget, Angular Provider, UI Macro까지 함께 받아 로컬 번들을 분석에 자족적으로 만듭니다
 - **첨부파일 다운로드** (`download_attachment`) — 레코드 첨부파일(xlsx, PDF, Word 등)을 attachment sys_id 또는 부모 `table`+`record`로 받아 로컬 디스크에 저장. 레코드의 첨부를 자동 해석하고 바이트를 디스크에 쓰므로 LLM은 `saved_path`에서 파일을 읽습니다
+- **엑셀 보일러플레이트 제거** (`manage_workbook`) — 시트 목록·행 읽기·정규식 검색으로 관리대장을 조회하고, 데이터 스펙만 넘기면 서식(헤더·테두리·줄바꿈)은 서버가 입혀 시트를 생성하며, 회사 양식은 **사본에** 값과 스크린샷을 채웁니다. 검수확인서·인수인계 문서를 위한 도구이며 원본 양식은 입력이라 절대 덮어쓰지 않습니다
 - **Dry-run 프리뷰** — 모든 쓰기 도구에서 `dry_run=True` 지원. 실행 전 필드 단위 diff, 의존성 카운트, 정확도 노트를 반환합니다. 읽기 전용 API만 사용하므로 모든 인증 모드에서 동작.
 - `confirm='approve'` 기반 안전한 수정 승인 정책
 - 페이로드 안전 제한, 필드별 절단, 총 응답 한도 (200K 문자)
@@ -487,16 +488,16 @@ python -m servicenow_mcp \
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | 도구를 의도적으로 비활성화하는 프로필 |
 | `core` | 12 | ~3.0K | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
-| `standard` | 29 | ~7.3K | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
+| `standard` | 31 | ~7.3K | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
 
 ⚠️ 쓰기 가능 (고급 — 생성/수정/삭제 권한 부여):
 
 | 패키지명 | 도구 수 | ~토큰 | 설명 |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 31 | ~8.2K | ⚠️ standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 41 | ~10.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
-| `platform_developer` | 41 | ~10.8K | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 55 | ~13.8K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
+| `service_desk` | 33 | ~8.2K | ⚠️ standard + 인시던트/변경 운영 쓰기 |
+| `portal_developer` | 50 | ~10.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
+| `platform_developer` | 44 | ~10.8K | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `full` | 61 | ~13.8K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
 
 > **~토큰**은 요청마다 해당 패키지의 툴 스키마가 모델 컨텍스트에 더하는 대략적 토큰량입니다(서버의 컴팩트된 스키마를 tiktoken `cl100k_base`로 측정한 값 — 실제 Claude 토큰수는 약간 다릅니다). 가장 좁은 패키지에 머물수록 컨텍스트 예산과 비용을 아낄 수 있습니다.
 
@@ -726,6 +727,7 @@ confirm 게이트 외에도, 모든 쓰기는 **ServiceNow에 도달하기 전�
 - **기본값 브라우저급 TLS**: HTTP 계층이 `curl_cffi`의 Chrome 임퍼서네이트 프로파일(기본 `chrome120`)로 동작해 TLS 핸드셰이크가 실제 브라우저와 동일 — Cloudflare/Akamai나 JA3 봇 탐지 뒤의 인스턴스가 stock Python `requests`를 거부해도 추가 설정 없이 동작. `SERVICENOW_TLS_IMPERSONATE=off`로 비활성화.
 - **HTTP 세션 풀링**: TCP keep-alive와 gzip/deflate 압축의 영속 세션(대용량 JSON 응답 60-80% 절감). stock `requests` 옵트아웃 경로는 20개 커넥션 `HTTPAdapter`를 마운트.
 - **병렬 페이지네이션**: `sn_query_all`이 첫 페이지를 순차적으로 가져와 전체 개수를 확인한 후, 나머지 페이지를 `ThreadPoolExecutor` (최대 4 워커)로 동시 조회.
+- **디버그 브라우저 상시 연결**: 공용 디버그 창은 툴 호출마다 드라이버 서브프로세스와 새 웹소켓을 만들지 않고, Playwright 드라이버와 엔드포인트별 CDP 연결을 소유한 장수 워커 스레드 하나로 구동됩니다. 실제 Chromium 실측 기준 warm 호출 약 2ms(구 방식 약 750ms). 캐시된 연결은 재사용 전마다 창의 DevTools 엔드포인트로 직접 검증하므로, 닫힌 창은 낡은 핸들로 응답하지 않고 재연결합니다.
 - **동적 페이지 크기**: 남은 레코드가 단일 페이지(<=100)에 들어맞으면 페이지 크기를 확대하여 추가 라운드트립 방지.
 - **배치 API**: `sn_batch`가 여러 REST 하위 요청을 단일 `/api/now/batch` POST로 결합. 150건 제한 시 자동 청크 분할.
 - **병렬 청크 M2M 쿼리**: 위젯-프로바이더 M2M 조회를 100개 ID 단위로 분할하여 순차가 아닌 동시 실행.

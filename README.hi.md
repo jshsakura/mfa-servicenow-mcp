@@ -194,7 +194,7 @@ TLS-निरीक्षण करने वाले proxies (Zscaler और �
 
 - MFA/SSO वातावरणों (Okta, Entra ID, SAML, MFA) के लिए **ब्राउज़र प्रमाणीकरण**
 - **4 auth मोड**: Browser, Basic, OAuth, API Key
-- **66 पंजीकृत टूल** के साथ **6 सक्रिय पैकेज प्रोफ़ाइल** और साथ ही disabled `none` — न्यूनतम read-only से लेकर व्यापक bundled CRUD तक
+- **75 पंजीकृत टूल** के साथ **6 सक्रिय पैकेज प्रोफ़ाइल** और साथ ही disabled `none` — न्यूनतम read-only से लेकर व्यापक bundled CRUD तक
 - **4 वर्कफ़्लो skills** सुरक्षा गेट, sub-agent डेलिगेशन, और सत्यापित पाइपलाइनों के साथ
 - **Streamable HTTP transport** — डिफ़ॉल्ट के रूप में stdio रखें, या HTTP-सक्षम क्लाइंट और ब्रिज के लिए `/mcp` एक्सपोज़ करें
 - HTML रिपोर्ट, क्रॉस-रेफ़रेंस ग्राफ़, dead code पहचान, और स्वतः-जनित डोमेन ज्ञान के साथ **लोकल सोर्स ऑडिट**
@@ -202,6 +202,7 @@ TLS-निरीक्षण करने वाले proxies (Zscaler और �
 - **इंक्रीमेंटल sync** (`incremental=True`) — केवल उन रिकॉर्ड्स को फिर से डाउनलोड करें जो पिछले sync के बाद बदले हैं (`sys_updated_on` watermark), `git pull` की तरह; `reconcile_deletions=True` इंस्टेंस पर डिलीट किए गए रिकॉर्ड्स को फ़्लैग करता है
 - `download_app_sources` में **क्रॉस-स्कोप dep स्वतः-समाधान** — global-scope Script Includes, Widgets, Angular Providers, और UI Macros को खींचता है जिन्हें ऐप संदर्भित करता है, ताकि लोकल bundle विश्लेषण के लिए स्व-निहित हो
 - **अटैचमेंट डाउनलोड** (`download_attachment`) — किसी रिकॉर्ड की अटैचमेंट फ़ाइल(फ़ाइलों) (xlsx, PDF, Word, …) को अटैचमेंट sys_id द्वारा या parent `table`+`record` द्वारा लोकल डिस्क पर fetch करें; किसी रिकॉर्ड के अटैचमेंट को स्वतः हल करता है और bytes को डिस्क पर लिखता है ताकि LLM उन्हें `saved_path` से पढ़े
+- **बिना boilerplate के Excel** (`manage_workbook`) — किसी tracking workbook की sheets सूचीबद्ध करें, rows पढ़ें और regex से खोजें; सिर्फ़ data spec दें और header/border/wrap जैसी styling सर्वर लगाकर sheet बना देता है; या किसी कंपनी फ़ॉर्म की COPY में मान भरें और screenshots embed करें। Sign-off और hand-over दस्तावेज़ों के लिए बना है; मूल फ़ॉर्म एक input है और कभी नहीं बदला जाता
 - हर write टूल पर **dry-run पूर्वावलोकन** (`dry_run=True`) — किसी भी side effect से पहले field-level diff, निर्भरता गणना, और परिशुद्धता नोट्स लौटाता है। read-only APIs का उपयोग करता है, सभी auth मोड के अंतर्गत काम करता है।
 - `confirm='approve'` के साथ सुरक्षित write पुष्टिकरण
 - Payload सुरक्षा सीमाएँ, प्रति-field truncation, और कुल प्रतिक्रिया बजट (200K वर्ण)
@@ -490,16 +491,16 @@ Read-only (सुरक्षित डिफ़ॉल्ट):
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | जानबूझकर टूल बंद करने के लिए Disabled प्रोफ़ाइल |
 | `core` | 12 | ~3.0K | health, schema, discovery, और प्रमुख artifact lookups के लिए न्यूनतम read-only आवश्यक चीज़ें |
-| `standard` | 29 | ~7.3K | **(Default)** incidents, changes, portal, logs, और source विश्लेषण के पार read-only |
+| `standard` | 31 | ~7.3K | **(Default)** incidents, changes, portal, logs, और source विश्लेषण के पार read-only |
 
 ⚠️ Write-capable (उन्नत — create/update/delete देता है):
 
 | Package | Tools | ~टोकन | Description |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 31 | ~8.2K | ⚠️ standard + incident और change ऑपरेशनल writes |
-| `portal_developer` | 41 | ~10.6K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
-| `platform_developer` | 41 | ~10.8K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
-| `full` | 55 | ~13.8K | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
+| `service_desk` | 33 | ~8.2K | ⚠️ standard + incident और change ऑपरेशनल writes |
+| `portal_developer` | 50 | ~10.6K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
+| `platform_developer` | 44 | ~10.8K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
+| `full` | 61 | ~13.8K | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
 
 > **~टोकन** हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens हैं (tiktoken `cl100k_base` आधार; वास्तविक Claude token संख्या थोड़ी भिन्न हो सकती है)। संकरे package पर बने रहने से context और लागत दोनों बचती हैं।
 
@@ -730,6 +731,7 @@ Pattern matching मोड:
 - **डिफ़ॉल्ट रूप से Browser-grade TLS**: HTTP परत एक Chrome impersonation प्रोफ़ाइल (`chrome120` डिफ़ॉल्ट रूप से) के साथ `curl_cffi` के माध्यम से रूट करती है, इसलिए TLS handshake असली ब्राउज़र की तरह byte-for-byte होता है — Cloudflare/Akamai या JA3 bot-detection के पीछे के instances जो stock Python `requests` को अस्वीकार करते हैं, बिना अतिरिक्त कॉन्फ़िग के काम करते हैं। `SERVICENOW_TLS_IMPERSONATE=off` के साथ opt out करें।
 - **HTTP session pooling**: TCP keep-alive और gzip/deflate compression के साथ persistent session (बड़े JSON पर 60-80% payload कमी)। stock-`requests` opt-out path एक 20-connection `HTTPAdapter` mount करता है।
 - **Parallel pagination**: `sn_query_all` कुल गणना के लिए पहले पेज को sequentially fetch करता है, फिर शेष पेजों को `ThreadPoolExecutor` (4 workers तक) के माध्यम से concurrently retrieve करता है।
+- **डिबग ब्राउज़र का स्थायी कनेक्शन**: साझा डिबग विंडो अब हर tool call पर driver subprocess और नया websocket बनाने के बजाय एक लंबे समय तक चलने वाले worker thread से चलती है, जो Playwright driver और प्रति-endpoint CDP कनेक्शन रखता है। वास्तविक Chromium पर मापा गया: warm call ~2ms बनाम पुराने मॉडल का ~750ms। कैश्ड कनेक्शन हर पुन: उपयोग से पहले विंडो के अपने DevTools endpoint से सत्यापित होता है — बंद हो चुकी विंडो पुराने handle से उत्तर देने के बजाय फिर से कनेक्ट होती है।
 - **Dynamic page sizing**: जब शेष रिकॉर्ड एक ही पेज में fit होते हैं (<=100), तो अतिरिक्त round-trips से बचने के लिए page size को बढ़ा दिया जाता है।
 - **Batch API**: `sn_batch` कई REST sub-requests को एक ही `/api/now/batch` POST में जोड़ता है, 150-request सीमा पर स्वचालित chunking के साथ।
 - **Parallel chunked M2M queries**: Widget-to-provider M2M lookups जो 100-ID chunks में विभाजित होते हैं, sequentially के बजाय concurrently execute किए जाते हैं।

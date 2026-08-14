@@ -205,6 +205,10 @@ full:
     - manage_scripted_rest
     - manage_ux_list
     - manage_notification
+    # Excel legwork (read trackers, write styled sheets, fill forms). Not a
+    # ServiceNow surface at all, but `full` is defined as every manage_*
+    # workflow, and it was the one missing from that claim.
+    - manage_workbook
     # Change Management orchestrators (manage_change covers create/update/add_task)
     - submit_change_for_approval
     - approve_change

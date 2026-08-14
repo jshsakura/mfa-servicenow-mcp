@@ -344,7 +344,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">66</span>
+    <span class="hero-stat-value">75</span>
     <span class="hero-stat-label">Registered Tools</span>
   </div>
   <div class="hero-stat">
@@ -385,7 +385,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>Connect</h3>
-        <p>Point Claude, Cursor, Zed, or any MCP client. 66 registered tools load through active package profiles.</p>
+        <p>Point Claude, Cursor, Zed, or any MCP client. 75 registered tools load through active package profiles.</p>
       </div>
     </div>
   </div>

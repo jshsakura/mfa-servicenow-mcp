@@ -194,7 +194,7 @@ Los proxies con inspección TLS (Zscaler y compañía) y el acceso bloqueado a P
 
 - **Autenticación por navegador** para entornos MFA/SSO (Okta, Entra ID, SAML, MFA)
 - **4 modos de autenticación**: Browser, Basic, OAuth, API Key
-- **66 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
+- **75 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
 - **4 skills de flujo de trabajo** con compuertas de seguridad, delegación a sub-agentes y pipelines verificados
 - **Transporte Streamable HTTP** — mantén stdio como predeterminado, o expón `/mcp` para clientes y puentes con capacidad HTTP
 - **Auditoría de fuentes locales** con informe HTML, grafo de referencias cruzadas, detección de código muerto y conocimiento de dominio autogenerado
@@ -202,6 +202,7 @@ Los proxies con inspección TLS (Zscaler y compañía) y el acceso bloqueado a P
 - **Sincronización incremental** (`incremental=True`) — vuelve a descargar solo los registros cambiados desde la última sincronización (marca de agua `sys_updated_on`), como `git pull`; `reconcile_deletions=True` señala los registros eliminados en la instancia
 - **Resolución automática de dependencias entre ámbitos (cross-scope)** en `download_app_sources` — extrae Script Includes, Widgets, Angular Providers y UI Macros del ámbito global que la aplicación referencia, de modo que el paquete local sea autocontenido para el análisis
 - **Descarga de adjuntos** (`download_attachment`) — obtén los archivos adjuntos de un registro (xlsx, PDF, Word, …) en disco local por el sys_id del adjunto o por el `table`+`record` padre; resuelve automáticamente los adjuntos de un registro y escribe los bytes en disco para que el LLM los lea desde `saved_path`
+- **Excel sin código repetitivo** (`manage_workbook`) — lista hojas, lee filas y busca por regex en un libro de seguimiento; escribe hojas con estilo a partir de una simple especificación de datos (cabecera, bordes y ajuste de texto los aplica el servidor); o rellena una COPIA de un formulario corporativo con capturas incrustadas. Pensado para actas de aceptación y documentos de entrega; el formulario original es una entrada y nunca se sobrescribe
 - **Vista previa en dry-run** en cada herramienta de escritura (`dry_run=True`) — devuelve el diff a nivel de campo, recuentos de dependencias y notas de precisión antes de cualquier efecto secundario. Usa APIs de solo lectura, funciona en todos los modos de autenticación.
 - Confirmación segura de escritura con `confirm='approve'`
 - Límites de seguridad de payload, truncado por campo y presupuesto total de respuesta (200K caracteres)
@@ -490,16 +491,16 @@ Solo lectura (valores predeterminados seguros):
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | Perfil deshabilitado para desactivar herramientas intencionadamente |
 | `core` | 12 | ~3.0K | Mínimo de solo lectura para salud, esquema, descubrimiento y búsquedas clave de artefactos |
-| `standard` | 29 | ~7.3K | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de fuentes |
+| `standard` | 31 | ~7.3K | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de fuentes |
 
 ⚠️ Con capacidad de escritura (avanzado — otorga create/update/delete):
 
 | Paquete | Herramientas | ~Tokens | Descripción |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 31 | ~8.2K | ⚠️ standard + escrituras operativas de incidentes y cambios |
-| `portal_developer` | 41 | ~10.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
-| `platform_developer` | 41 | ~10.8K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 55 | ~13.8K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
+| `service_desk` | 33 | ~8.2K | ⚠️ standard + escrituras operativas de incidentes y cambios |
+| `portal_developer` | 50 | ~10.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
+| `platform_developer` | 44 | ~10.8K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
+| `full` | 61 | ~13.8K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
 
 > **~Tokens** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken `cl100k_base`; el conteo real de Claude varía ligeramente); usar el paquete más reducido ahorra contexto y costo.
 
@@ -730,6 +731,7 @@ El servidor incluye varias capas de optimización de rendimiento para minimizar 
 - **TLS de nivel navegador por defecto**: La capa HTTP se enruta a través de `curl_cffi` con un perfil de impersonación de Chrome (`chrome120` por defecto), por lo que el handshake TLS es byte a byte como el de un navegador real — las instancias detrás de Cloudflare/Akamai o detección de bots JA3 que rechazan el `requests` estándar de Python funcionan sin configuración adicional. Desactívalo con `SERVICENOW_TLS_IMPERSONATE=off`.
 - **Pooling de sesión HTTP**: Sesión persistente con keep-alive de TCP y compresión gzip/deflate (60-80% de reducción de payload en JSON grandes). La ruta de opt-out con `requests` estándar monta un `HTTPAdapter` de 20 conexiones.
 - **Paginación paralela**: `sn_query_all` obtiene la primera página secuencialmente para el recuento total, luego recupera las páginas restantes de forma concurrente vía `ThreadPoolExecutor` (hasta 4 workers).
+- **Conexión persistente del navegador de depuración**: la ventana compartida se controla desde un único hilo de trabajo de larga vida que posee el driver de Playwright y una conexión CDP por endpoint, en lugar de lanzar un subproceso del driver y un websocket nuevo en cada llamada. Medido contra un Chromium real: ~2 ms por llamada en caliente frente a ~750 ms del modelo anterior. La conexión en caché se revalida contra el propio endpoint DevTools de la ventana antes de cada reutilización: una ventana cerrada se reconecta en vez de responder desde un handle obsoleto.
 - **Tamaño de página dinámico**: Cuando los registros restantes caben en una sola página (<=100), el tamaño de página se amplía para evitar viajes de ida y vuelta extra.
 - **API Batch**: `sn_batch` combina múltiples sub-solicitudes REST en un único POST a `/api/now/batch`, con fragmentación automática en el límite de 150 solicitudes.
 - **Consultas M2M fragmentadas en paralelo**: Las búsquedas M2M de widget-a-provider divididas en fragmentos de 100 IDs se ejecutan de forma concurrente en lugar de secuencial.

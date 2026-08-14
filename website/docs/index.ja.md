@@ -344,7 +344,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">66</span>
+    <span class="hero-stat-value">75</span>
     <span class="hero-stat-label">登録済みツール</span>
   </div>
   <div class="hero-stat">
@@ -385,7 +385,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>接続</h3>
-        <p>Claude、Cursor、Zed、または任意の MCP クライアントを向けるだけ。66 個の登録済みツールがアクティブなパッケージプロファイルを通じて読み込まれます。</p>
+        <p>Claude、Cursor、Zed、または任意の MCP クライアントを向けるだけ。75 個の登録済みツールがアクティブなパッケージプロファイルを通じて読み込まれます。</p>
       </div>
     </div>
   </div>

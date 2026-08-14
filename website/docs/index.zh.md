@@ -344,7 +344,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
 
 <div class="hero-stats reveal">
   <div class="hero-stat">
-    <span class="hero-stat-value">66</span>
+    <span class="hero-stat-value">75</span>
     <span class="hero-stat-label">已注册工具</span>
   </div>
   <div class="hero-stat">
@@ -385,7 +385,7 @@ SERVICENOW_PASSWORD = "your-password"</code></pre>
       <div class="step-card" style="--i:3">
         <div class="step-number">3</div>
         <h3>连接</h3>
-        <p>指向 Claude、Cursor、Zed 或任意 MCP 客户端。66 个已注册工具通过活动包配置加载。</p>
+        <p>指向 Claude、Cursor、Zed 或任意 MCP 客户端。75 个已注册工具通过活动包配置加载。</p>
       </div>
     </div>
   </div>

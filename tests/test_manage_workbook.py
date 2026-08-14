@@ -179,6 +179,121 @@ class TestWrite:
         # The embedded copy is resized — the workbook never carries full pixels.
         assert (tmp_path / "shot.thumb.png").exists()
 
+    def test_png_embeds_without_pillow(self, tmp_path, monkeypatch):
+        """The screenshot case must not need a 14MB C-extension dependency.
+
+        Playwright screenshots are always PNG, and openpyxl only wants Pillow
+        for the pixel size and format — both readable from the PNG header.
+        Without this the sign-off deliverable silently becomes a list of
+        filenames for every uvx user (Pillow rides in the browser extra,
+        which `uvx --with playwright` does not install).
+        """
+        pytest.importorskip("PIL")
+        from PIL import Image
+
+        shot = str(tmp_path / "shot.png")
+        Image.new("RGB", (900, 400), (10, 20, 30)).save(shot)
+        raw = open(shot, "rb").read()
+
+        monkeypatch.setattr(workbook_io, "_pillow_available", lambda: False)
+        path = str(tmp_path / "nopil.xlsx")
+        result = call(
+            action="write",
+            output_file=path,
+            spec={
+                "sheets": [
+                    {
+                        "title": "증적",
+                        "rows": [["케이스"]],
+                        "images": [{"path": shot, "cell": "B2"}],
+                    }
+                ]
+            },
+        )
+        assert result["embedded_images"] == 1
+        assert "image_notes" not in result, "a PNG must embed, not degrade to text"
+
+        # Round-trip through a real save: the picture is IN the workbook and
+        # its bytes are the original file's, unaltered.
+        import re
+        import zipfile
+
+        with zipfile.ZipFile(path) as zf:
+            media = [n for n in zf.namelist() if n.startswith("xl/media/")]
+            assert media, "no image part was written"
+            assert zf.read(media[0]) == raw
+            drawing = [n for n in zf.namelist() if "drawings/drawing" in n and n.endswith(".xml")]
+            xml = zf.read(drawing[0]).decode()
+
+        # What Excel actually renders is the drawing extent, not the stored
+        # pixel count — assert the DISPLAY box, in EMU (9525 per px). Pillow's
+        # path produces this same XML; only the stored bytes differ.
+        extent = re.search(r'<ext cx="(\d+)" cy="(\d+)"', xml)
+        assert extent, "the picture has no display extent"
+        assert int(extent.group(1)) // 9525 == workbook_io.IMAGE_WIDTH_PX
+        # And the file re-opens as a workbook with one picture on that sheet.
+        assert len(openpyxl.load_workbook(path)["증적"]._images) == 1
+
+    def test_the_no_pillow_path_produces_the_same_file_shape(self, tmp_path, monkeypatch):
+        """The strongest guarantee available: not a new file shape, the same one.
+
+        The raw-PNG path reaches into openpyxl's private ``_data``. This pins
+        that its output is structurally identical to the library's own
+        well-trodden Pillow path — same drawing XML, same parts — so the only
+        difference is how many bytes the media entry holds. An upstream change
+        that made the bypass diverge fails HERE, not in a customer's workbook.
+        """
+        pytest.importorskip("PIL")
+        import zipfile
+
+        from PIL import Image
+
+        shot = str(tmp_path / "shot.png")
+        Image.new("RGB", (900, 400), (10, 20, 30)).save(shot)
+        spec = {
+            "sheets": [{"title": "S", "rows": [["a"]], "images": [{"path": shot, "cell": "B2"}]}]
+        }
+
+        with_pil = str(tmp_path / "with.xlsx")
+        assert call(action="write", output_file=with_pil, spec=spec)["embedded_images"] == 1
+
+        monkeypatch.setattr(workbook_io, "_pillow_available", lambda: False)
+        without = str(tmp_path / "without.xlsx")
+        assert call(action="write", output_file=without, spec=spec)["embedded_images"] == 1
+
+        def parts(path):
+            with zipfile.ZipFile(path) as zf:
+                names = sorted(zf.namelist())
+                drawing = [n for n in names if "drawings/drawing" in n and n.endswith(".xml")]
+                return names, zf.read(drawing[0])
+
+        names_a, drawing_a = parts(with_pil)
+        names_b, drawing_b = parts(without)
+        assert names_a == names_b, "the bypass must not add or drop workbook parts"
+        assert drawing_a == drawing_b, "the picture must be described identically"
+
+    def test_a_non_png_without_pillow_says_which_limit_was_hit(self, tmp_path, monkeypatch):
+        pytest.importorskip("PIL")
+        from PIL import Image
+
+        jpg = str(tmp_path / "shot.jpg")
+        Image.new("RGB", (400, 200), (10, 20, 30)).save(jpg)
+        monkeypatch.setattr(workbook_io, "_pillow_available", lambda: False)
+        result = call(
+            action="write",
+            output_file=str(tmp_path / "j.xlsx"),
+            spec={
+                "sheets": [{"title": "S", "rows": [["x"]], "images": [{"path": jpg, "cell": "B2"}]}]
+            },
+        )
+        assert result["embedded_images"] == 0
+        assert "Pillow" in result["image_notes"][0] and "PNG" in result["image_notes"][0]
+
+    def test_png_header_reader_rejects_a_non_png(self, tmp_path):
+        fake = tmp_path / "fake.png"
+        fake.write_bytes(b"not a png at all, just bytes pretending to be one")
+        assert workbook_io._png_size(str(fake)) is None
+
 
 class TestFill:
     def test_fill_writes_a_copy_and_never_the_form(self, tracker, tmp_path):
