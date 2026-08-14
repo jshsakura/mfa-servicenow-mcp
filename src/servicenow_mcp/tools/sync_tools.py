@@ -397,6 +397,24 @@ def _alias_for_instance_url(url: str) -> str:
     return ""
 
 
+def _risk_without_duplicate_message(
+    risk: Dict[str, Any], containing: "str | None" = None
+) -> Dict[str, Any]:
+    """Drop risk['message'] ONLY when the identical prose already ships elsewhere
+    in the same response (containment-checked when `containing` is given).
+
+    This is dedup, never deletion: a path whose outer message does not embed the
+    risk narrative keeps it. Measured on real responses the duplicated block was
+    ~350 tokens per gate rejection.
+    """
+    msg = risk.get("message")
+    if not msg:
+        return risk
+    if containing is not None and msg not in containing:
+        return risk
+    return {k: v for k, v in risk.items() if k != "message"}
+
+
 def _promotion_verdict(
     field_diffs: List[Dict[str, Any]], target_last_editor: str
 ) -> Dict[str, Any]:
@@ -2952,7 +2970,9 @@ def update_remote_from_local(
             # to date, or removing something only it has — answered from the diff
             # already computed here, instead of being named as a tool to go run.
             "promotion": verdict,
-            "risk": risk,
+            # risk['message'] is embedded verbatim in 'message' above — attach the
+            # structured signals without repeating the prose a second time.
+            "risk": _risk_without_duplicate_message(risk),
             "target_instance": active,
             "remote_updated_by": remote_updated_by,
             "remote_updated_on": remote_updated_on,
@@ -2963,8 +2983,9 @@ def update_remote_from_local(
                 "name": resolved.name,
             },
             # The line-level view of what the target loses, from the record already
-            # fetched — so the decision does not need another round trip.
-            "diffs": _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT),
+            # fetched (computed once, above, for the promotion verdict) — so the
+            # decision does not need another round trip.
+            "diffs": field_diffs,
         }
 
     if drifted:
@@ -3080,7 +3101,9 @@ def update_remote_from_local(
             return {
                 "error": error_code,
                 "message": message,
-                "risk": risk,
+                # The non-unanchored head embeds risk['message'] verbatim; dedup
+                # is containment-checked so the unanchored branch keeps its prose.
+                "risk": _risk_without_duplicate_message(risk, containing=message),
                 "remote_updated_by": remote_updated_by,
                 "remote_updated_on": remote_updated_on,
                 "local_downloaded_on": local_updated_on,

@@ -2,6 +2,22 @@
 
 *측정 기준일: 2026-07-24 · 수치는 이 시점 코퍼스 기준이며 사용 패턴이 바뀌면 재측정 필요*
 
+## 재계측 라운드 2 (2026-08-14, 7/25 이후 세션 18개 · 181콜 · ~56K tok)
+
+코퍼스가 작아(56K) %는 참고치. 이전 라운드 완료분은 실현 확인됨 — sn_query 평균
+196tok(컬럼형 동작), update_remote 성공 ack 85~91tok(트림 동작). 새로 잡힌 것 2건,
+둘 다 **무손실**(정보 손실 0)이라 §T7 기준 충족:
+
+| 발견 | 실측 | 조치 (v1.24.20) |
+|---|---|---|
+| `sn_schema`가 코퍼스 1위(22%, 단건 최대 4.2K) — `sysparm_display_value=true`가 `internal_type`/`reference`를 `{display_value, link}` 객체로 만들어 필드당 ~110자 `sys_glide_object` URL이 실림 | 6콜 12.5K tok | raw 값으로 전환(라이브 검증: `boolean`/`sys_user_group` 평문) — 응답 ~55%↓ **+ 정보 개선**(테이블 라벨 대신 실제 테이블명). 빈 `reference:""`도 키 생략(의미 동일). dict 응답 방어 `_plain()` 유지 |
+| 푸시 게이트 거절 응답(`CROSS_INSTANCE_UNREVIEWED`/`CONFLICT*`)이 `risk['message']`를 톱레벨 `message`에 임베드하고 `risk` 딕셔너리에 같은 산문을 통째로 반복 (~350tok/건). CROSS_INSTANCE 경로는 `_compute_field_diffs`도 2회 계산 | 단건 1.6~1.7K tok | `_risk_without_duplicate_message()` — **포함 검증된 dedup**(임베드 안 된 경로는 산문 유지, unanchored 분기·FORCE_CONFIRM_STALE은 그대로). diff 1회 계산 재사용 |
+| 목 fixture는 처음부터 평문 문자열이라 dict 실서버 형상을 못 잡았음 — §대전제 "구현≠실현"에 이어 **규칙 7의 실사례 추가** | — | 실서버 형상(dict) fixture 테스트로 핀 |
+
+안 한 것(근거): `sn_health` 세션당 중복 4~5콜(183tok/콜)은 라이브 안전신호라 캐시 부적합;
+`inspect_debug_window` 헤더 반복(~25tok/콜)은 prod-창 사고를 잡은 그 신호라 유지;
+동일입력 재푸시(#5)는 여전히 호출자 행동 문제.
+
 > 근거: 실측 코퍼스 **12,936콜 / 출력 8.38M 토큰**(tiktoken cl100k, 620 트랜스크립트
 > 549MB). 상세 조사·적대검수는 `mcp_deep_research_token_optimization.md` 참조.
 > 이 문서는 **회계(얼마)** + **다음 조임(더)** 만 압축.

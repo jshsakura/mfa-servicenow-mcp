@@ -1,7 +1,7 @@
 """Extended tests for sn_api.py — covers uncovered functions and error paths."""
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -479,6 +479,75 @@ class TestSnSchema:
         assert result["success"] is True
         assert result["count"] == 1
         assert result["fields"][0]["field"] == "number"
+
+    def test_requests_raw_values_not_display_objects(self):
+        # display_value=true wrapped internal_type/reference in {display_value,
+        # link} objects — a ~110-char sys_glide_object URL per field (measured:
+        # 22% of MCP output tokens in the Aug-2026 corpus was sn_schema, most of
+        # it these links). Raw values are smaller AND more useful: 'boolean'
+        # instead of 'True/False', the table NAME instead of its label.
+        config = _make_config()
+        auth = MagicMock()
+        auth.make_request.return_value = _mock_response({"result": []})
+        with patch("servicenow_mcp.tools.sn_api._table_exists", return_value=True):
+            sn_schema(config, auth, SchemaParams(table="incident"))
+        sent = auth.make_request.call_args.kwargs["params"]
+        assert sent["sysparm_display_value"] == "false"
+
+    def test_flattens_dict_wrapped_values_and_drops_links(self):
+        # If an instance still answers with {link, value} objects for a
+        # reference-typed column, the value survives and the link never ships.
+        config = _make_config()
+        auth = MagicMock()
+        auth.make_request.return_value = _mock_response(
+            {
+                "result": [
+                    {
+                        "element": "assigned_to",
+                        "column_label": "Assigned to",
+                        "internal_type": {
+                            "display_value": "Reference",
+                            "link": "https://test.service-now.com/api/now/table/sys_glide_object?name=reference",
+                        },
+                        "max_length": "32",
+                        "mandatory": "false",
+                        "reference": {
+                            "link": "https://test.service-now.com/api/now/table/sys_db_object/abc",
+                            "value": "sys_user",
+                        },
+                    }
+                ]
+            }
+        )
+        result = sn_schema(config, auth, SchemaParams(table="incident"))
+        assert result["success"] is True
+        f = result["fields"][0]
+        assert f["type"] == "Reference"  # display_value kept when no raw value
+        assert f["reference"] == "sys_user"  # raw value preferred
+        assert "link" not in json.dumps(result)
+
+    def test_empty_reference_key_is_omitted(self):
+        # "" and an absent key both mean "not a reference field" — don't ship
+        # the empty string on every non-reference row of every table.
+        config = _make_config()
+        auth = MagicMock()
+        auth.make_request.return_value = _mock_response(
+            {
+                "result": [
+                    {
+                        "element": "active",
+                        "column_label": "Active",
+                        "internal_type": "boolean",
+                        "max_length": "40",
+                        "mandatory": "false",
+                        "reference": "",
+                    }
+                ]
+            }
+        )
+        result = sn_schema(config, auth, SchemaParams(table="incident"))
+        assert result["fields"][0]["field"] == "active"
+        assert "reference" not in result["fields"][0]
 
     def test_exception(self):
         config = _make_config()

@@ -1830,7 +1830,7 @@ def sn_schema(
         "schema_shaped",
         safe_limit,
         0,
-        display_value=True,
+        display_value=False,
         no_count=True,
         orderby=None,
     )
@@ -1842,7 +1842,11 @@ def sn_schema(
         "sysparm_query": f"name={params.table}^internal_type!=collection",
         "sysparm_fields": "element,column_label,internal_type,max_length,mandatory,reference",
         "sysparm_limit": safe_limit,
-        "sysparm_display_value": "true",
+        # Raw values, deliberately: display_value=true wrapped internal_type and
+        # reference in {display_value, link} objects — a ~110-char sys_glide_object
+        # URL per field, and a table LABEL where callers need the table NAME.
+        # Raw gives 'boolean' / 'sys_user_group' as plain strings (live-verified).
+        "sysparm_display_value": "false",
     }
     try:
         response = auth_manager.make_request(
@@ -1853,18 +1857,31 @@ def sn_schema(
         )
         response.raise_for_status()
         fields = _safe_json(response).get("result", [])
-        shaped = [
-            {
+
+        def _plain(v: Any) -> Any:
+            # A reference-typed column can still come back as {link, value} /
+            # {link, display_value}; keep the value, never the link URL.
+            if isinstance(v, dict):
+                return v.get("value") or v.get("display_value") or ""
+            return v
+
+        shaped = []
+        for f in fields:
+            if not f.get("element"):
+                continue
+            entry = {
                 "field": f.get("element"),
-                "label": f.get("column_label"),
-                "type": f.get("internal_type"),
+                "label": _plain(f.get("column_label")),
+                "type": _plain(f.get("internal_type")),
                 "max_length": f.get("max_length"),
                 "mandatory": f.get("mandatory"),
-                "reference": f.get("reference"),
             }
-            for f in fields
-            if f.get("element")
-        ]
+            # An empty reference means exactly "not a reference field" — the
+            # absent key says the same thing without shipping "" on every row.
+            ref = _plain(f.get("reference"))
+            if ref:
+                entry["reference"] = ref
+            shaped.append(entry)
         if not shaped and not _table_exists(config, auth_manager, params.table):
             # 0 fields can mean "no such table" OR "valid table, fields inherited".
             # Disambiguate so the LLM doesn't retry a typo'd name.

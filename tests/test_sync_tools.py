@@ -1027,7 +1027,10 @@ class TestUpdateRemoteFromLocal:
         assert result["error"] == "CONFLICT_OTHER_USER"
         assert result["risk"]["other_user"] is True
         assert result["risk"]["level"] in ("high", "critical")
-        assert "alice" in result["risk"]["message"]
+        # The risk prose ships once, in the top-level message — the risk dict
+        # carries the structured signals without repeating ~350 tokens of it.
+        assert "alice" in result["message"]
+        assert "message" not in result["risk"]
         # P1-1: the rejection carries the line-level diff of what would be
         # overwritten, so the caller can decide without a second round-trip.
         modified = [d for d in result["diffs"] if d.get("status") == "modified"]
@@ -1119,7 +1122,8 @@ class TestUpdateRemoteFromLocal:
         assert result["error"] == "CONFLICT"  # NOT CONFLICT_OTHER_USER
         assert result["risk"]["identity"] == "unconfirmed"
         assert result["risk"]["other_user"] is False
-        assert "confirm" in result["risk"]["message"].lower()
+        # Hedge prose ships once, in the top-level message (risk.message deduped).
+        assert "confirm" in result["message"].lower()
 
     @patch("servicenow_mcp.tools.sync_tools._editors_since")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
@@ -1165,7 +1169,7 @@ class TestUpdateRemoteFromLocal:
         )
         assert result["risk"]["attribution"] == "ownership_changed"
         assert result["risk"]["ownership_changed"] is True
-        assert "bob" in result["risk"]["message"]
+        assert "bob" in result["message"]
         assert result["other_editors_since_your_copy"] == ["bob"]
 
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
@@ -3011,6 +3015,9 @@ class TestCrossInstanceDeploy:
         assert result["diffs"]  # what the target loses, without another round trip
         assert result["risk"]["level"] != "none"
         assert "compare_instances" in result["message"]
+        # The risk prose is embedded verbatim in the top-level message — the
+        # attached risk dict must not ship the same ~350 tokens a second time.
+        assert "message" not in result["risk"]
 
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
