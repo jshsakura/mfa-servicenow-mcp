@@ -119,7 +119,7 @@ class FakeResp:
     def __init__(self, content: bytes):
         self.status_code = 200
         self.content = content
-        self.headers = {}
+        self.headers: dict[str, str] = {}
 
 
 def _version_dump(name: str, inner: str) -> bytes:
