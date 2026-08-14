@@ -832,12 +832,12 @@ def test_g9_scopes_the_clash_to_the_table_for_business_rules() -> None:
         run_post_confirm_guards(
             _SERVER,
             "manage_business_rule",
-            {"action": "create", "name": "Update Group Count", "collection": "x_myapp_billing_if"},
+            {"action": "create", "name": "Update Group Count", "collection": "x_myapp_gamma"},
         )
 
     assert captured["table"] == "sys_script"
     assert captured["scope_column"] == "collection"
-    assert captured["scope_value"] == "x_myapp_billing_if"
+    assert captured["scope_value"] == "x_myapp_gamma"
 
 
 def test_g9_blocks_a_second_rule_with_the_same_name_on_the_same_table() -> None:
@@ -853,7 +853,7 @@ def test_g9_blocks_a_second_rule_with_the_same_name_on_the_same_table() -> None:
                 {
                     "action": "create",
                     "name": "Update Group Count",
-                    "collection": "x_myapp_billing_if",
+                    "collection": "x_myapp_gamma",
                 },
             )
 

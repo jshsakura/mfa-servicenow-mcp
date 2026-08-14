@@ -177,10 +177,11 @@ _SCOPE_NAMESPACE = re.compile(r"\bx_([a-z0-9]{2,})_[a-z0-9_]+\b")
 # `/<suffix>?id=...` names their portal as surely as the scope names their
 # company. Only the OOB defaults are free.
 #
-# This is deliberately a SHAPE rule, not a word list. Chasing business
-# vocabulary — rfq, billing, budget, manhour — took three passes and still left
-# residue, because the next fixture invents a word nobody listed. A structural
-# signal has no vocabulary to keep up with.
+# This is deliberately a SHAPE rule, not a word list. Chasing the business
+# vocabulary of whatever app a fixture came from took three passes and still
+# left residue, because the next one invents a word nobody listed — and the
+# list itself ends up spelling out the thing it was meant to hide. A structural
+# signal has no vocabulary to keep up with, and nothing to leak.
 ALLOWED_PORTAL_SUFFIXES = {
     # ServiceNow ships these; they name no one.
     "sp",

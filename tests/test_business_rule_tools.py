@@ -22,7 +22,7 @@ from servicenow_mcp.tools.business_rule_tools import ManageBusinessRuleParams, m
 from servicenow_mcp.tools.sn_api import invalidate_query_cache
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
-_TABLE = "x_myapp_billing_if"
+_TABLE = "x_myapp_gamma"
 _OTHER_TABLE = "x_myapp_order_if"
 
 
