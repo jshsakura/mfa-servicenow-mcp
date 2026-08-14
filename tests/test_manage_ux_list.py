@@ -44,7 +44,7 @@ class TestManageUxList(unittest.TestCase):
                 {
                     "sys_id": "l1",
                     "title": "Direct OI",
-                    "table": "x_myapp_oi_report",
+                    "table": "x_myapp_report",
                     "view": {"display_value": "YKO_DIRECT_OI"},
                     "columns": "new_number,state",
                     "fixed_query": "company=abc",
@@ -57,24 +57,24 @@ class TestManageUxList(unittest.TestCase):
             ],
             1,
         )
-        result = self._run(action="list", table="x_myapp_oi_report")
+        result = self._run(action="list", table="x_myapp_report")
         self.assertTrue(result["success"])
         self.assertEqual(1, len(result["lists"]))
         self.assertEqual("l1", result["lists"][0]["sys_id"])
         self.assertEqual("YKO_DIRECT_OI", result["lists"][0]["view"])
         self.assertTrue(result["lists"][0]["active"])
         _, kwargs = mock_query.call_args
-        self.assertEqual("table=x_myapp_oi_report", kwargs["query"])
+        self.assertEqual("table=x_myapp_report", kwargs["query"])
         self.assertEqual("sys_ux_list", kwargs["table"])
 
     @patch("servicenow_mcp.tools.sn_api.sn_count")
     def test_list_count_only(self, mock_count):
         mock_count.return_value = 4
-        result = self._run(action="list", table="x_myapp_oi_report", count_only=True)
+        result = self._run(action="list", table="x_myapp_report", count_only=True)
         self.assertTrue(result["success"])
         self.assertEqual(4, result["count"])
         mock_count.assert_called_once_with(
-            self.config, self.auth, "sys_ux_list", "table=x_myapp_oi_report"
+            self.config, self.auth, "sys_ux_list", "table=x_myapp_report"
         )
 
     @patch("servicenow_mcp.tools.sn_api.sn_count")
@@ -94,7 +94,7 @@ class TestManageUxList(unittest.TestCase):
                 {
                     "sys_id": "l1",
                     "title": "Direct OI",
-                    "table": "x_myapp_oi_report",
+                    "table": "x_myapp_report",
                     "view": None,
                     "columns": "new_number,state",
                     "fixed_query": "company=abc",

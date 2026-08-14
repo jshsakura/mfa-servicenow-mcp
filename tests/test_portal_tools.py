@@ -1476,7 +1476,7 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
                 "template": '<button ng-click="branchToBudget()">Budget</button>',
                 "script": "",
                 "client_script": (
-                    "function branchToBudget(){ return '/sp?id=sample_page_one'; }"
+                    "function branchToBudget(){ return '/sp?id=myapp_init_budget_page'; }"
                 ),
                 "link": "",
             }
@@ -1487,7 +1487,7 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
                 "sys_id": "prov-1",
                 "name": "budgetProvider",
                 "script": (
-                    "function resolveBudgetRoute(){ return '/sp?id=sample_page_one'; }"
+                    "function resolveBudgetRoute(){ return '/sp?id=myapp_init_budget_page'; }"
                 ),
             }
         ],
@@ -1497,7 +1497,7 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
         mock_config,
         mock_auth_manager,
         TracePortalRouteTargetsParams(
-            regex=r"sample_page_one",
+            regex=r"myapp_init_budget_page",
             widget_ids=["budget_widget"],
             output_mode="minimal",
         ),
@@ -1515,7 +1515,7 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
     assert "branchToBudget" in trace["button_handlers"]
     assert "branchToBudget" in trace["branch_names"]
     assert "resolveBudgetRoute" in trace["branch_names"]
-    assert trace["route_targets"][0]["page_id"] == "sample_page_one"
+    assert trace["route_targets"][0]["page_id"] == "myapp_init_budget_page"
     assert {"location", "line", "match"} <= set(trace["evidence"][0].keys())
     assert result["filters"]["effective_match_mode"] == "literal"
     assert (
@@ -1536,7 +1536,7 @@ def test_trace_portal_route_targets_full_mode_includes_provider_details(
                 "name": "Budget Widget",
                 "id": "budget_widget",
                 "template": "",
-                "script": "function openBudget(){ return '/sp?id=sample_page_one'; }",
+                "script": "function openBudget(){ return '/sp?id=myapp_init_budget_page'; }",
                 "client_script": "",
                 "link": "",
             }
@@ -1546,7 +1546,7 @@ def test_trace_portal_route_targets_full_mode_includes_provider_details(
             {
                 "sys_id": "prov-1",
                 "name": "budgetProvider",
-                "script": "function resolveBudgetRoute(){ return '/sp?id=sample_page_one'; }",
+                "script": "function resolveBudgetRoute(){ return '/sp?id=myapp_init_budget_page'; }",
             }
         ],
     ]
@@ -1555,7 +1555,7 @@ def test_trace_portal_route_targets_full_mode_includes_provider_details(
         mock_config,
         mock_auth_manager,
         TracePortalRouteTargetsParams(
-            regex=r"sample_page_one",
+            regex=r"myapp_init_budget_page",
             widget_ids=["budget_widget"],
             output_mode="full",
         ),

@@ -50,20 +50,83 @@ _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
 # real value pass. If you are tempted to add someone's actual login here, that is
 # the check working.
 ALLOWED_ACTORS = {
-    "", "admin", "system", "guest", "anonymous", "unknown", "nobody", "somebody",
-    "someone", "whoever", "me", "you", "user", "tester", "test", "test_user",
-    "alice", "alice2", "alice.radiology", "bob", "bob.chiefradiology", "carol",
-    "dave", "eve", "mallory", "trent", "dev", "dev1", "dev2", "dev.user",
-    "other.dev", "newbie", "maint", "jane.doe", "john.doe", "jdoe", "abel.tuter",
-    "beth.anglin", "employee", "manager", "requester", "approver", "developer",
-    "x", "y", "z", "a", "b", "c",
+    "",
+    "admin",
+    "system",
+    "guest",
+    "anonymous",
+    "unknown",
+    "nobody",
+    "somebody",
+    "someone",
+    "whoever",
+    "me",
+    "you",
+    "user",
+    "tester",
+    "test",
+    "test_user",
+    "alice",
+    "alice2",
+    "alice.radiology",
+    "bob",
+    "bob.chiefradiology",
+    "carol",
+    "dave",
+    "eve",
+    "mallory",
+    "trent",
+    "dev",
+    "dev1",
+    "dev2",
+    "dev.user",
+    "other.dev",
+    "newbie",
+    "maint",
+    "jane.doe",
+    "john.doe",
+    "jdoe",
+    "abel.tuter",
+    "beth.anglin",
+    "employee",
+    "manager",
+    "requester",
+    "approver",
+    "developer",
+    "x",
+    "y",
+    "z",
+    "a",
+    "b",
+    "c",
 }
 ALLOWED_EMAIL_DOMAINS = {
-    "example.com", "example.org", "example.net", "test.com", "corp.com",
-    "company.co.kr", "domain.com", "mail.com", "localhost", "x.com", "y.com",
-    "w.com", "e.com", "ex.com", "acme.com", "users.noreply.github.com",
-    "noreply.github.com", "anthropic.com", "a.com", "b.com", "c.com", "d.com",
-    "z.com", "foo.com", "bar.com", "service-now.com",
+    "example.com",
+    "example.org",
+    "example.net",
+    "test.com",
+    "corp.com",
+    "company.co.kr",
+    "domain.com",
+    "mail.com",
+    "localhost",
+    "x.com",
+    "y.com",
+    "w.com",
+    "e.com",
+    "ex.com",
+    "acme.com",
+    "users.noreply.github.com",
+    "noreply.github.com",
+    "anthropic.com",
+    "a.com",
+    "b.com",
+    "c.com",
+    "d.com",
+    "z.com",
+    "foo.com",
+    "bar.com",
+    "service-now.com",
 }
 
 # `given.surname` in free text — the shape a work email or a display name takes
@@ -78,6 +141,38 @@ _SURNAMES = (
 )
 _SURNAME_LOGIN = re.compile(rf"\b[a-z]{{3,12}}[._-](?:{_SURNAMES})\b", re.IGNORECASE)
 
+# A scoped ServiceNow application is `x_<vendor-code>_<app>`, and the vendor code
+# is assigned to a real company — so it names a customer just as surely as a
+# domain does, and it arrives the same way: pasted out of a live session along
+# with the table names hanging off it, which spell out what the customer's
+# system does. The person rules above could not see any of that, which is how a
+# real scope sat in four test files.
+#
+# Default-deny on the VENDOR segment only, so `x_myapp_billing_request_header`
+# passes on its prefix and the table half stays free — inventing an allowlist of
+# table names would fail on the first fixture nobody thought of.
+ALLOWED_SCOPE_VENDORS = {
+    # Already in the suite before this rule existed, and all obviously invented.
+    "my",
+    "other",
+    "multifactor",
+    "usertoken",
+    "myapp",
+    "app",
+    "acme",
+    "company",
+    "test",
+    "demo",
+    "example",
+    "sample",
+    "scope",
+    "custom",
+    "vendor",
+    "foo",
+    "bar",
+}
+_SCOPE_NAMESPACE = re.compile(r"\bx_([a-z0-9]{2,})_[a-z0-9_]+\b")
+
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "site", "dist", "build"}
 SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".pdf", ".lock", ".bundle"}
 
@@ -86,7 +181,10 @@ def _staged_files() -> list[Path]:
     try:
         out = subprocess.run(
             ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
-            cwd=REPO, capture_output=True, text=True, check=True,
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout
     except (subprocess.CalledProcessError, OSError):
         return []
@@ -133,9 +231,19 @@ def scan(path: Path) -> list[str]:
                 )
         for domain in _EMAIL.findall(line):
             if domain.lower() not in ALLOWED_EMAIL_DOMAINS:
-                hits.append(f"{path.relative_to(REPO)}:{num}: email domain '{domain}' is not a placeholder")
+                hits.append(
+                    f"{path.relative_to(REPO)}:{num}: email domain '{domain}' is not a placeholder"
+                )
         for match in _SURNAME_LOGIN.findall(line):
-            hits.append(f"{path.relative_to(REPO)}:{num}: '{match}' looks like a real person's login")
+            hits.append(
+                f"{path.relative_to(REPO)}:{num}: '{match}' looks like a real person's login"
+            )
+        for vendor in _SCOPE_NAMESPACE.findall(line):
+            if vendor.lower() not in ALLOWED_SCOPE_VENDORS:
+                hits.append(
+                    f"{path.relative_to(REPO)}:{num}: scope vendor 'x_{vendor}_' is not a "
+                    "placeholder — a scope prefix identifies a real company"
+                )
     return hits
 
 
