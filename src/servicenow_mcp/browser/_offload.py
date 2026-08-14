@@ -121,24 +121,44 @@ class _BrowserWorker:
         finally:
             self._teardown()
 
+    def ensure_pw(self) -> Any:
+        """The worker's one started Playwright driver, started on first use.
+
+        Live-verified constraint: starting the sync driver parks a running
+        asyncio loop on this thread, after which a second ``sync_playwright()``
+        HERE refuses with "inside the asyncio loop". So the worker owns exactly
+        one driver and everything on this thread must go through it — see
+        :func:`playwright_session`.
+        """
+        if self._pw is None:
+            from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+
+            self._pw = sync_playwright().start()
+        return self._pw
+
     def get_browser(self, endpoint: str) -> Any:
         """Return a live cached connection to ``endpoint``, or connect fresh.
 
-        A cached entry is revalidated with ``is_connected()`` on every use —
-        a window that died or was relaunched (new port ⇒ new endpoint) never
-        answers through a stale handle. Dead entries for OTHER endpoints are
-        swept opportunistically so relaunch cycles cannot accumulate handles.
+        Revalidation asks the WINDOW, not the handle. Live-measured:
+        ``is_connected()`` stayed True and ``contexts``/``pages`` served the
+        old tab list after the window was killed — the sync driver's loop is
+        parked between calls, so the disconnect event sits unprocessed and the
+        local mirror answers for a dead browser. So a cached entry is handed
+        out only after a raw HTTP probe of the endpoint itself (~1ms on
+        loopback); a dead one is invalidated and the reconnect raises a real
+        connect error instead of a stale success. Dead entries for OTHER
+        endpoints are swept by ``is_connected()`` opportunistically — that
+        check is free and false-negative-safe there (a swept-late handle is
+        re-probed here before reuse anyway).
         """
         for key in [k for k, b in self._browsers.items() if not _is_connected(b)]:
             self._invalidate(key)
         cached = self._browsers.get(endpoint)
         if cached is not None:
-            return cached
-        if self._pw is None:
-            from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
-
-            self._pw = sync_playwright().start()
-        browser = self._pw.chromium.connect_over_cdp(endpoint)
+            if _endpoint_alive(endpoint):
+                return cached
+            self._invalidate(endpoint)
+        browser = self.ensure_pw().chromium.connect_over_cdp(endpoint)
         self._browsers[endpoint] = browser
         return browser
 
@@ -165,6 +185,17 @@ def _is_connected(browser: Any) -> bool:
     try:
         return bool(browser.is_connected())
     except Exception:  # noqa: BLE001 - a handle that cannot answer is dead
+        return False
+
+
+def _endpoint_alive(endpoint: str) -> bool:
+    """Ask the DevTools HTTP endpoint itself — never the cached mirror."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"{endpoint}/json/version", timeout=1.0):
+            return True
+    except Exception:  # noqa: BLE001 - refused/timeout/reset all mean dead
         return False
 
 
@@ -206,6 +237,27 @@ def run_off_loop(fn: Callable[[], T], *, timeout_s: float = DEFAULT_OFFLOAD_TIME
         return fn()
 
     return _get_worker().submit(fn, timeout_s)
+
+
+@contextmanager
+def playwright_session() -> Iterator[Any]:
+    """Yield a usable Playwright driver on whichever thread this runs.
+
+    On the worker thread this MUST be the worker's own started driver: its
+    sync API parks a running asyncio loop on the thread, and a second
+    ``sync_playwright()`` there refuses with "inside the asyncio loop" —
+    found live, not in CI (mock drivers nest happily). Off the worker it is
+    the old transient context manager.
+    """
+    worker = getattr(_WORKER_LOCAL, "worker", None)
+    if worker is not None:
+        yield worker.ensure_pw()
+        return
+
+    from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+
+    with sync_playwright() as pw:
+        yield pw
 
 
 @contextmanager

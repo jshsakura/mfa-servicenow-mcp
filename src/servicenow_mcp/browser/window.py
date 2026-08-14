@@ -32,7 +32,7 @@ from urllib.parse import urlparse
 from ..auth._browser_dom import _singleton_holder_pid
 from ..auth._process import _is_pid_alive
 from ._launch_lock import launch_claim
-from ._offload import require_playwright, run_off_loop
+from ._offload import playwright_session, require_playwright, run_off_loop
 from .launch_budget import check_launch_allowed, record_launch
 
 logger = logging.getLogger(__name__)
@@ -595,9 +595,11 @@ def _chromium_executable() -> str:
     require_playwright()
 
     def _resolve() -> str:
-        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
-
-        with sync_playwright() as pw:
+        # Through playwright_session, NEVER a bare sync_playwright(): on the
+        # persistent worker thread a second sync driver refuses to start
+        # ("inside the asyncio loop"), which broke every window launch that
+        # happened after a warm connection existed. Found live.
+        with playwright_session() as pw:
             return str(pw.chromium.executable_path)
 
     return run_off_loop(_resolve, timeout_s=60.0)

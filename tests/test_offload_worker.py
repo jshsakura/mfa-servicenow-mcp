@@ -81,6 +81,8 @@ def fake_playwright(monkeypatch):
     package.sync_api = fake
     monkeypatch.setitem(sys.modules, "playwright", package)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", fake)
+    # The endpoint probe is a REAL http request; fake windows have no port.
+    monkeypatch.setattr(_offload, "_endpoint_alive", lambda endpoint: True)
     yield fake
     _offload._reset_worker_for_tests()
 
@@ -143,6 +145,28 @@ class TestFailureIsNeverReused:
         pw = FakeSyncPlaywrightCM.instances[0].pw
         assert len(pw.connects) == 2, "the failed connection must not be handed out again"
         assert pw.browsers[0].closed == 1
+
+    def test_killed_window_is_never_answered_from_the_cached_mirror(
+        self, fake_playwright, monkeypatch
+    ):
+        # Live-measured failure: after the window was killed, is_connected()
+        # stayed True and contexts served the OLD tab list — the sync driver's
+        # parked loop had not processed the disconnect. Liveness must be asked
+        # of the endpoint itself, and a dead one must not hand out the cache.
+        def job():
+            with _offload.cdp_browser("http://127.0.0.1:9001") as browser:
+                return id(browser)
+
+        _in_loop(lambda: _offload.run_off_loop(job))
+        pw = FakeSyncPlaywrightCM.instances[0].pw
+        # The handle still CLAIMS to be connected — only the endpoint knows.
+        assert pw.browsers[0].is_connected()
+        monkeypatch.setattr(_offload, "_endpoint_alive", lambda endpoint: False)
+
+        _in_loop(lambda: _offload.run_off_loop(job))
+
+        assert pw.browsers[0].closed == 1, "the stale handle must be discarded"
+        assert len(pw.connects) == 2, "a reconnect was attempted, not a cached answer"
 
     def test_dead_connection_is_replaced_not_returned(self, fake_playwright):
         def job():
