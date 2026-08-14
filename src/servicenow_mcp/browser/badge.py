@@ -205,12 +205,17 @@ _BADGE_TEMPLATE = """
       'position:fixed', 'right:10px', 'bottom:10px', 'z-index:2147483647',
       'display:flex', 'align-items:center', 'gap:7px',
       'padding:5px 11px 5px 9px', 'border-radius:999px',
-      // Glass rather than a flat slab: it sits over live UI all day, so it
-      // should read as an overlay and not as part of the page being debugged.
-      'background:rgba(18,18,20,.78)', '-webkit-backdrop-filter:blur(8px)',
-      'backdrop-filter:blur(8px)',
+      // Flat and opaque. It used to be frosted glass — a translucent fill plus
+      // an 8px backdrop-blur — on the reasoning that an overlay should read as
+      // an overlay. On a real window that came out as a smeared halo of
+      // whatever it happened to be sitting on: the page showed through it, the
+      // blur dragged page colour into the badge, and the one thing on screen
+      // that must be unambiguous became the least readable. A solid chip in the
+      // corner already reads as not-the-page; it does not need an effect to say
+      // so, and the effect cost legibility to say it.
+      'background:#151517',
       'border:1px solid rgba(255,255,255,.10)',
-      'box-shadow:0 2px 10px rgba(0,0,0,.32)',
+      'box-shadow:0 1px 4px rgba(0,0,0,.35)',
       'font:500 11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace',
       'letter-spacing:.01em',
       // Clickable, unlike everything else here — the badge is the one thing on
@@ -446,9 +451,17 @@ def badge_label(profile: str) -> str:
 
 # Distinct hues, all legible on the badge's near-black glass. Curated rather
 # than generated: a hue computed from a hash lands wherever it lands, and half
-# of the wheel is muddy or invisible at 11px against this background. Fourteen
+# of the wheel is muddy or invisible at 11px against this background. Twelve
 # is enough that two profiles colliding is uncommon, and a collision costs
 # nothing anyway — see badge_accent.
+#
+# The amber band is NOT in here, and that is the point. Amber is the badge's
+# warning channel: `#ffc53d` means "this window is impersonating someone".
+# While the accent identified the WINDOW that never mattered, but v1.24.12 made
+# it identify the INSTANCE — and `dev` promptly hashed to `#ffd666`, which is
+# amber to any eye. A dev tab wore the impersonation colour permanently, so the
+# warning stopped being able to warn. A palette that can collide with a signal
+# is not a palette with an unlucky entry; it is a signal with no reserved band.
 _PALETTE = (
     "#ff4d4f",  # red
     "#fb7185",  # rose
@@ -462,8 +475,6 @@ _PALETTE = (
     "#34d399",  # emerald
     "#4ade80",  # green
     "#a3e635",  # lime
-    "#ffd666",  # amber
-    "#ffa940",  # orange
 )
 
 # At rest the dot is a neutral grey, so the pulse reads as "something is
@@ -492,6 +503,37 @@ _ACTIVITY_TEMPLATE = """
 """
 
 
+# Environment severity, keyed on the alias the person actually chose. Colour
+# stopped being a pure identity channel the moment it started naming instances:
+# a hash gave `prod` a calm fuchsia and `dev` an alarm red, so the loudest thing
+# on screen was the safest window. These three names cover the convention almost
+# everywhere; anything else keeps the hash, which is still better than one
+# shared blue for every custom name (the keyword table this replaced).
+#
+# Amber is absent on purpose — it is the impersonation channel.
+_ENV_ACCENTS = {
+    "prod": "#ff4d4f",  # red — the one you must not mistake for another
+    "production": "#ff4d4f",
+    "prd": "#ff4d4f",
+    "live": "#ff4d4f",
+    "test": "#22d3ee",  # cyan — middle
+    "tst": "#22d3ee",
+    "qa": "#22d3ee",
+    "uat": "#22d3ee",
+    "stage": "#22d3ee",
+    "staging": "#22d3ee",
+    "dev": "#60a5fa",  # blue — safe, and calm enough to live with all day
+    "develop": "#60a5fa",
+    "development": "#60a5fa",
+    "sandbox": "#60a5fa",
+}
+
+
+def env_accent(alias: str) -> "str | None":
+    """The severity colour for a known environment name, or None."""
+    return _ENV_ACCENTS.get((alias or "").strip().lower())
+
+
 def instance_accents(raw: "str | None" = None) -> Dict[str, str]:
     """host -> colour, for every configured instance.
 
@@ -499,8 +541,14 @@ def instance_accents(raw: "str | None" = None) -> Dict[str, str]:
     and a tab labelled `dev` cannot end up the same colour by accident — and a
     host the registry does not know simply is not in here, which the page reads
     as "use the window colour" rather than as a colour of its own.
+
+    A recognised environment name is coloured by what it MEANS; everything else
+    falls back to the hash, which guarantees only that two instances differ.
     """
-    return {host: badge_accent(host) for host in instance_labels(raw)}
+    return {
+        host: (env_accent(alias) or badge_accent(host))
+        for host, alias in instance_labels(raw).items()
+    }
 
 
 def badge_accent(seed: str) -> str:

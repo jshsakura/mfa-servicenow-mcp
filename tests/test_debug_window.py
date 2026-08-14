@@ -1099,9 +1099,55 @@ def test_the_colour_identifies_the_INSTANCE_now_not_the_window(monkeypatch):
 
     script = badge_init_script("dev", window_id="/cache/debug_profile_alice")
 
-    assert badge.badge_accent("dev.example.com") in script
-    assert badge.badge_accent("test.example.com") in script
-    assert badge.badge_accent("dev.example.com") != badge.badge_accent("test.example.com")
+    # A recognised environment name is coloured by what it MEANS (v1.24.29):
+    # the hash had given prod a calm fuchsia and dev an alarm red, so the
+    # loudest badge on screen belonged to the safest window.
+    assert badge.env_accent("dev") in script
+    assert badge.env_accent("test") in script
+    assert badge.env_accent("dev") != badge.env_accent("test")
+
+
+def test_production_is_the_loud_one_and_dev_is_the_calm_one(monkeypatch):
+    """Severity has to point the same way a person expects, or it misleads."""
+    assert badge.env_accent("prod") == "#ff4d4f"
+    assert badge.env_accent("dev") == "#60a5fa"
+    assert badge.env_accent("prod") != badge.env_accent("test") != badge.env_accent("dev")
+    # An unconfigured name still gets a colour — the keyword table this replaced
+    # gave every custom profile one shared blue, which answered nothing.
+    assert badge.env_accent("some-customer-sandbox-7") is None
+    assert badge.badge_accent("some-customer-sandbox-7") in badge._PALETTE
+
+
+def test_no_instance_colour_can_be_mistaken_for_the_impersonation_warning():
+    """The bug that started this: `dev` hashed to #ffd666, amber to any eye.
+
+    #ffc53d means "this window is acting as somebody else". While the accent
+    identified the WINDOW nothing could collide with it by meaning; once it
+    identified the INSTANCE, a dev tab wore the warning colour permanently and
+    the warning stopped being able to warn.
+    """
+
+    def rgb(value):
+        value = value.lstrip("#")
+        return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
+
+    def distance(a, b):
+        return sum((x - y) ** 2 for x, y in zip(rgb(a), rgb(b), strict=False)) ** 0.5
+
+    for colour in list(badge._PALETTE) + list(badge._ENV_ACCENTS.values()):
+        assert distance(colour, badge.IMPERSONATING_COLOUR) > 60, (
+            f"{colour} is too close to the impersonation amber "
+            f"{badge.IMPERSONATING_COLOUR} to be told apart on an 11px chip"
+        )
+
+
+def test_the_badge_is_a_flat_chip_not_frosted_glass():
+    """It sat over live UI as a translucent blur, so it smeared whatever was
+    under it into itself — the one thing on screen that must be unambiguous."""
+    script = badge_init_script("dev", window_id="/cache/debug_profile_alice")
+    assert "backdrop-filter" not in script
+    assert "blur(" not in script
+    assert "background:#151517" in script
 
 
 def test_the_window_colour_survives_as_the_fallback_for_an_unknown_host():
