@@ -2082,18 +2082,20 @@ class TestComponentTreeNesting(unittest.TestCase):
         self.assertEqual(len(roots), 1)
 
 
-class TestAnOversizedFlowTreeIsNotReturnedAtAll(unittest.TestCase):
-    """Reading a flow is a targeted job, so the whole tree is never the answer.
+class TestAnOversizedFlowTreeIsCompressedNotDropped(unittest.TestCase):
+    """An oversized tree is compressed, and only an enormous one is withheld.
 
     A real flow measured 78,963 bytes of structure across 142 nodes: over the
-    response budget, past the client's own ceiling, and spilled to a file the
-    agent then shelled out to parse — more context spent than any of it saved.
+    response budget and past the client's own ceiling. The first answer to that
+    was to return counts and a list of other calls to try — which meant the
+    shape of the flow, the one thing with no targeted call of its own, could not
+    be seen at all.
 
-    Trimming the tree would make a flow look like it ends early. Dumping it to
-    disk just relocates the dump, and the file is not even sliceable, since
-    `tree_text` is a single 26,787-character line. So an oversized tree is not
-    returned: the counts come back exact, with the measurement and the reads that
-    actually exist.
+    Trimming the tree is still wrong (a flow would look like it ends early) and
+    so is dumping it to disk. Compressing it is neither: every node stays, in
+    order and nesting, and only the per-node detail goes — which has its own
+    call, named in the reply. Past roughly 200 nodes even that will not fit and
+    the exact counts stand alone.
     """
 
     @staticmethod
@@ -2115,11 +2117,24 @@ class TestAnOversizedFlowTreeIsNotReturnedAtAll(unittest.TestCase):
         small = {"counts": {"actions": 1}, "tree": [{"ui_id": "u1"}]}
         self.assertIs(_bound_structure(small), small)
 
-    def test_every_bulk_rendering_is_withheld_together(self):
-        """tree/tree_text/summary_index are one node set rendered three ways."""
-        out = _bound_structure(self._big_structure())
+    def test_an_oversized_tree_keeps_every_node_without_its_detail(self):
+        """The compression tier: 200 nodes come back, their bindings do not."""
+        source = self._big_structure()
+        out = _bound_structure(source)
+        # tree_text is the same nodes rendered a second way — pure duplication
+        # at this tier, so it goes; the tree itself stays, columnar and whole.
+        self.assertNotIn("tree_text", out)
+        self.assertEqual(len(out["tree"]["data"]), 200)
+        self.assertIn("ui_id", out["tree"]["columns"])
+        self.assertNotIn("inputs", out["tree"]["columns"])
+        self.assertLess(byte_len(out), byte_len(source) / 3)
+        self.assertIn("node_id", out["detail_omitted"]["get_one_step"])
+
+    def test_a_tree_too_large_even_to_skeletonise_is_withheld(self):
+        out = _bound_structure(self._big_structure(nodes=4_000))
         for key in ("tree", "tree_text", "summary_index", "orphans"):
             self.assertNotIn(key, out)
+        self.assertTrue(out["tree_omitted"])
         self.assertLess(byte_len(out), 2_000)
 
     def test_the_counts_survive_exactly(self):
@@ -2130,7 +2145,7 @@ class TestAnOversizedFlowTreeIsNotReturnedAtAll(unittest.TestCase):
         self.assertEqual(out["integrity"], st["integrity"])
 
     def test_it_says_how_big_rather_than_going_quiet(self):
-        st = self._big_structure()
+        st = self._big_structure(nodes=4_000)
         out = _bound_structure(st)
         too_large = out["structure_too_large"]
         self.assertTrue(out["tree_omitted"])
@@ -2142,7 +2157,7 @@ class TestAnOversizedFlowTreeIsNotReturnedAtAll(unittest.TestCase):
 
         There is no node-range read on this tool, so nothing may imply one.
         """
-        out = _bound_structure(self._big_structure())
+        out = _bound_structure(self._big_structure(nodes=4_000))
         suggested = " ".join(out["structure_too_large"]["ask_instead"])
         for action in ("get_action_source", "trace_pill", "compare", "get_executions"):
             self.assertIn(action, suggested)

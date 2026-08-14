@@ -360,3 +360,92 @@ class TestProcessflowSummaryReadsPillsToo:
         node = {"inputs": [{"name": "r", "value": "{{abc.record.number}}"}]}
         flat = _summarize_node_inputs(node)
         assert flat["r"] == "{{abc.record.number}} / abc ▸ record ▸ number"
+
+
+class TestABigFlowStillComesBack:
+    """ "Too big" is a reason to compress, not a reason to return nothing.
+
+    A 142-node flow used to answer with counts and a list of other calls to
+    try — the shape of the flow, which has no targeted call of its own, was
+    simply withheld. Now every node survives and only the per-node detail goes.
+    """
+
+    @staticmethod
+    def _flow(nodes):
+        def node(i):
+            kind = "ACTION" if i % 3 else "LOGIC"
+            type_name = "Look Up Records" if kind == "ACTION" else "If"
+            row = {
+                "order": str(i),
+                "depth": i % 3,
+                "kind": kind,
+                "ui_id": f"{i:08x}-4dbd-4750-9ca5-5e2bd32d0799",
+                "type": type_name,
+                "name": type_name,
+                "inputs": {"table_name": "x" * 80, "conditions": "y" * 80},
+                "outputs": ["records"],
+            }
+            if kind == "LOGIC":
+                row["condition"] = "state changes from 1 AND state changes to 6"
+            return row
+
+        return {
+            "tree": [node(i) for i in range(1, nodes + 1)],
+            "orphans": [],
+            "counts": {"actions": nodes},
+            "integrity": {"tree_nodes": nodes},
+            "summary_index": {"approvals": []},
+            "tree_text": "x" * (nodes * 180),
+        }
+
+    def test_a_small_flow_is_returned_whole(self):
+        from servicenow_mcp.tools.flow_designer_tools import _bound_structure
+
+        out = _bound_structure(self._flow(4))
+        assert len(out["tree"]) == 4
+        assert out["tree"][0]["inputs"], "a flow that fits keeps its bindings"
+        assert "detail_omitted" not in out
+
+    def test_a_big_flow_keeps_every_node_and_drops_only_the_detail(self):
+        from servicenow_mcp.tools.flow_designer_tools import (
+            _SKELETON_INLINE_BUDGET_BYTES,
+            _bound_structure,
+        )
+        from servicenow_mcp.utils.response_budget import byte_len
+
+        source = self._flow(142)
+        out = _bound_structure(source)
+
+        # Columnar, and complete: a truncated tree would look like a flow that
+        # ends early, which is the failure this must never produce.
+        assert out["tree"]["columns"], "expected the columnar form"
+        assert len(out["tree"]["data"]) == 142
+        assert byte_len(out) < byte_len(source) / 4, "compression did not happen"
+        assert byte_len(out) <= _SKELETON_INLINE_BUDGET_BYTES
+
+        # The handle survives — a shape you cannot act on is a picture.
+        assert "ui_id" in out["tree"]["columns"]
+        assert all(row[out["tree"]["columns"].index("ui_id")] for row in out["tree"]["data"])
+        # A branch's condition IS its identity; "If" alone says nothing.
+        assert "condition" in out["tree"]["columns"]
+        # And what went missing is named, with the call that returns it.
+        assert "node_id" in out["detail_omitted"]["get_one_step"]
+        assert "142" in out["detail_omitted"]["why"]
+
+    def test_a_flow_too_big_even_to_skeletonise_says_so_rather_than_half_answering(self):
+        from servicenow_mcp.tools.flow_designer_tools import _bound_structure
+
+        out = _bound_structure(self._flow(400))
+        assert out["tree_omitted"] is True
+        assert out["structure_too_large"]["nodes"] == 400
+        assert out["counts"]["actions"] == 400, "the exact counts are still an answer"
+
+    def test_an_unnamed_step_does_not_print_its_type_twice(self):
+        from servicenow_mcp.tools.flow_designer_tools import _skeletal_node
+
+        renamed = _skeletal_node({"kind": "ACTION", "type": "Look Up Records", "name": "Find OI"})
+        unnamed = _skeletal_node(
+            {"kind": "ACTION", "type": "Look Up Records", "name": "Look Up Records"}
+        )
+        assert renamed["name"] == "Find OI"
+        assert "name" not in unnamed and unnamed["type"] == "Look Up Records"
