@@ -1201,6 +1201,20 @@ def test_the_badge_looks_into_frames_for_the_user():
     assert "el.shadowRoot && walk(el.shadowRoot, depth + 1)" in script
 
 
+def test_the_badge_mounts_in_the_top_document_only():
+    # add_init_script runs in EVERY frame, and the `window[HOST_ID]` guard is
+    # per-window — so a classic form (top document + gsft_main) drew two pills,
+    # each position:fixed in its own viewport, a few pixels apart in the same
+    # corner. On screen that is one badge with a doubled edge.
+    script = badge_init_script("dev")
+
+    assert "window.top !== window.self" in script
+    # The frame copy was never what read the session: the resolver walks DOWN
+    # into frames from the top document (test above), so leaving frames alone
+    # costs the badge nothing.
+    assert "el.contentWindow" in script
+
+
 def test_the_user_watch_slows_down_rather_than_stopping():
     # It used to stop on the first name, because an impersonation reloads the
     # page and re-runs this script. That is false on Next Experience: the shell

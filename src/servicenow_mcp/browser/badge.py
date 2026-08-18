@@ -167,6 +167,21 @@ _BADGE_TEMPLATE = """
   const WINDOW_ACCENT = %(accent)s;
   if (window[HOST_ID]) return;
 
+  // TOP DOCUMENT ONLY. The guard above is per-window, and an iframe is its own
+  // window — so it stops a second badge in the SAME document and does nothing
+  // about a second one in a child frame. `add_init_script` runs in every frame
+  // Playwright sees, so a classic form (top document + `gsft_main`) mounted two
+  // badges: each `position:fixed` in its own viewport, both at the maximum
+  // z-index, landing a few pixels apart in the same corner. That reads as one
+  // pill with a thick doubled edge — the badge looking broken on the surface
+  // whose entire job is being trusted at a glance.
+  //
+  // Nothing is lost by staying out of frames: the user resolver above walks
+  // DOWN into iframes and shadow roots from here precisely because this is
+  // where the badge lives. A frame-local copy was never the thing reading the
+  // session; it was only ever a duplicate.
+  try { if (window.top !== window.self) return; } catch (e) { return; }
+
   // WHICH instance this is gets read from the DOCUMENT, not baked in from
   // Python, for the same reason the signed-in user is (see above): a value
   // fixed when the script was built is right for at most one tab. It used to
