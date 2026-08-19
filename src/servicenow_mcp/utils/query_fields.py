@@ -88,8 +88,14 @@ _OPERATORS: Tuple[str, ...] = (
     "<",
 )
 
-# Whole conditions that are not `field<op>value` at all.
-_NON_FIELD_PREFIXES = ("123TEXTQUERY321", "GOTO", "RLQUERY", "EQ", "NQ")
+# Whole conditions that are not `field<op>value` at all. `EQ`/`NQ` ARE the whole
+# condition, so they match exactly — as prefixes they swallowed every field
+# starting with those two letters (`equipment`, `nqueue`), which then went
+# unchecked without anyone being told. The rest genuinely carry a payload after
+# the prefix. Compared case-sensitively: all of these are written uppercase and
+# a field name is not.
+_NON_FIELD_EXACT = ("EQ", "NQ")
+_NON_FIELD_PREFIXES = ("123TEXTQUERY321", "GOTO", "RLQUERY")
 
 # A field name as ServiceNow writes them. Dot-walks are allowed; only the first
 # segment is checkable here, because the far side lives on another table.
@@ -117,13 +123,21 @@ def query_field_names(query: str) -> List[str]:
         # `^ORDERBYDESCsys_updated_on` into `DERBYDESC...` and the sort field is
         # lost. Longer and more specific wins.
         upper = piece.upper()
+        # Case-SENSITIVE on purpose. A combinator is always written uppercase
+        # (`^OR`, `^NQ`) and a field name is always lowercase — the same
+        # premise `_FIELD_HEAD` already relies on. Comparing case-insensitively
+        # ate the first two letters of every field starting with those letters:
+        # `order_typeISNOTEMPTY` became `der_typeISNOTEMPTY`, and the caller was
+        # told its own table has no column `der_type`.
         if not any(upper.startswith(prefix) for prefix in _ORDER_PREFIXES):
             for combinator in _COMBINATORS:
-                if upper.startswith(combinator) and len(piece) > len(combinator):
+                if piece.startswith(combinator) and len(piece) > len(combinator):
                     piece = piece[len(combinator) :]
                     upper = piece.upper()
                     break
-        if any(upper.startswith(prefix) for prefix in _NON_FIELD_PREFIXES):
+        if piece in _NON_FIELD_EXACT or any(
+            piece.startswith(prefix) for prefix in _NON_FIELD_PREFIXES
+        ):
             continue
 
         candidate = ""

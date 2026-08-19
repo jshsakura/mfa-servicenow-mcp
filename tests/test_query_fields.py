@@ -76,6 +76,29 @@ def test_a_sort_clause_is_not_mistaken_for_the_OR_combinator():
     assert query_field_names("a=1^ORDERBYDESCsys_updated_on") == ["a", "sys_updated_on"]
 
 
+def test_a_lowercase_field_is_not_mistaken_for_a_combinator():
+    """`order_type` starts with the letters of `^OR` and `nqueue` with `^NQ`.
+
+    Matching the combinator case-insensitively ate the first two letters, and
+    the caller was told its own table has no column `der_type` — a valid read
+    refused, on a field that is right there in the dictionary.
+    """
+    assert query_field_names("numberISNOTEMPTY^order_typeISNOTEMPTY") == [
+        "number",
+        "order_type",
+    ]
+    assert query_field_names("a=1^ORorder_type=2") == ["a", "order_type"]
+    assert query_field_names("a=1^NQnqueue=2") == ["a", "nqueue"]
+
+
+def test_EQ_and_NQ_end_a_condition_rather_than_start_a_field():
+    """As prefixes they swallowed `equipment` and `nquery`, which then went
+    unchecked — the quiet direction of the same bug."""
+    assert query_field_names("equipment=1^EQ") == ["equipment"]
+    assert query_field_names("state=1^ORstate=2^EQ") == ["state"]
+    assert query_field_names("nquery_count=3^EQ") == ["nquery_count"]
+
+
 def test_only_the_first_segment_of_a_dot_walk_is_claimed():
     """The far side of a dot-walk lives on another table and is not checkable."""
     assert query_field_names("sys_scope.scope=x_app") == ["sys_scope"]
