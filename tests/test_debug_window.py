@@ -1148,6 +1148,13 @@ def test_the_badge_is_a_flat_chip_not_frosted_glass():
     assert "backdrop-filter" not in script
     assert "blur(" not in script
     assert "background:#151517" in script
+    # No drop shadow either. A shadow under the pill reads as a second, softer
+    # edge — the exact look of the doubled badge below, on the one element whose
+    # whole job is being unambiguous at a glance. The dot keeps its ring: that
+    # is the environment signal, not decoration.
+    wrap, _, dot = script.partition("const dot = document.createElement")
+    assert "box-shadow" not in wrap
+    assert "box-shadow:0 0 0 2px" in dot
 
 
 def test_the_window_colour_survives_as_the_fallback_for_an_unknown_host():
@@ -1231,6 +1238,35 @@ def test_the_resolved_frame_is_remembered_so_the_watch_stays_cheap():
 
     assert "userSource" in script
     assert "userSource ? readFrom(userSource) : ''" in script
+
+
+def test_the_badge_claims_its_slot_before_it_can_be_deferred():
+    """The guard has to be armed before the DOMContentLoaded branch, not after.
+
+    `add_init_script` is re-registered on every attach, so a document runs as
+    many copies of this script as there have been attaches. Arming the guard on
+    the last line of mount() only works while mount() runs synchronously: with
+    `documentElement` absent every copy took the deferred branch, every listener
+    fired, and every one of them mounted — two attaches, two pills.
+    """
+    script = badge_init_script("dev")
+
+    claim = script.index("window[HOST_ID] = { pending: true }")
+    deferred = script.index("'DOMContentLoaded', attempt")
+    assert claim < deferred, "the slot must be claimed before mounting can be deferred"
+    # And a mount that throws must hand the slot back, or the badge is silent
+    # for the rest of the window's life.
+    assert "delete window[HOST_ID]" in script
+
+
+def test_the_badge_removes_a_badge_that_is_already_in_the_document():
+    """The window guard cannot see a copy left by another execution context."""
+    script = badge_init_script("dev")
+
+    assert "querySelectorAll('[data-sn-mcp-badge]')" in script
+    assert script.index("querySelectorAll('[data-sn-mcp-badge]')") < script.index(
+        "root.appendChild(host)"
+    )
 
 
 def test_the_badge_lives_in_a_closed_shadow_root_so_page_css_cannot_reach_it():
