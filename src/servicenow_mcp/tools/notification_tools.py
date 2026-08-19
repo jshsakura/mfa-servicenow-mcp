@@ -29,12 +29,17 @@ logger = logging.getLogger(__name__)
 
 _NOTIF_WRITE_FIELDS = frozenset(
     {
+        "name",
         "collection",
         "event_name",
         "condition",
         "category",
         "template",
         "active",
+        "action_insert",
+        "action_update",
+        "action_delete",
+        "send_self",
         "weight",
         "recipient_users",
         "recipient_groups",
@@ -107,6 +112,18 @@ class ManageNotificationParams(BaseModel):
         default=None,
         description="Comma-separated field names on the target record (e.g. assignment_group)",
     )
+    action_insert: Optional[bool] = Field(
+        default=None, description="Trigger on record insert ('Inserted' checkbox)"
+    )
+    action_update: Optional[bool] = Field(
+        default=None, description="Trigger on record update ('Updated' checkbox)"
+    )
+    action_delete: Optional[bool] = Field(
+        default=None, description="Trigger on record delete ('Deleted' checkbox)"
+    )
+    send_self: Optional[bool] = Field(
+        default=None, description="Also email the user whose change fired it"
+    )
     weight: Optional[int] = Field(default=None, description="Delivery priority weight")
     subject: Optional[str] = Field(default=None, description="Email subject")
     message_html: Optional[str] = Field(default=None, description="HTML body")
@@ -114,9 +131,10 @@ class ManageNotificationParams(BaseModel):
     from_address: Optional[str] = Field(default=None, description="From address override")
     reply_to: Optional[str] = Field(default=None, description="Reply-to address override")
 
-    # create_template/update_template
+    # notification name / create_template/update_template
     name: Optional[str] = Field(
-        default=None, description="Template name (template actions, required on create)"
+        default=None,
+        description="Record name — notification or template (required on create_template)",
     )
 
     dry_run: bool = Field(default=False, description="Preview update without committing")
@@ -194,6 +212,7 @@ def manage_notification(
         return _svc.get_template(config, auth_manager, sys_id=params.sys_id)
 
     notif_kwargs: Dict[str, Any] = {
+        "name": params.name,
         "collection": params.collection,
         "event_name": params.event_name,
         "condition": params.condition,
@@ -209,6 +228,10 @@ def manage_notification(
         "message_text": params.message_text,
         "from_address": params.from_address,
         "reply_to": params.reply_to,
+        "action_insert": params.action_insert,
+        "action_update": params.action_update,
+        "action_delete": params.action_delete,
+        "send_self": params.send_self,
     }
     if params.action == "create":
         return _svc.create_notification(config, auth_manager, **notif_kwargs)

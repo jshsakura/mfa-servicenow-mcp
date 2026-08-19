@@ -142,6 +142,69 @@ class TestManageNotification(unittest.TestCase):
         self.assertEqual("noreply@example.com", kwargs["json"]["from"])
         self.assertNotIn("from_address", kwargs["json"])
 
+    @patch(f"{SVC}.sn_query_page")
+    def test_create_writes_name_and_the_trigger_checkboxes(self, mock_query):
+        """The four fields a notification is USELESS without: without them a
+        created record has no name and fires on nothing."""
+        mock_query.return_value = ([{"sys_id": "cat1", "name": "Misc"}], 1)
+        self.auth.make_request.return_value = _mock_response(
+            {"sys_id": "n1", "name": "State Changed Return"}
+        )
+        result = self._run(
+            action="create",
+            category="Misc",
+            name="State Changed Return",
+            collection="x_myapp_alpha",
+            action_insert=False,
+            action_update=True,
+            action_delete=False,
+            send_self=False,
+            active=True,
+        )
+        self.assertTrue(result["success"])
+        _, kwargs = self.auth.make_request.call_args
+        body = kwargs["json"]
+        self.assertEqual("State Changed Return", body["name"])
+        self.assertEqual("false", body["action_insert"])
+        self.assertEqual("true", body["action_update"])
+        self.assertEqual("false", body["action_delete"])
+        self.assertEqual("false", body["send_self"])
+        self.assertEqual("true", body["active"])
+        self.assertEqual("State Changed Return", result["name"])
+
+    @patch(f"{SVC}.sn_query_page")
+    def test_create_omits_triggers_left_unset(self, mock_query):
+        """None means "do not write", not False — an unset checkbox must not
+        silently overwrite the platform default."""
+        mock_query.return_value = ([{"sys_id": "cat1", "name": "Misc"}], 1)
+        self.auth.make_request.return_value = _mock_response({"sys_id": "n1"})
+        self._run(action="create", category="Misc", name="Only a name")
+        _, kwargs = self.auth.make_request.call_args
+        for f in ("action_insert", "action_update", "action_delete", "send_self"):
+            self.assertNotIn(f, kwargs["json"])
+
+    @patch(f"{SVC}.sn_query_page")
+    def test_get_reports_trigger_state_as_booleans(self, mock_query):
+        mock_query.return_value = (
+            [
+                {
+                    "sys_id": "n1",
+                    "name": "State Changed Return",
+                    "active": "true",
+                    "action_insert": "false",
+                    "action_update": "true",
+                    "action_delete": "false",
+                    "send_self": "false",
+                }
+            ],
+            1,
+        )
+        notif = self._run(action="get", sys_id="n1")["notification"]
+        self.assertEqual("State Changed Return", notif["name"])
+        self.assertIs(True, notif["action_update"])
+        self.assertIs(False, notif["action_insert"])
+        self.assertIs(False, notif["send_self"])
+
     # --- update ---
 
     @patch(f"{SVC}.sn_query_page")
