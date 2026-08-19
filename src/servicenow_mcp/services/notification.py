@@ -33,7 +33,7 @@ CATEGORY_TABLE = "sys_notification_category"
 
 _NOTIF_META = (
     "sys_id,name,subject,collection,event_name,condition,category,template,active,weight,"
-    "action_insert,action_update,action_delete,send_self,"
+    "action_insert,action_update,send_self,"
     "recipient_users,recipient_groups,recipient_fields,message_html,message_text,"
     "from,reply_to,sys_scope,sys_updated_on"
 )
@@ -50,7 +50,6 @@ _NOTIF_UPDATE_FIELDS = (
     "active",
     "action_insert",
     "action_update",
-    "action_delete",
     "send_self",
     "weight",
     "recipient_users",
@@ -119,7 +118,6 @@ def _notif_row(r: Dict[str, Any]) -> Dict[str, Any]:
         "active": _dv(r.get("active")) == "true",
         "action_insert": _dv(r.get("action_insert")) == "true",
         "action_update": _dv(r.get("action_update")) == "true",
-        "action_delete": _dv(r.get("action_delete")) == "true",
         "send_self": _dv(r.get("send_self")) == "true",
         "weight": r.get("weight"),
         "recipient_users": r.get("recipient_users"),

@@ -38,7 +38,6 @@ _NOTIF_WRITE_FIELDS = frozenset(
         "active",
         "action_insert",
         "action_update",
-        "action_delete",
         "send_self",
         "weight",
         "recipient_users",
@@ -117,9 +116,6 @@ class ManageNotificationParams(BaseModel):
     )
     action_update: Optional[bool] = Field(
         default=None, description="Trigger on record update ('Updated' checkbox)"
-    )
-    action_delete: Optional[bool] = Field(
-        default=None, description="Trigger on record delete ('Deleted' checkbox)"
     )
     send_self: Optional[bool] = Field(
         default=None, description="Also email the user whose change fired it"
@@ -230,7 +226,6 @@ def manage_notification(
         "reply_to": params.reply_to,
         "action_insert": params.action_insert,
         "action_update": params.action_update,
-        "action_delete": params.action_delete,
         "send_self": params.send_self,
     }
     if params.action == "create":

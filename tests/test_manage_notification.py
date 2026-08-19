@@ -157,7 +157,6 @@ class TestManageNotification(unittest.TestCase):
             collection="x_myapp_alpha",
             action_insert=False,
             action_update=True,
-            action_delete=False,
             send_self=False,
             active=True,
         )
@@ -167,7 +166,6 @@ class TestManageNotification(unittest.TestCase):
         self.assertEqual("State Changed Return", body["name"])
         self.assertEqual("false", body["action_insert"])
         self.assertEqual("true", body["action_update"])
-        self.assertEqual("false", body["action_delete"])
         self.assertEqual("false", body["send_self"])
         self.assertEqual("true", body["active"])
         self.assertEqual("State Changed Return", result["name"])
@@ -180,7 +178,7 @@ class TestManageNotification(unittest.TestCase):
         self.auth.make_request.return_value = _mock_response({"sys_id": "n1"})
         self._run(action="create", category="Misc", name="Only a name")
         _, kwargs = self.auth.make_request.call_args
-        for f in ("action_insert", "action_update", "action_delete", "send_self"):
+        for f in ("action_insert", "action_update", "send_self"):
             self.assertNotIn(f, kwargs["json"])
 
     @patch(f"{SVC}.sn_query_page")
@@ -193,7 +191,6 @@ class TestManageNotification(unittest.TestCase):
                     "active": "true",
                     "action_insert": "false",
                     "action_update": "true",
-                    "action_delete": "false",
                     "send_self": "false",
                 }
             ],

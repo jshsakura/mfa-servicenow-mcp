@@ -295,10 +295,27 @@ def collect() -> Dict[str, Dict[str, Set[str]]]:
 
 
 def _load_env() -> None:
+    """Adopt the MCP server's env so the audit reads the same instance.
+
+    The server key is whatever the user named it — pinning it to one spelling
+    made this script die on a KeyError, i.e. the field audit silently did not
+    run at all. Take any entry that carries SERVICENOW_INSTANCE_URL, and say so
+    when none does rather than proceed against an unset instance.
+    """
     mcp = REPO / ".mcp.json"
-    if mcp.exists() and not os.environ.get("SERVICENOW_INSTANCE_URL"):
-        env = json.loads(mcp.read_text())["mcpServers"]["servicenow-mcp"]["env"]
-        os.environ.update({k: str(v) for k, v in env.items()})
+    if not mcp.exists() or os.environ.get("SERVICENOW_INSTANCE_URL"):
+        return
+    servers = json.loads(mcp.read_text()).get("mcpServers") or {}
+    for name, entry in servers.items():
+        env = (entry or {}).get("env") or {}
+        if env.get("SERVICENOW_INSTANCE_URL"):
+            print(f"Using instance env from .mcp.json server {name!r}")
+            os.environ.update({k: str(v) for k, v in env.items()})
+            return
+    print(
+        "No .mcp.json server carries SERVICENOW_INSTANCE_URL — "
+        "set it in the environment, or the audit cannot reach a live schema."
+    )
 
 
 def _client():
