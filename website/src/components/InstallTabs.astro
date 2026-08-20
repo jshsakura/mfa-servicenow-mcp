@@ -1,0 +1,62 @@
+---
+// Reusable tabbed code-snippet block. Every panel is a single code snippet —
+// covers install commands, MCP client config (JSON/TOML), and skill install
+// one-liners alike. `code` strings live in each page's frontmatter (real JS),
+// never as literal markup, so JSON/shell braces never hit MDX's expression
+// parser.
+interface Panel {
+  id: string;
+  label: string;
+  code: string;
+}
+interface Props {
+  groupId: string;
+  panels: Panel[];
+}
+const { groupId, panels } = Astro.props;
+---
+
+<div class="install-block reveal">
+  <div class="install-tabs">
+    {
+      panels.map((p, i) => (
+        <button class={`install-tab${i === 0 ? " active" : ""}`} data-target={`${groupId}-${p.id}`}>
+          {p.label}
+        </button>
+      ))
+    }
+  </div>
+  <div class="install-panels">
+    {
+      panels.map((p, i) => (
+        <div class={`install-panel${i === 0 ? " active" : ""}`} id={`${groupId}-${p.id}`}>
+          <div class="install-code-block">
+            <pre class="install-code"><code>{p.code.split("\n").map((line, li, arr) => (
+                  <Fragment>{line.trimStart().startsWith("#") ? <span class="c">{line}</span> : line}{li < arr.length - 1 ? "\n" : ""}</Fragment>
+                ))}</code></pre>
+          </div>
+        </div>
+      ))
+    }
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll(".install-block").forEach(function (block) {
+    var tabs = block.querySelectorAll(".install-tab");
+    var panels = block.querySelectorAll(".install-panel");
+    tabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        tabs.forEach(function (t) {
+          t.classList.remove("active");
+        });
+        tab.classList.add("active");
+        panels.forEach(function (p) {
+          p.classList.remove("active");
+        });
+        var target = document.getElementById(tab.getAttribute("data-target"));
+        if (target) target.classList.add("active");
+      });
+    });
+  });
+</script>

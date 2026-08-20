@@ -30,27 +30,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: website/package-lock.json
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          pip install -r website/requirements.txt
+      - name: Install Python deps (for the doc-mirror sync safety net)
+        run: pip install -e .
+
+      - name: Resync Starlight mirrors from docs/
+        # Self-healing, like the old `cp -r ../docs docs/docs` step it
+        # replaces: always rewrite from the docs/ source of truth so the
+        # deploy is never blocked by a mirror someone forgot to regenerate
+        # locally. Drift is caught separately by the non-blocking `docs`
+        # pytest job in ci.yml, not here.
+        run: python scripts/regenerate_doc_counts.py
+
+      - name: Install website dependencies
+        working-directory: website
+        run: npm ci
 
       - name: Build site
         working-directory: website
-        run: |
-          # Symbolic links don't always play nice in CI
-          rm -rf docs/docs
-          cp -r ../docs docs/docs
-          mkdocs build --clean --verbose
+        run: npm run build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: website/site
+          path: website/dist
 
   deploy:
     environment:

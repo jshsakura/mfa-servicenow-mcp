@@ -68,7 +68,8 @@ more than the projection saved.
    ```
    `regenerate_doc_counts.py` owns ~32 files across six languages (READMEs,
    WINDOWS_INSTALL, translated inventories, llm-setup, the website landing
-   pages) and resyncs `website/docs/docs/`. It exists because those numbers
+   pages) and resyncs the Starlight mirrors under `website/src/content/docs/`.
+   It exists because those numbers
    were four releases stale and nobody could have noticed: a count in thirty
    hand-maintained files is a count that is wrong. If a doc states a number the
    generator does not know about, **add a rule to `PROSE_RULES` rather than

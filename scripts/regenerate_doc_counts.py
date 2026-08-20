@@ -42,14 +42,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 DOCS_DIR = ROOT / "docs"
-MIRROR_DIR = ROOT / "website" / "docs" / "docs"
-SITE_DIR = ROOT / "website" / "docs"
+# Starlight content collection: English lives at the collection root (Starlight's
+# `root` locale, no URL prefix); every other locale gets its own subdirectory.
+SITE_CONTENT_DIR = ROOT / "website" / "src" / "content" / "docs"
 REPO_FILES_DIR = ROOT
 
 LANGS = ["", ".es", ".hi", ".ja", ".ko", ".zh"]
+LOCALE_DIR = {"": "", ".es": "es", ".hi": "hi", ".ja": "ja", ".ko": "ko", ".zh": "zh"}
 
-# docs/ files that carry package-count table rows and/or prose counts. Each is
-# mirrored byte-for-byte into website/docs/docs/.
+# docs/ files that carry package-count table rows and/or prose counts.
 DOC_FILES = (
     [f"TOOL_PACKAGES{lang}.md" for lang in LANGS]
     + [f"WINDOWS_INSTALL{lang}.md" for lang in LANGS]
@@ -62,8 +63,115 @@ DOC_FILES = (
 # Files outside docs/ with no mirror: the READMEs at the repo root and the
 # website landing pages. Same rewrite rules, different home.
 UNMIRRORED_FILES = [(REPO_FILES_DIR, f"README{lang}.md") for lang in LANGS] + [
-    (SITE_DIR, f"index{lang}.md") for lang in LANGS
+    (SITE_CONTENT_DIR / LOCALE_DIR[lang], "index.mdx") for lang in LANGS
 ]
+
+# The 8 nav pages that get mirrored into the Starlight content collection, one
+# directory per locale (Starlight's i18n convention), with generated
+# frontmatter — NOT a byte-for-byte copy like the old mkdocs mirror, because
+# Starlight pages need `title`/`description` frontmatter and render their own
+# H1 from `title` (a body H1 would duplicate it). `docs/*.md` stays plain
+# Markdown (no frontmatter) since it's also read raw — curl'd directly by the
+# LLM setup flow, viewed as-is on GitHub, and consumed by
+# regenerate_tool_inventory.py.
+MIRRORED_PAGES: dict[str, str] = {
+    "llm-setup": "Step-by-step setup instructions for AI coding agents installing this MCP server.",
+    "CLIENT_SETUP": "MCP client configuration for Claude, Cursor, Zed, Codex, OpenCode, and more.",
+    "WINDOWS_INSTALL": "Windows-specific installation notes, including Smart App Control workarounds.",
+    "TOOL_INVENTORY": "Full list of registered ServiceNow MCP tools, grouped by package.",
+    "TOOL_PACKAGES": "Advanced reference for the read/write tool package system.",
+    "catalog": "ServiceNow Service Catalog integration tools and workflows.",
+    "change_management": "Change management tools available in the ServiceNow MCP server.",
+    "workflow_management": "Workflow and Flow Designer tooling exposed by the MCP server.",
+}
+
+# The single mkdocs-admonition holdout (see MIRRORED_PAGES docstring above) —
+# `!!! danger "title"` (4-space-indented body) -> Starlight's native
+# `:::danger[title]` aside (unindented body). Only TOOL_PACKAGES*.md uses it.
+_DANGER_RE = re.compile(
+    r'^!!! danger "(?P<title>.+)"\n(?P<body>(?:^(?:[ \t]{4}.*)?\n?)+)',
+    re.MULTILINE,
+)
+
+
+def _convert_admonitions(text: str) -> str:
+    def repl(m: "re.Match[str]") -> str:
+        body_lines = [
+            line[4:] if line.startswith("    ") else line for line in m.group("body").splitlines()
+        ]
+        while body_lines and body_lines[-1] == "":
+            body_lines.pop()
+        return f':::danger[{m.group("title")}]\n' + "\n".join(body_lines) + "\n:::\n"
+
+    return _DANGER_RE.sub(repl, text)
+
+
+def _yaml_escape(s: str) -> str:
+    return s.replace('"', '\\"')
+
+
+def wrap_for_starlight(base: str, text: str, locale_dir: str = "") -> str:
+    """Canonical docs/ Markdown -> Starlight page: frontmatter + H1 stripped.
+
+    ``locale_dir`` is the Starlight locale directory ("" for the root/default
+    locale, else "ko"/"ja"/etc) and MUST be folded into the explicit `slug`
+    for every non-root locale. Starlight's docs collection is a flat id space
+    across all locales — an unprefixed `slug: CLIENT_SETUP` on every
+    translation collides on the same id, and whichever locale the loader
+    processes last silently wins for ALL of them (e.g. the root/English URL
+    served Chinese content, with no error).
+    """
+    lines = text.splitlines()
+    if not lines[0].startswith("# "):
+        raise SystemExit(f"{base}: expected a leading H1, found {lines[0]!r}")
+    title = lines[0][2:].strip()
+    rest = lines[1:]
+    while rest and rest[0].strip() == "":
+        rest.pop(0)
+    body = "\n".join(rest) + "\n"
+    if base == "TOOL_PACKAGES":
+        body = _convert_admonitions(body)
+    description = MIRRORED_PAGES[base]
+    slug = f"{locale_dir}/{base}" if locale_dir else base
+    # Explicit slug pins the URL to the page's exact on-disk casing
+    # (CLIENT_SETUP, not client_setup) -- Starlight lowercases slugs by
+    # default, which would silently change every URL the old mkdocs site
+    # published.
+    frontmatter = (
+        "---\n"
+        f'title: "{_yaml_escape(title)}"\n'
+        f'description: "{_yaml_escape(description)}"\n'
+        f"slug: {slug}\n"
+        "---\n\n"
+    )
+    return frontmatter + body
+
+
+def sync_mirrors(check: bool) -> list[str]:
+    """Resync every Starlight mirror from its (possibly just-rewritten) canonical
+    docs/ source. Runs unconditionally over the full page x locale matrix, not
+    just the subset DOC_FILES count-rewrites, so a page whose canonical body
+    changed for any other reason (translation edit, TOOL_INVENTORY
+    regeneration) still gets caught.
+    """
+    stale: list[str] = []
+    for base in MIRRORED_PAGES:
+        for lang in LANGS:
+            canonical = DOCS_DIR / f"{base}{lang}.md"
+            if not canonical.is_file():
+                continue
+            wrapped = wrap_for_starlight(
+                base, canonical.read_text(encoding="utf-8"), LOCALE_DIR[lang]
+            )
+            mirror = SITE_CONTENT_DIR / LOCALE_DIR[lang] / f"{base}.md"
+            current = mirror.read_text(encoding="utf-8") if mirror.is_file() else None
+            if current != wrapped:
+                stale.append(f"website mirror: {mirror.relative_to(ROOT)}")
+                if not check:
+                    mirror.parent.mkdir(parents=True, exist_ok=True)
+                    mirror.write_text(wrapped, encoding="utf-8")
+    return stale
+
 
 # Packages that appear in the doc tables with a live-computed count. `none` is a
 # static 0 and is intentionally not recomputed.
@@ -265,16 +373,18 @@ def apply(check: bool) -> int:
             continue
         original = canonical.read_text(encoding="utf-8")
         updated = _rewrite(original, counts)
-        mirror = MIRROR_DIR / name
-        mirror_original = mirror.read_text(encoding="utf-8") if mirror.is_file() else None
-        if updated != original or mirror_original != updated:
+        if updated != original:
             stale.append(name)
             if not check:
                 canonical.write_text(updated, encoding="utf-8")
-                if mirror.parent.is_dir():
-                    mirror.write_text(updated, encoding="utf-8")
 
-    # READMEs and website landing pages: same counts, no mirror to keep in step.
+    # Starlight mirrors: resync from canonical docs/ (which may have just been
+    # rewritten above) regardless of whether THIS run touched counts — catches
+    # drift from any other canonical edit too.
+    stale.extend(sync_mirrors(check))
+
+    # READMEs and the website landing pages (.mdx): same counts, no mirror to
+    # keep in step — the landing page IS the canonical copy.
     for directory, name in UNMIRRORED_FILES:
         path = directory / name
         if not path.is_file():

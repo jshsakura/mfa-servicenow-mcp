@@ -86,9 +86,10 @@ x_bpm/
 .playwright-mcp/
 .sisyphus/
 
-# Website (GitHub Pages)
-website/site/
-website/.cache/
+# Website (GitHub Pages) — Astro/Starlight
+website/dist/
+website/.astro/
+website/node_modules/
 
 # Flow Designer network capture (contains session cookies / X-UserToken — never commit)
 scripts/_cap/

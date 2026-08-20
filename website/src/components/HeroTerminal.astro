@@ -1,0 +1,138 @@
+---
+// Animated typing terminal for the landing page hero. Content is identical
+// across every locale in the original mkdocs site (technical/code content),
+// so it is not localized here either.
+const lines = [
+  { type: "prompt", prompt: "$ ", text: "uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp", speed: 22 },
+  { type: "pause", ms: 500 },
+  { type: "success", text: "✓ Authenticated with ServiceNow (MFA verified)", speed: 10 },
+  { type: "pause", ms: 700 },
+  { type: "prompt", prompt: "Claude › ", text: "\"Trace the route for /hr?id=onboarding\"", speed: 26 },
+  { type: "pause", ms: 400 },
+  { type: "thinking", text: "Analyzing portal route and widget layout…", speed: 14 },
+  { type: "pause", ms: 250 },
+  { type: "tool", text: "⚙ servicenow_get_portal", dim: " portal_id=hr", speed: 6 },
+  { type: "tool", text: "⚙ servicenow_get_page", dim: " page_id=onboarding", speed: 6 },
+  { type: "tool", text: "⚙ servicenow_trace_portal_route_targets", dim: " match=onboarding", speed: 6 },
+  { type: "pause", ms: 500 },
+  { type: "success", text: "✓ Route resolved — 4 widgets found, upstream: onboardingHeroWd", speed: 10 },
+];
+---
+
+<div class="hero-terminal reveal">
+  <div class="hero-terminal-header">
+    <div class="hero-terminal-dots">
+      <span class="dot red"></span>
+      <span class="dot yellow"></span>
+      <span class="dot green"></span>
+    </div>
+    <span class="hero-terminal-title">mfa-servicenow-mcp</span>
+    <div class="hero-terminal-spacer"></div>
+  </div>
+  <div class="hero-terminal-body" id="hero-typed-terminal"></div>
+</div>
+
+<script define:vars={{ lines }}>
+  // `define:vars` forces this script to run inline, at its position in the
+  // HTML, NOT deferred as a module — so at execution time the DOM parser has
+  // only reached this point in the document. Without deferring the actual
+  // work, querySelectorAll below would miss every .reveal element that comes
+  // later in the page (i.e. almost all of them).
+  document.addEventListener("DOMContentLoaded", function () {
+    var obsOptions = { threshold: 0.1 };
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) entry.target.classList.add("active");
+      });
+    }, obsOptions);
+    document
+      .querySelectorAll(".reveal, .reveal-stagger, .reveal-left, .reveal-right")
+      .forEach(function (el) {
+        observer.observe(el);
+      });
+
+    var el = document.getElementById("hero-typed-terminal");
+    if (!el) return;
+    var map = {
+      prompt: "hero-terminal-command",
+      success: "hero-terminal-success",
+      thinking: "hero-terminal-thinking",
+      tool: "hero-terminal-tool",
+    };
+    function mk(c) {
+      var d = document.createElement("div");
+      d.className = "hero-terminal-line";
+      if (c.type === "prompt") {
+        var p = document.createElement("span");
+        p.className = "hero-terminal-prompt";
+        p.textContent = c.prompt;
+        d.appendChild(p);
+      }
+      var s = document.createElement("span");
+      s.className = map[c.type] || "";
+      d.appendChild(s);
+      var ds = null;
+      if (c.dim) {
+        ds = document.createElement("span");
+        ds.className = "hero-terminal-dim";
+        d.appendChild(ds);
+      }
+      return { el: d, s: s, ds: ds, t: c.text, dm: c.dim || "", sp: c.speed };
+    }
+    function ty(info, cb) {
+      el.appendChild(info.el);
+      var i = 0,
+        f = info.t;
+      (function tk() {
+        if (i <= f.length) {
+          info.s.textContent = f.slice(0, i);
+          i++;
+          setTimeout(tk, info.sp);
+        } else {
+          if (info.ds) info.ds.textContent = info.dm;
+          cb();
+        }
+      })();
+    }
+    function run(i) {
+      if (i >= lines.length) {
+        var cur = document.createElement("div");
+        cur.className = "hero-terminal-line";
+        var cp = document.createElement("span");
+        cp.className = "hero-terminal-prompt";
+        cp.textContent = "$ ";
+        cur.appendChild(cp);
+        var cc = document.createElement("span");
+        cc.className = "hero-terminal-cursor";
+        cur.appendChild(cc);
+        el.appendChild(cur);
+        setTimeout(function () {
+          el.innerHTML = "";
+          run(0);
+        }, 3500);
+        return;
+      }
+      var c = lines[i];
+      if (c.type === "pause")
+        setTimeout(function () {
+          run(i + 1);
+        }, c.ms);
+      else
+        ty(mk(c), function () {
+          run(i + 1);
+        });
+    }
+    if ("IntersectionObserver" in window) {
+      var ob = new IntersectionObserver(
+        function (e) {
+          if (e[0].isIntersecting) {
+            ob.disconnect();
+            run(0);
+          }
+        },
+        { threshold: 0.2 }
+      );
+      ob.observe(el);
+    } else run(0);
+  });
+</script>

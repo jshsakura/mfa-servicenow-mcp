@@ -16,10 +16,14 @@ README_EN = REPO_ROOT / "README.md"
 README_KO = REPO_ROOT / "README.ko.md"
 WINDOWS_INSTALL_EN = REPO_ROOT / "docs" / "WINDOWS_INSTALL.md"
 WINDOWS_INSTALL_KO = REPO_ROOT / "docs" / "WINDOWS_INSTALL.ko.md"
-WEBSITE_INDEX_EN = REPO_ROOT / "website" / "docs" / "index.md"
-WEBSITE_INDEX_KO = REPO_ROOT / "website" / "docs" / "index.ko.md"
-WEBSITE_WINDOWS_INSTALL_EN = REPO_ROOT / "website" / "docs" / "docs" / "WINDOWS_INSTALL.md"
-WEBSITE_WINDOWS_INSTALL_KO = REPO_ROOT / "website" / "docs" / "docs" / "WINDOWS_INSTALL.ko.md"
+WEBSITE_INDEX_EN = REPO_ROOT / "website" / "src" / "content" / "docs" / "index.mdx"
+WEBSITE_INDEX_KO = REPO_ROOT / "website" / "src" / "content" / "docs" / "ko" / "index.mdx"
+WEBSITE_WINDOWS_INSTALL_EN = (
+    REPO_ROOT / "website" / "src" / "content" / "docs" / "WINDOWS_INSTALL.md"
+)
+WEBSITE_WINDOWS_INSTALL_KO = (
+    REPO_ROOT / "website" / "src" / "content" / "docs" / "ko" / "WINDOWS_INSTALL.md"
+)
 
 REQUIRED_META_FIELDS = [
     "name",
