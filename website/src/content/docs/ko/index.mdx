@@ -46,6 +46,51 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
 
 <HeroTerminal />
 
+<div class="section reveal" id="story">
+  <div class="section-inner">
+    <span class="section-label">왜 만들었나</span>
+    <h2 class="section-title">제 AI에게 비밀번호를 넘기고 싶지 않았습니다.</h2>
+    <p class="section-desc">
+      그게 진짜 문제였습니다. AI 에이전트가 ServiceNow 안에서 작업하게 하려면 어떤 방법을 쓰든
+      에이전트가 읽을 수 있는 어딘가에 비밀번호나 API 키를 넣어야 했습니다. 그래서 대신, 에이전트는
+      살아있는 브라우저 세션을 그대로 물려받습니다 — MFA, SSO, SAML 등 조직에서 이미 요구하는 방식
+      그대로 — 그리고 자격 증명은 아예 보지 않습니다.
+    </p>
+    <p class="section-desc">
+      거기서부터 이건 단순한 API 래퍼가 아니라 하나의 하네스가 됐습니다 — AI가 그냥 호출하는 게 아니라
+      믿고 맡길 수 있는 무언가로요. 모든 쓰기 작업은 숙련된 엔지니어가 직접 손으로 할 때와 같은 절차를
+      거칩니다 — 로컬 우선, 푸시하기 전에 라이브 서버와 diff, 충돌하는 수정은 조용히 덮어써지는 대신
+      잡아내도록 앵커링, 그리고 증명 가능함 — 배포 XML은 손으로 조작한 게 아니라 실제로 라이브
+      인스턴스에서 나왔다는 증명서를 함께 지니고 있습니다. 토큰 비용도 같은 취급을 받았습니다 — 모든
+      스키마는 압축되고, 모든 패키지는 에이전트가 실제로 쓸 수 있는 만큼만 노출됩니다.
+    </p>
+    <p class="section-desc" style="margin-bottom:24px;">
+      저는 이걸 제 실제 ServiceNow 업무에 매일 씁니다. 설계 결정들은 스펙이 아니라 실전에서 깨진
+      것들에서 나왔습니다.
+    </p>
+    <div class="feature-grid reveal-stagger">
+      <div class="step-card" style="--i:1">
+        <h3>🔐 제로 트러스트 인증</h3>
+        <p>에이전트는 당신의 브라우저 세션을 빌려 씁니다. 비밀번호나 API 키는 설정 파일에 절대 들어가지 않습니다.</p>
+      </div>
+      <div class="step-card" style="--i:2">
+        <h3>🧭 앵커링된 동기화</h3>
+        <p>모든 푸시는 먼저 라이브 레코드와 diff되고 앵커링됩니다 — 충돌하는 수정은 조용히 덮어써지지 않고 잡힙니다.</p>
+      </div>
+      <div class="step-card" style="--i:3">
+        <h3>🪶 설계 단계부터 토큰을 의식함</h3>
+        <p>압축된 스키마, 패키지 단위 도구, 필요한 필드만 읽기 — 비용은 나중에 생각할 문제가 아니라 설계 제약입니다.</p>
+      </div>
+      <div class="step-card" style="--i:4">
+        <h3>🛠️ 매일 실사용 중</h3>
+        <p>실제 ServiceNow 업무를 위해 만들어졌고, 그 위에서 쓰입니다 — 여기 있는 거친 부분들은 실제로 부딪혀서 다듬어진 것들입니다.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="section-divider" />
+
 <div class="section reveal" id="install" style="padding-top:48px;">
   <div class="section-inner">
     <span class="section-label">빠른 시작</span>

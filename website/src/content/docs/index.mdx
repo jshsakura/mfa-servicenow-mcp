@@ -46,6 +46,52 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
 
 <HeroTerminal />
 
+<div class="section reveal" id="story">
+  <div class="section-inner">
+    <span class="section-label">Why This Exists</span>
+    <h2 class="section-title">I didn't want to hand my AI a password.</h2>
+    <p class="section-desc">
+      That was the actual problem. Every option for letting an AI agent work inside ServiceNow meant
+      putting a password or an API key somewhere the agent could read it. So instead, the agent
+      inherits a live browser session — MFA, SSO, SAML, whatever your org already requires — and never
+      sees a credential at all.
+    </p>
+    <p class="section-desc">
+      From there it stopped being an API wrapper and became a harness: something an AI can be trusted
+      to operate, not just call. Every write goes through the same discipline a careful engineer would
+      use by hand — local-first, diffed against the live server before anything is pushed, anchored so
+      a conflicting edit gets caught instead of silently overwritten, and provable, so a deployment XML
+      carries a certificate showing it actually came from the live instance instead of a hand-edited
+      guess. Token cost got the same treatment — every schema compacted, every package scoped to what
+      an agent can actually use.
+    </p>
+    <p class="section-desc" style="margin-bottom:24px;">
+      I run this against my own ServiceNow work every day. The design choices come from what breaks in
+      practice, not from a spec.
+    </p>
+    <div class="feature-grid reveal-stagger">
+      <div class="step-card" style="--i:1">
+        <h3>🔐 Zero-Trust Auth</h3>
+        <p>The agent borrows your browser session. No password or API key ever sits in a config file.</p>
+      </div>
+      <div class="step-card" style="--i:2">
+        <h3>🧭 Anchored Sync</h3>
+        <p>Every push is diffed and anchored against the live record first — a conflicting edit is caught, never silently overwritten.</p>
+      </div>
+      <div class="step-card" style="--i:3">
+        <h3>🪶 Token-Conscious by Design</h3>
+        <p>Compacted schemas, package-scoped tools, projected reads — cost is a design constraint, not an afterthought.</p>
+      </div>
+      <div class="step-card" style="--i:4">
+        <h3>🛠️ Dogfooded Daily</h3>
+        <p>Built for, and used on, real ServiceNow work — every rough edge here got smoothed out because it actually got hit.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="section-divider" />
+
 <div class="section reveal" id="install" style="padding-top:48px;">
   <div class="section-inner">
     <span class="section-label">Quick Start</span>
