@@ -132,9 +132,13 @@ body:has(.landing-page) h1#_top {
 /* Starlight centers page content in a max-width `.sl-container` with side
    padding on `.content-panel` — correct for prose, wrong for a splash page.
    Break the landing page out of both so the hero banner and background grid
-   run edge-to-edge instead of sitting in a boxed-in center column. */
+   run edge-to-edge instead of sitting in a boxed-in center column.
+   There are TWO stacked `.content-panel`s: the first holds only the
+   visually-hidden `h1#_top` (see above) and was pure top/bottom padding with
+   no visible content — zeroing its padding too collapses that dead gap
+   between the header and the hero image. */
 body:has(.landing-page) .content-panel {
-  padding-inline: 0;
+  padding: 0;
 }
 body:has(.landing-page) .sl-container {
   max-width: none;
@@ -475,6 +479,13 @@ body:has(.landing-page) .sl-container {
    ============================================================ */
 .install-block {
   max-width: 100%;
+  /* `not-content` (added to stop Starlight's rhythm-spacing from breaking
+     apart tightly-coupled pairs like tabs+panel) also removed the spacing
+     LOOSELY-coupled blocks relied on -- a heading/description div followed
+     immediately by an install-block had nothing of its own creating a gap.
+     Margins collapse with a taller sibling margin-bottom, so this is a
+     no-op wherever the preceding element already has enough spacing. */
+  margin-top: 24px;
   transition: box-shadow 0.3s, transform 0.3s ease;
 }
 .install-tabs {
