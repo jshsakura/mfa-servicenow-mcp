@@ -129,16 +129,23 @@ body:has(.landing-page) h1#_top {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
 }
-.landing-page {
-  background-color: var(--page-bg);
+/* Starlight centers page content in a max-width `.sl-container` with side
+   padding on `.content-panel` — correct for prose, wrong for a splash page.
+   Break the landing page out of both so the hero banner and background grid
+   run edge-to-edge instead of sitting in a boxed-in center column. */
+body:has(.landing-page) .content-panel {
+  padding-inline: 0;
 }
-.landing-page .content-wrap {
+body:has(.landing-page) .sl-container {
+  max-width: none;
+  margin-inline: 0;
+}
+.landing-page {
   background-color: var(--page-bg);
   background-image: linear-gradient(var(--grid-color) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
   background-size: 40px 40px;
 }
-
 /* ============================================================
    HERO — banner image with text overlay (always dark)
    ============================================================ */
