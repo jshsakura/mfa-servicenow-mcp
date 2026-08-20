@@ -129,6 +129,14 @@ body:has(.landing-page) h1#_top {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
 }
+/* Starlight's page footer (edit link, prev/next pagination, "last updated")
+   has nothing to show on a splash page with editUrl:false and no sibling
+   pages -- it was rendering as a fully empty <footer>, just dead space (with
+   its own 24px margin-top on top of that) between the CTA and the page
+   bottom. */
+body:has(.landing-page) footer {
+  display: none;
+}
 /* Starlight centers page content in a max-width `.sl-container` with side
    padding on `.content-panel` — correct for prose, wrong for a splash page.
    Break the landing page out of both so the hero banner and background grid
@@ -145,16 +153,42 @@ body:has(.landing-page) .sl-container {
   margin-inline: 0;
 }
 .landing-page {
+  position: relative;
   background-color: var(--page-bg);
+}
+/* Grid pattern lives on a separate pseudo-layer (not .landing-page's own
+   background) so a mask-image can fade ONLY the grid at the top/bottom edges
+   without fading the actual content sitting on top of it. */
+.landing-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   background-image: linear-gradient(var(--grid-color) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
   background-size: 40px 40px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black 260px,
+    black calc(100% - 360px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black 260px,
+    black calc(100% - 360px),
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 0;
 }
 /* ============================================================
    HERO — banner image with text overlay (always dark)
    ============================================================ */
 .hero-section {
   position: relative;
+  z-index: 1;
   width: 100%;
   display: flex;
   align-items: center;
@@ -275,6 +309,7 @@ body:has(.landing-page) .sl-container {
   margin: 0 auto;
   padding: 24px 48px 64px;
   position: relative;
+  z-index: 1;
 }
 @media (max-width: 1296px) {
   .content-wrap {
@@ -408,7 +443,7 @@ body:has(.landing-page) .sl-container {
 .hero-stats {
   display: flex;
   justify-content: center;
-  gap: 48px;
+  gap: 16px;
   margin: 16px 0 0;
   padding: 40px 0;
   flex-wrap: wrap;
@@ -418,6 +453,22 @@ body:has(.landing-page) .sl-container {
 }
 .hero-stat {
   text-align: center;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 20px 32px;
+  min-width: 140px;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease, border-color 0.2s ease,
+    background 0.2s ease;
+}
+.hero-stat:hover {
+  transform: translateY(-4px);
+  border-color: transparent;
+  background: var(--card-hover);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--accent);
+}
+:root:not([data-theme="light"]) .hero-stat:hover {
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--accent);
 }
 .hero-stat-value {
   display: block;
@@ -770,7 +821,7 @@ pre.install-code .c {
     grid-template-columns: 1fr;
   }
   .hero-stats {
-    gap: 28px;
+    gap: 12px;
     padding: 32px 0;
   }
   .hero-content {
@@ -788,6 +839,10 @@ pre.install-code .c {
   }
   .hero-stat-value {
     font-size: 1.5rem;
+  }
+  .hero-stat {
+    padding: 14px 18px;
+    min-width: 120px;
   }
   .section {
     padding: 48px 0;
