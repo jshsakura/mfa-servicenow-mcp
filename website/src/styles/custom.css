@@ -718,6 +718,40 @@ pre.install-code .c {
   padding: 72px 24px;
   position: relative;
 }
+/* No overflow:hidden here on purpose -- the previous version clipped this
+   blurred blob at the banner's own edge, which cut the blur off mid-fade
+   and left a hard visible line instead of a smooth glow. Letting it extend
+   past the banner (into the page's flat background either side) lets the
+   blur actually finish fading to transparent before anything would clip it. */
+.cta-banner::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 900px;
+  height: 900px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--gradient-start) 0%,
+    var(--gradient-mid) 35%,
+    transparent 70%
+  );
+  opacity: 0.08;
+  filter: blur(120px);
+  pointer-events: none;
+  z-index: 0;
+}
+:root[data-theme="light"] .cta-banner::before {
+  opacity: 0.05;
+}
+.cta-banner h2,
+.cta-banner p,
+.cta-banner .btn {
+  position: relative;
+  z-index: 1;
+}
 .cta-banner h2 {
   font-size: 1.8rem;
   font-weight: 800;
