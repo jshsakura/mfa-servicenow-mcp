@@ -717,53 +717,6 @@ pre.install-code .c {
   text-align: center;
   padding: 72px 24px;
   position: relative;
-  overflow: hidden;
-}
-.cta-banner::before {
-  content: "";
-  position: absolute;
-  bottom: -50%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 500px;
-  height: 500px;
-  border-radius: 50%;
-  background: conic-gradient(
-    from 0deg,
-    var(--gradient-start),
-    var(--gradient-mid),
-    var(--gradient-end),
-    var(--gradient-mid),
-    var(--gradient-start)
-  );
-  opacity: 0.12;
-  filter: blur(80px);
-  pointer-events: none;
-}
-:root[data-theme="light"] .cta-banner::before {
-  opacity: 0.06;
-}
-.cta-banner::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.1) 0%, transparent 60%);
-  pointer-events: none;
-  animation: pulseSubtle 3s infinite alternate ease-in-out;
-}
-@keyframes pulseSubtle {
-  0% {
-    opacity: 0.4;
-    transform: translate(-50%, -50%) scale(0.95);
-  }
-  100% {
-    opacity: 0.8;
-    transform: translate(-50%, -50%) scale(1.05);
-  }
 }
 .cta-banner h2 {
   font-size: 1.8rem;
