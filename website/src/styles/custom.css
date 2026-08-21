@@ -810,7 +810,7 @@ pre.install-code .c {
    ============================================================ */
 @media (max-width: 768px) {
   .content-wrap {
-    padding: 20px 24px 48px;
+    padding: 20px 24px 32px;
   }
   .steps-grid {
     grid-template-columns: 1fr;
@@ -827,10 +827,16 @@ pre.install-code .c {
     font-size: 0.72rem;
     padding: 16px 20px;
   }
+  .section {
+    padding: 56px 0;
+  }
+  .cta-banner {
+    padding: 56px 24px;
+  }
 }
 @media (max-width: 480px) {
   .content-wrap {
-    padding: 16px 16px 48px;
+    padding: 16px 16px 24px;
   }
   .hero-stat-value {
     font-size: 1.5rem;
@@ -840,16 +846,16 @@ pre.install-code .c {
     min-width: 120px;
   }
   .section {
-    padding: 48px 0;
+    padding: 32px 0;
   }
   .cta-banner {
-    padding: 48px 16px;
+    padding: 36px 16px;
   }
   .hero-content {
     padding: 50px 16px 50px;
   }
   .hero-terminal-body {
-    min-height: 340px;
+    min-height: 300px;
   }
 }
 
