@@ -276,6 +276,7 @@ body:has(.landing-page) .sl-container {
   align-items: center;
   gap: 12px;
   flex-wrap: nowrap;
+  margin-top: 20px;
   margin-bottom: 8px;
 }
 .hero-section .btn-primary {
