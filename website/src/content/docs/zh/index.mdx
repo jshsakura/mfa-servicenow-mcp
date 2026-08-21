@@ -48,40 +48,45 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
 
 <div class="section reveal" id="story">
   <div class="section-inner">
-    <span class="section-label">为什么做这个</span>
-    <h2 class="section-title">我不想把密码交给我的 AI。</h2>
+    <span class="section-label">开发背景</span>
+    <h2 class="section-title">没有哪个 MCP 为 ServiceNow 管理员做浏览器登录认证，于是我自己写了一个。</h2>
     <p class="section-desc">
-      这才是真正的问题。让 AI 代理在 ServiceNow 里工作，不管选哪种方式，都得把密码或 API
-      密钥放在代理能读到的地方。于是换个思路：代理直接继承一个实时浏览器会话——MFA、SSO、SAML，
-      你的组织已经要求的那些——而它根本看不到任何凭据。
+      这一切始于开发 ServiceNow Portal——组件、页面、脚本包含，整张依赖关系图。真正难的从来不是改代码，
+      而是在动手之前，准确判断到底哪里坏了、为什么坏。当 AI 代理能够可靠地完成这种诊断之后，下一个问题
+      自然就是：它能不能更进一步，安全地参与测试和部署。
     </p>
     <p class="section-desc">
-      从那时起，这就不再是一个 API 封装，而变成了一个支撑框架（harness）——一个可以放心交给 AI
-      去操作、而不只是调用的东西。每一次写入都遵循一位细心工程师手动操作时会用的纪律——本地优先，
-      推送前先与实时服务器做 diff，锚定后一旦出现冲突的修改就会被拦下而不是被静默覆盖，而且
-      可验证——部署用的 XML 会带一份证书，证明它确实来自实时实例，而不是手工编造的猜测。Token
-      成本也得到同样的对待——每个 schema 都做了压缩，每个 package 都只暴露代理实际能用到的部分。
+      API 密钥对这个场景来说感觉不太对——它是一个静态凭据，一旦写进配置文件，往往比它本该服务的那个
+      任务活得更久。管理员真正需要的，其实就是一个真实管理员本来就有的东西——一个受 MFA/SSO/SAML
+      保护的真实会话。当时整个 MCP 生态里没有任何东西为 ServiceNow 做这件事，于是这就成了这个项目的
+      核心结构：代理继承一个实时浏览器会话，而不是握着一把密钥。
+    </p>
+    <p class="section-desc">
+      从那时起，这就不再只是一个 API 封装。每一次写入都遵循一位细心工程师手动操作时会用的纪律——本地
+      优先，推送前先与实时服务器做 diff，锚定后一旦出现冲突的修改就会被拦下而不是被静默覆盖，而且
+      可验证——部署用的 XML 会带一份证书，证明它确实来自实时实例。
     </p>
     <p class="section-desc" style="margin-bottom:24px;">
-      我每天都在自己真实的 ServiceNow 工作中使用它。这些设计取舍都来自实践中真正踩过的坑，而不是
-      来自某份规格文档。
+      Token 成本也得到同样的对待——每个 schema 都做了压缩，每个 package 都只暴露代理实际能用到的
+      部分。我每天都在自己真实的 ServiceNow Portal 工作中使用它。这些设计取舍都来自实践中真正踩过的坑，
+      而不是来自某份规格文档。
     </p>
     <div class="feature-grid reveal-stagger">
       <div class="step-card" style="--i:1">
-        <h3>🔐 零信任认证</h3>
-        <p>代理借用你的浏览器会话。密码或 API 密钥永远不会出现在配置文件里。</p>
+        <h3>🔎 精准诊断</h3>
+        <p>追踪真实的依赖链——是哪个组件、哪个脚本包含、哪个流程——而不是靠堆栈跟踪去猜。</p>
       </div>
       <div class="step-card" style="--i:2">
+        <h3>🔑 是会话，不是密钥</h3>
+        <p>没有哪个 MCP 为 ServiceNow 做浏览器登录认证。代理继承一个实时管理员会话——MFA、SSO、SAML——而不是握着一把 API 密钥。</p>
+      </div>
+      <div class="step-card" style="--i:3">
         <h3>🧭 锚定同步</h3>
         <p>每次推送都会先与实时记录做 diff 并锚定——冲突的修改会被拦下，绝不会被静默覆盖。</p>
       </div>
-      <div class="step-card" style="--i:3">
+      <div class="step-card" style="--i:4">
         <h3>🪶 从设计上就注重 Token</h3>
         <p>压缩过的 schema、按 package 划分范围的工具、按需投影的读取——成本是设计约束，不是事后才考虑的事。</p>
-      </div>
-      <div class="step-card" style="--i:4">
-        <h3>🛠️ 每天真实使用</h3>
-        <p>为真实的 ServiceNow 工作而生，也在其上被使用——这里的每一处打磨，都是真被撞出来的。</p>
       </div>
     </div>
   </div>

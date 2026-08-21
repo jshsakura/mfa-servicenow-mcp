@@ -48,37 +48,47 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
 
 <div class="section reveal" id="story">
   <div class="section-inner">
-    <span class="section-label">Why This Exists</span>
-    <h2 class="section-title">I didn't want to hand my AI a password.</h2>
+    <span class="section-label">Background</span>
+    <h2 class="section-title">No MCP did browser-based auth for ServiceNow admins. So I built one.</h2>
     <p class="section-desc">
-      That was the actual problem. Every option for letting an AI agent work inside ServiceNow meant
-      putting a password or an API key somewhere the agent could read it. So instead, the agent
-      inherits a live browser session — MFA, SSO, SAML, whatever your org already requires — and never
-      sees a credential at all.
+      This came out of building ServiceNow Portal — widgets, pages, script includes, the whole
+      dependency graph. The real work was never the code change; it was diagnosing what was actually
+      broken and why, accurately, before touching anything. Once an AI agent could do that diagnosis
+      reliably, the next question was whether it could go further — into testing and deployment —
+      safely.
     </p>
     <p class="section-desc">
-      From there it stopped being an API wrapper and became a harness: something an AI can be trusted
-      to operate, not just call. Every write goes through the same discipline a careful engineer would
-      use by hand — local-first, diffed against the live server before anything is pushed, anchored so
-      a conflicting edit gets caught instead of silently overwritten, and provable, so a deployment XML
-      carries a certificate showing it actually came from the live instance instead of a hand-edited
-      guess. Token cost got the same treatment — every schema compacted, every package scoped to what
-      an agent can actually use.
+      An API key felt like the wrong shape of credential for that: a static secret sitting in a config
+      file, outliving whatever task it was scoped for. What an admin actually needs is what a human
+      admin already has — a real, MFA/SSO/SAML-gated session. Nothing in the MCP ecosystem did that
+      for ServiceNow, so that became the harness itself: the agent inherits a live browser session
+      instead of holding a key.
+    </p>
+    <p class="section-desc">
+      From there it stopped being an API wrapper. Every write goes through the same discipline a
+      careful engineer uses by hand — local-first, diffed against the live server before anything is
+      pushed, anchored so a conflicting edit gets caught instead of silently overwritten, and provable,
+      so a deployment XML carries a certificate showing it actually came from the live instance.
     </p>
     <p class="section-desc" style="margin-bottom:24px;">
-      I run this against my own ServiceNow work every day. The design choices come from what breaks in
-      practice, not from a spec.
+      Token cost got the same treatment — every schema compacted, every package scoped to what an
+      agent can actually use. I run this on my own ServiceNow portal work every day; the design
+      choices come from what breaks in practice, not from a spec.
     </p>
     <div class="feature-grid reveal-stagger">
       <div class="step-card" style="--i:1">
-        <h3>🔐 Zero-Trust Auth</h3>
-        <p>The agent borrows your browser session. No password or API key ever sits in a config file.</p>
+        <h3>🔎 Precise Diagnosis</h3>
+        <p>Traces the real dependency chain — which widget, which script include, which flow — instead of guessing from a stack trace.</p>
       </div>
       <div class="step-card" style="--i:2">
+        <h3>🔑 A Session, Not a Secret</h3>
+        <p>No MCP did browser-based auth for ServiceNow. The agent inherits a live admin session — MFA, SSO, SAML — instead of holding an API key.</p>
+      </div>
+      <div class="step-card" style="--i:3">
         <h3>🧭 Anchored Sync</h3>
         <p>Every push is diffed and anchored against the live record first — a conflicting edit is caught, never silently overwritten.</p>
       </div>
-      <div class="step-card" style="--i:3">
+      <div class="step-card" style="--i:4">
         <h3>🪶 Token-Conscious by Design</h3>
         <p>Compacted schemas, package-scoped tools, projected reads — cost is a design constraint, not an afterthought.</p>
       </div>

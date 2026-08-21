@@ -48,44 +48,52 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
 
 <div class="section reveal" id="story">
   <div class="section-inner">
-    <span class="section-label">Por qué existe esto</span>
-    <h2 class="section-title">No quería entregarle una contraseña a mi IA.</h2>
+    <span class="section-label">Contexto</span>
+    <h2 class="section-title">Ningún MCP hacía autenticación por navegador para administradores de ServiceNow. Así que hice uno.</h2>
     <p class="section-desc">
-      Ese era el problema real. Cualquier forma de dejar que un agente de IA trabajara dentro de
-      ServiceNow implicaba poner una contraseña o una clave de API en algún lugar que el agente
-      pudiera leer. Así que, en cambio, el agente hereda una sesión de navegador en vivo — MFA, SSO,
-      SAML, lo que sea que tu organización ya exija — y nunca ve una credencial.
+      Esto surgió al desarrollar ServiceNow Portal — widgets, páginas, script includes, todo el grafo
+      de dependencias. El trabajo real nunca fue el cambio de código; era diagnosticar con precisión
+      qué estaba realmente roto y por qué, antes de tocar nada. Una vez que un agente de IA pudo hacer
+      ese diagnóstico de forma confiable, la siguiente pregunta fue si podía ir más allá — hasta
+      pruebas y despliegue — de forma segura.
     </p>
     <p class="section-desc">
-      A partir de ahí dejó de ser un simple envoltorio de API y se convirtió en un harness: algo en lo
-      que se puede confiar para que la IA opere, no solo para que lo invoque. Cada escritura pasa por
-      la misma disciplina que usaría a mano un ingeniero cuidadoso — local-first, comparada (diff)
-      contra el servidor en vivo antes de enviar nada, anclada para que una edición en conflicto se
-      detecte en lugar de sobrescribirse en silencio, y demostrable, de modo que un XML de despliegue
-      lleva un certificado que prueba que realmente vino de la instancia en vivo y no de una suposición
-      editada a mano. El costo en tokens recibió el mismo trato — cada esquema comprimido, cada paquete
-      acotado a lo que el agente realmente puede usar.
+      Una clave de API me pareció el tipo de credencial equivocado para esto: un secreto estático que
+      queda en un archivo de configuración, y que sobrevive a la tarea para la que se creó. Lo que un
+      administrador realmente necesita es lo que un administrador humano ya tiene — una sesión real,
+      protegida por MFA/SSO/SAML. Nada en el ecosistema de MCP hacía eso para ServiceNow, así que eso
+      se convirtió en la base misma del proyecto: el agente hereda una sesión de navegador en vivo en
+      lugar de guardar una clave.
+    </p>
+    <p class="section-desc">
+      A partir de ahí dejó de ser un simple envoltorio de API. Cada escritura pasa por la misma
+      disciplina que usaría a mano un ingeniero cuidadoso — local-first, comparada (diff) contra el
+      servidor en vivo antes de enviar nada, anclada para que una edición en conflicto se detecte en
+      lugar de sobrescribirse en silencio, y demostrable, de modo que un XML de despliegue lleva un
+      certificado que prueba que realmente vino de la instancia en vivo.
     </p>
     <p class="section-desc" style="margin-bottom:24px;">
-      Uso esto todos los días en mi propio trabajo con ServiceNow. Las decisiones de diseño vienen de
-      lo que se rompe en la práctica, no de una especificación.
+      El costo en tokens recibió el mismo trato — cada esquema comprimido, cada paquete acotado a lo
+      que el agente realmente puede usar. Uso esto todos los días en mi propio trabajo con ServiceNow
+      Portal. Las decisiones de diseño vienen de lo que se rompe en la práctica, no de una
+      especificación.
     </p>
     <div class="feature-grid reveal-stagger">
       <div class="step-card" style="--i:1">
-        <h3>🔐 Autenticación de confianza cero</h3>
-        <p>El agente toma prestada tu sesión de navegador. Ninguna contraseña o clave de API llega jamás a un archivo de configuración.</p>
+        <h3>🔎 Diagnóstico preciso</h3>
+        <p>Rastrea la cadena de dependencias real — qué widget, qué script include, qué flujo — en lugar de adivinar a partir de un stack trace.</p>
       </div>
       <div class="step-card" style="--i:2">
+        <h3>🔑 Una sesión, no un secreto</h3>
+        <p>Ningún MCP hacía autenticación por navegador para ServiceNow. El agente hereda una sesión de administrador en vivo — MFA, SSO, SAML — en lugar de guardar una clave de API.</p>
+      </div>
+      <div class="step-card" style="--i:3">
         <h3>🧭 Sincronización anclada</h3>
         <p>Cada envío se compara y se ancla contra el registro en vivo primero — una edición en conflicto se detecta, nunca se sobrescribe en silencio.</p>
       </div>
-      <div class="step-card" style="--i:3">
+      <div class="step-card" style="--i:4">
         <h3>🪶 Consciente de los tokens desde el diseño</h3>
         <p>Esquemas comprimidos, herramientas acotadas por paquete, lecturas proyectadas — el costo es una restricción de diseño, no una idea de último momento.</p>
-      </div>
-      <div class="step-card" style="--i:4">
-        <h3>🛠️ Usado a diario</h3>
-        <p>Construido para trabajo real con ServiceNow, y usado en él — cada aspereza de aquí se pulió porque de verdad se topó con algo.</p>
       </div>
     </div>
   </div>
