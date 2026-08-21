@@ -52,33 +52,38 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
     <h2 class="section-title">Ningún MCP hacía autenticación por navegador para administradores de ServiceNow. Así que hice uno.</h2>
     <p class="section-desc">
       Esto surgió al desarrollar ServiceNow Portal — widgets, páginas, script includes, todo el grafo
-      de dependencias. El trabajo real nunca fue el cambio de código; era diagnosticar con precisión
-      qué estaba realmente roto y por qué, antes de tocar nada. Una vez que un agente de IA pudo hacer
-      ese diagnóstico de forma confiable, la siguiente pregunta fue si podía ir más allá — hasta
-      pruebas y despliegue — de forma segura.
+      de dependencias.<br />
+      El trabajo real nunca fue el cambio de código; era diagnosticar con precisión qué estaba
+      realmente roto y por qué, antes de tocar nada.<br />
+      Una vez que un agente de IA pudo hacer ese diagnóstico de forma confiable, la siguiente pregunta
+      fue si podía ir más allá — hasta pruebas y despliegue — de forma segura.
     </p>
     <p class="section-desc">
-      Solo con la Table API no bastaba para ese diagnóstico. La estructura real de Flow Designer —
-      triggers, acciones, por qué un flujo realmente se disparó o no — vive detrás de endpoints
-      exclusivos de sesión a los que la autenticación REST normal no puede llegar. Así que la
-      herramienta tuvo que crecer hacia una autenticación de navegador real, no una clave de API
-      metida en un archivo de configuración. Lo que un administrador realmente necesita es lo que un
-      administrador humano ya tiene — una sesión real, protegida por MFA/SSO/SAML. Nada en el
-      ecosistema de MCP hacía eso para ServiceNow, así que eso se convirtió en la base misma del
-      proyecto: el agente hereda una sesión de navegador en vivo en lugar de guardar una clave.
+      Solo con la Table API no bastaba para ese diagnóstico.<br />
+      La estructura real de Flow Designer — triggers, acciones, por qué un flujo realmente se disparó
+      o no — vive detrás de endpoints exclusivos de sesión a los que la autenticación REST normal no
+      puede llegar.<br />
+      Así que la herramienta tuvo que crecer hacia una autenticación de navegador real, no una clave
+      de API metida en un archivo de configuración.<br />
+      Lo que un administrador realmente necesita es lo que un administrador humano ya tiene — una
+      sesión real, protegida por MFA/SSO/SAML.<br />
+      Nada en el ecosistema de MCP hacía eso para ServiceNow, así que eso se convirtió en la base
+      misma del proyecto: el agente hereda una sesión de navegador en vivo en lugar de guardar una
+      clave.
     </p>
     <p class="section-desc">
-      A partir de ahí dejó de ser un simple envoltorio de API. Cada escritura pasa por la misma
-      disciplina que usaría a mano un ingeniero cuidadoso — local-first, comparada (diff) contra el
-      servidor en vivo antes de enviar nada, anclada para que una edición en conflicto se detecte en
-      lugar de sobrescribirse en silencio, y demostrable, de modo que un XML de despliegue lleva un
-      certificado que prueba que realmente vino de la instancia en vivo.
+      A partir de ahí dejó de ser un simple envoltorio de API.<br />
+      Cada escritura pasa por la misma disciplina que usaría a mano un ingeniero cuidadoso —
+      local-first, comparada (diff) contra el servidor en vivo antes de enviar nada, anclada para que
+      una edición en conflicto se detecte en lugar de sobrescribirse en silencio, y demostrable, de
+      modo que un XML de despliegue lleva un certificado que prueba que realmente vino de la instancia
+      en vivo.
     </p>
     <p class="section-desc" style="margin-bottom:24px;">
       El costo en tokens recibió el mismo trato — cada esquema comprimido, cada paquete acotado a lo
-      que el agente realmente puede usar. Uso esto todos los días en mi propio trabajo con ServiceNow
-      Portal. Las decisiones de diseño vienen de lo que se rompe en la práctica, no de una
-      especificación.
+      que el agente realmente puede usar.<br />
+      Uso esto todos los días en mi propio trabajo con ServiceNow Portal. Las decisiones de diseño
+      vienen de lo que se rompe en la práctica, no de una especificación.
     </p>
     <div class="feature-grid reveal-stagger">
       <div class="step-card" style="--i:1">

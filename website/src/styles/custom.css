@@ -218,7 +218,7 @@ body:has(.landing-page) .sl-container {
 }
 .hero-title {
   font-family: "Gugi", sans-serif;
-  font-size: clamp(2.2rem, 5.5vw, 4.5rem);
+  font-size: clamp(1.8rem, 4.5vw, 3.2rem);
   font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.15;
@@ -233,7 +233,7 @@ body:has(.landing-page) .sl-container {
     padding: 140px 24px 140px;
   }
   .hero-title {
-    font-size: clamp(4.4rem, 6.2vw, 5.8rem);
+    font-size: clamp(3.2rem, 5vw, 4.2rem);
     margin-bottom: 44px;
   }
 }

@@ -52,29 +52,35 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
     <h2 class="section-title">No MCP did browser-based auth for ServiceNow admins. So I built one.</h2>
     <p class="section-desc">
       This came out of building ServiceNow Portal — widgets, pages, script includes, the whole
-      dependency graph. The real work was never the code change; it was diagnosing what was actually
-      broken and why, accurately, before touching anything. Once an AI agent could do that diagnosis
-      reliably, the next question was whether it could go further — into testing and deployment —
-      safely.
+      dependency graph.<br />
+      The real work was never the code change; it was diagnosing what was actually broken and why,
+      accurately, before touching anything.<br />
+      Once an AI agent could do that diagnosis reliably, the next question was whether it could go
+      further — into testing and deployment — safely.
     </p>
     <p class="section-desc">
-      The Table API alone wasn't enough for that diagnosis. Flow Designer's real structure — triggers,
-      actions, why a flow actually fired or didn't — lives behind session-only endpoints that ordinary
-      REST auth can't reach. So the tool had to grow into real browser authentication, not an API key
-      sitting in a config file. What an admin actually needs is what a human admin already has — a
-      real, MFA/SSO/SAML-gated session. Nothing in the MCP ecosystem did that for ServiceNow, so that
-      became the harness itself: the agent inherits a live browser session instead of holding a key.
+      The Table API alone wasn't enough for that diagnosis.<br />
+      Flow Designer's real structure — triggers, actions, why a flow actually fired or didn't — lives
+      behind session-only endpoints that ordinary REST auth can't reach.<br />
+      So the tool had to grow into real browser authentication, not an API key sitting in a config
+      file.<br />
+      What an admin actually needs is what a human admin already has — a real, MFA/SSO/SAML-gated
+      session.<br />
+      Nothing in the MCP ecosystem did that for ServiceNow, so that became the harness itself: the
+      agent inherits a live browser session instead of holding a key.
     </p>
     <p class="section-desc">
-      From there it stopped being an API wrapper. Every write goes through the same discipline a
-      careful engineer uses by hand — local-first, diffed against the live server before anything is
-      pushed, anchored so a conflicting edit gets caught instead of silently overwritten, and provable,
-      so a deployment XML carries a certificate showing it actually came from the live instance.
+      From there it stopped being an API wrapper.<br />
+      Every write goes through the same discipline a careful engineer uses by hand — local-first,
+      diffed against the live server before anything is pushed, anchored so a conflicting edit gets
+      caught instead of silently overwritten, and provable, so a deployment XML carries a certificate
+      showing it actually came from the live instance.
     </p>
     <p class="section-desc" style="margin-bottom:24px;">
       Token cost got the same treatment — every schema compacted, every package scoped to what an
-      agent can actually use. I run this on my own ServiceNow portal work every day; the design
-      choices come from what breaks in practice, not from a spec.
+      agent can actually use.<br />
+      I run this on my own ServiceNow portal work every day; the design choices come from what breaks
+      in practice, not from a spec.
     </p>
     <div class="feature-grid reveal-stagger">
       <div class="step-card" style="--i:1">
