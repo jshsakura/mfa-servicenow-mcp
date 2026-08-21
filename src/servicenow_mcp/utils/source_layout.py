@@ -35,7 +35,13 @@ DEP_SCOPES_FILE = "_dep_scopes.json"
 FIELD_FILENAME: Dict[str, str] = {
     "script": "script.js",
     "client_script": "client_script.js",
+    # Workspace form/list actions carry a SECOND script body next to `script`.
+    # Absent from disk it is not a missing detail, it is a missing program.
+    "client_script_v2": "client_script_v2.js",
     "condition": "condition.js",
+    # An encoded query (`state=2^assigned_toISNOTEMPTY`), not JavaScript — a .js
+    # extension would send every code scanner at it as if it were a script.
+    "filter_condition": "filter_condition.txt",
     "operation_script": "operation_script.js",
     "processing_script": "processing_script.js",
     "link": "link.js",

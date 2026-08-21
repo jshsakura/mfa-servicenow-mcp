@@ -4,6 +4,7 @@ Generates cross-references, dead code detection, execution order maps,
 and a self-contained HTML audit report.
 """
 
+import html as _html
 import json
 import logging
 import re
@@ -158,6 +159,26 @@ def _index_one_root(
                 "collection": meta.get("collection", ""),
                 "when": meta.get("when", ""),
                 "order": meta.get("order", ""),
+                # What stops this record from running. Read from the tree, not
+                # guessed from the script: a rule whose Filter Condition never
+                # matches is indistinguishable from one that always fires if all
+                # you have is script.js. Blank here means "no gate recorded",
+                # which for a tree downloaded before these fields existed is not
+                # the same as "no gate" — hence `gates_known` below.
+                "filter_condition": (
+                    _read_text(record_dir / "filter_condition.txt").strip()
+                    if "filter_condition.txt" in source_files
+                    else ""
+                ),
+                "role_conditions": meta.get("role_conditions", ""),
+                "set_field_values": meta.get("template", ""),
+                # ACL required roles, from the m2m. Blank + roles_known="false"
+                # means the read did not complete — not "requires nothing".
+                "roles": meta.get("roles", ""),
+                "roles_known": meta.get("roles_known", ""),
+                # False for a legacy tree: the download that wrote it never asked
+                # for the gate fields, so their absence proves nothing.
+                "gates_known": "order" in meta,
             }
         )
 
@@ -598,6 +619,83 @@ def _extract_external_refs(cross_refs: Dict[str, Any]) -> Dict[str, List[str]]:
     }
 
 
+# Source types that HAVE an order column. Anything else renders "—" (not
+# applicable) rather than an empty cell that reads as order 0.
+_ORDERED_SOURCE_TYPES = {"business_rule", "client_script", "catalog_client_script", "ui_action"}
+
+
+def _order_sort_key(item: Dict[str, Any]) -> tuple:
+    """Numeric sort key for an execution-order entry.
+
+    The order column is an integer stored as a string, so the previous string
+    sort put "100" before "9" — the exact inversion the report exists to show.
+    An unparseable or unrecorded order sorts LAST and is rendered as unknown,
+    never silently as 0: a legacy tree has no order at all, and a report that
+    prints a confident sequence built from values it never read is the failure
+    this whole section is meant to prevent.
+    """
+    raw = str(item.get("order", "")).strip()
+    try:
+        return (0, int(raw))
+    except ValueError:
+        pass
+    if item.get("order_read"):
+        # Read from the server and genuinely empty. ServiceNow evaluates an empty
+        # integer order as 0, so that is where it belongs in the sequence.
+        return (0, 0)
+    return (1, 0)
+
+
+def _order_cell(item: Dict[str, Any]) -> str:
+    """Display value for an entry's order: the number, or why there isn't one.
+
+    Three different reasons produce a blank order, and collapsing them is how the
+    report used to imply a sequence it had not read:
+      ``—``        this record type has no order column at all (ACLs)
+      ``?``        the tree predates order capture — re-download to populate
+      ``(empty)``  the server was asked and the field really is empty (= 0)
+    """
+    raw = str(item.get("order", "")).strip()
+    if raw:
+        return raw
+    if not item.get("has_order"):
+        return "—"
+    if not item.get("order_read"):
+        return "?"
+    return "(empty)"
+
+
+def _gate_cell(item: Dict[str, Any]) -> str:
+    """What has to be true for this record to run, as recorded in the tree.
+
+    "active" answers whether it is switched on, never whether it fires. A rule
+    can be active, correct, and still never reach its script because a Filter
+    Condition excludes every record — which is invisible in script.js, so the
+    reader concludes the script always runs and debugs the wrong thing.
+    """
+    if not item.get("order_read") and item.get("has_order"):
+        # Tree predates gate capture: say so instead of printing "always".
+        return _tag("tag-orphan", "? not captured")
+    bits: List[str] = []
+    cond = str(item.get("filter_condition", "")).strip()
+    if cond:
+        short = cond if len(cond) <= 90 else cond[:87] + "..."
+        bits.append(f'<code title="{_esc(cond)}">{_esc(short)}</code>')
+    if item.get("role_conditions"):
+        bits.append(_tag("tag-orphan", f'role: {_esc(item["role_conditions"])}'))
+    if item.get("roles"):
+        bits.append(_tag("tag-orphan", f'role: {_esc(item["roles"])}'))
+    elif item.get("roles_known") == "false":
+        # The m2m read did not complete. "requires nothing" is precisely the
+        # answer an unread related list must never be allowed to give.
+        bits.append(_tag("tag-orphan", "roles not read"))
+    if not bits and item.get("conditional"):
+        bits.append("condition script")
+    if item.get("set_field_values"):
+        bits.append(_tag("tag-orphan", "sets fields w/o script"))
+    return " ".join(bits) if bits else "always"
+
+
 def _build_execution_order(source_index: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Group BRs and Client Scripts by target table with execution order."""
     table_map: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(
@@ -618,6 +716,23 @@ def _build_execution_order(source_index: List[Dict[str, Any]]) -> Dict[str, Any]
             "active": entry.get("active", "true"),
             "when": entry.get("when", ""),
             "order": entry.get("order", ""),
+            "has_order": st in _ORDERED_SOURCE_TYPES,
+            "order_read": bool(entry.get("gates_known")),
+            # Why this record might not run even though it is active. Carried
+            # here so the execution-order table shows the gate next to the
+            # entry — reading the sequence without it is what makes a rule that
+            # never fires look like one that always does.
+            "filter_condition": entry.get("filter_condition", ""),
+            "role_conditions": entry.get("role_conditions", ""),
+            "set_field_values": entry.get("set_field_values", ""),
+            "roles": entry.get("roles", ""),
+            "roles_known": entry.get("roles_known", ""),
+            "conditional": bool(
+                entry.get("filter_condition")
+                or entry.get("role_conditions")
+                or entry.get("roles")
+                or "condition.js" in entry.get("files", [])
+            ),
         }
 
         if st == "business_rule":
@@ -633,7 +748,7 @@ def _build_execution_order(source_index: List[Dict[str, Any]]) -> Dict[str, Any]
     result: Dict[str, Any] = {}
     for table, groups in sorted(table_map.items()):
         for key in groups:
-            groups[key].sort(key=lambda x: (x.get("when", ""), x.get("order", "0")))
+            groups[key].sort(key=lambda x: (x.get("when", ""), _order_sort_key(x)))
         # Only include tables with at least one entry
         if any(groups[k] for k in groups):
             result[table] = groups
@@ -863,6 +978,17 @@ def _tag(cls: str, text: str) -> str:
     return f'<span class="tag {cls}">{text}</span>'
 
 
+def _esc(text: str) -> str:
+    """HTML-escape a value that comes from record DATA, not from our own markup.
+
+    An encoded query is full of ``<`` and ``>`` (``priority<3``,
+    ``sys_created_on>javascript:gs.beginningOfToday()``). Interpolated raw, the
+    condition this section exists to SHOW is what silently eats the rest of the
+    row.
+    """
+    return _html.escape(str(text), quote=True)
+
+
 def _generate_html_report(
     scope: str,
     instance: str,
@@ -989,15 +1115,17 @@ def _generate_html_report(
             items = groups.get(group_key, [])
             if items:
                 rows = "\n".join(
-                    f'<tr><td>{item["name"]}</td>'
-                    f'<td>{item.get("when", "")}</td>'
-                    f'<td>{item.get("order", "")}</td>'
+                    f'<tr><td>{_esc(item["name"])}</td>'
+                    f'<td>{_esc(item.get("when", ""))}</td>'
+                    f"<td>{_order_cell(item)}</td>"
+                    f"<td>{_gate_cell(item)}</td>"
                     f'<td>{"active" if item.get("active", "true") == "true" else _tag("tag-orphan", "inactive")}</td></tr>'
                     for item in items
                 )
                 parts.append(
                     f'<h4 style="color:var(--text2);font-size:0.85rem;margin:0.5rem 0 0.3rem">{label}</h4>'
-                    f"<table><tr><th>Name</th><th>When</th><th>Order</th><th>Status</th></tr>{rows}</table>"
+                    f"<table><tr><th>Name</th><th>When</th><th>Order</th><th>Runs when</th>"
+                    f"<th>Status</th></tr>{rows}</table>"
                 )
         parts.append("</div>")
         exec_parts.append("\n".join(parts))
@@ -1126,8 +1254,13 @@ def _generate_domain_knowledge(
 
             parts = []
             if brs:
+                # A trailing [gated] is the whole point of the line: without it a
+                # rule that a Filter Condition keeps from ever firing is listed
+                # exactly like one that fires on every write.
                 br_desc = ", ".join(
-                    f"{br['name']}({br.get('when', '?')}/{br.get('order', '?')})" for br in brs
+                    f"{br['name']}({br.get('when', '?')}/{_order_cell(br)})"
+                    + (" [gated]" if br.get("conditional") else "")
+                    for br in brs
                 )
                 parts.append(f"BR: {br_desc}")
             if css_list:

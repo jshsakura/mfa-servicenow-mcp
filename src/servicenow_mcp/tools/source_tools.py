@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Set
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
@@ -234,18 +234,40 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         # routinely carries the same rule name (e.g. 'Set defaults') on several
         # tables. Qualify the folder by `collection` so each lands on its own.
         "folder_qualifier_field": "collection",
+        # `when` + `active` say WHEN the rule may run; they do not say WHETHER it
+        # does. A rule that never fires because of a Filter Condition, a role, or
+        # an unticked action checkbox reads from `script` alone as one that always
+        # fires — the script is the only thing the tree used to carry, so a reader
+        # with no access to the record could not even tell a gate was there.
         "summary_fields": [
             "sys_id",
             "name",
             "collection",
             "when",
+            "order",
             "active",
+            "advanced",
+            # The DML actions it is registered for. Unticked, the script is dead
+            # code for that operation no matter what it says.
+            "action_insert",
+            "action_update",
+            "action_delete",
+            "action_query",
+            # Gate by role, evaluated alongside filter_condition.
+            "role_conditions",
+            # 'Set field values': the rule mutates the record with NO script at
+            # all. An empty script.js is not an empty rule.
+            "template",
+            "abort_action",
+            "add_message",
             "sys_scope",
             "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
-        "source_fields": ["script", "condition"],
+        # filter_condition is a source field, not metadata: it decides whether the
+        # script runs, so it has to be diffable and pushable like the script is.
+        "source_fields": ["script", "condition", "filter_condition"],
         "search_fields": ["name", "collection", "script"],
         "lookup_fields": ["sys_id", "name"],
     },
@@ -263,13 +285,22 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "table",
             "type",
             "ui_type",
+            "order",
+            # onChange scripts run for ONE field; without it the script's
+            # `newValue` has no subject.
+            "field",
+            "global",
+            "applies_extended",
+            "isolate_script",
             "active",
             "sys_scope",
             "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
-        "source_fields": ["script"],
+        # 'Condition / onClick' — a UI-policy-style gate on onChange scripts and
+        # the handler name on onClick ones. Same reason as the BR filter.
+        "source_fields": ["script", "condition"],
         "search_fields": ["name", "table", "script"],
         "lookup_fields": ["sys_id", "name"],
     },
@@ -285,14 +316,26 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "name",
             "table",
             "action_name",
+            "order",
             "active",
             "client",
+            # Names the client function that runs INSTEAD of / before the server
+            # script. Read `script` alone and you attribute behavior to the wrong
+            # body — or to no body, when onclick is all there is.
+            "onclick",
+            "form_button",
+            "list_button",
+            "show_insert",
+            "show_update",
             "sys_scope",
             "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
-        "source_fields": ["script"],
+        # `condition` decides whether the button exists for this user/record at
+        # all; client_script_v2 is the separate Workspace body (see
+        # source_layout.FIELD_FILENAME) — neither used to reach disk.
+        "source_fields": ["script", "condition", "client_script_v2"],
         "search_fields": ["name", "table", "action_name", "script"],
         "lookup_fields": ["sys_id", "name"],
     },
@@ -526,12 +569,31 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "type",
             "operation",
             "active",
+            # An ACL that admin overrides is not the wall it reads as.
+            "admin_overrides",
+            "advanced",
             "sys_scope",
             "sys_scope.scope",
             "sys_updated_on",
             "sys_updated_by",
         ],
-        "source_fields": ["script"],
+        # Most ACLs have no script at all and decide purely on `condition` +
+        # roles. Downloading only `script` made exactly those look like empty
+        # records.
+        "source_fields": ["script", "condition"],
+        # Required roles are NOT a column on sys_security_acl — they are rows in
+        # an m2m table, which is the only reason they used to be skipped. An ACL
+        # that requires a role and one that requires nothing are the same two
+        # files on disk without this, so the shape of the fetch is not a good
+        # enough reason to drop the answer. Folded into metadata as `roles`
+        # (+ `roles_known`) by _resolve_related_values.
+        "related_fields": {
+            "roles": {
+                "table": "sys_security_acl_role",
+                "parent_field": "sys_security_acl",
+                "value_field": "sys_user_role.name",
+            }
+        },
         "search_fields": ["name", "script"],
         "lookup_fields": ["sys_id", "name"],
     },
@@ -2030,6 +2092,12 @@ _DEP_CHUNK_SIZE = 30  # names per API query chunk (smaller = safer under rate li
 # Bounded so the encoded sys_idIN clause stays well inside URL length limits.
 _INCREMENTAL_ID_CHUNK = 50
 
+# Row cap for ONE related-table (m2m) chunk read. Generous: a chunk covers 50
+# parents, and a parent with more than 40 related rows does not exist in
+# practice. Hitting it means the read was truncated, which is reported as
+# not-complete rather than absorbed — see _resolve_related_values.
+_RELATED_MAX_ROWS = 2000
+
 # Markers that mean "no point retrying or fanning out more requests": the
 # session/account can't authenticate to the API. Re-auth either already failed
 # or would just produce another rejected session. When one parallel worker hits
@@ -2500,6 +2568,80 @@ def _fetch_record_fields(
     return {}
 
 
+def _ref_sys_id(value: Any) -> str:
+    """sys_id of a reference cell, whichever shape the Table API returned."""
+    if isinstance(value, dict):
+        return str(value.get("value") or "")
+    return str(value or "")
+
+
+def _resolve_related_values(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    spec: Dict[str, str],
+    sys_ids: List[str],
+    source_type: str,
+    field_key: str,
+    warnings: List[str],
+) -> Tuple[Dict[str, str], bool]:
+    """Read a related (m2m) table and fold it into one value per parent record.
+
+    Some of what gates a record does not live on the record. An ACL's required
+    roles are rows in ``sys_security_acl_role``, so a downloader that only ever
+    reads the record's own columns writes an ACL that demands ``admin`` and one
+    that demands nothing as the same two files. The value is dot-walked to the
+    role NAME (``sys_user_role.name``) rather than its sys_id: a role sys_id
+    differs per instance, so an id would be unreadable here and wrong anywhere
+    it was compared.
+
+    Returns ``(value_by_parent_sys_id, complete)``. **complete is the point.**
+    An empty result means "this parent has no related rows" ONLY if the read
+    covered everything; a failed chunk or a capped page makes every silent
+    parent unproven, and "no roles" is exactly the reassuring answer that must
+    never be produced by a read that did not happen.
+    """
+    collected: Dict[str, List[str]] = {}
+    complete = True
+    parent_field = spec["parent_field"]
+    value_field = spec["value_field"]
+    for chunk in _chunked(sorted(set(sys_ids)), _INCREMENTAL_ID_CHUNK):
+        try:
+            rows = sn_query_all(
+                config,
+                auth_manager,
+                table=spec["table"],
+                query=f"{parent_field}IN{','.join(chunk)}",
+                fields=f"{parent_field},{value_field}",
+                page_size=100,
+                max_records=_RELATED_MAX_ROWS,
+                display_value=False,
+                fail_silently=False,
+                # Serial: per-type workers already run under the download cap.
+                parallel=False,
+            )
+        except Exception as exc:
+            complete = False
+            warnings.append(
+                f"{source_type}: could not read {field_key} from {spec['table']} — {exc}. "
+                f"Records in this batch are marked {field_key}_known=false; a blank "
+                f"{field_key} there means UNREAD, not none."
+            )
+            continue
+        if len(rows) >= _RELATED_MAX_ROWS:
+            complete = False
+            warnings.append(
+                f"{source_type}: {field_key} read hit the {_RELATED_MAX_ROWS}-row cap; "
+                f"some records may list fewer {field_key} than they require."
+            )
+        for row in rows:
+            parent = _ref_sys_id(row.get(parent_field))
+            value = str(row.get(value_field) or "").strip()
+            if parent and value:
+                collected.setdefault(parent, []).append(value)
+    return {p: ", ".join(sorted(set(v))) for p, v in collected.items()}, complete
+
+
 def _retry_empty_source(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -2791,6 +2933,21 @@ def _download_source_types(
                 f"NOT downloaded. Re-run with a higher max_records_per_type to capture everything."
             )
 
+        # Gates that live in a related table, resolved once for the whole family
+        # (chunked IN queries, not one call per record) before anything is
+        # written. field_key -> (value_by_parent_sys_id, complete).
+        related_values: Dict[str, Tuple[Dict[str, str], bool]] = {}
+        for _key, _spec in (source_cfg.get("related_fields") or {}).items():
+            related_values[_key] = _resolve_related_values(
+                config,
+                auth_manager,
+                spec=_spec,
+                sys_ids=[str(r.get("sys_id") or "") for r in records if r.get("sys_id")],
+                source_type=source_type,
+                field_key=_key,
+                warnings=warnings,
+            )
+
         type_dir = scope_root / table
         name_map: Dict[str, str] = {}
         sync_meta: SyncMeta = {}
@@ -2865,6 +3022,18 @@ def _download_source_types(
                 val = record.get(sf)
                 if val is not None:
                     metadata[sf] = str(val) if not isinstance(val, str) else val
+
+            # Related-table gates. `<key>_known` travels WITH the value because a
+            # blank one has two meanings: this record requires none, or the read
+            # that would have told us did not complete. Written even when blank,
+            # so a reader is never left inferring the reassuring one.
+            for _key, (_by_parent, _complete) in related_values.items():
+                value = _by_parent.get(sys_id, "")
+                if value:
+                    metadata[_key] = value
+                elif _complete:
+                    metadata[_key] = ""
+                metadata[f"{_key}_known"] = "true" if _complete else "false"
 
             record_dir = type_dir / safe_name
             sweep_legacy_baseline(record_dir)  # self-tidy any pre-anchor _baseline/
@@ -2943,12 +3112,29 @@ def _download_source_types(
                             backfilled += 1
                         else:
                             still_missing.append(sf)
-                    if still_missing and sys_id:
+                    # still_missing holds ONLY fields the batch returned blank for
+                    # (a non-blank body was written by the branch above), so the
+                    # question here is whether that blank is real or spurious.
+                    # Most optional fields — a BR with no filter_condition, a UI
+                    # action with no Workspace script — are blank on purpose and
+                    # forever, and re-asking per record turns "add one field to a
+                    # family" into one extra HTTP call per record on EVERY
+                    # download. The evidence that a blank is suspicious is that
+                    # content used to be there: an anchor sha for that field. An
+                    # unanchored record (legacy tree, first reconcile) has no such
+                    # evidence either way, so it still pays for the round trip —
+                    # over-fetch where we cannot tell, never where we can.
+                    suspect_missing = [
+                        sf
+                        for sf in still_missing
+                        if not prior_field_shas or prior_field_shas.get(sf)
+                    ]
+                    if suspect_missing and sys_id:
                         backfilled += _retry_empty_source(
                             config,
                             auth_manager,
                             table,
-                            still_missing,
+                            suspect_missing,
                             source_type,
                             (sys_id, safe_name, record_dir),
                             warnings,

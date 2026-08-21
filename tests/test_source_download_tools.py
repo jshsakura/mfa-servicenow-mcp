@@ -183,6 +183,20 @@ def _page_side_effect_for(full_records):
     return _side_effect
 
 
+def _body_query_call(mock_query_all, table):
+    """kwargs of the sn_query_all call that fetched TABLE's own records.
+
+    Not `call_args` — that is merely the LAST call, and a family whose gates
+    live in a related table (ACL roles in sys_security_acl_role) issues its m2m
+    read after the body query. Asserting on the last call silently started
+    testing the wrong query.
+    """
+    for call in mock_query_all.call_args_list:
+        if call.kwargs.get("table") == table:
+            return call.kwargs
+    raise AssertionError(f"no sn_query_all call for {table}")
+
+
 def _query_all_side_effect_for(records_by_table):
     """Build a table-keyed sn_query_all side_effect.
 
@@ -559,7 +573,7 @@ class TestDownloadSourceTypes:
             extra_query={"acl": "scriptISNOTEMPTY"},
         )
 
-        call_kwargs = mock_query_all.call_args[1]
+        call_kwargs = _body_query_call(mock_query_all, "sys_security_acl")
         assert "scriptISNOTEMPTY" in call_kwargs["query"]
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
@@ -996,7 +1010,7 @@ class TestDownloadSourcesSecurity:
         )
 
         assert result["success"] is True
-        call_kwargs = mock_query_all.call_args[1]
+        call_kwargs = _body_query_call(mock_query_all, "sys_security_acl")
         assert "scriptISNOTEMPTY" in call_kwargs["query"]
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
@@ -1015,7 +1029,7 @@ class TestDownloadSourcesSecurity:
             ),
         )
 
-        call_kwargs = mock_query_all.call_args[1]
+        call_kwargs = _body_query_call(mock_query_all, "sys_security_acl")
         assert "scriptISNOTEMPTY" not in call_kwargs["query"]
         assert call_kwargs["page_size"] == 20
         mock_query_page.assert_not_called()

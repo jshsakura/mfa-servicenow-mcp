@@ -152,21 +152,34 @@ def _derived_folder_field_maps() -> Dict[str, Dict[str, str]]:
 def _folder_layout_field_map(table_name: str) -> Optional[Dict[str, str]]:
     """Return the on-disk ``filename -> field`` map for a table's FOLDER layout.
 
-    Folder tables use their real-filename entries from TABLE_FILE_FIELD_MAP
-    (the suffix-style ".xxx" keys belong to the flat single-file layout and are
-    skipped). Single-file tables use the folder map above. Any OTHER downloadable
-    table falls back to the map derived from SOURCE_CONFIG. Returns None only for
-    a table that isn't downloadable source at all.
+    Every table starts from the SOURCE_CONFIG-derived map — whatever the
+    downloader can write, the uploader can place — and the hand-authored entries
+    are layered ON TOP for special filenames and back-compat (widget ``link.js``,
+    the legacy ``client_script.client.js``). The hand map used to REPLACE the
+    derived one for folder/single-file tables, which quietly meant a field added
+    to a family downloaded fine and then had nowhere to go: ``filter_condition``
+    landed on disk, the uploader's two-entry sys_script map had never heard of
+    it, and an edit to a business rule's filter condition would have been
+    dropped without a word. A downloadable field that is not pushable is a silent
+    data loss, so the two maps are a union, never a choice.
+
+    The suffix-style ".xxx" keys belong to the flat single-file layout and are
+    skipped here. Returns None only for a table that isn't downloadable source
+    at all.
     """
+    derived = dict(_derived_folder_field_maps().get(table_name) or {})
     if table_name in FOLDER_TABLES:
-        return {
+        hand = {
             fn: field
             for fn, field in TABLE_FILE_FIELD_MAP.get(table_name, {}).items()
             if not fn.startswith(".")
         }
-    if table_name in SINGLE_FILE_TABLES:
-        return SINGLE_FILE_FOLDER_FIELD_MAP.get(table_name, {})
-    return _derived_folder_field_maps().get(table_name)
+    elif table_name in SINGLE_FILE_TABLES:
+        hand = dict(SINGLE_FILE_FOLDER_FIELD_MAP.get(table_name, {}))
+    else:
+        return _derived_folder_field_maps().get(table_name)
+    derived.update(hand)
+    return derived
 
 
 # Hand-authored core (special filenames / back-compat). The full push/diff
