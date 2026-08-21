@@ -156,6 +156,13 @@ body:has(.landing-page) .sl-container {
   position: relative;
   background-color: var(--page-bg);
 }
+/* The CTA banner's glow (::before, ~line 730) is deliberately wider than its
+   own container so the blur can fade out smoothly instead of clipping at a
+   hard edge -- but nothing stopped it pushing past the page's own edges on
+   narrow screens, causing horizontal overflow/scroll on the whole page. */
+body:has(.landing-page) {
+  overflow-x: hidden;
+}
 /* Grid pattern lives on a separate pseudo-layer (not .landing-page's own
    background) so a mask-image can fade ONLY the grid at the top/bottom edges
    without fading the actual content sitting on top of it. */
