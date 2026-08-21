@@ -260,7 +260,7 @@ body:has(.landing-page) .sl-container {
   color: #e4e4e7;
   max-width: 560px;
   margin: 0 auto !important;
-  margin-bottom: 56px !important;
+  margin-bottom: 120px !important;
   line-height: 1.8;
   font-weight: 400;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
