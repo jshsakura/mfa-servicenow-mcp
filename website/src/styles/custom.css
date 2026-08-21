@@ -223,7 +223,7 @@ body:has(.landing-page) .sl-container {
   letter-spacing: -0.02em;
   line-height: 1.15;
   color: #fff;
-  margin: 0 0 36px;
+  margin: 0 0 16px;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
   text-wrap: balance;
 }
@@ -234,7 +234,7 @@ body:has(.landing-page) .sl-container {
   }
   .hero-title {
     font-size: clamp(3.2rem, 5vw, 4.2rem);
-    margin-bottom: 44px;
+    margin-bottom: 20px;
   }
 }
 .hero-title .gradient-text {
