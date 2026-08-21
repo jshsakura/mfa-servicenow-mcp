@@ -58,11 +58,12 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
       safely.
     </p>
     <p class="section-desc">
-      An API key felt like the wrong shape of credential for that: a static secret sitting in a config
-      file, outliving whatever task it was scoped for. What an admin actually needs is what a human
-      admin already has — a real, MFA/SSO/SAML-gated session. Nothing in the MCP ecosystem did that
-      for ServiceNow, so that became the harness itself: the agent inherits a live browser session
-      instead of holding a key.
+      The Table API alone wasn't enough for that diagnosis. Flow Designer's real structure — triggers,
+      actions, why a flow actually fired or didn't — lives behind session-only endpoints that ordinary
+      REST auth can't reach. So the tool had to grow into real browser authentication, not an API key
+      sitting in a config file. What an admin actually needs is what a human admin already has — a
+      real, MFA/SSO/SAML-gated session. Nothing in the MCP ecosystem did that for ServiceNow, so that
+      became the harness itself: the agent inherits a live browser session instead of holding a key.
     </p>
     <p class="section-desc">
       From there it stopped being an API wrapper. Every write goes through the same discipline a
@@ -82,7 +83,7 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
       </div>
       <div class="step-card" style="--i:2">
         <h3>🔑 A Session, Not a Secret</h3>
-        <p>No MCP did browser-based auth for ServiceNow. The agent inherits a live admin session — MFA, SSO, SAML — instead of holding an API key.</p>
+        <p>Flow Designer's real structure lives behind session-only endpoints the Table API can't reach. The agent inherits a live admin session — MFA, SSO, SAML — instead of holding an API key.</p>
       </div>
       <div class="step-card" style="--i:3">
         <h3>🧭 Anchored Sync</h3>

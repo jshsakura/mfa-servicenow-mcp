@@ -57,8 +57,10 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
       自然に、テストとデプロイまで安全に任せられるかということになりました。
     </p>
     <p class="section-desc">
-      ただ、APIキーはこの用途には合わない方式だと感じました — 設定ファイルに埋め込まれ、本来の作業が
-      終わった後も残り続ける静的な秘密情報だからです。管理者に本当に必要なのは、実際の管理者がすでに
+      その診断にはTable APIだけでは不十分でした。Flow Designerの本当の構造 — トリガー、アクション、
+      フローがなぜ実行された（されなかった）のか — は、通常のREST認証では届かないセッション専用
+      エンドポイントの奥にあります。そのため、このツールは設定ファイルに埋め込まれたAPIキーではなく、
+      本物のブラウザ認証へと拡張する必要がありました。管理者に本当に必要なのは、実際の管理者がすでに
       持っているもの — MFA/SSO/SAMLで保護された本物のセッションです。ServiceNowに対してそれをしてくれる
       MCPがなかったので、それがこのプロジェクトの核となる構造になりました — エージェントはキーを持つ
       代わりに、実際のブラウザセッションをそのまま引き継ぎます。
@@ -81,7 +83,7 @@ export const mcpEnvSnippet = `"SERVICENOW_INSTANCE_URL": "https://your-instance.
       </div>
       <div class="step-card" style="--i:2">
         <h3>🔑 秘密情報ではなくセッション</h3>
-        <p>ServiceNow向けのブラウザ認証に対応したMCPがありませんでした。エージェントはAPIキーの代わりに、実際の管理者セッション — MFA、SSO、SAML — をそのまま引き継ぎます。</p>
+        <p>Flow Designerの本当の構造は、Table APIが届かないセッション専用エンドポイントの奥にあります。エージェントはAPIキーの代わりに、実際の管理者セッション — MFA、SSO、SAML — をそのまま引き継ぎます。</p>
       </div>
       <div class="step-card" style="--i:3">
         <h3>🧭 アンカー同期</h3>
