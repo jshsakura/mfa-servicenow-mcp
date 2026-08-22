@@ -152,16 +152,19 @@ body:has(.landing-page) .sl-container {
   max-width: none;
   margin-inline: 0;
 }
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
 .landing-page {
   position: relative;
   background-color: var(--page-bg);
-}
-/* The CTA banner's glow (::before, ~line 730) is deliberately wider than its
-   own container so the blur can fade out smoothly instead of clipping at a
-   hard edge -- but nothing stopped it pushing past the page's own edges on
-   narrow screens, causing horizontal overflow/scroll on the whole page. */
-body:has(.landing-page) {
+  overflow-x: clip;
   overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 /* Grid pattern lives on a separate pseudo-layer (not .landing-page's own
    background) so a mask-image can fade ONLY the grid at the top/bottom edges
@@ -282,7 +285,7 @@ body:has(.landing-page) {
   justify-content: center;
   align-items: center;
   gap: 12px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   margin-top: 20px;
   margin-bottom: 8px;
 }
@@ -314,6 +317,8 @@ body:has(.landing-page) {
    ============================================================ */
 .content-wrap {
   max-width: 960px;
+  width: 100%;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 24px 48px 64px;
   position: relative;
@@ -641,7 +646,7 @@ pre.install-code .c {
 }
 .skill-categories {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 16px;
   margin-top: 20px;
 }
@@ -651,6 +656,9 @@ pre.install-code .c {
   border-radius: 10px;
   padding: 20px;
   position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  max-width: 100%;
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease,
     border-color 0.2s ease, background 0.2s ease;
 }
@@ -723,20 +731,19 @@ pre.install-code .c {
   text-align: center;
   padding: 72px 24px;
   position: relative;
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 }
-/* No overflow:hidden here on purpose -- the previous version clipped this
-   blurred blob at the banner's own edge, which cut the blur off mid-fade
-   and left a hard visible line instead of a smooth glow. Letting it extend
-   past the banner (into the page's flat background either side) lets the
-   blur actually finish fading to transparent before anything would clip it. */
 .cta-banner::before {
   content: "";
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 900px;
-  height: 900px;
+  width: min(900px, 100%);
+  height: 100%;
+  max-height: 900px;
   border-radius: 50%;
   background: radial-gradient(
     circle,
@@ -745,7 +752,7 @@ pre.install-code .c {
     transparent 70%
   );
   opacity: 0.08;
-  filter: blur(120px);
+  filter: blur(80px);
   pointer-events: none;
   z-index: 0;
 }
@@ -810,7 +817,7 @@ pre.install-code .c {
    ============================================================ */
 @media (max-width: 768px) {
   .content-wrap {
-    padding: 20px 24px 32px;
+    padding: 20px 20px 32px;
   }
   .steps-grid {
     grid-template-columns: 1fr;
@@ -831,19 +838,28 @@ pre.install-code .c {
     padding: 56px 0;
   }
   .cta-banner {
-    padding: 56px 24px;
+    padding: 56px 20px;
+  }
+  .reveal-left,
+  .reveal-right {
+    transform: translateY(20px);
   }
 }
 @media (max-width: 480px) {
   .content-wrap {
     padding: 16px 16px 24px;
   }
-  .hero-stat-value {
-    font-size: 1.5rem;
+  .hero-stats {
+    gap: 8px;
+    padding: 24px 0;
   }
   .hero-stat {
-    padding: 14px 18px;
-    min-width: 120px;
+    padding: 14px 12px;
+    min-width: calc(50% - 8px);
+    flex: 1 1 calc(50% - 8px);
+  }
+  .hero-stat-value {
+    font-size: 1.5rem;
   }
   .section {
     padding: 32px 0;
@@ -856,6 +872,7 @@ pre.install-code .c {
   }
   .hero-terminal-body {
     min-height: 300px;
+    padding: 14px 14px;
   }
 }
 
@@ -871,12 +888,12 @@ pre.install-code .c {
 }
 .reveal-left {
   opacity: 0;
-  transform: translateX(-50px);
+  transform: translateX(-30px);
   transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .reveal-right {
   opacity: 0;
-  transform: translateX(50px);
+  transform: translateX(30px);
   transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .reveal.active,
