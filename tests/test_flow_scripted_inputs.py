@@ -146,9 +146,45 @@ class TestScriptedFieldIsReadable:
         inputs, _ = _project_step_inputs(encode([scripted_entry()]), [300], None, full_scripts=True)
         assert inputs[0]["scripts"][0]["script"] == SCRIPT
 
+    def test_a_blank_value_with_a_script_is_still_reported(self):
+        """The empty-value skip used to run BEFORE the script was looked at, so
+        an input whose body computes the value dropped out of the parse whole —
+        not truncated, not noted, absent."""
+        blank = scripted_entry()
+        blank["value"] = ""
+        blank["displayValue"] = ""
+        inputs, note = _project_step_inputs(encode([blank]), [300], None, full_scripts=True)
+        assert [i["name"] for i in inputs] == ["values"]
+        assert inputs[0]["scripts"][0]["script"] == SCRIPT
+        assert note is None
+
+    def test_a_blank_unscripted_input_is_still_skipped(self):
+        """...while a genuinely unconfigured input stays out: widening the keep
+        rule must not start reporting fields nobody set."""
+        blank = plain_entry()
+        blank["value"] = ""
+        blank["displayValue"] = ""
+        inputs, _ = _project_step_inputs(encode([blank]), [300])
+        assert inputs == []
+
     def test_an_unscripted_input_gains_no_scripts_key(self):
         inputs, _ = _project_step_inputs(encode([plain_entry()]), [300])
         assert "scripts" not in inputs[0]
+
+
+class TestNothingVanishes:
+    def test_an_entry_in_an_unreadable_shape_is_counted_not_skipped(self):
+        """A parse that drops what it cannot read returns a shorter answer that
+        still looks complete."""
+        inputs, note = _project_step_inputs(encode([plain_entry(), "junk", 42]), [300])
+        assert [i["name"] for i in inputs] == ["table_name"]
+        assert note is not None and "2 entr" in note
+
+    def test_the_budget_note_and_the_shape_note_both_survive(self):
+        entries = [plain_entry(f"in{i}", "v") for i in range(3)] + ["junk"]
+        inputs, note = _project_step_inputs(encode(entries), [2])
+        assert len(inputs) == 2
+        assert "not shown" in note and "unrecognised shape" in note
 
 
 class TestLogicBlobShape:

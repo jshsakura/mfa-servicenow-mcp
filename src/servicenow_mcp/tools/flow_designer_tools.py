@@ -84,6 +84,12 @@ _MIN_SCRIPT_LEN = 40
 # ids this reader holds — decoding the column beats joining, and costs no
 # round trip at all.
 _VALUES_FIELD = "values"
+# One page of flow components, and the hard ceiling paging stops at. A full page
+# says nothing about whether more exist, so the reader pages until a short one
+# proves the end — see _fetch_flow_structure. The ceiling is a runaway guard,
+# and reaching it is REPORTED, never absorbed.
+_COMPONENT_PAGE = 100
+_COMPONENT_CEILING = 1000
 # Per-step and per-response caps. Inputs are small (a name and a binding), but
 # a 66-step flow can carry hundreds; every cap that bites is reported.
 _MAX_INPUTS_PER_STEP = 25
@@ -2601,12 +2607,22 @@ def _project_entries(
     render an input — scripts included — through exactly one implementation."""
     inputs: List[Dict[str, Any]] = []
     dropped_for_budget = 0
+    dropped_unrecognised = 0
     for entry in entries:
+        # A shape this cannot read is COUNTED, never just skipped: silently
+        # dropping it would shorten the parse by exactly the part nobody could
+        # explain, and the rest would still read as the complete set.
         if not isinstance(entry, dict):
+            dropped_unrecognised += 1
             continue
         name = str(entry.get("name") or "").strip()
         value = entry.get("value")
-        if not name or value in (None, "", [], {}):
+        # An empty value means "nobody configured this" — UNLESS a script does.
+        # The skip ran before the script was looked at, so an input whose stored
+        # value is blank while its body computes one dropped out of the parse
+        # entirely: not truncated, not noted, absent. Ask first, skip second.
+        scripts = _input_script_bodies(entry)
+        if not name or (value in (None, "", [], {}) and not scripts):
             continue
         if len(inputs) >= _MAX_INPUTS_PER_STEP or budget[0] <= 0:
             dropped_for_budget += 1
@@ -2631,7 +2647,6 @@ def _project_entries(
         # a wide flow carries dozens, and a flow-wide read is not the place to
         # ship them all. The stub states line and character counts, so a caller
         # can see one IS there — and `node_id=<ui_id>` returns it in full.
-        scripts = _input_script_bodies(entry)
         if scripts:
             item["scripts"] = [
                 {
@@ -2651,8 +2666,12 @@ def _project_entries(
         inputs.append(item)
         budget[0] -= 1
 
-    note = f"{dropped_for_budget} more input(s) not shown" if dropped_for_budget else None
-    return inputs, note
+    notes = []
+    if dropped_for_budget:
+        notes.append(f"{dropped_for_budget} more input(s) not shown")
+    if dropped_unrecognised:
+        notes.append(f"{dropped_unrecognised} entr(ies) in an unrecognised shape were not read")
+    return inputs, ("; ".join(notes) if notes else None)
 
 
 def _parse_label_cache(label_cache: str) -> List[str]:
@@ -2666,6 +2685,57 @@ def _parse_label_cache(label_cache: str) -> List[str]:
         if stripped:
             labels.append(stripped)
     return labels
+
+
+def _fetch_all_rows(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    query: str,
+    fields: str,
+    display_value: Any = True,
+    first_page: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[List[Dict[str, Any]], bool]:
+    """Every row for a query, and whether the runaway ceiling cut it short.
+
+    A full page proves nothing about what comes after it. Each of these reads
+    used to stop at one page and hand the result on as the whole set, so a flow
+    past the cap produced a shorter tree, fewer subflow bindings, or a
+    "consistent" verdict computed over rows nobody fetched. Page until a short
+    page proves the end; return ``capped=True`` only when the ceiling itself was
+    reached, so the caller can say so instead of absorbing it.
+
+    ``first_page`` accepts rows already fetched (the batched read) so paging
+    continues from them rather than re-issuing the first request.
+    """
+    rows: List[Dict[str, Any]] = list(first_page or [])
+    if first_page is None:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=query,
+            fields=fields,
+            limit=_COMPONENT_PAGE,
+            offset=0,
+            display_value=display_value,
+        )
+    while rows and len(rows) % _COMPONENT_PAGE == 0 and len(rows) < _COMPONENT_CEILING:
+        more, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=query,
+            fields=fields,
+            limit=_COMPONENT_PAGE,
+            offset=len(rows),
+            display_value=display_value,
+            fail_silently=True,
+        )
+        if not more:
+            break
+        rows = rows + more
+    return rows, len(rows) >= _COMPONENT_CEILING
 
 
 def _fetch_subflow_bindings(
@@ -2683,21 +2753,21 @@ def _fetch_subflow_bindings(
     label_cache labels against actual subflow references.
     """
     # 1. Get subflow instances with both raw and display values in one query
-    instances_all, _ = sn_query_page(
+    # (paged: a partial instance list makes the mismatch verdict below a claim
+    # about rows nobody read, and that verdict prints as "consistent").
+    instances_all, instances_capped = _fetch_all_rows(
         config,
         auth_manager,
-        table=SUBFLOW_V2_TABLE,
-        query=f"flow={snapshot_id}",
-        fields="sys_id,name,order,position,ui_id,parent_ui_id,nesting_parent,subflow",
-        limit=100,
-        offset=0,
+        SUBFLOW_V2_TABLE,
+        f"flow={snapshot_id}",
+        "sys_id,name,order,position,ui_id,parent_ui_id,nesting_parent,subflow",
         display_value="all",
     )
 
     if not instances_all:
         return {
             "subflow_bindings": [],
-            "mismatch_summary": {"mismatch_count": 0, "mismatches": []},
+            "mismatch_summary": {"mismatch_count": 0, "mismatches": [], "complete": True},
         }
 
     # With display_value=all, reference fields become {"value": "sys_id", "display_value": "name"}.
@@ -2742,7 +2812,9 @@ def _fetch_subflow_bindings(
             table=FLOW_SNAPSHOT_TABLE,
             query=f"sys_idIN{','.join(snapshot_ids)}",
             fields="sys_id,name,parent_flow",
-            limit=100,
+            # Sized to the ask: a fixed 100 against a longer IN-list silently
+            # resolved only the first 100 and left the rest looking unbound.
+            limit=max(_COMPONENT_PAGE, len(snapshot_ids)),
             offset=0,
             display_value="all",
         )
@@ -2795,7 +2867,7 @@ def _fetch_subflow_bindings(
             table=FLOW_TABLE,
             query=f"sys_idIN{','.join(remaining_ids)}",
             fields="sys_id,name",
-            limit=100,
+            limit=max(_COMPONENT_PAGE, len(remaining_ids)),
             offset=0,
             display_value=True,
         )
@@ -2868,6 +2940,10 @@ def _fetch_subflow_bindings(
         "mismatch_summary": {
             "mismatch_count": len(mismatches),
             "mismatches": mismatches,
+            # A mismatch count over a PARTIAL instance list is a lower bound, and
+            # the caller prints "verified — consistent" when it is zero. Carry
+            # the limit so that sentence cannot be built on unread rows.
+            "complete": not instances_capped,
         },
     }
 
@@ -2981,6 +3057,7 @@ def _fetch_flow_structure(
         )
 
         fetched: Dict[str, List[Dict[str, Any]]] = {}
+        capped_families: List[str] = []
         for rid, table, fields, kind in families:
             rows = batch_rows((served or {}).get(rid))
             if rows is None:
@@ -2990,10 +3067,20 @@ def _fetch_flow_structure(
                     table=table,
                     query=snapshot_query,
                     fields=fields,
-                    limit=100,
+                    limit=_COMPONENT_PAGE,
                     offset=0,
                     display_value=True,
                 )
+            # A full page is not a finished read. Both fetches above stop at one
+            # page and neither reports a total, so a flow with more components
+            # than that returned a SHORTER TREE and called it the structure —
+            # the missing steps carried no marker of any kind. The flow this was
+            # measured on holds 83 logic nodes against a cap of 100.
+            rows, capped = _fetch_all_rows(
+                config, auth_manager, table, snapshot_query, fields, True, first_page=rows
+            )
+            if capped:
+                capped_families.append(rid)
             for row in rows:
                 row["component_type"] = kind
             fetched[rid] = rows
@@ -3103,6 +3190,12 @@ def _fetch_flow_structure(
             "tree": tree,
         }
 
+        if capped_families:
+            result["components_truncated"] = (
+                f"{', '.join(capped_families)} hit the {_COMPONENT_CEILING}-row ceiling — "
+                "this tree is INCOMPLETE and its counts are lower bounds, not totals."
+            )
+
         # What the input read actually PROVED, carried with it. A step with no
         # `inputs` key means "binds nothing"; a column that would not decode is
         # counted here instead, because those two must never read alike.
@@ -3132,10 +3225,16 @@ def _fetch_flow_structure(
                     "Trust subflow_bindings (actual references) over label_cache (display metadata). "
                     "See mismatch_summary for details."
                 )
-            else:
+            elif binding_data["mismatch_summary"].get("complete", True):
                 result["note"] = (
                     "Retrieved via Table API. Subflow bindings verified — "
                     "label_cache and actual references are consistent."
+                )
+            else:
+                result["note"] = (
+                    "Retrieved via Table API. No mismatch was found in the subflow "
+                    "instances that were read, but the instance list hit its ceiling — "
+                    "this is NOT a clean verdict over the whole flow."
                 )
         else:
             # This used to read "Conditions and variable mappings are
@@ -3236,16 +3335,10 @@ def _fetch_flow_triggers(
         query_parts.append(f"flow={snapshot_id}")
     query_string = "^OR".join(query_parts)
 
-    triggers, _ = sn_query_page(
-        config,
-        auth_manager,
-        table=TRIGGER_TABLE,
-        query=query_string,
-        fields="",
-        limit=20,
-        offset=0,
-        display_value=True,
-    )
+    # Paged rather than capped at 20: a trigger nobody fetched is a reason the
+    # flow runs that the answer does not mention, and "what starts this flow" is
+    # the whole point of the read. Flows carry a handful, so this stays one call.
+    triggers, _ = _fetch_all_rows(config, auth_manager, TRIGGER_TABLE, query_string, "")
     return _attach_trigger_inputs(config, auth_manager, triggers)
 
 
