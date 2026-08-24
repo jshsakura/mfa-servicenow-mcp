@@ -36,7 +36,13 @@ from servicenow_mcp.tools.flow_designer_tools import (
     _summarize_node_inputs,
     get_flow_details,
 )
-from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig, ServerConfig
+from servicenow_mcp.utils.config import (
+    AuthConfig,
+    AuthType,
+    BasicAuthConfig,
+    BrowserAuthConfig,
+    ServerConfig,
+)
 
 # Long enough to be stubbed (over _SCRIPT_STUB_MIN_CHARS) — a one-liner stays
 # inline on purpose, so a fixture under that floor would test the wrong branch.
@@ -92,6 +98,16 @@ def _cfg():
     return ServerConfig(
         instance_url="https://test.service-now.com",
         auth=AuthConfig(type=AuthType.BROWSER, browser=BrowserAuthConfig()),
+    )
+
+
+def _basic_cfg():
+    """Basic auth pins the Table API path — processflow is browser-only."""
+    return ServerConfig(
+        instance_url="https://test.service-now.com",
+        auth=AuthConfig(
+            type=AuthType.BASIC, basic=BasicAuthConfig(username="alice", password="pw")
+        ),
     )
 
 
@@ -286,3 +302,151 @@ class TestSingleNodeRead:
         assert "no-such-node" in result["error"]
         assert "not evidence" in result["error"], "absence must not read as 'binds nothing'"
         assert "include_structure" in result["how_to_find_it"]
+
+
+class TestTriggerAndSubflowInputs:
+    """The two remaining places a binding lived in a column nobody asked for."""
+
+    def test_a_trigger_that_exists_only_on_the_v2_table_is_still_found(self):
+        """The V1 query returned zero for the measured flow, so "what starts
+        this flow" answered "nothing" for a flow that runs on every update."""
+        from servicenow_mcp.tools.flow_designer_tools import _fetch_flow_triggers
+
+        def _rows(config, auth_manager, *, table, query, **_):
+            if table == "sys_hub_trigger_instance_v2":
+                return (
+                    [
+                        {
+                            "sys_id": "t" * 32,
+                            "trigger_type": "record_update",
+                            "trigger_inputs": encode(
+                                [plain_entry("table", "incident"), plain_entry("condition", "a=b")]
+                            ),
+                        }
+                    ],
+                    None,
+                )
+            return ([], None)
+
+        with (
+            patch("servicenow_mcp.tools.flow_designer_tools._get_snapshot_id", return_value=None),
+            patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page", side_effect=_rows),
+        ):
+            triggers = _fetch_flow_triggers(_cfg(), MagicMock(), "f" * 32)
+
+        assert len(triggers) == 1, "a trigger present only on the _v2 table was missed"
+        bound = {i["name"]: i["value"] for i in triggers[0]["inputs"]}
+        assert bound["table"] == "incident" and bound["condition"] == "a=b"
+
+    def test_the_same_trigger_on_both_parents_is_listed_once(self):
+        """The design flow and its compiled snapshot each own a SEPARATE trigger
+        row — different sys_ids, nothing linking them — so reading both parents
+        at once listed one trigger twice. The snapshot wins: it is what runs."""
+        from servicenow_mcp.tools.flow_designer_tools import _fetch_flow_triggers
+
+        def _rows(config, auth_manager, *, table, query, **_):
+            if table != "sys_hub_trigger_instance_v2":
+                return ([], None)
+            # Same trigger, one row per parent, distinct sys_ids.
+            sys_id = "snapshot-row" if query.endswith("s" * 32) else "design-row"
+            return ([{"sys_id": sys_id, "trigger_inputs": encode([plain_entry()])}], None)
+
+        with (
+            patch(
+                "servicenow_mcp.tools.flow_designer_tools._get_snapshot_id", return_value="s" * 32
+            ),
+            patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page", side_effect=_rows),
+        ):
+            triggers = _fetch_flow_triggers(_cfg(), MagicMock(), "f" * 32)
+
+        assert [t["sys_id"] for t in triggers] == ["snapshot-row"]
+
+    def test_a_design_only_trigger_is_still_found_when_the_snapshot_has_none(self):
+        """An unpublished flow has no snapshot row; falling back is what keeps
+        "no rows here" from becoming "this flow has no trigger"."""
+        from servicenow_mcp.tools.flow_designer_tools import _fetch_flow_triggers
+
+        def _rows(config, auth_manager, *, table, query, **_):
+            if table == "sys_hub_trigger_instance_v2" and query.endswith("f" * 32):
+                return ([{"sys_id": "design-row", "trigger_inputs": encode([plain_entry()])}], None)
+            return ([], None)
+
+        with (
+            patch(
+                "servicenow_mcp.tools.flow_designer_tools._get_snapshot_id", return_value="s" * 32
+            ),
+            patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page", side_effect=_rows),
+        ):
+            triggers = _fetch_flow_triggers(_cfg(), MagicMock(), "f" * 32)
+
+        assert [t["sys_id"] for t in triggers] == ["design-row"]
+
+    def test_the_inline_trigger_inputs_need_no_second_query(self):
+        """A row that carries its own inputs must not also pay for the join."""
+        from servicenow_mcp.tools.flow_designer_tools import _fetch_flow_triggers
+
+        calls = []
+
+        def _rows(config, auth_manager, *, table, query, **_):
+            calls.append(query)
+            if table == "sys_hub_trigger_instance_v2":
+                return (
+                    [{"sys_id": "t" * 32, "trigger_inputs": encode([plain_entry()])}],
+                    None,
+                )
+            return ([], None)
+
+        with (
+            patch("servicenow_mcp.tools.flow_designer_tools._get_snapshot_id", return_value=None),
+            patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page", side_effect=_rows),
+        ):
+            _fetch_flow_triggers(_cfg(), MagicMock(), "f" * 32)
+
+        assert not [q for q in calls if "document=" in q]
+
+    def test_a_subflow_call_reports_what_it_passes_in(self):
+        """`subflow_inputs` was never in the field list, so the arguments handed
+        to every subflow were absent from the tree — the row said WHICH subflow
+        ran and nothing about what it was given."""
+        from servicenow_mcp.tools.flow_designer_tools import _fetch_flow_structure
+
+        def _rows(config, auth_manager, *, table, query, fields, **_):
+            if table == "sys_hub_flow":
+                return ([{"sys_id": "f" * 32, "name": "F", "label_cache": ""}], None)
+            if table == "sys_hub_sub_flow_instance_v2":
+                assert "subflow_inputs" in fields, "the input column was not even requested"
+                return (
+                    [
+                        {
+                            "sys_id": "b" * 32,
+                            "ui_id": "ui-1",
+                            "order": "3",
+                            "display_text": "",
+                            "subflow": "Approval Subflow",
+                            "subflow_inputs": encode([plain_entry("record", "REC-1")]),
+                        }
+                    ],
+                    None,
+                )
+            return ([], None)
+
+        with (
+            patch(
+                "servicenow_mcp.tools.flow_designer_tools._get_snapshot_id", return_value="s" * 32
+            ),
+            patch("servicenow_mcp.tools.flow_designer_tools.batch_get", return_value=None),
+            patch(
+                "servicenow_mcp.tools.flow_designer_tools._fetch_subflow_bindings",
+                return_value={
+                    "subflow_bindings": [],
+                    "mismatch_summary": {"mismatch_count": 0, "mismatches": [], "complete": True},
+                },
+            ),
+            patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page", side_effect=_rows),
+        ):
+            result = _fetch_flow_structure(_basic_cfg(), MagicMock(), "f" * 32)
+
+        (row,) = result["flat_summary"]
+        assert row["type"] == "subflow"
+        assert {i["name"]: i["value"] for i in row["inputs"]}["record"] == "REC-1"
+        assert "H4sI" not in json.dumps(result), "the raw blob rode into the tree"

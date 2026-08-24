@@ -1202,16 +1202,20 @@ class TestFetchFlowTriggers(unittest.TestCase):
         mock_qp.return_value = ([{"sys_id": "trig1"}], 1)
 
         triggers = _fetch_flow_triggers(self.config, self.auth_manager, "flow1")
+        # The snapshot is asked FIRST (it is what runs) and both trigger tables
+        # are merged on sys_id, so one trigger is not listed twice.
         self.assertEqual(len(triggers), 1)
-        # call_args is the LAST call, and there are two now: the trigger rows,
-        # then the sys_variable_value join that gives them their table and
-        # condition (those are not columns on the trigger record).
-        query = mock_qp.call_args_list[0][1]["query"]
-        self.assertIn("flow=flow1", query)
-        self.assertIn("flow=snap1", query)
-        join_query = mock_qp.call_args_list[1][1]["query"]
-        self.assertIn("document=sys_hub_trigger_instance", join_query)
-        self.assertIn("trig1", join_query)
+        self.assertEqual(mock_qp.call_args_list[0][1]["query"], "flow=snap1")
+        tables = [c[1]["table"] for c in mock_qp.call_args_list]
+        self.assertIn("sys_hub_trigger_instance", tables)
+        self.assertIn("sys_hub_trigger_instance_v2", tables)
+        # The snapshot answered, so the design flow is not queried on top of it.
+        self.assertNotIn("flow=flow1", [c[1]["query"] for c in mock_qp.call_args_list])
+        # A row with no inline trigger_inputs still gets the sys_variable_value
+        # join that gives it its table and condition.
+        join_query = [c[1]["query"] for c in mock_qp.call_args_list if "document=" in c[1]["query"]]
+        self.assertTrue(join_query, "no variable-value join was attempted")
+        self.assertIn("trig1", join_query[0])
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     @patch("servicenow_mcp.tools.flow_designer_tools._get_snapshot_id")
@@ -1220,10 +1224,11 @@ class TestFetchFlowTriggers(unittest.TestCase):
         mock_qp.return_value = ([], 0)
 
         _fetch_flow_triggers(self.config, self.auth_manager, "flow1")
-        query = mock_qp.call_args_list[0][1]["query"]
-        self.assertEqual(query, "flow=flow1")
-        # No triggers came back, so no join was attempted for them.
-        self.assertEqual(len(mock_qp.call_args_list), 1)
+        # No snapshot, so the design flow is the only parent — both tables asked.
+        queries = [c[1]["query"] for c in mock_qp.call_args_list]
+        self.assertEqual(queries, ["flow=flow1", "flow=flow1"])
+        # No rows came back, so no variable-value join followed.
+        self.assertFalse([q for q in queries if "document=" in q])
 
 
 class TestBuildSubflowTree(unittest.TestCase):

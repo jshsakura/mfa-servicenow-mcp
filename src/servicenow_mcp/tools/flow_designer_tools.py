@@ -38,6 +38,19 @@ LOGIC_V2_TABLE = "sys_hub_flow_logic_instance_v2"
 SUBFLOW_V2_TABLE = "sys_hub_sub_flow_instance_v2"
 FLOW_CONTEXT_TABLE = "sys_flow_context"
 TRIGGER_TABLE = "sys_hub_trigger_instance"
+# A flow's trigger is not always on the V1 table. On the measured instance this
+# flow's ONLY trigger row lives on the _v2 twin, and the V1 query returned zero —
+# so "what starts this flow", the whole reason to ask for triggers, came back as
+# "there are none" for a flow that runs on every record update. Both are read and
+# merged: which table a release writes to is a property of the release, and a
+# missing table costs one empty answer while a missed trigger costs the question.
+TRIGGER_TABLE_V2 = "sys_hub_trigger_instance_v2"
+# Its inputs are NOT in `values` like every other v2 row — the column is
+# `trigger_inputs`, same gzip+base64 JSON inside. A subflow instance is the same
+# story under `subflow_inputs`: the field list never asked for it, so what gets
+# PASSED IN to all 27 subflows of the measured flow was absent from the tree.
+_TRIGGER_VALUES_FIELD = "trigger_inputs"
+_SUBFLOW_VALUES_FIELD = "subflow_inputs"
 
 # Custom Action source retrieval (Action Designer).
 # The internal Script-step body of a custom action does NOT live on the action
@@ -3039,7 +3052,8 @@ def _fetch_flow_structure(
             (
                 "subflows",
                 SUBFLOW_V2_TABLE,
-                "sys_id,display_text,name,order,subflow,ui_id,parent_ui_id,nesting_parent",
+                "sys_id,display_text,name,order,subflow,ui_id,parent_ui_id,nesting_parent,"
+                + _SUBFLOW_VALUES_FIELD,
                 "subflow",
             ),
         )
@@ -3114,7 +3128,7 @@ def _fetch_flow_structure(
         input_budget = [_MAX_INPUTS_PER_RESPONSE]
         unreadable_values = 0
         for comp in all_components:
-            blob = comp.pop(_VALUES_FIELD, None)
+            blob = comp.pop(_VALUES_FIELD, None) or comp.pop(_SUBFLOW_VALUES_FIELD, None)
             step_inputs, input_note = _project_step_inputs(blob, input_budget, step_label_map)
             if step_inputs:
                 comp["inputs"] = step_inputs
@@ -3330,16 +3344,81 @@ def _fetch_flow_triggers(
     """Get triggers for a flow (internal helper). Returns list of trigger records."""
     snapshot_id = _get_snapshot_id(config, auth_manager, flow_id)
 
-    query_parts = [f"flow={flow_id}"]
-    if snapshot_id:
-        query_parts.append(f"flow={snapshot_id}")
-    query_string = "^OR".join(query_parts)
+    # ONE parent, both tables. The compiled snapshot and the design flow each own
+    # a SEPARATE trigger row — different sys_ids, nothing linking them — so a
+    # `flow=a^ORflow=b` read lists the same trigger twice and no dedupe on sys_id
+    # can tell. Ask the snapshot first because that is what runs, and fall back
+    # to the design flow only when it has none (never published, or a draft).
+    #
+    # Both TABLES are then merged, because which one a release writes to is a
+    # property of the release: the measured flow's only trigger row is on the
+    # _v2 twin and the V1 query returned zero — "what starts this flow" answered
+    # "nothing" for a flow that fires on every record update.
+    triggers: List[Dict[str, Any]] = []
+    for parent_id in [pid for pid in (snapshot_id, flow_id) if pid]:
+        seen: set = set()
+        for table in (TRIGGER_TABLE_V2, TRIGGER_TABLE):
+            try:
+                rows, _ = _fetch_all_rows(config, auth_manager, table, f"flow={parent_id}", "")
+            except Exception as exc:  # noqa: BLE001 - a table a release lacks is not an error
+                logger.debug("Trigger table %s not readable: %s", table, exc)
+                continue
+            for row in rows or []:
+                sys_id = str(row.get("sys_id") or "")
+                if sys_id and sys_id in seen:
+                    continue
+                seen.add(sys_id)
+                triggers.append(row)
+        if triggers:
+            break
 
-    # Paged rather than capped at 20: a trigger nobody fetched is a reason the
-    # flow runs that the answer does not mention, and "what starts this flow" is
-    # the whole point of the read. Flows carry a handful, so this stays one call.
-    triggers, _ = _fetch_all_rows(config, auth_manager, TRIGGER_TABLE, query_string, "")
-    return _attach_trigger_inputs(config, auth_manager, triggers)
+    # The v2 row carries its own inputs; only rows that came back without them
+    # need the sys_variable_value join below.
+    needs_join = []
+    for trigger in triggers:
+        inputs = _trigger_inputs_from_blob(trigger)
+        if inputs:
+            trigger["inputs"] = inputs
+        else:
+            needs_join.append(trigger)
+    if needs_join:
+        _attach_trigger_inputs(config, auth_manager, needs_join)
+    return triggers
+
+
+def _trigger_inputs_from_blob(trigger: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """A trigger's inputs decoded from its own row, in the processflow shape.
+
+    Same gzip+base64 JSON as every other node, under `trigger_inputs`. Returning
+    it in the shape `_compact_triggers` already reads means the watched table and
+    the fire condition print identically on both auth paths — which is the point:
+    the same fact was visible or not depending on how you were logged in.
+
+    `value` stays the STORED form and `displayValue` the shown one, because the
+    compactor prefers the display for the table and the raw for the condition.
+    """
+    entries = _decode_values_blob(trigger.pop(_TRIGGER_VALUES_FIELD, None))
+    inputs: List[Dict[str, Any]] = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        if not name:
+            continue
+        value = entry.get("value")
+        if value in (None, "", [], {}):
+            continue
+        parameter = entry.get("parameter")
+        label = (parameter or {}).get("label") if isinstance(parameter, dict) else None
+        inputs.append(
+            {
+                "name": name,
+                "label": str(label or name),
+                "value": value if isinstance(value, str) else json.dumps(value, ensure_ascii=False),
+                "displayValue": str(entry.get("displayValue") or ""),
+            }
+        )
+    return inputs
 
 
 def _attach_trigger_inputs(
