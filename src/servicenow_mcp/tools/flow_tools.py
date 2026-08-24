@@ -214,7 +214,10 @@ class ManageFlowDesignerParams(BaseModel):
     )
 
     # ---- edit workflow ----
-    node_id: Optional[str] = Field(default=None, description="Action/logic/trigger instance id")
+    node_id: Optional[str] = Field(
+        default=None,
+        description="Action/logic/trigger instance id; on get_detail reads that ONE step in full",
+    )
     input_name: Optional[str] = Field(default=None, description="Input field name")
     value: Optional[str] = Field(default=None, description="New value")
     condition_label: Optional[str] = Field(default=None, description="Branch condition label")
@@ -245,6 +248,7 @@ class ManageFlowDesignerParams(BaseModel):
             {
                 "flow_id",
                 "flow_name",
+                "node_id",
                 "include_structure",
                 "include_triggers",
                 "include_executions_summary",
@@ -442,6 +446,7 @@ def _do_get_detail(
     key = (
         config.instance_url,
         flow_id,
+        p.node_id,
         p.include_structure,
         p.include_triggers,
         p.include_executions_summary,
@@ -457,6 +462,7 @@ def _do_get_detail(
         auth_manager,
         GetFlowDetailsParams(
             flow_id=flow_id,
+            node_id=p.node_id,
             include_structure=p.include_structure,
             include_triggers=p.include_triggers,
             include_executions_summary=p.include_executions_summary,

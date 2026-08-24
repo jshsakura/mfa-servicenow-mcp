@@ -158,6 +158,10 @@ class GetFlowDetailsParams(BaseModel):
         default=True,
         description="Compact tree+warnings+index (default). Set False only if raw JSON needed.",
     )
+    node_id: Optional[str] = Field(
+        default=None,
+        description="Read ONE step (ui_id or sys_id): full bindings + script bodies, no flow dump",
+    )
 
 
 class GetFlowExecutionsParams(BaseModel):
@@ -538,6 +542,12 @@ def _summarize_node_inputs(
     screen disagreed about which step produced a value, on the path most people
     actually read (browser auth). Verified live: this summary already carried
     every binding, and every pill in it was unreadable.
+
+    An input whose value is computed by a script also gets a
+    ``"<input>.<field> (script)"`` key holding the body — see
+    ``_input_script_bodies`` for why the value alone is not an answer. Long
+    bodies are stubbed downstream by ``_humanize_input`` (include_scripts=False),
+    never here: this function does not truncate.
     """
     flat: Dict[str, str] = {}
     for inp in node.get("inputs", []) or []:
@@ -562,6 +572,11 @@ def _summarize_node_inputs(
             flat[name] = value_str
         else:
             flat[name] = display_str
+        # A scripted field's `value` is only the sentinel that says so. The body
+        # rides alongside it under its own key, so the row shows what the step
+        # actually does instead of stopping at "state=fd-scripted".
+        for body in _input_script_bodies(inp):
+            flat[_script_input_key(name, body)] = body["script"]
     return flat
 
 
@@ -872,12 +887,78 @@ _SCRIPT_INPUT_NAMES = frozenset({"script", "source", "client_script", "server_sc
 _SCRIPT_STUB_MIN_CHARS = 120
 
 
+# A flow input whose value is COMPUTED BY A SCRIPT does not store the script in
+# `value`. `value` holds the sentinel "<field>=fd-scripted" and the body lives
+# in a sibling `script` block, keyed by the field it feeds:
+#
+#   {"name": "values", "value": "state=fd-scripted", "scriptActive": true,
+#    "script": {"state": {"scriptActive": true,
+#                         "script": "<body>", "savedValue": "32"}}}
+#
+# Both readers here projected `value` alone, so a scripted field reported
+# `values = state=fd-scripted` — a confident, finished-looking value for a field
+# whose actual behaviour nobody had read, with no note saying so. Measured on a
+# live 36-action flow: 33 action rows carry a body, and all 33 were invisible.
+# Both the processflow payload and the compiled `values` blob carry it.
+_SCRIPT_SENTINEL = "fd-scripted"
+
+
+def _input_script_bodies(entry: Any) -> List[Dict[str, Any]]:
+    """Every script configured on ONE input, as {field, script, active, saved_value}.
+
+    An empty list means "this input is not scripted" — it is NOT "we could not
+    tell". A `script` block in a shape this does not recognise yields no entries
+    and the caller keeps the sentinel it already had, rather than inventing a
+    value for it.
+
+    ``active`` is carried because a script can be present but switched OFF, and
+    then ``saved_value`` is what actually runs. Reporting a dormant script as
+    the value would replace one false answer with another.
+    """
+    if not isinstance(entry, dict):
+        return []
+    block = entry.get("script")
+    if not isinstance(block, dict):
+        return []
+    bodies: List[Dict[str, Any]] = []
+    for field, cfg in block.items():
+        if not isinstance(cfg, dict):
+            continue
+        body = cfg.get("script")
+        if not isinstance(body, str) or not body.strip():
+            continue
+        item: Dict[str, Any] = {
+            "field": str(field),
+            "script": body,
+            "active": bool(cfg.get("scriptActive", entry.get("scriptActive", False))),
+        }
+        saved = cfg.get("savedValue")
+        if isinstance(saved, str) and saved:
+            item["saved_value"] = saved
+        bodies.append(item)
+    return bodies
+
+
+def _script_input_key(input_name: str, body: Dict[str, Any]) -> str:
+    """The tree key for one scripted field, stating whether it is live.
+
+    An inactive script names the value that runs INSTEAD of it, so the row can
+    never be read as "this script decides the field" when it does not.
+    """
+    base = f"{input_name}.{body['field']} (script"
+    if body.get("active"):
+        return base + ")"
+    saved = body.get("saved_value")
+    return base + (f", INACTIVE — value used: {saved})" if saved else ", INACTIVE)")
+
+
 def _script_stub(value: str) -> str:
     lines = value.count("\n") + 1
     digest = hashlib.sha1(value.encode("utf-8", "replace")).hexdigest()[:8]
     return (
         f"«script: {lines} lines, {len(value)} chars, sha1:{digest} — omitted from "
-        "tree; fetch full body via read_action or sn_query»"
+        "tree; full body: get_detail node_id=<this row's id>, or read_action / "
+        "get_action_source for an action's own source»"
     )
 
 
@@ -893,7 +974,7 @@ def _humanize_input(
     Script bodies are stubbed unless include_scripts=True (see _SCRIPT_INPUT_NAMES)."""
     if (
         not include_scripts
-        and name in _SCRIPT_INPUT_NAMES
+        and (name in _SCRIPT_INPUT_NAMES or name.endswith(")") and "(script" in name)
         and isinstance(value, str)
         and len(value) > _SCRIPT_STUB_MIN_CHARS
     ):
@@ -2081,6 +2162,164 @@ def _flow_runtime_status(
     }
 
 
+_PF_NODE_FAMILIES = (
+    ("action", "actionInstances"),
+    ("logic", "flowLogicInstances"),
+    ("subflow", "subFlowInstances"),
+)
+_TABLE_NODE_FAMILIES = (
+    ("action", ACTION_V2_TABLE, "action_type"),
+    ("logic", LOGIC_V2_TABLE, "logic_definition"),
+    ("subflow", SUBFLOW_V2_TABLE, "subflow"),
+)
+
+
+def _get_node_detail(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    flow_id: str,
+    node_id: str,
+) -> Dict[str, Any]:
+    """ONE step, in full — every binding, every script body, no truncation.
+
+    This is the read the flow-wide answer keeps pointing at ("get_one_step:
+    action='get_detail', node_id=<the `ui_id` on any row>"). It did not exist:
+    `node_id` was not on this params model and not in the multiplex's field set
+    for get_detail, so it was dropped before it arrived and the call fell through
+    to the whole-flow read — which answered with the flow record and its
+    label_cache, ~30KB, containing not one word about the node asked for.
+
+    Deliberately narrow: the node and nothing else. A caller who wants the tree
+    asks for the tree.
+    """
+    node_id = (node_id or "").strip()
+
+    pf_result = (
+        _try_processflow_api(config, auth_manager, flow_id) if _is_browser_auth(config) else None
+    )
+    if pf_result and pf_result.get("result"):
+        pf_data = pf_result["result"]
+        label_map = _build_label_map(pf_data)
+        for kind, key in _PF_NODE_FAMILIES:
+            for node in pf_data.get(key) or []:
+                if not isinstance(node, dict):
+                    continue
+                if node_id not in (
+                    str(node.get("uiUniqueIdentifier") or ""),
+                    str(node.get("id") or ""),
+                ):
+                    continue
+                inputs, note = _project_entries(
+                    [e for e in (node.get("inputs") or []) if isinstance(e, dict)],
+                    [_MAX_INPUTS_PER_RESPONSE],
+                    label_map,
+                    full_scripts=True,
+                )
+                out: Dict[str, Any] = {
+                    "success": True,
+                    "source": "processflow_api",
+                    "flow_id": flow_id,
+                    "node": {
+                        "id": node.get("uiUniqueIdentifier", ""),
+                        "sys_id": node.get("id", ""),
+                        "order": node.get("order", ""),
+                        "kind": kind,
+                        "name": node.get("displayText") or node.get("name") or "",
+                        "type": _pf_node_type(node),
+                        "parent": node.get("parent", ""),
+                        "inputs": inputs,
+                    },
+                }
+                if note:
+                    out["node"]["inputs_note"] = note
+                return out
+        return _node_not_found(flow_id, node_id, "processflow_api")
+
+    # Table API: the node lives on the compiled snapshot, and (identically, for
+    # scripts) on the design row. Try the snapshot first, then the design flow —
+    # an unpublished step exists only on the latter.
+    snapshot_id = _get_snapshot_id(config, auth_manager, flow_id)
+    for parent_id in [pid for pid in (snapshot_id, flow_id) if pid]:
+        for kind, table, type_field in _TABLE_NODE_FAMILIES:
+            for clause in (f"ui_id={node_id}", f"sys_id={node_id}"):
+                rows, _ = sn_query_page(
+                    config,
+                    auth_manager,
+                    table=table,
+                    query=f"flow={parent_id}^{clause}",
+                    fields=(
+                        f"sys_id,display_text,name,order,ui_id,parent_ui_id,{type_field},values"
+                    ),
+                    limit=1,
+                    offset=0,
+                    display_value=True,
+                    fail_silently=True,
+                )
+                if not rows:
+                    continue
+                row = rows[0]
+                inputs, note = _project_step_inputs(
+                    row.get(_VALUES_FIELD),
+                    [_MAX_INPUTS_PER_RESPONSE],
+                    None,
+                    full_scripts=True,
+                )
+                out = {
+                    "success": True,
+                    "source": "table_api",
+                    "flow_id": flow_id,
+                    "node": {
+                        "id": row.get("ui_id", ""),
+                        "sys_id": row.get("sys_id", ""),
+                        "order": row.get("order", ""),
+                        "kind": kind,
+                        "name": str(row.get("display_text") or row.get("name") or ""),
+                        "type": str(row.get(type_field) or ""),
+                        "parent": row.get("parent_ui_id", ""),
+                        "inputs": inputs,
+                    },
+                }
+                if note:
+                    out["node"]["inputs_note"] = note
+                return out
+    return _node_not_found(flow_id, node_id, "table_api")
+
+
+def _pf_node_type(node: Dict[str, Any]) -> str:
+    """A processflow node's type, whichever family it came from."""
+    action_type = node.get("actionType")
+    if isinstance(action_type, dict):
+        name = action_type.get("name") or action_type.get("label")
+        if name:
+            return str(name)
+    for key in ("flowLogicDefinition", "type", "internalName", "actionTypeSysId"):
+        value = node.get(key)
+        if isinstance(value, dict):
+            value = value.get("name") or value.get("label") or value.get("id")
+        if value:
+            return str(value)
+    return ""
+
+
+def _node_not_found(flow_id: str, node_id: str, source: str) -> Dict[str, Any]:
+    """Not found is reported as not found — never as a node with no bindings."""
+    return {
+        "success": False,
+        "source": source,
+        "flow_id": flow_id,
+        "node_id": node_id,
+        "error": (
+            f"No action, logic or subflow node with ui_id or sys_id '{node_id}' in flow "
+            f"{flow_id}. This is not evidence the step has no bindings — it says the "
+            "handle did not resolve."
+        ),
+        "how_to_find_it": (
+            "action='get_detail', flow_id=..., include_structure=true — every row's "
+            "`id` is the handle this takes."
+        ),
+    }
+
+
 def get_flow_details(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -2091,6 +2330,14 @@ def get_flow_details(
     Tries the processflow API first for complete data. Falls back to Table API.
     """
     flow_id = params.flow_id
+
+    # One step asked for, one step returned. Before any whole-flow work.
+    if params.node_id:
+        try:
+            return _get_node_detail(config, auth_manager, flow_id, params.node_id)
+        except Exception as e:  # noqa: BLE001 - a read must not raise at the tool edge
+            logger.error("Error reading node %s of flow %s: %s", params.node_id, flow_id, e)
+            return {"success": False, "error": str(e), "flow_id": flow_id}
 
     pf_error: Optional[str] = None
     needs_processflow = any(
@@ -2288,11 +2535,27 @@ def _decode_values_blob(blob: Any) -> Optional[List[Dict[str, Any]]]:
     except (ValueError, UnicodeDecodeError) as exc:
         logger.debug("Step values decoded but were not JSON: %s", exc)
         return None
-    return parsed if isinstance(parsed, list) else None
+    if isinstance(parsed, list):
+        return parsed
+    # TWO shapes, not one. An action row's blob is the bare input list; a LOGIC
+    # row's is an object that CONTAINS it: {"inputs": [...], "outputsToAssign": []}.
+    # Only the list was accepted, so every logic row decoded to None and was
+    # counted "unreadable" — measured live: 83 of 83 on one flow, which is every
+    # branch condition in it, while this module's own header says logic rows are
+    # "where branch conditions are". The bytes were there and read; the shape
+    # check threw them away.
+    if isinstance(parsed, dict):
+        inner = parsed.get("inputs")
+        if isinstance(inner, list):
+            return inner
+    return None
 
 
 def _project_step_inputs(
-    blob: Any, budget: List[int], label_map: Optional[Dict[str, str]] = None
+    blob: Any,
+    budget: List[int],
+    label_map: Optional[Dict[str, str]] = None,
+    full_scripts: bool = False,
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """One step's bound inputs, at the level the Flow Designer canvas shows them.
 
@@ -2308,6 +2571,9 @@ def _project_step_inputs(
         rather than as a raw ``{{uuid.field}}``.
       * ``name`` — the machine name, kept because ``set_action_input`` takes it;
         dropping it would make everything readable and nothing writable.
+      * ``scripts`` — present only when the field is computed by a script, which
+        ``value`` can only say HAPPENED (``state=fd-scripted``), never what it
+        does. Bodies are stubbed unless ``full_scripts`` (the single-node read).
 
     Still dropped: the ``parameter`` metadata block minus its label (type,
     maxsize, hints — most of the bytes, none of the answer), and inputs nobody
@@ -2321,7 +2587,18 @@ def _project_step_inputs(
     entries = _decode_values_blob(blob)
     if entries is None:
         return [], ("unreadable" if blob else None)
+    return _project_entries(entries, budget, label_map, full_scripts)
 
+
+def _project_entries(
+    entries: List[Dict[str, Any]],
+    budget: List[int],
+    label_map: Optional[Dict[str, str]] = None,
+    full_scripts: bool = False,
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """Project already-decoded input entries. The processflow payload hands these
+    over directly (same entry shape as the compiled blob), so both auth paths
+    render an input — scripts included — through exactly one implementation."""
     inputs: List[Dict[str, Any]] = []
     dropped_for_budget = 0
     for entry in entries:
@@ -2350,6 +2627,19 @@ def _project_step_inputs(
             )
 
         item: Dict[str, Any] = {"name": name, "value": shown}
+        # The body behind a "<field>=fd-scripted" sentinel. Stubbed by default:
+        # a wide flow carries dozens, and a flow-wide read is not the place to
+        # ship them all. The stub states line and character counts, so a caller
+        # can see one IS there — and `node_id=<ui_id>` returns it in full.
+        scripts = _input_script_bodies(entry)
+        if scripts:
+            item["scripts"] = [
+                {
+                    k: (v if k != "script" else (v if full_scripts else _script_stub(v)))
+                    for k, v in body.items()
+                }
+                for body in scripts
+            ]
         parameter = entry.get("parameter")
         label = (parameter or {}).get("label") if isinstance(parameter, dict) else None
         if isinstance(label, str) and label and label != name:
