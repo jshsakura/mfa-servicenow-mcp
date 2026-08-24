@@ -1,5 +1,9 @@
 # MFA ServiceNow MCP
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/jshsakura/mfa-servicenow-mcp/main/docs/assets/hero.webp" alt="mfa-servicenow-mcp — an MFA-first ServiceNow Model Context Protocol server: AI/MCP host on the left, ServiceNow instance on the right" width="100%">
+</p>
+
 🌐 [English](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md) | 🇰🇷 [한국어](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md) | 🇯🇵 [日本語](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ja.md) | 🇮🇳 [हिन्दी](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.hi.md) | 🇨🇳 [简体中文](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.zh.md) | 🇪🇸 [Español](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.es.md) | 🚀 [**GitHub Pages**](https://jshsakura.github.io/mfa-servicenow-mcp/)
 
 MFA 优先的 ServiceNow MCP 服务器。通过真实浏览器（Playwright）进行认证，因此 Okta、Entra ID、SAML 以及任何 MFA/SSO 登录都能直接使用。同时也支持用于无界面/Docker 环境的 API Key。
