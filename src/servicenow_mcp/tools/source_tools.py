@@ -3781,7 +3781,7 @@ class DownloadAppSourcesParams(BaseModel):
     )
     resume: bool = Field(
         default=True,
-        description="Replay finished stages from a prior timed-out call; skip re-downloading them.",
+        description="Skip stages a prior timed-out call finished. false = download everything again.",
     )
     background: bool = Field(
         default=False,
@@ -3808,9 +3808,30 @@ _BG_JOBS_LOCK = threading.Lock()
 _BG_POLL_MAX_BLOCK_SECONDS = 20.0
 _BG_POLL_TICK_SECONDS = 2.0
 
+# How long a FINISHED job may keep answering calls that share its arguments.
+# A completed job used to live for the life of the process with no expiry and no
+# eviction, so the first successful download of a given (host, scope, args)
+# answered every later request for that scope forever: back in milliseconds,
+# `success: true`, carrying a `duration_ms` nobody had spent and counts from a
+# tree that might since have been deleted. Observed in the wild on a server up
+# for three days — a morning's re-download was served the previous week's run,
+# and no argument the caller could pass escaped it. The window is long enough to
+# re-deliver a result whose response was dropped, far too short to outlive the
+# question it answered.
+_BG_JOB_RESULT_TTL_SECONDS = 60.0
 
-def _bg_job_key(instance_host: str, scope: str, fingerprint: str) -> str:
-    return f"{instance_host}|{scope}|{fingerprint}"
+
+def _bg_job_key(instance_host: str, scope: str, fingerprint: str, resume: bool) -> str:
+    """Identity of a download REQUEST.
+
+    `resume` belongs here and deliberately NOT in the disk fingerprint: the
+    fingerprint identifies a partial TREE (which stages are already on disk),
+    while this key identifies an ASK. Leaving it out meant `resume=false` — the
+    one knob a caller reaches for to say "download it again" — hashed to exactly
+    the same key as the run it was trying to replace, and got that run's stored
+    result back. The escape hatch and the trap were the same string.
+    """
+    return f"{instance_host}|{scope}|{fingerprint}|resume={int(bool(resume))}"
 
 
 def _read_job(key: str) -> Optional[Dict[str, Any]]:
@@ -3820,6 +3841,17 @@ def _read_job(key: str) -> Optional[Dict[str, Any]]:
     kill); mark it so the caller restarts a resume rather than reporting a dead
     thread as alive. Returns a fresh dict (never the shared one) so callers read
     status/result without holding the lock; None means no job for this key.
+
+    Terminal jobs do not live forever:
+
+    - **done** expires after `_BG_JOB_RESULT_TTL_SECONDS`, and the count of
+      deliveries travels with it so the caller can label a re-delivery. A stored
+      answer returned as *this* call's answer is the defect this module keeps
+      being bitten by — it arrives in milliseconds wearing a duration nobody
+      spent, and nothing in it says it is old.
+    - **failed** is dropped as it is reported. A sticky failure means "try
+      again" can never try anything, which is the same bug pointing the other
+      way: the reassuring branch is not the only one that must not be cached.
     """
     with _BG_JOBS_LOCK:
         job = _BG_JOBS.get(key)
@@ -3829,6 +3861,22 @@ def _read_job(key: str) -> Optional[Dict[str, Any]]:
             thread = job.get("thread")
             if thread is None or not thread.is_alive():
                 job["status"] = "interrupted"
+        if job["status"] == "failed":
+            _BG_JOBS.pop(key, None)
+            return {"status": "failed", "result": None, "error": job.get("error")}
+        if job["status"] == "done":
+            age = time.time() - float(job.get("finished_at") or 0.0)
+            if age > _BG_JOB_RESULT_TTL_SECONDS:
+                _BG_JOBS.pop(key, None)
+                return None
+            job["deliveries"] = int(job.get("deliveries") or 0) + 1
+            return {
+                "status": "done",
+                "result": job.get("result"),
+                "error": None,
+                "deliveries": job["deliveries"],
+                "finished_ago": age,
+            }
         return {"status": job["status"], "result": job.get("result"), "error": job.get("error")}
 
 
@@ -3853,7 +3901,7 @@ def _run_or_poll_background(
     the thread runs as long as it needs while polls stay fast.
     """
     instance_host = urlparse(config.instance_url).hostname or config.instance_url
-    key = _bg_job_key(instance_host, params.scope, fingerprint)
+    key = _bg_job_key(instance_host, params.scope, fingerprint, params.resume)
 
     job = _read_job(key)
 
@@ -3885,7 +3933,25 @@ def _run_or_poll_background(
             ),
         }
     if job is not None and job["status"] == "done":
-        return job["result"]
+        result = job["result"]
+        if not isinstance(result, dict) or int(job.get("deliveries") or 1) <= 1:
+            return result
+        # Same args, same finished job, second time. It is still the honest
+        # answer to the first ask and worth handing back — but the caller has no
+        # other way to tell it apart from a download that just ran, so say it
+        # here rather than let a fast `success: true` imply freshness.
+        age = int(job.get("finished_ago") or 0)
+        return {
+            **result,
+            "replayed": True,
+            "finished_seconds_ago": age,
+            "message": (
+                f"REPLAY — the stored result of a download that finished {age}s ago. "
+                "THIS call downloaded nothing and touched no file on disk. It expires in "
+                f"{max(0, int(_BG_JOB_RESULT_TTL_SECONDS) - age)}s, after which the same "
+                "call starts a real download."
+            ),
+        }
     if job is not None and job["status"] == "failed":
         return {
             "success": False,
@@ -3894,6 +3960,10 @@ def _run_or_poll_background(
             "scope": params.scope,
             "error": job.get("error"),
             "progress": snapshot,
+            "message": (
+                "This failure is NOT kept — calling again with the same args starts a "
+                "real retry, not a replay of this error."
+            ),
         }
 
     with _BG_JOBS_LOCK:
@@ -3928,6 +3998,10 @@ def _run_or_poll_background(
             "result": None,
             "error": None,
             "scope": params.scope,
+            # Stamped when the worker finishes; until then the job is not
+            # terminal and neither field is read.
+            "finished_at": 0.0,
+            "deliveries": 0,
         }
 
         def _worker() -> None:
@@ -3936,10 +4010,12 @@ def _run_or_poll_background(
                 with _BG_JOBS_LOCK:
                     new_job["status"] = "done"
                     new_job["result"] = result
+                    new_job["finished_at"] = time.time()
             except BaseException as exc:  # noqa: BLE001 — surfaced via poll
                 with _BG_JOBS_LOCK:
                     new_job["status"] = "failed"
                     new_job["error"] = str(exc)
+                    new_job["finished_at"] = time.time()
 
         thread = threading.Thread(target=_worker, name=f"dl-{params.scope}", daemon=True)
         new_job["thread"] = thread
