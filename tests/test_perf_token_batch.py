@@ -284,6 +284,27 @@ def _served(rows_by_id):
     return {rid: {"status_code": 200, "body": {"result": rows}} for rid, rows in rows_by_id.items()}
 
 
+def _declaration(element, order=100):
+    """One flow input/output/variable row, as its dictionary table stores it."""
+    return {
+        "sys_id": element,
+        "element": element,
+        "label": element,
+        "internal_type": "String",
+        "order": str(order),
+    }
+
+
+def _signature_served():
+    """The flow's declared inputs/outputs/variables ride the SAME batch as the
+    component families — a signature is not worth three extra round trips."""
+    return {
+        "sig_inputs": [_declaration("in1")],
+        "sig_outputs": [_declaration("out1")],
+        "sig_variables": [_declaration("var1")],
+    }
+
+
 def _component(sys_id, order):
     return {
         "sys_id": sys_id,
@@ -326,20 +347,27 @@ def test_the_three_component_reads_ride_one_round_trip():
             "actions": [_component("a1", 100)],
             "logic": [_component("l1", 200)],
             "subflows": [_component("s1", 300)],
+            **_signature_served(),
         }
     )
 
     result, batch, page = _structure_under(served, [_FLOW_ROW])
 
     assert (result["total_actions"], result["total_logic"], result["total_subflows"]) == (1, 1, 1)
+    assert [i["name"] for i in result["inputs"]] == ["in1"]
     assert batch.call_count == 1
     # The only direct GET left is the flow record itself.
     assert page.call_count == 1
-    # All three sub-requests carry display values — the tree shows labels, not sys_ids.
     urls = [url for _rid, url in batch.call_args[0][2]]
-    assert len(urls) == 3
+    # Three component families + the three declaration tables, one round trip.
+    assert len(urls) == 6
+    # Every sub-request carries display values — the tree shows labels, not sys_ids.
     assert all("sysparm_display_value=true" in url for url in urls)
-    assert all("sysparm_query=flow%3Dsnap1" in url for url in urls)
+    component_urls = [u for u in urls if "sysparm_query=flow%3Dsnap1" in u]
+    assert len(component_urls) == 3
+    # The declarations are keyed by `model`; `flow` is not a column on those
+    # tables and would drop the condition, returning the whole table.
+    assert len([u for u in urls if "sysparm_query=model%3Dsnap1" in u]) == 3
 
 
 def test_an_instance_without_the_batch_api_still_gets_the_whole_tree():
@@ -352,17 +380,28 @@ def test_an_instance_without_the_batch_api_still_gets_the_whole_tree():
             ([_component("a1", 100)], 1),
             ([_component("l1", 200)], 1),
             ([_component("s1", 300)], 1),
+            # ...then the three declaration tables, unbatched.
+            ([_declaration("in1")], 1),
+            ([_declaration("out1")], 1),
+            ([_declaration("var1")], 1),
         ],
     )
 
     assert (result["total_actions"], result["total_logic"], result["total_subflows"]) == (1, 1, 1)
+    assert [i["name"] for i in result["inputs"]] == ["in1"]
     assert batch.call_count == 1
-    assert page.call_count == 4
+    assert page.call_count == 7
 
 
 def test_a_sub_request_the_server_skipped_is_refetched_not_dropped():
     """A partly-served batch must not read as a flow with fewer steps."""
-    served = _served({"actions": [_component("a1", 100)], "subflows": [_component("s1", 300)]})
+    served = _served(
+        {
+            "actions": [_component("a1", 100)],
+            "subflows": [_component("s1", 300)],
+            **_signature_served(),
+        }
+    )
 
     result, batch, page = _structure_under(served, [_FLOW_ROW, ([_component("l1", 200)], 1)])
 
@@ -377,6 +416,7 @@ def test_a_sub_request_that_failed_is_refetched_not_treated_as_empty():
         "actions": {"status_code": 200, "body": {"result": [_component("a1", 100)]}},
         "logic": {"status_code": 403, "body": None},
         "subflows": {"status_code": 200, "body": {"result": []}},
+        **_served(_signature_served()),
     }
 
     result, _batch, page = _structure_under(served, [_FLOW_ROW, ([_component("l1", 200)], 1)])

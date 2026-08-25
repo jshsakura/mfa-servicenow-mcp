@@ -2113,7 +2113,11 @@ def list_flows(
             auth_manager,
             table=FLOW_TABLE,
             query=query_string,
-            fields="sys_id,name,status,active,trigger_type,sys_scope,sys_updated_on,sys_updated_by,description",
+            # No `trigger_type` here: it is not a column on sys_hub_flow, so the
+            # server simply omitted it and every listed flow came back without
+            # the field the list claimed to select. A trigger is read from the
+            # trigger tables (see _fetch_flow_triggers).
+            fields="sys_id,name,status,active,sys_scope,sys_updated_on,sys_updated_by,description",
             limit=min(params.limit, 100),
             offset=params.offset,
             display_value=True,
@@ -2751,6 +2755,89 @@ def _fetch_all_rows(
     return rows, len(rows) >= _COMPONENT_CEILING
 
 
+# A flow's declared INPUTS, OUTPUTS and VARIABLES are dictionary-style rows on
+# their own tables, linked by `model` — NOT by `flow`, which is not a column
+# there at all (asking on `flow` drops the condition and returns the whole
+# table). The Table API structure never read them, so on that path a flow's
+# signature — what you must pass it and what it hands back — was absent, and
+# `compare` could not see two flows whose inputs differ.
+_SIGNATURE_TABLES = (
+    ("inputs", "sys_hub_flow_input"),
+    ("outputs", "sys_hub_flow_output"),
+    ("variables", "sys_hub_flow_variable"),
+)
+
+
+_SIGNATURE_RID = "sig_%s"
+_SIGNATURE_FIELDS = "sys_id,element,label,internal_type,order,mandatory"
+
+
+def _fetch_flow_signature(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    flow_id: str,
+    snapshot_id: str = "",
+    served: Optional[Dict[str, Any]] = None,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """The flow's declared inputs/outputs/variables, in the processflow shape.
+
+    The compiled snapshot and the design flow each own their OWN rows (distinct
+    sys_ids, same names), so one parent is asked at a time — the snapshot first
+    because that is what runs, the design flow when it has none. Verified live
+    against a bogus model id, which returns zero rows: the filter discriminates
+    rather than being dropped.
+
+    A table that cannot be read yields no entries for that kind; it never
+    fabricates an empty declaration for one that exists.
+    """
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for key, table in _SIGNATURE_TABLES:
+        # Served by the same batch the component families ride, when there is
+        # one: a flow's signature is not worth three extra round trips.
+        pre = batch_rows((served or {}).get(_SIGNATURE_RID % key))
+        if pre:
+            out[key] = _signature_entries(pre)
+            continue
+        # `pre == []` means the batch DID answer and that parent has none, so the
+        # only parent left to try is the other one; `pre is None` means it did
+        # not answer at all and both are still open.
+        parents = [flow_id] if pre == [] and snapshot_id else [snapshot_id, flow_id]
+        for parent_id in [pid for pid in parents if pid]:
+            try:
+                rows, _ = sn_query_page(
+                    config,
+                    auth_manager,
+                    table=table,
+                    query=f"model={parent_id}",
+                    fields=_SIGNATURE_FIELDS,
+                    limit=_COMPONENT_PAGE,
+                    offset=0,
+                    display_value=True,
+                    fail_silently=True,
+                )
+            except Exception as exc:  # noqa: BLE001 - one absent table is not a failed read
+                logger.debug("Flow %s table %s not readable: %s", key, table, exc)
+                continue
+            if not rows:
+                continue
+            out[key] = _signature_entries(rows)
+            break
+    return out
+
+
+def _signature_entries(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Declaration rows in the processflow shape, in declared order."""
+    return [
+        {
+            "name": str(r.get("element") or ""),
+            "label": str(r.get("label") or ""),
+            "type": str(r.get("internal_type") or ""),
+        }
+        for r in sorted(rows, key=lambda r: _safe_int(r.get("order")))
+        if r.get("element")
+    ]
+
+
 def _fetch_subflow_bindings(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -3067,6 +3154,19 @@ def _fetch_flow_structure(
                     table_query_url(table, snapshot_query, fields, limit=100, display_value=True),
                 )
                 for rid, table, fields, _kind in families
+            ]
+            + [
+                (
+                    _SIGNATURE_RID % key,
+                    table_query_url(
+                        table,
+                        f"model={snapshot_id}",
+                        _SIGNATURE_FIELDS,
+                        limit=_COMPONENT_PAGE,
+                        display_value=True,
+                    ),
+                )
+                for key, table in _SIGNATURE_TABLES
             ],
         )
 
@@ -3192,6 +3292,11 @@ def _fetch_flow_structure(
                 entry["inputs_note"] = comp["inputs_note"]
             flat_summary.append(entry)
 
+        # What the flow ASKS FOR and HANDS BACK. The processflow path has carried
+        # these all along; this path did not read them at all, so the same flow
+        # looked signature-less depending on how you were logged in.
+        signature = _fetch_flow_signature(config, auth_manager, flow_id, snapshot_id, served)
+
         result: Dict[str, Any] = {
             "success": True,
             "source": "table_api_fallback",
@@ -3200,6 +3305,9 @@ def _fetch_flow_structure(
             "total_actions": len(actions),
             "total_logic": len(logic_nodes),
             "total_subflows": len(subflows),
+            "total_variables": len(signature.get("variables", [])),
+            "inputs": signature.get("inputs", []),
+            "outputs": signature.get("outputs", []),
             "flat_summary": flat_summary,
             "tree": tree,
         }
@@ -3259,8 +3367,10 @@ def _fetch_flow_structure(
             result["note"] = (
                 "Retrieved via Table API. Step bindings (`inputs`) are decoded from each "
                 "node's compiled values — conditions, looked-up tables and data pills "
-                "included. Runtime-only detail (what a pill RESOLVED to on a given "
-                "execution) still needs get_executions."
+                "included. Triggers are NOT part of this path's structure (the "
+                "processflow one carries them): their absence here is not evidence the "
+                "flow has none — ask with include_triggers=true. Runtime-only detail "
+                "(what a pill RESOLVED to on a given execution) still needs get_executions."
             )
 
         return result
@@ -3653,6 +3763,13 @@ def _extract_comparable(flow_data: Dict[str, Any], include_label_cache: bool) ->
             for s in structure.get("flat_summary", [])
             if s.get("type") == "subflow"
         ]
+        # Two flows whose declared inputs differ are not the same flow. The
+        # processflow branch above compares these; this branch could not, because
+        # the structure it reads never carried them.
+        for key in ("inputs", "outputs"):
+            names = [i.get("name", "") for i in structure.get(key, []) if isinstance(i, dict)]
+            if names:
+                result[key] = names
         result["total_actions"] = structure.get("total_actions", 0)
         result["total_logic"] = structure.get("total_logic", 0)
         result["total_subflows"] = structure.get("total_subflows", 0)

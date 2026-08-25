@@ -450,3 +450,70 @@ class TestTriggerAndSubflowInputs:
         assert row["type"] == "subflow"
         assert {i["name"]: i["value"] for i in row["inputs"]}["record"] == "REC-1"
         assert "H4sI" not in json.dumps(result), "the raw blob rode into the tree"
+
+
+class TestFlowSignature:
+    """What the flow asks for and hands back — absent from the Table API path.
+
+    The rows live on their own dictionary-style tables linked by `model`. `flow`
+    is not a column there at all, so asking on it drops the condition and
+    returns the WHOLE table: the read has to name the right column or it does
+    not fail, it lies.
+    """
+
+    def _sig(self, rows_by_table, snapshot="s" * 32):
+        from servicenow_mcp.tools.flow_designer_tools import _fetch_flow_signature
+
+        seen = []
+
+        def _rows(config, auth_manager, *, table, query, **_):
+            seen.append((table, query))
+            return (rows_by_table.get((table, query), []), None)
+
+        with patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page", side_effect=_rows):
+            return _fetch_flow_signature(_basic_cfg(), MagicMock(), "f" * 32, snapshot), seen
+
+    def test_it_reads_inputs_in_declared_order(self):
+        rows = {
+            ("sys_hub_flow_input", "model=" + "s" * 32): [
+                {"element": "second", "label": "Second", "internal_type": "String", "order": "200"},
+                {
+                    "element": "first",
+                    "label": "First",
+                    "internal_type": "Document ID",
+                    "order": "100",
+                },
+            ]
+        }
+        sig, _ = self._sig(rows)
+        assert [i["name"] for i in sig["inputs"]] == ["first", "second"]
+        assert sig["inputs"][0]["label"] == "First"
+        assert "outputs" not in sig and "variables" not in sig
+
+    def test_it_asks_the_model_column_never_flow(self):
+        """`flow=` is silently dropped on these tables and returns everything."""
+        _, seen = self._sig({})
+        assert seen, "no query was issued"
+        for _table, query in seen:
+            assert query.startswith("model="), f"queried on the wrong column: {query}"
+
+    def test_the_snapshot_is_asked_before_the_design_flow(self):
+        rows = {
+            ("sys_hub_flow_input", "model=" + "s" * 32): [
+                {"element": "from_snapshot", "label": "", "internal_type": "String"}
+            ],
+            ("sys_hub_flow_input", "model=" + "f" * 32): [
+                {"element": "from_design", "label": "", "internal_type": "String"}
+            ],
+        }
+        sig, _ = self._sig(rows)
+        assert [i["name"] for i in sig["inputs"]] == ["from_snapshot"]
+
+    def test_an_unpublished_flow_falls_back_to_its_design_rows(self):
+        rows = {
+            ("sys_hub_flow_input", "model=" + "f" * 32): [
+                {"element": "from_design", "label": "", "internal_type": "String"}
+            ]
+        }
+        sig, _ = self._sig(rows, snapshot="")
+        assert [i["name"] for i in sig["inputs"]] == ["from_design"]
