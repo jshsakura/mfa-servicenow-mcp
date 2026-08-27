@@ -37,7 +37,7 @@ from servicenow_mcp.utils.deploy_ledger import (
     write_origin,
 )
 
-SID = "0d90cdb53b6f321046a3934a85e45a1d"
+SID = "dddd1111eeee2222ffff3333aaaa4444"
 SID2 = "a" * 32
 XML_VERSION = "2026-07-28 12:35:13"
 LIVE_VERSION = "2026-07-29 09:05:23"

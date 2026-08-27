@@ -70,15 +70,15 @@ def test_non_browser_auth_blocked():
 def test_get_returns_current_app_and_update_set():
     auth = MagicMock()
     auth.make_request.side_effect = [
-        _resp({"result": {"current": {"sysId": "app-1", "name": "HBPM"}}}),
-        _resp({"result": {"current": {"sysId": "us-1", "name": "HBPM Pilot"}}}),
+        _resp({"result": {"current": {"sysId": "app-1", "name": "OtherApp"}}}),
+        _resp({"result": {"current": {"sysId": "us-1", "name": "OtherApp Pilot"}}}),
     ]
     result = manage_session_context(
         _browser_config(), auth, ManageSessionContextParams(action="get")
     )
     assert result["success"] is True
-    assert result["application"] == {"sys_id": "app-1", "name": "HBPM"}
-    assert result["update_set"] == {"sys_id": "us-1", "name": "HBPM Pilot"}
+    assert result["application"] == {"sys_id": "app-1", "name": "OtherApp"}
+    assert result["update_set"] == {"sys_id": "us-1", "name": "OtherApp Pilot"}
 
 
 # --- set_app: verified by read-back --------------------------------------
@@ -86,7 +86,7 @@ def test_set_app_success_when_readback_matches():
     auth = MagicMock()
     auth.make_request.side_effect = [
         _resp({}),  # PUT
-        _resp({"result": {"current": {"sysId": "app-1", "name": "HBPM"}}}),  # GET verify
+        _resp({"result": {"current": {"sysId": "app-1", "name": "OtherApp"}}}),  # GET verify
     ]
     result = manage_session_context(
         _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="app-1")
@@ -100,14 +100,14 @@ def test_set_app_reports_failure_when_not_applied():
     auth = MagicMock()
     auth.make_request.side_effect = [
         _resp({}),  # PUT
-        _resp({"result": {"current": {"sysId": "bpm-old", "name": "BPM"}}}),  # GET verify
+        _resp({"result": {"current": {"sysId": "testapp-old", "name": "TestApp"}}}),  # GET verify
     ]
     result = manage_session_context(
         _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="app-1")
     )
     assert result["success"] is False
     assert result["error"] == "not_applied"
-    assert result["current"]["sys_id"] == "bpm-old"
+    assert result["current"]["sys_id"] == "testapp-old"
 
 
 def test_set_app_with_update_set_sets_both_in_one_call():
@@ -115,7 +115,7 @@ def test_set_app_with_update_set_sets_both_in_one_call():
     auth = MagicMock()
     auth.make_request.side_effect = [
         _resp({}),  # app PUT
-        _resp({"result": {"current": {"sysId": "app-1", "name": "BPM"}}}),  # app GET
+        _resp({"result": {"current": {"sysId": "app-1", "name": "TestApp"}}}),  # app GET
         _resp({}),  # update set PUT
         _resp({"result": {"current": {"sysId": "us-1", "name": "My Set"}}}),  # update set GET
     ]
@@ -134,7 +134,7 @@ def test_set_app_without_update_set_unchanged():
     auth = MagicMock()
     auth.make_request.side_effect = [
         _resp({}),
-        _resp({"result": {"current": {"sysId": "app-1", "name": "BPM"}}}),
+        _resp({"result": {"current": {"sysId": "app-1", "name": "TestApp"}}}),
     ]
     result = manage_session_context(
         _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="app-1")
@@ -167,16 +167,16 @@ def test_set_update_set_requires_id_or_name():
 @patch("servicenow_mcp.tools.session_context_tools.sn_query_page")
 def test_set_update_set_by_name_resolves_and_switches(mock_query):
     # Name → unique in-progress sys_id, then PUT + verified read-back.
-    mock_query.return_value = ([{"sys_id": "us-9", "name": "HBPM Pilot"}], 1)
+    mock_query.return_value = ([{"sys_id": "us-9", "name": "OtherApp Pilot"}], 1)
     auth = MagicMock()
     auth.make_request.side_effect = [
         _resp({}),  # PUT
-        _resp({"result": {"current": {"sysId": "us-9", "name": "HBPM Pilot"}}}),  # verify
+        _resp({"result": {"current": {"sysId": "us-9", "name": "OtherApp Pilot"}}}),  # verify
     ]
     result = manage_session_context(
         _browser_config(),
         auth,
-        ManageSessionContextParams(action="set_update_set", update_set_name="HBPM Pilot"),
+        ManageSessionContextParams(action="set_update_set", update_set_name="OtherApp Pilot"),
     )
     assert result["success"] is True
     assert result["current"]["sys_id"] == "us-9"
@@ -265,14 +265,14 @@ def test_ensure_current_update_set_noop_when_already_current():
 
 @patch("servicenow_mcp.tools.session_context_tools.sn_query_page")
 def test_ensure_current_update_set_by_name_switches(mock_query):
-    mock_query.return_value = ([{"sys_id": "us-9", "name": "HBPM Pilot"}], 1)
+    mock_query.return_value = ([{"sys_id": "us-9", "name": "OtherApp Pilot"}], 1)
     auth = MagicMock()
     auth.make_request.side_effect = [
         _resp({"result": {"current": {"sysId": "old", "name": "Other"}}}),  # GET current
         _resp({}),  # PUT
-        _resp({"result": {"current": {"sysId": "us-9", "name": "HBPM Pilot"}}}),  # verify
+        _resp({"result": {"current": {"sysId": "us-9", "name": "OtherApp Pilot"}}}),  # verify
     ]
-    out = ensure_current_update_set(_browser_config(), auth, "HBPM Pilot")
+    out = ensure_current_update_set(_browser_config(), auth, "OtherApp Pilot")
     assert out["switched"] is True
 
 
@@ -463,7 +463,7 @@ def test_check_update_set_for_push_silent_when_unreadable():
 def test_is_default_update_set_matches_by_name():
     assert is_default_update_set({"sys_id": "x", "name": "Default"}) is True
     assert is_default_update_set({"sys_id": "x", "name": "default"}) is True
-    assert is_default_update_set({"sys_id": "x", "name": "HBPM Pilot"}) is False
+    assert is_default_update_set({"sys_id": "x", "name": "OtherApp Pilot"}) is False
     assert is_default_update_set(None) is False
 
 
@@ -479,7 +479,7 @@ def test_ensure_current_app_skips_for_basic_auth():
 def test_ensure_current_app_noop_when_already_current():
     auth = MagicMock()
     auth.make_request.side_effect = [
-        _resp({"result": {"current": {"sysId": "app-1", "name": "HBPM"}}}),  # GET only
+        _resp({"result": {"current": {"sysId": "app-1", "name": "OtherApp"}}}),  # GET only
     ]
     out = ensure_current_app(_browser_config(), auth, "app-1")
     assert out["switched"] is False
@@ -490,9 +490,9 @@ def test_ensure_current_app_noop_when_already_current():
 def test_ensure_current_app_switches_when_different():
     auth = MagicMock()
     auth.make_request.side_effect = [
-        _resp({"result": {"current": {"sysId": "bpm-old", "name": "BPM"}}}),  # GET current
+        _resp({"result": {"current": {"sysId": "testapp-old", "name": "TestApp"}}}),  # GET current
         _resp({}),  # PUT
-        _resp({"result": {"current": {"sysId": "app-1", "name": "HBPM"}}}),  # GET verify
+        _resp({"result": {"current": {"sysId": "app-1", "name": "OtherApp"}}}),  # GET verify
     ]
     out = ensure_current_app(_browser_config(), auth, "app-1")
     assert out["switched"] is True
@@ -514,7 +514,7 @@ def test_set_app_sends_ui_context_headers_and_value_body():
     auth = MagicMock()
     auth.make_request.side_effect = [
         _resp({}),  # PUT
-        _resp({"result": {"current": {"sysId": "app-1", "name": "HBPM"}}}),  # GET verify
+        _resp({"result": {"current": {"sysId": "app-1", "name": "OtherApp"}}}),  # GET verify
     ]
     manage_session_context(
         _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="app-1")
@@ -578,24 +578,26 @@ def test_picker_value_handles_list_with_selected_flag():
     payload = {
         "result": [
             {"sysId": "global-1", "name": "Global", "selected": False},
-            {"sysId": "bpm-1", "name": "BPM", "selected": True},
+            {"sysId": "testapp-1", "name": "TestApp", "selected": True},
         ]
     }
-    assert _picker_value(payload) == {"sys_id": "bpm-1", "name": "BPM"}
+    assert _picker_value(payload) == {"sys_id": "testapp-1", "name": "TestApp"}
 
 
 def test_set_app_success_with_list_shape_readback():
-    """End-to-end: PUT ok, read-back returns the list shape with BPM selected."""
+    """End-to-end: PUT ok, read-back returns the list shape with TestApp selected."""
     auth = MagicMock()
     auth.make_request.side_effect = [
         _resp({}),  # PUT
-        _resp({"result": [{"sysId": "bpm-1", "name": "BPM", "selected": True}]}),  # read-back
+        _resp(
+            {"result": [{"sysId": "testapp-1", "name": "TestApp", "selected": True}]}
+        ),  # read-back
     ]
     result = manage_session_context(
-        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="bpm-1")
+        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="testapp-1")
     )
     assert result["success"] is True
-    assert result["current"]["sys_id"] == "bpm-1"
+    assert result["current"]["sys_id"] == "testapp-1"
 
 
 def test_picker_value_current_as_bare_sys_id_string():
@@ -617,19 +619,19 @@ def test_picker_value_nested_list_under_key():
             "default": {"sysId": "global", "name": "Global"},
             "list": [
                 {"sysId": "global", "name": "Global", "selected": False},
-                {"sysId": "hbpm-1", "name": "HBPM", "selected": True},
+                {"sysId": "otherapp-1", "name": "OtherApp", "selected": True},
             ],
         }
     }
-    assert _picker_value(payload) == {"sys_id": "hbpm-1", "name": "HBPM"}
+    assert _picker_value(payload) == {"sys_id": "otherapp-1", "name": "OtherApp"}
 
 
 def test_picker_value_top_level_value_field():
     from servicenow_mcp.tools.session_context_tools import _picker_value
 
-    assert _picker_value({"result": {"value": "hbpm-1", "displayValue": "HBPM"}}) == {
-        "sys_id": "hbpm-1",
-        "name": "HBPM",
+    assert _picker_value({"result": {"value": "otherapp-1", "displayValue": "OtherApp"}}) == {
+        "sys_id": "otherapp-1",
+        "name": "OtherApp",
     }
 
 
@@ -650,13 +652,13 @@ def test_set_app_success_with_bare_string_current_readback():
     auth = MagicMock()
     auth.make_request.side_effect = [
         _resp({}),  # PUT
-        _resp({"result": {"current": "hbpm-1"}}),  # read-back: bare sys_id string
+        _resp({"result": {"current": "otherapp-1"}}),  # read-back: bare sys_id string
     ]
     result = manage_session_context(
-        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="hbpm-1")
+        _browser_config(), auth, ManageSessionContextParams(action="set_app", app_id="otherapp-1")
     )
     assert result["success"] is True
-    assert result["current"]["sys_id"] == "hbpm-1"
+    assert result["current"]["sys_id"] == "otherapp-1"
 
 
 def test_picker_value_real_application_shape_bare_current_plus_list():
@@ -671,20 +673,20 @@ def test_picker_value_real_application_shape_bare_current_plus_list():
                 {"sysId": "global", "name": "Global", "scopeName": "global"},
                 {
                     "sysId": "aaaa1111bbbb2222cccc3333dddd4444",
-                    "name": "BPM",
-                    "scopeName": "x_acme_bpm",
+                    "name": "TestApp",
+                    "scopeName": "x_acme_testapp",
                 },
                 {
                     "sysId": "eeee5555ffff6666aaaa7777bbbb8888",
-                    "name": "HBPM",
-                    "scopeName": "x_acme_hbpm",
+                    "name": "OtherApp",
+                    "scopeName": "x_acme_otherapp",
                 },
             ],
         }
     }
     assert _picker_value(payload) == {
         "sys_id": "aaaa1111bbbb2222cccc3333dddd4444",
-        "name": "BPM",
+        "name": "TestApp",
     }
 
 
@@ -698,7 +700,7 @@ def test_set_app_success_with_real_application_shape():
                 "result": {
                     "current": "eeee5555ffff6666aaaa7777bbbb8888",
                     "list": [
-                        {"sysId": "eeee5555ffff6666aaaa7777bbbb8888", "name": "HBPM"},
+                        {"sysId": "eeee5555ffff6666aaaa7777bbbb8888", "name": "OtherApp"},
                     ],
                 }
             }
@@ -710,7 +712,7 @@ def test_set_app_success_with_real_application_shape():
         ManageSessionContextParams(action="set_app", app_id="eeee5555ffff6666aaaa7777bbbb8888"),
     )
     assert result["success"] is True
-    assert result["current"] == {"sys_id": "eeee5555ffff6666aaaa7777bbbb8888", "name": "HBPM"}
+    assert result["current"] == {"sys_id": "eeee5555ffff6666aaaa7777bbbb8888", "name": "OtherApp"}
 
 
 # --- picker labels vs names (the "which set is this?" confusion) -----------

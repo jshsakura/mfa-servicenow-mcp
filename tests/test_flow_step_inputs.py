@@ -116,13 +116,13 @@ class TestProjection:
 
     def test_a_reference_shows_its_name_and_keeps_its_sys_id(self):
         blob = encode(
-            [entry("assigned_to", "62826bf03710200044e0bfc8bcbe5df1", display="Alice Example")]
+            [entry("assigned_to", "bbbb1111cccc2222dddd3333eeee4444", display="Alice Example")]
         )
         inputs, _ = _project_step_inputs(blob, [300])
         # Shown as the screen shows it; the sys_id stays for anything that has
         # to act on the record rather than read about it.
         assert inputs[0]["value"] == "Alice Example"
-        assert inputs[0]["raw"] == "62826bf03710200044e0bfc8bcbe5df1"
+        assert inputs[0]["raw"] == "bbbb1111cccc2222dddd3333eeee4444"
 
     def test_raw_is_omitted_when_it_is_the_same_as_what_is_shown(self):
         inputs, _ = _project_step_inputs(encode([entry("plain", "incident")]), [300])

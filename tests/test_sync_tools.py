@@ -1344,7 +1344,7 @@ class TestUpdateRemoteFromLocal:
                 "script": "angular.module('x').factory('myService',function(){ /* old */ });",
                 "sys_updated_on": "2025-01-10 10:00:00",
             },
-            {"sys_scope": {"value": "scope-1", "display_value": "x_app_bpm"}},
+            {"sys_scope": {"value": "scope-1", "display_value": "x_app_testapp"}},
         ]
         mock_update.return_value = {
             "error": "ACL Exception Update Failed due to security constraints",
@@ -1452,7 +1452,7 @@ class TestUpdateRemoteFromLocal:
                 "sys_updated_on": "2025-01-10 10:00:00",
             },
             # scope fetch on the 403 path
-            {"sys_scope": {"value": "scope-1", "display_value": "x_app_bpm"}},
+            {"sys_scope": {"value": "scope-1", "display_value": "x_app_testapp"}},
         ]
         mock_update.return_value = {
             "error": "Update failed: ACL Exception Update Failed due to security constraints",
@@ -1511,7 +1511,7 @@ class TestUpdateRemoteFromLocal:
                 "script": "var x = 0;",
                 "sys_updated_on": "2025-01-10 10:00:00",  # == baseline, no drift
             },
-            {"sys_scope": {"value": "scope-1", "display_value": "x_app_bpm"}},
+            {"sys_scope": {"value": "scope-1", "display_value": "x_app_testapp"}},
         ]
         mock_update.return_value = {
             "error": "ACL Exception Update Failed due to security constraints",
@@ -1575,7 +1575,7 @@ class TestUpdateRemoteFromLocal:
                 "script": "var x = 0;",
                 "sys_updated_on": "2025-01-10 10:00:00",
             },
-            {"sys_scope": {"value": "scope-1", "display_value": "x_app_bpm"}},
+            {"sys_scope": {"value": "scope-1", "display_value": "x_app_testapp"}},
         ]
         mock_update.return_value = {
             "error": "ACL Exception Update Failed due to security constraints",

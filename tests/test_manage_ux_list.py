@@ -51,7 +51,7 @@ class TestManageUxList(unittest.TestCase):
                     "condition": "",
                     "order": "40",
                     "active": {"display_value": "true"},
-                    "sys_scope": {"display_value": "BPM"},
+                    "sys_scope": {"display_value": "TestApp"},
                     "sys_updated_on": "2026-01-01 00:00:00",
                 }
             ],
@@ -101,7 +101,7 @@ class TestManageUxList(unittest.TestCase):
                     "condition": "",
                     "order": "40",
                     "active": "true",
-                    "sys_scope": "BPM",
+                    "sys_scope": "TestApp",
                     "sys_updated_on": "2026-01-01 00:00:00",
                 }
             ],
@@ -149,11 +149,11 @@ class TestManageUxList(unittest.TestCase):
     def test_update_view_accepts_bare_sys_id_without_a_lookup(self, mock_query):
         mock_query.return_value = ([{"sys_id": "l1", "title": "Direct OI"}], 1)  # get_list only
         self.auth.make_request.return_value = _mock_response({"sys_id": "l1", "title": "Direct OI"})
-        result = self._run(action="update", sys_id="l1", view="80e464b13be64310ec3cbf2a85e45ab2")
+        result = self._run(action="update", sys_id="l1", view="cccc1111dddd2222eeee3333ffff4444")
         self.assertTrue(result["success"])
         mock_query.assert_called_once()  # only the existence check — no name lookup
         _, kwargs = self.auth.make_request.call_args
-        self.assertEqual("80e464b13be64310ec3cbf2a85e45ab2", kwargs["json"]["view"])
+        self.assertEqual("cccc1111dddd2222eeee3333ffff4444", kwargs["json"]["view"])
 
     # --- update: clearing columns ---
 

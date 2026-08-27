@@ -70,7 +70,7 @@ def _auth(dump: bytes, status=200, headers=None) -> MagicMock:
     return auth
 
 
-SID = "0d90cdb53b6f321046a3934a85e45a1d"
+SID = "dddd1111eeee2222ffff3333aaaa4444"
 
 
 # --- happy path -----------------------------------------------------------

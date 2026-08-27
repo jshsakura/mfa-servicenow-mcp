@@ -266,16 +266,16 @@ class TestCreateNgTemplate:
     @patch("servicenow_mcp.services.portal_component.sn_query_page", return_value=([], 0))
     @patch("servicenow_mcp.services.portal_component.invalidate_query_cache")
     def test_scope_mismatch_surfaces_warning(self, mock_cache, mock_query, mock_config, mock_auth):
-        # Requested HBPM but the session's current app is BPM → record lands in
-        # BPM. The mismatch must be reported, not silently accepted.
+        # Requested OtherApp but the session's current app is TestApp → record lands in
+        # TestApp. The mismatch must be reported, not silently accepted.
         mock_auth.make_request.return_value = _mock_response(
-            {"result": {"sys_id": "ng3", "id": "tpl3.html", "sys_scope": "bpm_scope"}}
+            {"result": {"sys_id": "ng3", "id": "tpl3.html", "sys_scope": "testapp_scope"}}
         )
         result = create_ng_template(
             mock_config, mock_auth, template_id="tpl3.html", template="<p/>", scope=SCOPE
         )
         assert result["success"] is True
-        assert result["created_scope"] == "bpm_scope"
+        assert result["created_scope"] == "testapp_scope"
         assert "scope_warning" in result
         assert "manage_session_context" in result["scope_warning"]
 

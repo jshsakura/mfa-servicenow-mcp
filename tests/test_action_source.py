@@ -17,7 +17,7 @@ from servicenow_mcp.tools.flow_designer_tools import (
 from servicenow_mcp.tools.flow_tools import ManageFlowDesignerParams, manage_flow_designer
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
 
-ACTION_SID = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+ACTION_SID = "aaaa5555bbbb6666cccc7777dddd8888"
 SCRIPT_BODY = (
     "(function execute(inputs, outputs) {\n  outputs.success = 'true';\n})(inputs, outputs);"
 )

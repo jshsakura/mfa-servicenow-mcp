@@ -111,7 +111,7 @@ def test_repeated_console_errors_collapse_to_one_group_with_a_count():
 
 def test_messages_differing_only_by_sys_id_or_number_group_together():
     events = [
-        _console(1, 1000, "Widget 8a1b2c3d4e5f60718293a4b5c6d7e8f9 failed at row 3"),
+        _console(1, 1000, "Widget 8888aaaa9999bbbb0000cccc1111dddd failed at row 3"),
         _console(2, 1001, "Widget 1111111122222222333333334444aaaa failed at row 17"),
     ]
 

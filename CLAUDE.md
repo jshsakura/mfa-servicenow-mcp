@@ -393,6 +393,16 @@ Rules that follow from it:
 2. **Anything pasted from a live instance is contaminated until proven clean.**
    Real logs, real records, real screenshots — rename every identifier before it
    goes anywhere near a file.
+   **A sys_id counts, and it is the one you will miss.** It is 32 characters of
+   meaningless hex, so a real one and an invented one are indistinguishable by
+   inspection — no reviewer catches it, including you, and even eight characters
+   of a real one pasted into a test constant is a real identifier. There is no
+   pattern that says "this one is real", so the check runs the other way: a
+   sys_id in this repo must LOOK constructed (a run of four identical hex
+   characters, e.g. `aaaa1111bbbb2222cccc3333dddd4444`). Real ids carry such a
+   run under 1% of the time. `check_real_identities.py` enforces it at commit
+   and again at push; a platform-global id the code genuinely needs goes in
+   `ALLOWED_SYS_IDS` with the reason it ships with ServiceNow.
 3. **Before every commit, grep the diff.** Names, `@`-emails, real domains. If
    you are touching a file that already contains such a string, you are about to
    commit it again in your tree — fix it in that same commit, do not "leave it

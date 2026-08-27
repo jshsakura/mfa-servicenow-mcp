@@ -30,7 +30,7 @@ def _lookup_stub(mapping):
     return _fn
 
 
-HEX = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+HEX = "aaaa5555bbbb6666cccc7777dddd8888"
 
 
 def test_resolve_by_sysid_flow_vs_subflow():

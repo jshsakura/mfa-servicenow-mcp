@@ -778,11 +778,11 @@ class TestResolveScopeNamespace:
     def test_display_name_resolves_to_namespace(self):
         from servicenow_mcp.tools.sn_api import resolve_scope_namespace
 
-        rows = [{"sys_id": "s1", "scope": "x_acme_hbpm", "name": "BPM"}]
+        rows = [{"sys_id": "s1", "scope": "x_acme_otherapp", "name": "TestApp"}]
         with self._patch_rows(rows):
-            ns, rec = resolve_scope_namespace(_make_config(), MagicMock(), "BPM")
-        assert ns == "x_acme_hbpm"
-        assert rec["name"] == "BPM"
+            ns, rec = resolve_scope_namespace(_make_config(), MagicMock(), "TestApp")
+        assert ns == "x_acme_otherapp"
+        assert rec["name"] == "TestApp"
 
     def test_namespace_input_returns_itself(self):
         from servicenow_mcp.tools.sn_api import resolve_scope_namespace
@@ -836,13 +836,13 @@ class TestApplyScopeNamespace:
         class P(BaseModel):
             scope: str
 
-        rows = [{"sys_id": "s1", "scope": "x_acme_hbpm", "name": "BPM"}]
-        original = P(scope="BPM")
+        rows = [{"sys_id": "s1", "scope": "x_acme_otherapp", "name": "TestApp"}]
+        original = P(scope="TestApp")
         with patch("servicenow_mcp.tools.sn_api.sn_query_all", return_value=rows):
             new, resolution = apply_scope_namespace(_make_config(), MagicMock(), original)
-        assert new.scope == "x_acme_hbpm"
-        assert original.scope == "BPM"  # immutable: original untouched
-        assert "x_acme_hbpm" in resolution and "BPM" in resolution
+        assert new.scope == "x_acme_otherapp"
+        assert original.scope == "TestApp"  # immutable: original untouched
+        assert "x_acme_otherapp" in resolution and "TestApp" in resolution
 
     def test_not_found_keeps_scope_and_warns(self):
         from unittest.mock import patch
@@ -855,6 +855,6 @@ class TestApplyScopeNamespace:
             scope: str
 
         with patch("servicenow_mcp.tools.sn_api.sn_query_all", return_value=[]):
-            new, resolution = apply_scope_namespace(_make_config(), MagicMock(), P(scope="BPM"))
-        assert new.scope == "BPM"
+            new, resolution = apply_scope_namespace(_make_config(), MagicMock(), P(scope="TestApp"))
+        assert new.scope == "TestApp"
         assert "not found" in resolution

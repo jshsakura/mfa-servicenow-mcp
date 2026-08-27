@@ -203,6 +203,25 @@ ALLOWED_PORTAL_SUFFIXES = {
 }
 _PORTAL_PATH = re.compile(r"['\"/]([a-z][a-z0-9_-]{1,20})\?id=")
 
+# A sys_id is 32 characters of meaningless hex, so one pasted off a live
+# instance is indistinguishable BY INSPECTION from one somebody made up — which
+# is exactly how two of them ended up in fixtures, and how an update set's real
+# id got copied into a test constant eight characters at a time. There is no
+# pattern that says "this one is real", so the check runs the other way: a
+# sys_id in this repo must LOOK constructed, meaning it contains a run of four
+# identical hex characters (as in "aaaa1111bbbb2222cccc3333dddd4444"). Real
+# ServiceNow ids are random hex and carry such a run under 1% of the time.
+_SYS_ID = re.compile(r"\b[0-9a-f]{32}\b")
+_CONSTRUCTED_RUN = re.compile(r"([0-9a-f])\1{3}")
+
+# Ids that ship WITH the platform: identical on every instance, so they name no
+# customer and the code genuinely needs the literal. Each entry states why it is
+# here — an entry without a reason is how an allowlist becomes a laundry route.
+ALLOWED_SYS_IDS = {
+    # Flow Designer's built-in "script step" variable type, same on every instance.
+    "71aa7f6647032200b4fad7527c9a719b",
+}
+
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "site", "dist", "build"}
 SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".pdf", ".lock", ".bundle"}
 
@@ -274,6 +293,15 @@ def scan(path: Path) -> list[str]:
                     f"{path.relative_to(REPO)}:{num}: portal suffix '/{suffix}' is not a "
                     "placeholder — a portal URL names a real customer's site"
                 )
+        for sid in _SYS_ID.findall(line):
+            if sid in ALLOWED_SYS_IDS or _CONSTRUCTED_RUN.search(sid):
+                continue
+            hits.append(
+                f"{path.relative_to(REPO)}:{num}: sys_id '{sid}' does not look constructed — "
+                "a real one pasted from a live instance looks exactly like a made-up one, so "
+                "use an obviously-fake value (e.g. 'aaaa1111bbbb2222cccc3333dddd4444') or add "
+                "it to ALLOWED_SYS_IDS with the reason it ships with the platform"
+            )
         for vendor in _SCOPE_NAMESPACE.findall(line):
             if vendor.lower() not in ALLOWED_SCOPE_VENDORS:
                 hits.append(

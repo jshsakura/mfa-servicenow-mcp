@@ -58,7 +58,7 @@ class TestManageNotification(unittest.TestCase):
                     "message_text": "",
                     "from": "",
                     "reply_to": "",
-                    "sys_scope": {"display_value": "BPM"},
+                    "sys_scope": {"display_value": "TestApp"},
                     "sys_updated_on": "2026-01-01 00:00:00",
                 }
             ],
@@ -246,7 +246,7 @@ class TestManageNotification(unittest.TestCase):
                     "collection": "",
                     "message_html": "<p>hi</p>",
                     "message_text": "hi",
-                    "sys_scope": {"display_value": "BPM"},
+                    "sys_scope": {"display_value": "TestApp"},
                     "sys_updated_on": "2026-01-01 00:00:00",
                 }
             ],

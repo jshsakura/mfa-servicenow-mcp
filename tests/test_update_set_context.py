@@ -39,13 +39,17 @@ def test_aligned_is_quiet():
     with (
         patch(
             "servicenow_mcp.tools.session_context_tools.get_current_update_set",
-            return_value={"sys_id": "us-1", "name": "BPM Dev"},
+            return_value={"sys_id": "us-1", "name": "TestApp Dev"},
         ),
         patch(
             "servicenow_mcp.policies.write_guards._fetch_one",
             side_effect=lambda srv, table, query, fields: {
-                "sys_update_set": {"application": {"value": "bpm-scope", "display_value": "BPM"}},
-                "sys_script_include": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+                "sys_update_set": {
+                    "application": {"value": "testapp-scope", "display_value": "TestApp"}
+                },
+                "sys_script_include": {
+                    "sys_scope": {"value": "testapp-scope", "display_value": "TestApp"}
+                },
             }.get(table),
         ),
     ):
@@ -56,8 +60,8 @@ def test_aligned_is_quiet():
             {"sys_id": "si-1"},
         )
     assert ctx["aligned"] is True
-    assert ctx["update_set"] == "BPM Dev"
-    assert ctx["record_scope"] == "BPM"
+    assert ctx["update_set"] == "TestApp Dev"
+    assert ctx["record_scope"] == "TestApp"
     # Nothing is off, so the stamp says nothing beyond the facts — a `note` here
     # is reserved for the cases that need a second look (Default / mismatch).
     assert "note" not in ctx
@@ -68,13 +72,15 @@ def test_scope_mismatch_is_loud():
     with (
         patch(
             "servicenow_mcp.tools.session_context_tools.get_current_update_set",
-            return_value={"sys_id": "us-1", "name": "HBPM Pilot clone"},
+            return_value={"sys_id": "us-1", "name": "OtherApp Pilot clone"},
         ),
         patch(
             "servicenow_mcp.policies.write_guards._fetch_one",
             side_effect=lambda srv, table, query, fields: {
-                "sys_update_set": {"application": {"value": "hbpm-scope", "display_value": "HBPM"}},
-                "sp_widget": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+                "sys_update_set": {
+                    "application": {"value": "otherapp-scope", "display_value": "OtherApp"}
+                },
+                "sp_widget": {"sys_scope": {"value": "testapp-scope", "display_value": "TestApp"}},
             }.get(table),
         ),
     ):
@@ -85,8 +91,8 @@ def test_scope_mismatch_is_loud():
             {"sys_id": "w-1"},
         )
     assert ctx["aligned"] is False
-    assert ctx["update_set_scope"] == "HBPM"
-    assert ctx["record_scope"] == "BPM"
+    assert ctx["update_set_scope"] == "OtherApp"
+    assert ctx["record_scope"] == "TestApp"
     assert "⚠" in ctx["note"]
 
 
@@ -100,8 +106,10 @@ def test_default_update_set_is_loud():
         patch(
             "servicenow_mcp.policies.write_guards._fetch_one",
             side_effect=lambda srv, table, query, fields: {
-                "sys_update_set": {"application": {"value": "bpm-scope", "display_value": "BPM"}},
-                "sp_widget": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+                "sys_update_set": {
+                    "application": {"value": "testapp-scope", "display_value": "TestApp"}
+                },
+                "sp_widget": {"sys_scope": {"value": "testapp-scope", "display_value": "TestApp"}},
             }.get(table),
         ),
     ):
@@ -123,20 +131,20 @@ def test_record_unresolvable_gives_base_awareness():
     with (
         patch(
             "servicenow_mcp.tools.session_context_tools.get_current_update_set",
-            return_value={"sys_id": "us-1", "name": "BPM Dev"},
+            return_value={"sys_id": "us-1", "name": "TestApp Dev"},
         ),
         patch(
             "servicenow_mcp.policies.write_guards._fetch_one",
             side_effect=lambda srv, table, query, fields: (
-                {"application": {"value": "bpm-scope", "display_value": "BPM"}}
+                {"application": {"value": "testapp-scope", "display_value": "TestApp"}}
                 if table == "sys_update_set"
                 else None
             ),
         ),
     ):
         ctx = update_set_context(server, "sn_write", {"action": "insert"}, {"no_sys_id": True})
-    assert ctx["update_set"] == "BPM Dev"
-    assert ctx["update_set_scope"] == "BPM"
+    assert ctx["update_set"] == "TestApp Dev"
+    assert ctx["update_set_scope"] == "TestApp"
     assert "record_scope" not in ctx  # couldn't resolve → no comparison
     assert "aligned" not in ctx
     assert "note" not in ctx  # nothing to flag — the two fields ARE the awareness
@@ -235,10 +243,12 @@ def test_owner_mismatch_on_a_personal_set_is_loud():
             side_effect=lambda srv, table, query, fields: {
                 "sys_update_set": {
                     "name": "Bob Smith 1",
-                    "application": {"value": "bpm-scope", "display_value": "BPM"},
+                    "application": {"value": "testapp-scope", "display_value": "TestApp"},
                     "sys_created_by": "bob",
                 },
-                "sys_script_include": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+                "sys_script_include": {
+                    "sys_scope": {"value": "testapp-scope", "display_value": "TestApp"}
+                },
             }.get(table),
         ),
         patch("servicenow_mcp.policies.write_guards._current_username", return_value="alice"),
@@ -249,7 +259,7 @@ def test_owner_mismatch_on_a_personal_set_is_loud():
             {"script_include_id": "si-1", "action": "update"},
             {"sys_id": "si-1"},
         )
-    # Scope agrees (both BPM) — the scope check alone would stay quiet here.
+    # Scope agrees (both TestApp) — the scope check alone would stay quiet here.
     assert ctx["aligned"] is True
     assert ctx["update_set_owner"] == "bob"
     assert "⚠" in ctx["note"]
@@ -271,10 +281,12 @@ def test_owner_mismatch_on_a_non_personal_set_stays_quiet():
             side_effect=lambda srv, table, query, fields: {
                 "sys_update_set": {
                     "name": "Sprint 12 Release",
-                    "application": {"value": "bpm-scope", "display_value": "BPM"},
+                    "application": {"value": "testapp-scope", "display_value": "TestApp"},
                     "sys_created_by": "bob",
                 },
-                "sys_script_include": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+                "sys_script_include": {
+                    "sys_scope": {"value": "testapp-scope", "display_value": "TestApp"}
+                },
             }.get(table),
         ),
         patch("servicenow_mcp.policies.write_guards._current_username", return_value="alice"),
@@ -301,10 +313,12 @@ def test_owner_match_on_a_personal_set_stays_quiet():
             side_effect=lambda srv, table, query, fields: {
                 "sys_update_set": {
                     "name": "Alice Doe 1",
-                    "application": {"value": "bpm-scope", "display_value": "BPM"},
+                    "application": {"value": "testapp-scope", "display_value": "TestApp"},
                     "sys_created_by": "alice",
                 },
-                "sys_script_include": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+                "sys_script_include": {
+                    "sys_scope": {"value": "testapp-scope", "display_value": "TestApp"}
+                },
             }.get(table),
         ),
         patch("servicenow_mcp.policies.write_guards._current_username", return_value="alice"),
@@ -333,10 +347,10 @@ def test_owner_mismatch_combines_with_scope_mismatch():
             side_effect=lambda srv, table, query, fields: {
                 "sys_update_set": {
                     "name": "Bob Smith 1",
-                    "application": {"value": "hbpm-scope", "display_value": "HBPM"},
+                    "application": {"value": "otherapp-scope", "display_value": "OtherApp"},
                     "sys_created_by": "bob",
                 },
-                "sp_widget": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+                "sp_widget": {"sys_scope": {"value": "testapp-scope", "display_value": "TestApp"}},
             }.get(table),
         ),
         patch("servicenow_mcp.policies.write_guards._current_username", return_value="alice"),
@@ -382,13 +396,13 @@ def test_a_label_only_reference_never_scores_as_aligned():
     with (
         patch(
             "servicenow_mcp.tools.session_context_tools.get_current_update_set",
-            return_value={"sys_id": "us-1", "name": "BPM Dev"},
+            return_value={"sys_id": "us-1", "name": "TestApp Dev"},
         ),
         patch(
             "servicenow_mcp.policies.write_guards._fetch_one",
             side_effect=lambda srv, table, query, fields: {
-                "sys_update_set": {"name": "BPM Dev", "application": "BPM"},
-                "sys_script_include": {"sys_scope": "BPM"},
+                "sys_update_set": {"name": "TestApp Dev", "application": "TestApp"},
+                "sys_script_include": {"sys_scope": "TestApp"},
             }.get(table),
         ),
     ):
@@ -400,8 +414,8 @@ def test_a_label_only_reference_never_scores_as_aligned():
         )
     assert "aligned" not in ctx
     # The label is still useful as the human-readable scope — just not as an id.
-    assert ctx["update_set_scope"] == "BPM"
-    assert ctx["update_set"] == "BPM Dev"
+    assert ctx["update_set_scope"] == "TestApp"
+    assert ctx["update_set"] == "TestApp Dev"
 
 
 def test_plain_fields_survive_the_display_value_all_read():
@@ -412,7 +426,7 @@ def test_plain_fields_survive_the_display_value_all_read():
     with (
         patch(
             "servicenow_mcp.tools.session_context_tools.get_current_update_set",
-            return_value={"sys_id": "us-1", "name": "Picker Label [BPM]"},
+            return_value={"sys_id": "us-1", "name": "Picker Label [TestApp]"},
         ),
         patch(
             "servicenow_mcp.policies.write_guards._fetch_one",
@@ -420,9 +434,11 @@ def test_plain_fields_survive_the_display_value_all_read():
                 "sys_update_set": {
                     "name": {"value": "Alice Dev 1", "display_value": "Alice Dev 1"},
                     "sys_created_by": {"value": "alice", "display_value": "alice"},
-                    "application": {"value": "bpm-scope", "display_value": "BPM"},
+                    "application": {"value": "testapp-scope", "display_value": "TestApp"},
                 },
-                "sys_script_include": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+                "sys_script_include": {
+                    "sys_scope": {"value": "testapp-scope", "display_value": "TestApp"}
+                },
             }.get(table),
         ),
         patch("servicenow_mcp.policies.write_guards._current_username", return_value="bob"),

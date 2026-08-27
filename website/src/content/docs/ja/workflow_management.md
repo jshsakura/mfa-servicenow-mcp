@@ -113,7 +113,7 @@ result = list_workflows({
 
 ```python
 result = get_workflow_details({
-    "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590"
+    "workflow_id": "aaaa1111bbbb2222cccc3333dddd0001"
 })
 ```
 
@@ -121,7 +121,7 @@ result = get_workflow_details({
 
 ```python
 result = list_workflow_versions({
-    "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590"
+    "workflow_id": "aaaa1111bbbb2222cccc3333dddd0001"
 })
 ```
 
@@ -129,7 +129,7 @@ result = list_workflow_versions({
 
 ```python
 result = get_workflow_activities({
-    "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590"
+    "workflow_id": "aaaa1111bbbb2222cccc3333dddd0001"
 })
 ```
 
@@ -149,7 +149,7 @@ result = manage_workflow({"action": "create",
 
 ```python
 result = manage_workflow({"action": "update",
-    "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590",
+    "workflow_id": "aaaa1111bbbb2222cccc3333dddd0001",
     "description": "Updated workflow description",
     "active": True
 })
@@ -159,7 +159,7 @@ result = manage_workflow({"action": "update",
 
 ```python
 result = manage_workflow({"action": "activate",
-    "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590"
+    "workflow_id": "aaaa1111bbbb2222cccc3333dddd0001"
 })
 ```
 
@@ -167,7 +167,7 @@ result = manage_workflow({"action": "activate",
 
 ```python
 result = manage_workflow({"action": "deactivate",
-    "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590"
+    "workflow_id": "aaaa1111bbbb2222cccc3333dddd0001"
 })
 ```
 
@@ -177,7 +177,7 @@ result = manage_workflow({"action": "deactivate",
 
 ```python
 result = manage_workflow({"action": "add_activity",
-    "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590",
+    "workflow_id": "aaaa1111bbbb2222cccc3333dddd0001",
     "name": "Manager Approval",
     "description": "Approval step for the manager",
     "activity_type": "approval"
@@ -188,7 +188,7 @@ result = manage_workflow({"action": "add_activity",
 
 ```python
 result = manage_workflow({"action": "update_activity",
-    "activity_id": "3cda7cda87a9c150e0b0df23cebb3591",
+    "activity_id": "aaaa1111bbbb2222cccc3333dddd0002",
     "name": "Updated Activity Name",
     "description": "Updated activity description"
 })
@@ -198,7 +198,7 @@ result = manage_workflow({"action": "update_activity",
 
 ```python
 result = manage_workflow({"action": "delete_activity",
-    "activity_id": "3cda7cda87a9c150e0b0df23cebb3591"
+    "activity_id": "aaaa1111bbbb2222cccc3333dddd0002"
 })
 ```
 
@@ -206,11 +206,11 @@ result = manage_workflow({"action": "delete_activity",
 
 ```python
 result = manage_workflow({"action": "reorder_activities",
-    "workflow_id": "2bda7cda87a9c150e0b0df23cebb3590",
+    "workflow_id": "aaaa1111bbbb2222cccc3333dddd0001",
     "activity_ids": [
-        "3cda7cda87a9c150e0b0df23cebb3591",
-        "4cda7cda87a9c150e0b0df23cebb3592",
-        "5cda7cda87a9c150e0b0df23cebb3593"
+        "aaaa1111bbbb2222cccc3333dddd0002",
+        "aaaa1111bbbb2222cccc3333dddd0003",
+        "aaaa1111bbbb2222cccc3333dddd0004"
     ]
 })
 ```
