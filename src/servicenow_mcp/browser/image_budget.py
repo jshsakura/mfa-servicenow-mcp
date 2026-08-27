@@ -24,7 +24,7 @@ spend tokens to add nothing.
 
 import logging
 import os
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -90,4 +90,50 @@ def fit(image: Any) -> Tuple[Any, Dict[str, str]]:
     }
 
 
-__all__ = ["DEFAULT_MAX_WIDTH", "MIN_MAX_WIDTH", "fit", "max_width"]
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def png_size(raw: bytes) -> Optional[Tuple[int, int]]:
+    """(width, height) straight out of a PNG's IHDR, with no image library.
+
+    The size has to be reportable where Pillow is ABSENT, because that is
+    exactly the case where nothing was capped — so it is the case where the
+    number matters most. Twenty-four bytes of header answer it, which means
+    "we could not measure it" is never the reason a full-size screenshot goes
+    out unlabelled.
+    """
+    if len(raw) < 24 or not raw.startswith(_PNG_SIGNATURE) or raw[12:16] != b"IHDR":
+        return None
+    return int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")
+
+
+def uncapped(raw: bytes) -> Dict[str, str]:
+    """What to report when the cap could not run at all.
+
+    Silence here would be the worst of both: the reply carries a cost note
+    telling the reader to consult a size, and the size is missing because the
+    resize never happened. An absence that reads as "capped" is the failure
+    this codebase names most often, so the reply says plainly that it is not.
+    """
+    out: Dict[str, str] = {
+        "pixels_capped": "no",
+        "reason": (
+            "Pillow is not installed in this runtime, so the screenshot is written at "
+            "full size. Add it to the launch (uvx --with pillow ...) to cut it to the "
+            "width cap — roughly a third of the tokens to read."
+        ),
+    }
+    size = png_size(raw)
+    if size:
+        out["pixels"] = f"{size[0]}x{size[1]}"
+    return out
+
+
+__all__ = [
+    "DEFAULT_MAX_WIDTH",
+    "MIN_MAX_WIDTH",
+    "fit",
+    "max_width",
+    "png_size",
+    "uncapped",
+]

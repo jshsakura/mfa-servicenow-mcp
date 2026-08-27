@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mfa-servicenow-mcp"
-version = "1.24.54"
+version = "1.24.55"
 description = "A Model Context Protocol (MCP) server implementation for ServiceNow"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -41,6 +41,21 @@ dependencies = [
     "httpx>=0.28.0,<1",
     "PyYAML>=6.0,<7",
     "orjson>=3.9.0,<4",
+    # v1.24.55: pillow promoted from the `browser` extra to a regular
+    # dependency, for the same reason curl_cffi was below — the failure it
+    # prevents is invisible.
+    #
+    # It was placed beside playwright on the theory that only the debug window
+    # needs it. But every documented launch line in this repo (45 files) reads
+    # `uvx --with playwright --from mfa-servicenow-mcp`, which installs the
+    # BASE dependencies plus playwright and never the extra. Checked against
+    # the seven uv environments on a real developer machine: all seven had
+    # playwright and NONE had pillow, so the extra had never once been
+    # installed. Screenshots were silently written full-size, uncompressed,
+    # for as long as the option has existed — the caller sees a screenshot
+    # either way, which is why nobody noticed. ~4MB, against a screenshot that
+    # costs three times the tokens to read.
+    "pillow>=10.0.0,<14",
     # v1.12.20: curl_cffi promoted from optional to regular dependency.
     # Routing through libcurl-impersonate (BoringSSL fork) lets the auth
     # manager switch to a real-browser TLS handshake at runtime when
@@ -65,10 +80,6 @@ dependencies = [
 [project.optional-dependencies]
 browser = [
     "playwright>=1.44.0",
-    # Stitching a scrolling capture. Only the debug window takes screenshots,
-    # so this belongs beside playwright rather than in the base install; the
-    # code degrades to a single screen (and says so) when it is absent.
-    "pillow>=10.0.0,<14",
 ]
 dev = [
     "pytest>=7.0.0",

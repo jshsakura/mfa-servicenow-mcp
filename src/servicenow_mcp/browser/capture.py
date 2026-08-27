@@ -103,7 +103,7 @@ def _write_image(raw: bytes, destination: str) -> Tuple[str, Dict[str, str]]:
     except ImportError:
         with open(destination, "wb") as handle:
             handle.write(raw)
-        return destination, {}
+        return destination, image_budget.uncapped(raw)
 
     target = os.path.splitext(destination)[0] + ".webp"
     try:
@@ -120,7 +120,7 @@ def _write_image(raw: bytes, destination: str) -> Tuple[str, Dict[str, str]]:
         logger.info("Could not re-encode the screenshot, keeping it as PNG: %s", exc)
         with open(destination, "wb") as handle:
             handle.write(raw)
-        return destination, {}
+        return destination, image_budget.uncapped(raw)
 
 
 def _why_one_screen(page: Any) -> str:

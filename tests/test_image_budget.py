@@ -82,3 +82,57 @@ def test_the_written_file_reports_the_size_it_actually_produced(tmp_path):
         assert (written.width, written.height) == (1024, 502)
     assert size["pixels"] == "1024x502"
     assert size["downscaled_from"] == "1729x847"
+
+
+def test_a_png_is_measured_without_an_image_library():
+    """The size must be reportable exactly where Pillow is missing — that is
+    the case where nothing was capped, so it is where the number matters."""
+    buffer = io.BytesIO()
+    _img(1729, 847).save(buffer, "PNG")
+    assert image_budget.png_size(buffer.getvalue()) == (1729, 847)
+
+
+@pytest.mark.parametrize("raw", [b"", b"not a png at all", b"\x89PNG\r\n\x1a\n" + b"\x00" * 4])
+def test_a_non_png_measures_to_nothing_rather_than_a_guess(raw):
+    assert image_budget.png_size(raw) is None
+
+
+def test_an_uncapped_screenshot_says_it_was_not_capped():
+    """A missing size next to a cost note that says 'consult the size' reads as
+    'capped'. The reply states plainly that it is not, and why."""
+    buffer = io.BytesIO()
+    _img(1729, 847).save(buffer, "PNG")
+    out = image_budget.uncapped(buffer.getvalue())
+
+    assert out["pixels_capped"] == "no"
+    assert out["pixels"] == "1729x847"
+    assert "Pillow" in out["reason"] and "full size" in out["reason"]
+
+
+def test_an_unmeasurable_uncapped_screenshot_still_says_it_was_not_capped():
+    out = image_budget.uncapped(b"not a png")
+    assert out["pixels_capped"] == "no"
+    assert "pixels" not in out
+
+
+def test_the_no_pillow_path_reports_uncapped(tmp_path, monkeypatch):
+    """Pin the branch that runs in every deployment that lacks Pillow."""
+    import builtins
+
+    from servicenow_mcp.browser import capture
+
+    real_import = builtins.__import__
+
+    def _no_pil(name, *args, **kwargs):
+        if name == "PIL" or name.startswith("PIL."):
+            raise ImportError("no PIL")
+        return real_import(name, *args, **kwargs)
+
+    buffer = io.BytesIO()
+    _img(1729, 847).save(buffer, "PNG")
+    monkeypatch.setattr(builtins, "__import__", _no_pil)
+    path, size = capture._write_image(buffer.getvalue(), str(tmp_path / "shot.png"))
+
+    assert path.endswith(".png"), "without Pillow the bytes are written as they came"
+    assert size["pixels_capped"] == "no"
+    assert size["pixels"] == "1729x847"
