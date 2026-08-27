@@ -1,5 +1,6 @@
 """Tests for manage_session_context — current app / update set switching."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +12,7 @@ from servicenow_mcp.tools.session_context_tools import (
     ensure_current_app,
     ensure_current_update_set,
     get_current_update_set,
+    get_last_update_set_for_record,
     is_default_update_set,
     manage_session_context,
     split_picker_label,
@@ -911,3 +913,118 @@ def test_an_unreadable_state_is_never_reported_as_in_progress(mock_last, mock_pa
     assert out is not None
     assert "in-progress" not in out["note"]
     assert "us-old" in out["note"]
+
+
+# --- the reference read itself --------------------------------------------
+# Every test above mocks get_last_update_set_for_record and hands it a clean
+# {"sys_id": ...}. That is exactly how the producer drifted from its consumer:
+# it returned a LABEL in the sys_id slot for months and the suite stayed green.
+# These exercise the real function against the shapes the Table API returns.
+def _table_resp(rows):
+    r = MagicMock()
+    r.status_code = 200
+    r.content = json.dumps({"result": rows}).encode()
+    r.headers = {}
+    r.json.return_value = {"result": rows}
+    r.text = ""
+    r.raise_for_status = MagicMock()
+    return r
+
+
+_US_A = "133742d8" + "a" * 24
+_US_B = "1d2be25d" + "b" * 24
+
+
+def test_last_update_set_asks_for_both_halves_of_the_reference():
+    """display_value='all' — the id and the label must arrive separately."""
+    auth = MagicMock()
+    auth.make_request.return_value = _table_resp(
+        [
+            {
+                "name": "sp_widget_wid-ref1",
+                "update_set": {"value": _US_A, "display_value": "Alice"},
+                "sys_updated_by": {"value": "alice", "display_value": "alice"},
+                "sys_updated_on": {"value": "2026-07-27 05:35:00", "display_value": "27/07/2026"},
+            }
+        ]
+    )
+    out = get_last_update_set_for_record(_browser_config(), auth, "sp_widget", "wid-ref1")
+    assert out["sys_id"] == _US_A
+    assert out["name"] == "Alice"
+    assert out["by"] == "alice"
+    assert auth.make_request.call_args.kwargs["params"]["sysparm_display_value"] == "all"
+
+
+def test_a_reference_label_is_never_returned_as_a_sys_id():
+    """The regression: sysparm_display_value=true collapses the ref to its LABEL.
+
+    A label in the sys_id slot compares unequal to every real sys_id, so the
+    push check reported one set as two on every single push of an already
+    captured record.
+    """
+    auth = MagicMock()
+    auth.make_request.return_value = _table_resp(
+        [{"name": "sp_widget_wid-ref2", "update_set": "Alice", "sys_updated_by": "alice"}]
+    )
+    out = get_last_update_set_for_record(_browser_config(), auth, "sp_widget", "wid-ref2")
+    assert out["sys_id"] == ""
+    assert out["name"] == "Alice"
+
+
+def test_a_bare_sys_id_string_is_still_read_as_an_id():
+    auth = MagicMock()
+    auth.make_request.return_value = _table_resp(
+        [{"name": "sp_widget_wid-ref3", "update_set": _US_A, "sys_updated_by": "alice"}]
+    )
+    out = get_last_update_set_for_record(_browser_config(), auth, "sp_widget", "wid-ref3")
+    assert out["sys_id"] == _US_A
+    assert out["name"] == ""
+
+
+def _routing_auth(update_set_field, current_id=_US_A, current_name="Alice [My App]"):
+    """Picker GET -> current selection; table GET -> the record's last capture."""
+
+    def _req(method, url, **kwargs):
+        if "concoursepicker" in url:
+            return _resp({"result": {"current": {"sysId": current_id, "name": current_name}}})
+        return _table_resp(
+            [
+                {
+                    "name": "sp_angular_provider_prov-x",
+                    "update_set": update_set_field,
+                    "sys_updated_by": "alice",
+                    "sys_updated_on": "2026-08-27 09:01:53",
+                }
+            ]
+        )
+
+    auth = MagicMock()
+    auth.make_request.side_effect = _req
+    return auth
+
+
+def test_repushing_into_the_same_set_says_nothing():
+    """The live failure: same set both sides, reported as 'two sets, one name'."""
+    auth = _routing_auth({"value": _US_A, "display_value": "Alice"})
+    assert (
+        check_update_set_for_push(_browser_config(), auth, "sp_angular_provider", "prov-1") is None
+    )
+
+
+def test_a_genuinely_different_set_is_still_confirmed():
+    auth = _routing_auth({"value": _US_B, "display_value": "Alice 1"})
+    out = check_update_set_for_push(_browser_config(), auth, "sp_angular_provider", "prov-2")
+    assert out is not None
+    assert out["last_worked_update_set_id"] == _US_B
+    assert out["last_worked_set_identified"] is True
+
+
+def test_an_unresolvable_reference_is_not_reported_as_a_second_set():
+    """Matching label + no id is an UNREAD signal, never evidence of a split."""
+    auth = _routing_auth("Alice")
+    out = check_update_set_for_push(_browser_config(), auth, "sp_angular_provider", "prov-3")
+    assert out is not None
+    assert out["last_worked_set_identified"] is False
+    assert "both named" not in out.get("note", "")
+    assert "NOT determined" in out["note"]
+    assert "most likely the same set" in out["note"]

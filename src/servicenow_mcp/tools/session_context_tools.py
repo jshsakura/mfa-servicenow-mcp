@@ -40,6 +40,18 @@ def _is_browser_auth(config: ServerConfig) -> bool:
 _APP_ENDPOINT = "/api/now/ui/concoursepicker/application"
 _UPDATESET_ENDPOINT = "/api/now/ui/concoursepicker/updateset"
 
+_SYS_ID_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
+
+
+def _looks_like_sys_id(value: str) -> bool:
+    """True when *value* has the shape of a sys_id (32 hex chars).
+
+    Used to tell an IDENTIFIER from a LABEL when a Table API read collapses a
+    reference field to a bare string. The two are not interchangeable and a
+    label in a sys_id slot compares unequal to every real sys_id forever.
+    """
+    return bool(_SYS_ID_RE.match((value or "").strip()))
+
 
 class ManageSessionContextParams(BaseModel):
     """Read or switch the current application / update set for this session."""
@@ -615,7 +627,7 @@ def check_update_set_for_push(
     auth_manager: AuthManager,
     table: str = "",
     sys_id: str = "",
-) -> Optional[Dict[str, str]]:
+) -> Optional[Dict[str, Any]]:
     """Non-blocking pre-write check on WHERE this change is about to be captured.
 
     Everything here is read from state we already hold: the current update set is
@@ -674,8 +686,11 @@ def check_update_set_for_push(
     current_id = (us.get("sys_id") or "").strip()
     last = get_last_update_set_for_record(config, auth_manager, table, sys_id)
     last_id = (last or {}).get("sys_id", "").strip()
-    if not last_id or last_id == current_id:
-        return None  # first edit, or still in the same set — nothing to confirm
+    last_label = (last or {}).get("name", "").strip()
+    if not (last_id or last_label):
+        return None  # first edit — there is no earlier capture to have left
+    if last_id and last_id == current_id:
+        return None  # still the same set — nothing to confirm
     # The read boundary already split the picker's label, so `application` is
     # normally right here; the split is kept as a fallback for a caller holding
     # a raw picker value.
@@ -708,7 +723,11 @@ def check_update_set_for_push(
     when = f" on {at}" if at else ""
 
     a, b = current_name.strip().lower(), last_name.strip().lower()
-    collides = bool(a) and a == b
+    # Two sets are DIFFERENT only when two identifiers differ. Matching names
+    # plus an unresolved id is an unread signal, not a second set — and calling
+    # that a split is precisely what this check used to do on every push.
+    identified = bool(last_id)
+    collides = identified and bool(a) and a == b
 
     # How to switch back. With two sets sharing a name, a name cannot say which
     # one — recommending it would send the caller into an ambiguity error, or
@@ -719,6 +738,7 @@ def check_update_set_for_push(
         "current_update_set_id": current_id,
         "last_worked_update_set": last_name,
         "last_worked_update_set_id": last_id,
+        "last_worked_set_identified": identified,
         "last_worked_by": by,
         "last_worked_at": at,
         "confirm": (
@@ -755,6 +775,19 @@ def check_update_set_for_push(
             + f". Identify them by sys_id, not by name: update_set_name='{current_name}' "
             f"cannot pick one."
         )
+    elif not identified:
+        # Say which limit was hit. "Could not resolve" is actionable; silence
+        # here would be the reassuring branch resting on an unread signal.
+        same = (
+            " Its label matches your current set, so this is most likely the same set."
+            if a == b
+            else ""
+        )
+        out["note"] = (
+            f"The earlier capture's update set could not be resolved to a sys_id — only its "
+            f"label '{last_name}' came back, so whether it is a different set was NOT "
+            f"determined." + same
+        )
     elif a and b and (a.startswith(b) or b.startswith(a)):
         # Near-identical names (a suffixed variant) read as one set, so a split
         # into two is easy to miss exactly where it matters most.
@@ -785,7 +818,7 @@ def get_last_update_set_for_record(
             fields="sys_id,name,update_set,sys_updated_on,sys_updated_by",
             limit=1,
             offset=0,
-            display_value=True,
+            display_value="all",
         )
     except Exception as exc:
         logger.warning("Could not read last update set for %s/%s: %s", table, sys_id, exc)
@@ -794,10 +827,25 @@ def get_last_update_set_for_record(
         return None
     row = rows[0]
     us = row.get("update_set")
+    # ``display_value="all"`` is what makes the reference arrive as a
+    # {value, display_value} pair, so the sys_id and the label are read
+    # separately and neither is inferred from the other.
+    #
+    # It used to pass ``True``, which returns each reference collapsed to its
+    # LABEL — and the label went into the sys_id slot. A name never equals a
+    # sys_id, so the caller's "is this a different set?" comparison was true on
+    # EVERY push of an already-captured record, and the branch it reached then
+    # matched the two names and announced "two DIFFERENT update sets share this
+    # name" about one single set. Every test mocked this function, so the shape
+    # it actually returns was never exercised.
     if isinstance(us, dict):
         out = {"sys_id": str(us.get("value") or ""), "name": str(us.get("display_value") or "")}
+    elif _looks_like_sys_id(str(us or "")):
+        out = {"sys_id": str(us or "").strip(), "name": ""}
     else:
-        out = {"sys_id": str(us or ""), "name": ""}
+        # A bare non-sys_id string is a display label. Reporting it as an id is
+        # the bug above; reporting it as a name costs the caller nothing.
+        out = {"sys_id": "", "name": str(us or "").strip()}
     # WHO/WHEN: without these the caller can only say "the set differs", which
     # reads as "you switched" even when another person/session captured it.
     out["by"] = _display(row.get("sys_updated_by"))
