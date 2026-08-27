@@ -273,9 +273,22 @@ Design history and the "why": issues #37 (TLS), #45 (headless-first), #62
 - Never jump minor/major unless explicitly asked.
 - **After every version bump commit, immediately create and push the git tag:**
   ```
+  git log --oneline -1          # the bump commit MUST be HEAD before you tag
   git tag v{version} && git push origin main v{version}
   ```
 - Never push a version bump commit without its corresponding tag.
+- **Confirm the commit landed before tagging — `&&` does not.** A pre-commit
+  hook that REFORMATS a file (black, isort) exits non-zero and aborts the
+  commit, so HEAD is still the previous release. Chaining the tag onto that
+  same invocation then tags the OLD commit, and pushing a tag is not
+  transactional with pushing a branch: the tag goes out, the branch does not,
+  and the release fails on `Version mismatch! pyproject.toml=<n-1> tag=<n>`.
+  This happened twice in one afternoon. Re-run the commit after the hook has
+  fixed the file, check HEAD, then tag.
+- Recovering a tag that went out on the wrong commit: push the branch first,
+  then `git tag -f v{version} <sha>` and `git push origin -f refs/tags/v{version}`.
+  Do NOT `git fetch --tags --force` while fixing it — that overwrites your
+  corrected local tag with the wrong remote one.
 
 ## Schema Optimization
 
