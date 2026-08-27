@@ -931,8 +931,8 @@ def _table_resp(rows):
     return r
 
 
-_US_A = "133742d8" + "a" * 24
-_US_B = "1d2be25d" + "b" * 24
+_US_A = "a" * 32
+_US_B = "b" * 32
 
 
 def test_last_update_set_asks_for_both_halves_of_the_reference():
