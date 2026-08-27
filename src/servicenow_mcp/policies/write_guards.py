@@ -887,12 +887,32 @@ def _g10_session_identity(ctx: WriteGuardContext) -> None:
 # read failure / basic auth → no field, write proceeds unchanged.
 
 
+_REF_SYS_ID_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
+
+
 def _ref_pair(value: Any) -> Tuple[str, str]:
-    """(sys_id, display) from a Table API reference field (dict or bare string)."""
+    """(sys_id, display) from a Table API reference field (dict or bare string).
+
+    A bare string is classified by SHAPE, never assumed to be both halves. It
+    used to return ``(s, s)``, so when the read collapsed a reference to its
+    LABEL the label became the sys_id — and `aligned` below, which reads as a
+    sys_id comparison, was in fact comparing two display names. Two different
+    scopes that share a name would have scored as aligned: a guard claiming
+    more than it read. Unknown now yields an empty sys_id, so the comparison
+    declines to run instead of answering from a name.
+    """
     if isinstance(value, dict):
         return str(value.get("value") or ""), str(value.get("display_value") or "")
-    s = str(value or "")
-    return s, s
+    s = str(value or "").strip()
+    if _REF_SYS_ID_RE.match(s):
+        return s, ""
+    return "", s
+
+
+def _flat(value: Any) -> str:
+    """A plain (non-reference) field's text, raw or as a {value, display_value} pair."""
+    sys_id, display = _ref_pair(value)
+    return display or sys_id
 
 
 def _fetch_one(server: Any, table: str, query: str, fields: str) -> Optional[Dict[str, Any]]:
@@ -907,7 +927,11 @@ def _fetch_one(server: Any, table: str, query: str, fields: str) -> Optional[Dic
             fields=fields,
             limit=1,
             offset=0,
-            display_value=True,
+            # "all", not True: `true` collapses every reference to its display
+            # label, and the scope comparison below needs the sys_id half. Plain
+            # fields arrive as {value, display_value} pairs under "all", so read
+            # them through _flat.
+            display_value="all",
             fail_silently=True,
         )
         return rows[0] if rows else None
@@ -993,7 +1017,7 @@ def update_set_context(
         # update_set_name. The sys_id rides along because two sets in different
         # applications are routinely given the same name, and then the name
         # identifies nothing.
-        us_name = str((usrec or {}).get("name") or "").strip() or us.get("name") or us["sys_id"]
+        us_name = _flat((usrec or {}).get("name")).strip() or us.get("name") or us["sys_id"]
         ctx: Dict[str, Any] = {
             "update_set": us_name,
             "update_set_id": us["sys_id"],
@@ -1034,7 +1058,7 @@ def update_set_context(
         # still be the WRONG set, because it belongs to someone else. Scope
         # agreement only proves internal consistency between the set and the
         # record — never that this is the set you meant to be working in.
-        owner = str((usrec or {}).get("sys_created_by") or "").strip()
+        owner = _flat((usrec or {}).get("sys_created_by")).strip()
         me = _current_username(server)
         if (
             owner

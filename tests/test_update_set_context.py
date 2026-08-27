@@ -367,3 +367,72 @@ def test_an_unreadable_set_record_falls_back_to_the_picker_name():
 
     assert ctx["update_set"] == "Pilot"
     assert ctx["update_set_id"] == "us-1"
+
+
+def test_a_label_only_reference_never_scores_as_aligned():
+    """The guard reads `aligned` as a sys_id comparison — so it must have sys_ids.
+
+    The row used to be fetched with display_value=True, which collapses every
+    reference to its LABEL, and _ref_pair returned the label as BOTH halves.
+    `aligned` was then decided by comparing two display names: two different
+    scopes sharing a name would have scored as aligned. Unknown must decline,
+    not answer.
+    """
+    server = _browser_server()
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value={"sys_id": "us-1", "name": "BPM Dev"},
+        ),
+        patch(
+            "servicenow_mcp.policies.write_guards._fetch_one",
+            side_effect=lambda srv, table, query, fields: {
+                "sys_update_set": {"name": "BPM Dev", "application": "BPM"},
+                "sys_script_include": {"sys_scope": "BPM"},
+            }.get(table),
+        ),
+    ):
+        ctx = update_set_context(
+            server,
+            "manage_script_include",
+            {"script_include_id": "si-1", "action": "update"},
+            {"sys_id": "si-1"},
+        )
+    assert "aligned" not in ctx
+    # The label is still useful as the human-readable scope — just not as an id.
+    assert ctx["update_set_scope"] == "BPM"
+    assert ctx["update_set"] == "BPM Dev"
+
+
+def test_plain_fields_survive_the_display_value_all_read():
+    """Under sysparm_display_value=all, EVERY field is a {value, display_value}
+    pair — name and sys_created_by included. Reading them raw would stamp the
+    dict's repr into the response."""
+    server = _browser_server()
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value={"sys_id": "us-1", "name": "Picker Label [BPM]"},
+        ),
+        patch(
+            "servicenow_mcp.policies.write_guards._fetch_one",
+            side_effect=lambda srv, table, query, fields: {
+                "sys_update_set": {
+                    "name": {"value": "Alice Dev 1", "display_value": "Alice Dev 1"},
+                    "sys_created_by": {"value": "alice", "display_value": "alice"},
+                    "application": {"value": "bpm-scope", "display_value": "BPM"},
+                },
+                "sys_script_include": {"sys_scope": {"value": "bpm-scope", "display_value": "BPM"}},
+            }.get(table),
+        ),
+        patch("servicenow_mcp.policies.write_guards._current_username", return_value="bob"),
+    ):
+        ctx = update_set_context(
+            server,
+            "manage_script_include",
+            {"script_include_id": "si-1", "action": "update"},
+            {"sys_id": "si-1"},
+        )
+    assert ctx["update_set"] == "Alice Dev 1"
+    assert ctx["update_set_owner"] == "alice"
+    assert "{" not in ctx["update_set"] and "{" not in ctx["update_set_owner"]
