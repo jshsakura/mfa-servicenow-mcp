@@ -226,8 +226,8 @@ class ActInDebugWindowParams(BaseModel):
     screenshot: str = Field(
         default="none",
         description=(
-            "none | viewport | full | element. full can come back as one screen — "
-            "the reply says why."
+            "none | viewport | full | element. Visual questions only — read values "
+            "with an eval step. full can come back as one screen; the reply says why."
         ),
     )
     selector: Optional[str] = Field(
@@ -260,7 +260,8 @@ class InspectDebugWindowParams(BaseModel):
         # falls back to one screen. The reply carries the reason (`only_viewport`
         # / `truncated`) — this is the line that stops it being a surprise.
         description=(
-            "none | viewport | full | element (needs selector). "
+            "none | viewport | full | element (needs selector). Visual questions "
+            "only — read values with evaluate/styles, which are far cheaper. "
             "full can come back as one screen — the reply says why."
         ),
     )

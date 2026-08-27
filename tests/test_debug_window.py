@@ -4688,3 +4688,31 @@ def test_a_failed_adoption_is_never_fatal(tmp_path, monkeypatch):
 
     assert window.adopt_legacy_profile(auth) == ""
     assert legacy.exists()
+
+
+def test_a_screenshot_reply_states_what_reading_it_costs():
+    """Free to take, ~2k tokens to look at — and nothing said so.
+
+    The image never enters the response (only its path does), so the call looks
+    free at the point it is made. The expense lands later, when the file is
+    read, which is why text questions kept being answered with the visual
+    instrument. The reply that hands over the path now names the cost and the
+    cheaper call.
+    """
+    out = report.compact(
+        {"screenshot": "/tmp/shot-1.png", "tab_id": "tab-a", "events": []},
+        artifacts_dir="",
+    )
+
+    assert out["screenshot"] == "/tmp/shot-1.png"
+    note = out["screenshot_cost"]
+    assert "evaluate" in note and "styles" in note
+    assert "2k tokens" in note
+    # The path is handed over regardless — this steers, it does not withhold.
+    assert "screenshot" in out
+
+
+def test_no_screenshot_means_no_cost_note():
+    """A note on every reply is a note nobody reads."""
+    out = report.compact({"tab_id": "tab-a", "events": []}, artifacts_dir="")
+    assert "screenshot_cost" not in out

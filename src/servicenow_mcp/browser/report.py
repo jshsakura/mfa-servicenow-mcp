@@ -25,6 +25,27 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 logger = logging.getLogger(__name__)
 
 MAX_CONSOLE_GROUPS = 5
+
+# A screenshot is free to TAKE and expensive to LOOK AT, and nothing in the
+# response says so. The image is written to disk and only its path comes back,
+# so the tool call itself costs nothing — but opening that path puts a
+# full-size image in the context window, every time, for roughly two thousand
+# tokens. The asymmetry is invisible at the call site, which is why the cheap
+# question ("what does this field say?") keeps getting answered with the
+# expensive instrument.
+#
+# So the reply that hands over the path also says what opening it costs and
+# what answers the same question for free. Most questions asked of this window
+# are text questions — a value, a label, a class, whether an element exists —
+# and `evaluate` / `styles` answer those from the DOM for a few dozen tokens. A
+# screenshot earns its cost only when the question is genuinely visual.
+SCREENSHOT_COST_NOTE = (
+    "Saved to disk; not in this reply. Reading that file costs ~2k tokens and "
+    "answers VISUAL questions only — layout, overlap, rendering, 'does this look "
+    "right'. For a value, label, class, attribute, or whether an element exists, "
+    "use evaluate=<JS expression> or styles=[...] instead: the DOM has the same "
+    "answer for a fraction of the cost."
+)
 MAX_ANOMALIES = 5
 
 # Two identical calls further apart than this are a user clicking twice on
@@ -269,6 +290,7 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
         # image itself stays on disk and never enters the response.
         if raw.get("screenshot_note"):
             report["screenshot_note"] = raw["screenshot_note"]
+        report["screenshot_cost"] = SCREENSHOT_COST_NOTE
     if raw.get("styles"):
         report["styles"] = raw["styles"]
 
@@ -282,6 +304,7 @@ __all__ = [
     "DUPLICATE_WINDOW_MS",
     "MAX_ANOMALIES",
     "MAX_CONSOLE_GROUPS",
+    "SCREENSHOT_COST_NOTE",
     "build_verdict",
     "compact",
     "summarize_console",
