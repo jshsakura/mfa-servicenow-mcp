@@ -340,8 +340,9 @@ def _badge_calls(page):
 
 def test_a_screenshot_is_written_as_lossless_webp(tmp_path):
     # Measured on a real ServiceNow screenshot: 64KB PNG -> 26KB WebP at a
-    # maximum per-channel difference of zero. Nothing is resampled, so the text
-    # is exactly as sharp as it was.
+    # maximum per-channel difference of zero. The encoder resamples nothing, so
+    # text stays exactly as sharp as it was — the width cap is a separate step
+    # and does not apply below its threshold, as here.
     page = ShotPage(scroll_h=2000, frames=[_frame(scroll_h=100, client_h=100)])
 
     path, note = capture_module._screenshot(
@@ -349,7 +350,10 @@ def test_a_screenshot_is_written_as_lossless_webp(tmp_path):
     )
 
     assert path.endswith(".webp")
-    assert note is None
+    # WebP is the BYTE saving; the note carries the PIXEL count, which is the one
+    # a context window is billed for. This shot is under the width cap, so the
+    # pixels are unchanged and the note simply states them.
+    assert note == {"pixels": "120x60"}
     with PIL.open(path) as image:
         assert image.size == (120, 60)
         assert image.getpixel((60, 30)) == (200, 30, 30)

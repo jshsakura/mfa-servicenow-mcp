@@ -39,6 +39,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from . import image_budget
+
 logger = logging.getLogger(__name__)
 
 # Enough for a long list without turning one screenshot into hundreds of
@@ -341,8 +343,17 @@ def _stitch_tiles(
         # matters most here — a stitched page is several screens tall. See
         # capture._write_image for the measurements.
         target = os.path.splitext(destination)[0] + ".webp"
-        canvas.save(target, "WEBP", lossless=True, method=6)
-        result: Dict[str, Any] = {"width": width, "height": height, "path": target}
+        # Width cap before the save: a stitched page is the most expensive image
+        # this tool produces, so it is the one that most needs its PIXEL count
+        # bounded. WebP already made it cheap on disk, which cost nothing in a
+        # context window. See image_budget.
+        fitted, size = image_budget.fit(canvas)
+        try:
+            fitted.save(target, "WEBP", lossless=True, method=6)
+        finally:
+            if fitted is not canvas:
+                fitted.close()
+        result: Dict[str, Any] = {"width": width, "height": height, "path": target, **size}
         if dropped:
             result["dropped_tiles"] = dropped
         return result

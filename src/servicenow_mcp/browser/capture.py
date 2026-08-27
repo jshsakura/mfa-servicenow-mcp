@@ -17,7 +17,7 @@ import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
-from . import scroll_shot
+from . import image_budget, scroll_shot
 from ._offload import cdp_browser, require_playwright, run_off_loop
 from .badge import (
     badge_activity_script,
@@ -76,40 +76,51 @@ LAYOUT_PROPERTIES: Tuple[str, ...] = (
 )
 
 
-def _write_image(raw: bytes, destination: str) -> str:
-    """Write a screenshot, as lossless WebP when Pillow is here. Returns the path.
+def _write_image(raw: bytes, destination: str) -> Tuple[str, Dict[str, str]]:
+    """Write a screenshot, downscaled and lossless-WebP. Returns (path, size).
 
-    Measured on a real ServiceNow screenshot (1502x779): the PNG Playwright
-    hands over is 64KB, the same pixels as lossless WebP are 26KB — 59% fewer
-    bytes at a maximum per-channel difference of ZERO. Nothing is resampled and
-    nothing is quantised, so text stays exactly as sharp as it was.
+    Two different savings, and only one of them is about tokens.
 
-    The alternatives were measured too, and both lose: re-saving the PNG with
+    BYTES: measured on a real ServiceNow screenshot (1502x779), the PNG
+    Playwright hands over is 64KB and the same pixels as lossless WebP are
+    26KB — 59% fewer bytes at a maximum per-channel difference of ZERO. The
+    alternatives were measured too and both lose: re-saving the PNG with
     optimize=True came out BIGGER (66KB), and JPEG q85 was bigger still (69KB)
-    while visibly chewing the anti-aliased text — a UI screenshot is close to
-    the worst possible JPEG input.
+    while visibly chewing the anti-aliased text. That is a disk saving.
 
-    Without Pillow the bytes are written as they came, PNG and all, because a
-    smaller file is not worth a screenshot that does not exist.
+    PIXELS: a model is billed for the pixel count, so none of the above saved a
+    single token — the same 1729x847 arrived either way, at roughly two
+    thousand of them. `image_budget.fit` caps the width first; see that module
+    for why width and not the longer side.
+
+    Without Pillow the bytes are written as they came, PNG and all, and the
+    returned size says nothing rather than claiming a resize that never ran: a
+    smaller file is not worth a screenshot that does not exist, and neither is
+    an accurate-sounding number.
     """
     try:
         from PIL import Image  # type: ignore[import-not-found]
     except ImportError:
         with open(destination, "wb") as handle:
             handle.write(raw)
-        return destination
+        return destination, {}
 
     target = os.path.splitext(destination)[0] + ".webp"
     try:
         with Image.open(io.BytesIO(raw)) as image:
             image.load()
-            image.save(target, "WEBP", lossless=True, method=6)
-        return target
+            fitted, size = image_budget.fit(image)
+            try:
+                fitted.save(target, "WEBP", lossless=True, method=6)
+            finally:
+                if fitted is not image:
+                    fitted.close()
+        return target, size
     except Exception as exc:  # noqa: BLE001 - an unwritten screenshot is the worse outcome
         logger.info("Could not re-encode the screenshot, keeping it as PNG: %s", exc)
         with open(destination, "wb") as handle:
             handle.write(raw)
-        return destination
+        return destination, {}
 
 
 def _why_one_screen(page: Any) -> str:
@@ -447,7 +458,8 @@ def _screenshot(
         if mode == "element":
             if not selector:
                 raise ValueError("screenshot='element' needs a selector.")
-            return _write_image(page.locator(selector).first.screenshot(), destination), None
+            path, size = _write_image(page.locator(selector).first.screenshot(), destination)
+            return path, (size or None)
 
         if mode == "full" and not scroll_shot.page_scrolls(page):
             stitched = scroll_shot.capture(page, destination=destination)
@@ -456,12 +468,11 @@ def _screenshot(
             # Nothing better was possible here (no inner scroller, no Pillow, a
             # frame that would not answer). The ordinary shot is taken, and it is
             # NOT described as a full-page capture.
-            return (
-                _write_image(page.screenshot(full_page=False), destination),
-                {"only_viewport": _why_one_screen(page)},
-            )
+            path, size = _write_image(page.screenshot(full_page=False), destination)
+            return path, {"only_viewport": _why_one_screen(page), **size}
 
-        return _write_image(page.screenshot(full_page=(mode == "full")), destination), None
+        path, size = _write_image(page.screenshot(full_page=(mode == "full")), destination)
+        return path, (size or None)
     finally:
         if hidden:
             _show_badge(page)

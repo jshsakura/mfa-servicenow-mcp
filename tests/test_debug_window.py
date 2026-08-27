@@ -4707,7 +4707,7 @@ def test_a_screenshot_reply_states_what_reading_it_costs():
     assert out["screenshot"] == "/tmp/shot-1.png"
     note = out["screenshot_cost"]
     assert "evaluate" in note and "styles" in note
-    assert "2k tokens" in note
+    assert "750 pixels" in note and "screenshot_note.pixels" in note
     # The path is handed over regardless — this steers, it does not withhold.
     assert "screenshot" in out
 

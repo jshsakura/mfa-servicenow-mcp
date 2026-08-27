@@ -39,12 +39,17 @@ MAX_CONSOLE_GROUPS = 5
 # are text questions — a value, a label, a class, whether an element exists —
 # and `evaluate` / `styles` answer those from the DOM for a few dozen tokens. A
 # screenshot earns its cost only when the question is genuinely visual.
+# The number is not fixed, so it is not stated as one. A viewport shot and a
+# small element shot differ by more than an order of magnitude, and a note that
+# says "~2k tokens" over a 300x120 crop is wrong in the direction that gets
+# notes ignored. `screenshot_note.pixels` carries the size actually written;
+# the cost follows from it.
 SCREENSHOT_COST_NOTE = (
-    "Saved to disk; not in this reply. Reading that file costs ~2k tokens and "
-    "answers VISUAL questions only — layout, overlap, rendering, 'does this look "
-    "right'. For a value, label, class, attribute, or whether an element exists, "
-    "use evaluate=<JS expression> or styles=[...] instead: the DOM has the same "
-    "answer for a fraction of the cost."
+    "Saved to disk; not in this reply. Reading that file spends roughly one token "
+    "per 750 pixels of screenshot_note.pixels, and answers VISUAL questions only — "
+    "layout, overlap, rendering, 'does this look right'. For a value, label, class, "
+    "attribute, or whether an element exists, use evaluate=<JS expression> or "
+    "styles=[...] instead: the DOM has the same answer for a fraction of the cost."
 )
 MAX_ANOMALIES = 5
 
