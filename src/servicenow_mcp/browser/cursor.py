@@ -18,9 +18,11 @@ away every event that tab had — and ``dropped`` computed to
 ``"No errors, no failed requests"`` verdict over a tab nobody had ever read:
 the exact shape CLAUDE.md enumerates, an absence scored as evidence of safety.
 
-The map is bounded and forgets the least recently used tab, because tabs are
+The map is bounded and forgets the least recently WRITTEN tab, because tabs are
 opened and closed all day. Forgetting one costs a single re-read of its buffer,
-which over-fetches — the direction this is allowed to fail in.
+which over-fetches — the direction this is allowed to fail in. Recency is the
+map's insertion order, never the mark's value: a mark counts events, so ranking
+by it evicts the quietest tab, which is the one you just opened.
 """
 
 import json
@@ -93,11 +95,23 @@ def write_mark(path: str, tab_id: str, seq: int) -> None:
         # would let it be applied to a tab it did not come from.
         tab_id = LEGACY_KEY
     marks = read_marks(path)
+    # Move-to-end, then evict from the front: insertion order IS the recency
+    # order, and it survives the JSON round-trip.
+    #
+    # Eviction used to drop the LOWEST seq, described as "the tab nobody has
+    # read from in a while". seq counts a tab's EVENTS, not when it was read, so
+    # the quietest tab was evicted no matter how recently it was used — and the
+    # tab you are actively inspecting is the quietest one there is while it is
+    # still fresh. It was therefore evicted by the very write that recorded it,
+    # every time, once 16 tabs were on file. The mark never persisted, every
+    # inspect re-read the whole buffer, and `new_events` came back equal to
+    # `next_seq` looking like a genuine count rather than a cursor that was
+    # never applied. Failing toward the expensive read is the allowed direction;
+    # doing it silently and permanently is not.
+    marks.pop(str(tab_id), None)
     marks[str(tab_id)] = int(seq)
-    if len(marks) > MAX_TRACKED_TABS:
-        # Least advanced first: the tab nobody has read from in a while.
-        for stale in sorted(marks, key=lambda key: marks[key])[: len(marks) - MAX_TRACKED_TABS]:
-            marks.pop(stale, None)
+    while len(marks) > MAX_TRACKED_TABS:
+        marks.pop(next(iter(marks)))
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp_path = f"{path}.tmp"
